@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `VersionedModel.save()` no longer overwrites the atomically-incremented
+  `server_version` via `super().save()`. The subsequent `UPDATE` now excludes
+  `server_version` via `update_fields`, preserving the F()-expression increment.
+  Without this fix, `server_version` was always 0 on update — breaking the mobile
+  sync protocol entirely.
+- `DependencySerializer` now validates that predecessor and successor belong to the
+  same project. Cross-project edges produced undefined CPM behaviour; they now return
+  HTTP 400.
+- `scheduling` and `sync` app URL modules are now included in the root URL conf.
+  Previously, any endpoint added to either app would silently 404.
+
+### Security
+- Added `IsProjectMember` permission class (Phase 1 stub) to all ViewSets. Every
+  endpoint now requires authentication; object-level project-scoping will be enforced
+  in Phase 2 once the `ProjectMembership` model exists.
+
 ### Added
 - CPM scheduling engine (`schedule()`) with forward/backward pass, float calculation,
   and critical-path identification. Supports all four dependency types (FS, SS, FF, SF)

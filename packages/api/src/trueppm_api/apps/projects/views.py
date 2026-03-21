@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from rest_framework import filters, viewsets
+from rest_framework.permissions import IsAuthenticated
 
 from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
 from trueppm_api.apps.projects.serializers import (
@@ -11,6 +12,7 @@ from trueppm_api.apps.projects.serializers import (
     ProjectSerializer,
     TaskSerializer,
 )
+from trueppm_api.permissions import IsProjectMember
 
 
 class CalendarViewSet(viewsets.ModelViewSet):
@@ -20,6 +22,7 @@ class CalendarViewSet(viewsets.ModelViewSet):
     They can be shared across multiple projects and resources.
     """
 
+    permission_classes = [IsAuthenticated, IsProjectMember]
     queryset = Calendar.objects.prefetch_related("exceptions").order_by("name")
     serializer_class = CalendarSerializer
     search_fields = ["name"]
@@ -29,6 +32,7 @@ class CalendarViewSet(viewsets.ModelViewSet):
 class ProjectViewSet(viewsets.ModelViewSet):
     """CRUD for projects."""
 
+    permission_classes = [IsAuthenticated, IsProjectMember]
     queryset = Project.objects.select_related("calendar").order_by("start_date", "name")
     serializer_class = ProjectSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
@@ -44,6 +48,7 @@ class TaskViewSet(viewsets.ModelViewSet):
     the auto-scheduling Celery task.
     """
 
+    permission_classes = [IsAuthenticated, IsProjectMember]
     serializer_class = TaskSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
@@ -63,6 +68,7 @@ class TaskViewSet(viewsets.ModelViewSet):
 class DependencyViewSet(viewsets.ModelViewSet):
     """CRUD for task dependencies."""
 
+    permission_classes = [IsAuthenticated, IsProjectMember]
     serializer_class = DependencySerializer
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["dep_type"]

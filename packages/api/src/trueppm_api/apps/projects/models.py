@@ -36,6 +36,18 @@ class VersionedModel(models.Model):
             self.server_version = (
                 type(self).objects.values_list("server_version", flat=True).get(pk=self.pk)
             )
+            # Exclude server_version from the subsequent UPDATE so super().save()
+            # does not overwrite the increment applied above via F() expression.
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = [
+                    f for f in kwargs["update_fields"] if f != "server_version"
+                ]
+            else:
+                kwargs["update_fields"] = [
+                    f.attname
+                    for f in self._meta.concrete_fields
+                    if not f.primary_key and f.attname != "server_version"
+                ]
         super().save(*args, **kwargs)
 
 
