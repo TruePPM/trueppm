@@ -67,6 +67,9 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "DJ"]
 ignore = ["RUF002", "RUF003"]
 
 [tool.ruff.lint.per-file-ignores]
-# RUF012: Django Meta class attributes are mutable by convention.
+# RUF012: Django/DRF Meta class attributes and ViewSet class attributes are
+# mutable by convention — suppressing globally for Django source files.
 "*/migrations/*.py" = ["RUF012"]
 "*/models.py" = ["RUF012"]
+"*/serializers.py" = ["RUF012"]
+"*/views.py" = ["RUF012"]
