@@ -84,7 +84,9 @@ api:test:
   coverage: '/TOTAL.*\s(\d+%)/'
 
 helm:lint:
-  image: alpine/helm:3.14.0
+  image:
+    name: alpine/helm:3.14.0
+    entrypoint: [""]
   stage: check
   script:
     - helm lint packages/helm/
