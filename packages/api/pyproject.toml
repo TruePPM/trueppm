@@ -46,6 +46,7 @@ packages = ["src/trueppm_api"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--strict-markers --tb=short -q"
+asyncio_mode = "auto"
 DJANGO_SETTINGS_MODULE = "trueppm_api.settings.dev"
 
 [tool.mypy]

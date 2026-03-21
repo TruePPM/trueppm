@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
+import redis as redis_lib
 from celery import shared_task
 
 logger = logging.getLogger(__name__)
@@ -30,10 +31,9 @@ def recalculate_schedule(self: object, project_id: str) -> None:  # type: ignore
     Args:
         project_id: UUID string of the project to reschedule.
     """
-    import redis
     from django.conf import settings
 
-    redis_client = redis.from_url(settings.REDIS_URL)
+    redis_client = redis_lib.from_url(settings.REDIS_URL)
     lock_key = f"schedule_lock:{project_id}"
 
     # Attempt to acquire an exclusive lock (SET NX with TTL).

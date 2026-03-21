@@ -64,8 +64,8 @@ workflow:
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
     - pip install -e ".[dev]" --quiet
-    - pip install -e packages/api --quiet
-    - pip install pytest pytest-django --quiet
+    - pip install -e "packages/api[dev]" --quiet
+    - pip install pytest pytest-django pytest-asyncio --quiet
 
 # Lean API template — no DB/Redis services.
 # For jobs that only need Django importable (type-check, migration check,
