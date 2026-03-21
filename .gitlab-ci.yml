@@ -1,6 +1,7 @@
 stages:
   - check
   - test
+  - security
 
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
@@ -8,21 +9,49 @@ variables:
   POSTGRES_USER: trueppm
   POSTGRES_PASSWORD: trueppm
 
-cache:
-  paths:
-    - .cache/pip/
+# ---------------------------------------------------------------------------
+# Prevent duplicate pipelines.
+# MR pipeline runs when an MR exists for the branch; branch pipeline runs
+# for pushes without an open MR. Both run on main after merge.
+# ---------------------------------------------------------------------------
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
 
 # ---------------------------------------------------------------------------
-# Reusable base templates
+# Base templates
+# Cache keys are derived from each package's dependency manifest so the
+# Minio-backed cache is automatically invalidated when dependencies change.
+# The &scheduler-cache and &api-cache YAML anchors are defined here and
+# reused with <<: in jobs that need the same cache key but a different policy.
 # ---------------------------------------------------------------------------
 
 .scheduler:
   image: python:3.11-slim
+  cache: &scheduler-cache
+    key:
+      files:
+        - pyproject.toml
+      prefix: scheduler-pip
+    paths:
+      - .cache/pip/
   before_script:
     - pip install -e ".[dev]" --quiet
 
+# Full API template — postgres + redis services for test jobs.
 .api:
   image: python:3.11-slim
+  cache: &api-cache
+    key:
+      files:
+        - packages/api/pyproject.toml
+      prefix: api-pip
+    paths:
+      - .cache/pip/
   services:
     - name: postgres:16-alpine
       alias: postgres
@@ -38,8 +67,25 @@ cache:
     - pip install -e packages/api --quiet
     - pip install pytest pytest-django --quiet
 
+# Lean API template — no DB/Redis services.
+# For jobs that only need Django importable (type-check, migration check,
+# schema generation). DATABASE_URL is set so django-environ parses it
+# cleanly; no actual connection is made.
+.api-no-db:
+  image: python:3.11-slim
+  cache:
+    <<: *api-cache
+    policy: pull
+  variables:
+    DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
+    DATABASE_URL: "postgres://trueppm:trueppm@localhost/trueppm_test"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
+    - pip install -e ".[dev]" --quiet
+    - pip install -e packages/api --quiet
+
 # ---------------------------------------------------------------------------
-# Scheduler jobs
+# Scheduler — check
 # ---------------------------------------------------------------------------
 
 scheduler:lint:
@@ -55,20 +101,16 @@ scheduler:type-check:
   script:
     - mypy
 
-scheduler:test:
-  extends: .scheduler
-  stage: test
-  script:
-    - pytest --cov=trueppm_scheduler --cov-report=term-missing
-  coverage: '/TOTAL.*\s(\d+%)/'
-
 # ---------------------------------------------------------------------------
-# API jobs
+# API — check
 # ---------------------------------------------------------------------------
 
 api:lint:
-  extends: .scheduler
   stage: check
+  image: python:3.11-slim
+  cache:
+    <<: *api-cache
+    policy: pull
   before_script:
     - pip install ruff --quiet
   script:
@@ -76,12 +118,41 @@ api:lint:
     - ruff check src/ tests/
     - ruff format --check src/ tests/
 
-api:test:
-  extends: .api
-  stage: test
+api:type-check:
+  # Override before_script from .api-no-db to also install [dev] extras
+  # (mypy + django-stubs + djangorestframework-stubs).
+  extends: .api-no-db
+  stage: check
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
+    - pip install -e ".[dev]" --quiet
+    - pip install -e "packages/api[dev]" --quiet
   script:
-    - PYTHONPATH=packages/api/src python3 -m pytest packages/api/tests/ --tb=short -q
-  coverage: '/TOTAL.*\s(\d+%)/'
+    - cd packages/api
+    - mypy
+
+api:migration-check:
+  # makemigrations --check --dry-run compares model state to migration files.
+  # No database connection is made; .api-no-db template is sufficient.
+  extends: .api-no-db
+  stage: check
+  script:
+    - cd packages/api
+    - python manage.py makemigrations --check --dry-run
+
+api:openapi-check:
+  # drf-spectacular schema generation is pure view/serializer introspection;
+  # no database queries are made. --validate checks the schema is valid
+  # OpenAPI 3; --fail-on-warn promotes warnings to errors.
+  extends: .api-no-db
+  stage: check
+  script:
+    - cd packages/api
+    - python manage.py spectacular --validate --fail-on-warn --file /dev/null
+
+# ---------------------------------------------------------------------------
+# Helm — check
+# ---------------------------------------------------------------------------
 
 helm:lint:
   image:
@@ -90,3 +161,111 @@ helm:lint:
   stage: check
   script:
     - helm lint packages/helm/
+
+# ---------------------------------------------------------------------------
+# Changelog — MR pipelines only.
+# Verifies CHANGELOG.md is updated before a branch is merged. Not meaningful
+# on bare branch pushes (the author may not have updated it yet) or on
+# post-merge main runs (too late to enforce).
+# ---------------------------------------------------------------------------
+
+changelog:check:
+  stage: check
+  image: alpine/git:latest
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  script:
+    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --depth=1
+    - |
+      ADDED=$(git diff "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME...HEAD" -- CHANGELOG.md \
+        | grep '^+' | grep -v '^+++' | wc -l | tr -d ' ')
+      if [ "$ADDED" -eq 0 ]; then
+        echo "ERROR: CHANGELOG.md has not been updated on this branch."
+        echo "Add an entry to the [Unreleased] section before merging."
+        exit 1
+      fi
+      echo "CHANGELOG.md OK — $ADDED line(s) added."
+
+# ---------------------------------------------------------------------------
+# License — every push.
+# Fails if any dependency carries a copyleft license incompatible with the
+# Apache 2.0 codebase. LGPL is permitted (library-linking exemption applies).
+# ---------------------------------------------------------------------------
+
+license:check:
+  stage: check
+  image: python:3.11-slim
+  cache:
+    <<: *api-cache
+    policy: pull
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
+    - pip install pip-licenses --quiet
+    - pip install -e ".[dev]" --quiet
+    - pip install -e packages/api --quiet
+  script:
+    # Print the full license table for visibility in the job log.
+    - pip-licenses --order=license --format=plain-vertical
+    # Fail if any GPL or AGPL dependency is detected.
+    - >-
+      pip-licenses
+      --fail-on="GNU General Public License v2 (GPLv2);
+                 GNU General Public License v3 (GPLv3);
+                 GNU Affero General Public License v3 (AGPLv3)"
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+scheduler:test:
+  extends: .scheduler
+  stage: test
+  script:
+    - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-fail-under=80
+  coverage: '/TOTAL.*\s(\d+%)/'
+
+api:test:
+  extends: .api
+  stage: test
+  script:
+    - cd packages/api
+    - python -m pytest tests/ --tb=short -q
+        --cov=trueppm_api --cov-report=term-missing --cov-fail-under=65
+  coverage: '/TOTAL.*\s(\d+%)/'
+
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+
+security:bandit:
+  # Python static security analysis. Runs on every push for fast feedback.
+  # -ll = medium severity and above. Skips migrations (generated code) and
+  # settings (legitimately contains test credentials).
+  stage: security
+  image: python:3.11-slim
+  before_script:
+    - pip install bandit --quiet
+  script:
+    - bandit -r src/ -ll --exclude src/trueppm_scheduler/__pycache__
+    - bandit -r packages/api/src/ -ll
+        --exclude packages/api/src/trueppm_api/settings,packages/api/src/trueppm_api/apps/projects/migrations,packages/api/src/trueppm_api/apps/resources/migrations
+
+security:pip-audit:
+  # CVE scan of all installed Python dependencies.
+  # Runs on MR pipelines and main only — database lookups are slower and
+  # gating at merge is sufficient to catch newly-introduced vulnerabilities.
+  stage: security
+  image: python:3.11-slim
+  cache:
+    <<: *api-cache
+    policy: pull
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
+    - pip install pip-audit --quiet
+    - pip install -e ".[dev]" --quiet
+    - pip install -e packages/api --quiet
+  script:
+    - pip-audit --progress-spinner=off --desc on
