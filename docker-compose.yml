@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: trueppm
+      POSTGRES_USER: trueppm
+      POSTGRES_PASSWORD: trueppm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trueppm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: packages/api
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgres://trueppm:trueppm@db:5432/trueppm
+      REDIS_URL: redis://redis:6379
+      DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
+      SECRET_KEY: dev-secret-key-change-in-prod
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery:
+    build:
+      context: packages/api
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "trueppm_api.celery", "worker", "--loglevel=info"]
+    environment:
+      DATABASE_URL: postgres://trueppm:trueppm@db:5432/trueppm
+      REDIS_URL: redis://redis:6379
+      DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
+      SECRET_KEY: dev-secret-key-change-in-prod
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:

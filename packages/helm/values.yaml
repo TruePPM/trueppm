@@ -1,0 +1,30 @@
+replicaCount: 1
+
+image:
+  repository: registry.gitlab.com/trueppm/trueppm/api
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+
+postgresql:
+  enabled: true
+  auth:
+    username: trueppm
+    password: trueppm
+    database: trueppm
+
+redis:
+  enabled: true
+  auth:
+    enabled: false
+
+env:
+  DJANGO_SETTINGS_MODULE: trueppm_api.settings.production
+  DATABASE_URL: postgres://trueppm:trueppm@trueppm-postgresql:5432/trueppm
+  REDIS_URL: redis://trueppm-redis-master:6379
