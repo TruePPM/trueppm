@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to trueppm-scheduler are documented here.
+All notable changes to TruePPM are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -23,3 +23,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 45 unit and integration tests covering CPM correctness, calendar arithmetic,
   all dependency types, float/critical-path computation, cycle detection, and MC
   statistical properties including a performance benchmark.
+- Django 5.1 REST API package (`trueppm-api`) scaffolded with src-layout, django-environ
+  settings split (base/dev/prod), uvicorn ASGI server, Celery 5.4 task queue, and
+  Django Channels 4 WebSocket support.
+- Core Django models: `Calendar`, `CalendarException`, `Project`, `Task`, `Dependency`,
+  `Resource`, `TaskResource`. All extend `VersionedModel` (UUID PK + atomic
+  `server_version` increment) for offline-sync support. `Task.wbs_path` uses a custom
+  `LtreeField` with PostgreSQL `ltree` extension and GiST index for hierarchy queries.
+- Initial database migration including `CREATE EXTENSION IF NOT EXISTS ltree` and
+  GiST index on `wbs_path`.
+- REST CRUD endpoints for all core entities at `/api/v1/`: calendars, projects, tasks,
+  dependencies, resources, task-resources. Powered by DRF `ModelViewSet` with pagination,
+  search, ordering, and field-level filters (project, is_critical, dep_type).
+- CPM output fields (`early_start`, `early_finish`, `late_start`, `late_finish`,
+  `total_float`, `is_critical`) are read-only on the Task API — set only by the
+  scheduling engine.
+- `server_version` is read-only on the Project API — enforced at the serializer layer.
+- OpenAPI 3.1 schema via drf-spectacular at `/api/schema/`.
+- 25 API and model tests using `pytest-django` with testcontainers for local PostgreSQL
+  (falls back to `DATABASE_URL` env var in CI).
+- Helm 3 chart (`packages/helm/`) with Bitnami sub-charts for PostgreSQL and Redis;
+  separate `values-dev.yaml` and `values-prod.yaml` overlays.
+- Docker Compose dev environment (`docker-compose.yml`) with db, redis, api, and
+  celery-worker services; non-root `trueppm` user in the API Dockerfile.
+- GitLab CI jobs for API lint, API tests (with PostgreSQL + Redis service containers),
+  and Helm lint.

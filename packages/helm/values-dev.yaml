@@ -1,0 +1,4 @@
+# Overrides for local development with a kind cluster.
+# Images are loaded directly into kind and never pulled from a registry.
+image:
+  pullPolicy: Never

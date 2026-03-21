@@ -1,0 +1,24 @@
+# Copy this file to docker-compose.override.yml for local development.
+# It adds live-reload bind mounts and exposes the database port for direct
+# inspection with tools like psql, TablePlus, or DBeaver.
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+
+services:
+  api:
+    volumes:
+      - ./packages/api/src:/app/src
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+
+  celery:
+    volumes:
+      - ./packages/api/src:/app/src
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+
+  db:
+    ports:
+      - "5432:5432"

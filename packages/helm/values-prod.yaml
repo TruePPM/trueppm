@@ -1,0 +1,13 @@
+# Overrides for production deployment.
+# postgresql and redis are managed externally (RDS, ElastiCache, etc.) and
+# their connection details are injected via Kubernetes Secrets / external-secrets.
+replicaCount: 2
+
+postgresql:
+  enabled: false
+
+redis:
+  enabled: false
+
+ingress:
+  enabled: true

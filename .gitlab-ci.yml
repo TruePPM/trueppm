@@ -82,3 +82,11 @@ api:test:
   script:
     - PYTHONPATH=packages/api/src python3 -m pytest packages/api/tests/ --tb=short -q
   coverage: '/TOTAL.*\s(\d+%)/'
+
+helm:lint:
+  image:
+    name: alpine/helm:3.14.0
+    entrypoint: [""]
+  stage: check
+  script:
+    - helm lint packages/helm/
