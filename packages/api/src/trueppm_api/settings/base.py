@@ -35,11 +35,15 @@ DJANGO_APPS = [
 
 THIRD_PARTY_APPS = [
     "rest_framework",
+    "rest_framework_simplejwt",
+    "allauth",
+    "allauth.account",
     "channels",
     "drf_spectacular",
 ]
 
 LOCAL_APPS = [
+    "trueppm_api.apps.access",
     "trueppm_api.apps.projects",
     "trueppm_api.apps.resources",
     "trueppm_api.apps.scheduling",
@@ -58,6 +62,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "allauth.account.middleware.AccountMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -151,8 +156,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
-        "rest_framework.authentication.TokenAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
@@ -165,6 +170,13 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
+
+# ---------------------------------------------------------------------------
+# django-allauth
+# ---------------------------------------------------------------------------
+
+SITE_ID = 1
+ACCOUNT_EMAIL_VERIFICATION = "none"
 
 # ---------------------------------------------------------------------------
 # drf-spectacular (OpenAPI)

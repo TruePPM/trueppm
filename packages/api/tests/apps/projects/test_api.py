@@ -8,6 +8,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
+from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
 
 
@@ -32,6 +33,17 @@ def calendar(db: object) -> Calendar:
 @pytest.fixture
 def project(calendar: Calendar) -> Project:
     return Project.objects.create(name="Alpha", start_date=date(2026, 3, 2), calendar=calendar)
+
+
+@pytest.fixture
+def membership(user: object, project: Project) -> ProjectMembership:
+    """Grant the test user Owner access to the test project.
+
+    Required for endpoints protected by ProjectScopedViewSet — without a
+    ProjectMembership row the queryset is filtered to empty and the test user
+    receives 404 on project-scoped resources.
+    """
+    return ProjectMembership.objects.create(project=project, user=user, role=Role.OWNER)
 
 
 @pytest.fixture
@@ -70,7 +82,7 @@ class TestCalendarAPI:
 
 @pytest.mark.django_db
 class TestProjectAPI:
-    def test_list(self, client: APIClient, project: Project) -> None:
+    def test_list(self, client: APIClient, project: Project, membership: ProjectMembership) -> None:
         r = client.get("/api/v1/projects/")
         assert r.status_code == 200
         assert any(p["name"] == "Alpha" for p in r.data["results"])
@@ -83,17 +95,23 @@ class TestProjectAPI:
         assert r.status_code == 201
         assert r.data["name"] == "Beta"
 
-    def test_retrieve(self, client: APIClient, project: Project) -> None:
+    def test_retrieve(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
         r = client.get(f"/api/v1/projects/{project.pk}/")
         assert r.status_code == 200
         assert r.data["name"] == "Alpha"
 
-    def test_search(self, client: APIClient, project: Project) -> None:
+    def test_search(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
         r = client.get("/api/v1/projects/?search=Alpha")
         assert r.status_code == 200
         assert len(r.data["results"]) >= 1
 
-    def test_server_version_read_only(self, client: APIClient, project: Project) -> None:
+    def test_server_version_read_only(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
         r = client.patch(f"/api/v1/projects/{project.pk}/", {"server_version": 999})
         assert r.status_code == 200
         # server_version must not be overwritten by the client
@@ -102,12 +120,20 @@ class TestProjectAPI:
 
 @pytest.mark.django_db
 class TestTaskAPI:
-    def test_list_by_project(self, client: APIClient, task: Task, project: Project) -> None:
+    def test_list_by_project(
+        self,
+        client: APIClient,
+        task: Task,
+        project: Project,
+        membership: ProjectMembership,
+    ) -> None:
         r = client.get(f"/api/v1/tasks/?project={project.pk}")
         assert r.status_code == 200
         assert any(t["name"] == "Design" for t in r.data["results"])
 
-    def test_create(self, client: APIClient, project: Project) -> None:
+    def test_create(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
         r = client.post(
             "/api/v1/tasks/",
             {"project": str(project.pk), "name": "Build", "duration": 3},
@@ -115,13 +141,17 @@ class TestTaskAPI:
         assert r.status_code == 201
         assert r.data["duration"] == 3
 
-    def test_cpm_fields_read_only(self, client: APIClient, task: Task) -> None:
+    def test_cpm_fields_read_only(
+        self, client: APIClient, task: Task, membership: ProjectMembership
+    ) -> None:
         r = client.patch(f"/api/v1/tasks/{task.pk}/", {"early_start": "2026-01-01"})
         assert r.status_code == 200
         # CPM fields are read-only; early_start should stay None
         assert r.data["early_start"] is None
 
-    def test_filter_is_critical(self, client: APIClient, project: Project) -> None:
+    def test_filter_is_critical(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
         Task.objects.create(project=project, name="Critical T", duration=1, is_critical=True)
         r = client.get(f"/api/v1/tasks/?project={project.pk}&is_critical=true")
         assert r.status_code == 200
@@ -130,7 +160,13 @@ class TestTaskAPI:
 
 @pytest.mark.django_db
 class TestDependencyAPI:
-    def test_create_fs(self, client: APIClient, project: Project, task: Task) -> None:
+    def test_create_fs(
+        self,
+        client: APIClient,
+        project: Project,
+        task: Task,
+        membership: ProjectMembership,
+    ) -> None:
         t2 = Task.objects.create(project=project, name="Build", duration=3)
         r = client.post(
             "/api/v1/dependencies/",
@@ -139,7 +175,13 @@ class TestDependencyAPI:
         assert r.status_code == 201
         assert r.data["dep_type"] == "FS"
 
-    def test_filter_by_project(self, client: APIClient, project: Project, task: Task) -> None:
+    def test_filter_by_project(
+        self,
+        client: APIClient,
+        project: Project,
+        task: Task,
+        membership: ProjectMembership,
+    ) -> None:
         t2 = Task.objects.create(project=project, name="B", duration=2)
         Dependency.objects.create(predecessor=task, successor=t2)
         r = client.get(f"/api/v1/dependencies/?project={project.pk}")

@@ -13,7 +13,7 @@ import trueppm_api.fields
 class Migration(migrations.Migration):
     initial = True
 
-    dependencies: list[tuple[str, str]] = []
+    dependencies: list[tuple[str, str]] = []  # type: ignore[misc]
 
     operations = [
         # Enable PostgreSQL ltree extension before any model that uses LtreeField.

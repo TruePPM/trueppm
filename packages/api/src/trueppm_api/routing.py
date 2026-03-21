@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from django.urls import path
+from typing import Any
 
 # WebSocket consumers will be registered here as real-time features are built.
 # Example: path("ws/projects/<uuid:project_id>/", ProjectConsumer.as_asgi())
-websocket_urlpatterns: list[path] = []  # type: ignore[type-arg]
+websocket_urlpatterns: list[Any] = []

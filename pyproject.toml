@@ -50,6 +50,9 @@ packages = ["src/trueppm_scheduler"]
 testpaths = ["tests"]
 addopts = "--strict-markers --tb=short -q"
 
+[tool.coverage.run]
+omit = ["*/cli.py"]
+
 [tool.mypy]
 python_version = "3.11"
 strict = true

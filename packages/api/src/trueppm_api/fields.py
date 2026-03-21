@@ -5,7 +5,7 @@ from __future__ import annotations
 from django.db import models
 
 
-class LtreeField(models.Field):
+class LtreeField(models.Field):  # type: ignore[type-arg]
     """PostgreSQL ltree field for hierarchical path storage.
 
     Stores dotted-label paths (e.g. "1.2.3") that can be queried with

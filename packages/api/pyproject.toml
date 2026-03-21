@@ -16,6 +16,8 @@ dependencies = [
     "trueppm-scheduler>=0.1.0",
     "django>=5.1",
     "djangorestframework>=3.15",
+    "djangorestframework-simplejwt>=5.3",
+    "django-allauth>=0.63",
     "channels>=4.0",
     "channels-redis>=4.0",
     "celery>=5.4",
@@ -52,7 +54,24 @@ strict = true
 plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
 mypy_path = "src"
 
+# Third-party packages that ship without type stubs and have no community stubs.
+# celery, django-environ, and channels are all well-maintained but not yet
+# fully typed; ignoring missing imports keeps strict mode usable without
+# forking stubs for each.
+[[tool.mypy.overrides]]
+module = [
+    "celery.*",
+    "environ",
+    "channels.*",
+    "trueppm_api.apps.scheduling.*",
+    "trueppm_api.apps.sync.*",
+]
+ignore_missing_imports = true
+
 [mypy.plugins.django-stubs]
+django_settings_module = "trueppm_api.settings.dev"
+
+[tool.django-stubs]
 django_settings_module = "trueppm_api.settings.dev"
 
 [tool.ruff]
