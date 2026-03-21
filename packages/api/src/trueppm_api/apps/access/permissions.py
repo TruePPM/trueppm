@@ -6,12 +6,11 @@ import uuid
 from typing import Any
 
 from rest_framework import viewsets
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -93,7 +92,6 @@ class IsProjectMemberWrite(BasePermission):
         role = _membership_role(request, project_id)
         if role is None:
             return False
-        from rest_framework.request import Request as DRFRequest
 
         safe = request.method in ("GET", "HEAD", "OPTIONS")
         if safe:

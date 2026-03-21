@@ -7,10 +7,8 @@ from rest_framework.permissions import IsAuthenticated
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
-    IsProjectAdmin,
     IsProjectMember,
     IsProjectMemberWrite,
-    IsProjectScheduler,
     ProjectScopedViewSet,
 )
 from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
@@ -104,7 +102,6 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet):
         instance = serializer.save()  # type: ignore[union-attr]
         project_id = str(instance.project_id)
         from django.db import transaction
-
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
 
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
@@ -113,7 +110,6 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet):
         instance = serializer.save()  # type: ignore[union-attr]
         project_id = str(instance.project_id)
         from django.db import transaction
-
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
 
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
@@ -122,7 +118,6 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet):
         project_id = str(instance.project_id)  # type: ignore[union-attr]
         instance.delete()  # type: ignore[union-attr]
         from django.db import transaction
-
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
 
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
@@ -151,7 +146,6 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet):
         instance = serializer.save()  # type: ignore[union-attr]
         project_id = str(instance.predecessor.project_id)
         from django.db import transaction
-
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
 
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
@@ -160,7 +154,6 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet):
         instance = serializer.save()  # type: ignore[union-attr]
         project_id = str(instance.predecessor.project_id)
         from django.db import transaction
-
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
 
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
@@ -169,7 +162,6 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet):
         project_id = str(instance.predecessor.project_id)  # type: ignore[union-attr]
         instance.delete()  # type: ignore[union-attr]
         from django.db import transaction
-
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
 
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
