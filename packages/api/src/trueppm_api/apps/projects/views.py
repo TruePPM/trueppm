@@ -74,6 +74,30 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             user=self.request.user,  # type: ignore[misc]
             role=Role.OWNER,
         )
+        project_id = str(project.pk)
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "project_created", {"id": project_id})
+        )
+
+    def perform_update(self, serializer: object) -> None:  # type: ignore[override]
+        instance = serializer.save()  # type: ignore[union-attr]
+        project_id = str(instance.pk)
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "project_updated", {"id": project_id})
+        )
+
+    def perform_destroy(self, instance: object) -> None:  # type: ignore[override]
+        project_id = str(instance.pk)  # type: ignore[union-attr]
+        instance.delete()  # type: ignore[union-attr]
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "project_deleted", {"id": project_id})
+        )
 
 
 class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
@@ -104,23 +128,38 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     def perform_create(self, serializer: BaseSerializer[Task]) -> None:
         instance = serializer.save()
         project_id = str(instance.project_id)
+        task_id = str(instance.pk)
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "task_created", {"id": task_id})
+        )
 
     def perform_update(self, serializer: BaseSerializer[Task]) -> None:
         instance = serializer.save()
         project_id = str(instance.project_id)
+        task_id = str(instance.pk)
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
+        )
 
     def perform_destroy(self, instance: Task) -> None:
         project_id = str(instance.project_id)
+        task_id = str(instance.pk)
         instance.delete()
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "task_deleted", {"id": task_id})
+        )
 
 
 class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency]):
@@ -145,20 +184,35 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     def perform_create(self, serializer: BaseSerializer[Dependency]) -> None:
         instance = serializer.save()
         project_id = str(instance.predecessor.project_id)
+        dep_id = str(instance.pk)
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "dependency_created", {"id": dep_id})
+        )
 
     def perform_update(self, serializer: BaseSerializer[Dependency]) -> None:
         instance = serializer.save()
         project_id = str(instance.predecessor.project_id)
+        dep_id = str(instance.pk)
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "dependency_updated", {"id": dep_id})
+        )
 
     def perform_destroy(self, instance: Dependency) -> None:
         project_id = str(instance.predecessor.project_id)
+        dep_id = str(instance.pk)
         instance.delete()
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "dependency_deleted", {"id": dep_id})
+        )
