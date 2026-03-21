@@ -34,6 +34,7 @@ cache:
     REDIS_URL: "redis://redis:6379"
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
+    - pip install -e ".[dev]" --quiet
     - pip install -e packages/api --quiet
     - pip install pytest pytest-django --quiet
 
