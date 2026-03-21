@@ -32,7 +32,11 @@ dev = [
     "pytest-cov>=4.0",
     "mypy>=1.0",
     "ruff>=0.8",
+    "types-networkx>=3.0",
 ]
+
+[project.scripts]
+trueppm-scheduler = "trueppm_scheduler.cli:main"
 
 [project.urls]
 Homepage = "https://gitlab.com/trueppm/trueppm"
@@ -55,6 +59,7 @@ mypy_path = "src"
 [tool.ruff]
 src = ["src", "tests"]
 target-version = "py311"
+line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

@@ -194,9 +194,7 @@ class Project:
             name=data["name"],
             start_date=date.fromisoformat(data["start_date"]),
             tasks=[Task.from_dict(t) for t in data.get("tasks", [])],
-            dependencies=[
-                Dependency.from_dict(d) for d in data.get("dependencies", [])
-            ],
+            dependencies=[Dependency.from_dict(d) for d in data.get("dependencies", [])],
             calendar=Calendar.from_dict(data.get("calendar", {})),
         )
 
