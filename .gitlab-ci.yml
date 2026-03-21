@@ -4,32 +4,80 @@ stages:
 
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  POSTGRES_DB: trueppm_test
+  POSTGRES_USER: trueppm
+  POSTGRES_PASSWORD: trueppm
 
 cache:
   paths:
     - .cache/pip/
 
-.python:
+# ---------------------------------------------------------------------------
+# Reusable base templates
+# ---------------------------------------------------------------------------
+
+.scheduler:
   image: python:3.11-slim
   before_script:
     - pip install -e ".[dev]" --quiet
 
-lint:
-  extends: .python
+.api:
+  image: python:3.11-slim
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+    - name: redis:7-alpine
+      alias: redis
+  variables:
+    DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
+    DATABASE_URL: "postgres://trueppm:trueppm@postgres/trueppm_test"
+    REDIS_URL: "redis://redis:6379"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
+    - pip install -e packages/api --quiet
+    - pip install pytest pytest-django --quiet
+
+# ---------------------------------------------------------------------------
+# Scheduler jobs
+# ---------------------------------------------------------------------------
+
+scheduler:lint:
+  extends: .scheduler
   stage: check
   script:
     - ruff check src/ tests/
     - ruff format --check src/ tests/
 
-type-check:
-  extends: .python
+scheduler:type-check:
+  extends: .scheduler
   stage: check
   script:
     - mypy
 
-test:
-  extends: .python
+scheduler:test:
+  extends: .scheduler
   stage: test
   script:
     - pytest --cov=trueppm_scheduler --cov-report=term-missing
+  coverage: '/TOTAL.*\s(\d+%)/'
+
+# ---------------------------------------------------------------------------
+# API jobs
+# ---------------------------------------------------------------------------
+
+api:lint:
+  extends: .scheduler
+  stage: check
+  before_script:
+    - pip install ruff --quiet
+  script:
+    - cd packages/api
+    - ruff check src/ tests/
+    - ruff format --check src/ tests/
+
+api:test:
+  extends: .api
+  stage: test
+  script:
+    - PYTHONPATH=packages/api/src python3 -m pytest packages/api/tests/ --tb=short -q
   coverage: '/TOTAL.*\s(\d+%)/'

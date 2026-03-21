@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+dist/
+build/
+staticfiles/
+.mypy_cache/
+.ruff_cache/

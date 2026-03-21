@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "trueppm-api"
+version = "0.1.0"
+description = "TruePPM Django REST API — projects, tasks, scheduling, real-time collaboration"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [
+    { name = "Kelly Hair" },
+]
+dependencies = [
+    "trueppm-scheduler>=0.1.0",
+    "django>=5.1",
+    "djangorestframework>=3.15",
+    "channels>=4.0",
+    "channels-redis>=4.0",
+    "celery>=5.4",
+    "redis>=5.0",
+    "psycopg[binary]>=3.1",
+    "django-environ>=0.11",
+    "drf-spectacular>=0.27",
+    "uvicorn[standard]>=0.29",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-django>=4.8",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.0",
+    "django-stubs[compatible-mypy]>=5.0",
+    "djangorestframework-stubs[compatible-mypy]>=3.15",
+    "ruff>=0.8",
+    "testcontainers[postgres]>=4.7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trueppm_api"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers --tb=short -q"
+DJANGO_SETTINGS_MODULE = "trueppm_api.settings.dev"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+mypy_path = "src"
+
+[mypy.plugins.django-stubs]
+django_settings_module = "trueppm_api.settings.dev"
+
+[tool.ruff]
+src = ["src", "tests"]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "DJ"]
