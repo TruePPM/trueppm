@@ -5,7 +5,7 @@ from __future__ import annotations
 from trueppm_api.celery import app
 
 
-@app.task
+@app.task  # type: ignore[untyped-decorator]
 def recalculate_schedule(project_id: str) -> None:
     """Rerun the CPM engine for a project and persist the updated output fields.
 
