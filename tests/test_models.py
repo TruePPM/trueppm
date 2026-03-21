@@ -86,9 +86,7 @@ class TestCalendar:
         assert not cal.is_working_day(date(2026, 3, 8))
 
     def test_exception_overrides(self) -> None:
-        cal = Calendar(
-            exceptions=[DateRange(start=date(2026, 3, 2), end=date(2026, 3, 2))]
-        )
+        cal = Calendar(exceptions=[DateRange(start=date(2026, 3, 2), end=date(2026, 3, 2))])
         assert not cal.is_working_day(date(2026, 3, 2))
 
     def test_roundtrip(self) -> None:

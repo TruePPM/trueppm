@@ -2,6 +2,13 @@
 
 __version__ = "0.1.0"
 
+from trueppm_scheduler.engine import (
+    CyclicDependencyError,
+    MonteCarloResult,
+    ScheduleResult,
+    monte_carlo,
+    schedule,
+)
 from trueppm_scheduler.models import (
     Calendar,
     DateRange,
@@ -13,9 +20,14 @@ from trueppm_scheduler.models import (
 
 __all__ = [
     "Calendar",
+    "CyclicDependencyError",
     "DateRange",
     "Dependency",
     "DependencyType",
+    "MonteCarloResult",
     "Project",
+    "ScheduleResult",
     "Task",
+    "monte_carlo",
+    "schedule",
 ]

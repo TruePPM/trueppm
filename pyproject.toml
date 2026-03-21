@@ -34,6 +34,9 @@ dev = [
     "ruff>=0.8",
 ]
 
+[project.scripts]
+trueppm-scheduler = "trueppm_scheduler.cli:main"
+
 [project.urls]
 Homepage = "https://gitlab.com/trueppm/trueppm"
 Repository = "https://gitlab.com/trueppm/trueppm"
@@ -55,6 +58,7 @@ mypy_path = "src"
 [tool.ruff]
 src = ["src", "tests"]
 target-version = "py311"
+line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
