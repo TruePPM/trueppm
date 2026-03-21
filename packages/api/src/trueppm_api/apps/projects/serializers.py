@@ -101,9 +101,7 @@ class DependencySerializer(serializers.ModelSerializer):
         predecessor = attrs.get("predecessor") or (
             self.instance.predecessor if self.instance else None
         )
-        successor = attrs.get("successor") or (
-            self.instance.successor if self.instance else None
-        )
+        successor = attrs.get("successor") or (self.instance.successor if self.instance else None)
         if predecessor and successor and predecessor.project_id != successor.project_id:
             raise serializers.ValidationError(
                 "Predecessor and successor must belong to the same project."
