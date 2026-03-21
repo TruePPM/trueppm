@@ -140,6 +140,7 @@ Ask: "Would an individual PM or small team need this?" If yes → OSS. "Does thi
 Run `/skills` to see all available skills. Key ones:
 - `/architect` — System design decisions with ADR output
 - `/security-review` — Security audit of code or design
+- `/brand` — Design system reference: colors, typography, spacing, WCAG compliance
 - `/ux-design` — UI/UX design for new features
 - `/ux-review` — Review existing UI for usability issues
 - `/voice-of-customer` — Persona-based feedback on features
