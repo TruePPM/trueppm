@@ -146,9 +146,7 @@ class Calendar:
         # date.weekday(): Monday=0, Sunday=6
         if not (self.working_days >> d.weekday()) & 1:
             return False
-        return not any(
-            exc.start <= d <= exc.end for exc in self.exceptions
-        )
+        return not any(exc.start <= d <= exc.end for exc in self.exceptions)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -162,9 +160,7 @@ class Calendar:
     def from_dict(cls, data: dict[str, Any]) -> Self:
         return cls(
             working_days=data.get("working_days", 0b0011111),
-            exceptions=[
-                DateRange.from_dict(e) for e in data.get("exceptions", [])
-            ],
+            exceptions=[DateRange.from_dict(e) for e in data.get("exceptions", [])],
             hours_per_day=data.get("hours_per_day", 8.0),
             timezone=data.get("timezone", "UTC"),
         )

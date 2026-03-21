@@ -116,9 +116,7 @@ class TestProject:
                 Dependency(predecessor_id="1", successor_id="2"),
             ],
             calendar=Calendar(
-                exceptions=[
-                    DateRange(start=date(2026, 3, 10), end=date(2026, 3, 10))
-                ]
+                exceptions=[DateRange(start=date(2026, 3, 10), end=date(2026, 3, 10))]
             ),
         )
 
