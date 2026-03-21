@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from django.contrib.auth import get_user_model
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.projects.models import Calendar, Project
 
 User = get_user_model()
@@ -31,6 +31,15 @@ def _make_scope(project_pk: str, token: str = "") -> dict:
     }
 
 
+def _make_consumer(scope: dict) -> object:
+    """Instantiate a ProjectConsumer and set its scope (Channels 4 pattern)."""
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.scope = scope
+    return consumer
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -39,11 +48,6 @@ def _make_scope(project_pk: str, token: str = "") -> dict:
 @pytest.fixture
 def user(db: object) -> object:
     return User.objects.create_user(username="ws_user", password="pw")
-
-
-@pytest.fixture
-def viewer_user(db: object) -> object:
-    return User.objects.create_user(username="ws_viewer", password="pw")
 
 
 @pytest.fixture
@@ -65,10 +69,7 @@ def project(calendar: Calendar) -> Project:
 @pytest.mark.asyncio
 async def test_connect_no_token_rejected(project: Project) -> None:
     """Connection without ?token= is rejected with close code 4001."""
-    from trueppm_api.apps.sync.consumers import ProjectConsumer
-
-    scope = _make_scope(str(project.pk), token="")
-    consumer = ProjectConsumer(scope=scope)
+    consumer = _make_consumer(_make_scope(str(project.pk), token=""))
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
 
@@ -83,10 +84,7 @@ async def test_connect_no_token_rejected(project: Project) -> None:
 @pytest.mark.asyncio
 async def test_connect_invalid_token_rejected(project: Project) -> None:
     """Connection with an invalid JWT is rejected with close code 4001."""
-    from trueppm_api.apps.sync.consumers import ProjectConsumer
-
-    scope = _make_scope(str(project.pk), token="not.a.valid.jwt")
-    consumer = ProjectConsumer(scope=scope)
+    consumer = _make_consumer(_make_scope(str(project.pk), token="not.a.valid.jwt"))
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
 
@@ -101,12 +99,7 @@ async def test_connect_invalid_token_rejected(project: Project) -> None:
 @pytest.mark.asyncio
 async def test_connect_viewer_rejected(user: object, project: Project) -> None:
     """A Viewer (role=0) cannot connect to the WebSocket."""
-    ProjectMembership.objects.create(project=project, user=user, role=Role.VIEWER)
-
-    from trueppm_api.apps.sync.consumers import ProjectConsumer
-
-    scope = _make_scope(str(project.pk), token="valid.token")
-    consumer = ProjectConsumer(scope=scope)
+    consumer = _make_consumer(_make_scope(str(project.pk), token="valid.token"))
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
 
@@ -127,10 +120,7 @@ async def test_connect_viewer_rejected(user: object, project: Project) -> None:
 @pytest.mark.asyncio
 async def test_connect_non_member_rejected(user: object, project: Project) -> None:
     """A user with no membership cannot connect."""
-    from trueppm_api.apps.sync.consumers import ProjectConsumer
-
-    scope = _make_scope(str(project.pk), token="valid.token")
-    consumer = ProjectConsumer(scope=scope)
+    consumer = _make_consumer(_make_scope(str(project.pk), token="valid.token"))
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
 
@@ -150,12 +140,7 @@ async def test_connect_non_member_rejected(user: object, project: Project) -> No
 @pytest.mark.asyncio
 async def test_connect_member_accepted(user: object, project: Project) -> None:
     """A Member (role=1) can connect and is added to the project group."""
-    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
-
-    from trueppm_api.apps.sync.consumers import ProjectConsumer
-
-    scope = _make_scope(str(project.pk), token="valid.token")
-    consumer = ProjectConsumer(scope=scope)
+    consumer = _make_consumer(_make_scope(str(project.pk), token="valid.token"))
     channel_layer = AsyncMock()
     consumer.channel_layer = channel_layer
     consumer.channel_name = "test.channel"
@@ -185,10 +170,7 @@ async def test_connect_member_accepted(user: object, project: Project) -> None:
 @pytest.mark.asyncio
 async def test_disconnect_leaves_group(user: object, project: Project) -> None:
     """Disconnecting removes the channel from the project group."""
-    from trueppm_api.apps.sync.consumers import ProjectConsumer
-
-    scope = _make_scope(str(project.pk), token="valid.token")
-    consumer = ProjectConsumer(scope=scope)
+    consumer = _make_consumer(_make_scope(str(project.pk), token="valid.token"))
     channel_layer = AsyncMock()
     consumer.channel_layer = channel_layer
     consumer.channel_name = "test.channel"
@@ -203,10 +185,7 @@ async def test_disconnect_leaves_group(user: object, project: Project) -> None:
 @pytest.mark.asyncio
 async def test_board_event_forwarded_to_client(user: object, project: Project) -> None:
     """board.event channel messages are forwarded to the WebSocket client."""
-    from trueppm_api.apps.sync.consumers import ProjectConsumer
-
-    scope = _make_scope(str(project.pk), token="valid.token")
-    consumer = ProjectConsumer(scope=scope)
+    consumer = _make_consumer(_make_scope(str(project.pk), token="valid.token"))
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
     consumer.group_name = f"project_{project.pk}"
