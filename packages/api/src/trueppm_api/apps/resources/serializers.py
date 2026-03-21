@@ -7,7 +7,7 @@ from rest_framework import serializers
 from trueppm_api.apps.resources.models import Resource, TaskResource
 
 
-class ResourceSerializer(serializers.ModelSerializer):
+class ResourceSerializer(serializers.ModelSerializer[Resource]):
     class Meta:
         model = Resource
         fields = [
@@ -21,7 +21,7 @@ class ResourceSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "server_version"]
 
 
-class TaskResourceSerializer(serializers.ModelSerializer):
+class TaskResourceSerializer(serializers.ModelSerializer[TaskResource]):
     class Meta:
         model = TaskResource
         fields = ["id", "task", "resource", "units"]

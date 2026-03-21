@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from rest_framework import serializers
 
 from trueppm_api.apps.projects.models import (
@@ -13,13 +15,13 @@ from trueppm_api.apps.projects.models import (
 )
 
 
-class CalendarExceptionSerializer(serializers.ModelSerializer):
+class CalendarExceptionSerializer(serializers.ModelSerializer[CalendarException]):
     class Meta:
         model = CalendarException
         fields = ["id", "exc_start", "exc_end", "description"]
 
 
-class CalendarSerializer(serializers.ModelSerializer):
+class CalendarSerializer(serializers.ModelSerializer[Calendar]):
     exceptions = CalendarExceptionSerializer(many=True, read_only=True)
 
     class Meta:
@@ -36,7 +38,7 @@ class CalendarSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "server_version"]
 
 
-class ProjectSerializer(serializers.ModelSerializer):
+class ProjectSerializer(serializers.ModelSerializer[Project]):
     class Meta:
         model = Project
         fields = [
@@ -50,7 +52,7 @@ class ProjectSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "server_version"]
 
 
-class TaskSerializer(serializers.ModelSerializer):
+class TaskSerializer(serializers.ModelSerializer[Task]):
     # Duration round-trips as integer working days.
     # CPM output fields are read-only — written by the scheduling engine.
 
@@ -89,13 +91,13 @@ class TaskSerializer(serializers.ModelSerializer):
         ]
 
 
-class DependencySerializer(serializers.ModelSerializer):
+class DependencySerializer(serializers.ModelSerializer[Dependency]):
     class Meta:
         model = Dependency
         fields = ["id", "predecessor", "successor", "dep_type", "lag"]
         read_only_fields = ["id"]
 
-    def validate(self, attrs: dict) -> dict:  # type: ignore[override]
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # Enforce same-project constraint: the CPM engine assumes a single-project
         # DAG. Cross-project edges produce undefined scheduling behaviour.
         predecessor = attrs.get("predecessor") or (

@@ -26,7 +26,7 @@ def _get_project_id_from_obj(obj: Any) -> uuid.UUID | str | None:
     # Direct Project instance
     if hasattr(obj, "memberships"):
         # Project model — its own PK is the project id
-        return obj.pk  # type: ignore[no-any-return]
+        return obj.pk  # type: ignore[attr-defined]
     if hasattr(obj, "project_id"):
         return obj.project_id  # type: ignore[no-any-return]
     if hasattr(obj, "project"):
@@ -152,7 +152,7 @@ class IsProjectOwner(BasePermission):
 # ---------------------------------------------------------------------------
 
 
-class ProjectScopedViewSet(viewsets.GenericViewSet):
+class ProjectScopedViewSet(viewsets.GenericViewSet):  # type: ignore[type-arg]
     """Mixin that restricts every queryset to projects the user is a member of.
 
     Prevents IDOR: an unauthenticated or non-member request will receive an
@@ -163,10 +163,10 @@ class ProjectScopedViewSet(viewsets.GenericViewSet):
     """
 
     def get_queryset(self) -> Any:
-        qs = super().get_queryset()  # type: ignore[misc]
+        qs = super().get_queryset()
         user = getattr(self.request, "user", None)
         if user is None or not user.is_authenticated:
-            return qs.none()  # type: ignore[union-attr]
+            return qs.none()
 
         member_project_ids = ProjectMembership.objects.filter(user=user).values_list(
             "project_id", flat=True

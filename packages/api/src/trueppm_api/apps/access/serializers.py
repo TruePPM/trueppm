@@ -7,7 +7,7 @@ from rest_framework import serializers
 from trueppm_api.apps.access.models import ProjectMembership
 
 
-class ProjectMembershipSerializer(serializers.ModelSerializer):
+class ProjectMembershipSerializer(serializers.ModelSerializer[ProjectMembership]):
     class Meta:
         model = ProjectMembership
         fields = [

@@ -12,7 +12,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     initial = True
 
-    dependencies: list[tuple[str, str]] = [
+    dependencies: list[tuple[str, str]] = [  # type: ignore[misc]
         ("projects", "0001_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

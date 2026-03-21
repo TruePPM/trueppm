@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from django.db import models
 
@@ -27,15 +28,12 @@ class VersionedModel(models.Model):
     class Meta:
         abstract = True
 
-    def save(self, *args: object, **kwargs: object) -> None:
+    def save(self, *args: Any, **kwargs: Any) -> None:
         # Increment server_version atomically on every update.
-        if self.pk and type(self).objects.filter(pk=self.pk).exists():
-            type(self).objects.filter(pk=self.pk).update(
-                server_version=models.F("server_version") + 1
-            )
-            self.server_version = (
-                type(self).objects.values_list("server_version", flat=True).get(pk=self.pk)
-            )
+        manager = type(self).objects  # type: ignore[attr-defined]
+        if self.pk and manager.filter(pk=self.pk).exists():
+            manager.filter(pk=self.pk).update(server_version=models.F("server_version") + 1)
+            self.server_version = manager.values_list("server_version", flat=True).get(pk=self.pk)
             # Exclude server_version from the subsequent UPDATE so super().save()
             # does not overwrite the increment applied above via F() expression.
             if kwargs.get("update_fields") is not None:
