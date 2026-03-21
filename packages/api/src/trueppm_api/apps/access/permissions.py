@@ -71,7 +71,9 @@ class IsProjectMember(BasePermission):
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
         if project_id is None:
-            return False
+            # Org-level object (Calendar, Resource) — authentication is sufficient
+            # for object-level access; project membership is not applicable.
+            return bool(request.user and request.user.is_authenticated)
         return _membership_role(request, project_id) is not None
 
 
