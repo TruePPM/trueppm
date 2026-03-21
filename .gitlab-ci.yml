@@ -1,0 +1,35 @@
+stages:
+  - check
+  - test
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths:
+    - .cache/pip/
+
+.python:
+  image: python:3.11-slim
+  before_script:
+    - pip install -e ".[dev]" --quiet
+
+lint:
+  extends: .python
+  stage: check
+  script:
+    - ruff check src/ tests/
+    - ruff format --check src/ tests/
+
+type-check:
+  extends: .python
+  stage: check
+  script:
+    - mypy
+
+test:
+  extends: .python
+  stage: test
+  script:
+    - pytest --cov=trueppm_scheduler --cov-report=term-missing
+  coverage: '/TOTAL.*\s(\d+%)/'

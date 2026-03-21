@@ -1,0 +1,60 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "trueppm-scheduler"
+version = "0.1.0"
+description = "Critical-path and resource-leveling scheduler for project management"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [
+    { name = "Kelly Hair" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Scheduling",
+]
+dependencies = [
+    "networkx>=3.0",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "mypy>=1.0",
+    "ruff>=0.8",
+]
+
+[project.urls]
+Homepage = "https://gitlab.com/trueppm/trueppm"
+Repository = "https://gitlab.com/trueppm/trueppm"
+Issues = "https://gitlab.com/trueppm/trueppm/-/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trueppm_scheduler"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers --tb=short -q"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["trueppm_scheduler"]
+mypy_path = "src"
+
+[tool.ruff]
+src = ["src", "tests"]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
