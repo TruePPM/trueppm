@@ -266,6 +266,9 @@ security:pip-audit:
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
+    # Upgrade pip and wheel first so the audit does not flag CVEs in the
+    # base-image versions of the build tools themselves (pip 24.0 / wheel 0.45.1).
+    - pip install --upgrade pip wheel --quiet
     - pip install pip-audit --quiet
     - pip install -e ".[dev]" --quiet
     - pip install -e packages/api --quiet
