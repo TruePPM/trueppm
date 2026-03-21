@@ -60,9 +60,7 @@ def broadcast_board_event(
         # Keep a reference so the task is not garbage-collected before completion.
         _bg_task.add_done_callback(lambda t: None)
     except Exception:
-        logger.exception(
-            "broadcast_board_event: failed to send %s to group %s", event_type, group
-        )
+        logger.exception("broadcast_board_event: failed to send %s to group %s", event_type, group)
 
 
 async def _send(channel_layer: Any, group: str, message: dict[str, Any]) -> None:

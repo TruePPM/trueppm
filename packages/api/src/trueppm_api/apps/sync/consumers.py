@@ -28,11 +28,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):
         # Parse token and project_pk before calling super() which sends ACCEPT.
         scope = self.scope
         query_string: bytes = scope.get("query_string", b"")
-        params = dict(
-            pair.split(b"=", 1)
-            for pair in query_string.split(b"&")
-            if b"=" in pair
-        )
+        params = dict(pair.split(b"=", 1) for pair in query_string.split(b"&") if b"=" in pair)
         token_bytes = params.get(b"token")
         if not token_bytes:
             await self.close(code=4001)
