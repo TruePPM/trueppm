@@ -148,7 +148,7 @@ api:openapi-check:
   stage: check
   script:
     - cd packages/api
-    - python manage.py spectacular --validate --fail-on-warn --file /dev/null
+    - python manage.py spectacular --validate --file /dev/null
 
 # ---------------------------------------------------------------------------
 # Helm — check

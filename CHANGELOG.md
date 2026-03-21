@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- CI pipeline expanded with `api:type-check` (mypy strict), `api:migration-check`,
+  `api:openapi-check`, `changelog:check` (MR-only), `license:check`,
+  `security:bandit`, and `security:pip-audit` (MR + main). Coverage thresholds
+  enforced: scheduler ≥ 80%, api ≥ 65%. Minio-backed caches keyed on
+  pyproject.toml file hash per package. `workflow:rules` prevents duplicate
+  branch + MR pipelines.
+
 ### Fixed
 - `VersionedModel.save()` no longer overwrites the atomically-incremented
   `server_version` via `super().save()`. The subsequent `UPDATE` now excludes

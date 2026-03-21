@@ -57,6 +57,9 @@ mypy_path = "src"
 [mypy.plugins.django-stubs]
 django_settings_module = "trueppm_api.settings.dev"
 
+[tool.django-stubs]
+django_settings_module = "trueppm_api.settings.dev"
+
 [tool.ruff]
 src = ["src", "tests"]
 target-version = "py311"
