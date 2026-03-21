@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from django.db.models import QuerySet
 from rest_framework import viewsets
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
@@ -26,7 +27,7 @@ def _get_project_id_from_obj(obj: Any) -> uuid.UUID | str | None:
     # Direct Project instance
     if hasattr(obj, "memberships"):
         # Project model — its own PK is the project id
-        return obj.pk  # type: ignore[attr-defined]
+        return obj.pk  # type: ignore[no-any-return]
     if hasattr(obj, "project_id"):
         return obj.project_id  # type: ignore[no-any-return]
     if hasattr(obj, "project"):
@@ -34,7 +35,7 @@ def _get_project_id_from_obj(obj: Any) -> uuid.UUID | str | None:
     # Dependency — look through predecessor__project_id
     if hasattr(obj, "predecessor_id"):
         return getattr(obj, "predecessor__project_id", None) or (
-            obj.predecessor.project_id if obj.predecessor_id else None  # type: ignore[union-attr]
+            obj.predecessor.project_id if obj.predecessor_id else None
         )
     return None
 
@@ -162,7 +163,7 @@ class ProjectScopedViewSet(viewsets.GenericViewSet):  # type: ignore[type-arg]
     filters on top of the membership-scoped queryset.
     """
 
-    def get_queryset(self) -> Any:
+    def get_queryset(self) -> QuerySet[Any]:
         qs = super().get_queryset()
         user = getattr(self.request, "user", None)
         if user is None or not user.is_authenticated:
