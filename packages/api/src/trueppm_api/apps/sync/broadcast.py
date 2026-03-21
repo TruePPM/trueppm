@@ -56,7 +56,9 @@ def broadcast_board_event(
         # asyncio.run() raises RuntimeError if an event loop is already running
         # (e.g. inside an async consumer). Use the running loop instead.
         loop = asyncio.get_event_loop()
-        loop.create_task(_send(channel_layer, group, message))
+        _bg_task = loop.create_task(_send(channel_layer, group, message))
+        # Keep a reference so the task is not garbage-collected before completion.
+        _bg_task.add_done_callback(lambda t: None)
     except Exception:
         logger.exception(
             "broadcast_board_event: failed to send %s to group %s", event_type, group

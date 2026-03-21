@@ -6,7 +6,6 @@ import logging
 from datetime import timedelta
 
 from celery import shared_task
-from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +55,6 @@ def recalculate_schedule(self: object, project_id: str) -> None:  # type: ignore
 
 def _run_schedule(project_id: str) -> None:
     """Load tasks/dependencies, run CPM, bulk_update results, broadcast completion."""
-    from datetime import date
-
     from trueppm_scheduler.engine import schedule
     from trueppm_scheduler.models import Calendar as SchedCalendar
     from trueppm_scheduler.models import Dependency as SchedDependency
