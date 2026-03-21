@@ -10,7 +10,7 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 logger = logging.getLogger(__name__)
 
 
-class ProjectConsumer(AsyncJsonWebsocketConsumer):
+class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     """Pushes project board events to subscribed clients.
 
     Authentication:  JWT access token supplied as `?token=<token>` query param.
@@ -55,12 +55,12 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):
         self.group_name = f"project_{project_pk}"
         self._user = user
 
-        await self.channel_layer.group_add(self.group_name, self.channel_name)  # type: ignore[union-attr]
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
         await super().websocket_connect(message)
 
     async def disconnect(self, code: int) -> None:
         if hasattr(self, "group_name"):
-            await self.channel_layer.group_discard(  # type: ignore[union-attr]
+            await self.channel_layer.group_discard(
                 self.group_name, self.channel_name
             )
 
@@ -85,7 +85,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):
         """Validate a JWT access token and return the user, or None on failure."""
         from channels.db import database_sync_to_async
 
-        @database_sync_to_async
+        @database_sync_to_async  # type: ignore[misc]
         def _validate(tok: str) -> Any:
             from django.contrib.auth import get_user_model
             from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
@@ -93,7 +93,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):
 
             User = get_user_model()
             try:
-                access = AccessToken(tok)
+                access = AccessToken(tok)  # type: ignore[arg-type]
                 user_id = access["user_id"]
                 return User.objects.get(pk=user_id)
             except (TokenError, InvalidToken, User.DoesNotExist):
@@ -105,7 +105,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):
         """Return the user's role ordinal on the project, or None if not a member."""
         from channels.db import database_sync_to_async
 
-        @database_sync_to_async
+        @database_sync_to_async  # type: ignore[misc]
         def _query(u: Any, pk: str) -> int | None:
             from trueppm_api.apps.access.models import ProjectMembership
 
@@ -114,4 +114,4 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):
             except ProjectMembership.DoesNotExist:
                 return None
 
-        return await _query(user, project_pk)
+        return await _query(user, project_pk)  # type: ignore[no-any-return]

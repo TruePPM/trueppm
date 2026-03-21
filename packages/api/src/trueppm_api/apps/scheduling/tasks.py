@@ -17,8 +17,8 @@ _LOCK_TTL_SECONDS = 300
 _REQUEUE_COUNTDOWN = 10
 
 
-@shared_task(bind=True)
-def recalculate_schedule(self: object, project_id: str) -> None:  # type: ignore[misc]
+@shared_task(bind=True)  # type: ignore[misc]
+def recalculate_schedule(self: object, project_id: str) -> None:
     """Run CPM on a project and persist the results.
 
     Idempotency is enforced via a Redis SET NX lock keyed by project_id.
@@ -44,7 +44,7 @@ def recalculate_schedule(self: object, project_id: str) -> None:  # type: ignore
             project_id,
             _REQUEUE_COUNTDOWN,
         )
-        self.apply_async(args=[project_id], countdown=_REQUEUE_COUNTDOWN)  # type: ignore[union-attr]
+        self.apply_async(args=[project_id], countdown=_REQUEUE_COUNTDOWN)  # type: ignore[attr-defined]
         return
 
     try:
