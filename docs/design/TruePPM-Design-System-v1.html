@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TruePPM Design System & UI Specification</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --bg2: #f8f7f5;
+  --bg3: #f1efe8;
+  --text: #1a1a19;
+  --text2: #5f5e5a;
+  --text3: #888780;
+  --border: rgba(0,0,0,0.1);
+  --blue: #185FA5;
+  --blue-bg: #E6F1FB;
+  --blue-text: #0C447C;
+  --green: #639922;
+  --green-bg: #EAF3DE;
+  --green-text: #27500A;
+  --amber: #BA7517;
+  --amber-bg: #FAEEDA;
+  --amber-text: #633806;
+  --red: #E24B4A;
+  --red-bg: #FCEBEB;
+  --red-text: #791F1F;
+  --teal: #0F6E56;
+  --teal-bg: #E1F5EE;
+  --teal-text: #085041;
+  --purple: #534AB7;
+  --purple-bg: #EEEDFE;
+  --purple-text: #3C3489;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1a19;
+    --bg2: #2c2c2a;
+    --bg3: #3d3d3a;
+    --text: #e8e6de;
+    --text2: #b4b2a9;
+    --text3: #888780;
+    --border: rgba(255,255,255,0.1);
+    --blue-bg: #0C447C;
+    --blue-text: #B5D4F4;
+    --green-bg: #27500A;
+    --green-text: #C0DD97;
+    --amber-bg: #633806;
+    --amber-text: #FAC775;
+    --red-bg: #791F1F;
+    --red-text: #F7C1C1;
+    --teal-bg: #085041;
+    --teal-text: #9FE1CB;
+    --purple-bg: #3C3489;
+    --purple-text: #CECBF6;
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font); color: var(--text); background: var(--bg); line-height: 1.6; }
+.page { max-width: 1200px; margin: 0 auto; padding: 40px 24px; }
+h1 { font-size: 36px; font-weight: 600; letter-spacing: -0.5px; margin-bottom: 8px; }
+h2 { font-size: 24px; font-weight: 600; letter-spacing: -0.3px; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 18px; font-weight: 600; margin: 32px 0 12px; }
+h4 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; color: var(--text2); }
+p { margin-bottom: 12px; color: var(--text2); font-size: 15px; }
+.subtitle { font-size: 18px; color: var(--text2); margin-bottom: 4px; }
+.meta { font-size: 13px; color: var(--text3); margin-bottom: 32px; }
+.section-label { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; padding: 4px 12px; border-radius: 4px; margin-bottom: 16px; }
+.sl-brand { background: var(--blue-bg); color: var(--blue-text); }
+.sl-web { background: var(--teal-bg); color: var(--teal-text); }
+.sl-mobile { background: var(--purple-bg); color: var(--purple-text); }
+.sl-enterprise { background: var(--amber-bg); color: var(--amber-text); }
+.sl-system { background: var(--bg2); color: var(--text2); }
+
+/* Color swatches */
+.swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin: 16px 0; }
+.swatch { border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
+.swatch-color { height: 48px; }
+.swatch-label { padding: 8px 10px; font-size: 12px; background: var(--bg); }
+.swatch-label span { display: block; color: var(--text3); font-size: 11px; margin-top: 2px; }
+
+/* Spec tables */
+.spec-table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: 14px; }
+.spec-table th { text-align: left; padding: 10px 12px; background: var(--bg2); border: 1px solid var(--border); font-weight: 600; font-size: 13px; }
+.spec-table td { padding: 10px 12px; border: 1px solid var(--border); vertical-align: top; }
+.spec-table td code { background: var(--bg2); padding: 2px 6px; border-radius: 4px; font-size: 12px; font-family: "SF Mono", "Fira Code", monospace; }
+.spec-table tr:nth-child(even) td { background: var(--bg2); }
+
+/* Component specs */
+.comp-spec { background: var(--bg2); border-radius: var(--radius-lg); padding: 20px 24px; margin: 16px 0; }
+.comp-spec h4 { margin-top: 0; color: var(--text); }
+.comp-spec p { font-size: 13px; }
+.comp-spec ul { font-size: 13px; padding-left: 20px; color: var(--text2); }
+.comp-spec li { margin-bottom: 4px; }
+
+/* Screen mockup container */
+.mockup-container { background: var(--bg2); border-radius: var(--radius-lg); padding: 24px; margin: 16px 0; }
+.mockup-row { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; }
+.mockup-caption { text-align: center; font-size: 13px; color: var(--text3); margin-top: 12px; }
+
+/* Annotations */
+.annotation { display: flex; gap: 12px; padding: 12px 16px; background: var(--blue-bg); border-radius: var(--radius); margin: 8px 0; font-size: 13px; color: var(--blue-text); }
+.annotation-icon { font-weight: 700; flex-shrink: 0; }
+.annotation-warn { background: var(--amber-bg); color: var(--amber-text); }
+.annotation-crit { background: var(--red-bg); color: var(--red-text); }
+
+/* Phone frame */
+.phone-frame { width: 280px; height: 560px; border-radius: 32px; border: 2px solid var(--border); background: var(--bg); overflow: hidden; display: flex; flex-direction: column; flex-shrink: 0; }
+
+/* Desktop frame */
+.desktop-frame { width: 100%; border-radius: var(--radius-lg); border: 1px solid var(--border); background: var(--bg); overflow: hidden; }
+.desktop-chrome { height: 32px; background: var(--bg2); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 6px; padding: 0 12px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; }
+.dot-r { background: #E24B4A; }
+.dot-y { background: #EF9F27; }
+.dot-g { background: #639922; }
+.desktop-url { margin-left: 12px; font-size: 11px; color: var(--text3); background: var(--bg); padding: 3px 12px; border-radius: 4px; border: 0.5px solid var(--border); }
+
+/* Inline code */
+code { background: var(--bg2); padding: 2px 6px; border-radius: 4px; font-size: 13px; font-family: "SF Mono", "Fira Code", monospace; }
+
+/* Page break hint for PDF export */
+.page-break { page-break-before: always; margin-top: 48px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- COVER -->
+<span class="section-label sl-brand">Design system v1.0</span>
+<h1>TruePPM UI/UX specification</h1>
+<p class="subtitle">Design system, screen specifications, and interaction patterns</p>
+<p class="meta">Kelly Hair &middot; TruePPM, Inc. &middot; trueppm.com &middot; March 2026</p>
+
+<p>This document defines the visual language, component library, screen layouts, and interaction patterns for TruePPM across web and mobile platforms. It serves as the single source of truth for all frontend development.</p>
+
+<!-- ============================================================ -->
+<h2>1. Brand identity</h2>
+
+<h3>1.1 Logo usage</h3>
+<p>The TruePPM wordmark uses a custom weight of the primary typeface. "True" is regular weight, "PPM" is semibold. Primary color is Blue 600 (#185FA5). On dark backgrounds, use white. Minimum clear space equals the height of the "P" character on all sides.</p>
+
+<div class="comp-spec">
+<h4>Logo specifications</h4>
+<ul>
+<li>Primary: "TruePPM" in Blue 600 on white/light backgrounds</li>
+<li>Inverse: "TruePPM" in white on dark/colored backgrounds</li>
+<li>Monochrome: "TruePPM" in Text Primary for in-app chrome</li>
+<li>Minimum size: 80px wide (web), 60px wide (mobile)</li>
+<li>Never stretch, rotate, apply effects, or change the color split</li>
+</ul>
+</div>
+
+<h3>1.2 Color system</h3>
+<p>TruePPM uses a semantic color system where colors encode meaning, not decoration. Every color has a specific purpose. The palette is designed for WCAG 2.1 AA contrast compliance in both light and dark modes.</p>
+
+<h4>Semantic colors</h4>
+<table class="spec-table">
+<tr><th>Meaning</th><th>Color</th><th>Light mode</th><th>Dark mode</th><th>Usage</th></tr>
+<tr><td>Critical / overdue / error</td><td>Red</td><td>Bar: #E24B4A / Bg: #FCEBEB / Text: #791F1F</td><td>Bar: #E24B4A / Bg: #501313 / Text: #F7C1C1</td><td>Critical path tasks, overdue items, errors, overallocation &gt;120%</td></tr>
+<tr><td>At risk / warning / approaching</td><td>Amber</td><td>Bar: #BA7517 / Bg: #FAEEDA / Text: #633806</td><td>Bar: #EF9F27 / Bg: #412402 / Text: #FAC775</td><td>At-risk tasks, approaching deadlines, milestones, utilization 90-120%</td></tr>
+<tr><td>On track / complete / success</td><td>Green</td><td>Bar: #639922 / Bg: #EAF3DE / Text: #27500A</td><td>Bar: #97C459 / Bg: #173404 / Text: #C0DD97</td><td>Completed tasks, on-track projects, healthy utilization &lt;80%</td></tr>
+<tr><td>In progress / informational / focus</td><td>Blue</td><td>Bar: #378ADD / Bg: #E6F1FB / Text: #0C447C</td><td>Bar: #85B7EB / Bg: #042C53 / Text: #B5D4F4</td><td>Active tasks, selected items, links, brand elements</td></tr>
+<tr><td>Neutral / structural / inactive</td><td>Gray</td><td>Bar: #888780 / Bg: #F1EFE8 / Text: #444441</td><td>Bar: #B4B2A9 / Bg: #2C2C2A / Text: #D3D1C7</td><td>Summary bars, disabled items, borders, backgrounds</td></tr>
+</table>
+
+<h4>Extended palette</h4>
+<p>For scenarios needing additional differentiation (resource assignments, project tagging), use Teal (#0F6E56) and Purple (#534AB7) as secondary ramps. Never use more than 4 color ramps on a single screen.</p>
+
+<div class="swatch-grid">
+<div class="swatch"><div class="swatch-color" style="background:#E24B4A"></div><div class="swatch-label">Red 400<span>#E24B4A</span></div></div>
+<div class="swatch"><div class="swatch-color" style="background:#BA7517"></div><div class="swatch-label">Amber 400<span>#BA7517</span></div></div>
+<div class="swatch"><div class="swatch-color" style="background:#639922"></div><div class="swatch-label">Green 400<span>#639922</span></div></div>
+<div class="swatch"><div class="swatch-color" style="background:#378ADD"></div><div class="swatch-label">Blue 400<span>#378ADD</span></div></div>
+<div class="swatch"><div class="swatch-color" style="background:#888780"></div><div class="swatch-label">Gray 400<span>#888780</span></div></div>
+<div class="swatch"><div class="swatch-color" style="background:#1D9E75"></div><div class="swatch-label">Teal 400<span>#1D9E75</span></div></div>
+<div class="swatch"><div class="swatch-color" style="background:#7F77DD"></div><div class="swatch-label">Purple 400<span>#7F77DD</span></div></div>
+</div>
+
+<h3>1.3 Typography</h3>
+<table class="spec-table">
+<tr><th>Element</th><th>Font</th><th>Size</th><th>Weight</th><th>Line height</th><th>Usage</th></tr>
+<tr><td>Page title</td><td>Inter</td><td>20px</td><td>600</td><td>1.3</td><td>Screen titles, project names in headers</td></tr>
+<tr><td>Section header</td><td>Inter</td><td>15px</td><td>600</td><td>1.3</td><td>Panel headers, toolbar labels</td></tr>
+<tr><td>Body / task name</td><td>Inter</td><td>13-14px</td><td>500</td><td>1.4</td><td>Task names, resource names, primary content</td></tr>
+<tr><td>Secondary text</td><td>Inter</td><td>12-13px</td><td>400</td><td>1.4</td><td>Metadata, dates, descriptions</td></tr>
+<tr><td>Caption / label</td><td>Inter</td><td>11px</td><td>500</td><td>1.3</td><td>Column headers, badges, toolbar buttons, section labels</td></tr>
+<tr><td>Gantt bar label</td><td>Inter</td><td>10-11px</td><td>500</td><td>1.0</td><td>Text inside Gantt bars</td></tr>
+<tr><td>Monospace</td><td>SF Mono / Fira Code</td><td>12px</td><td>400</td><td>1.4</td><td>Duration values, percentages, technical fields</td></tr>
+</table>
+
+<div class="annotation">
+<span class="annotation-icon">i</span>
+<span>Inter is chosen for its wide language support, excellent legibility at small sizes (critical for Gantt bar labels), and availability via Google Fonts. Fallback: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif.</span>
+</div>
+
+<h3>1.4 Spacing &amp; layout</h3>
+<table class="spec-table">
+<tr><th>Token</th><th>Value</th><th>Usage</th></tr>
+<tr><td><code>space-xs</code></td><td>4px</td><td>Inline gaps (icon to text)</td></tr>
+<tr><td><code>space-sm</code></td><td>8px</td><td>Compact lists, toolbar button gaps</td></tr>
+<tr><td><code>space-md</code></td><td>12px</td><td>Card internal padding, grid gaps</td></tr>
+<tr><td><code>space-lg</code></td><td>16px</td><td>Section spacing, panel padding</td></tr>
+<tr><td><code>space-xl</code></td><td>24px</td><td>Page margins, major section gaps</td></tr>
+<tr><td><code>space-2xl</code></td><td>32px</td><td>Page top/bottom padding</td></tr>
+<tr><td><code>radius-sm</code></td><td>4px</td><td>Badges, small pills, Gantt bar corners</td></tr>
+<tr><td><code>radius-md</code></td><td>8px</td><td>Cards, panels, inputs, buttons</td></tr>
+<tr><td><code>radius-lg</code></td><td>12px</td><td>Modals, large cards, containers</td></tr>
+<tr><td><code>radius-pill</code></td><td>999px</td><td>Status badges, avatar circles</td></tr>
+</table>
+
+<h3>1.5 Borders &amp; surfaces</h3>
+<div class="comp-spec">
+<h4>Design principles</h4>
+<ul>
+<li><strong>No drop shadows.</strong> Depth is communicated through surface color (bg-primary on bg-secondary) and borders, never shadows. This keeps the interface flat and crisp at all zoom levels.</li>
+<li><strong>0.5px borders</strong> on cards, panels, and dividers. 1px on input fields. 2px only on focus rings and the "featured" card accent.</li>
+<li><strong>Surfaces</strong>: bg-primary (white) for content, bg-secondary (#f8f7f5) for chrome/toolbars, bg-tertiary (#f1efe8) for page background.</li>
+<li><strong>Transparency</strong>: use rgba overlays for hover states (rgba(0,0,0,0.04) on light, rgba(255,255,255,0.06) on dark), never solid color changes.</li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 class="page-break">2. Web application screens</h2>
+
+<span class="section-label sl-web">Web &mdash; desktop 1280px+</span>
+
+<h3>2.1 Application shell</h3>
+<p>The web app uses a persistent shell: top bar (48px) + left sidebar (220px) + main content area. The sidebar collapses to icons at 1024px and hides entirely below 768px (replaced by a hamburger menu).</p>
+
+<table class="spec-table">
+<tr><th>Component</th><th>Height/Width</th><th>Background</th><th>Contents</th></tr>
+<tr><td>Top bar</td><td>48px tall, full width</td><td>bg-secondary</td><td>Logo, view tabs (Gantt/Board/List/Calendar/Resources), Monte Carlo badge (P80 date), at-risk count, critical count, user avatar</td></tr>
+<tr><td>Sidebar</td><td>220px wide, full height</td><td>bg-primary</td><td>Portfolio section (enterprise), Projects list with health dots, Views section (My Tasks, Timesheets, Reports). Each project item: 8px color dot + name. Active state: blue background tint.</td></tr>
+<tr><td>Main area</td><td>Remaining space</td><td>bg-primary</td><td>Toolbar (36px) + content area. Content varies by active view.</td></tr>
+<tr><td>Status bar</td><td>28px tall, main width</td><td>bg-secondary</td><td>Task count, critical path count, last saved, online users, color legend</td></tr>
+</table>
+
+<h3>2.2 Gantt view (hero screen)</h3>
+<p>The primary screen for project managers. Split pane: task list (280px fixed) + timeline (remaining width, horizontally scrollable). The task list and timeline scroll vertically in sync.</p>
+
+<h4>Task list panel</h4>
+<table class="spec-table">
+<tr><th>Column</th><th>Width</th><th>Content</th><th>Interaction</th></tr>
+<tr><td>Task name</td><td>flex</td><td>Indent (16px per WBS level) + name. Summary tasks bold. Critical tasks in Red 400.</td><td>Click to select. Double-click to edit inline. Drag handle for reorder.</td></tr>
+<tr><td>Duration</td><td>60px</td><td>e.g., "5d", "2w". Right-aligned.</td><td>Click to edit inline. Tab to next field.</td></tr>
+<tr><td>Start</td><td>70px</td><td>e.g., "Mar 3". Short date format.</td><td>Click to open date picker.</td></tr>
+<tr><td>Progress</td><td>50px</td><td>e.g., "65%". Right-aligned. Milestones show "---".</td><td>Click to edit. Or drag progress handle on Gantt bar.</td></tr>
+</table>
+
+<h4>Timeline panel</h4>
+<div class="comp-spec">
+<h4>Gantt bar types</h4>
+<ul>
+<li><strong>Normal task</strong>: 18px tall, Blue 400 fill, 3px border-radius. Progress shown as lighter inner bar from left. Label (task name) inside bar if bar is wide enough (>80px), otherwise to the right.</li>
+<li><strong>Critical path task</strong>: Same dimensions as normal, Red 400 fill. Indicates zero total float.</li>
+<li><strong>Complete task</strong>: Green 400 fill, 100% progress overlay.</li>
+<li><strong>Summary task</strong>: 8px tall, Gray 400, positioned at vertical center of row. Spans from earliest child start to latest child finish. Brackets (downward ticks) at each end.</li>
+<li><strong>Milestone</strong>: 12px diamond (rotated square), Amber 400. No width (zero duration).</li>
+<li><strong>Baseline ghost</strong>: When baseline overlay is active, original planned dates shown as 6px tall semi-transparent bar below the current bar. Gray 200 fill, 40% opacity.</li>
+</ul>
+</div>
+
+<div class="comp-spec">
+<h4>Live impact simulation (killer feature)</h4>
+<ul>
+<li>On drag START of any task bar, the WASM CPM engine runs incremental scheduling from that task downstream.</li>
+<li>Affected downstream tasks show "ghost" bars at their new positions (Blue 100 fill, dashed outline).</li>
+<li>A tooltip appears: "Milestone 4 moves from Apr 15 to Apr 18 (+3 days)" near the most impacted milestone.</li>
+<li>If the change causes a task to become critical (float drops to 0), its ghost bar renders in Red 100 with a flash animation.</li>
+<li>On drag END, the change commits to the API. The ghost bars animate to their final positions (200ms ease-out) and become solid bars.</li>
+<li>On drag CANCEL (Escape or release at original position), ghosts disappear immediately.</li>
+<li>Target: entire ghost rendering pipeline runs in &lt;10ms per frame, maintaining 60fps during drag.</li>
+</ul>
+</div>
+
+<div class="comp-spec">
+<h4>Monte Carlo confidence display</h4>
+<ul>
+<li>Below the last task row, a special row shows the Monte Carlo probability bars.</li>
+<li>P50 bar: Green 200 fill with Green 400 border, solid. Label "P50 Jun 15" inside.</li>
+<li>P80 bar: Amber 100 fill with Amber 400 border, dashed. Label "P80 Jul 2" inside.</li>
+<li>P95 bar (if enabled): Red 50 fill with Red 200 border, dotted. Shown only if user enables "full distribution" mode.</li>
+<li>The P80 date also appears in the top bar badge for constant visibility.</li>
+<li>On hover over the MC row, a tooltip shows the full distribution curve (mini histogram).</li>
+</ul>
+</div>
+
+<h4>Dependency arrows</h4>
+<table class="spec-table">
+<tr><th>Type</th><th>Visual</th><th>Interaction</th></tr>
+<tr><td>FS (Finish-to-Start)</td><td>Arrow from right edge of predecessor to left edge of successor. L-shaped path with 4px corner radius. Stroke: Gray 400, 1px.</td><td>Click to select (highlight Blue 400). Delete key to remove. Hover shows tooltip with lag value.</td></tr>
+<tr><td>SS (Start-to-Start)</td><td>Arrow from left edge to left edge.</td><td>Same interaction.</td></tr>
+<tr><td>FF (Finish-to-Finish)</td><td>Arrow from right edge to right edge.</td><td>Same interaction.</td></tr>
+<tr><td>SF (Start-to-Finish)</td><td>Arrow from left edge to right edge. Rare; shown with dashed line for visual distinction.</td><td>Same interaction.</td></tr>
+<tr><td>Critical dependency</td><td>Same path as type, but Red 400 stroke, 1.5px. Only when both predecessor and successor are on critical path.</td><td>Same interaction.</td></tr>
+</table>
+
+<h4>Zoom levels</h4>
+<table class="spec-table">
+<tr><th>Level</th><th>Column width</th><th>Header labels</th><th>Best for</th></tr>
+<tr><td>Day</td><td>40px per day</td><td>Day number / Month</td><td>Detailed scheduling, short projects</td></tr>
+<tr><td>Week</td><td>80px per week</td><td>Week number / Month</td><td>Default view, 3-6 month projects</td></tr>
+<tr><td>Month</td><td>120px per month</td><td>Month / Year</td><td>Portfolio overview, 6-18 month projects</td></tr>
+<tr><td>Quarter</td><td>200px per quarter</td><td>Q1-Q4 / Year</td><td>Multi-year programs, strategic planning</td></tr>
+</table>
+
+<h3>2.3 Board view (Kanban)</h3>
+<p>Kanban board with configurable columns (default: To Do, In Progress, Review, Done). Cards show task name, assignee avatar, due date, and progress bar. Drag cards between columns to update status.</p>
+<div class="comp-spec">
+<h4>Visiban bridge integration</h4>
+<ul>
+<li>If Visiban is connected, the Board view embeds the Visiban board directly (via iframe or API).</li>
+<li>Moving a card in Visiban updates task status and percent_complete in TruePPM.</li>
+<li>Dwell time data from Visiban feeds into the Monte Carlo engine (actual cycle times improve future estimates).</li>
+<li>Visual indicator: small Visiban logo on the Board tab when bridge is active.</li>
+</ul>
+</div>
+
+<h3>2.4 Resource view</h3>
+<p>Horizontal timeline per resource (rows = people, columns = time). Each cell shows task assignments as colored blocks. Overallocation highlighted with red background. Click an overallocated cell to see conflicting tasks and resolve.</p>
+
+<!-- ============================================================ -->
+<h2 class="page-break">3. Portfolio dashboard (enterprise)</h2>
+
+<span class="section-label sl-enterprise">Enterprise &mdash; portfolio tier</span>
+
+<h3>3.1 Dashboard layout</h3>
+<p>The portfolio dashboard replaces the Gantt view when viewing a portfolio (not a specific project). It uses a metric cards row + 4-panel grid layout.</p>
+
+<table class="spec-table">
+<tr><th>Section</th><th>Position</th><th>Content</th></tr>
+<tr><td>Metric cards</td><td>Top row, 4 columns</td><td>Active projects (count + trend), Portfolio health (avg score + trend), Budget utilization (% + status), Resource utilization (% + overallocation count)</td></tr>
+<tr><td>Project health table</td><td>Left panel</td><td>All projects sorted by health score ascending (worst first). Columns: name, score (0-100 circle), progress bar, P80 date, trend arrow. Click row to navigate to project Gantt.</td></tr>
+<tr><td>Resource heat map</td><td>Right panel</td><td>Grid: rows=resources, columns=weeks. Cell color by utilization (green/amber/red/dark red). Click cell to drill into conflicting tasks.</td></tr>
+<tr><td>Demand pipeline</td><td>Bottom left</td><td>Intake requests with score and status (Submitted/Scoring/Approved/Deferred). Click to open business case detail.</td></tr>
+<tr><td>Milestone timeline</td><td>Bottom right</td><td>Key milestones across all projects, color-coded by parent project health. Sorted chronologically.</td></tr>
+</table>
+
+<h4>Health score circle</h4>
+<div class="comp-spec">
+<h4>Specifications</h4>
+<ul>
+<li>32-36px circle with score number centered inside.</li>
+<li>Colors: 0-49 = Red (bg: red-bg, text: red-text), 50-74 = Amber, 75-100 = Green.</li>
+<li>On hover: tooltip shows component breakdown (schedule 25%, budget 25%, resource 20%, scope 15%, engagement 15%) with individual scores.</li>
+<li>Trend arrow: up (green) or down (red) + delta value from last period.</li>
+</ul>
+</div>
+
+<h4>Resource heat map cell</h4>
+<div class="comp-spec">
+<h4>Specifications</h4>
+<ul>
+<li>28px tall cells with utilization percentage centered (10px font, bold).</li>
+<li>Color thresholds: &lt;80% = green-bg, 80-99% = amber-bg, 100-120% = red-bg, &gt;120% = Red 400 fill with white text.</li>
+<li>Click cell: slide-over panel shows all tasks assigned to that resource in that week, with project name and hours. "Resolve" button offers: delay lower priority, split assignment, suggest alternative.</li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 class="page-break">4. Mobile application screens</h2>
+
+<span class="section-label sl-mobile">Mobile &mdash; Android + iOS</span>
+
+<h3>4.1 Navigation structure</h3>
+<p>Bottom tab bar with 4 tabs: Tasks, Time, Projects, Settings. Tab bar is 52px tall with icon (20px) + label (10px). Active tab uses Blue 600 color; inactive uses Text Tertiary.</p>
+
+<table class="spec-table">
+<tr><th>Tab</th><th>Default screen</th><th>Primary action</th><th>Persona</th></tr>
+<tr><td>Tasks</td><td>My Tasks list (grouped by urgency)</td><td>Update progress, mark complete</td><td>All users</td></tr>
+<tr><td>Time</td><td>"What did you work on today?" prompt</td><td>Log hours via swipe</td><td>All users</td></tr>
+<tr><td>Projects</td><td>Project cards with health scores</td><td>Drill into project summary</td><td>PM, PMO Director</td></tr>
+<tr><td>Settings</td><td>Profile, sync settings, notifications</td><td>Configure sync scope, push prefs</td><td>All users</td></tr>
+</table>
+
+<h3>4.2 My Tasks screen</h3>
+<div class="comp-spec">
+<h4>Layout</h4>
+<ul>
+<li>Header: "My tasks" title (17px/600) + subtitle "N due this week" (12px, text-secondary).</li>
+<li>Section labels: "Overdue", "Due this week", "Upcoming" (11px, uppercase, text-secondary).</li>
+<li>Task cards: 0.5px border, 10px radius. Overdue cards get a 3px left border in Red 400.</li>
+<li>Card content: task name (14px/500), metadata row (badges + date, 11px), progress bar (4px tall).</li>
+<li>Badges: "Critical path" (red-bg/red-text), "Due Apr 18" (amber-bg/amber-text), "On track" (green-bg/green-text).</li>
+<li>Interactions: tap card to open detail, swipe right to mark complete (green background reveal), long-press to drag-reorder.</li>
+</ul>
+</div>
+
+<h3>4.3 Time entry screen (killer feature)</h3>
+<div class="comp-spec">
+<h4>Layout</h4>
+<ul>
+<li>Prompt: "What did you work on today?" (15px/500) at top.</li>
+<li>Hint: arrow icons + "Swipe right to log, swipe left to skip" (10px, text-tertiary).</li>
+<li>Task rows: each shows task name (13px/500), project name (11px, text-secondary), calendar suggestion if available (10px, text-tertiary, e.g., "Calendar: 2pm-4pm design review").</li>
+<li>Hours input: 48x36px rounded rectangle with pre-filled hours from calendar inference. Tap to edit with number pad. "---" if no suggestion.</li>
+<li>Submit button: blue-bg rounded rect, centered, "Submit N.N hours" (12px/500).</li>
+<li>Swipe gestures: right = log hours (green reveal), left = skip/dismiss (gray reveal).</li>
+</ul>
+</div>
+
+<div class="annotation">
+<span class="annotation-icon">!</span>
+<span>The 15-second time entry target is the north star metric for this screen. Every design decision should be evaluated against: "does this make time entry faster or slower?" If the user has to tap more than 3 times to log a day's work, we've failed.</span>
+</div>
+
+<h3>4.4 Projects screen</h3>
+<div class="comp-spec">
+<h4>Layout</h4>
+<ul>
+<li>Header: "Projects" title.</li>
+<li>Offline banner (when disconnected): amber background, "Working offline --- N changes pending sync" (11px/500).</li>
+<li>Project cards: 0.5px border, 10px radius. Header row: project name (14px/500) + health score circle (36px, color-coded).</li>
+<li>Stats row: 3-column grid showing Completion % (15px/500 value + 11px label), At-risk count, P80 date.</li>
+<li>Tap card: navigate to project detail (task list + simplified timeline on tablet).</li>
+</ul>
+</div>
+
+<h3>4.5 Offline behavior</h3>
+<table class="spec-table">
+<tr><th>State</th><th>Visual indicator</th><th>Behavior</th></tr>
+<tr><td>Online</td><td>No indicator (default)</td><td>Real-time WebSocket sync. Push notifications active.</td></tr>
+<tr><td>Offline</td><td>Amber banner at top: "Working offline --- N changes pending"</td><td>All reads from WatermelonDB. Writes queue locally. Local CPM runs via WASM for schedule changes.</td></tr>
+<tr><td>Syncing</td><td>Green banner: "Syncing..." with progress indicator</td><td>Push/pull in progress. UI remains interactive.</td></tr>
+<tr><td>Sync conflict</td><td>Alert card on affected task: "This task was modified by [user] while you were offline"</td><td>Show both versions. User picks which to keep (for WBS re-parenting conflicts). Time entries auto-merge (append-only).</td></tr>
+<tr><td>Sync error</td><td>Red banner: "Sync failed --- will retry in 30s"</td><td>Exponential backoff. All local changes preserved. No data loss.</td></tr>
+</table>
+
+<h3>4.6 Tablet adaptations (768-1024px)</h3>
+<div class="comp-spec">
+<h4>Key differences from phone</h4>
+<ul>
+<li>Task list shows in a side panel (320px) alongside a simplified timeline (remaining width).</li>
+<li>Timeline shows task bars with pinch-to-zoom (day/week/month).</li>
+<li>Timeline is read-mostly on tablet. Tap a bar to select; edit via detail panel. Full drag editing stays on desktop web.</li>
+<li>Project cards display in a 2-column grid instead of single column.</li>
+<li>Time entry: same swipe UX but cards are wider with more metadata visible.</li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 class="page-break">5. Component library</h2>
+
+<span class="section-label sl-system">Design system</span>
+
+<h3>5.1 Buttons</h3>
+<table class="spec-table">
+<tr><th>Type</th><th>Appearance</th><th>Usage</th></tr>
+<tr><td>Primary</td><td>Blue 600 fill, white text, 8px radius, 36px tall, 500 weight</td><td>Main action per screen (Submit hours, Save project, Create task)</td></tr>
+<tr><td>Secondary</td><td>Transparent fill, 0.5px border-secondary, text-primary, 8px radius, 36px tall</td><td>Toolbar buttons, alternative actions</td></tr>
+<tr><td>Ghost</td><td>No fill, no border, text-secondary, hover: bg-secondary</td><td>Inline actions, toggle filters</td></tr>
+<tr><td>Destructive</td><td>Red 600 fill, white text</td><td>Delete project, remove team member (always behind confirm dialog)</td></tr>
+<tr><td>Disabled</td><td>bg-secondary fill, text-tertiary, no hover effect</td><td>Action not available in current state</td></tr>
+</table>
+
+<h3>5.2 Badges &amp; pills</h3>
+<table class="spec-table">
+<tr><th>Type</th><th>Appearance</th><th>Usage</th></tr>
+<tr><td>Status badge</td><td>Semantic bg (red-bg/amber-bg/green-bg/blue-bg), semantic text, 8px radius-pill, 10-11px font, 500 weight, 2px 8px padding</td><td>"Critical path", "On track", "Due Apr 18", "Submitted"</td></tr>
+<tr><td>Count badge</td><td>Red 400 fill, white text, circular (min-width: 18px), 10px font</td><td>Notification count on tab icons</td></tr>
+<tr><td>Health score</td><td>32-36px circle, semantic bg, semantic text, 12-13px font, 500 weight</td><td>Project health 0-100</td></tr>
+</table>
+
+<h3>5.3 Cards</h3>
+<div class="comp-spec">
+<h4>Standard card</h4>
+<ul>
+<li>Background: bg-primary</li>
+<li>Border: 0.5px solid border-tertiary</li>
+<li>Radius: 10px (mobile), 8px (web panels)</li>
+<li>Padding: 10-12px</li>
+<li>Hover (web): border transitions to border-secondary</li>
+<li>Active/selected: 2px border in Blue 400, bg-info tint</li>
+</ul>
+</div>
+
+<div class="comp-spec">
+<h4>Metric card (portfolio dashboard)</h4>
+<ul>
+<li>Background: bg-secondary (no border)</li>
+<li>Radius: 8px</li>
+<li>Padding: 12px 16px</li>
+<li>Content: label (11px, text-tertiary) above value (22px, 500 weight) above delta (11px, green/red)</li>
+</ul>
+</div>
+
+<h3>5.4 Form elements</h3>
+<table class="spec-table">
+<tr><th>Element</th><th>Height</th><th>Border</th><th>Focus state</th></tr>
+<tr><td>Text input</td><td>36px</td><td>1px solid border-secondary</td><td>2px Blue 400 ring, border transitions to Blue 400</td></tr>
+<tr><td>Select</td><td>36px</td><td>Same as text input</td><td>Same as text input</td></tr>
+<tr><td>Date picker</td><td>36px trigger</td><td>Same as text input</td><td>Opens calendar popover below</td></tr>
+<tr><td>Number input (hours)</td><td>36px</td><td>Same as text input</td><td>Same, with increment/decrement buttons on mobile</td></tr>
+<tr><td>Progress slider</td><td>4px track, 18px thumb</td><td>Track: gray-200</td><td>Thumb: Blue 400, hover scale 1.2x</td></tr>
+<tr><td>Checkbox</td><td>18px</td><td>1px border-secondary, 4px radius</td><td>Checked: Blue 600 fill, white checkmark</td></tr>
+</table>
+
+<h3>5.5 Panels &amp; overlays</h3>
+<table class="spec-table">
+<tr><th>Type</th><th>Width</th><th>Position</th><th>Usage</th></tr>
+<tr><td>Slide-over panel</td><td>400px (web), full-screen (mobile)</td><td>Right side, overlays main content</td><td>Task detail, resource detail, conflict resolution</td></tr>
+<tr><td>Modal dialog</td><td>480px max</td><td>Centered, dimmed backdrop (rgba(0,0,0,0.4))</td><td>Destructive confirmations, create project wizard</td></tr>
+<tr><td>Bottom sheet (mobile)</td><td>Full width</td><td>Slides up from bottom, drag-to-dismiss</td><td>Action menus, date pickers, filter selection</td></tr>
+<tr><td>Toast notification</td><td>320px max</td><td>Bottom-right (web), top (mobile)</td><td>"Schedule recalculated", "Synced 12 changes", "Task assigned to you"</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 class="page-break">6. Interaction patterns</h2>
+
+<h3>6.1 Gantt drag-and-drop</h3>
+<table class="spec-table">
+<tr><th>Action</th><th>Target</th><th>Effect</th><th>Feedback</th></tr>
+<tr><td>Drag bar horizontally</td><td>Task bar body</td><td>Changes start date (finish date follows)</td><td>Ghost bars on downstream tasks (live impact sim). Snap to day grid.</td></tr>
+<tr><td>Drag bar right edge</td><td>Task bar right resize handle (4px wide)</td><td>Changes duration (finish date moves, start stays)</td><td>Same ghost bars. Duration tooltip updates in real-time.</td></tr>
+<tr><td>Drag progress handle</td><td>Small triangle on top of bar at progress point</td><td>Changes percent_complete</td><td>Progress fill extends/contracts. Percentage tooltip.</td></tr>
+<tr><td>Click bar then click another</td><td>Two task bars in sequence</td><td>Creates FS dependency between them</td><td>Arrow appears immediately. Modal asks for dep type and lag if not FS/0.</td></tr>
+<tr><td>Click dependency arrow + Delete</td><td>Dependency arrow</td><td>Removes dependency</td><td>Arrow disappears. Schedule recalculates. Ghost bars show new positions.</td></tr>
+</table>
+
+<h3>6.2 Mobile swipe gestures</h3>
+<table class="spec-table">
+<tr><th>Gesture</th><th>Screen</th><th>Effect</th><th>Feedback</th></tr>
+<tr><td>Swipe right</td><td>Time entry</td><td>Log the suggested hours for that task</td><td>Green background reveal. Card slides off-screen. Hours added to total.</td></tr>
+<tr><td>Swipe left</td><td>Time entry</td><td>Skip (didn't work on this task today)</td><td>Gray background reveal. Card slides off-screen.</td></tr>
+<tr><td>Swipe right</td><td>My Tasks</td><td>Mark task complete (100%)</td><td>Green checkmark reveal. Card moves to "Completed" section with animation.</td></tr>
+<tr><td>Pull down</td><td>Any list screen</td><td>Trigger sync (pull latest from server)</td><td>Spinner at top. "Synced N changes" toast on complete.</td></tr>
+<tr><td>Long press</td><td>Task card</td><td>Enter reorder mode</td><td>Card lifts slightly (scale 1.02). Drag to reorder within section.</td></tr>
+</table>
+
+<h3>6.3 Keyboard navigation (web)</h3>
+<table class="spec-table">
+<tr><th>Key</th><th>Context</th><th>Action</th></tr>
+<tr><td>Arrow Up/Down</td><td>Task list</td><td>Move selection between tasks</td></tr>
+<tr><td>Arrow Left/Right</td><td>Gantt with task selected</td><td>Move task start date by 1 day (with Shift: 1 week)</td></tr>
+<tr><td>Enter</td><td>Task selected</td><td>Open task detail slide-over</td></tr>
+<tr><td>Tab</td><td>Task list cell</td><td>Move to next editable cell (duration, start, progress)</td></tr>
+<tr><td>Delete / Backspace</td><td>Dependency selected</td><td>Remove dependency</td></tr>
+<tr><td>Ctrl+Z / Cmd+Z</td><td>Any</td><td>Undo last action (20-step history)</td></tr>
+<tr><td>Ctrl+S / Cmd+S</td><td>Any</td><td>Force save (normally auto-saves)</td></tr>
+<tr><td>Space</td><td>Task selected</td><td>Toggle task complete/incomplete</td></tr>
+<tr><td>/</td><td>Any</td><td>Open command palette (search tasks, navigate, create)</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 class="page-break">7. Responsive breakpoints</h2>
+
+<table class="spec-table">
+<tr><th>Breakpoint</th><th>Width</th><th>Layout changes</th></tr>
+<tr><td>Desktop XL</td><td>&ge;1440px</td><td>Full layout. Gantt task list 280px. Sidebar 220px. Dashboard 4-column metrics, 2x2 panels.</td></tr>
+<tr><td>Desktop</td><td>1280-1439px</td><td>Same as XL but tighter spacing. Dashboard panels may stack to 1 column on narrow end.</td></tr>
+<tr><td>Laptop</td><td>1024-1279px</td><td>Sidebar collapses to 60px icon-only rail. Gantt task list 240px. Toolbar wraps to 2 rows if needed.</td></tr>
+<tr><td>Tablet landscape</td><td>768-1023px</td><td>Sidebar hidden (hamburger menu). Gantt task list 200px. Dashboard metrics 2x2. Panels stack vertically.</td></tr>
+<tr><td>Tablet portrait</td><td>600-767px</td><td>Gantt hides task list by default (toggle to show). Single-column layout. Cards full-width.</td></tr>
+<tr><td>Phone</td><td>&lt;600px</td><td>Mobile app layout (React Native). No Gantt editing. Task list + simplified timeline. Bottom tab bar.</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2 class="page-break">8. Animation &amp; motion</h2>
+
+<h3>8.1 Timing functions</h3>
+<table class="spec-table">
+<tr><th>Token</th><th>Duration</th><th>Easing</th><th>Usage</th></tr>
+<tr><td><code>transition-fast</code></td><td>100ms</td><td>ease-out</td><td>Button hover, focus rings, toggles</td></tr>
+<tr><td><code>transition-normal</code></td><td>200ms</td><td>ease-out</td><td>Panel open/close, card selection, bar position commit</td></tr>
+<tr><td><code>transition-slow</code></td><td>400ms</td><td>cubic-bezier(0.16, 1, 0.3, 1)</td><td>Slide-over panels, modal entrance, page transitions</td></tr>
+<tr><td><code>transition-spring</code></td><td>500ms</td><td>cubic-bezier(0.34, 1.56, 0.64, 1)</td><td>Task complete celebration, drag-drop settle</td></tr>
+</table>
+
+<h3>8.2 Motion principles</h3>
+<div class="comp-spec">
+<ul>
+<li><strong>Causality</strong>: Motion should show cause and effect. A task bar that moves downstream because of a dependency change should animate FROM its old position, not just appear at the new one.</li>
+<li><strong>Restraint</strong>: Only animate things that help the user understand what happened. Schedule recalculation: animate. Menu opening: just appear (100ms fade max).</li>
+<li><strong>Accessibility</strong>: All animations wrapped in <code>@media (prefers-reduced-motion: no-preference)</code>. With reduced motion, all transitions are instant.</li>
+<li><strong>Performance</strong>: Only animate <code>transform</code> and <code>opacity</code> (GPU-composited properties). Never animate <code>width</code>, <code>height</code>, <code>top</code>, or <code>left</code> during the Gantt drag interaction.</li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 class="page-break">9. Dark mode</h2>
+
+<p>TruePPM supports automatic dark mode via <code>prefers-color-scheme: dark</code> media query. All colors use CSS custom properties that switch between light and dark values. Gantt bars, badges, and health score circles use the same semantic meaning in both modes (red = critical in both).</p>
+
+<div class="comp-spec">
+<h4>Dark mode rules</h4>
+<ul>
+<li>Surfaces invert: bg-primary becomes near-black (#1a1a19), bg-secondary becomes dark gray (#2c2c2a).</li>
+<li>Text inverts: text-primary becomes near-white (#e8e6de).</li>
+<li>Borders: rgba(255,255,255,0.1) instead of rgba(0,0,0,0.1).</li>
+<li>Gantt bars: same hues but slightly lighter (400 → 300 stop equivalent) for visibility on dark backgrounds.</li>
+<li>Health score circles: use 800 fill + 200 text (inverted from light mode 50 fill + 800 text).</li>
+<li>Badges: same rule — dark fills with light text in dark mode.</li>
+<li>Never use hardcoded colors. Always go through CSS variables.</li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2>10. Implementation notes for developers</h2>
+
+<h3>10.1 CSS architecture</h3>
+<div class="comp-spec">
+<ul>
+<li>Use Tailwind CSS for web (packages/web). Custom theme extending Tailwind with TruePPM design tokens.</li>
+<li>Use NativeWind for mobile (packages/mobile). Same Tailwind classes, compiled to React Native StyleSheet.</li>
+<li>All design tokens defined in <code>tailwind.config.ts</code> as a single source of truth.</li>
+<li>Gantt chart: custom CSS (not Tailwind) for the SVAR React Gantt integration. Keep in a dedicated <code>gantt.css</code> file that overrides SVAR defaults to match TruePPM design system.</li>
+<li>No CSS-in-JS runtime (no styled-components, no emotion). Tailwind utility classes only.</li>
+</ul>
+</div>
+
+<h3>10.2 Component file structure</h3>
+<div class="comp-spec">
+<ul>
+<li>One component per file. Named exports only (no default exports).</li>
+<li>Co-locate test file: <code>TaskCard.tsx</code> + <code>TaskCard.test.tsx</code></li>
+<li>Shared components in <code>packages/web/src/components/</code></li>
+<li>Feature-specific components in <code>packages/web/src/features/{feature}/components/</code></li>
+<li>Mobile components mirror web structure where possible for concept parity.</li>
+</ul>
+</div>
+
+<h3>10.3 Accessibility checklist for every component</h3>
+<div class="comp-spec">
+<ul>
+<li>Interactive elements: role, aria-label or aria-labelledby, tabIndex</li>
+<li>Dynamic content: aria-live="polite" for updates (schedule recalculated, sync complete)</li>
+<li>Color: never the only indicator. Add icon, pattern, or text alongside color coding.</li>
+<li>Focus: visible focus ring on every interactive element. Logical tab order.</li>
+<li>Gantt bars: each bar is a focusable element with aria-label describing task name, dates, and status.</li>
+<li>Screen reader: announce "Critical path" and "Overdue" status when task is focused.</li>
+</ul>
+</div>
+
+<div style="margin-top:48px;padding-top:24px;border-top:1px solid var(--border);font-size:13px;color:var(--text3);">
+TruePPM Design System v1.0 &middot; March 2026 &middot; trueppm.com
+</div>
+
+</div>
+</body>
+</html>
