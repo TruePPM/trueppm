@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from rest_framework import filters, viewsets
+from rest_framework.permissions import IsAuthenticated
 
 from trueppm_api.apps.resources.models import Resource, TaskResource
 from trueppm_api.apps.resources.serializers import ResourceSerializer, TaskResourceSerializer
+from trueppm_api.permissions import IsProjectMember
 
 
 class ResourceViewSet(viewsets.ModelViewSet):
     """CRUD for resources (people, teams, materials)."""
 
+    permission_classes = [IsAuthenticated, IsProjectMember]
     queryset = Resource.objects.select_related("calendar").order_by("name")
     serializer_class = ResourceSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
@@ -21,6 +24,7 @@ class ResourceViewSet(viewsets.ModelViewSet):
 class TaskResourceViewSet(viewsets.ModelViewSet):
     """CRUD for task-resource assignments."""
 
+    permission_classes = [IsAuthenticated, IsProjectMember]
     serializer_class = TaskResourceSerializer
     filter_backends = [filters.OrderingFilter]
 

@@ -5,14 +5,23 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
 
 
 @pytest.fixture
-def client() -> APIClient:
-    return APIClient()
+def user(db: object) -> object:
+    User = get_user_model()
+    return User.objects.create_user(username="testuser", password="pw")
+
+
+@pytest.fixture
+def client(user: object) -> APIClient:
+    c = APIClient()
+    c.force_authenticate(user=user)
+    return c
 
 
 @pytest.fixture
@@ -136,3 +145,16 @@ class TestDependencyAPI:
         r = client.get(f"/api/v1/dependencies/?project={project.pk}")
         assert r.status_code == 200
         assert len(r.data["results"]) >= 1
+
+    def test_cross_project_dependency_rejected(
+        self, client: APIClient, calendar: Calendar, task: Task
+    ) -> None:
+        other_project = Project.objects.create(
+            name="Other", start_date=date(2026, 4, 1), calendar=calendar
+        )
+        other_task = Task.objects.create(project=other_project, name="X", duration=1)
+        r = client.post(
+            "/api/v1/dependencies/",
+            {"predecessor": str(task.pk), "successor": str(other_task.pk), "dep_type": "FS"},
+        )
+        assert r.status_code == 400

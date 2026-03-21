@@ -94,3 +94,18 @@ class DependencySerializer(serializers.ModelSerializer):
         model = Dependency
         fields = ["id", "predecessor", "successor", "dep_type", "lag"]
         read_only_fields = ["id"]
+
+    def validate(self, attrs: dict) -> dict:  # type: ignore[override]
+        # Enforce same-project constraint: the CPM engine assumes a single-project
+        # DAG. Cross-project edges produce undefined scheduling behaviour.
+        predecessor = attrs.get("predecessor") or (
+            self.instance.predecessor if self.instance else None
+        )
+        successor = attrs.get("successor") or (
+            self.instance.successor if self.instance else None
+        )
+        if predecessor and successor and predecessor.project_id != successor.project_id:
+            raise serializers.ValidationError(
+                "Predecessor and successor must belong to the same project."
+            )
+        return attrs
