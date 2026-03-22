@@ -3,50 +3,90 @@ import type { GanttScaleData } from '@svar-ui/gantt-store/dist/types/types';
 import type { MonteCarloResult } from '@/types';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
 
-interface BarConfig {
-  date: string;
+// Bar render order: P95 first (bottom), P80, P50 on top.
+// This ensures the shorter, solid P50 bar is always fully visible.
+interface BarSpec {
+  key: keyof Pick<MonteCarloResult, 'p50' | 'p80' | 'p95'>;
   label: string;
   colorClass: string;
+  /** Tailwind background-image class to simulate dashed/dotted via repeating-gradient */
+  pattern: 'solid' | 'dashed' | 'dotted';
 }
 
-const BARS: BarConfig[] = [
-  { date: 'p50', label: 'P50', colorClass: 'bg-semantic-on-track' },
-  { date: 'p80', label: 'P80', colorClass: 'bg-semantic-at-risk' },
-  { date: 'p95', label: 'P95', colorClass: 'bg-semantic-critical' },
+const BARS: BarSpec[] = [
+  { key: 'p95', label: 'P95', colorClass: 'bg-semantic-critical', pattern: 'dotted' },
+  { key: 'p80', label: 'P80', colorClass: 'bg-semantic-at-risk',  pattern: 'dashed' },
+  { key: 'p50', label: 'P50', colorClass: 'bg-semantic-on-track', pattern: 'solid'  },
 ];
 
-interface ConfidenceLineProps {
-  left: number;
-  config: BarConfig;
+const BAR_H = 4;
+
+interface ConfidenceBarProps {
+  startLeft: number;
+  endLeft: number;
+  spec: BarSpec;
   isoDate: string;
+  /** Stacking order within the 44px row — 0 = bottom, 2 = top */
+  zIndex: number;
 }
 
-function ConfidenceLine({ left, config, isoDate }: ConfidenceLineProps) {
+/**
+ * Single horizontal confidence bar spanning from the timeline origin (project
+ * start) to the percentile date end. A rotated diamond end-cap provides a
+ * shape differentiator in addition to color and stroke pattern (WCAG 1.4.1).
+ */
+function ConfidenceBar({ startLeft, endLeft, spec, isoDate, zIndex }: ConfidenceBarProps) {
   const formatted = new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
-    year: 'numeric',
   }).format(new Date(isoDate));
 
-  const borderStyle =
-    config.date === 'p80'
-      ? 'border-dashed'
-      : config.date === 'p95'
-        ? 'border-dotted'
-        : 'border-solid';
+  const width = Math.max(0, endLeft - startLeft);
+
+  // Vertical position: all bars share the same vertical centre in the 44px row
+  // (top: 50% - 2px = 20px from top). Slight y-offset per bar so labels don't overlap.
+  const topOffset = zIndex === 2 ? 14 : zIndex === 1 ? 19 : 24;
+
+  // Dashed/dotted overlay: we render the bar as a solid div, then apply a
+  // repeating-gradient mask for non-solid patterns using inline style.
+  const patternStyle =
+    spec.pattern === 'dashed'
+      ? {
+          backgroundImage:
+            'repeating-linear-gradient(90deg, transparent 0, transparent 4px, rgba(255,255,255,0.6) 4px, rgba(255,255,255,0.6) 8px)',
+        }
+      : spec.pattern === 'dotted'
+        ? {
+            backgroundImage:
+              'repeating-linear-gradient(90deg, transparent 0, transparent 2px, rgba(255,255,255,0.6) 2px, rgba(255,255,255,0.6) 5px)',
+          }
+        : {};
 
   return (
     <div
-      className={`absolute top-2 bottom-2 w-0 border-l-2 ${borderStyle} ${config.colorClass.replace('bg-', 'border-')}`}
-      style={{ left }}
+      className="absolute"
+      style={{ left: startLeft, top: topOffset, width, height: BAR_H, zIndex }}
       role="presentation"
       aria-hidden="true"
     >
-      {/* Date label above the line */}
+      {/* Bar fill */}
+      <div
+        className={`absolute inset-0 rounded-sm ${spec.colorClass}`}
+        style={patternStyle}
+      />
+
+      {/* Diamond end-cap at the bar's right terminus */}
+      <div
+        className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rotate-45 border border-neutral-border ${spec.colorClass}`}
+        style={{ left: width }}
+      />
+
+      {/* Date label above the end-cap */}
       <span
-        className={`absolute -top-5 left-1 text-[10px] font-medium whitespace-nowrap ${config.colorClass.replace('bg-', 'text-')}`}
+        className={`absolute -top-4 whitespace-nowrap text-[9px] font-medium ${spec.colorClass.replace('bg-', 'text-')}`}
+        style={{ left: Math.max(0, width - 20) }}
       >
-        {config.label}: {formatted}
+        {spec.label}: {formatted}
       </span>
     </div>
   );
@@ -59,93 +99,117 @@ interface Props {
 }
 
 /**
- * Timeline side of the Monte Carlo row. Renders three vertical confidence
- * lines at P50/P80/P95 dates, positioned using SVAR's scale geometry.
+ * Timeline side of the Monte Carlo row. Renders three horizontal confidence
+ * bars spanning from the project start date to P50/P80/P95 completion dates,
+ * positioned using SVAR's scale geometry via useSvarScale().
  *
- * Horizontally scrolls in sync with the SVAR timeline via the scrollLeft
- * and scales values derived from useSvarScale().
+ * P95 renders first (bottom), P80 above, P50 on top so the solid green bar
+ * is always fully visible. Diamond end-caps provide shape differentiation
+ * (WCAG 1.4.1) in addition to color and stroke pattern.
  *
- * The element uses role="button" so keyboard users can focus it and reveal
- * the histogram tooltip via Enter or Space.
+ * role="button" + aria-haspopup="dialog" + aria-expanded makes the row
+ * keyboard-accessible for the histogram tooltip.
  */
 export function MonteCarloTimeline({ result, scrollLeft, scales }: Props) {
+  const [isOpen, setIsOpen] = useState(false);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   const prefersReducedMotion =
     typeof window !== 'undefined' &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  const showTooltipAtCenter = useCallback(() => {
+  const openTooltip = useCallback((x: number, y: number) => {
+    setTooltipPos({ x, y });
+    setIsOpen(true);
+  }, []);
+
+  const closeTooltip = useCallback(() => {
+    setTooltipPos(null);
+    setIsOpen(false);
+  }, []);
+
+  const showAtCenter = useCallback(() => {
     const el = rowRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    setTooltipPos({ x: rect.left + rect.width / 2, y: rect.top });
-  }, []);
+    openTooltip(rect.left + rect.width / 2, rect.top);
+  }, [openTooltip]);
 
-  const handleMouseEnter = useCallback((e: MouseEvent<HTMLDivElement>) => {
-    setTooltipPos({ x: e.clientX, y: e.clientY });
-  }, []);
+  const handleMouseEnter = useCallback(
+    (e: MouseEvent<HTMLDivElement>) => openTooltip(e.clientX, e.clientY),
+    [openTooltip],
+  );
+  const handleMouseMove = useCallback(
+    (e: MouseEvent<HTMLDivElement>) => {
+      if (isOpen) setTooltipPos({ x: e.clientX, y: e.clientY });
+    },
+    [isOpen],
+  );
+  const handleMouseLeave = useCallback(closeTooltip, [closeTooltip]);
+  const handleFocus = useCallback(showAtCenter, [showAtCenter]);
+  const handleBlur = useCallback(closeTooltip, [closeTooltip]);
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        if (isOpen) { closeTooltip(); } else { showAtCenter(); }
+      }
+      if (e.key === 'Escape') closeTooltip();
+    },
+    [isOpen, closeTooltip, showAtCenter],
+  );
 
-  const handleMouseMove = useCallback((e: MouseEvent<HTMLDivElement>) => {
-    setTooltipPos({ x: e.clientX, y: e.clientY });
-  }, []);
-
-  const handleMouseLeave = useCallback(() => {
-    setTooltipPos(null);
-  }, []);
-
-  const handleFocus = useCallback(showTooltipAtCenter, [showTooltipAtCenter]);
-
-  const handleBlur = useCallback(() => setTooltipPos(null), []);
-
+  /** Convert an ISO date to a pixel left-offset from the timeline canvas origin. */
   function dateToLeft(isoDate: string): number | null {
     if (!scales) return null;
-    const date = new Date(isoDate);
     const totalUnits = scales.diff(scales.end, scales.start);
     if (totalUnits <= 0) return null;
     const pxPerUnit = scales.width / totalUnits;
-    const unitsFromStart = scales.diff(date, scales.start);
+    const unitsFromStart = scales.diff(new Date(isoDate), scales.start);
     return unitsFromStart * pxPerUnit - scrollLeft;
   }
 
+  // Bars start at the timeline canvas origin (project start ≈ scales.start)
+  const originLeft = scales ? -scrollLeft : null;
   const p50Left = dateToLeft(result.p50);
   const p80Left = dateToLeft(result.p80);
   const p95Left = dateToLeft(result.p95);
-
-  const barsReady = p50Left !== null && p80Left !== null && p95Left !== null;
+  const barsReady =
+    originLeft !== null && p50Left !== null && p80Left !== null && p95Left !== null;
+  // Narrowed values, safe to use after barsReady guard
+  const endLeftByBar = [p95Left ?? 0, p80Left ?? 0, p50Left ?? 0];
 
   return (
     <>
-      {/* role="button" makes tabIndex valid and enables keyboard focus for a11y */}
       <div
         ref={rowRef}
         role="button"
         tabIndex={0}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        aria-label={`Monte Carlo: P50 ${result.p50}, P80 ${result.p80}, P95 ${result.p95}. Press Enter for distribution.`}
         className="flex-1 min-w-0 relative overflow-hidden border-t border-neutral-border bg-neutral-surface
           cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset
           focus-visible:ring-brand-primary"
-        aria-label={`Monte Carlo: P50 ${result.p50}, P80 ${result.p80}, P95 ${result.p95}. Press Enter for distribution.`}
         onMouseEnter={handleMouseEnter}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         onFocus={handleFocus}
         onBlur={handleBlur}
-        onKeyDown={useCallback(
-          (e: KeyboardEvent<HTMLDivElement>) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              showTooltipAtCenter();
-            }
-            if (e.key === 'Escape') setTooltipPos(null);
-          },
-          [showTooltipAtCenter],
-        )}
+        onKeyDown={handleKeyDown}
       >
         {barsReady && (
           <>
-            <ConfidenceLine left={p50Left} config={BARS[0]} isoDate={result.p50} />
-            <ConfidenceLine left={p80Left} config={BARS[1]} isoDate={result.p80} />
-            <ConfidenceLine left={p95Left} config={BARS[2]} isoDate={result.p95} />
+            {BARS.map((spec, i) => (
+              <ConfidenceBar
+                key={spec.key}
+                startLeft={originLeft ?? 0}
+                endLeft={endLeftByBar[i] ?? 0}
+                spec={spec}
+                isoDate={result[spec.key]}
+                zIndex={i}
+              />
+            ))}
           </>
         )}
 
@@ -157,35 +221,37 @@ export function MonteCarloTimeline({ result, scrollLeft, scales }: Props) {
       </div>
 
       {/* Histogram tooltip — fixed-position to escape overflow:hidden ancestors */}
-      {tooltipPos && (
+      {isOpen && tooltipPos && (
         <div
-          role="tooltip"
-          className={`fixed z-50 p-3 rounded border border-neutral-border bg-neutral-surface pointer-events-none ${
-            prefersReducedMotion ? '' : 'animate-fade-in'
+          role="dialog"
+          aria-modal="false"
+          aria-label="Monte Carlo distribution histogram"
+          className={`fixed z-50 w-60 p-3 rounded border border-neutral-border bg-neutral-surface pointer-events-none ${
+            prefersReducedMotion ? '' : 'motion-safe:transition-opacity motion-safe:duration-150'
           }`}
           style={{
-            left: Math.min(tooltipPos.x + 8, window.innerWidth - 260),
-            top: tooltipPos.y - 140,
+            left: Math.min(tooltipPos.x - 120, window.innerWidth - 256),
+            top: tooltipPos.y - 168,
           }}
         >
-          <p className="text-xs font-medium text-neutral-text-primary mb-2">
-            Completion probability
+          <p className="text-xs text-neutral-text-secondary mb-1.5">
+            Distribution of project end dates
           </p>
           <MonteCarloHistogram result={result} />
-          <dl className="mt-2 grid grid-cols-3 gap-x-3 text-[10px]">
-            <div>
-              <dt className="text-semantic-on-track font-medium">P50</dt>
-              <dd className="text-neutral-text-secondary">{result.p50}</dd>
-            </div>
-            <div>
-              <dt className="text-semantic-at-risk font-medium">P80</dt>
-              <dd className="text-neutral-text-secondary">{result.p80}</dd>
-            </div>
-            <div>
-              <dt className="text-semantic-critical font-medium">P95</dt>
-              <dd className="text-neutral-text-secondary">{result.p95}</dd>
-            </div>
-          </dl>
+          <div className="mt-2 flex items-center gap-4 text-[10px] text-neutral-text-secondary">
+            <span>
+              <span className="inline-block w-2.5 h-1 bg-semantic-on-track mr-1 rounded-sm" aria-hidden="true" />
+              P50 {result.p50}
+            </span>
+            <span>
+              <span className="inline-block w-2.5 h-1 bg-semantic-at-risk mr-1 rounded-sm" aria-hidden="true" />
+              P80 {result.p80}
+            </span>
+            <span>
+              <span className="inline-block w-2.5 h-1 bg-semantic-critical mr-1 rounded-sm" aria-hidden="true" />
+              P95 {result.p95}
+            </span>
+          </div>
         </div>
       )}
     </>
