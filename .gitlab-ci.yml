@@ -359,6 +359,6 @@ license:check:
                  GNU General Public License v3 (GPLv3);
                  GNU Affero General Public License v3 (AGPLv3)"
     # --- npm ---
+    # --onlyAllow covers --failOn implicitly: any license not in the list fails.
     - npx --prefix packages/web license-checker --production
-        --failOn "GPL-2.0;GPL-3.0;AGPL-3.0" --onlyAllow
-        "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;Unlicense;WTFPL;BlueOak-1.0.0"
+        --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;Unlicense;WTFPL;BlueOak-1.0.0"
