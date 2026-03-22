@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- 5-role RBAC (`access` app): `ProjectMembership` through-table with Owner/Admin/Scheduler/Member/Viewer roles;
+  `ProjectScopedViewSet` mixin for IDOR prevention; `IsProject*` permission classes wired into all ViewSets.
+  Project creators are auto-assigned Owner on creation.
+- Auto-scheduling Celery task (`recalculate_schedule`) triggered on every Task/Dependency write via
+  `transaction.on_commit`. Idempotency enforced via Redis SET NX lock; lock collisions re-queue with 10s countdown.
+- Real-time WebSocket support (`sync` app): `ProjectConsumer` with JWT `?token=` auth; Viewers (role=0) rejected
+  with close code 4003; `broadcast_board_event()` helper broadcasts mutation and CPM completion events to all
+  connected project clients.
 - CI pipeline expanded with `api:type-check` (mypy strict), `api:migration-check`,
   `api:openapi-check`, `changelog:check` (MR-only), `license:check`,
   `security:bandit`, and `security:pip-audit` (MR + main). Coverage thresholds

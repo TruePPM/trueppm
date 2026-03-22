@@ -60,9 +60,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
 
     async def disconnect(self, code: int) -> None:
         if hasattr(self, "group_name"):
-            await self.channel_layer.group_discard(
-                self.group_name, self.channel_name
-            )
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     async def receive_json(self, content: Any, **kwargs: Any) -> None:
         # v1: server-push only. Silently discard any client messages.
