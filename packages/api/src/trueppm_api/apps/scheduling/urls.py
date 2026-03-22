@@ -1,7 +1,11 @@
-"""URL patterns — populated when views are added."""
+"""URL patterns for the scheduling app."""
 
 from __future__ import annotations
 
-from django.urls import URLPattern
+from django.urls import URLPattern, path
 
-urlpatterns: list[URLPattern] = []
+from trueppm_api.apps.scheduling.views import trigger_schedule
+
+urlpatterns: list[URLPattern] = [
+    path("projects/<str:pk>/schedule/", trigger_schedule, name="project-schedule"),
+]
