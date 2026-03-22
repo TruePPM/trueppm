@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import uuid
+
 from django.db import transaction
 from django.db.models import QuerySet
 from rest_framework import serializers as drf_serializers
@@ -18,6 +20,8 @@ from trueppm_api.apps.access.serializers import (
     ProjectMembershipWriteSerializer,
 )
 from trueppm_api.apps.projects.models import Project
+
+_PK = str | uuid.UUID
 
 
 class ProjectMembershipViewSet(viewsets.GenericViewSet[ProjectMembership]):
@@ -55,16 +59,16 @@ class ProjectMembershipViewSet(viewsets.GenericViewSet[ProjectMembership]):
 
             raise NotFound("Project not found.") from err
 
-    def _require_actor_role(self, request: Request, project_id: object, minimum: int) -> int:
+    def _require_actor_role(self, request: Request, project_id: _PK, minimum: int) -> int:
         """Return the actor's role, raising 403 if below minimum."""
         role = _membership_role(request, project_id)
         if role is None or role < minimum:
             from rest_framework.exceptions import PermissionDenied
 
-            raise PermissionDenied(self.permission_classes[1].message)
+            raise PermissionDenied("You do not have permission to perform this action.")
         return role
 
-    def _check_last_owner_guard(self, project_id: object, exclude_pk: object = None) -> None:
+    def _check_last_owner_guard(self, project_id: _PK, exclude_pk: _PK | None = None) -> None:
         """Raise 422 if removing/demoting would strand the project without an Owner."""
         qs = ProjectMembership.objects.filter(
             project_id=project_id, role=Role.OWNER, is_deleted=False
