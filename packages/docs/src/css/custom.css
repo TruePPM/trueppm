@@ -1,0 +1,23 @@
+/* TruePPM brand colors */
+:root {
+  --ifm-color-primary: #3b5bdb;
+  --ifm-color-primary-dark: #3451c4;
+  --ifm-color-primary-darker: #3149b8;
+  --ifm-color-primary-darkest: #273c98;
+  --ifm-color-primary-light: #4265f2;
+  --ifm-color-primary-lighter: #4e6ef3;
+  --ifm-color-primary-lightest: #6b87f5;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme="dark"] {
+  --ifm-color-primary: #7b9ff9;
+  --ifm-color-primary-dark: #5d87f8;
+  --ifm-color-primary-darker: #4e7bf7;
+  --ifm-color-primary-darkest: #1d55f4;
+  --ifm-color-primary-light: #99b7fa;
+  --ifm-color-primary-lighter: #a8c3fb;
+  --ifm-color-primary-lightest: #d5e2fd;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}

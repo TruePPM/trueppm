@@ -1,4 +1,9 @@
-# TruePPM
+---
+id: intro
+title: TruePPM
+slug: /
+sidebar_position: 1
+---
 
 TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platform built for teams that need reliable schedule control.
 
@@ -19,9 +24,9 @@ trueppm-suite/
 ├── packages/
 │   ├── scheduler/   # Pure-Python CPM + Monte Carlo engine (pip: trueppm-scheduler)
 │   ├── api/         # Django REST + Channels backend
+│   ├── docs/        # This site
 │   ├── helm/        # Helm 3 chart for Kubernetes
 │   └── web/         # React 19 frontend (coming soon)
-├── docs/            # This site
 └── docker-compose.yml
 ```
 
@@ -29,4 +34,4 @@ trueppm-suite/
 
 - [Installation](getting-started/installation.md) — set up a local development environment
 - [Quickstart](getting-started/quickstart.md) — create your first project via the API
-- [Architecture overview](architecture/overview.md) — understand how the pieces fit together
+- [Architecture](architecture/overview.md) — understand how the pieces fit together

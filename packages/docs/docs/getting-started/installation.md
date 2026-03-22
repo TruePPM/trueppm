@@ -1,4 +1,8 @@
-# Installation
+---
+id: installation
+title: Installation
+sidebar_position: 1
+---
 
 ## Prerequisites
 
@@ -6,7 +10,7 @@
 |------|----------------|
 | Docker + Docker Compose | 24+ |
 | Git | any recent |
-| Python | 3.12+ (for local scheduler development) |
+| Python | 3.12+ (for local scheduler development only) |
 
 You do not need Python installed locally to run the API — Docker handles it.
 
@@ -46,7 +50,7 @@ curl http://localhost:8000/api/v1/projects/
 # → {"count":0,"results":[]}
 ```
 
-The OpenAPI schema is available at `http://localhost:8000/api/schema/` (YAML) and `http://localhost:8000/api/schema/swagger-ui/` (interactive).
+The OpenAPI schema is at `http://localhost:8000/api/schema/` (YAML) and `http://localhost:8000/api/schema/swagger-ui/` (interactive).
 
 ## Scheduler package only
 
@@ -71,7 +75,7 @@ print(result.tasks["t-2"].early_finish)  # 2026-01-20
 
 ## Environment variables
 
-All API configuration is via environment variables. For local development, `docker-compose.yml` sets sensible defaults. For production, set at minimum:
+For local development, `docker-compose.yml` sets sensible defaults. For production, set at minimum:
 
 | Variable | Description |
 |----------|-------------|
@@ -80,5 +84,3 @@ All API configuration is via environment variables. For local development, `dock
 | `REDIS_URL` | `redis://host:6379` |
 | `DJANGO_SETTINGS_MODULE` | `trueppm_api.settings.prod` |
 | `ALLOWED_HOSTS` | Comma-separated list of allowed hostnames |
-
-See `packages/api/src/trueppm_api/settings/` for the full settings reference.
