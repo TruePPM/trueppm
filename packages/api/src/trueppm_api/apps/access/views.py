@@ -86,7 +86,13 @@ class ProjectMembershipViewSet(viewsets.GenericViewSet[ProjectMembership]):
     # -----------------------------------------------------------------------
 
     def list(self, request: Request, **kwargs: object) -> Response:
-        self._get_project_or_404()
+        project = self._get_project_or_404()
+        # has_permission only checks authentication; enforce membership explicitly
+        # because DRF only calls has_object_permission on retrieve/update/destroy.
+        if _membership_role(request, project.pk) is None:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("You must be a member of this project.")
         qs = self.get_queryset()
         serializer = ProjectMembershipReadSerializer(qs, many=True)
         return Response(serializer.data)

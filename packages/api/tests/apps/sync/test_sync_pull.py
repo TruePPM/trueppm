@@ -148,17 +148,26 @@ def test_sync_invalid_since_returns_400(
 def test_sync_delta_respects_since(
     authed_client: APIClient, project: Project, membership: ProjectMembership
 ) -> None:
+    # Both tasks start at server_version=1 on INSERT.
     task_a = Task.objects.create(project=project, name="A", duration=1)
-    version_after_a = task_a.server_version
     task_b = Task.objects.create(project=project, name="B", duration=1)
+    assert task_a.server_version == 1
+    assert task_b.server_version == 1
 
+    # Update task_a only — it now has server_version=2.
+    task_a.name = "A-modified"
+    task_a.save()
+    task_a.refresh_from_db()
+    assert task_a.server_version == 2
+
+    # A client that last synced at version=1 should see task_a (modified to v=2)
+    # but not task_b (still at v=1, unchanged since the checkpoint).
     with patch.object(
         __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
         "_snapshot_max_version",
         return_value=99,
     ):
-        resp = authed_client.get(_url(project), {"since": str(version_after_a)})
+        resp = authed_client.get(_url(project), {"since": "1"})
     task_ids = [t["id"] for t in resp.data["changes"]["tasks"]["updated"]]
-    # Only task_b (created after version_after_a) should appear
-    assert str(task_b.pk) in task_ids
-    assert str(task_a.pk) not in task_ids
+    assert str(task_a.pk) in task_ids
+    assert str(task_b.pk) not in task_ids

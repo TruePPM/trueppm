@@ -34,9 +34,11 @@ class VersionedModel(models.Model):
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        # Increment server_version atomically on every update.
+        # Increment server_version atomically on every save (INSERT and UPDATE).
         manager = type(self).objects  # type: ignore[attr-defined]
         if self.pk and manager.filter(pk=self.pk).exists():
+            # UPDATE path: atomically increment via F() expression so concurrent
+            # writes produce a strict version order rather than a lost-update race.
             manager.filter(pk=self.pk).update(server_version=models.F("server_version") + 1)
             self.server_version = manager.values_list("server_version", flat=True).get(pk=self.pk)
             # Exclude server_version from the subsequent UPDATE so super().save()
@@ -51,6 +53,10 @@ class VersionedModel(models.Model):
                     for f in self._meta.concrete_fields
                     if not f.primary_key and f.attname != "server_version"
                 ]
+        else:
+            # INSERT path: start at 1 so the sync endpoint can find new rows
+            # with server_version__gt=0 (since=0 means "give me everything").
+            self.server_version = 1
         super().save(*args, **kwargs)
 
     def soft_delete(self) -> None:
