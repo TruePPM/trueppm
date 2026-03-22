@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Application shell (`packages/web/`): top bar (48px), collapsible sidebar (220px→60px,
+  200ms ease-out), status bar (28px), bottom nav rail at <768px, mobile drawer overlay.
+  React Router v7 `createBrowserRouter`, Zustand shell store, stub hooks with fixture data.
+  Custom Tailwind breakpoints for Design System v1.0 §7 (xs=320px, sm=375px, 2xl=1440px).
+  WCAG 2.1 AA focus rings, aria landmarks, keyboard-navigable sidebar toggle. Closes #17.
+- `packages/web/CLAUDE.md` — frontend design rules (no shadows, focus rings, health token
+  encoding, touch targets, color dot a11y pattern).
 - React 19 + Vite 6 + TypeScript 5 web frontend scaffold (`packages/web/`): TanStack Query v5,
   Zustand v5, Tailwind CSS v3 with TruePPM Design System v1.0 tokens (WCAG-corrected
   `text-secondary: #6B6965`), ESLint 9 flat config with jsx-a11y, vitest, axios API client with
