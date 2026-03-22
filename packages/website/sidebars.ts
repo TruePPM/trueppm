@@ -21,6 +21,7 @@ const sidebars: SidebarsConfig = {
       label: "Features",
       items: [
         "features/scheduler",
+        "features/gantt",
         "features/rbac",
         "features/real-time",
         "features/offline-sync",

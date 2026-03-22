@@ -10,4 +10,4 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: [networkx-stubs, numpy]
-        args: [--config-file=pyproject.toml]
+        args: [--config-file=packages/scheduler/pyproject.toml]

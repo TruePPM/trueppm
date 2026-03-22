@@ -1,7 +1,8 @@
 stages:
-  - check
-  - test
-  - security
+  - lint      # fastest jobs, most commonly fail — run first, gate everything
+  - analyze   # type-check, static analysis, migration/schema checks
+  - test      # unit + integration tests (per-package, DAG-gated on analyze)
+  - security  # CVE scans + license audit (MR + main only)
 
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
@@ -26,8 +27,6 @@ workflow:
 # Base templates
 # Cache keys are derived from each package's dependency manifest so the
 # Minio-backed cache is automatically invalidated when dependencies change.
-# The &scheduler-cache and &api-cache YAML anchors are defined here and
-# reused with <<: in jobs that need the same cache key but a different policy.
 # ---------------------------------------------------------------------------
 
 .scheduler:
@@ -35,14 +34,14 @@ workflow:
   cache: &scheduler-cache
     key:
       files:
-        - pyproject.toml
+        - packages/scheduler/pyproject.toml
       prefix: scheduler-pip
     paths:
       - .cache/pip/
   before_script:
-    - pip install -e ".[dev]" --quiet
+    - pip install -e "packages/scheduler[dev]" --quiet
 
-# Full API template — postgres + redis services for test jobs.
+# Full API template — postgres + redis services, used by api:test only.
 .api:
   image: python:3.11-slim
   cache: &api-cache
@@ -63,14 +62,13 @@ workflow:
     REDIS_URL: "redis://redis:6379"
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
-    - pip install -e ".[dev]" --quiet
+    - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e "packages/api[dev]" --quiet
     - pip install pytest pytest-django pytest-asyncio --quiet
 
-# Lean API template — no DB/Redis services.
-# For jobs that only need Django importable (type-check, migration check,
-# schema generation). DATABASE_URL is set so django-environ parses it
-# cleanly; no actual connection is made.
+# Lean API template — no DB/Redis, for jobs that only need Django importable
+# (type-check, migration check, schema generation). DATABASE_URL is set so
+# django-environ parses cleanly; no actual connection is made.
 .api-no-db:
   image: python:3.11-slim
   cache:
@@ -81,96 +79,43 @@ workflow:
     DATABASE_URL: "postgres://trueppm:trueppm@localhost/trueppm_test"
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
-    - pip install -e ".[dev]" --quiet
+    - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e packages/api --quiet
 
-# ---------------------------------------------------------------------------
-# Scheduler — check
-# ---------------------------------------------------------------------------
+.web:
+  image: node:20-alpine
+  cache: &web-cache
+    key:
+      files:
+        - packages/web/package-lock.json
+      prefix: web-npm
+    paths:
+      - packages/web/node_modules/
+  before_script:
+    - cd packages/web
+    - npm ci --prefer-offline --quiet
 
-scheduler:lint:
-  extends: .scheduler
-  stage: check
-  script:
-    - ruff check src/ tests/
-    - ruff format --check src/ tests/
-
-scheduler:type-check:
-  extends: .scheduler
-  stage: check
-  script:
-    - mypy
-
-# ---------------------------------------------------------------------------
-# API — check
-# ---------------------------------------------------------------------------
-
-api:lint:
-  stage: check
-  image: python:3.11-slim
+.website:
+  image: node:20-alpine
   cache:
-    <<: *api-cache
-    policy: pull
+    key:
+      files:
+        - packages/website/package-lock.json
+      prefix: website-npm
+    paths:
+      - packages/website/node_modules/
   before_script:
-    - pip install ruff --quiet
-  script:
-    - cd packages/api
-    - ruff check src/ tests/
-    - ruff format --check src/ tests/
-
-api:type-check:
-  # Override before_script from .api-no-db to also install [dev] extras
-  # (mypy + django-stubs + djangorestframework-stubs).
-  extends: .api-no-db
-  stage: check
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
-    - pip install -e ".[dev]" --quiet
-    - pip install -e "packages/api[dev]" --quiet
-  script:
-    - cd packages/api
-    - mypy src/trueppm_api
-
-api:migration-check:
-  # makemigrations --check --dry-run compares model state to migration files.
-  # No database connection is made; .api-no-db template is sufficient.
-  extends: .api-no-db
-  stage: check
-  script:
-    - cd packages/api
-    - python manage.py makemigrations --check --dry-run
-
-api:openapi-check:
-  # drf-spectacular schema generation is pure view/serializer introspection;
-  # no database queries are made. --validate checks the schema is valid
-  # OpenAPI 3; --fail-on-warn promotes warnings to errors.
-  extends: .api-no-db
-  stage: check
-  script:
-    - cd packages/api
-    - python manage.py spectacular --validate --file /dev/null
+    - cd packages/website
+    - npm ci --prefer-offline --quiet
 
 # ---------------------------------------------------------------------------
-# Helm — check
-# ---------------------------------------------------------------------------
-
-helm:lint:
-  image:
-    name: alpine/helm:3.14.0
-    entrypoint: [""]
-  stage: check
-  script:
-    - helm lint packages/helm/
-
-# ---------------------------------------------------------------------------
-# Changelog — MR pipelines only.
-# Verifies CHANGELOG.md is updated before a branch is merged. Not meaningful
-# on bare branch pushes (the author may not have updated it yet) or on
-# post-merge main runs (too late to enforce).
+# LINT — fastest jobs, highest failure rate. Gates all downstream work.
 # ---------------------------------------------------------------------------
 
 changelog:check:
-  stage: check
+  # Pure git diff — ~10 seconds. Run first so MR authors get instant feedback
+  # if they forgot to update the changelog, before any build jobs start.
+  stage: lint
   image: alpine:latest
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -188,75 +133,171 @@ changelog:check:
       fi
       echo "CHANGELOG.md OK — $ADDED line(s) added."
 
-# ---------------------------------------------------------------------------
-# License — every push.
-# Fails if any dependency carries a copyleft license incompatible with the
-# Apache 2.0 codebase. LGPL is permitted (library-linking exemption applies).
-# ---------------------------------------------------------------------------
+scheduler:lint:
+  extends: .scheduler
+  stage: lint
+  script:
+    - cd packages/scheduler
+    - ruff check src/ tests/
+    - ruff format --check src/ tests/
 
-license:check:
-  stage: check
+api:lint:
+  stage: lint
   image: python:3.11-slim
   cache:
     <<: *api-cache
     policy: pull
   before_script:
-    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
-    - pip install pip-licenses --quiet
-    - pip install -e ".[dev]" --quiet
-    - pip install -e packages/api --quiet
+    - pip install ruff --quiet
   script:
-    # Print the full license table for visibility in the job log.
-    - pip-licenses --order=license --format=plain-vertical
-    # Fail if any GPL or AGPL dependency is detected.
-    - >-
-      pip-licenses
-      --fail-on="GNU General Public License v2 (GPLv2);
-                 GNU General Public License v3 (GPLv3);
-                 GNU Affero General Public License v3 (AGPLv3)"
+    - cd packages/api
+    - ruff check src/ tests/
+    - ruff format --check src/ tests/
+
+web:lint:
+  extends: .web
+  stage: lint
+  script:
+    - npm run lint
+
+helm:lint:
+  image:
+    name: alpine/helm:3.14.0
+    entrypoint: [""]
+  stage: lint
+  script:
+    - helm lint packages/helm/
 
 # ---------------------------------------------------------------------------
-# Tests
+# ANALYZE — type-check, static analysis, migration/schema validation.
+# Each job uses needs: to start as soon as its package's lint job passes,
+# without waiting for other packages' lint jobs.
+# ---------------------------------------------------------------------------
+
+scheduler:type-check:
+  extends: .scheduler
+  stage: analyze
+  needs: [scheduler:lint]
+  script:
+    - cd packages/scheduler && mypy
+
+api:type-check:
+  extends: .api-no-db
+  stage: analyze
+  needs: [api:lint]
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
+    - pip install -e "packages/scheduler[dev]" --quiet
+    - pip install -e "packages/api[dev]" --quiet
+  script:
+    - cd packages/api
+    - mypy src/trueppm_api
+
+api:migration-check:
+  # makemigrations --check --dry-run compares model state to migration files.
+  # No database connection is made; .api-no-db template is sufficient.
+  extends: .api-no-db
+  stage: analyze
+  needs: [api:lint]
+  script:
+    - cd packages/api
+    - python manage.py makemigrations --check --dry-run
+
+api:openapi-check:
+  # drf-spectacular schema generation is pure view/serializer introspection;
+  # no database queries are made. --validate checks for valid OpenAPI 3;
+  # --fail-on-warn promotes warnings to errors.
+  extends: .api-no-db
+  stage: analyze
+  needs: [api:lint]
+  script:
+    - cd packages/api
+    - python manage.py spectacular --validate --file /dev/null
+
+web:type-check:
+  extends: .web
+  stage: analyze
+  needs: [web:lint]
+  script:
+    - npm run typecheck
+
+web:build:
+  # Build artifact is not passed downstream — this job validates the build
+  # is clean. web:test runs vitest independently.
+  extends: .web
+  stage: analyze
+  needs: [web:lint]
+  script:
+    - npm run build
+
+security:bandit:
+  # Python static security analysis. Static — no test results needed.
+  # Runs in analyze stage so failures appear alongside type-check results,
+  # not after a multi-minute wait for tests to complete.
+  # -ll = medium severity and above. Skips migrations (generated code) and
+  # settings (legitimately contains test credentials).
+  stage: analyze
+  needs: [api:lint, scheduler:lint]
+  image: python:3.11-slim
+  before_script:
+    - pip install bandit --quiet
+  script:
+    - bandit -r packages/scheduler/src/ -ll --exclude packages/scheduler/src/trueppm_scheduler/__pycache__
+    - bandit -r packages/api/src/ -ll
+        --exclude packages/api/src/trueppm_api/settings,packages/api/src/trueppm_api/apps/projects/migrations,packages/api/src/trueppm_api/apps/resources/migrations
+
+# ---------------------------------------------------------------------------
+# TEST — unit + integration tests.
+# Each package starts as soon as its own analyze jobs pass, not when all
+# packages' analyze jobs are done (DAG via needs:).
 # ---------------------------------------------------------------------------
 
 scheduler:test:
   extends: .scheduler
   stage: test
+  needs: [scheduler:lint, scheduler:type-check]
   script:
+    - cd packages/scheduler
     - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+%)/'
 
 api:test:
   extends: .api
   stage: test
+  needs: [api:lint, api:type-check, api:migration-check, api:openapi-check]
   script:
     - cd packages/api
     - python -m pytest tests/ --tb=short -q
         --cov=trueppm_api --cov-report=term-missing --cov-fail-under=65
   coverage: '/TOTAL.*\s(\d+%)/'
 
-# ---------------------------------------------------------------------------
-# Security
-# ---------------------------------------------------------------------------
-
-security:bandit:
-  # Python static security analysis. Runs on every push for fast feedback.
-  # -ll = medium severity and above. Skips migrations (generated code) and
-  # settings (legitimately contains test credentials).
-  stage: security
-  image: python:3.11-slim
-  before_script:
-    - pip install bandit --quiet
+web:test:
+  extends: .web
+  stage: test
+  needs: [web:lint, web:type-check, web:build]
   script:
-    - bandit -r src/ -ll --exclude src/trueppm_scheduler/__pycache__
-    - bandit -r packages/api/src/ -ll
-        --exclude packages/api/src/trueppm_api/settings,packages/api/src/trueppm_api/apps/projects/migrations,packages/api/src/trueppm_api/apps/resources/migrations
+    - npm run test:coverage
+  coverage: '/^All files\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*([\d.]+)/'
+
+website:build:
+  # Verify the Docusaurus documentation site builds cleanly.
+  # Catches broken MDX, missing imports, and broken internal links early.
+  # No needs: — runs independently of the other packages.
+  extends: .website
+  stage: test
+  script:
+    - npm run build
+
+# ---------------------------------------------------------------------------
+# SECURITY — CVE scans + license audit. MR + main only.
+# Runs after tests so we audit the exact dependency set that the tests ran
+# against. Network-dependent (CVE database lookups) so restricted to MR/main.
+# ---------------------------------------------------------------------------
 
 security:pip-audit:
-  # CVE scan of all installed Python dependencies.
-  # Runs on MR pipelines and main only — database lookups are slower and
-  # gating at merge is sufficient to catch newly-introduced vulnerabilities.
+  # CVE scan for all installed Python dependencies (scheduler + API).
   stage: security
+  needs: [scheduler:test, api:test]
   image: python:3.11-slim
   cache:
     <<: *api-cache
@@ -267,10 +308,57 @@ security:pip-audit:
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
     # Upgrade pip and wheel first so the audit does not flag CVEs in the
-    # base-image versions of the build tools themselves (pip 24.0 / wheel 0.45.1).
+    # base-image versions of the build tools themselves.
     - pip install --upgrade pip wheel --quiet
     - pip install pip-audit --quiet
-    - pip install -e ".[dev]" --quiet
+    - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e packages/api --quiet
   script:
     - pip-audit --progress-spinner=off --desc on
+
+web:security:
+  # CVE scan for npm dependencies. Equivalent of pip-audit for the web package.
+  # --audit-level=high: fail on high/critical CVEs only; moderate is noisy for
+  # transitive dev dependencies. Adjust down to =moderate when the tree is stable.
+  stage: security
+  needs: [web:test]
+  image: node:20-alpine
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - cd packages/web
+  script:
+    - npm audit --audit-level=high
+
+license:check:
+  # Verify no copyleft-licensed dependency has been introduced.
+  # Checks both Python (pip-licenses) and npm (license-checker) packages.
+  # LGPL is permitted (library-linking exemption applies).
+  stage: security
+  needs: [api:test, web:test]
+  image: python:3.11-slim
+  cache:
+    <<: *api-cache
+    policy: pull
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc nodejs npm
+    - pip install pip-licenses --quiet
+    - pip install -e "packages/scheduler[dev]" --quiet
+    - pip install -e packages/api --quiet
+    - npm install --prefix packages/web --prefer-offline --quiet
+  script:
+    # --- Python ---
+    - pip-licenses --order=license --format=plain-vertical
+    - >-
+      pip-licenses
+      --fail-on="GNU General Public License v2 (GPLv2);
+                 GNU General Public License v3 (GPLv3);
+                 GNU Affero General Public License v3 (AGPLv3)"
+    # --- npm ---
+    # --onlyAllow covers --failOn implicitly: any license not in the list fails.
+    - npx --prefix packages/web license-checker --production
+        --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;Unlicense;WTFPL;BlueOak-1.0.0"

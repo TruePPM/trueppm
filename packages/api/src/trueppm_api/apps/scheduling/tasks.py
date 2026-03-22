@@ -141,11 +141,15 @@ def _run_schedule(project_id: str) -> None:
     # Build a map from task id string to computed CPM values.
     result_map = {t.id: t for t in result.tasks}
 
-    # Write CPM output back to Task rows — server_version increment handled by
-    # VersionedModel.save(), but we use bulk_update for performance (bypasses
-    # the VersionedModel override). The server_version for CPM fields is
-    # intentionally not incremented here to avoid spurious sync deltas for
-    # read-only computed fields.
+    # Write CPM output back to Task rows via bulk_update (not save()).
+    #
+    # INTENTIONAL DESIGN: bulk_update bypasses VersionedModel.save(), so
+    # server_version is NOT incremented for CPM field writes. This is correct:
+    # CPM fields (early_start, is_critical, etc.) are read-only computed values
+    # that the mobile client derives locally from the same scheduler. Bumping
+    # server_version here would flood every connected mobile client with sync
+    # deltas on every schedule recalc — including ones triggered by their own
+    # edits. Do NOT change this to save() without understanding that consequence.
     tasks_to_update: list[Task] = []
     for db_task in db_tasks:
         sched = result_map.get(str(db_task.id))

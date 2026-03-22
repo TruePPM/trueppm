@@ -11,10 +11,9 @@ ENV VIRTUAL_ENV=/venv
 RUN python -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Install the scheduler package from the repo src/ directory first so the
-# api package can declare it as a dependency and find it on the path.
-COPY src /build/scheduler/src
-COPY pyproject.toml README.md /build/scheduler/
+# Install the scheduler package first so the api package can find it on the path.
+COPY packages/scheduler/src /build/scheduler/src
+COPY packages/scheduler/pyproject.toml packages/scheduler/README.md /build/scheduler/
 RUN pip install --no-cache-dir /build/scheduler
 
 # Install the api package and its dependencies.

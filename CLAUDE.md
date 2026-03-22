@@ -15,9 +15,9 @@ trueppm-suite/
 │   ├── scheduler/       # trueppm-scheduler (Python, pip package, Apache 2.0)
 │   ├── api/             # Django 5.1 REST + Channels backend
 │   ├── web/             # React 19 + TypeScript + Vite frontend
-│   ├── mobile/          # React Native + Expo + WatermelonDB
-│   └── helm/            # Helm 3 chart for Kubernetes deployment
-├── docs/                # MkDocs documentation site
+│   ├── helm/            # Helm 3 chart for Kubernetes deployment
+│   └── website/         # Docusaurus documentation site
+├── docs/                # ADRs (source of record; mirrored into website)
 ├── .claude/             # Claude Code skills and commands
 └── CLAUDE.md            # This file
 ```
@@ -32,8 +32,6 @@ trueppm-suite/
 | Cache | Redis | 7+ |
 | Web UI | React + TypeScript + Vite | 19 / 5.x / 6 |
 | Gantt | SVAR React Gantt (MIT) | latest |
-| Mobile | React Native + Expo | 0.76+ |
-| Mobile DB | WatermelonDB | 0.27+ |
 | Scheduler | Python (networkx + numpy) | — |
 | Auth | django-allauth + simplejwt | — |
 | Deploy | Helm 3 on Kubernetes | — |
@@ -45,7 +43,7 @@ trueppm-suite/
 
 ## Code Conventions
 
-### Python (packages/scheduler, packages/api)
+### Python (scheduler, packages/api)
 - Python 3.12+
 - Formatter: ruff format
 - Linter: ruff check
@@ -57,21 +55,21 @@ trueppm-suite/
 - All synced models include `server_version = models.BigIntegerField()`
 - Django apps: one app per domain (projects, resources, scheduling, sync, auth)
 
-### TypeScript (packages/web, packages/mobile)
+### TypeScript (packages/web)
 - Strict mode enabled
 - Formatter: prettier
 - Linter: eslint with typescript-eslint
-- Tests: vitest for web, jest for mobile
+- Tests: vitest
 - Components: functional only, no class components
 - State: Zustand for client state, TanStack Query for server state
-- Styling: Tailwind CSS (web), Tailwind via NativeWind (mobile)
+- Styling: Tailwind CSS with Design System v1.0 tokens
 - No `any` types. Use `unknown` and narrow.
 - Shared types: generate from OpenAPI schema (packages/api → packages/web/src/api/types.ts)
 
 ### Git
 - Branch naming: `feat/`, `fix/`, `docs/`, `chore/` prefix + short description (e.g. `feat/cpm-engine`, `fix/sync-conflict`)
 - Commit format: conventional commits (`feat:`, `fix:`, `docs:`, `test:`, `chore:`, `refactor:`, `perf:`, `ci:`)
-- Scopes: `scheduler`, `api`, `web`, `mobile`, `helm`, `sync`
+- Scopes: `scheduler`, `api`, `web`, `helm`, `sync`, `docs`, `ci`
 - MR template: description, testing done, screenshots if UI, issue link
 - All MRs require: passing CI, no type errors, no lint errors, test coverage ≥ 80%
 - MR descriptions and multi-line commit bodies use heredoc syntax — never inline `\n` literals
@@ -81,25 +79,25 @@ trueppm-suite/
 ```bash
 # Development (Docker Compose)
 docker compose up -d
-# API: http://localhost:8000
-# Web: http://localhost:5173
+# Web UI: http://localhost:5173
+# API:    http://localhost:8000
 # PostgreSQL: localhost:5432
-# Redis: localhost:6379
+# Redis:      localhost:6379
 
 # Run tests
-cd packages/scheduler && pytest
-cd packages/api && pytest
-cd packages/web && npx vitest
-cd packages/mobile && npx jest
+cd packages/scheduler && pytest     # scheduler
+cd packages/api && pytest           # API
+cd packages/web && npm test         # web (vitest)
 
 # Lint everything
-ruff check packages/scheduler packages/api
-cd packages/web && npx eslint src/
-cd packages/mobile && npx eslint src/
+cd packages/scheduler && ruff check src/ tests/  # scheduler
+cd packages/api && ruff check src/               # API
+cd packages/web && npm run lint                  # web (eslint)
 
 # Type check
-mypy packages/scheduler packages/api
-cd packages/web && npx tsc --noEmit
+cd packages/scheduler && mypy
+cd packages/api && mypy src/trueppm_api
+cd packages/web && npm run typecheck
 ```
 
 ## General Conventions
@@ -123,7 +121,7 @@ cd packages/web && npx tsc --noEmit
 **Before writing any code, determine if it belongs in the OSS repo or the Enterprise repo.**
 
 ### OSS (trueppm-suite) — Apache 2.0
-Everything in the community edition: scheduling engine, CPM, Monte Carlo, Gantt UI, mobile apps, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, time tracking, baselines, Visiban bridge, Helm chart, MS Project import/export.
+Everything in the community edition: scheduling engine, CPM, Monte Carlo, Gantt UI, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, time tracking, baselines, Helm chart, MS Project import/export.
 
 ### Enterprise (trueppm-enterprise) — Proprietary
 Portfolio dashboard, health scores, demand intake, prioritization workspace, cross-project dependencies, resource leveling (cross-project), CCPM, resource heat map (cross-portfolio), schedule forensics (narrative), SSO/SAML/OIDC, LDAP sync, immutable audit trail, custom roles, approval workflows, integration hub (Jira/GitLab/ServiceNow connectors), AI scheduling, scenario modeling, portfolio Monte Carlo, multi-tenancy, HA deployment.

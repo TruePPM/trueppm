@@ -9,10 +9,10 @@ sidebar_position: 1
 ```
 ┌─────────────────────────────────────────────────────┐
 │                   Clients                           │
-│  React web (browser)  │  React Native (mobile)      │
-└───────────┬───────────┴──────────────┬──────────────┘
-            │ REST / WebSocket         │ REST (offline-first)
-            ▼                          ▼
+│         React web (browser)                         │
+└───────────────────────┬─────────────────────────────┘
+                        │ REST / WebSocket
+                        ▼
 ┌─────────────────────────────────────────────────────┐
 │              Django ASGI (uvicorn)                  │
 │                                                     │
@@ -40,9 +40,9 @@ sidebar_position: 1
 
 Every feature is a REST or WebSocket endpoint before it is a UI element. Web and mobile clients have no privileged access — they are API consumers identical to any third-party integration. The OpenAPI schema at `/api/schema/` is the authoritative contract.
 
-### Mobile-first with offline support
+### Offline-first sync protocol
 
-The mobile client uses [WatermelonDB](https://watermelondb.dev/) as a local SQLite store. The sync endpoint (`GET /api/v1/projects/{pk}/sync/`) implements WatermelonDB's `synchronize()` protocol — see [Offline Sync](../features/offline-sync.md) for details.
+The API exposes a WatermelonDB-compatible sync endpoint (`GET /api/v1/projects/{pk}/sync/`) returning `changes` and `deleted` arrays keyed by `server_version`. This is designed for future mobile and PWA clients — see [Offline Sync](../features/offline-sync.md) for details.
 
 ### Scheduling as a separate package
 
@@ -77,8 +77,8 @@ Every mutation is followed by a `broadcast_board_event()` call deferred inside `
 
 ## Packages
 
-### Scheduler (repo root — `src/trueppm_scheduler`)
-Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo). Ships on PyPI as `trueppm-scheduler`. Lives at the repository root to allow Vite/WASM compilation targets in the future without restructuring.
+### packages/scheduler
+Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo). Ships on PyPI as `trueppm-scheduler`.
 
 ### packages/web
 React 19 + TypeScript + Vite 6. Tailwind CSS with Design System v1.0 tokens (WCAG 2.1 AA). TanStack Query for server state, Zustand for client state, React Router v7. The Gantt view uses SVAR React Gantt (MIT). Currently wired to fixture data; API hooks will be wired in subsequent milestones.
