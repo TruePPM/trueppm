@@ -35,11 +35,12 @@ class TestCalendar:
 
     def test_server_version_increments_on_update(self) -> None:
         cal = Calendar.objects.create(name="V test")
-        assert cal.server_version == 0
+        # INSERT now sets server_version=1 so sync since=0 returns all rows.
+        assert cal.server_version == 1
         cal.name = "V test updated"
         cal.save()
         cal.refresh_from_db()
-        assert cal.server_version == 1
+        assert cal.server_version == 2
 
 
 @pytest.mark.django_db
