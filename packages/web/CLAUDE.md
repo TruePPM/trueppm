@@ -31,3 +31,10 @@ These rules are enforced at review time. Violations block merge.
 10. **No CSS-in-JS** — Tailwind utility classes only; use `style` prop only for dynamic values (e.g., CSS custom properties, inline widths derived from state)
 11. **Stub hooks over mock network** — while real API hooks don't exist, return fixture data from the hook (`src/hooks/`). Components never import from `src/fixtures/` directly.
 12. **Responsive breakpoints** (from `tailwind.config.ts`): `xs`=320px, `sm`=375px, `md`=768px, `lg`=1024px, `xl`=1280px, `2xl`=1440px
+
+## Gantt-Specific Rules
+
+13. **Gantt bar label color**: always `#1A1917` — never white. All Tailwind 400-stop bar colors fail WCAG 4.5:1 contrast with white at 10–11px font size.
+14. **Gantt bar heights**: normal/critical/complete = 18px; summary = 8px; milestone diamond = 12px; baseline ghost = 6px.
+15. **Task list row height**: 28px fixed — required for scroll sync with SVAR's internal row height.
+16. **`readonly={true}` on `<Gantt>`** until WASM CPM drag (issue #19) is implemented — prevents partial drag UX.

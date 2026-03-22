@@ -21,7 +21,9 @@
     "generate:types": "openapi-typescript http://localhost:8000/api/schema/ -o src/api/types.ts"
   },
   "dependencies": {
+    "@svar-ui/react-gantt": "^2.5.2",
     "@tanstack/react-query": "^5.0.0",
+    "@tanstack/react-virtual": "^3.13.23",
     "axios": "^1.7.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

@@ -21,6 +21,18 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts'],
     globals: true,
+    // Alias @svar-ui/react-gantt to jsdom-safe mocks (SVAR uses HTMLCanvasElement internally).
+    // CSS alias must come before the component alias — alias matching is prefix-based.
+    alias: [
+      {
+        find: '@svar-ui/react-gantt/style.css',
+        replacement: resolve(__dirname, 'src/test/mocks/empty.css'),
+      },
+      {
+        find: '@svar-ui/react-gantt',
+        replacement: resolve(__dirname, 'src/test/mocks/svar-gantt.tsx'),
+      },
+    ],
     coverage: {
       provider: 'v8',
       thresholds: {
