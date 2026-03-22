@@ -130,27 +130,46 @@ helm lint packages/helm
 
 ## CI
 
-GitLab CI (`.gitlab-ci.yml`). Jobs per push:
+GitLab CI (`.gitlab-ci.yml`). Four stages with a per-package DAG — test jobs start as soon as their own package's checks pass, not when all packages finish.
 
-| Job                    | What it checks                                  |
-|------------------------|-------------------------------------------------|
-| `scheduler:lint`       | ruff check                                      |
-| `scheduler:type-check` | mypy                                            |
-| `scheduler:test`       | pytest (coverage ≥ 80%)                         |
-| `api:lint`             | ruff check                                      |
-| `api:type-check`       | mypy --strict                                   |
-| `api:migration-check`  | makemigrations --check                          |
-| `api:openapi-check`    | drf-spectacular schema generation               |
-| `api:test`             | pytest with PostgreSQL + Redis (coverage ≥ 65%) |
-| `web:lint`             | eslint                                          |
-| `web:type-check`       | tsc --noEmit                                    |
-| `web:build`            | vite build                                      |
-| `web:test`             | vitest (coverage ≥ 80%)                         |
-| `helm:lint`            | helm lint                                       |
-| `license:check`        | pip-licenses (Apache 2.0 compatible only)       |
-| `security:bandit`      | bandit static analysis                          |
-| `security:pip-audit`   | pip-audit CVE scan                              |
-| `changelog:check`      | CHANGELOG.md [Unreleased] section present (MR)  |
+**lint** (fastest, gates everything)
+
+| Job                  | What it checks                                 |
+|----------------------|------------------------------------------------|
+| `changelog:check`    | CHANGELOG.md updated (MR only)                 |
+| `scheduler:lint`     | ruff check + format                            |
+| `api:lint`           | ruff check + format                            |
+| `web:lint`           | eslint                                         |
+| `helm:lint`          | helm lint                                      |
+
+**analyze** (starts per-package as lint passes)
+
+| Job                    | What it checks                                |
+|------------------------|-----------------------------------------------|
+| `scheduler:type-check` | mypy                                          |
+| `api:type-check`       | mypy --strict                                 |
+| `api:migration-check`  | makemigrations --check                        |
+| `api:openapi-check`    | drf-spectacular schema generation             |
+| `web:type-check`       | tsc --noEmit                                  |
+| `web:build`            | vite build                                    |
+| `security:bandit`      | bandit static analysis (Python)               |
+
+**test** (starts per-package as analyze passes)
+
+| Job               | What it checks                                       |
+|-------------------|------------------------------------------------------|
+| `scheduler:test`  | pytest (coverage ≥ 80%)                              |
+| `api:test`        | pytest with PostgreSQL + Redis (coverage ≥ 65%)      |
+| `web:test`        | vitest (coverage ≥ 80%)                              |
+| `website:build`   | Docusaurus build                                     |
+
+**security** (MR + main only)
+
+| Job                  | What it checks                                      |
+|----------------------|-----------------------------------------------------|
+| `security:pip-audit` | pip-audit CVE scan (Python)                         |
+| `web:security`       | npm audit CVE scan                                  |
+| `license:check`      | pip-licenses + license-checker (Apache 2.0 compat)  |
 
 ## Contributing
 

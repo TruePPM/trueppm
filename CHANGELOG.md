@@ -8,8 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Web CI jobs (`web:lint`, `web:type-check`, `web:build`, `web:test`) added to `.gitlab-ci.yml`.
-  Cache keyed on `package-lock.json`. Coverage reported via vitest's Istanbul text summary.
+- CI pipeline restructured to 4 stages (lint → analyze → test → security) with a
+  per-package DAG (`needs:`). Test jobs now start as soon as their own package's
+  analysis passes rather than waiting for all packages to complete.
+  New jobs: `web:lint`, `web:type-check`, `web:build`, `web:test`, `web:security`
+  (npm audit), `website:build`, npm license check in `license:check`.
+  `security:bandit` moved from security stage to analyze stage (it is static analysis
+  and does not need test results). `changelog:check` moved to lint stage.
 
 ### Changed
 - Repo structure clarified: scheduler lives at repo root (`src/trueppm_scheduler/`,
