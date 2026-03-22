@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- React 19 + Vite 6 + TypeScript 5 web frontend scaffold (`packages/web/`): TanStack Query v5,
+  Zustand v5, Tailwind CSS v3 with TruePPM Design System v1.0 tokens (WCAG-corrected
+  `text-secondary: #6B6965`), ESLint 9 flat config with jsx-a11y, vitest, axios API client with
+  JWT interceptor, Zustand auth store, placeholder router, nginx Dockerfile, and Docker Compose
+  `web` service.
 - Rewrote `README.md` for the full monorepo: structure, Docker Compose quickstart, per-package dev commands, CI job table, and contributing guide.
 - Docusaurus v3.7 documentation site (`packages/website/`) with getting-started guides, architecture
   overview, feature docs (CPM/Monte Carlo, RBAC, real-time, offline sync), API index, and ADR-0003.
