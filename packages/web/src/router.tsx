@@ -1,15 +1,18 @@
-// Placeholder router — replaced by feat(web): Application shell (issue #17).
-// Exercises Tailwind design tokens to confirm theme wiring before real routes exist.
+import { createBrowserRouter } from 'react-router';
+import { AppShell } from '@/features/shell/AppShell';
+import { PlaceholderView } from '@/features/shell/PlaceholderView';
 
-export function Router() {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-neutral-surface">
-      <div className="text-center">
-        <h1 className="text-4xl font-semibold text-brand-primary">TruePPM</h1>
-        <p className="mt-2 text-sm text-neutral-text-secondary">
-          Open-core P3M platform — frontend scaffold active
-        </p>
-      </div>
-    </main>
-  );
-}
+export const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <AppShell />,
+    children: [
+      { index: true, element: <PlaceholderView name="Gantt" /> },
+      { path: 'gantt', element: <PlaceholderView name="Gantt" /> },
+      { path: 'board', element: <PlaceholderView name="Board" /> },
+      { path: 'list', element: <PlaceholderView name="List" /> },
+      { path: 'calendar', element: <PlaceholderView name="Calendar" /> },
+      { path: 'resources', element: <PlaceholderView name="Resources" /> },
+    ],
+  },
+]);

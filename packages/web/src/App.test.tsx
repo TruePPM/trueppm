@@ -1,17 +1,20 @@
 import { screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { render } from '@testing-library/react';
 import { App } from './App';
-import { renderWithProviders } from './test/utils';
 
 describe('App', () => {
-  it('renders the placeholder heading', () => {
-    renderWithProviders(<App />);
-    expect(screen.getByRole('heading', { name: /trueppm/i })).toBeInTheDocument();
+  it('renders the application shell landmark regions', () => {
+    render(<App />);
+    // Shell renders header, navigations (view tabs + bottom rail + sidebar), and main
+    expect(screen.getByRole('banner')).toBeInTheDocument(); // <header>
+    // Both ViewTabs and BottomNav are aria-label="View" (one hidden per breakpoint in real browser)
+    expect(screen.getAllByRole('navigation', { name: /view/i }).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('main')).toBeInTheDocument();
   });
 
-  it('does not render ReactQueryDevtools in test environment', () => {
-    renderWithProviders(<App />);
-    // Devtools are only rendered when import.meta.env.DEV is true; vitest sets DEV=false
-    expect(document.querySelector('[data-testid="react-query-devtools"]')).toBeNull();
+  it('renders the TruePPM logo text', () => {
+    render(<App />);
+    expect(screen.getByText('TruePPM')).toBeInTheDocument();
   });
 });

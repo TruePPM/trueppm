@@ -1,13 +1,8 @@
-import { QueryClientProvider } from '@tanstack/react-query';
-import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
-import { queryClient } from '@/lib/queryClient';
-import { Router } from './router';
+import { RouterProvider } from 'react-router';
+import { router } from './router';
 
+// QueryClientProvider lives inside AppShell so route loaders can access queryClient
+// via closure from router.tsx without needing React context.
 export function App() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <Router />
-      {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
-    </QueryClientProvider>
-  );
+  return <RouterProvider router={router} />;
 }
