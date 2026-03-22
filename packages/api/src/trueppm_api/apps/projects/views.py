@@ -94,7 +94,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project_id = str(instance.pk)
-        instance.delete()
+        instance.soft_delete()
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "project_deleted", {"id": project_id})
         )
@@ -113,7 +113,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
     ordering_fields = ["wbs_path", "name", "early_start"]
-    queryset = Task.objects.select_related("project")
+    queryset = Task.objects.select_related("project").filter(is_deleted=False)
 
     def get_queryset(self) -> QuerySet[Task]:
         qs = super().get_queryset()
@@ -155,7 +155,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
 
         project_id = str(instance.project_id)
         task_id = str(instance.pk)
-        instance.delete()
+        instance.soft_delete()
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_deleted", {"id": task_id})
@@ -169,7 +169,9 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     serializer_class = DependencySerializer
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["dep_type"]
-    queryset = Dependency.objects.select_related("predecessor", "successor")
+    queryset = Dependency.objects.select_related("predecessor", "successor").filter(
+        is_deleted=False
+    )
 
     def get_queryset(self) -> QuerySet[Dependency]:
         qs = super().get_queryset()
@@ -211,7 +213,7 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
 
         project_id = str(instance.predecessor.project_id)
         dep_id = str(instance.pk)
-        instance.delete()
+        instance.soft_delete()
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_deleted", {"id": dep_id})

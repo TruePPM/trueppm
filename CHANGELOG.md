@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Nested membership CRUD at `/api/v1/projects/{pk}/members/`: Owner-only create/update/delete with
+  role-escalation guard (callers cannot assign roles ≥ their own), last-Owner atomic guard, Viewer self-removal,
+  and `member_added` / `member_role_changed` / `member_removed` WebSocket broadcasts.
+- Offline delta sync pull endpoint `GET /api/v1/projects/{pk}/sync/?since={server_version}` returning
+  WatermelonDB-compatible `changes` + `timestamp`. Snaps the high-water mark before delta queries to
+  eliminate TOCTOU gaps. Soft-deleted rows appear as tombstones in `deleted` arrays.
+- Soft-delete on `VersionedModel` (`is_deleted`, `deleted_version`): all `perform_destroy` hooks now
+  call `soft_delete()` instead of hard-deleting, so mobile clients receive tombstones on the next pull.
+- `Dependency` promoted to extend `VersionedModel` (gains `server_version`, `is_deleted`,
+  `deleted_version`) so dependency changes are visible to the sync protocol.
 - 5-role RBAC (`access` app): `ProjectMembership` through-table with Owner/Admin/Scheduler/Member/Viewer roles;
   `ProjectScopedViewSet` mixin for IDOR prevention; `IsProject*` permission classes wired into all ViewSets.
   Project creators are auto-assigned Owner on creation.
