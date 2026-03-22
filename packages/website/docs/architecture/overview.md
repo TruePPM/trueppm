@@ -83,7 +83,7 @@ Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo). Ships on P
 ### packages/api
 Django 5.1 + DRF 3.15. Django Channels 4 (ASGI). Celery 5.4 + Redis. django-allauth + simplejwt. drf-spectacular (OpenAPI 3.1). PostgreSQL 16 with `ltree` for WBS hierarchy.
 
-### packages/docs
+### packages/website
 This Docusaurus site. Deployed to GitLab Pages.
 
 ### packages/helm

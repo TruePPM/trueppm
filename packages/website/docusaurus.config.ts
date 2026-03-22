@@ -27,7 +27,7 @@ const config: Config = {
       {
         docs: {
           sidebarPath: "./sidebars.ts",
-          editUrl: "https://gitlab.com/trueppm/trueppm/-/edit/main/packages/docs/",
+          editUrl: "https://gitlab.com/trueppm/trueppm/-/edit/main/packages/website/",
           routeBasePath: "/",
           showLastUpdateTime: true,
           showLastUpdateAuthor: false,
