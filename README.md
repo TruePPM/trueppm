@@ -9,17 +9,17 @@ Open-core Project, Program, and Portfolio Management (P3M) platform.
 
 ```
 trueppm-suite/
-├── src/trueppm_scheduler/  # CPM + Monte Carlo engine (pip: trueppm-scheduler)
 ├── packages/
+│   ├── scheduler/   # CPM + Monte Carlo engine (pip: trueppm-scheduler)
 │   ├── api/         # Django 5.1 REST + Channels backend
 │   ├── web/         # React 19 + TypeScript frontend
 │   ├── helm/        # Helm 3 chart for Kubernetes deployment
 │   └── website/     # Docusaurus documentation site
-├── docs/            # ADRs, design system
+├── docs/            # ADRs (source of record)
 └── docker-compose.yml
 ```
 
-### Scheduler (repo root)
+### packages/scheduler
 
 Pure-Python scheduling engine. No Django dependency — ships independently on PyPI.
 
@@ -78,6 +78,7 @@ docker compose exec api python manage.py createsuperuser
 ### Scheduler
 
 ```bash
+cd packages/scheduler
 pip install -e ".[dev]"
 pytest                          # run tests
 ruff check src/ tests/          # lint

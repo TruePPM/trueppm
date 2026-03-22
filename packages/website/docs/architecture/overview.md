@@ -77,8 +77,8 @@ Every mutation is followed by a `broadcast_board_event()` call deferred inside `
 
 ## Packages
 
-### Scheduler (repo root — `src/trueppm_scheduler`)
-Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo). Ships on PyPI as `trueppm-scheduler`. Lives at the repository root to allow Vite/WASM compilation targets in the future without restructuring.
+### packages/scheduler
+Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo). Ships on PyPI as `trueppm-scheduler`.
 
 ### packages/web
 React 19 + TypeScript + Vite 6. Tailwind CSS with Design System v1.0 tokens (WCAG 2.1 AA). TanStack Query for server state, Zustand for client state, React Router v7. The Gantt view uses SVAR React Gantt (MIT). Currently wired to fixture data; API hooks will be wired in subsequent milestones.

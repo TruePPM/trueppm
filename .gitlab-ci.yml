@@ -34,12 +34,12 @@ workflow:
   cache: &scheduler-cache
     key:
       files:
-        - pyproject.toml
+        - packages/scheduler/pyproject.toml
       prefix: scheduler-pip
     paths:
       - .cache/pip/
   before_script:
-    - pip install -e ".[dev]" --quiet
+    - pip install -e "packages/scheduler[dev]" --quiet
 
 # Full API template — postgres + redis services, used by api:test only.
 .api:
@@ -62,7 +62,7 @@ workflow:
     REDIS_URL: "redis://redis:6379"
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
-    - pip install -e ".[dev]" --quiet
+    - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e "packages/api[dev]" --quiet
     - pip install pytest pytest-django pytest-asyncio --quiet
 
@@ -79,7 +79,7 @@ workflow:
     DATABASE_URL: "postgres://trueppm:trueppm@localhost/trueppm_test"
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
-    - pip install -e ".[dev]" --quiet
+    - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e packages/api --quiet
 
 .web:
@@ -137,6 +137,7 @@ scheduler:lint:
   extends: .scheduler
   stage: lint
   script:
+    - cd packages/scheduler
     - ruff check src/ tests/
     - ruff format --check src/ tests/
 
@@ -178,7 +179,7 @@ scheduler:type-check:
   stage: analyze
   needs: [scheduler:lint]
   script:
-    - mypy
+    - cd packages/scheduler && mypy
 
 api:type-check:
   extends: .api-no-db
@@ -186,7 +187,7 @@ api:type-check:
   needs: [api:lint]
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
-    - pip install -e ".[dev]" --quiet
+    - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e "packages/api[dev]" --quiet
   script:
     - cd packages/api
@@ -241,7 +242,7 @@ security:bandit:
   before_script:
     - pip install bandit --quiet
   script:
-    - bandit -r src/ -ll --exclude src/trueppm_scheduler/__pycache__
+    - bandit -r packages/scheduler/src/ -ll --exclude packages/scheduler/src/trueppm_scheduler/__pycache__
     - bandit -r packages/api/src/ -ll
         --exclude packages/api/src/trueppm_api/settings,packages/api/src/trueppm_api/apps/projects/migrations,packages/api/src/trueppm_api/apps/resources/migrations
 
@@ -256,6 +257,7 @@ scheduler:test:
   stage: test
   needs: [scheduler:lint, scheduler:type-check]
   script:
+    - cd packages/scheduler
     - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+%)/'
 
@@ -309,7 +311,7 @@ security:pip-audit:
     # base-image versions of the build tools themselves.
     - pip install --upgrade pip wheel --quiet
     - pip install pip-audit --quiet
-    - pip install -e ".[dev]" --quiet
+    - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e packages/api --quiet
   script:
     - pip-audit --progress-spinner=off --desc on
@@ -345,7 +347,7 @@ license:check:
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc nodejs npm
     - pip install pip-licenses --quiet
-    - pip install -e ".[dev]" --quiet
+    - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e packages/api --quiet
     - npm install --prefix packages/web --prefer-offline --quiet
   script:

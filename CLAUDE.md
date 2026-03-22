@@ -11,14 +11,13 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 ### Monorepo Structure
 ```
 trueppm-suite/
-├── src/trueppm_scheduler/  # trueppm-scheduler (Python, pip package, Apache 2.0)
-├── pyproject.toml          # scheduler package definition
 ├── packages/
+│   ├── scheduler/       # trueppm-scheduler (Python, pip package, Apache 2.0)
 │   ├── api/             # Django 5.1 REST + Channels backend
 │   ├── web/             # React 19 + TypeScript + Vite frontend
 │   ├── helm/            # Helm 3 chart for Kubernetes deployment
 │   └── website/         # Docusaurus documentation site
-├── docs/                # ADRs, design system assets
+├── docs/                # ADRs (source of record; mirrored into website)
 ├── .claude/             # Claude Code skills and commands
 └── CLAUDE.md            # This file
 ```
@@ -86,17 +85,17 @@ docker compose up -d
 # Redis:      localhost:6379
 
 # Run tests
-pytest                              # scheduler (repo root)
+cd packages/scheduler && pytest     # scheduler
 cd packages/api && pytest           # API
 cd packages/web && npm test         # web (vitest)
 
 # Lint everything
-ruff check src/ tests/              # scheduler
-cd packages/api && ruff check src/  # API
-cd packages/web && npm run lint     # web (eslint)
+cd packages/scheduler && ruff check src/ tests/  # scheduler
+cd packages/api && ruff check src/               # API
+cd packages/web && npm run lint                  # web (eslint)
 
 # Type check
-mypy                                # scheduler
+cd packages/scheduler && mypy
 cd packages/api && mypy src/trueppm_api
 cd packages/web && npm run typecheck
 ```

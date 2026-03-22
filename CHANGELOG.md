@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Root `.gitignore` covering Python, pytest, mypy, ruff, Docker override files, and editor
+  artifacts. Previously the repo had no root ignore file.
 - CI pipeline restructured to 4 stages (lint → analyze → test → security) with a
   per-package DAG (`needs:`). Test jobs now start as soon as their own package's
   analysis passes rather than waiting for all packages to complete.
@@ -17,15 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and does not need test results). `changelog:check` moved to lint stage.
 
 ### Changed
-- Repo structure clarified: scheduler lives at repo root (`src/trueppm_scheduler/`,
-  root `pyproject.toml`), not in `packages/`. `CLAUDE.md`, `README.md`, and
-  `docs/architecture/overview.md` updated to reflect this consistently.
+- Scheduler moved from repo root (`src/trueppm_scheduler/`, root `pyproject.toml`) into
+  `packages/scheduler/` — all packages now live under `packages/`. Updated everywhere:
+  `packages/api/Dockerfile`, `.gitlab-ci.yml`, `.pre-commit-config.yaml`, `CLAUDE.md`,
+  `README.md`, and `packages/website/docs/architecture/overview.md`.
+- Duplicate `docs/adr/0003-rbac-auto-scheduling-websockets.md` removed — canonical copy
+  is `packages/website/docs/adr/0003-rbac-auto-scheduling-websockets.md`.
+- Design System HTML moved from `docs/design/` to `packages/website/static/design/` so
+  Docusaurus serves it at a stable URL.
 - Mobile references removed from `CLAUDE.md`, `README.md`, and `docs/architecture/overview.md`.
   Mobile is not yet started; dead references erode doc trust. Will be re-added when
   `packages/mobile` is scaffolded.
 - `README.md` web section updated to clearly state what is built vs what is not yet built.
 - `docs/architecture/overview.md` system diagram updated to show current client topology
   (web only; offline-first sync protocol noted as designed for future clients).
+- Gantt view added to Docusaurus sidebar (`features/gantt`).
 
 ### Fixed
 - `scheduling/tasks.py` `bulk_update` comment expanded to explain WHY `server_version` is
