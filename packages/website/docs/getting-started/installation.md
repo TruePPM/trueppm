@@ -27,7 +27,7 @@ cd trueppm
 docker compose up -d
 ```
 
-This starts four services:
+This starts five services:
 
 | Service | Port | Purpose |
 |---------|------|---------|
@@ -35,6 +35,7 @@ This starts four services:
 | `redis` | 6379 | Celery broker + Django Channels layer |
 | `api` | 8000 | Django ASGI (uvicorn) |
 | `celery` | — | CPM auto-scheduling worker |
+| `web` | 5173 | React frontend (nginx, serves the Vite build) |
 
 Wait for all services to be healthy (usually 15–20 seconds), then apply migrations:
 
@@ -49,6 +50,8 @@ docker compose exec api python manage.py createsuperuser
 curl http://localhost:8000/api/v1/projects/
 # → {"count":0,"results":[]}
 ```
+
+The web UI is at `http://localhost:5173`. The Gantt view is at `http://localhost:5173/gantt` (fixture data until API wiring is complete).
 
 The OpenAPI schema is at `http://localhost:8000/api/schema/` (YAML) and `http://localhost:8000/api/schema/swagger-ui/` (interactive).
 
