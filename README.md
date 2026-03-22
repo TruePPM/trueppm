@@ -41,15 +41,14 @@ Django 5.1 backend.
 
 ### packages/web
 
-React 19 + TypeScript frontend — early stage, fixture data only (no live API wiring yet).
+React 19 + TypeScript frontend. **Early stage — displays fixture data; live API wiring is in progress.**
 
+Built so far:
 - Application shell: top bar, collapsible sidebar, status bar, bottom nav rail on mobile
-- Gantt view: split-pane task list (virtualized) + SVAR React Gantt timeline
-  - All 6 bar types: normal, critical, complete, summary, milestone, baseline ghost
-  - All 4 dependency types: FS / SS / FF / SF
-  - Zoom: Day / Week / Month / Quarter
-  - Two-way scroll sync between task list and timeline
+- Gantt view: split-pane task list (virtualized) + SVAR React Gantt timeline, all 6 bar types, all 4 dependency types, zoom (Day/Week/Month/Quarter), two-way scroll sync
 - Design System v1.0 tokens, WCAG 2.1 AA
+
+Not yet built: Board/Kanban, List, Calendar, Resource views, login/auth flow, live API hooks.
 
 ## Quickstart (Docker Compose)
 
@@ -145,8 +144,8 @@ GitLab CI (`.gitlab-ci.yml`). Jobs per push:
 | `api:test`             | pytest with PostgreSQL + Redis (coverage ≥ 65%) |
 | `web:lint`             | eslint                                          |
 | `web:type-check`       | tsc --noEmit                                    |
-| `web:test`             | vitest (coverage ≥ 80%)                         |
 | `web:build`            | vite build                                      |
+| `web:test`             | vitest (coverage ≥ 80%)                         |
 | `helm:lint`            | helm lint                                       |
 | `license:check`        | pip-licenses (Apache 2.0 compatible only)       |
 | `security:bandit`      | bandit static analysis                          |

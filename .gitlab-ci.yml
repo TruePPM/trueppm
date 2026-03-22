@@ -151,6 +151,49 @@ api:openapi-check:
     - python manage.py spectacular --validate --file /dev/null
 
 # ---------------------------------------------------------------------------
+# Web — check + test + build
+# Cache key is derived from package-lock.json so npm ci is skipped on cache hits.
+# ---------------------------------------------------------------------------
+
+.web:
+  image: node:20-alpine
+  cache: &web-cache
+    key:
+      files:
+        - packages/web/package-lock.json
+      prefix: web-npm
+    paths:
+      - packages/web/node_modules/
+  before_script:
+    - cd packages/web
+    - npm ci --prefer-offline --quiet
+
+web:lint:
+  extends: .web
+  stage: check
+  script:
+    - npm run lint
+
+web:type-check:
+  extends: .web
+  stage: check
+  script:
+    - npm run typecheck
+
+web:build:
+  extends: .web
+  stage: check
+  script:
+    - npm run build
+
+web:test:
+  extends: .web
+  stage: test
+  script:
+    - npm run test:coverage
+  coverage: '/^All files\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*([\d.]+)/'
+
+# ---------------------------------------------------------------------------
 # Helm — check
 # ---------------------------------------------------------------------------
 

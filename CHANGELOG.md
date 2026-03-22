@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Web CI jobs (`web:lint`, `web:type-check`, `web:build`, `web:test`) added to `.gitlab-ci.yml`.
+  Cache keyed on `package-lock.json`. Coverage reported via vitest's Istanbul text summary.
+
+### Changed
+- Repo structure clarified: scheduler lives at repo root (`src/trueppm_scheduler/`,
+  root `pyproject.toml`), not in `packages/`. `CLAUDE.md`, `README.md`, and
+  `docs/architecture/overview.md` updated to reflect this consistently.
+- Mobile references removed from `CLAUDE.md`, `README.md`, and `docs/architecture/overview.md`.
+  Mobile is not yet started; dead references erode doc trust. Will be re-added when
+  `packages/mobile` is scaffolded.
+- `README.md` web section updated to clearly state what is built vs what is not yet built.
+- `docs/architecture/overview.md` system diagram updated to show current client topology
+  (web only; offline-first sync protocol noted as designed for future clients).
+
+### Fixed
+- `scheduling/tasks.py` `bulk_update` comment expanded to explain WHY `server_version` is
+  intentionally not incremented for CPM field writes (prevents spurious mobile sync deltas).
+
+
 - Gantt view (`packages/web/src/features/gantt/`): split-pane task list (280px, virtualized
   via @tanstack/react-virtual) + SVAR React Gantt timeline. All 6 bar types (normal/critical/
   complete/summary/milestone/baseline ghost). All 4 dependency types (FS/SS/FF/SF). Zoom
