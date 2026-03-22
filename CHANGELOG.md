@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Rewrote `README.md` for the full monorepo: structure, Docker Compose quickstart, per-package dev commands, CI job table, and contributing guide.
+- Docusaurus v3.7 documentation site (`packages/website/`) with getting-started guides, architecture
+  overview, feature docs (CPM/Monte Carlo, RBAC, real-time, offline sync), API index, and ADR-0003.
 - Nested membership CRUD at `/api/v1/projects/{pk}/members/`: Owner-only create/update/delete with
   role-escalation guard (callers cannot assign roles ≥ their own), last-Owner atomic guard, Viewer self-removal,
   and `member_added` / `member_role_changed` / `member_removed` WebSocket broadcasts.
