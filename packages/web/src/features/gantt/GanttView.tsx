@@ -1,4 +1,4 @@
-import { useRef, useMemo, useCallback } from 'react';
+import { useRef, useMemo, useCallback, useState } from 'react';
 import type { IApi } from '@svar-ui/gantt-store';
 import './gantt.css';
 import '@svar-ui/react-gantt/style.css';
@@ -10,6 +10,7 @@ import { toSvarLinks } from './adapters/toSvarLinks';
 import { TaskListPanel } from './TaskListPanel';
 import { GanttTimeline } from './GanttTimeline';
 import { ZoomControl } from './ZoomControl';
+import { MonteCarloRow } from './MonteCarloRow';
 
 export function GanttView() {
   const { tasks, links, isLoading, error } = useGanttTasks();
@@ -17,11 +18,14 @@ export function GanttView() {
 
   const taskListScrollRef = useRef<HTMLDivElement>(null);
   const ganttApiRef = useRef<IApi | null>(null);
+  // ganttApi as state so useSvarScale re-runs when the API becomes available
+  const [ganttApi, setGanttApi] = useState<IApi | null>(null);
 
   useScrollSync(taskListScrollRef, ganttApiRef);
 
   const handleApiReady = useCallback((api: IApi) => {
     ganttApiRef.current = api;
+    setGanttApi(api);
   }, []);
 
   // Adapt TruePPM data to SVAR shapes — memoized on raw array reference
@@ -76,6 +80,9 @@ export function GanttView() {
           onApiReady={handleApiReady}
         />
       </div>
+
+      {/* Monte Carlo confidence row — hidden on mobile (< md) */}
+      <MonteCarloRow ganttApi={ganttApi} />
     </div>
   );
 }

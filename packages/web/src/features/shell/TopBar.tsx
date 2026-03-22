@@ -36,9 +36,9 @@ export function TopBar({ onHamburgerClick }: Props) {
       <div className="ml-auto flex items-center gap-2">
         {stats?.monteCarlop80 && (
           <span
-            className="hidden xl:flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium
-              bg-brand-accent-light text-brand-accent-dark"
-            aria-label={`Monte Carlo P80: ${stats.monteCarlop80}`}
+            className="hidden md:flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium
+              bg-semantic-at-risk/10 text-semantic-at-risk"
+            aria-label={`Monte Carlo P80 completion: ${stats.monteCarlop80}`}
           >
             P80: {new Date(stats.monteCarlop80).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
           </span>

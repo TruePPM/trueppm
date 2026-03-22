@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Monte Carlo confidence display (`packages/web/src/features/gantt/`): P50/P80/P95
+  vertical confidence lines below the Gantt split pane, aligned to the SVAR timeline
+  date axis via `useSvarScale` (reads `getState()._scales` + `scrollLeft`). Histogram
+  tooltip on hover/focus shows the full weekly-bucketed distribution as an SVG
+  bar chart with percentile rules. P80 badge in the top bar updated to use
+  `semantic-at-risk` tokens and display at `md` breakpoint (was `xl`).
+  Hidden on mobile (`< md`). `prefers-reduced-motion` respected.
+  Closes #20.
+- `useMonteCarloResult` stub hook and `FIXTURE_MC_RESULT` fixture (pre-bucketed
+  weekly distribution, ready to swap for a real `useQuery` call).
+- `useSvarScale` hook — bridges SVAR's internal scroll/zoom reactive state into
+  React state for date-aligned DOM overlays.
+- `MonteCarloResult` and `McBucket` types added to `src/types/index.ts`.
+- `MC_ROW_HEIGHT = 44` constant added to `ganttConstants.ts`.
+- SVAR test stub (`src/test/mocks/svar-gantt.tsx`) extended with `getState`,
+  `getReactiveState`, `getStores`, `getTable`, `getTask`, `detach`, `serialize`.
+- Monte Carlo design rules added to `packages/web/CLAUDE.md` (rules 17–22).
+
+### Added
 - Root `.gitignore` covering Python, pytest, mypy, ruff, Docker override files, and editor
   artifacts. Previously the repo had no root ignore file.
 - CI pipeline restructured to 4 stages (lint → analyze → test → security) with a

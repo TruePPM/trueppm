@@ -43,6 +43,30 @@ export interface Project {
   healthState: HealthState;
 }
 
+/** One weekly bucket in a Monte Carlo distribution histogram */
+export interface McBucket {
+  /** ISO date string for the Monday that starts this week */
+  weekStart: string;
+  count: number;
+}
+
+/**
+ * Monte Carlo simulation result. Fixture data uses pre-bucketed distribution
+ * to keep file size small; real API returns the same shape.
+ */
+export interface MonteCarloResult {
+  projectId: string;
+  runs: number;
+  /** P50 completion date, ISO string */
+  p50: string;
+  /** P80 completion date, ISO string */
+  p80: string;
+  /** P95 completion date, ISO string */
+  p95: string;
+  /** Weekly bucket histogram of the full distribution */
+  buckets: McBucket[];
+}
+
 export interface ShellStats {
   taskCount: number;
   criticalPathCount: number;
