@@ -9,16 +9,17 @@ Open-core Project, Program, and Portfolio Management (P3M) platform.
 
 ```
 trueppm-suite/
+├── src/trueppm_scheduler/  # CPM + Monte Carlo engine (pip: trueppm-scheduler)
 ├── packages/
-│   ├── scheduler/   # CPM + Monte Carlo engine (pip: trueppm-scheduler)
 │   ├── api/         # Django 5.1 REST + Channels backend
+│   ├── web/         # React 19 + TypeScript frontend
 │   ├── helm/        # Helm 3 chart for Kubernetes deployment
-│   └── web/         # React 19 + TypeScript frontend (coming soon)
+│   └── website/     # Docusaurus documentation site
 ├── docs/            # ADRs, design system
 └── docker-compose.yml
 ```
 
-### packages/scheduler
+### Scheduler (repo root)
 
 Pure-Python scheduling engine. No Django dependency — ships independently on PyPI.
 
@@ -38,6 +39,18 @@ Django 5.1 backend.
 - Offline sync: `GET /api/v1/projects/{pk}/sync/?since={version}` — WatermelonDB-compatible delta protocol with soft-delete tombstones
 - OpenAPI 3.1 schema at `/api/schema/`
 
+### packages/web
+
+React 19 + TypeScript frontend — early stage, fixture data only (no live API wiring yet).
+
+- Application shell: top bar, collapsible sidebar, status bar, bottom nav rail on mobile
+- Gantt view: split-pane task list (virtualized) + SVAR React Gantt timeline
+  - All 6 bar types: normal, critical, complete, summary, milestone, baseline ghost
+  - All 4 dependency types: FS / SS / FF / SF
+  - Zoom: Day / Week / Month / Quarter
+  - Two-way scroll sync between task list and timeline
+- Design System v1.0 tokens, WCAG 2.1 AA
+
 ## Quickstart (Docker Compose)
 
 ```bash
@@ -46,12 +59,13 @@ cd trueppm
 docker compose up -d
 ```
 
-| Service        | URL                        |
-|----------------|----------------------------|
-| API            | http://localhost:8000      |
-| API schema     | http://localhost:8000/api/schema/ |
-| PostgreSQL     | localhost:5432             |
-| Redis          | localhost:6379             |
+| Service    | URL                                        |
+|------------|--------------------------------------------|
+| Web UI     | http://localhost:5173                      |
+| API        | http://localhost:8000                      |
+| API schema | http://localhost:8000/api/schema/          |
+| PostgreSQL | localhost:5432                             |
+| Redis      | localhost:6379                             |
 
 Apply migrations and create a superuser:
 
@@ -87,6 +101,18 @@ python manage.py makemigrations --check --dry-run  # migration check
 
 Tests require Docker (testcontainers spins up PostgreSQL automatically). In CI, `DATABASE_URL` is set via service containers instead.
 
+### Web
+
+```bash
+cd packages/web
+npm install
+npm run dev                     # http://localhost:5173 (Vite dev server)
+npm test                        # vitest (64 tests)
+npm run typecheck               # tsc --noEmit
+npm run lint                    # eslint
+npm run build                   # production build
+```
+
 ### Helm
 
 ```bash
@@ -117,6 +143,10 @@ GitLab CI (`.gitlab-ci.yml`). Jobs per push:
 | `api:migration-check`  | makemigrations --check                          |
 | `api:openapi-check`    | drf-spectacular schema generation               |
 | `api:test`             | pytest with PostgreSQL + Redis (coverage ≥ 65%) |
+| `web:lint`             | eslint                                          |
+| `web:type-check`       | tsc --noEmit                                    |
+| `web:test`             | vitest (coverage ≥ 80%)                         |
+| `web:build`            | vite build                                      |
 | `helm:lint`            | helm lint                                       |
 | `license:check`        | pip-licenses (Apache 2.0 compatible only)       |
 | `security:bandit`      | bandit static analysis                          |

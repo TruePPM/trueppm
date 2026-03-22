@@ -95,8 +95,15 @@ curl -s -X POST "http://localhost:8000/api/v1/projects/$PROJECT_ID/members/" \
 
 Role values: Owner=4, Admin=3, Scheduler=2, Member=1, Viewer=0.
 
+## 8. Open the web UI
+
+Navigate to `http://localhost:5173` in your browser. The Gantt view is at `http://localhost:5173/gantt`.
+
+The web UI currently renders fixture data. API wiring to live projects is coming in a subsequent milestone.
+
 ## Next steps
 
+- [Gantt View](../features/gantt.md)
 - [CPM Scheduler](../features/scheduler.md)
 - [RBAC](../features/rbac.md)
 - [Offline Sync](../features/offline-sync.md)

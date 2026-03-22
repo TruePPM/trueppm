@@ -3,6 +3,38 @@
 
 export type HealthState = 'on-track' | 'at-risk' | 'critical' | 'unknown';
 
+export type BarType = 'normal' | 'critical' | 'complete' | 'summary' | 'milestone' | 'baseline';
+export type LinkType = 'FS' | 'SS' | 'FF' | 'SF';
+export type ZoomLevel = 'day' | 'week' | 'month' | 'quarter';
+
+export interface Task {
+  id: string;
+  wbs: string;
+  name: string;
+  /** ISO date string */
+  start: string;
+  /** ISO date string */
+  finish: string;
+  duration: number;
+  /** 0–100 */
+  progress: number;
+  parentId: string | null;
+  isCritical: boolean;
+  isComplete: boolean;
+  isSummary: boolean;
+  isMilestone: boolean;
+  baselineStart?: string;
+  baselineFinish?: string;
+}
+
+export interface TaskLink {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  type: LinkType;
+  isCritical: boolean;
+}
+
 export interface Project {
   id: string;
   name: string;

@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Gantt view (`packages/web/src/features/gantt/`): split-pane task list (280px, virtualized
+  via @tanstack/react-virtual) + SVAR React Gantt timeline. All 6 bar types (normal/critical/
+  complete/summary/milestone/baseline ghost). All 4 dependency types (FS/SS/FF/SF). Zoom
+  control (Day/Week/Month/Quarter). Scroll sync via SVAR IApi (scroll-chart exec/on).
+  Adapter layer (toSvarTasks, toSvarLinks) maps TruePPM types to SVAR ITask/ILink shapes.
+  gantt.css scoped to .gantt-root with Design System v1.0 color tokens. Bar labels use
+  #1A1917 dark text (WCAG). `readonly={true}` until WASM CPM drag (issue #19). jsdom
+  test mock for SVAR canvas component. Closes #18.
 - Application shell (`packages/web/`): top bar (48px), collapsible sidebar (220px→60px,
   200ms ease-out), status bar (28px), bottom nav rail at <768px, mobile drawer overlay.
   React Router v7 `createBrowserRouter`, Zustand shell store, stub hooks with fixture data.
