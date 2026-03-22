@@ -17,7 +17,7 @@ _LOCK_TTL_SECONDS = 300
 _REQUEUE_COUNTDOWN = 10
 
 
-@shared_task(bind=True)  # type: ignore[misc]
+@shared_task(bind=True)  # type: ignore[untyped-decorator]
 def recalculate_schedule(self: object, project_id: str) -> None:
     """Run CPM on a project and persist the results.
 

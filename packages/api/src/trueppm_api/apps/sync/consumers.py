@@ -83,7 +83,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         """Validate a JWT access token and return the user, or None on failure."""
         from channels.db import database_sync_to_async
 
-        @database_sync_to_async  # type: ignore[misc]
+        @database_sync_to_async  # type: ignore[untyped-decorator]
         def _validate(tok: str) -> Any:
             from django.contrib.auth import get_user_model
             from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
@@ -103,7 +103,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         """Return the user's role ordinal on the project, or None if not a member."""
         from channels.db import database_sync_to_async
 
-        @database_sync_to_async  # type: ignore[misc]
+        @database_sync_to_async  # type: ignore[untyped-decorator]
         def _query(u: Any, pk: str) -> int | None:
             from trueppm_api.apps.access.models import ProjectMembership
 
