@@ -17,6 +17,9 @@ class VersionedModel(models.Model):
     save. The mobile sync protocol uses it to detect changes since a given
     checkpoint without needing created_at/updated_at timestamps.
 
+    is_deleted / deleted_version support soft-delete so the sync endpoint can
+    return tombstones to mobile clients rather than silently dropping rows.
+
     Concurrency safety: server_version is updated via F() expression in an
     atomic update() call, so concurrent writes produce a strict order rather
     than a lost-update race.
@@ -24,14 +27,18 @@ class VersionedModel(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     server_version = models.BigIntegerField(default=0, editable=False)
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    deleted_version = models.BigIntegerField(null=True, blank=True, editable=False)
 
     class Meta:
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        # Increment server_version atomically on every update.
+        # Increment server_version atomically on every save (INSERT and UPDATE).
         manager = type(self).objects  # type: ignore[attr-defined]
         if self.pk and manager.filter(pk=self.pk).exists():
+            # UPDATE path: atomically increment via F() expression so concurrent
+            # writes produce a strict version order rather than a lost-update race.
             manager.filter(pk=self.pk).update(server_version=models.F("server_version") + 1)
             self.server_version = manager.values_list("server_version", flat=True).get(pk=self.pk)
             # Exclude server_version from the subsequent UPDATE so super().save()
@@ -46,7 +53,25 @@ class VersionedModel(models.Model):
                     for f in self._meta.concrete_fields
                     if not f.primary_key and f.attname != "server_version"
                 ]
+        else:
+            # INSERT path: start at 1 so the sync endpoint can find new rows
+            # with server_version__gt=0 (since=0 means "give me everything").
+            self.server_version = 1
         super().save(*args, **kwargs)
+
+    def soft_delete(self) -> None:
+        """Mark the row as deleted and increment server_version.
+
+        The row is retained in the database so that the sync endpoint can
+        return its ID in the 'deleted' tombstone list to mobile clients.
+        """
+        self.is_deleted = True
+        self.save()
+        # Record the version at which deletion occurred for GC purposes.
+        type(self).objects.filter(pk=self.pk).update(  # type: ignore[attr-defined]
+            deleted_version=self.server_version
+        )
+        self.deleted_version = self.server_version
 
 
 # ---------------------------------------------------------------------------
@@ -181,16 +206,34 @@ class Task(VersionedModel):
     def __str__(self) -> str:
         return f"{self.project.name} / {self.name}"
 
+    def soft_delete(self) -> None:
+        """Soft-delete the task and cascade to all its dependency edges.
+
+        Dependency rows that reference this task are themselves soft-deleted so
+        the sync endpoint can tombstone them on connected mobile clients.
+        """
+        # Soft-delete all edges where this task is predecessor or successor.
+        edges = Dependency.objects.filter(predecessor=self) | Dependency.objects.filter(
+            successor=self
+        )
+        for dep in list(edges):
+            if not dep.is_deleted:
+                dep.soft_delete()
+        super().soft_delete()
+
 
 # ---------------------------------------------------------------------------
 # Dependency
 # ---------------------------------------------------------------------------
 
 
-class Dependency(models.Model):
-    """A scheduling dependency between two tasks."""
+class Dependency(VersionedModel):
+    """A scheduling dependency between two tasks.
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    Extends VersionedModel so that dependency changes and deletions are
+    visible to the mobile sync endpoint.
+    """
+
     predecessor = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="successors")
     successor = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="predecessors")
     dep_type = models.CharField(max_length=2, choices=DEPENDENCY_TYPE_CHOICES, default="FS")

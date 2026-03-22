@@ -1,7 +1,11 @@
-"""URL patterns — populated when views are added."""
+"""URL patterns for the sync app."""
 
 from __future__ import annotations
 
-from django.urls import URLPattern
+from django.urls import path
 
-urlpatterns: list[URLPattern] = []
+from trueppm_api.apps.sync.views import ProjectSyncView
+
+urlpatterns = [
+    path("projects/<uuid:pk>/sync/", ProjectSyncView.as_view(), name="project-sync"),
+]

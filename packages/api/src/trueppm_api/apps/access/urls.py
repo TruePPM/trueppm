@@ -2,11 +2,33 @@
 
 from __future__ import annotations
 
-from rest_framework.routers import DefaultRouter
+from django.urls import path
 
 from trueppm_api.apps.access.views import ProjectMembershipViewSet
 
-router = DefaultRouter()
-router.register(r"memberships", ProjectMembershipViewSet, basename="membership")
+_members = ProjectMembershipViewSet.as_view(
+    {
+        "get": "list",
+        "post": "create",
+    }
+)
+_member_detail = ProjectMembershipViewSet.as_view(
+    {
+        "get": "retrieve",
+        "patch": "partial_update",
+        "delete": "destroy",
+    }
+)
 
-urlpatterns = router.urls
+urlpatterns = [
+    path(
+        "projects/<uuid:project_pk>/members/",
+        _members,
+        name="project-members-list",
+    ),
+    path(
+        "projects/<uuid:project_pk>/members/<uuid:pk>/",
+        _member_detail,
+        name="project-members-detail",
+    ),
+]
