@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Web UI polish: replaced emoji nav icons with inline SVG icon set (`GanttIcon`,
+  `BoardIcon`, `ListIcon`, `CalendarIcon`, `ResourcesIcon`); added geometric logo
+  mark; top bar alert badges use `WarningIcon`/`CriticalDotIcon` instead of raw
+  Unicode; task list rows show a mini progress bar instead of plain percentage text;
+  status bar uses 1px vertical dividers instead of · dots; Monte Carlo histogram
+  tooltip formats ISO dates as "Mon D"; MC confidence bars increased 4px → 6px with
+  even vertical spacing; placeholder views show a blueprint grid SVG.
+
 ### Added
 - Monte Carlo confidence display (`packages/web/src/features/gantt/`): P50/P80/P95
   vertical confidence lines below the Gantt split pane, aligned to the SVAR timeline

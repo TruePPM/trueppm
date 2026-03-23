@@ -27,16 +27,21 @@ export function StatusBar() {
       {stats ? (
         <>
           <span>{stats.taskCount} tasks</span>
+          <span className="w-px h-3 bg-neutral-border" aria-hidden="true" />
           <span aria-label={`${stats.criticalPathCount} on critical path`}>
-            · {stats.criticalPathCount} critical path
+            {stats.criticalPathCount} on critical path
           </span>
+          <span className="w-px h-3 bg-neutral-border" aria-hidden="true" />
           <time
             dateTime={stats.lastSaved ?? ''}
             title={stats.lastSaved ? new Date(stats.lastSaved).toLocaleString() : undefined}
           >
-            · {formatLastSaved(stats.lastSaved)}
+            {formatLastSaved(stats.lastSaved)}
           </time>
-          <span className="hidden 2xl:block">· {stats.onlineUsers} online</span>
+          <span className="hidden 2xl:contents">
+            <span className="w-px h-3 bg-neutral-border" aria-hidden="true" />
+            <span>{stats.onlineUsers} online</span>
+          </span>
         </>
       ) : (
         <span aria-live="polite">Loading…</span>

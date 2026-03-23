@@ -151,5 +151,6 @@ Run `/skills` to see all available skills. Key ones:
 - `/accessibility` — WCAG compliance review
 - `/docs-writer` — Documentation generation
 - `/git-workflow` — Branch, commit, PR management
+- `/mr` — Open a GitLab MR for the current branch (pre-flight checks, structured description, creates via glab)
 - `/fix-mr` — Watch and fix a failing MR pipeline until green
 - `/scheduler-engine` — CPM/Monte Carlo algorithm work
