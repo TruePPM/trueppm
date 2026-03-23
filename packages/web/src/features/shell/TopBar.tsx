@@ -1,5 +1,6 @@
 import { useShellStore } from '@/stores/shellStore';
 import { useShellStats } from '@/hooks/useShellStats';
+import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
 import { Logo } from './Logo';
 import { ViewTabs } from './ViewTabs';
 
@@ -49,7 +50,8 @@ export function TopBar({ onHamburgerClick }: Props) {
               bg-semantic-at-risk/10 text-semantic-at-risk"
             aria-label={`${stats.atRiskCount} tasks at risk`}
           >
-            ⚠ {stats.atRiskCount}
+            <WarningIcon aria-hidden="true" />
+            {stats.atRiskCount}
           </span>
         )}
         {stats && stats.criticalCount > 0 && (
@@ -58,7 +60,8 @@ export function TopBar({ onHamburgerClick }: Props) {
               bg-semantic-critical/10 text-semantic-critical"
             aria-label={`${stats.criticalCount} critical tasks`}
           >
-            ● {stats.criticalCount}
+            <CriticalDotIcon aria-hidden="true" />
+            {stats.criticalCount}
           </span>
         )}
 

@@ -19,7 +19,7 @@ const BARS: BarSpec[] = [
   { key: 'p50', label: 'P50', colorClass: 'bg-semantic-on-track', pattern: 'solid'  },
 ];
 
-const BAR_H = 4;
+const BAR_H = 6;
 
 interface ConfidenceBarProps {
   startLeft: number;
@@ -45,7 +45,8 @@ function ConfidenceBar({ startLeft, endLeft, spec, isoDate, zIndex }: Confidence
 
   // Vertical position: all bars share the same vertical centre in the 44px row
   // (top: 50% - 2px = 20px from top). Slight y-offset per bar so labels don't overlap.
-  const topOffset = zIndex === 2 ? 14 : zIndex === 1 ? 19 : 24;
+  // Evenly distribute 3 bars across the 44px row: bands at 10, 19, 28px from top
+  const topOffset = zIndex === 2 ? 10 : zIndex === 1 ? 19 : 28;
 
   // Dashed/dotted overlay: we render the bar as a solid div, then apply a
   // repeating-gradient mask for non-solid patterns using inline style.
@@ -239,18 +240,19 @@ export function MonteCarloTimeline({ result, scrollLeft, scales }: Props) {
           </p>
           <MonteCarloHistogram result={result} />
           <div className="mt-2 flex items-center gap-4 text-[10px] text-neutral-text-secondary">
-            <span>
-              <span className="inline-block w-2.5 h-1 bg-semantic-on-track mr-1 rounded-sm" aria-hidden="true" />
-              P50 {result.p50}
-            </span>
-            <span>
-              <span className="inline-block w-2.5 h-1 bg-semantic-at-risk mr-1 rounded-sm" aria-hidden="true" />
-              P80 {result.p80}
-            </span>
-            <span>
-              <span className="inline-block w-2.5 h-1 bg-semantic-critical mr-1 rounded-sm" aria-hidden="true" />
-              P95 {result.p95}
-            </span>
+            {[
+              { label: 'P50', iso: result.p50, cls: 'bg-semantic-on-track' },
+              { label: 'P80', iso: result.p80, cls: 'bg-semantic-at-risk' },
+              { label: 'P95', iso: result.p95, cls: 'bg-semantic-critical' },
+            ].map(({ label, iso, cls }) => (
+              <span key={label} className="flex items-center gap-1">
+                <span className={`inline-block w-2.5 h-1 ${cls} rounded-sm`} aria-hidden="true" />
+                <span className="font-medium">{label}</span>
+                <span>
+                  {new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </span>
+              </span>
+            ))}
           </div>
         </div>
       )}

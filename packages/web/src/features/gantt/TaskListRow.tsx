@@ -69,12 +69,27 @@ export function TaskListRow({ task, level }: Props) {
         {formatDate(task.start)}
       </span>
 
+      {/* Progress bar + percentage */}
       <span
-        className="shrink-0 text-right tabular-nums text-neutral-text-secondary"
+        className="shrink-0 flex flex-col items-end gap-0.5"
         style={{ width: COL_PROGRESS }}
         aria-label={`${task.progress}% complete`}
       >
-        {task.isMilestone ? '' : `${task.progress}%`}
+        {!task.isMilestone && (
+          <>
+            <span className="tabular-nums text-neutral-text-secondary" style={{ fontSize: 10 }}>
+              {task.progress}%
+            </span>
+            <span className="w-full h-1 rounded-full bg-neutral-surface-sunken overflow-hidden" aria-hidden="true">
+              <span
+                className={`block h-full rounded-full transition-[width] ${
+                  task.isCritical ? 'bg-semantic-critical' : 'bg-brand-primary'
+                }`}
+                style={{ width: `${task.progress}%` }}
+              />
+            </span>
+          </>
+        )}
       </span>
     </div>
   );
