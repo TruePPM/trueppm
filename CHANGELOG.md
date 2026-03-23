@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Monte Carlo tooltip plain-language summary: "8 in 10 simulations finish by **[date]**"
+  appears at the top of the histogram tooltip (P80 as anchor). Closes #31.
+- At-risk and critical count badges in TopBar are now clickable buttons — click opens a
+  popover listing affected tasks (WBS · name); clicking a task selects and scrolls to it
+  in the Gantt. `BadgePopover` component with `role="menu"` / `role="menuitem"`. Closes #32.
+- Mobile Monte Carlo confidence: P80 chip ("P80: Mon D") added to `StatusBar` for `< md`
+  viewports; `MonteCarloLabel` cell shows persistent P80 chip at `md+`; MC confidence bars
+  increased to 8px height (was 6px). Closes #33.
+
 ### Fixed
 - Gantt task list expand arrow was pointing backwards — disabled SVAR's built-in task list
   panel (`columns={false}`) so only our custom panel renders. Closes #47.
@@ -14,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   persisted to localStorage (`useColumnWidths` hook). Closes #48.
 - Gantt bar grid columns were misaligned with the header row — root cause was SVAR rendering
   a duplicate header; fixed by the same `columns={false}` change. Closes #49.
+- `text-[10px]` and `fontSize={9}` violations in `MonteCarloTimeline` and `MonteCarloHistogram`
+  replaced with `text-xs` / `fontSize={12}` (design rule 50 — 12px floor). Fixes WCAG 1.4.3.
+- `StatusBar` legend items now use semantic Tailwind tokens (`bg-semantic-on-track` etc.)
+  instead of hardcoded hex colors (design rule 8). Legend updated to match rule 44 (Complete /
+  In progress / Critical path / ◆ Milestone). Last-saved format corrected to `"min"` not `"m"`
+  (design rule 45).
+- Rule 39 in `packages/web/CLAUDE.md` corrected: at-risk/critical badge buttons use
+  `aria-haspopup="menu"` not `"listbox"` (listbox implies value-selection; these navigate).
 
 ### Changed
 - Web UI polish: replaced emoji nav icons with inline SVG icon set (`GanttIcon`,

@@ -19,11 +19,12 @@ describe('StatusBar', () => {
     expect(document.querySelector('time')).toBeInTheDocument();
   });
 
-  it('renders health legend', () => {
+  it('renders Gantt legend with correct items', () => {
     renderWithProviders(<StatusBar />);
-    expect(screen.getByLabelText(/health legend/i)).toBeInTheDocument();
-    expect(screen.getByText('On track')).toBeInTheDocument();
-    expect(screen.getByText('At risk')).toBeInTheDocument();
-    expect(screen.getByText('Critical')).toBeInTheDocument();
+    expect(screen.getByLabelText(/gantt legend/i)).toBeInTheDocument();
+    expect(screen.getByText('Complete')).toBeInTheDocument();
+    expect(screen.getByText('In progress')).toBeInTheDocument();
+    expect(screen.getByText('Critical path')).toBeInTheDocument();
+    expect(screen.getByText('Milestone')).toBeInTheDocument();
   });
 });

@@ -32,7 +32,7 @@ export function MonteCarloRow({ ganttApi, projectId, taskListWidth }: Props) {
       style={{ height: MC_ROW_HEIGHT }}
       aria-label="Monte Carlo confidence row"
     >
-      <MonteCarloLabel width={taskListWidth} />
+      <MonteCarloLabel width={taskListWidth} p80Date={result.p80} />
       <MonteCarloTimeline result={result} scrollLeft={scrollLeft} scales={scales} />
     </div>
   );

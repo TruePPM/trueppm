@@ -1,8 +1,9 @@
-import { useRef, type RefObject } from 'react';
+import { useRef, useEffect, type RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Task } from '@/types';
 import { ROW_HEIGHT } from './ganttConstants';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
+import { useGanttStore } from '@/stores/ganttStore';
 import { TaskListHeader } from './TaskListHeader';
 import { TaskListRow } from './TaskListRow';
 
@@ -21,6 +22,8 @@ interface Props {
 
 export function TaskListPanel({ tasks, scrollRef, widths, setWidth, totalWidth }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollToTaskId = useGanttStore((s) => s.scrollToTaskId);
+  const scrollToTask = useGanttStore((s) => s.scrollToTask);
 
   const virtualizer = useVirtualizer({
     count: tasks.length,
@@ -28,6 +31,14 @@ export function TaskListPanel({ tasks, scrollRef, widths, setWidth, totalWidth }
     estimateSize: () => ROW_HEIGHT,
     overscan: 5,
   });
+
+  // Scroll-to-task: triggered by badge popover navigation (issue #32)
+  useEffect(() => {
+    if (!scrollToTaskId) return;
+    const idx = tasks.findIndex((t) => t.id === scrollToTaskId);
+    if (idx !== -1) virtualizer.scrollToIndex(idx, { align: 'center' });
+    scrollToTask(null);
+  }, [scrollToTaskId, tasks, virtualizer, scrollToTask]);
 
   const items = virtualizer.getVirtualItems();
 

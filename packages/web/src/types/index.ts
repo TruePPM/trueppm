@@ -99,6 +99,12 @@ export interface WorstMilestone {
 /** Drag state machine phases */
 export type DragPhase = 'idle' | 'dragging' | 'committing' | 'error';
 
+export interface ShellStatTask {
+  id: string;
+  wbs: string;
+  name: string;
+}
+
 export interface ShellStats {
   taskCount: number;
   criticalPathCount: number;
@@ -106,6 +112,10 @@ export interface ShellStats {
   monteCarlop80: string | null;
   atRiskCount: number;
   criticalCount: number;
+  /** Tasks with health = at-risk (up to 5 shown in badge popover) */
+  atRiskTasks: ShellStatTask[];
+  /** Tasks on critical path that are incomplete (up to 5 shown in badge popover) */
+  criticalTasks: ShellStatTask[];
   onlineUsers: number;
   lastSaved: string | null;
 }
