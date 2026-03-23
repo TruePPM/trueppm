@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Keyboard rescheduling for the Gantt chart (WCAG 2.1.1 gap, issue #34): selecting a task
+  and pressing Enter enters keyboard reschedule mode. Arrow keys nudge by 1 working day;
+  Shift+Arrow nudges by 5. 'd' opens a date-input popover for precise entry. Enter confirms
+  (PATCH), Escape cancels. Preview bars, the CP-flip badge, and milestone delta tooltip all
+  render identically to the pointer drag. An origin ghost bar (dashed outline) marks the
+  task's pre-nudge position. Screen reader support via separate assertive + polite aria-live
+  regions. Offline guard prevents PATCH when `navigator.onLine` is false. Closes #34.
+- `nudgeWorkingDays(isoDate, days)` utility in `ganttUtils.ts` — advances or retreats an
+  ISO date by N working days (Mon–Fri), skipping weekends.
+- `DateInputPopover` component — `role="dialog"` focus-trapped modal for direct date entry
+  during keyboard reschedule. Derives finish from start + task duration.
+- Design rules 51–53 in `packages/web/CLAUDE.md`: keyboard instruction strip, origin ghost
+  bar, and assertive aria-live region requirements for keyboard rescheduling.
 - Monte Carlo tooltip plain-language summary: "8 in 10 simulations finish by **[date]**"
   appears at the top of the histogram tooltip (P80 as anchor). Closes #31.
 - At-risk and critical count badges in TopBar are now clickable buttons — click opens a

@@ -3,6 +3,9 @@
  *
  * Isolated from ganttStore to keep concerns separate — drag preview state
  * is transient and never persisted.
+ *
+ * Extended in issue #34 to support keyboard rescheduling (same state machine,
+ * additional keyboard-mode flags).
  */
 
 import { create } from 'zustand';
@@ -16,17 +19,35 @@ export interface DragState {
   worstMilestone: WorstMilestone | null;
   /** Count of tasks beyond the 10-bar cap (rule 32). */
   overflowCount: number;
+  /** True when the active drag was initiated via keyboard (issue #34). */
+  isKeyboardMode: boolean;
+  /**
+   * Cumulative working-day nudge applied during keyboard reschedule.
+   * 0 when no keyboard drag is active.
+   */
+  keyboardDelta: number;
+  /**
+   * The committed start date after a keyboard or mouse drag confirm.
+   * Set just before phase transitions to 'committing'; read by the PATCH
+   * dispatcher in GanttView. Null when phase is not 'committing'.
+   */
+  confirmedStart: string | null;
 
   // Actions
-  startDrag: (taskId: string) => void;
+  /**
+   * Begin a drag. `isKeyboard` distinguishes keyboard reschedule (issue #34)
+   * from a pointer drag so the overlay can render the correct instruction strip.
+   */
+  startDrag: (taskId: string, isKeyboard?: boolean) => void;
   updatePreview: (
     results: DragPreviewResult[],
     worstMilestone: WorstMilestone | null,
     overflowCount: number,
   ) => void;
-  commitDrag: () => void;
+  commitDrag: (confirmedStart?: string) => void;
   cancelDrag: () => void;
   setError: () => void;
+  setKeyboardDelta: (delta: number) => void;
 }
 
 export const useDragStore = create<DragState>((set) => ({
@@ -35,22 +56,29 @@ export const useDragStore = create<DragState>((set) => ({
   previewResults: [],
   worstMilestone: null,
   overflowCount: 0,
+  isKeyboardMode: false,
+  keyboardDelta: 0,
+  confirmedStart: null,
 
-  startDrag: (taskId) =>
+  startDrag: (taskId, isKeyboard = false) =>
     set({
       phase: 'dragging',
       draggedTaskId: taskId,
       previewResults: [],
       worstMilestone: null,
       overflowCount: 0,
+      isKeyboardMode: isKeyboard,
+      keyboardDelta: 0,
+      confirmedStart: null,
     }),
 
   updatePreview: (results, worstMilestone, overflowCount) =>
     set({ previewResults: results, worstMilestone, overflowCount }),
 
-  commitDrag: () =>
+  commitDrag: (confirmedStart) =>
     set({
       phase: 'committing',
+      confirmedStart: confirmedStart ?? null,
       previewResults: [],
       worstMilestone: null,
       overflowCount: 0,
@@ -63,7 +91,12 @@ export const useDragStore = create<DragState>((set) => ({
       previewResults: [],
       worstMilestone: null,
       overflowCount: 0,
+      isKeyboardMode: false,
+      keyboardDelta: 0,
+      confirmedStart: null,
     }),
 
   setError: () => set({ phase: 'error' }),
+
+  setKeyboardDelta: (delta) => set({ keyboardDelta: delta }),
 }));

@@ -26,6 +26,12 @@ interface UseDragCpmOptions {
   links: TaskLink[];
   /** DOM ref to the aria-live region — written directly to avoid re-render storms (rule 30). */
   ariaLiveRef: RefObject<HTMLDivElement | null>;
+  /**
+   * Ref that is `true` while a keyboard reschedule is active (issue #34).
+   * When set, the Escape handler here yields to useKeyboardReschedule so the
+   * same key does not double-cancel both the keyboard mode and a ghost drag.
+   */
+  keyboardModeRef?: RefObject<boolean>;
 }
 
 export function useDragCpm({
@@ -33,6 +39,7 @@ export function useDragCpm({
   tasks,
   links,
   ariaLiveRef,
+  keyboardModeRef,
 }: UseDragCpmOptions): void {
   const workerRef = useRef<Worker | null>(null);
   const seqRef = useRef(0);
@@ -144,9 +151,12 @@ export function useDragCpm({
       },
     );
 
-    // Escape key to cancel (rule 28)
+    // Escape key to cancel (rule 28).
+    // Yields to useKeyboardReschedule when keyboard mode is active (issue #34)
+    // so the same Escape does not double-cancel.
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (keyboardModeRef?.current) return;
         const phase = useDragStore.getState().phase;
         if (phase === 'dragging') {
           cancelDrag();
@@ -160,5 +170,5 @@ export function useDragCpm({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [ganttApi, startDrag, updatePreview, commitDrag, cancelDrag, setError, ariaLiveRef]);
+  }, [ganttApi, startDrag, updatePreview, commitDrag, cancelDrag, setError, ariaLiveRef, keyboardModeRef]);
 }

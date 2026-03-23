@@ -64,9 +64,11 @@ interface Props {
   onApiReady: (api: IApi) => void;
   /** Ordered task ids as rendered — passed to PreviewOverlay for row-index lookup. */
   taskIds: string[];
+  /** Original task position for the keyboard reschedule origin ghost bar (rule 52). */
+  originTask?: { id: string; start: string; finish: string } | null;
 }
 
-export function GanttTimeline({ tasks, links, zoom, onApiReady, taskIds }: Props) {
+export function GanttTimeline({ tasks, links, zoom, onApiReady, taskIds, originTask }: Props) {
   const apiRef = useRef<IApi | null>(null);
   const { scales, scrollLeft } = useSvarScale(apiRef.current);
 
@@ -92,6 +94,7 @@ export function GanttTimeline({ tasks, links, zoom, onApiReady, taskIds }: Props
         scales={scales}
         scrollLeft={scrollLeft}
         taskIds={taskIds}
+        originTask={originTask}
       />
     </div>
   );

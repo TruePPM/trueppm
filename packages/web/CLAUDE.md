@@ -100,3 +100,25 @@ These rules are enforced at review time. Violations block merge.
 49. **Critical-path red requires a plain-English tooltip** — `title="This task is on the critical path — a delay here delays the project end date"` on every red task row. Color alone (WCAG 1.4.1) and a legend entry are insufficient for first-time users; the tooltip is the accessible fallback.
 
 50. **`text-[10px]` is prohibited** — the design system floor is `text-xs` (12px). Arbitrary size values below 12px bypass the token ladder and introduce WCAG 1.4.3 failures on any surface.
+
+## Keyboard Reschedule Rules (Issue #34)
+
+51. **Keyboard instruction strip is mandatory during keyboard reschedule** — render
+    `"← → Shift+arrow · d date · Enter confirm · Esc cancel"` in the `PreviewOverlay`
+    instruction strip when `isKeyboardMode` is `true`. The mouse-drag strip `"Esc to cancel"`
+    must remain unchanged (rule 28). Both are `aria-hidden="true"` — the assertive aria-live
+    region (rule 53) carries the accessible equivalent.
+
+52. **Origin ghost bar is required during keyboard reschedule** — show a dashed 2px
+    `ghost-border` outline bar at the task's pre-nudge start/finish position so the user
+    has a spatial reference point. Uses `OriginBar` in `PreviewOverlay`; only visible when
+    `isKeyboardMode` is `true` (SVAR renders its own drag shadow for pointer drags).
+    Fill is `transparent`; no CP badge; no label. Bar height follows rule 14 (18px).
+
+53. **Assertive aria-live region is required for keyboard reschedule** — a second
+    `aria-live="assertive"` region (`ariaAssertiveRef` in `GanttView`) must announce each
+    nudge immediately: `"{N} working day{s} later/earlier"` or `"Back to original start date"`.
+    Confirm announces `"Reschedule confirmed."`, cancel announces `"Reschedule cancelled."`,
+    mode-entry announces the task name and key legend. The existing polite region
+    (`ariaLiveRef`) continues to handle milestone slip messages. Never merge assertive and
+    polite into one region — the polite queue delay makes nudge feedback unintelligible.

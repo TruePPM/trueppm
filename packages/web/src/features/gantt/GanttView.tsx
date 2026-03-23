@@ -6,6 +6,7 @@ import { useGanttTasks } from '@/hooks/useGanttTasks';
 import { useGanttStore } from '@/stores/ganttStore';
 import { useScrollSync } from '@/hooks/useScrollSync';
 import { useDragCpm } from '@/hooks/useDragCpm';
+import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
 import { useDragStore } from '@/stores/dragStore';
 import { useColumnWidths } from '@/hooks/useColumnWidths';
 import { toSvarTasks } from './adapters/toSvarTasks';
@@ -15,6 +16,8 @@ import { GanttTimeline } from './GanttTimeline';
 import { ZoomControl } from './ZoomControl';
 import { MonteCarloRow } from './MonteCarloRow';
 import { MilestoneDeltaTooltip } from './MilestoneDeltaTooltip';
+import { DateInputPopover } from './DateInputPopover';
+import type { Task } from '@/types';
 
 export function GanttView() {
   const { tasks, links, isLoading, error } = useGanttTasks();
@@ -24,10 +27,21 @@ export function GanttView() {
   const ganttApiRef = useRef<IApi | null>(null);
   const [ganttApi, setGanttApi] = useState<IApi | null>(null);
   const { widths, setWidth, totalWidth } = useColumnWidths();
-  // aria-live ref — written directly during drag to avoid re-render storms (rule 30)
+
+  // aria-live (polite) — drag announcements via DOM ref (rule 30)
   const ariaLiveRef = useRef<HTMLDivElement>(null);
+  // aria-live (assertive) — keyboard nudge announcements; must interrupt immediately (rule 53)
+  const ariaAssertiveRef = useRef<HTMLDivElement>(null);
+
   // Ref to the timeline container for MilestoneDeltaTooltip positioning (rule 31)
   const timelineContainerRef = useRef<HTMLDivElement>(null);
+
+  // Ref set true while keyboard reschedule mode is active — read by useDragCpm
+  // to prevent its Escape handler from double-cancelling (issue #34)
+  const keyboardModeRef = useRef<boolean>(false);
+
+  // Task shown in the date input popover (null = popover closed)
+  const [datePopoverTask, setDatePopoverTask] = useState<Task | null>(null);
 
   useScrollSync(taskListScrollRef, ganttApiRef);
 
@@ -49,13 +63,62 @@ export function GanttView() {
     tasks: tasks ?? [],
     links: links ?? [],
     ariaLiveRef,
+    keyboardModeRef,
+  });
+
+  // Keyboard rescheduling — Enter/Arrow/d/Escape (issue #34)
+  const handleOpenDatePopover = useCallback(
+    (taskId: string) => {
+      const task = tasks?.find((t) => t.id === taskId) ?? null;
+      setDatePopoverTask(task);
+    },
+    [tasks],
+  );
+
+  useKeyboardReschedule({
+    ganttApi,
+    tasks: tasks ?? [],
+    links: links ?? [],
+    ariaLiveRef,
+    ariaAssertiveRef,
+    keyboardModeRef,
+    onOpenDatePopover: handleOpenDatePopover,
   });
 
   const dragPhase = useDragStore((s) => s.phase);
+  const draggedTaskId = useDragStore((s) => s.draggedTaskId);
+  const isKeyboardMode = useDragStore((s) => s.isKeyboardMode);
+
+  // Origin task for the keyboard reschedule ghost bar (rule 52)
+  const originTask = useMemo(() => {
+    if (!isKeyboardMode || !draggedTaskId || !tasks) return null;
+    const t = tasks.find((task) => task.id === draggedTaskId);
+    return t ? { id: t.id, start: t.start, finish: t.finish } : null;
+  }, [isKeyboardMode, draggedTaskId, tasks]);
 
   const timelineTop = timelineContainerRef.current
     ? timelineContainerRef.current.getBoundingClientRect().top
     : 0;
+
+  const handleDatePopoverConfirm = useCallback(
+    (newStart: string) => {
+      setDatePopoverTask(null);
+      // Commit via drag store — the confirmed start overrides the keyboard delta
+      const { commitDrag } = useDragStore.getState();
+      commitDrag(newStart);
+      keyboardModeRef.current = false;
+      if (ariaAssertiveRef.current) {
+        ariaAssertiveRef.current.textContent = 'Reschedule confirmed.';
+      }
+    },
+    [],
+  );
+
+  const handleDatePopoverClose = useCallback(() => {
+    setDatePopoverTask(null);
+    // Return focus to the Gantt without cancelling the keyboard reschedule —
+    // user may have opened the popover accidentally and wants to keep nudging
+  }, []);
 
   if (error) {
     return (
@@ -107,6 +170,7 @@ export function GanttView() {
           zoom={zoomLevel}
           onApiReady={handleApiReady}
           taskIds={taskIds}
+          originTask={originTask}
         />
       </div>
 
@@ -115,8 +179,18 @@ export function GanttView() {
       {/* Milestone delta tooltip — at GanttView level to escape overflow:hidden (rule 31) */}
       <MilestoneDeltaTooltip milestoneLeft={null} timelineTop={timelineTop} />
 
-      {/* aria-live region for drag announcements — written via DOM ref (rule 30) */}
+      {/* Date input popover for keyboard reschedule (issue #34, rule 31 pattern) */}
+      <DateInputPopover
+        task={datePopoverTask}
+        onConfirm={handleDatePopoverConfirm}
+        onClose={handleDatePopoverClose}
+      />
+
+      {/* aria-live (polite) — drag milestone announcements via DOM ref (rule 30) */}
       <div ref={ariaLiveRef} aria-live="polite" aria-atomic="true" className="sr-only" />
+
+      {/* aria-live (assertive) — keyboard nudge announcements (rule 53) */}
+      <div ref={ariaAssertiveRef} aria-live="assertive" aria-atomic="true" className="sr-only" />
 
       {/* Offline error toast (rule 29) */}
       {dragPhase === 'error' && (
