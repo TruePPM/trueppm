@@ -27,6 +27,7 @@ services:
     build:
       context: .
       dockerfile: packages/api/Dockerfile
+    image: trueppm-api:local
     environment:
       DATABASE_URL: postgres://trueppm:trueppm@db:5432/trueppm
       REDIS_URL: redis://redis:6379
@@ -50,9 +51,7 @@ services:
       - api
 
   celery:
-    build:
-      context: .
-      dockerfile: packages/api/Dockerfile
+    image: trueppm-api:local
     command: ["celery", "-A", "trueppm_api.celery", "worker", "--loglevel=info"]
     environment:
       DATABASE_URL: postgres://trueppm:trueppm@db:5432/trueppm
