@@ -11,7 +11,7 @@
  * aria-live ref passed in by GanttView.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import type { IApi } from '@svar-ui/gantt-store';
 import type { Task, TaskLink } from '@/types';
 import type { RecalcMessage, ResultMessage } from '@/workers/cpmWorker.types';
@@ -25,7 +25,7 @@ interface UseDragCpmOptions {
   tasks: Task[];
   links: TaskLink[];
   /** DOM ref to the aria-live region — written directly to avoid re-render storms (rule 30). */
-  ariaLiveRef: React.RefObject<HTMLDivElement | null>;
+  ariaLiveRef: RefObject<HTMLDivElement | null>;
 }
 
 export function useDragCpm({
@@ -150,7 +150,7 @@ export function useDragCpm({
         const phase = useDragStore.getState().phase;
         if (phase === 'dragging') {
           cancelDrag();
-          ganttApi.exec?.('drag-task-cancel', {});
+          void ganttApi.exec?.('drag-task-cancel', {});
           if (ariaLiveRef.current) ariaLiveRef.current.textContent = 'Drag cancelled';
         }
       }

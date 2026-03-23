@@ -51,6 +51,8 @@ export default [
         },
       ],
       '@typescript-eslint/no-explicit-any': 'error',
+      // Allow _-prefixed params to signal intentionally unused arguments (e.g. stubs)
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       // React 19: JSX transform does not require React in scope
       'react/react-in-jsx-scope': 'off',
       'react/prop-types': 'off',
