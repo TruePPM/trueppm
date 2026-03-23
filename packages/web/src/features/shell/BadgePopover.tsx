@@ -74,6 +74,7 @@ export function BadgePopover({ label, count, items, colorVariant, icon, onItemCl
         aria-expanded={isOpen}
         aria-label={label}
         onClick={() => setIsOpen((o) => !o)}
+        onKeyDown={handleKeyDown}
         className={`flex items-center gap-1 px-2 py-0.5 rounded border bg-transparent text-xs font-medium
           min-h-[44px] min-w-[44px] justify-center
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1

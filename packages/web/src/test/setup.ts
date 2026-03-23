@@ -1,4 +1,13 @@
 import '@testing-library/jest-dom';
+import { cleanup } from '@testing-library/react';
+import { afterEach } from 'vitest';
+
+// Explicit cleanup after every test — @testing-library/react auto-registers
+// afterEach(cleanup) per module, but in singleFork mode (all files share one
+// Node process) the auto-registration can misfire between test files, leaving
+// stale DOM nodes that cause "Found multiple elements" errors.  Calling it
+// explicitly here in the global setup guarantees it always runs.
+afterEach(cleanup);
 
 // Stub Web Worker — jsdom does not implement the Worker API.
 // useDragCpm spawns a Worker only when ganttApi is non-null; in tests ganttApi
