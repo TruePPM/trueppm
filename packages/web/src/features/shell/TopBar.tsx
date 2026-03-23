@@ -21,7 +21,7 @@ export function TopBar({ onHamburgerClick }: Props) {
   function handleTaskNavigate(id: string) {
     setSelectedTaskId(id);
     scrollToTask(id);
-    navigate('/');
+    void navigate('/');
   }
 
   return (

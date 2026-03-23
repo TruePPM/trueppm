@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react';
+import { useState, useRef, useEffect, type ReactNode, type KeyboardEvent } from 'react';
 
 export interface BadgePopoverItem {
   id: string;
@@ -50,7 +50,7 @@ export function BadgePopover({ label, count, items, colorVariant, icon, onItemCl
     return () => document.removeEventListener('mousedown', handleMouseDown);
   }, [isOpen]);
 
-  function handleKeyDown(e: React.KeyboardEvent) {
+  function handleKeyDown(e: KeyboardEvent) {
     if (e.key === 'Escape') {
       setIsOpen(false);
       triggerRef.current?.focus();
@@ -66,7 +66,7 @@ export function BadgePopover({ label, count, items, colorVariant, icon, onItemCl
   const overflowCount = items.length - MAX_VISIBLE;
 
   return (
-    <div ref={wrapperRef} className="relative" onKeyDown={handleKeyDown}>
+    <div ref={wrapperRef} className="relative">
       <button
         ref={triggerRef}
         type="button"
@@ -87,6 +87,8 @@ export function BadgePopover({ label, count, items, colorVariant, icon, onItemCl
         <div
           role="menu"
           aria-label={label}
+          tabIndex={-1}
+          onKeyDown={handleKeyDown}
           className="absolute top-full right-0 mt-1 z-50 min-w-[200px] bg-neutral-surface border border-neutral-border rounded p-1"
         >
           {visibleItems.map((item) => (
