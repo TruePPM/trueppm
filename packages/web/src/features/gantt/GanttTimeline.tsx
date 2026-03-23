@@ -2,6 +2,8 @@ import { useRef, useCallback } from 'react';
 import { Gantt } from '@svar-ui/react-gantt';
 import type { IApi, ITask, IZoomConfig } from '@svar-ui/gantt-store';
 import type { ZoomLevel } from '@/types';
+import { useSvarScale } from '@/hooks/useSvarScale';
+import { PreviewOverlay } from './PreviewOverlay';
 
 // SVAR zoom configuration per level (IZoomConfig with IScaleLevel scales)
 const ZOOM_CONFIGS: Record<ZoomLevel, IZoomConfig> = {
@@ -60,10 +62,13 @@ interface Props {
   links: ITask[];
   zoom: ZoomLevel;
   onApiReady: (api: IApi) => void;
+  /** Ordered task ids as rendered — passed to PreviewOverlay for row-index lookup. */
+  taskIds: string[];
 }
 
-export function GanttTimeline({ tasks, links, zoom, onApiReady }: Props) {
+export function GanttTimeline({ tasks, links, zoom, onApiReady, taskIds }: Props) {
   const apiRef = useRef<IApi | null>(null);
+  const { scales, scrollLeft } = useSvarScale(apiRef.current);
 
   const handleInit = useCallback(
     (api: IApi) => {
@@ -74,13 +79,17 @@ export function GanttTimeline({ tasks, links, zoom, onApiReady }: Props) {
   );
 
   return (
-    <div className="gantt-root flex-1 min-w-0 overflow-hidden h-full">
+    <div className="gantt-root flex-1 min-w-0 overflow-hidden h-full relative">
       <Gantt
         tasks={tasks}
         links={links as never}
         zoom={ZOOM_CONFIGS[zoom]}
-        readonly={true}
         init={handleInit}
+      />
+      <PreviewOverlay
+        scales={scales}
+        scrollLeft={scrollLeft}
+        taskIds={taskIds}
       />
     </div>
   );

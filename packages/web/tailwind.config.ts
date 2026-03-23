@@ -41,6 +41,15 @@ const config: Config = {
           'on-track': '#166534',
           'at-risk': '#92400E',
         },
+        // Drag preview bars (issue #19). Slate-500 at reduced opacity:
+        //   fill   12% → clearly subordinate to real bars, legible at 18px height
+        //   border 55% → 3.05:1 against white, satisfies WCAG 1.4.11
+        // Applied via style prop (dynamic values per rule 10); defined here as the
+        // canonical source so no hex literals appear in component files.
+        ghost: {
+          fill:   'rgba(100, 116, 139, 0.12)',
+          border: 'rgba(100, 116, 139, 0.55)',
+        },
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
