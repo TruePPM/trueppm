@@ -3,6 +3,7 @@ stages:
   - analyze   # type-check, static analysis, migration/schema checks
   - test      # unit + integration tests (per-package, DAG-gated on analyze)
   - security  # CVE scans + license audit (MR + main only)
+  - publish   # tag-triggered: scheduler PyPI release
 
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
@@ -460,3 +461,63 @@ license:check:
     # --onlyAllow covers --failOn implicitly: any license not in the list fails.
     - npx --prefix packages/web license-checker --production
         --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;Unlicense;WTFPL;BlueOak-1.0.0"
+
+# ---------------------------------------------------------------------------
+# PUBLISH — tag-triggered release jobs.
+#
+# Trigger: push a git tag matching `scheduler-vX.Y.Z` (e.g. scheduler-v0.1.0).
+# The tag must be pushed AFTER the main pipeline is green — there is no
+# explicit needs: here because publish jobs run on tag events, not MR events,
+# and the security stage will not have run on the tag itself.
+#
+# Required CI/CD variable (Settings → CI/CD → Variables):
+#   PYPI_TOKEN — PyPI API token with upload scope for the trueppm-scheduler project.
+#                Mark as "Masked" and "Protected" (tags are protected refs).
+#
+# The job builds an sdist + wheel using `python -m build` (PEP 517 standard),
+# then uploads with `twine`. hatchling is the build backend (pyproject.toml).
+# ---------------------------------------------------------------------------
+
+scheduler:publish:
+  # Publishes trueppm-scheduler to PyPI. Closes issue #37.
+  stage: publish
+  image: python:3.11-slim
+  rules:
+    # Only fire on tags matching the scheduler version format.
+    # Never fire on branch pushes or MR events.
+    - if: '$CI_COMMIT_TAG =~ /^scheduler-v\d+\.\d+\.\d+/'
+  cache:
+    <<: *scheduler-cache
+    policy: pull
+  variables:
+    TWINE_USERNAME: __token__
+    TWINE_PASSWORD: $PYPI_TOKEN
+    # Suppress the keyring warning that fires in non-interactive environments.
+    PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+  before_script:
+    - pip install build twine --quiet
+  script:
+    # Verify the tag version matches the version declared in pyproject.toml.
+    # Mismatches (e.g. forgot to bump the version) fail fast before uploading.
+    - |
+      PKG_VERSION=$(python -c "
+      import tomllib, sys
+      with open('packages/scheduler/pyproject.toml', 'rb') as f:
+          d = tomllib.load(f)
+      print(d['project']['version'])
+      ")
+      TAG_VERSION="${CI_COMMIT_TAG#scheduler-v}"
+      if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+        echo "ERROR: tag version ($TAG_VERSION) does not match pyproject.toml version ($PKG_VERSION)"
+        echo "Bump the version in packages/scheduler/pyproject.toml before tagging."
+        exit 1
+      fi
+      echo "Version check passed: $PKG_VERSION"
+    - cd packages/scheduler
+    - python -m build
+    - twine upload dist/* --non-interactive
+  artifacts:
+    # Keep the built wheel as a CI artifact for traceability (7-day expiry).
+    paths:
+      - packages/scheduler/dist/
+    expire_in: 7 days

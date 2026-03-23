@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- PyPI publish pipeline for `trueppm-scheduler` (issue #37): pushing a git tag
+  `scheduler-vX.Y.Z` triggers a new `publish` stage that builds an sdist + wheel
+  via `python -m build` and uploads to PyPI via `twine`. A version-consistency
+  guard fails fast if the tag version does not match `pyproject.toml`. Requires
+  a `PYPI_TOKEN` CI/CD variable (masked + protected). Built artifacts are kept
+  as GitLab CI job artifacts for 7 days.
+
+### Added
 - Keyboard rescheduling for the Gantt chart (WCAG 2.1.1 gap, issue #34): selecting a task
   and pressing Enter enters keyboard reschedule mode. Arrow keys nudge by 1 working day;
   Shift+Arrow nudges by 5. 'd' opens a date-input popover for precise entry. Enter confirms
