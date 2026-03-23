@@ -19,6 +19,13 @@ export function Gantt({ init }: GanttProps) {
       on: () => {},
       intercept: () => {},
       setNext: () => {},
+      getState: () => ({ scrollLeft: 0, _scales: undefined }),
+      getReactiveState: () => ({}),
+      getStores: () => ({ data: {} }),
+      getTable: () => ({}),
+      getTask: () => ({}),
+      detach: () => {},
+      serialize: () => [],
     } as unknown as IApi;
     init(stubApi);
   }

@@ -1,5 +1,37 @@
 import { describe, expect, it, beforeEach } from 'vitest';
+import { type InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/authStore';
+
+// Re-import every time so each test gets the module-level interceptors registered
+// by client.ts. Module caching means the same apiClient instance is reused within
+// a single test file, which is fine — interceptors are registered once on import.
+async function getApiClient() {
+  const mod = await import('./client');
+  return mod.apiClient;
+}
+
+// Helper to extract the N-th registered request interceptor's fulfilled handler.
+function getRequestInterceptor(client: Awaited<ReturnType<typeof getApiClient>>, index = 0) {
+  // axios v1.x stores handlers as an array on InterceptorManager
+  const handlers = (client.interceptors.request as unknown as {
+    handlers: Array<{ fulfilled: (c: InternalAxiosRequestConfig) => InternalAxiosRequestConfig }>;
+  }).handlers;
+  return handlers[index].fulfilled;
+}
+
+// Helper to extract the N-th registered response interceptor's handlers.
+function getResponseInterceptors(
+  client: Awaited<ReturnType<typeof getApiClient>>,
+  index = 0,
+) {
+  const handlers = (client.interceptors.response as unknown as {
+    handlers: Array<{
+      fulfilled: (r: unknown) => unknown;
+      rejected: (e: unknown) => Promise<never>;
+    }>;
+  }).handlers;
+  return handlers[index];
+}
 
 describe('apiClient', () => {
   beforeEach(() => {
@@ -7,27 +39,86 @@ describe('apiClient', () => {
   });
 
   it('has baseURL /api/v1', async () => {
-    const { apiClient } = await import('./client');
-    expect(apiClient.defaults.baseURL).toBe('/api/v1');
+    const client = await getApiClient();
+    expect(client.defaults.baseURL).toBe('/api/v1');
   });
 
-  it('attaches Authorization header when token is present', async () => {
-    useAuthStore.getState().setTokens('test-access-token', 'test-refresh-token');
-    const { apiClient } = await import('./client');
+  describe('request interceptor', () => {
+    it('attaches Authorization header when a token is present in the store', async () => {
+      useAuthStore.getState().setTokens('test-access-token', 'test-refresh-token');
+      const client = await getApiClient();
+      const interceptor = getRequestInterceptor(client);
+      const config = { headers: {} } as InternalAxiosRequestConfig;
+      const result = interceptor(config);
+      expect((result.headers as Record<string, string>).Authorization).toBe(
+        'Bearer test-access-token',
+      );
+    });
 
-    // Simulate what the interceptor does by calling it directly
-    const config = { headers: {} as Record<string, string> };
-    const token = useAuthStore.getState().accessToken;
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    expect(config.headers.Authorization).toBe('Bearer test-access-token');
-    expect(apiClient.defaults.baseURL).toBe('/api/v1');
+    it('does not attach Authorization header when the store has no token', async () => {
+      const client = await getApiClient();
+      const interceptor = getRequestInterceptor(client);
+      const config = { headers: {} } as InternalAxiosRequestConfig;
+      const result = interceptor(config);
+      expect((result.headers as Record<string, string>).Authorization).toBeUndefined();
+    });
+
+    it('returns the config object unchanged (besides the header)', async () => {
+      const client = await getApiClient();
+      const interceptor = getRequestInterceptor(client);
+      const config = { headers: { 'X-Custom': 'value' } } as unknown as InternalAxiosRequestConfig;
+      const result = interceptor(config);
+      expect(result).toBe(config);
+    });
   });
 
-  it('does not attach Authorization header when no token', async () => {
-    const { apiClient } = await import('./client');
-    // No token in store — default headers should have no Authorization key
-    expect(apiClient.defaults.headers.common?.['Authorization']).toBeUndefined();
+  describe('response interceptor', () => {
+    it('passes successful responses through unmodified', async () => {
+      const client = await getApiClient();
+      const { fulfilled } = getResponseInterceptors(client);
+      const fakeResponse = { status: 200, data: { ok: true } };
+      expect(fulfilled(fakeResponse)).toBe(fakeResponse);
+    });
+
+    it('clears auth tokens when a 401 response is received', async () => {
+      useAuthStore.getState().setTokens('access', 'refresh');
+      const client = await getApiClient();
+      const { rejected } = getResponseInterceptors(client);
+
+      const axiosError = Object.assign(new Error('Unauthorized'), {
+        isAxiosError: true,
+        response: { status: 401 },
+      });
+      // Spy on isAxiosError — it checks a static property on the error object
+      await expect(rejected(axiosError)).rejects.toThrow();
+      expect(useAuthStore.getState().accessToken).toBeNull();
+    });
+
+    it('does not clear tokens for non-401 errors', async () => {
+      useAuthStore.getState().setTokens('access', 'refresh');
+      const client = await getApiClient();
+      const { rejected } = getResponseInterceptors(client);
+
+      const axiosError = Object.assign(new Error('Server Error'), {
+        isAxiosError: true,
+        response: { status: 500 },
+      });
+      await expect(rejected(axiosError)).rejects.toThrow('Server Error');
+      expect(useAuthStore.getState().accessToken).toBe('access');
+    });
+
+    it('wraps a non-Error rejection in an Error before re-throwing', async () => {
+      const client = await getApiClient();
+      const { rejected } = getResponseInterceptors(client);
+      await expect(rejected('plain string error')).rejects.toBeInstanceOf(Error);
+    });
+
+    it('re-throws an existing Error instance directly', async () => {
+      const client = await getApiClient();
+      const { rejected } = getResponseInterceptors(client);
+      const original = new Error('network failure');
+      // axios.isAxiosError returns false for plain Errors
+      await expect(rejected(original)).rejects.toThrow('network failure');
+    });
   });
 });

@@ -38,3 +38,12 @@ These rules are enforced at review time. Violations block merge.
 14. **Gantt bar heights**: normal/critical/complete = 18px; summary = 8px; milestone diamond = 12px; baseline ghost = 6px.
 15. **Task list row height**: 28px fixed — required for scroll sync with SVAR's internal row height.
 16. **`readonly={true}` on `<Gantt>`** until WASM CPM drag (issue #19) is implemented — prevents partial drag UX.
+
+## Monte Carlo Row Rules
+
+17. **MC row height is 44px** — outside the virtualizer; does not participate in scroll sync (not 28px like task rows).
+18. **MC bars use semantic tokens only** — P50 = `border-semantic-on-track` (solid), P80 = `border-semantic-at-risk` (dashed), P95 = `border-semantic-critical` (dotted). No other colors.
+19. **MC bars use stroke-pattern differentiation** (solid / dashed / dotted) in addition to color — required for WCAG 1.4.1 (use of color).
+20. **MC histogram SVG bars use `fill-neutral-text-disabled`** — distribution shape is neutral; semantic colors are reserved for the percentile rule lines only.
+21. **P80 badge uses `bg-semantic-at-risk/10 text-semantic-at-risk`** — not brand-accent tokens.
+22. **MC row and P80 badge are `hidden md:flex`** — suppressed below 768px; mobile surface is deferred.

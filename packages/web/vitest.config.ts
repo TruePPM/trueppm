@@ -1,5 +1,5 @@
 /// <reference types="vitest" />
-import { defineConfig } from 'vitest/config';
+import { defineConfig, coverageConfigDefaults } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
@@ -27,7 +27,23 @@ export default defineConfig({
       },
     ],
     coverage: {
-      provider: 'v8',
+      provider: 'istanbul',
+      // Only report coverage for files actually loaded during the test run.
+      // all:true (the default) would instrument every file in src/ outside the
+      // module graph, meaning GanttView/GanttTimeline get processed without the
+      // @svar-ui mock alias active — istanbul then follows the real library import
+      // and hangs trying to instrument the entire commercial bundle.
+      all: false,
+      reporter: ['text'],
+      include: ['src/**/*.{ts,tsx}'],
+      // Merge with the vitest defaults so node_modules, dist, etc. stay excluded.
+      // A custom exclude list replaces (not extends) the defaults, so we must
+      // spread coverageConfigDefaults.exclude explicitly.
+      exclude: [
+        ...coverageConfigDefaults.exclude,
+        'src/test/**',
+        'src/api/types.ts', // openapi-typescript generated — not hand-authored code
+      ],
       thresholds: {
         lines: 80,
         functions: 80,
