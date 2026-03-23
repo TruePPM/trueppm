@@ -20,7 +20,7 @@ const BARS: BarSpec[] = [
   { key: 'p50', label: 'P50', colorClass: 'bg-semantic-on-track', pattern: 'solid'  },
 ];
 
-const BAR_H = 6;
+const BAR_H = 8;
 
 interface ConfidenceBarProps {
   startLeft: number;
@@ -85,7 +85,7 @@ function ConfidenceBar({ startLeft, endLeft, spec, isoDate, zIndex }: Confidence
 
       {/* Date label above the end-cap */}
       <span
-        className={`absolute -top-4 whitespace-nowrap text-[9px] font-medium ${spec.colorClass.replace('bg-', 'text-')}`}
+        className={`absolute -top-4 whitespace-nowrap text-xs font-medium ${spec.colorClass.replace('bg-', 'text-')}`}
         style={{ left: Math.max(0, width - 20) }}
       >
         {spec.label}: {formatted}
@@ -223,14 +223,22 @@ export function MonteCarloTimeline({ result, scrollLeft, scales }: Props) {
           }`}
           style={{
             left: Math.min(tooltipPos.x - 120, window.innerWidth - 256),
-            top: tooltipPos.y - 168,
+            top: tooltipPos.y - 168 < 8 ? tooltipPos.y + 24 : tooltipPos.y - 168,
           }}
         >
+          {/* Plain-language summary — P80 as the planning anchor (WCAG 1.4.3: text-sm on neutral-surface passes 4.5:1) */}
+          <p className="text-sm font-medium text-neutral-text-primary mb-2">
+            8 in 10 simulations finish by{' '}
+            <strong>
+              {new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(result.p80))}
+            </strong>
+            .
+          </p>
           <p className="text-xs text-neutral-text-secondary mb-1.5">
             Distribution of project end dates
           </p>
           <MonteCarloHistogram result={result} />
-          <div className="mt-2 flex items-center gap-4 text-[10px] text-neutral-text-secondary">
+          <div className="mt-2 flex items-center gap-4 text-xs text-neutral-text-secondary">
             {[
               { label: 'P50', iso: result.p50, cls: 'bg-semantic-on-track' },
               { label: 'P80', iso: result.p80, cls: 'bg-semantic-at-risk' },

@@ -45,8 +45,8 @@ These rules are enforced at review time. Violations block merge.
 18. **MC bars use semantic tokens only** — P50 = `border-semantic-on-track` (solid), P80 = `border-semantic-at-risk` (dashed), P95 = `border-semantic-critical` (dotted). No other colors.
 19. **MC bars use stroke-pattern differentiation** (solid / dashed / dotted) in addition to color — required for WCAG 1.4.1 (use of color).
 20. **MC histogram SVG bars use `fill-neutral-text-disabled`** — distribution shape is neutral; semantic colors are reserved for the percentile rule lines only.
-21. **P80 badge uses `bg-semantic-at-risk/10 text-semantic-at-risk`** — not brand-accent tokens.
-22. **MC row and P80 badge are `hidden md:flex`** — suppressed below 768px; mobile surface is deferred.
+21. **P80 badge uses outlined style** — `bg-transparent border border-semantic-at-risk/40 text-semantic-at-risk`. Not `bg-semantic-at-risk/10` fill. Consistent with rule 39.
+22. **MC row (`MonteCarloRow`) is `hidden md:flex`** — suppressed below 768px. The P80 badge in `TopBar` is `hidden md:flex` (desktop only). Mobile surfaces P80 via a chip in `StatusBar` (`md:hidden`) — resolved by issue #33. `MonteCarloLabel` shows a persistent "P80: Mon D" chip at `md+` breakpoints.
 
 ## Drag Preview Rules (Issue #19)
 
@@ -73,7 +73,7 @@ These rules are enforced at review time. Violations block merge.
 
 38. **ViewTabs active state uses underline** — `border-b-2 border-brand-primary` — not pill/outlined. Pill style is reserved for the secondary Gantt toolbar (rule 42) to maintain a clear visual hierarchy between top-level navigation and sub-view options. If a pill border is ever used for tabs, it must meet WCAG 1.4.11 3:1 against `bg-neutral-surface`; `border-neutral-border` (#D4D2CE) fails at ~1.51:1.
 
-39. **TopBar status badges use outlined style** — `bg-transparent border border-{semantic-color}/40 rounded px-2 py-0.5 text-xs`. Badge labels include the full semantic word: `{n} at risk`, `{n} critical`, `P80: {date}`. Labels must also specify scope (tasks vs. projects) — ambiguous counts are a PMO compliance risk. A tooltip must clarify: `aria-label="{n} tasks at risk"` or `"{n} projects at risk"`.
+39. **TopBar status badges use outlined style** — `bg-transparent border border-{semantic-color}/40 rounded px-2 py-0.5 text-xs`. Badge labels include the full semantic word: `{n} at risk`, `{n} critical`, `P80: {date}`. Labels must also specify scope (tasks vs. projects) — ambiguous counts are a PMO compliance risk. `aria-label="{n} at risk tasks"` or `"{n} critical tasks"`. At-risk and critical badges are `<button aria-haspopup="menu">` elements — NOT `listbox` (listbox implies selection, not navigation). They open a `role="menu"` popover with `role="menuitem"` task entries.
 
 40. **Gantt dark surface** — the task-list panel and SVAR timeline use `bg-gantt-surface` (`#0F1117`). All text inside those panels uses `gantt-text-*` tokens or `gantt-semantic-*` tokens (see rule 41). No `neutral-surface*` or `neutral-text-*` tokens inside the Gantt split pane. SVAR overrides live exclusively in `gantt.css` — no inline styles on SVAR host elements.
 

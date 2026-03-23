@@ -27,10 +27,10 @@ describe('TopBar', () => {
     expect(screen.getByRole('button', { name: /user menu/i })).toBeInTheDocument();
   });
 
-  it('renders at-risk and critical badges from fixture stats', () => {
+  it('renders at-risk and critical badge buttons from fixture stats', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     // Fixture has atRiskCount=2, criticalCount=1
-    expect(screen.getByLabelText(/2 tasks at risk/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/1 critical/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /2 at risk tasks/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /1 critical tasks/i })).toBeInTheDocument();
   });
 });

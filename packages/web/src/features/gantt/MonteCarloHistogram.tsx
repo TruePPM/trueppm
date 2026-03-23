@@ -127,7 +127,7 @@ export function MonteCarloHistogram({ result }: Props) {
         x={barX(p50Idx)}
         y={svgH - 2}
         textAnchor="middle"
-        fontSize={9}
+        fontSize={12}
         className="fill-semantic-on-track font-medium"
       >
         P50
@@ -136,7 +136,7 @@ export function MonteCarloHistogram({ result }: Props) {
         x={barX(p80Idx)}
         y={svgH - 2}
         textAnchor="middle"
-        fontSize={9}
+        fontSize={12}
         className="fill-semantic-at-risk font-medium"
       >
         P80
@@ -145,7 +145,7 @@ export function MonteCarloHistogram({ result }: Props) {
         x={barX(p95Idx)}
         y={svgH - 2}
         textAnchor="middle"
-        fontSize={9}
+        fontSize={12}
         className="fill-semantic-critical font-medium"
       >
         P95

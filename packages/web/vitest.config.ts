@@ -14,6 +14,11 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts'],
     globals: true,
+    // Run all tests in a single forked process — avoids spawning multiple workers
+    // that each inflate their own jsdom + RTL heap, which caused OOM on the default
+    // multi-fork pool when the suite grew past ~20 test files.
+    pool: 'forks',
+    poolOptions: { forks: { singleFork: true } },
     // Alias @svar-ui/react-gantt to jsdom-safe mocks (SVAR uses HTMLCanvasElement internally).
     // CSS alias must come before the component alias — alias matching is prefix-based.
     alias: [

@@ -1,8 +1,11 @@
+import { useNavigate } from 'react-router';
 import { useShellStore } from '@/stores/shellStore';
 import { useShellStats } from '@/hooks/useShellStats';
+import { useGanttStore } from '@/stores/ganttStore';
 import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
 import { Logo } from './Logo';
 import { ViewTabs } from './ViewTabs';
+import { BadgePopover } from './BadgePopover';
 
 interface Props {
   onHamburgerClick: () => void;
@@ -11,6 +14,15 @@ interface Props {
 export function TopBar({ onHamburgerClick }: Props) {
   const sidebarCollapsed = useShellStore((s) => s.sidebarCollapsed);
   const { data: stats } = useShellStats();
+  const setSelectedTaskId = useGanttStore((s) => s.setSelectedTaskId);
+  const scrollToTask = useGanttStore((s) => s.scrollToTask);
+  const navigate = useNavigate();
+
+  function handleTaskNavigate(id: string) {
+    setSelectedTaskId(id);
+    scrollToTask(id);
+    void navigate('/');
+  }
 
   return (
     <header className="flex items-center h-12 px-4 gap-4 bg-neutral-surface-raised border-b border-neutral-border">
@@ -35,34 +47,42 @@ export function TopBar({ onHamburgerClick }: Props) {
 
       {/* Badges — pushed to the right */}
       <div className="ml-auto flex items-center gap-2">
+        {/* P80 badge — desktop only; mobile sees it in StatusBar (issue #33) */}
         {stats?.monteCarlop80 && (
           <span
-            className="hidden md:flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium
-              bg-semantic-at-risk/10 text-semantic-at-risk"
+            className="hidden md:flex items-center gap-1 px-2 py-0.5 rounded border border-semantic-at-risk/40 bg-transparent text-xs font-medium text-semantic-at-risk"
             aria-label={`Monte Carlo P80 completion: ${stats.monteCarlop80}`}
           >
-            P80: {new Date(stats.monteCarlop80).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+            P80:{' '}
+            {new Date(stats.monteCarlop80).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            })}
           </span>
         )}
+
+        {/* At-risk badge — clickable popover (issue #32) */}
         {stats && stats.atRiskCount > 0 && (
-          <span
-            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium
-              bg-semantic-at-risk/10 text-semantic-at-risk"
-            aria-label={`${stats.atRiskCount} tasks at risk`}
-          >
-            <WarningIcon aria-hidden="true" />
-            {stats.atRiskCount}
-          </span>
+          <BadgePopover
+            label={`${stats.atRiskCount} at risk tasks`}
+            count={stats.atRiskCount}
+            items={stats.atRiskTasks}
+            colorVariant="at-risk"
+            icon={<WarningIcon aria-hidden="true" />}
+            onItemClick={handleTaskNavigate}
+          />
         )}
+
+        {/* Critical badge — clickable popover (issue #32) */}
         {stats && stats.criticalCount > 0 && (
-          <span
-            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium
-              bg-semantic-critical/10 text-semantic-critical"
-            aria-label={`${stats.criticalCount} critical tasks`}
-          >
-            <CriticalDotIcon aria-hidden="true" />
-            {stats.criticalCount}
-          </span>
+          <BadgePopover
+            label={`${stats.criticalCount} critical tasks`}
+            count={stats.criticalCount}
+            items={stats.criticalTasks}
+            colorVariant="critical"
+            icon={<CriticalDotIcon aria-hidden="true" />}
+            onItemClick={handleTaskNavigate}
+          />
         )}
 
         {/* User avatar — menu deferred to auth feature */}
