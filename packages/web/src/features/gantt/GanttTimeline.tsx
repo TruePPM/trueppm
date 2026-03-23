@@ -85,6 +85,8 @@ export function GanttTimeline({ tasks, links, zoom, onApiReady, taskIds }: Props
         links={links as never}
         zoom={ZOOM_CONFIGS[zoom]}
         init={handleInit}
+        // @ts-expect-error — `false` hides SVAR's built-in task list per their API; IConfig/IColumnConfig union conflict in their types
+        columns={false}
       />
       <PreviewOverlay
         scales={scales}

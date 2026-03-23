@@ -1,7 +1,8 @@
 import { useRef, type RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Task } from '@/types';
-import { ROW_HEIGHT, TASK_LIST_WIDTH } from './ganttConstants';
+import { ROW_HEIGHT } from './ganttConstants';
+import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { TaskListHeader } from './TaskListHeader';
 import { TaskListRow } from './TaskListRow';
 
@@ -13,9 +14,12 @@ function wbsLevel(wbs: string): number {
 interface Props {
   tasks: Task[];
   scrollRef: RefObject<HTMLDivElement | null>;
+  widths: ColumnWidths['widths'];
+  setWidth: ColumnWidths['setWidth'];
+  totalWidth: number;
 }
 
-export function TaskListPanel({ tasks, scrollRef }: Props) {
+export function TaskListPanel({ tasks, scrollRef, widths, setWidth, totalWidth }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   const virtualizer = useVirtualizer({
@@ -29,13 +33,13 @@ export function TaskListPanel({ tasks, scrollRef }: Props) {
 
   return (
     <div
-      style={{ width: TASK_LIST_WIDTH }}
+      style={{ width: totalWidth }}
       className="flex flex-col flex-shrink-0 border-r border-neutral-border h-full"
       role="grid"
       aria-label="Task list"
       aria-rowcount={tasks.length}
     >
-      <TaskListHeader />
+      <TaskListHeader widths={widths} setWidth={setWidth} />
 
       {/* Scrollable virtualized rows */}
       <div
@@ -60,7 +64,7 @@ export function TaskListPanel({ tasks, scrollRef }: Props) {
                   height: ROW_HEIGHT,
                 }}
               >
-                <TaskListRow task={task} level={wbsLevel(task.wbs)} />
+                <TaskListRow task={task} level={wbsLevel(task.wbs)} widths={widths} />
               </div>
             );
           })}

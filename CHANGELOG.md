@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   even vertical spacing; placeholder views show a blueprint grid SVG.
 
 ### Added
+- Gantt task list resizable columns (`useColumnWidths` hook): task/duration/start/progress
+  columns can be dragged to resize, widths persisted to localStorage. MC label cell
+  tracks task list width so the vertical border stays aligned. Closes #44 (column layout).
+- Design rules 35–50 in `packages/web/CLAUDE.md`: sidebar dark surface token
+  (`gantt-surface`), section header sizing floor, ViewTabs underline vs pill, TopBar
+  badge outlined style, dark-surface semantic token overrides (`gantt-semantic-*`),
+  GanttToolbar ARIA, StatusBar legend/copy, focus rings on dark surface, Monte Carlo
+  RBAC gate, export/print mode, critical-path tooltip, and `text-[10px]` prohibition.
+  Derived from five-review design sprint (UX design, architect, UX review, accessibility,
+  VoC) for issue #44.
 - Monte Carlo confidence display (`packages/web/src/features/gantt/`): P50/P80/P95
   vertical confidence lines below the Gantt split pane, aligned to the SVAR timeline
   date axis via `useSvarScale` (reads `getState()._scales` + `scrollLeft`). Histogram
