@@ -49,7 +49,7 @@ describe('useSvarScale', () => {
     const { api } = makeMockApi();
     renderHook(() => useSvarScale(api));
     const calls = (api.on as ReturnType<typeof vi.fn>).mock.calls.map(
-      (c: [string, EventHandler]) => c[0],
+      (c: unknown[]) => c[0] as string,
     );
     expect(calls).toContain('scroll-chart');
     expect(calls).toContain('zoom-scale');
