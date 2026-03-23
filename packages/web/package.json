@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "vitest run src/api src/features src/hooks src/stores --coverage",
     "generate:types": "openapi-typescript http://localhost:8000/api/schema/ -o src/api/types.ts"
   },
   "dependencies": {
@@ -41,7 +41,7 @@
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "@vitejs/plugin-react": "^4.3.0",
-    "@vitest/coverage-v8": "^3.0.0",
+    "@vitest/coverage-istanbul": "^3.2.4",
     "@vitest/ui": "^3.0.0",
     "autoprefixer": "^10.4.0",
     "eslint": "^9.0.0",
