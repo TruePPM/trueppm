@@ -1,14 +1,17 @@
-import { TASK_LIST_WIDTH } from './ganttConstants';
+interface Props {
+  /** Dynamic total width of the task list panel — keeps the label column aligned after column resize. */
+  width: number;
+}
 
 /**
- * Left-hand label cell of the Monte Carlo row. Fixed width matches the task
- * list panel so the vertical border aligns with the column separator above.
+ * Left-hand label cell of the Monte Carlo row. Width matches the task list
+ * panel so the vertical border aligns with the column separator above.
  */
-export function MonteCarloLabel() {
+export function MonteCarloLabel({ width }: Props) {
   return (
     <div
       className="flex items-center gap-1.5 px-3 border-r border-t border-neutral-border bg-neutral-surface-raised flex-shrink-0"
-      style={{ width: TASK_LIST_WIDTH }}
+      style={{ width }}
     >
       {/* Sigma icon — decorative, aria-hidden */}
       <span className="text-xs text-neutral-text-secondary leading-none" aria-hidden="true">

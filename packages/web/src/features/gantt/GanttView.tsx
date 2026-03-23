@@ -7,6 +7,7 @@ import { useGanttStore } from '@/stores/ganttStore';
 import { useScrollSync } from '@/hooks/useScrollSync';
 import { useDragCpm } from '@/hooks/useDragCpm';
 import { useDragStore } from '@/stores/dragStore';
+import { useColumnWidths } from '@/hooks/useColumnWidths';
 import { toSvarTasks } from './adapters/toSvarTasks';
 import { toSvarLinks } from './adapters/toSvarLinks';
 import { TaskListPanel } from './TaskListPanel';
@@ -22,6 +23,7 @@ export function GanttView() {
   const taskListScrollRef = useRef<HTMLDivElement>(null);
   const ganttApiRef = useRef<IApi | null>(null);
   const [ganttApi, setGanttApi] = useState<IApi | null>(null);
+  const { widths, setWidth, totalWidth } = useColumnWidths();
   // aria-live ref — written directly during drag to avoid re-render storms (rule 30)
   const ariaLiveRef = useRef<HTMLDivElement>(null);
   // Ref to the timeline container for MilestoneDeltaTooltip positioning (rule 31)
@@ -92,7 +94,13 @@ export function GanttView() {
       </div>
 
       <div className="flex flex-1 overflow-hidden" ref={timelineContainerRef}>
-        <TaskListPanel tasks={tasks} scrollRef={taskListScrollRef} />
+        <TaskListPanel
+          tasks={tasks}
+          scrollRef={taskListScrollRef}
+          widths={widths}
+          setWidth={setWidth}
+          totalWidth={totalWidth}
+        />
         <GanttTimeline
           tasks={svarTasks}
           links={svarLinks as never}
@@ -102,7 +110,7 @@ export function GanttView() {
         />
       </div>
 
-      <MonteCarloRow ganttApi={ganttApi} />
+      <MonteCarloRow ganttApi={ganttApi} taskListWidth={totalWidth} />
 
       {/* Milestone delta tooltip — at GanttView level to escape overflow:hidden (rule 31) */}
       <MilestoneDeltaTooltip milestoneLeft={null} timelineTop={timelineTop} />

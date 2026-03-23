@@ -9,6 +9,8 @@ interface Props {
   /** SVAR IApi instance — null until Gantt has initialised */
   ganttApi: IApi | null;
   projectId?: string;
+  /** Total width of the task list panel — keeps the label column aligned. */
+  taskListWidth: number;
 }
 
 /**
@@ -18,7 +20,7 @@ interface Props {
  * Hidden on screens narrower than md (768px) — mobile surface is deferred.
  * Renders nothing if no MC result is available (first load, loading state).
  */
-export function MonteCarloRow({ ganttApi, projectId }: Props) {
+export function MonteCarloRow({ ganttApi, projectId, taskListWidth }: Props) {
   const { scrollLeft, scales } = useSvarScale(ganttApi);
   const { data: result } = useMonteCarloResult(projectId);
 
@@ -30,7 +32,7 @@ export function MonteCarloRow({ ganttApi, projectId }: Props) {
       style={{ height: MC_ROW_HEIGHT }}
       aria-label="Monte Carlo confidence row"
     >
-      <MonteCarloLabel />
+      <MonteCarloLabel width={taskListWidth} />
       <MonteCarloTimeline result={result} scrollLeft={scrollLeft} scales={scales} />
     </div>
   );

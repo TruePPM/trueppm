@@ -1,17 +1,19 @@
 import type { Task } from '@/types';
-import { COL_DURATION, COL_PROGRESS, COL_START, ROW_HEIGHT, WBS_INDENT } from './ganttConstants';
+import { ROW_HEIGHT, WBS_INDENT } from './ganttConstants';
+import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useGanttStore } from '@/stores/ganttStore';
 
 interface Props {
   task: Task;
   level: number;
+  widths: ColumnWidths['widths'];
 }
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export function TaskListRow({ task, level }: Props) {
+export function TaskListRow({ task, level, widths }: Props) {
   const selectedTaskId = useGanttStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useGanttStore((s) => s.setSelectedTaskId);
   const isSelected = selectedTaskId === task.id;
@@ -47,7 +49,8 @@ export function TaskListRow({ task, level }: Props) {
       )}
 
       <span
-        className={`flex-1 truncate ${isCriticalStyle} ${isSummaryStyle}`}
+        className={`shrink-0 truncate ${isCriticalStyle} ${isSummaryStyle}`}
+        style={{ width: widths.task - (level - 1) * WBS_INDENT - 8 }}
         title={task.name}
         aria-label={`${task.wbs} ${task.name}${task.isCritical ? ' (critical path)' : ''}`}
       >
@@ -56,7 +59,7 @@ export function TaskListRow({ task, level }: Props) {
 
       <span
         className="shrink-0 text-right text-neutral-text-secondary tabular-nums"
-        style={{ width: COL_DURATION }}
+        style={{ width: widths.duration }}
         aria-label={`${task.duration} days`}
       >
         {task.isMilestone ? '—' : `${task.duration}d`}
@@ -64,7 +67,7 @@ export function TaskListRow({ task, level }: Props) {
 
       <span
         className="shrink-0 text-right text-neutral-text-secondary tabular-nums"
-        style={{ width: COL_START }}
+        style={{ width: widths.start }}
       >
         {formatDate(task.start)}
       </span>
@@ -72,7 +75,7 @@ export function TaskListRow({ task, level }: Props) {
       {/* Progress bar + percentage */}
       <span
         className="shrink-0 flex flex-col items-end gap-0.5"
-        style={{ width: COL_PROGRESS }}
+        style={{ width: widths.progress }}
         aria-label={`${task.progress}% complete`}
       >
         {!task.isMilestone && (

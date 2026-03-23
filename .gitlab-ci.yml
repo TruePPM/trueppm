@@ -181,7 +181,7 @@ changelog:check:
   before_script:
     - apk add --no-cache git
   script:
-    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --depth=1
+    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --depth=20
     - |
       ADDED=$(git diff "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME...HEAD" -- CHANGELOG.md \
         | grep '^+' | grep -v '^+++' | wc -l | tr -d ' ')
