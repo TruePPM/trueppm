@@ -1,6 +1,7 @@
 /**
  * Absolutely-positioned overlay that renders translucent preview bars for
- * all downstream-impacted tasks during a Gantt drag (issue #19).
+ * all downstream-impacted tasks during a Gantt drag (issue #19) or keyboard
+ * reschedule (issue #34).
  *
  * Design rules enforced here:
  * - Rule 23: ghost-fill / ghost-border tokens via style prop (dynamic values)
@@ -8,9 +9,11 @@
  * - Rule 25: critical preview = semantic-critical border; fill stays ghost-fill
  * - Rule 26: CP badge (non-color critical signal, WCAG 1.4.1), shown ≥ 400ms
  * - Rule 27: pointer-events-none aria-hidden="true"
- * - Rule 28: "Esc to cancel" label rendered during drag
+ * - Rule 28: "Esc to cancel" label rendered during pointer drag
  * - Rule 32: capped at 10 bars; "+N more" count label
  * - Rule 33: bars animate out only (150ms opacity, motion-safe)
+ * - Rule 51: keyboard instruction strip rendered when isKeyboardMode is true
+ * - Rule 52: origin ghost bar at original task position during keyboard reschedule
  */
 
 import { useMemo, useEffect, useRef, useState } from 'react';
@@ -23,6 +26,8 @@ import { dateToLeft } from '@/features/gantt/ganttUtils';
 const GHOST_FILL = 'rgba(100, 116, 139, 0.12)';
 const GHOST_BORDER = 'rgba(100, 116, 139, 0.55)';
 const CRITICAL_BORDER = 'var(--color-semantic-critical, #B91C1C)';
+// Origin ghost bar: more opaque border to distinguish from downstream previews (rule 52)
+const ORIGIN_BORDER = 'rgba(100, 116, 139, 0.80)';
 
 const BAR_HEIGHT = 18; // rule 14: normal/critical/complete = 18px
 const ROW_HEIGHT = 28; // rule 15: task list row height
@@ -71,11 +76,50 @@ function PreviewBar({ result, scales, scrollLeft, rowIndex, showCpBadge }: Previ
   );
 }
 
+interface OriginBarProps {
+  originStart: string;
+  originFinish: string;
+  scales: GanttScaleData;
+  scrollLeft: number;
+  rowIndex: number;
+}
+
+/**
+ * A static ghost bar at the task's pre-nudge position (rule 52).
+ * Shown only during keyboard reschedule so the user has a visual anchor.
+ */
+function OriginBar({ originStart, originFinish, scales, scrollLeft, rowIndex }: OriginBarProps) {
+  const left = dateToLeft(originStart, scales, scrollLeft);
+  const right = dateToLeft(originFinish, scales, scrollLeft);
+  const width = Math.max(2, right - left);
+  const top = rowIndex * ROW_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+
+  return (
+    <div
+      className="absolute rounded-sm"
+      style={{
+        left,
+        top,
+        width,
+        height: BAR_HEIGHT,
+        backgroundColor: 'transparent',
+        border: `2px dashed ${ORIGIN_BORDER}`,
+      }}
+      aria-hidden="true"
+    />
+  );
+}
+
 interface Props {
   scales: GanttScaleData | null;
   scrollLeft: number;
   /** Ordered task ids as rendered in the task list — used to resolve row indices. */
   taskIds: string[];
+  /**
+   * Original start/finish of the task being keyboard-rescheduled (rule 52).
+   * Null during pointer drag (SVAR renders its own drag shadow in that case).
+   */
+  originTask?: { id: string; start: string; finish: string } | null;
 }
 
 /**
@@ -83,10 +127,11 @@ interface Props {
  * positioned and pointer-events-none (rule 27) so all pointer events pass
  * through to SVAR.
  */
-export function PreviewOverlay({ scales, scrollLeft, taskIds }: Props) {
+export function PreviewOverlay({ scales, scrollLeft, taskIds, originTask }: Props) {
   const phase = useDragStore((s) => s.phase);
   const previewResults = useDragStore((s) => s.previewResults);
   const overflowCount = useDragStore((s) => s.overflowCount);
+  const isKeyboardMode = useDragStore((s) => s.isKeyboardMode);
 
   // Track when we entered 'dragging' phase to enforce the ≥ 400ms CP badge delay (rule 26)
   const dragStartRef = useRef<number | null>(null);
@@ -127,6 +172,21 @@ export function PreviewOverlay({ scales, scrollLeft, taskIds }: Props) {
           : 'none',
       }}
     >
+      {/* Origin ghost bar — shows the task's pre-nudge position (rule 52) */}
+      {isKeyboardMode && originTask && (() => {
+        const rowIndex = rowIndexMap.get(originTask.id);
+        if (rowIndex === undefined) return null;
+        return (
+          <OriginBar
+            originStart={originTask.start}
+            originFinish={originTask.finish}
+            scales={scales}
+            scrollLeft={scrollLeft}
+            rowIndex={rowIndex}
+          />
+        );
+      })()}
+
       {previewResults.map((result) => {
         const rowIndex = rowIndexMap.get(result.taskId);
         if (rowIndex === undefined) return null;
@@ -145,20 +205,23 @@ export function PreviewOverlay({ scales, scrollLeft, taskIds }: Props) {
       {/* "+N more affected" label (rule 32) */}
       {overflowCount > 0 && (
         <div
-          className="absolute bottom-1 right-2 text-[10px] text-neutral-text-secondary bg-neutral-surface/80 px-1.5 py-0.5 rounded"
+          className="absolute bottom-1 right-2 text-xs text-neutral-text-secondary bg-neutral-surface/80 px-1.5 py-0.5 rounded"
           aria-hidden="true"
         >
           +{overflowCount} more affected
         </div>
       )}
 
-      {/* "Esc to cancel" label (rule 28) */}
+      {/* Instruction strip — pointer drag: "Esc to cancel" (rule 28);
+          keyboard mode: full key legend (rule 51) */}
       {phase === 'dragging' && (
         <div
-          className="absolute bottom-1 left-2 text-[10px] text-neutral-text-secondary bg-neutral-surface/80 px-1.5 py-0.5 rounded"
+          className="absolute bottom-1 left-2 text-xs text-neutral-text-secondary bg-neutral-surface/80 px-1.5 py-0.5 rounded"
           aria-hidden="true"
         >
-          Esc to cancel
+          {isKeyboardMode
+            ? '← → Shift+arrow · d date · Enter confirm · Esc cancel'
+            : 'Esc to cancel'}
         </div>
       )}
     </div>
