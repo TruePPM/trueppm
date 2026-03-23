@@ -109,7 +109,7 @@ Rules for the description:
 glab mr create \
   --title "<title>" \
   --target-branch main \
-  --body "$(cat <<'EOF'
+  --description "$(cat <<'EOF'
 <body>
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
