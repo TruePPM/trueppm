@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Gantt task list expand arrow was pointing backwards — disabled SVAR's built-in task list
+  panel (`columns={false}`) so only our custom panel renders. Closes #47.
+- Gantt task list columns (Task / Dur / Start / %) are now drag-to-resize with widths
+  persisted to localStorage (`useColumnWidths` hook). Closes #48.
+- Gantt bar grid columns were misaligned with the header row — root cause was SVAR rendering
+  a duplicate header; fixed by the same `columns={false}` change. Closes #49.
+
 ### Changed
 - Web UI polish: replaced emoji nav icons with inline SVG icon set (`GanttIcon`,
   `BoardIcon`, `ListIcon`, `CalendarIcon`, `ResourcesIcon`); added geometric logo
