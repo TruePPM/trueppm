@@ -34,6 +34,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - SVAR test stub (`src/test/mocks/svar-gantt.tsx`) extended with `getState`,
   `getReactiveState`, `getStores`, `getTable`, `getTask`, `detach`, `serialize`.
 - Monte Carlo design rules added to `packages/web/CLAUDE.md` (rules 17–22).
+- Gantt drag CPM preview (`packages/web/src/features/gantt/`, `src/hooks/`, `src/workers/`):
+  dragging a task bar spawns a Web Worker that runs an incremental CPM forward pass and
+  renders translucent preview bars for all downstream-impacted tasks before the drop is
+  committed. Milestone slip delta is shown in a tooltip. Escape cancels the drag.
+  Offline guard prevents PATCH when `navigator.onLine` is false. aria-live region
+  announces critical-path changes without triggering re-renders.
+  Closes #19.
+- `buildSubgraph` — extracts the affected task subgraph for incremental CPM.
+- `ganttUtils` — shared date↔px math (`dateToLeft`, `dateFromCanvasLeft`) used by both
+  PreviewOverlay and MonteCarloTimeline.
+- `dragStore` (Zustand) — drag phase, preview results, overflow count.
+- `ghost-fill` / `ghost-border` Tailwind tokens (design rules 23–25).
+- Drag preview design rules added to `packages/web/CLAUDE.md` (rules 23–34).
 
 ### Added
 - Root `.gitignore` covering Python, pytest, mypy, ruff, Docker override files, and editor
