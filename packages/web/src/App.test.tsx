@@ -1,7 +1,18 @@
 import { screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render } from '@testing-library/react';
 import { App } from './App';
+
+// createCpmWorker uses `new Worker(new URL(..., import.meta.url))` which triggers
+// Vite's worker bundling pipeline — unsupported in jsdom. Mock the factory so
+// App-level smoke tests render without hanging.
+vi.mock('@/workers/createCpmWorker', () => ({
+  createCpmWorker: () => ({
+    onmessage: null,
+    postMessage: () => {},
+    terminate: () => {},
+  }),
+}));
 
 describe('App', () => {
   it('renders the application shell landmark regions', () => {

@@ -67,6 +67,38 @@ export interface MonteCarloResult {
   buckets: McBucket[];
 }
 
+// ---------------------------------------------------------------------------
+// Drag CPM preview types (issue #19)
+// ---------------------------------------------------------------------------
+
+/** Per-task result from the in-browser incremental CPM forward pass. */
+export interface DragPreviewResult {
+  taskId: string;
+  /** New early start after the drag, ISO date string */
+  earlyStart: string;
+  /** New early finish after the drag, ISO date string */
+  earlyFinish: string;
+  /**
+   * True when the task's new earlyFinish exceeds its pre-drag lateFinish
+   * (i.e. it has flipped onto the critical path due to this drag).
+   */
+  isCritical: boolean;
+  /** Signed calendar-day delta vs baseline earlyFinish (positive = slipping) */
+  deltaDays: number;
+}
+
+/** The most-impacted milestone — used to anchor the tooltip. */
+export interface WorstMilestone {
+  taskId: string;
+  name: string;
+  baselineFinish: string;
+  newFinish: string;
+  deltaDays: number;
+}
+
+/** Drag state machine phases */
+export type DragPhase = 'idle' | 'dragging' | 'committing' | 'error';
+
 export interface ShellStats {
   taskCount: number;
   criticalPathCount: number;
