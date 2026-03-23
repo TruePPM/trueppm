@@ -24,6 +24,62 @@ workflow:
     - if: '$CI_COMMIT_BRANCH'
 
 # ---------------------------------------------------------------------------
+# Path-change rule templates.
+#
+# Every package job uses one of these anchors so it only runs when files in
+# that package (or the CI config itself) change. On main the changes: filter
+# is omitted — the protected branch always gets a full green signal.
+#
+# api includes scheduler paths because the API package installs the scheduler
+# as a dependency; a scheduler change can break API type-checking.
+#
+# Security jobs that span packages (pip-audit, license:check) use no needs:
+# and rely on stage ordering instead. This avoids blocked-job cascades when
+# only one of their dependency test jobs runs and the other is skipped.
+# ---------------------------------------------------------------------------
+
+.rules-scheduler: &rules-scheduler
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/scheduler/**/*
+        - .gitlab-ci.yml
+
+.rules-api: &rules-api
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/api/**/*
+        - packages/scheduler/**/*
+        - .gitlab-ci.yml
+
+.rules-web: &rules-web
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/web/**/*
+        - .gitlab-ci.yml
+
+.rules-website: &rules-website
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/website/**/*
+        - .gitlab-ci.yml
+
+.rules-helm: &rules-helm
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/helm/**/*
+        - .gitlab-ci.yml
+
+# ---------------------------------------------------------------------------
 # Base templates
 # Cache keys are derived from each package's dependency manifest so the
 # Minio-backed cache is automatically invalidated when dependencies change.
@@ -115,9 +171,12 @@ workflow:
 changelog:check:
   # Pure git diff — ~10 seconds. Run first so MR authors get instant feedback
   # if they forgot to update the changelog, before any build jobs start.
+  # Exempt: chore/* and ci/* branches carry no user-visible behaviour change.
   stage: lint
   image: alpine:latest
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^(chore|ci)\//i'
+      when: never
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
     - apk add --no-cache git
@@ -136,6 +195,7 @@ changelog:check:
 scheduler:lint:
   extends: .scheduler
   stage: lint
+  <<: *rules-scheduler
   script:
     - cd packages/scheduler
     - ruff check src/ tests/
@@ -147,6 +207,7 @@ api:lint:
   cache:
     <<: *api-cache
     policy: pull
+  <<: *rules-api
   before_script:
     - pip install ruff --quiet
   script:
@@ -157,6 +218,7 @@ api:lint:
 web:lint:
   extends: .web
   stage: lint
+  <<: *rules-web
   script:
     - npm run lint
 
@@ -165,6 +227,7 @@ helm:lint:
     name: alpine/helm:3.14.0
     entrypoint: [""]
   stage: lint
+  <<: *rules-helm
   script:
     - helm lint packages/helm/
 
@@ -178,6 +241,7 @@ scheduler:type-check:
   extends: .scheduler
   stage: analyze
   needs: [scheduler:lint]
+  <<: *rules-scheduler
   script:
     - cd packages/scheduler && mypy
 
@@ -185,6 +249,7 @@ api:type-check:
   extends: .api-no-db
   stage: analyze
   needs: [api:lint]
+  <<: *rules-api
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
     - pip install -e "packages/scheduler[dev]" --quiet
@@ -199,6 +264,7 @@ api:migration-check:
   extends: .api-no-db
   stage: analyze
   needs: [api:lint]
+  <<: *rules-api
   script:
     - cd packages/api
     - python manage.py makemigrations --check --dry-run
@@ -210,6 +276,7 @@ api:openapi-check:
   extends: .api-no-db
   stage: analyze
   needs: [api:lint]
+  <<: *rules-api
   script:
     - cd packages/api
     - python manage.py spectacular --validate --file /dev/null
@@ -218,6 +285,7 @@ web:type-check:
   extends: .web
   stage: analyze
   needs: [web:lint]
+  <<: *rules-web
   script:
     - npm run typecheck
 
@@ -227,22 +295,35 @@ web:build:
   extends: .web
   stage: analyze
   needs: [web:lint]
+  <<: *rules-web
   script:
     - npm run build
 
-security:bandit:
-  # Python static security analysis. Static — no test results needed.
-  # Runs in analyze stage so failures appear alongside type-check results,
-  # not after a multi-minute wait for tests to complete.
-  # -ll = medium severity and above. Skips migrations (generated code) and
-  # settings (legitimately contains test credentials).
+security:bandit:scheduler:
+  # Python static security analysis for the scheduler package.
+  # Runs in analyze stage alongside type-check — static, no test results needed.
+  # -ll = medium severity and above.
   stage: analyze
-  needs: [api:lint, scheduler:lint]
+  needs: [scheduler:lint]
   image: python:3.11-slim
+  <<: *rules-scheduler
   before_script:
     - pip install bandit --quiet
   script:
-    - bandit -r packages/scheduler/src/ -ll --exclude packages/scheduler/src/trueppm_scheduler/__pycache__
+    - bandit -r packages/scheduler/src/ -ll
+        --exclude packages/scheduler/src/trueppm_scheduler/__pycache__
+
+security:bandit:api:
+  # Python static security analysis for the API package.
+  # Split from bandit:scheduler so each gates only on its own lint job —
+  # a web-only branch no longer triggers a full Python security scan.
+  stage: analyze
+  needs: [api:lint]
+  image: python:3.11-slim
+  <<: *rules-api
+  before_script:
+    - pip install bandit --quiet
+  script:
     - bandit -r packages/api/src/ -ll
         --exclude packages/api/src/trueppm_api/settings,packages/api/src/trueppm_api/apps/projects/migrations,packages/api/src/trueppm_api/apps/resources/migrations
 
@@ -256,6 +337,7 @@ scheduler:test:
   extends: .scheduler
   stage: test
   needs: [scheduler:lint, scheduler:type-check]
+  <<: *rules-scheduler
   script:
     - cd packages/scheduler
     - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-fail-under=80
@@ -265,6 +347,7 @@ api:test:
   extends: .api
   stage: test
   needs: [api:lint, api:type-check, api:migration-check, api:openapi-check]
+  <<: *rules-api
   script:
     - cd packages/api
     - python -m pytest tests/ --tb=short -q
@@ -275,6 +358,7 @@ web:test:
   extends: .web
   stage: test
   needs: [web:lint, web:type-check, web:build]
+  <<: *rules-web
   script:
     - npm run test:coverage
   coverage: '/^All files\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*([\d.]+)/'
@@ -282,29 +366,35 @@ web:test:
 website:build:
   # Verify the Docusaurus documentation site builds cleanly.
   # Catches broken MDX, missing imports, and broken internal links early.
-  # No needs: — runs independently of the other packages.
   extends: .website
   stage: test
+  <<: *rules-website
   script:
     - npm run build
 
 # ---------------------------------------------------------------------------
 # SECURITY — CVE scans + license audit. MR + main only.
-# Runs after tests so we audit the exact dependency set that the tests ran
-# against. Network-dependent (CVE database lookups) so restricted to MR/main.
+#
+# pip-audit and license:check use no needs: and rely on stage ordering.
+# This avoids blocked-job cascades on single-package MRs: if only the API
+# changed, web:test is skipped; a needs: [api:test, web:test] would then
+# skip security too, silently dropping the Python CVE scan.
 # ---------------------------------------------------------------------------
 
 security:pip-audit:
   # CVE scan for all installed Python dependencies (scheduler + API).
   stage: security
-  needs: [scheduler:test, api:test]
   image: python:3.11-slim
   cache:
     <<: *api-cache
     policy: pull
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/scheduler/**/*
+        - packages/api/**/*
+        - .gitlab-ci.yml
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
     # Upgrade pip and wheel first so the audit does not flag CVEs in the
@@ -324,8 +414,11 @@ web:security:
   needs: [web:test]
   image: node:20-alpine
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/web/**/*
+        - .gitlab-ci.yml
   before_script:
     - cd packages/web
   script:
@@ -335,15 +428,20 @@ license:check:
   # Verify no copyleft-licensed dependency has been introduced.
   # Checks both Python (pip-licenses) and npm (license-checker) packages.
   # LGPL is permitted (library-linking exemption applies).
+  # No needs: — stage ordering ensures tests passed; see note above.
   stage: security
-  needs: [api:test, web:test]
   image: python:3.11-slim
   cache:
     <<: *api-cache
     policy: pull
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/scheduler/**/*
+        - packages/api/**/*
+        - packages/web/**/*
+        - .gitlab-ci.yml
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc nodejs npm
     - pip install pip-licenses --quiet
