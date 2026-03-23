@@ -11,7 +11,7 @@ describe('StatusBar', () => {
 
   it('renders critical path count', () => {
     renderWithProviders(<StatusBar />);
-    expect(screen.getByText(/3 critical path/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 on critical path/i)).toBeInTheDocument();
   });
 
   it('renders a time element for last saved', () => {
