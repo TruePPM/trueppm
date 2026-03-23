@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import axios, { type InternalAxiosRequestConfig } from 'axios';
+import { type InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/authStore';
 
 // Re-import every time so each test gets the module-level interceptors registered
