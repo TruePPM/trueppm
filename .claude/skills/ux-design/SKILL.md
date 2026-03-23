@@ -5,7 +5,7 @@ description: >
   interactions, or workflows for the web or mobile apps. Produces wireframes (ASCII
   or described), interaction specifications, responsive breakpoints, and component
   hierarchy. Considers mobile-first design, offline states, accessibility, and the
-  three user personas (PM, PMO Director, Team Member).
+  five user personas (PM, PMO Director, Team Member, Resource Manager, Executive Sponsor).
 ---
 
 # UX Design Skill

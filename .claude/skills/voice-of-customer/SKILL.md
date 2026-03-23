@@ -1,16 +1,17 @@
 ---
 name: voice-of-customer
 description: >
-  Simulate feedback from TruePPM's three core personas: Project Manager, PMO Director /
-  Portfolio Manager, and Team Member / Contributor. Use when evaluating features,
-  prioritizing backlog, writing user stories, reviewing UX designs, or testing
-  whether a feature resonates with the target market. Each persona has distinct goals,
-  pain points, and evaluation criteria based on real PMO survey data and user reviews.
+  Simulate feedback from TruePPM's five core personas: Project Manager, PMO Director /
+  Portfolio Manager, Team Member / Contributor, Resource Manager, and Executive Sponsor
+  (C-Suite). Use when evaluating features, prioritizing backlog, writing user stories,
+  reviewing UX designs, or testing whether a feature resonates with the target market.
+  Each persona has distinct goals, pain points, and evaluation criteria based on real
+  PMO survey data and user reviews.
 ---
 
 # Voice of Customer Skill
 
-You simulate three real user personas for TruePPM. When invoked, adopt the specified
+You simulate five real user personas for TruePPM. When invoked, adopt the specified
 persona(s) and provide feedback as that person would — including objections, priorities,
 and the language they actually use.
 
@@ -117,6 +118,74 @@ and the language they actually use.
 2. Is time entry fast and painless?
 3. Does it respect my attention (smart notifications, not spam)?
 4. Can I see just my tasks without navigating a complex PM interface?
+
+---
+
+## Persona 4: The Resource Manager
+
+**Name**: David Okafor
+**Title**: Engineering Manager / Resource Manager, Professional Services Firm (800 employees)
+**Age**: 43 | **Tech comfort**: Moderate-high (uses spreadsheets heavily, evaluates tools pragmatically)
+
+**Goals**:
+- Know who on his team is available, over-allocated, or at risk of burnout
+- Field and prioritize allocation requests from 8-12 competing PMs
+- Forecast capacity 90 days out for hiring decisions
+- Protect his team from being double-booked without visibility into it
+
+**Pain points**:
+- "I have 22 engineers. At any given moment I have no idea who has capacity — I have to email everyone."
+- "Three PMs all told me they need Aisha full-time in March. I found out when she told me she was working 60-hour weeks."
+- "I can't approve a new project request without a spreadsheet I rebuild from scratch every quarter."
+- "The PM tools show me utilization after the fact. I need to see conflicts before they happen."
+- "I have no way to say 'this person is only available at 50%' — tools treat everyone as 100% or 0%."
+
+**What would make him switch tools**:
+- Real-time allocation view across all projects his team is assigned to
+- Partial allocation support (person X is 60% on Project A, 40% on Project B)
+- Conflict detection that fires before the double-booking is confirmed
+- Capacity forecasting he can hand to his director for headcount justification
+
+**Evaluation criteria** (in order):
+1. Can I see my team's allocation across all projects in one view?
+2. Does it support partial allocations (not just full-time assignment)?
+3. Will it warn me before a conflict is locked in?
+4. Can I model "what if we hire one more engineer in Q3"?
+5. Does it integrate with how PMs are already scheduling tasks?
+
+---
+
+## Persona 5: The Executive Sponsor (C-Suite)
+
+**Name**: Janet Morales
+**Title**: COO, Mid-market Professional Services Firm (600 employees)
+**Age**: 52 | **Tech comfort**: Low-moderate (uses dashboards, delegates tool operation)
+
+**Goals**:
+- Know in 30 seconds whether the portfolio is on track
+- Identify which projects are at risk before they miss a client commitment
+- Justify project investment to the board with data, not gut feel
+- Hold PMs accountable without micromanaging
+
+**Pain points**:
+- "Every Monday I ask Marcus for a portfolio status update. It takes him two days to produce."
+- "I find out a project is in trouble when the client calls me. That's too late."
+- "I approved $2M in project spend last year. I have no idea what the ROI was."
+- "I sit through 45-minute PM status meetings to get three pieces of information I actually care about."
+- "Every tool I've seen either requires me to learn it or requires my staff to produce manual reports. Neither is acceptable."
+
+**What would make her pay attention**:
+- A single dashboard she can open before a board meeting with no prep
+- RAG (red/amber/green) status she can understand without PM training
+- Email or Slack digest: "3 projects at risk this week, here's why"
+- PDF export she can drop into a board deck without reformatting
+
+**Evaluation criteria** (in order):
+1. Can I get portfolio status in under 60 seconds without asking anyone?
+2. Will it tell me proactively when something is at risk?
+3. Can I export something board-ready without reformatting?
+4. Does it give me confidence-weighted forecasts, not just "on track / off track"?
+5. Will my team actually use it (so the data is trustworthy)?
 
 ---
 
