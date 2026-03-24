@@ -269,3 +269,46 @@ These rules are enforced at review time. Violations block merge.
     For Phase 1–2 (≤ 2,000 tasks), a plain `Task[]` array is acceptable.
     Do not introduce SoA prematurely — the abstraction cost is not justified
     below 10k tasks.
+
+78. **Empty state on zero tasks** — `GanttEmptyState` component renders when
+    `tasks.length === 0`. Uses `bg-gantt-surface` surface color and `role="status"`
+    so screen readers are informed. Never render the canvas stack with no tasks.
+
+79. **Engine init failure fallback** — `GanttFallbackTable` renders a plain `<table>`
+    when `canvas.getContext('2d')` returns null (e.g. headless test environments or
+    very old browsers). Shown instead of the canvas timeline; not a degraded mode —
+    all task data is accessible. Check support once at startup, not per frame.
+
+80. **Zoom preserves center date** — when `engine.setZoom()` is called, the engine
+    computes the canvas-origin coordinate of the viewport center before zoom and
+    calls `container.scrollLeft` to restore it after `scales-change`. The visible
+    date range shifts symmetrically around the user's current view midpoint.
+
+81. **Initial viewport: today at 25% from left** — on engine `ready` event, set
+    `container.scrollLeft` so today's date lands at 25% of the viewport width from
+    the left edge. Provides immediate context without centering (which would hide
+    near-term tasks).
+
+82. **"Today" button in toolbar** — a `type="button"` element with the same style
+    as ZoomControl buttons (rule 42): `border border-neutral-border rounded h-7 px-3
+    text-xs font-medium`. Calls `engine.scrollToDate(todayIso, 'smooth')` (or
+    `'instant'` when `prefers-reduced-motion` is active, rule 70). Placed to the
+    left of the ZoomControl in the toolbar.
+
+83. **Selection visual** — in the canvas bars layer: a 2px white inset stroke ring
+    is drawn after the bar fill using `ctx.save()/restore()` (rule 59, canvas-bars
+    layer only). In the task list row: `bg-white/10 border-l-2 border-brand-primary`
+    class on the selected row. Selection state is read from `engine.selectedTaskIds`
+    (immutable Set) — never duplicated in local component state.
+
+84. **Cursor states on canvas-interaction** — `ixCanvas.style.cursor` is set by
+    `GanttEngineImpl._updateCursor()` based on FSM state and hit zone type:
+    `grab` over bar body, `col-resize` over resize handle, `crosshair` over
+    link-dot, `grabbing` during active drag, `default` otherwise. Never set
+    cursor on bg or bars canvas layers.
+
+85. **Resize handle indicator** — when hovering over a resize handle hit zone, a 1px
+    vertical line is drawn on canvas-interaction at `barRight - 4` px, spanning the
+    full bar height (`BAR_TOP_OFFSET` to `BAR_TOP_OFFSET + BAR_HEIGHT`). Color:
+    `rgba(148,163,184,1.0)` (textSecondary token). This meets WCAG 1.4.11 (3:1
+    against the dark surface). Drawn by `drawResizeIndicator()` in GanttRenderer.ts.

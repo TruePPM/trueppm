@@ -1,31 +1,93 @@
-import { useRef, useMemo, useCallback, useState } from 'react';
-import type { IApi } from '@svar-ui/gantt-store';
-import './gantt.css';
-import '@svar-ui/react-gantt/style.css';
+import { useRef, useCallback, useState, useEffect } from 'react';
+import type { GanttEngine } from './engine';
+import { dateToLeft } from './engine';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
 import { useGanttStore } from '@/stores/ganttStore';
-import { useScrollSync } from '@/hooks/useScrollSync';
 import { useDragCpm } from '@/hooks/useDragCpm';
 import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
 import { useDragStore } from '@/stores/dragStore';
 import { useColumnWidths } from '@/hooks/useColumnWidths';
-import { toSvarTasks } from './adapters/toSvarTasks';
-import { toSvarLinks } from './adapters/toSvarLinks';
 import { TaskListPanel } from './TaskListPanel';
-import { GanttTimeline } from './GanttTimeline';
+import { CanvasGanttTimeline } from './CanvasGanttTimeline';
 import { ZoomControl } from './ZoomControl';
 import { MonteCarloRow } from './MonteCarloRow';
 import { MilestoneDeltaTooltip } from './MilestoneDeltaTooltip';
 import { DateInputPopover } from './DateInputPopover';
 import type { Task } from '@/types';
 
+// ---------------------------------------------------------------------------
+// GanttEmptyState — shown when tasks.length === 0 (rule 78)
+// ---------------------------------------------------------------------------
+
+function GanttEmptyState() {
+  return (
+    <div
+      role="status"
+      className="flex h-full items-center justify-center bg-gantt-surface"
+    >
+      <p className="text-sm text-gantt-text-secondary">No tasks yet. Add a task to get started.</p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GanttFallbackTable — shown when canvas 2D is not supported (rule 79)
+// ---------------------------------------------------------------------------
+
+interface GanttFallbackTableProps {
+  tasks: Task[];
+}
+
+function GanttFallbackTable({ tasks }: GanttFallbackTableProps) {
+  return (
+    <div className="flex-1 overflow-auto p-4">
+      <table className="w-full text-sm text-neutral-text-primary border-collapse">
+        <thead>
+          <tr className="border-b border-neutral-border">
+            <th className="text-left py-1 pr-4 font-medium">Task</th>
+            <th className="text-left py-1 pr-4 font-medium">Start</th>
+            <th className="text-left py-1 pr-4 font-medium">Finish</th>
+            <th className="text-left py-1 font-medium">Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tasks.map((t) => (
+            <tr key={t.id} className="border-b border-neutral-border/50">
+              <td className="py-1 pr-4">{t.name}</td>
+              <td className="py-1 pr-4">{t.start}</td>
+              <td className="py-1 pr-4">{t.finish}</td>
+              <td className="py-1">{t.duration}d</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Canvas support check
+// ---------------------------------------------------------------------------
+
+function canvasIsSupported(): boolean {
+  try {
+    const c = document.createElement('canvas');
+    return c.getContext('2d') !== null;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GanttView
+// ---------------------------------------------------------------------------
+
 export function GanttView() {
   const { tasks, links, isLoading, error } = useGanttTasks();
   const zoomLevel = useGanttStore((s) => s.zoomLevel);
 
   const taskListScrollRef = useRef<HTMLDivElement>(null);
-  const ganttApiRef = useRef<IApi | null>(null);
-  const [ganttApi, setGanttApi] = useState<IApi | null>(null);
+  const [engine, setEngine] = useState<GanttEngine | null>(null);
   const { widths, setWidth, totalWidth } = useColumnWidths();
 
   // aria-live (polite) — drag announcements via DOM ref (rule 30)
@@ -33,8 +95,11 @@ export function GanttView() {
   // aria-live (assertive) — keyboard nudge announcements; must interrupt immediately (rule 53)
   const ariaAssertiveRef = useRef<HTMLDivElement>(null);
 
-  // Ref to the timeline container for MilestoneDeltaTooltip positioning (rule 31)
+  // Ref to the split-pane container for MilestoneDeltaTooltip positioning (rule 31)
   const timelineContainerRef = useRef<HTMLDivElement>(null);
+
+  // Scrollable container that the canvases sit inside
+  const canvasScrollRef = useRef<HTMLDivElement>(null);
 
   // Ref set true while keyboard reschedule mode is active — read by useDragCpm
   // to prevent its Escape handler from double-cancelling (issue #34)
@@ -43,23 +108,52 @@ export function GanttView() {
   // Task shown in the date input popover (null = popover closed)
   const [datePopoverTask, setDatePopoverTask] = useState<Task | null>(null);
 
-  useScrollSync(taskListScrollRef, ganttApiRef);
+  // Sync vertical scroll between task list and canvas container
+  const isSyncingRef = useRef(false);
 
-  const handleApiReady = useCallback(
-    (api: IApi) => {
-      ganttApiRef.current = api;
-      setGanttApi(api);
-    },
-    [],
-  );
+  const handleCanvasScroll = useCallback(() => {
+    if (isSyncingRef.current) return;
+    const canvasContainer = canvasScrollRef.current;
+    const taskList = taskListScrollRef.current;
+    if (!canvasContainer || !taskList) return;
+    isSyncingRef.current = true;
+    taskList.scrollTop = canvasContainer.scrollTop;
+    isSyncingRef.current = false;
+  }, []);
 
-  const svarTasks = useMemo(() => (tasks ? toSvarTasks(tasks) : []), [tasks]);
-  const svarLinks = useMemo(() => (links ? toSvarLinks(links) : []), [links]);
-  const taskIds = useMemo(() => (tasks ? tasks.map((t) => t.id) : []), [tasks]);
+  // Wire task list → canvas vertical scroll sync (rule 10: no row height)
+  useEffect(() => {
+    const taskList = taskListScrollRef.current;
+    if (!taskList) return;
+    const handler = () => {
+      if (isSyncingRef.current) return;
+      const canvasContainer = canvasScrollRef.current;
+      if (!canvasContainer) return;
+      isSyncingRef.current = true;
+      canvasContainer.scrollTop = taskList.scrollTop;
+      isSyncingRef.current = false;
+    };
+    taskList.addEventListener('scroll', handler, { passive: true });
+    return () => taskList.removeEventListener('scroll', handler);
+  }, []);
 
-  // Drag CPM preview — wires SVAR intercepts + Web Worker (issue #19)
+  const handleEngineReady = useCallback((eng: GanttEngine) => {
+    setEngine(eng);
+
+    // Initial viewport: today at 25% from left (rule 81)
+    const scales = eng.scales;
+    const container = canvasScrollRef.current;
+    if (scales && container) {
+      const today = new Date().toISOString().slice(0, 10);
+      const todayX = dateToLeft(today, scales);
+      const targetScrollLeft = Math.max(0, todayX - container.clientWidth * 0.25);
+      container.scrollLeft = targetScrollLeft;
+    }
+  }, []);
+
+  // Drag CPM preview — wires engine events + Web Worker (issue #19)
   useDragCpm({
-    ganttApi,
+    engine,
     tasks: tasks ?? [],
     links: links ?? [],
     ariaLiveRef,
@@ -76,7 +170,7 @@ export function GanttView() {
   );
 
   useKeyboardReschedule({
-    ganttApi,
+    engine,
     tasks: tasks ?? [],
     links: links ?? [],
     ariaLiveRef,
@@ -86,15 +180,6 @@ export function GanttView() {
   });
 
   const dragPhase = useDragStore((s) => s.phase);
-  const draggedTaskId = useDragStore((s) => s.draggedTaskId);
-  const isKeyboardMode = useDragStore((s) => s.isKeyboardMode);
-
-  // Origin task for the keyboard reschedule ghost bar (rule 52)
-  const originTask = useMemo(() => {
-    if (!isKeyboardMode || !draggedTaskId || !tasks) return null;
-    const t = tasks.find((task) => task.id === draggedTaskId);
-    return t ? { id: t.id, start: t.start, finish: t.finish } : null;
-  }, [isKeyboardMode, draggedTaskId, tasks]);
 
   const timelineTop = timelineContainerRef.current
     ? timelineContainerRef.current.getBoundingClientRect().top
@@ -103,7 +188,6 @@ export function GanttView() {
   const handleDatePopoverConfirm = useCallback(
     (newStart: string) => {
       setDatePopoverTask(null);
-      // Commit via drag store — the confirmed start overrides the keyboard delta
       const { commitDrag } = useDragStore.getState();
       commitDrag(newStart);
       keyboardModeRef.current = false;
@@ -116,9 +200,24 @@ export function GanttView() {
 
   const handleDatePopoverClose = useCallback(() => {
     setDatePopoverTask(null);
-    // Return focus to the Gantt without cancelling the keyboard reschedule —
-    // user may have opened the popover accidentally and wants to keep nudging
   }, []);
+
+  // "Today" button handler (rule 82)
+  const handleScrollToToday = useCallback(() => {
+    if (!engine) return;
+    const reducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    engine.scrollToDate(new Date().toISOString().slice(0, 10), reducedMotion ? 'instant' : 'smooth');
+  }, [engine]);
+
+  // Engine scroll → task list sync
+  // We pass canvasScrollRef as containerRef for CanvasGanttTimeline.
+  // The engine's scroll events come from canvasScrollRef, not the engine.on('scroll').
+  // We attach a DOM scroll listener instead.
+
+  // Canvas support check (rule 79)
+  const canvasSupported = typeof document !== 'undefined' ? canvasIsSupported() : true;
 
   if (error) {
     return (
@@ -150,9 +249,41 @@ export function GanttView() {
     );
   }
 
+  if (!canvasSupported) {
+    return (
+      <div className="flex flex-col h-full overflow-hidden">
+        <div className="flex items-center justify-end px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
+          <ZoomControl />
+        </div>
+        <div className="flex flex-1 overflow-hidden">
+          <TaskListPanel
+            tasks={tasks}
+            scrollRef={taskListScrollRef}
+            widths={widths}
+            setWidth={setWidth}
+            totalWidth={totalWidth}
+          />
+          <GanttFallbackTable tasks={tasks} />
+        </div>
+      </div>
+    );
+  }
+
+  // Compute scrollable content width from scales
+  const scales = engine?.scales;
+  const totalCanvasWidth = scales ? scales.totalWidth : 0;
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-end px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
+      <div className="flex items-center justify-end gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
+        {/* "Today" button (rule 82) */}
+        <button
+          type="button"
+          onClick={handleScrollToToday}
+          className="border border-neutral-border rounded h-7 px-3 text-xs font-medium focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+        >
+          Today
+        </button>
         <ZoomControl />
       </div>
 
@@ -164,17 +295,49 @@ export function GanttView() {
           setWidth={setWidth}
           totalWidth={totalWidth}
         />
-        <GanttTimeline
-          tasks={svarTasks}
-          links={svarLinks as never}
-          zoom={zoomLevel}
-          onApiReady={handleApiReady}
-          taskIds={taskIds}
-          originTask={originTask}
-        />
+
+        {tasks.length === 0 ? (
+          <GanttEmptyState />
+        ) : (
+          <div
+            ref={canvasScrollRef}
+            className="flex-1 min-w-0 overflow-auto relative"
+            onScroll={handleCanvasScroll}
+          >
+            {/* Scrollable content area sized to the full canvas width */}
+            <div
+              style={{
+                width: totalCanvasWidth > 0 ? totalCanvasWidth : '100%',
+                height: tasks.length * 28,
+                position: 'relative',
+              }}
+            >
+              {/* Canvas layers fill the viewport (sticky via absolute+inset in container) */}
+              <div
+                style={{
+                  position: 'sticky',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  pointerEvents: 'none',
+                }}
+              >
+                <CanvasGanttTimeline
+                  tasks={tasks}
+                  links={links ?? []}
+                  zoomLevel={zoomLevel}
+                  containerRef={canvasScrollRef}
+                  onEngineReady={handleEngineReady}
+                />
+              </div>
+            </div>
+
+          </div>
+        )}
       </div>
 
-      <MonteCarloRow ganttApi={ganttApi} taskListWidth={totalWidth} />
+      <MonteCarloRow engine={engine} taskListWidth={totalWidth} />
 
       {/* Milestone delta tooltip — at GanttView level to escape overflow:hidden (rule 31) */}
       <MilestoneDeltaTooltip milestoneLeft={null} timelineTop={timelineTop} />
@@ -204,3 +367,4 @@ export function GanttView() {
     </div>
   );
 }
+

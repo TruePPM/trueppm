@@ -18,10 +18,11 @@
  * - Rule 52: Origin ghost bar shown at the task's pre-nudge position.
  * - Rule 53: aria-keyshortcuts on the Gantt root; assertive aria-live region
  *   announces each nudge to screen readers without re-rendering components.
+ * - Rule 55: engine.on() always paired with unsubscribe in useEffect cleanup.
  */
 
 import { useEffect, useRef, type RefObject } from 'react';
-import type { IApi } from '@svar-ui/gantt-store';
+import type { GanttEngine } from '@/features/gantt/engine';
 import type { Task, TaskLink } from '@/types';
 import type { RecalcMessage, ResultMessage } from '@/workers/cpmWorker.types';
 import { useDragStore } from '@/stores/dragStore';
@@ -30,7 +31,7 @@ import { nudgeWorkingDays } from '@/features/gantt/ganttUtils';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 
 export interface UseKeyboardRescheduleOptions {
-  ganttApi: IApi | null;
+  engine: GanttEngine | null;
   tasks: Task[];
   links: TaskLink[];
   /** Polite aria-live ref — shared with useDragCpm for milestone slip messages. */
@@ -51,7 +52,7 @@ export interface UseKeyboardRescheduleOptions {
 }
 
 export function useKeyboardReschedule({
-  ganttApi,
+  engine,
   tasks,
   links,
   ariaLiveRef,
@@ -82,7 +83,7 @@ export function useKeyboardReschedule({
   // Spawn / terminate a dedicated CPM worker for keyboard mode.
   // Separate from useDragCpm's worker — they are mutually exclusive.
   useEffect(() => {
-    if (!ganttApi) return;
+    if (!engine) return;
     const worker = createCpmWorker();
     workerRef.current = worker;
 
@@ -107,20 +108,20 @@ export function useKeyboardReschedule({
       worker.terminate();
       workerRef.current = null;
     };
-  }, [ganttApi, updatePreview, ariaLiveRef]);
+  }, [engine, updatePreview, ariaLiveRef]);
 
-  // Track the selected task in the SVAR Gantt.
-  // Uses ganttApi.on (observe-only) so SVAR's default selection behaviour is preserved.
+  // Track the selected task via engine.on('selection-change') (rule 55: always unsubscribe)
   useEffect(() => {
-    if (!ganttApi) return;
-    ganttApi.on('select-task', (ev: { id: string | number }) => {
-      selectedTaskIdRef.current = String(ev.id);
+    if (!engine) return;
+    const off = engine.on('selection-change', (ev) => {
+      selectedTaskIdRef.current = ev.taskIds[0] ?? null;
     });
-  }, [ganttApi]);
+    return off;
+  }, [engine]);
 
   // Main keyboard handler
   useEffect(() => {
-    if (!ganttApi) return;
+    if (!engine) return;
 
     /** Send a RECALC message to the worker for the given cumulative delta. */
     const sendNudge = (newDelta: number) => {
@@ -246,7 +247,7 @@ export function useKeyboardReschedule({
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [
-    ganttApi,
+    engine,
     keyboardModeRef,
     startDrag,
     commitDrag,
