@@ -73,7 +73,8 @@ def test_task_create_triggers_schedule(user: object, project: Project, calendar:
 @pytest.mark.django_db(transaction=True)
 def test_task_delete_triggers_schedule(user: object, project: Project, task: Task) -> None:
     """Deleting a Task via the API enqueues recalculate_schedule."""
-    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    # Role.ADMIN required: IsProjectMemberWriteOrOwn blocks MEMBER on unassigned tasks.
+    ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
     c = APIClient()
     c.force_authenticate(user=user)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from django.conf import settings
 from django.db import models
 
 from trueppm_api.fields import LtreeField
@@ -170,6 +171,16 @@ class Task(VersionedModel):
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="tasks")
     name = models.CharField(max_length=512)
+    # Assignee: the Team Member responsible for this task. Nullable — unassigned
+    # tasks may only be edited by Project Manager (ADMIN, 3) or above.
+    # Used by IsProjectMemberWriteOrOwn to enforce the "own tasks" restriction.
+    assignee = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_tasks",
+    )
     wbs_path = LtreeField(
         help_text="WBS hierarchy path in ltree format, e.g. '1.2.3'",
         null=True,

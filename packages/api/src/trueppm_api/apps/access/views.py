@@ -147,28 +147,46 @@ class ProjectMembershipViewSet(viewsets.GenericViewSet[ProjectMembership]):
 
     def partial_update(self, request: Request, pk: object = None, **kwargs: object) -> Response:
         project = self._get_project_or_404()
-        actor_role = self._require_actor_role(request, project.pk, Role.OWNER)
         instance = self.get_object()
 
         serializer = ProjectMembershipWriteSerializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
 
         new_role = serializer.validated_data.get("role")
-        if new_role is not None:
-            # Cannot assign role >= actor's own.
-            if new_role >= actor_role:
-                raise drf_serializers.ValidationError(
-                    {"role": "You cannot assign a role equal to or higher than your own."}
+
+        # M4 fix: lock the actor's own membership row with SELECT FOR UPDATE inside
+        # an atomic block to close the TOCTOU window where a concurrent demotion
+        # could allow the actor to assign a role >= their effective role at save time.
+        with transaction.atomic():
+            try:
+                actor_membership = ProjectMembership.objects.select_for_update().get(
+                    project=project,
+                    user=request.user,
+                    is_deleted=False,  # type: ignore[misc]
                 )
-            # Last-Owner guard: if demoting an Owner, ensure another Owner exists.
-            if instance.role == Role.OWNER and new_role < Role.OWNER:
-                with transaction.atomic():
+            except ProjectMembership.DoesNotExist:
+                from rest_framework.exceptions import PermissionDenied
+
+                raise PermissionDenied("You are not a member of this project.") from None
+
+            actor_role = actor_membership.role
+            if actor_role < Role.OWNER:
+                from rest_framework.exceptions import PermissionDenied
+
+                raise PermissionDenied("You do not have permission to perform this action.")
+
+            if new_role is not None:
+                # Cannot assign role >= actor's own.
+                if new_role >= actor_role:
+                    raise drf_serializers.ValidationError(
+                        {"role": "You cannot assign a role equal to or higher than your own."}
+                    )
+                # Last-Owner guard: if demoting an Owner, ensure another Owner exists.
+                if instance.role == Role.OWNER and new_role < Role.OWNER:
                     self._check_last_owner_guard(project.pk, exclude_pk=instance.pk)
-                    serializer.save()
+                serializer.save()
             else:
                 serializer.save()
-        else:
-            serializer.save()
 
         project_id = str(project.pk)
         membership_id = str(instance.pk)

@@ -64,6 +64,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "server_version",
             "project",
             "name",
+            "assignee",
             "wbs_path",
             "duration",
             "percent_complete",

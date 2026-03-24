@@ -12,14 +12,26 @@ class Role(models.IntegerChoices):
     """Project-scoped roles, ordered by privilege level.
 
     The ordinal value is used directly for threshold comparisons in permission
-    classes: role >= MEMBER means the user holds at least the Member role.
+    classes: role >= MEMBER means the user holds at least the Team Member role.
+
+    Code name  │ Ordinal │ Issue #11 label  │ Notes
+    ───────────┼─────────┼──────────────────┼─────────────────────────────────
+    VIEWER     │    0    │ Viewer           │
+    MEMBER     │    1    │ Team Member      │ edit own assigned tasks
+    SCHEDULER  │    2    │ Resource Manager │ assign resources; no task edit
+    ADMIN      │    3    │ Project Manager  │ full task/dep edit; create baseline
+    OWNER      │    4    │ Project Admin    │ delete project; manage membership
+    ───────────┴─────────┴──────────────────┴─────────────────────────────────
+    OWNER is kept as the code name (not renamed to PROJECT_ADMIN) because it
+    carries the last-Owner guard invariant throughout the codebase. The human-
+    readable label is "Project Admin" for API consumers.
     """
 
     VIEWER = 0, "Viewer"
-    MEMBER = 1, "Member"
-    SCHEDULER = 2, "Scheduler"
-    ADMIN = 3, "Admin"
-    OWNER = 4, "Owner"
+    MEMBER = 1, "Team Member"
+    SCHEDULER = 2, "Resource Manager"
+    ADMIN = 3, "Project Manager"
+    OWNER = 4, "Project Admin"
 
 
 class ProjectMembership(VersionedModel):

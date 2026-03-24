@@ -17,9 +17,17 @@ class _UserSummarySerializer(serializers.ModelSerializer):  # type: ignore[type-
 
 
 class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembership]):
-    """Response serializer — includes user_detail for list/retrieve."""
+    """Response serializer — includes user_detail and role_label for list/retrieve.
+
+    role       — integer ordinal (canonical wire format; use for comparisons)
+    role_label — human-readable label e.g. "Project Manager" (display only)
+    """
 
     user_detail = _UserSummarySerializer(source="user", read_only=True)
+    role_label = serializers.SerializerMethodField()
+
+    def get_role_label(self, obj: ProjectMembership) -> str:
+        return Role(obj.role).label
 
     class Meta:
         model = ProjectMembership
@@ -30,8 +38,9 @@ class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembers
             "user",
             "user_detail",
             "role",
+            "role_label",
         ]
-        read_only_fields = ["id", "server_version", "project", "user", "user_detail"]
+        read_only_fields = ["id", "server_version", "project", "user", "user_detail", "role_label"]
 
 
 class ProjectMembershipWriteSerializer(serializers.ModelSerializer[ProjectMembership]):
