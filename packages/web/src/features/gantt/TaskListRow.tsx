@@ -57,42 +57,22 @@ export function TaskListRow({ task, level, widths }: Props) {
         {task.name}
       </span>
 
+      {/* Combined duration · start column (rule 43: COL_DUR_START = 100px) */}
       <span
         className="shrink-0 text-right text-gantt-text-secondary tabular-nums"
-        style={{ width: widths.duration }}
-        aria-label={`${task.duration} days`}
+        style={{ width: widths.durStart }}
+        aria-label={task.isMilestone ? 'milestone' : `${task.duration} days, starts ${formatDate(task.start)}`}
       >
-        {task.isMilestone ? '—' : `${task.duration}d`}
+        {task.isMilestone ? '—' : `${task.duration}d · ${formatDate(task.start)}`}
       </span>
 
+      {/* Progress — text only; no mini bar (rule 43) */}
       <span
         className="shrink-0 text-right text-gantt-text-secondary tabular-nums"
-        style={{ width: widths.start }}
-      >
-        {formatDate(task.start)}
-      </span>
-
-      {/* Progress bar + percentage */}
-      <span
-        className="shrink-0 flex flex-col items-end gap-0.5"
         style={{ width: widths.progress }}
         aria-label={`${task.progress}% complete`}
       >
-        {!task.isMilestone && (
-          <>
-            <span className="tabular-nums text-gantt-text-secondary text-xs">
-              {task.progress}%
-            </span>
-            <span className="w-full h-1 rounded-full bg-white/10 overflow-hidden" aria-hidden="true">
-              <span
-                className={`block h-full rounded-full transition-[width] ${
-                  task.isCritical ? 'bg-gantt-semantic-critical' : 'bg-brand-primary'
-                }`}
-                style={{ width: `${task.progress}%` }}
-              />
-            </span>
-          </>
-        )}
+        {!task.isMilestone && `${task.progress}%`}
       </span>
     </div>
   );

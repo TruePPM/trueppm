@@ -8,7 +8,7 @@ import type { Task } from '@/types';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 
 const defaultWidths: ColumnWidths['widths'] = {
-  task: 180, duration: 60, start: 72, progress: 52,
+  task: 180, durStart: 100, progress: 52,
 };
 
 const base: Task = {

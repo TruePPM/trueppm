@@ -46,7 +46,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
       aria-label="Projects"
       style={isDrawer ? undefined : { width: sidebarWidth, transition: 'width 200ms ease-out' }}
       className={[
-        'flex flex-col h-full bg-brand-primary overflow-hidden flex-shrink-0',
+        'flex flex-col h-full bg-gantt-surface overflow-hidden flex-shrink-0',
         isDrawer ? widthClass : '',
       ].join(' ')}
     >
@@ -58,8 +58,8 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             onClick={toggleSidebar}
             aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             aria-expanded={!sidebarCollapsed}
-            className="flex items-center justify-center w-8 h-8 rounded text-white/60 hover:text-white hover:bg-white/10
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-brand-primary"
+            className="flex items-center justify-center w-8 h-8 rounded text-gantt-text-secondary hover:text-gantt-text-primary hover:bg-white/10
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface"
           >
             <svg
               width="16"
@@ -77,6 +77,16 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
 
       {/* Project list */}
       <nav aria-label="Project list" className="flex-1 overflow-y-auto overflow-x-hidden py-2">
+        {/* Section header — hidden when sidebar is collapsed (rule 36) */}
+        {!sidebarCollapsed && !isDrawer && (
+          <h2
+            className="px-3 pb-1 pt-1 text-xs font-semibold tracking-widest uppercase text-gantt-text-secondary"
+            aria-label="Projects"
+          >
+            PROJECTS
+          </h2>
+        )}
+
         {isLoading ? (
           <ul className="space-y-1 px-2" aria-label="Loading projects">
             {[1, 2, 3, 4].map((i) => (
@@ -93,7 +103,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               />
             ))}
             {projects?.length === 0 && (
-              <li className="px-3 py-2 text-xs text-white/50">No projects yet</li>
+              <li className="px-3 py-2 text-xs text-gantt-text-secondary">No projects yet</li>
             )}
           </ul>
         )}

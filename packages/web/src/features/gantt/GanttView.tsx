@@ -255,6 +255,7 @@ export function GanttView() {
         <div className="flex items-center justify-end px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
           <ZoomControl />
         </div>
+
         <div className="flex flex-1 overflow-hidden">
           <TaskListPanel
             tasks={tasks}
@@ -275,16 +276,53 @@ export function GanttView() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-end gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
-        {/* "Today" button (rule 82) */}
-        <button
-          type="button"
-          onClick={handleScrollToToday}
-          className="border border-neutral-border rounded h-7 px-3 text-xs font-medium focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
-        >
-          Today
-        </button>
-        <ZoomControl />
+      <div className="flex items-center justify-between gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
+        {/* View mode switcher (rule 42) — WBS and List disabled until panels ship */}
+        <div role="group" aria-label="View mode" className="flex items-center gap-1">
+          <button
+            type="button"
+            aria-pressed="true"
+            className="border border-neutral-border rounded h-7 px-3 text-xs font-medium
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+          >
+            Gantt
+          </button>
+          <button
+            type="button"
+            aria-pressed="false"
+            aria-disabled="true"
+            disabled
+            className="border border-neutral-border rounded h-7 px-3 text-xs font-medium
+              text-neutral-text-disabled cursor-not-allowed
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+          >
+            WBS
+          </button>
+          <button
+            type="button"
+            aria-pressed="false"
+            aria-disabled="true"
+            disabled
+            className="border border-neutral-border rounded h-7 px-3 text-xs font-medium
+              text-neutral-text-disabled cursor-not-allowed
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+          >
+            List
+          </button>
+        </div>
+
+        {/* Right side: Today + Zoom */}
+        <div className="flex items-center gap-2">
+          {/* "Today" button (rule 82) */}
+          <button
+            type="button"
+            onClick={handleScrollToToday}
+            className="border border-neutral-border rounded h-7 px-3 text-xs font-medium focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+          >
+            Today
+          </button>
+          <ZoomControl />
+        </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden" ref={timelineContainerRef}>

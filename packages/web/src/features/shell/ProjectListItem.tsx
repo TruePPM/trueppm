@@ -8,10 +8,12 @@ const HEALTH_LABELS: Record<HealthState, string> = {
   unknown: 'Unknown',
 };
 
+// Dark-surface variants required — standard semantic-* tokens fail WCAG 1.4.3
+// on bg-gantt-surface (#0F1117). See rule 41.
 const HEALTH_COLORS: Record<HealthState, string> = {
-  'on-track': 'text-semantic-on-track',
-  'at-risk': 'text-semantic-at-risk',
-  critical: 'text-semantic-critical',
+  'on-track': 'text-gantt-semantic-on-track',
+  'at-risk': 'text-gantt-semantic-at-risk',
+  critical: 'text-gantt-semantic-critical',
   unknown: 'text-neutral-text-disabled',
 };
 
@@ -29,8 +31,9 @@ export function ProjectListItem({ project, collapsed }: Props) {
         className={({ isActive }) =>
           [
             'flex items-center gap-2 px-3 py-2 rounded text-sm transition-colors',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-brand-primary',
-            isActive ? 'bg-white/10' : 'hover:bg-white/5',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface',
+            // Active: fill + 2px left border (rule 37 — border is primary non-color signal)
+            isActive ? 'bg-white/10 border-l-2 border-brand-primary' : 'hover:bg-white/5',
           ].join(' ')
         }
         aria-label={collapsed ? `${project.name} — ${HEALTH_LABELS[project.healthState]}` : undefined}
@@ -43,7 +46,7 @@ export function ProjectListItem({ project, collapsed }: Props) {
         />
         {!collapsed && (
           <span className="flex-1 truncate">
-            <span className="text-neutral-text-inverse">{project.name}</span>
+            <span className="text-gantt-text-primary">{project.name}</span>
             <span className={`block text-xs ${HEALTH_COLORS[project.healthState]}`}>
               {HEALTH_LABELS[project.healthState]}
             </span>
