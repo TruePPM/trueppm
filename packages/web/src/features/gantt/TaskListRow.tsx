@@ -19,8 +19,8 @@ export function TaskListRow({ task, level, widths }: Props) {
   const isSelected = selectedTaskId === task.id;
 
   const isCriticalStyle = task.isCritical
-    ? 'font-semibold text-semantic-critical'
-    : 'text-neutral-text-primary';
+    ? 'font-semibold text-gantt-semantic-critical'
+    : 'text-gantt-text-primary';
 
   const isSummaryStyle = task.isSummary ? 'font-medium' : '';
 
@@ -31,9 +31,9 @@ export function TaskListRow({ task, level, widths }: Props) {
       tabIndex={0}
       style={{ height: ROW_HEIGHT, paddingLeft: (level - 1) * WBS_INDENT + 8 }}
       className={[
-        'flex items-center pr-2 text-xs cursor-pointer border-b border-neutral-border/50',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary',
-        isSelected ? 'bg-neutral-surface-raised' : 'hover:bg-neutral-surface-raised/60',
+        'flex items-center pr-2 text-xs cursor-pointer border-b border-neutral-border/20',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white',
+        isSelected ? 'bg-white/10 border-l-2 border-brand-primary' : 'hover:bg-white/5',
       ].join(' ')}
       onClick={() => setSelectedTaskId(isSelected ? null : task.id)}
       onKeyDown={(e) => {
@@ -58,7 +58,7 @@ export function TaskListRow({ task, level, widths }: Props) {
       </span>
 
       <span
-        className="shrink-0 text-right text-neutral-text-secondary tabular-nums"
+        className="shrink-0 text-right text-gantt-text-secondary tabular-nums"
         style={{ width: widths.duration }}
         aria-label={`${task.duration} days`}
       >
@@ -66,7 +66,7 @@ export function TaskListRow({ task, level, widths }: Props) {
       </span>
 
       <span
-        className="shrink-0 text-right text-neutral-text-secondary tabular-nums"
+        className="shrink-0 text-right text-gantt-text-secondary tabular-nums"
         style={{ width: widths.start }}
       >
         {formatDate(task.start)}
@@ -80,13 +80,13 @@ export function TaskListRow({ task, level, widths }: Props) {
       >
         {!task.isMilestone && (
           <>
-            <span className="tabular-nums text-neutral-text-secondary" style={{ fontSize: 10 }}>
+            <span className="tabular-nums text-gantt-text-secondary text-xs">
               {task.progress}%
             </span>
-            <span className="w-full h-1 rounded-full bg-neutral-surface-sunken overflow-hidden" aria-hidden="true">
+            <span className="w-full h-1 rounded-full bg-white/10 overflow-hidden" aria-hidden="true">
               <span
                 className={`block h-full rounded-full transition-[width] ${
-                  task.isCritical ? 'bg-semantic-critical' : 'bg-brand-primary'
+                  task.isCritical ? 'bg-gantt-semantic-critical' : 'bg-brand-primary'
                 }`}
                 style={{ width: `${task.progress}%` }}
               />
