@@ -18,9 +18,12 @@ function makeTask(id: string, start: string, finish: string): Task {
     duration: 7,
     progress: 0,
     wbs: '1',
-    type: 'task',
+    parentId: null,
     isCritical: false,
-  } as Task;
+    isComplete: false,
+    isSummary: false,
+    isMilestone: false,
+  };
 }
 
 const taskA = makeTask('a', '2026-04-07', '2026-04-14'); // row 0
