@@ -13,6 +13,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts'],
+    // Exclude Playwright E2E specs — they use playwright's own runner, not Vitest.
+    exclude: ['e2e/**', 'node_modules/**'],
     globals: true,
     // Run all tests in a single forked process — avoids spawning multiple workers
     // that each inflate their own jsdom + RTL heap, which caused OOM on the default
