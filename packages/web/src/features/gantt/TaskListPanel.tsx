@@ -45,7 +45,7 @@ export function TaskListPanel({ tasks, scrollRef, widths, setWidth, totalWidth }
   return (
     <div
       style={{ width: totalWidth }}
-      className="flex flex-col flex-shrink-0 border-r border-neutral-border h-full"
+      className="flex flex-col flex-shrink-0 border-r border-neutral-border/30 h-full bg-gantt-surface"
       role="grid"
       aria-label="Task list"
       aria-rowcount={tasks.length}
