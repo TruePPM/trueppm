@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   during keyboard reschedule. Derives finish from start + task duration.
 - Design rules 51–53 in `packages/web/CLAUDE.md`: keyboard instruction strip, origin ghost
   bar, and assertive aria-live region requirements for keyboard rescheduling.
+- Canvas Gantt renderer Phase 0 (issue #19): public `GanttEngine` interface and
+  `GanttScaleData` coordinate system replacing SVAR's private `_scales` API. Includes
+  `dateToLeft`, `leftToDate`, `parseUTCDate`, and `buildScaleData` utilities (DST-safe,
+  UTC-only arithmetic). `GanttEngineStub` test double provides compile-time interface
+  verification and a no-op implementation for unit tests. Design rules 54–77 added to
+  `packages/web/CLAUDE.md` covering canvas architecture, dirty-rect invalidation, row
+  virtualisation, drag FSM, Pointer Events API, ARIA grid overlay, and performance budgets.
 - Monte Carlo tooltip plain-language summary: "8 in 10 simulations finish by **[date]**"
   appears at the top of the histogram tooltip (P80 as anchor). Closes #31.
 - At-risk and critical count badges in TopBar are now clickable buttons — click opens a
