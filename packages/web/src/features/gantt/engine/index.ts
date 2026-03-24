@@ -1,0 +1,11 @@
+/**
+ * Public barrel for the canvas Gantt engine.
+ *
+ * Import everything through this file — do not import directly from
+ * engine sub-modules outside of the engine/ directory itself.
+ */
+
+export type { GanttEngine, GanttEngineEventMap } from './GanttEngine';
+export type { GanttScaleData, ZoomLevel, ZoomConfig } from './GanttScaleData';
+export { ZOOM_CONFIGS, buildScaleData, dateToLeft, leftToDate, parseUTCDate } from './GanttScaleData';
+export { GanttEngineStub } from './GanttEngineStub';
