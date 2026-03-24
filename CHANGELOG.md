@@ -29,6 +29,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   during keyboard reschedule. Derives finish from start + task duration.
 - Design rules 51–53 in `packages/web/CLAUDE.md`: keyboard instruction strip, origin ghost
   bar, and assertive aria-live region requirements for keyboard rescheduling.
+- Canvas Gantt renderer Phase 1 (issue #19): replaces `@svar-ui/react-gantt` with a
+  purpose-built HTML5 Canvas 2D renderer. Delivers feature parity with the previous SVAR
+  widget plus new capabilities: 3-layer dirty-rect canvas stack (row bands/grid/today line,
+  task bars/arrows, drag interaction chrome), row virtualisation for smooth performance at
+  500+ tasks, snap-to-day dragging with Shift to suspend snap, resize-handle drag to extend
+  task duration, Pointer Events API throughout for unified mouse/touch/stylus support on
+  iPad, and a `GanttEngineImpl` class that satisfies the stable `GanttEngine` API contract.
+  The `GanttAriaOverlay` transparent DOM layer provides a fully virtualised WCAG 2.1 AA
+  `role="grid"` structure with roving tabindex and canonical aria-labels over the canvas.
+  New UX: timeline loads with today at 25% from the left edge; a "Today" button in the
+  toolbar scrolls back to the current date; zoom level changes preserve the viewport center
+  date; empty project state shows a prompt instead of a blank canvas; canvas init failure
+  shows a plain HTML task table fallback. `ZoomLevel` union now includes `'year'`.
 - Canvas Gantt renderer Phase 0 (issue #19): public `GanttEngine` interface and
   `GanttScaleData` coordinate system replacing SVAR's private `_scales` API. Includes
   `dateToLeft`, `leftToDate`, `parseUTCDate`, and `buildScaleData` utilities (DST-safe,
