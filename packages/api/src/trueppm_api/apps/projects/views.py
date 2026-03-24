@@ -77,6 +77,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         if self.action == "destroy":
             return [IsAuthenticated(), IsProjectOwner()]
         return [IsAuthenticated(), IsProjectMember()]
+
     queryset = Project.objects.select_related("calendar").order_by("start_date", "name")
     serializer_class = ProjectSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
@@ -142,6 +143,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         if self.action == "create":
             return [IsAuthenticated(), IsProjectMemberWrite()]
         return [IsAuthenticated(), IsProjectMember()]
+
     serializer_class = TaskSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
@@ -214,6 +216,7 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), IsProjectMember()]
         return [IsAuthenticated(), IsProjectScheduler()]
+
     serializer_class = DependencySerializer
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["dep_type"]
