@@ -11,6 +11,24 @@ description: >
 
 Design comprehensive test plans for TruePPM.
 
+## Deliverable Quality Dimensions → Test Coverage Mapping
+
+A complete test plan covers all eight quality dimensions. Map each to the test type
+that best exercises it:
+
+| Dimension | What to test | Test type |
+|-----------|-------------|-----------|
+| **Performance** | Correct output for all input combinations, acceptance criteria | Unit + integration |
+| **Conformity** | API response shape matches OpenAPI schema, UI matches design spec | Contract tests (schemathesis), snapshot |
+| **Reliability** | Idempotency (same input → same output), no flakiness, determinism | Property-based, repeated-run |
+| **Resilience** | Error paths, timeouts, partial failures, offline mode, retry exhaustion | Unit (error branches) + integration (chaos) |
+| **Satisfaction** | Critical user flows complete successfully end-to-end | E2E (Playwright, Detox) |
+| **Uniformity** | Consistent behavior across similar endpoints/components | Integration, visual regression |
+| **Efficiency** | No N+1 queries, page size limits enforced, Gantt renders within budget | Benchmark, query count assertions |
+| **Sustainability** | No deprecated imports, no circular deps, coverage doesn't regress | Static analysis + coverage gate |
+
+When a test plan is missing coverage for a dimension, call it out explicitly.
+
 ## Testing Pyramid
 - **Unit tests** (70%): Pure functions, model methods, serializer validation, React components.
   Fast, isolated, no DB/network. Pytest for Python, vitest for web, jest for mobile.

@@ -11,6 +11,72 @@ description: >
 You are classifying a TruePPM feature as OSS (Apache 2.0, `trueppm-suite`) or
 Enterprise (proprietary, `trueppm-enterprise`) before implementation begins.
 
+## P3M Information Flow Model
+
+TruePPM is structured around the PMI P3M information flow. Every feature belongs
+to exactly one layer — use it as the first cut for OSS vs Enterprise.
+
+```
+Senior Leadership
+    │ ← Portfolio performance information
+    │ → Strategy
+    ▼
+Portfolios
+    │ ← Performance information and progress
+    │ → Desired outcomes, benefits, and value
+    ▼
+Programs and Projects
+    │ ← Information for updates, fixes, and adjustments
+    │ → Deliverables with support and maintenance information
+    ▼
+Operations
+    └──────────────────────────────────────────────────────→
+         Outcomes, Benefits, Value Performance Analysis
+         (feeds back up to Senior Leadership)
+```
+
+**Layer → Repo mapping:**
+| Layer | Scope | Repo |
+|-------|-------|------|
+| Senior Leadership | Org-wide strategy, board-level reporting | Enterprise |
+| Portfolios | Cross-project dashboards, capacity, strategic alignment | Enterprise |
+| Programs and Projects | Single-project scheduling, tasks, CPM, Gantt, Monte Carlo | **OSS** |
+| Operations | Deliverable hand-off, maintenance tracking, time entries | **OSS** |
+
+A feature that aggregates or compares data **across** projects (upward toward Portfolio)
+belongs in Enterprise. A feature that operates **within** a single project belongs in OSS.
+
+## Product Life Cycle Model
+
+Projects don't exist in isolation — they serve a product moving through its life cycle.
+Portfolio Governance spans the entire curve; Programs group related projects by phase.
+
+```
+Portfolio Governance  ──────────────────────────────────────────────────────────
+  Program A (Introduction → Growth)      Program B (Maturity → Decline/Retirement)
+  ┌────────────────────────────────┐      ┌────────────────────────────────────┐
+  │ Project 1: Initial Creation    │      │ Project 4, 5, 6: Revisions         │
+  │ Project 2: More Features       │      │   (concurrent, same phase)         │
+  │ Project 3: Additions           │      │ Project 7: Retirement              │
+  └────────────────────────────────┘      └────────────────────────────────────┘
+
+Impact/Sales ▲
+             │            ╭──────╮
+             │         ╭──╯      ╰──╮
+             │      ╭──╯            ╰──╮
+             └──────────────────────────────▶ Time
+          Introduction  Growth  Maturity  Decline
+```
+
+**What this means for OSS/Enterprise classification:**
+- **Individual project** (Project 1, Project 5, etc.) → **OSS** — a PM needs to schedule it
+- **Program** (Program A, Program B — grouping projects across phases) → **Enterprise**
+- **Portfolio Governance** (the bar spanning everything) → **Enterprise**
+- A feature that asks "which program does this project belong to?" → **Enterprise**
+- A feature that asks "what's the schedule for this project?" → **OSS**
+- Multiple projects running concurrently (Projects 4/5/6 in Maturity) is exactly
+  the scenario that makes cross-project coordination an Enterprise concern
+
 ## Classification Rules
 
 ### OSS — goes in `trueppm-suite`
@@ -29,6 +95,8 @@ OSS feature list (non-exhaustive):
 - MS Project import/export
 - Helm chart, Docker Compose dev environment
 - Basic reporting (project health, task list, critical path)
+- Burn charts: burn down, burn up, combined burn (single-project/sprint scope)
+- Risk register: risk model, CRUD, risk matrix (probability × impact), risk-to-task linkage, status lifecycle
 
 ### Enterprise — goes in `trueppm-enterprise`
 A feature belongs in the enterprise edition if it requires **coordinating across
@@ -53,6 +121,10 @@ Enterprise feature list (non-exhaustive):
 - Portfolio-level Monte Carlo
 - Multi-tenancy
 - HA deployment configuration
+- Portfolio risk rollup (aggregated risk across projects)
+- Cross-project risk propagation
+- Risk-triggered approval workflows
+- Burn charts at portfolio/program level (cross-project scope)
 
 ## Boundary Rules
 
@@ -68,11 +140,14 @@ These rules are **non-negotiable**:
 ## Decision Framework
 
 Ask in order:
-1. Does this feature require data from more than one project? → Enterprise
-2. Does this feature require org-level admin (not project-level)? → Enterprise
-3. Would a freelance PM using the free tier miss this? → OSS
-4. Is this a compliance, audit, or governance feature? → Enterprise
-5. Is it a core scheduling algorithm? → OSS (scheduling is TruePPM's OSS differentiator)
+1. **Which P3M layer does this feature serve?**
+   - Senior Leadership or Portfolios → Enterprise
+   - Programs and Projects or Operations → OSS
+2. Does this feature require data from more than one project? → Enterprise
+3. Does this feature require org-level admin (not project-level)? → Enterprise
+4. Would a freelance PM using the free tier miss this? → OSS
+5. Is this a compliance, audit, or governance feature? → Enterprise
+6. Is it a core scheduling algorithm? → OSS (scheduling is TruePPM's OSS differentiator)
 
 ## Output Format
 

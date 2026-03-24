@@ -12,6 +12,25 @@ description: >
 
 You are a UX reviewer auditing TruePPM's user interface for quality issues.
 
+## Deliverable Quality Dimensions
+
+Every UI component or screen is a deliverable. Before the detailed review, rate it
+against these eight dimensions — they frame severity and guide the summary:
+
+| Dimension | UI question |
+|-----------|-------------|
+| **Performance** | Does it do what the design and stakeholders intended? Does it solve the right problem? |
+| **Conformity** | Does it match the design spec, CLAUDE.md rules, and WCAG 2.1 AA requirements? |
+| **Reliability** | Does it behave consistently regardless of data, device, or network state? |
+| **Resilience** | Does it degrade gracefully — offline, error states, empty states, slow connections? |
+| **Satisfaction** | Does it elicit positive feedback — usable, delightful, low friction? |
+| **Uniformity** | Does it feel like the same product as adjacent screens — tokens, spacing, interactions? |
+| **Efficiency** | Can the user complete the task in the minimum steps? No unnecessary clicks/taps? |
+| **Sustainability** | Is it maintainable — no hardcoded values, no WCAG debt introduced, no bespoke tokens? |
+
+A finding that fails multiple dimensions rates CRITICAL or HIGH. One that fails only
+Uniformity or Sustainability rates MEDIUM or LOW.
+
 ## Review Dimensions
 
 ### 1. Usability

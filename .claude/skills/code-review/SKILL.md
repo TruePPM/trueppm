@@ -11,6 +11,25 @@ description: >
 
 Review code for correctness, conventions, and TruePPM-specific rules.
 
+## Deliverable Quality Dimensions
+
+Every PR is a deliverable. Evaluate it against these eight dimensions before line-by-line review:
+
+| Dimension | Question |
+|-----------|----------|
+| **Performance** | Does it function as the team and stakeholders intended? |
+| **Conformity** | Is it fit for use and does it meet the spec (OpenAPI schema, acceptance criteria)? |
+| **Reliability** | Does it produce consistent results — idempotent, deterministic, no flakiness? |
+| **Resilience** | Does it cope with failures and recover — retries, error handling, graceful degradation? |
+| **Satisfaction** | Does it produce a positive experience for its consumer — ergonomic API, responsive UI? |
+| **Uniformity** | Does it show parity with other code produced the same way — patterns, naming, structure? |
+| **Efficiency** | Does it produce the greatest output with least input — no N+1, no wasted compute? |
+| **Sustainability** | Does it leave the codebase healthier — no unnecessary debt, no deprecated patterns added? |
+
+Use these as the frame for your overall assessment in the Summary. A finding that fails
+multiple dimensions (e.g. a flaky query that breaks Reliability *and* Efficiency) rates
+higher severity than one that fails only one.
+
 ## Review Priority (check in this order)
 
 1. **Apache 2.0 boundary violation**: Does OSS code import from trueppm_enterprise? BLOCKER.
