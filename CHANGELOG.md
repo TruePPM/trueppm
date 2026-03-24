@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **WBS Tree view** (issue #40): a collapsible hierarchy panel, accessible from the
+  `[Gantt · WBS · Table]` view-mode switcher. Rows show WBS number, task name, progress
+  bar, duration, and a critical-path (CP) badge. Summary rows use +/− expand/collapse
+  toggles (MS Project convention). Tasks can be reordered within a parent via drag-to-
+  reorder (`@dnd-kit`); sibling-only constraint enforced client-side. Inline rename via
+  double-click or F2. Keyboard accessible: `aria-level`, `aria-expanded`, WCAG 2.1 AA.
+- **Task Table view** (issue #40): a virtualized flat-list table (via
+  `@tanstack/react-virtual`) of all tasks, sortable by WBS, name, start, finish, duration,
+  or progress. Supports bulk-select with checkboxes, a "My tasks" filter toggle, and
+  inline rename via double-click or F2. Critical-path rows get a subtle red tint and a CP
+  badge matching the WBS view.
+- **`[Gantt · WBS · Table]` view-mode switcher** is now fully functional — previously the
+  WBS and Table buttons were disabled placeholders. Active view is tracked in the `?view=`
+  URL search param so links are shareable and the TanStack Query cache is stable across
+  view switches.
+- `RecalculatingBadge` component in the project toolbar — shows a non-blocking spinner
+  during CPM engine recomputation (wired to WebSocket scheduler events; currently stubbed
+  `isVisible={false}` until WS integration lands).
 - Playwright E2E test scaffold (`packages/web/e2e/`) with smoke and Gantt tests
   that run against the production build in CI; covers shell landmarks, view-mode
   switcher state, task list accessibility, and Gantt legend. New `web:e2e` CI job
