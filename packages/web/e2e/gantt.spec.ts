@@ -13,19 +13,36 @@ test.describe('GanttView toolbar', () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test('view-mode switcher has Gantt active and WBS/List disabled', async ({ page }) => {
+  test('view-mode switcher has Gantt active; WBS and Table are enabled', async ({ page }) => {
     const group = page.getByRole('group', { name: 'View mode' });
     await expect(group).toBeVisible();
 
     const ganttBtn = group.getByRole('button', { name: 'Gantt' });
     const wbsBtn = group.getByRole('button', { name: 'WBS' });
-    const listBtn = group.getByRole('button', { name: 'List' });
+    const tableBtn = group.getByRole('button', { name: 'Table' });
 
     await expect(ganttBtn).toBeVisible();
     await expect(ganttBtn).toHaveAttribute('aria-pressed', 'true');
 
-    await expect(wbsBtn).toBeDisabled();
-    await expect(listBtn).toBeDisabled();
+    await expect(wbsBtn).toBeEnabled();
+    await expect(wbsBtn).toHaveAttribute('aria-pressed', 'false');
+
+    await expect(tableBtn).toBeEnabled();
+    await expect(tableBtn).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  test('switching to WBS view shows the treegrid', async ({ page }) => {
+    const group = page.getByRole('group', { name: 'View mode' });
+    await group.getByRole('button', { name: 'WBS' }).click();
+    await expect(page).toHaveURL(/[?&]view=wbs/);
+    await expect(page.getByRole('treegrid', { name: 'WBS task tree' })).toBeVisible();
+  });
+
+  test('switching to Table view shows the task grid', async ({ page }) => {
+    const group = page.getByRole('group', { name: 'View mode' });
+    await group.getByRole('button', { name: 'Table' }).click();
+    await expect(page).toHaveURL(/[?&]view=list/);
+    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
   });
 
   test('Today button is present and focusable', async ({ page }) => {
