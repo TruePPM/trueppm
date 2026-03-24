@@ -14,7 +14,7 @@
  * - Rule 67: GanttAriaOverlay mandatory; canvas elements aria-hidden
  */
 
-import { useRef, useEffect, type RefObject } from 'react';
+import { useRef, useEffect, type CSSProperties, type RefObject } from 'react';
 import type { Task, TaskLink } from '@/types';
 import type { GanttEngine, ZoomLevel } from './engine';
 import { useGanttEngine } from '@/hooks/useGanttEngine';
@@ -64,7 +64,7 @@ export function CanvasGanttTimeline({
     onEngineReady(engine);
   }, [engine, onEngineReady]);
 
-  const canvasStyle: React.CSSProperties = {
+  const canvasStyle: CSSProperties = {
     position: 'absolute',
     inset: 0,
     touchAction: 'none',

@@ -13,7 +13,7 @@
  * - Rule 69: buildTaskAriaLabel canonical format
  */
 
-import { useState, useEffect, useCallback, useRef, type RefObject } from 'react';
+import { useState, useEffect, useCallback, useRef, type KeyboardEvent, type RefObject } from 'react';
 import type { Task } from '@/types';
 import type { GanttEngine } from './engine';
 import { dateToLeft } from './engine';
@@ -100,7 +100,7 @@ export function GanttAriaOverlay({ engine, tasks, containerRef }: GanttAriaOverl
 
   // Roving tabindex keyboard handler (rule 68)
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLDivElement>, taskId: string) => {
+    (e: KeyboardEvent<HTMLDivElement>, taskId: string) => {
       const idx = tasks.findIndex((t) => t.id === taskId);
       switch (e.key) {
         case 'ArrowDown': {
