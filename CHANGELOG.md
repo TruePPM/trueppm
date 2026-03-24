@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Celery worker container failed to start in Docker Compose — `packages/api/Dockerfile`
+  used `ENTRYPOINT` for uvicorn, causing docker-compose `command` overrides to be
+  appended as uvicorn arguments instead of replacing the command. Changed to `CMD`
+  so `docker compose run` and `command:` overrides work correctly for celery, migrations,
+  and any other management commands.
+
 ### Added
 - Two runnable Jupyter notebooks for `trueppm-scheduler` (issue #38):
   `01-cpm-quickstart.ipynb` covers project definition, CPM run, float table,
