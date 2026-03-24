@@ -2,6 +2,9 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useDragCpm } from './useDragCpm';
 import { useDragStore } from '@/stores/dragStore';
+import { GanttEngineStub } from '@/features/gantt/engine';
+import type { GanttEngineEventMap } from '@/features/gantt/engine';
+import type { GanttScaleData } from '@/features/gantt/engine';
 import type { ResultMessage } from '@/workers/cpmWorker.types';
 import type { Task, TaskLink } from '@/types';
 import { createRef, type MutableRefObject } from 'react';
@@ -42,48 +45,40 @@ vi.mock('@/features/gantt/buildSubgraph', () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock scales — minimal shape that satisfies dateFromCanvasLeft maths
+// Controllable engine — stores event handlers so tests can fire events
 // ---------------------------------------------------------------------------
 
-// Typed as a plain object — GanttScaleData from SVAR has no package-level TS declarations;
-// the hook only reads _scales via dateFromCanvasLeft which accepts any object with the right shape.
-const MOCK_SCALES = {
-  width: 4380,
+const MOCK_SCALES: GanttScaleData = {
   start: new Date('2025-01-01T00:00:00Z'),
   end: new Date('2025-12-31T00:00:00Z'),
-  diff: (a: Date, b: Date) => Math.round((a.getTime() - b.getTime()) / 86_400_000),
+  totalWidth: 364 * 12,
+  zoomLevel: 'week',
+  pxPerMs: 12 / 86_400_000,
 };
 
-// ---------------------------------------------------------------------------
-// Mock IApi — stores intercept callbacks so tests can fire events
-// ---------------------------------------------------------------------------
+class ControllableEngine extends GanttEngineStub {
+  private _map = new Map<string, Set<(p: unknown) => void>>();
+  cancelDragCalled = false;
 
-type InterceptCb = (ev: Record<string, unknown>) => void;
+  override readonly scales: GanttScaleData = MOCK_SCALES;
 
-// Local interface — avoids importing IApi which resolves to `any` in this project's SVAR setup
-interface MockGanttApi {
-  intercept(event: string, cb: InterceptCb): void;
-  getState(): { _scales: typeof MOCK_SCALES };
-  exec: ReturnType<typeof vi.fn>;
-}
+  override on<K extends keyof GanttEngineEventMap>(
+    event: K,
+    handler: (p: GanttEngineEventMap[K]) => void,
+  ): () => void {
+    if (!this._map.has(event)) this._map.set(event, new Set());
+    const h = handler as (p: unknown) => void;
+    this._map.get(event)!.add(h);
+    return () => this._map.get(event)?.delete(h);
+  }
 
-let interceptHandlers: Map<string, InterceptCb>;
-let mockApi: MockGanttApi;
+  emit<K extends keyof GanttEngineEventMap>(event: K, payload: GanttEngineEventMap[K]): void {
+    this._map.get(event)?.forEach((h) => h(payload));
+  }
 
-function resetApi() {
-  interceptHandlers = new Map<string, InterceptCb>();
-  mockApi = {
-    intercept: vi.fn((event: string, cb: InterceptCb) => {
-      interceptHandlers.set(event, cb);
-    }),
-    getState: vi.fn(() => ({ _scales: MOCK_SCALES })),
-    exec: vi.fn(() => Promise.resolve(undefined)),
-  };
-}
-
-/** Fire a SVAR intercept event by name. */
-function fire(event: string, payload: Record<string, unknown>) {
-  interceptHandlers.get(event)?.(payload);
+  override cancelDrag(): void {
+    this.cancelDragCalled = true;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +94,9 @@ const TASKS: Task[] = [
     finish: '2025-01-10',
     duration: 5,
     progress: 0,
+    parentId: null,
     isCritical: false,
+    isComplete: false,
     isSummary: false,
     isMilestone: false,
   },
@@ -127,11 +124,17 @@ function makeAriaRef(): MutableRefObject<HTMLDivElement | null> {
   return ref;
 }
 
-function renderCpm(api: MockGanttApi | null = mockApi) {
+function renderCpm(
+  engine: ControllableEngine | null,
+  keyboardModeRef?: MutableRefObject<boolean>,
+) {
   const ariaLiveRef = makeAriaRef();
-  // IApi resolves to `any` in this project (SVAR has no TS declarations here),
-  // so MockGanttApi is assignable without a cast.
-  return { ...renderHook(() => useDragCpm({ ganttApi: api, tasks: TASKS, links: LINKS, ariaLiveRef })), ariaLiveRef };
+  return {
+    ...renderHook(() =>
+      useDragCpm({ engine, tasks: TASKS, links: LINKS, ariaLiveRef, keyboardModeRef }),
+    ),
+    ariaLiveRef,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +144,6 @@ function renderCpm(api: MockGanttApi | null = mockApi) {
 beforeEach(() => {
   useDragStore.setState(INITIAL_STORE);
   workerMock.reset();
-  resetApi();
 });
 
 // ---------------------------------------------------------------------------
@@ -151,12 +153,13 @@ beforeEach(() => {
 describe('useDragCpm', () => {
   describe('worker lifecycle', () => {
     it('terminates the worker on unmount', () => {
-      const { unmount } = renderCpm();
+      const engine = new ControllableEngine();
+      const { unmount } = renderCpm(engine);
       unmount();
       expect(workerMock.terminate).toHaveBeenCalledTimes(1);
     });
 
-    it('does not post messages when ganttApi is null', () => {
+    it('does not post messages when engine is null', () => {
       renderCpm(null);
       expect(workerMock.postMessage).not.toHaveBeenCalled();
     });
@@ -164,8 +167,9 @@ describe('useDragCpm', () => {
 
   describe('drag-task event', () => {
     it('transitions the store to dragging with the correct task id', () => {
-      renderCpm();
-      void act(() => fire('drag-task', { id: 't1' }));
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
       expect(useDragStore.getState().phase).toBe('dragging');
       expect(useDragStore.getState().draggedTaskId).toBe('t1');
     });
@@ -173,19 +177,21 @@ describe('useDragCpm', () => {
 
   describe('drag-task-move event', () => {
     it('posts a RECALC message with seq = 1 on the first move', () => {
-      renderCpm();
-      void act(() => fire('drag-task', { id: 't1' }));
-      void act(() => fire('drag-task-move', { id: 't1', left: 0 }));
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      void act(() => engine.emit('drag-task-move', { id: 't1', left: 0 }));
       expect(workerMock.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'RECALC', draggedTaskId: 't1', seq: 1 }),
       );
     });
 
     it('increments seq on each move event', () => {
-      renderCpm();
-      void act(() => fire('drag-task', { id: 't1' }));
-      void act(() => fire('drag-task-move', { id: 't1', left: 0 }));
-      void act(() => fire('drag-task-move', { id: 't1', left: 100 }));
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      void act(() => engine.emit('drag-task-move', { id: 't1', left: 0 }));
+      void act(() => engine.emit('drag-task-move', { id: 't1', left: 100 }));
       expect(workerMock.postMessage).toHaveBeenLastCalledWith(
         expect.objectContaining({ seq: 2 }),
       );
@@ -194,9 +200,10 @@ describe('useDragCpm', () => {
 
   describe('RESULT message from worker', () => {
     it('updates the store when seq matches the current sequence', () => {
-      renderCpm();
-      void act(() => fire('drag-task', { id: 't1' }));
-      void act(() => fire('drag-task-move', { id: 't1', left: 0 }));
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      void act(() => engine.emit('drag-task-move', { id: 't1', left: 0 }));
       void act(() => {
         workerMock.simulateResult({
           type: 'RESULT',
@@ -213,11 +220,12 @@ describe('useDragCpm', () => {
     });
 
     it('discards a stale result whose seq is less than the current seq', () => {
-      renderCpm();
-      void act(() => fire('drag-task', { id: 't1' }));
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
       // Two moves → seq = 2
-      void act(() => fire('drag-task-move', { id: 't1', left: 0 }));
-      void act(() => fire('drag-task-move', { id: 't1', left: 50 }));
+      void act(() => engine.emit('drag-task-move', { id: 't1', left: 0 }));
+      void act(() => engine.emit('drag-task-move', { id: 't1', left: 50 }));
       // Result for seq = 1 (stale)
       void act(() => {
         workerMock.simulateResult({
@@ -236,9 +244,10 @@ describe('useDragCpm', () => {
     });
 
     it('updates the aria-live ref with the worst milestone slip message', () => {
-      const { ariaLiveRef } = renderCpm();
-      void act(() => fire('drag-task', { id: 't1' }));
-      void act(() => fire('drag-task-move', { id: 't1', left: 0 }));
+      const engine = new ControllableEngine();
+      const { ariaLiveRef } = renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      void act(() => engine.emit('drag-task-move', { id: 't1', left: 0 }));
       void act(() => {
         workerMock.simulateResult({
           type: 'RESULT',
@@ -259,9 +268,10 @@ describe('useDragCpm', () => {
     });
 
     it('uses singular "day" when deltaDays = 1', () => {
-      const { ariaLiveRef } = renderCpm();
-      void act(() => fire('drag-task', { id: 't1' }));
-      void act(() => fire('drag-task-move', { id: 't1', left: 0 }));
+      const engine = new ControllableEngine();
+      const { ariaLiveRef } = renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      void act(() => engine.emit('drag-task-move', { id: 't1', left: 0 }));
       void act(() => {
         workerMock.simulateResult({
           type: 'RESULT',
@@ -284,25 +294,28 @@ describe('useDragCpm', () => {
 
   describe('drag-task-end event', () => {
     it('calls cancelDrag when ev.cancelled is true', () => {
-      renderCpm();
-      void act(() => fire('drag-task', { id: 't1' }));
-      void act(() => fire('drag-task-end', { id: 't1', left: 0, cancelled: true }));
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      void act(() => engine.emit('drag-task-end', { id: 't1', left: 0, cancelled: true }));
       expect(useDragStore.getState().phase).toBe('idle');
     });
 
     it('calls commitDrag when online and not cancelled', () => {
-      renderCpm();
-      void act(() => fire('drag-task', { id: 't1' }));
-      void act(() => fire('drag-task-end', { id: 't1', left: 0 }));
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      void act(() => engine.emit('drag-task-end', { id: 't1', left: 0 }));
       expect(useDragStore.getState().phase).toBe('committing');
     });
 
     it('calls cancelDrag + setError when offline (rule 29)', () => {
       const spy = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
       try {
-        renderCpm();
-        void act(() => fire('drag-task', { id: 't1' }));
-        void act(() => fire('drag-task-end', { id: 't1', left: 0 }));
+        const engine = new ControllableEngine();
+        renderCpm(engine);
+        void act(() => engine.emit('drag-task', { id: 't1' }));
+        void act(() => engine.emit('drag-task-end', { id: 't1', left: 0 }));
         expect(useDragStore.getState().phase).toBe('error');
       } finally {
         spy.mockRestore();
@@ -311,19 +324,32 @@ describe('useDragCpm', () => {
   });
 
   describe('Escape key handler (rule 28)', () => {
-    it('cancels an active pointer drag and calls exec drag-task-cancel', () => {
-      renderCpm();
-      void act(() => fire('drag-task', { id: 't1' }));
+    it('cancels an active pointer drag and calls engine.cancelDrag', () => {
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
       void act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
       expect(useDragStore.getState().phase).toBe('idle');
-      expect(mockApi.exec).toHaveBeenCalledWith('drag-task-cancel', {});
+      expect(engine.cancelDragCalled).toBe(true);
     });
 
     it('does nothing when phase is already idle', () => {
-      renderCpm();
+      const engine = new ControllableEngine();
+      renderCpm(engine);
       void act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
-      expect(mockApi.exec).not.toHaveBeenCalledWith('drag-task-cancel', expect.anything());
+      expect(engine.cancelDragCalled).toBe(false);
       expect(useDragStore.getState().phase).toBe('idle');
+    });
+
+    it('yields to useKeyboardReschedule when keyboardModeRef is true (issue #34)', () => {
+      const engine = new ControllableEngine();
+      const keyboardModeRef = { current: true };
+      renderCpm(engine, keyboardModeRef);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      void act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+      // keyboard mode owns Escape — pointer drag must NOT be cancelled
+      expect(useDragStore.getState().phase).toBe('dragging');
+      expect(engine.cancelDragCalled).toBe(false);
     });
   });
 });

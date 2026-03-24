@@ -2,19 +2,21 @@ import { render, screen, act } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PreviewOverlay } from './PreviewOverlay';
 import { useDragStore } from '@/stores/dragStore';
-import type { GanttScaleData } from '@svar-ui/gantt-store/dist/types/types';
+import type { GanttScaleData } from '@/features/gantt/engine';
 import type { DragPreviewResult } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Minimal scale data — covers 2025, week zoom (12px/day)
 // ---------------------------------------------------------------------------
 
-const SCALES = {
-  width: 365 * 12,
+const DAY_MS = 86_400_000;
+const SCALES: GanttScaleData = {
   start: new Date('2025-01-01T00:00:00Z'),
   end: new Date('2026-01-01T00:00:00Z'),
-  diff: (a: Date, b: Date) => Math.round((a.getTime() - b.getTime()) / 86_400_000),
-} as unknown as GanttScaleData;
+  totalWidth: 365 * 12,
+  zoomLevel: 'week',
+  pxPerMs: 12 / DAY_MS,
+};
 
 // Task IDs in render order
 const TASK_IDS = ['t1', 't2', 't3'];
