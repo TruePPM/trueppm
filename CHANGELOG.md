@@ -73,6 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (design rule 45).
 - Rule 39 in `packages/web/CLAUDE.md` corrected: at-risk/critical badge buttons use
   `aria-haspopup="menu"` not `"listbox"` (listbox implies value-selection; these navigate).
+- Gantt task list panel was rendering with a white background against the dark canvas
+  timeline, creating a jarring split. `TaskListPanel`, `TaskListHeader`, and `TaskListRow`
+  now use `gantt-surface` tokens throughout: `bg-gantt-surface` background,
+  `text-gantt-text-primary/secondary` labels, `text-gantt-semantic-critical` for critical
+  path tasks, `bg-white/10` selection highlight, and `bg-gantt-semantic-critical` progress
+  fill. Also fixes a `fontSize:10px` inline style to `text-xs` (design rule 50).
 
 ### Changed
 - Web UI polish: replaced emoji nav icons with inline SVG icon set (`GanttIcon`,
