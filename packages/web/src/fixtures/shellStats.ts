@@ -15,4 +15,5 @@ export const FIXTURE_SHELL_STATS: ShellStats = {
   ],
   onlineUsers: 3,
   lastSaved: new Date(Date.now() - 1000 * 60 * 2).toISOString(), // 2 minutes ago
+  recalculatedAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // 5 minutes ago
 };

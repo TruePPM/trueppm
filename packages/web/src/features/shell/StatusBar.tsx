@@ -1,11 +1,10 @@
 import { useShellStats } from '@/hooks/useShellStats';
 
-function formatLastSaved(iso: string | null): string {
-  if (!iso) return '—';
+function formatRelativeTime(iso: string): string {
   const diff = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
-  if (diff < 60) return 'Last saved: just now';
-  if (diff < 3600) return `Last saved: ${Math.floor(diff / 60)} min ago`;
-  return `Last saved: ${new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
+  return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 }
 
 // Rule 44: four items — Complete · In progress · Critical path · ◆ Milestone
@@ -44,23 +43,40 @@ export function StatusBar() {
             dateTime={stats.lastSaved ?? ''}
             title={stats.lastSaved ? new Date(stats.lastSaved).toLocaleString() : undefined}
           >
-            {formatLastSaved(stats.lastSaved)}
+            Last saved: {stats.lastSaved ? formatRelativeTime(stats.lastSaved) : '—'}
           </time>
+          {/* CPM recalculation time is separate from data-entry save (rule 45) */}
+          {stats.recalculatedAt && (
+            <>
+              <span className="w-px h-3 bg-neutral-border" aria-hidden="true" />
+              <time
+                dateTime={stats.recalculatedAt}
+                title={new Date(stats.recalculatedAt).toLocaleString()}
+              >
+                Recalculated: {formatRelativeTime(stats.recalculatedAt)}
+              </time>
+            </>
+          )}
           {/* P80 chip — mobile only (<md); desktop shows full MC row. Issue #33. */}
           {p80Formatted && (
             <>
               <span className="md:hidden w-px h-3 bg-neutral-border" aria-hidden="true" />
               <span
-                className="md:hidden inline-flex items-center px-1.5 py-0.5 rounded border border-semantic-at-risk/40 text-xs font-medium text-semantic-at-risk bg-transparent"
+                className="md:hidden inline-flex items-center px-1.5 py-0.5 rounded border border-semantic-at-risk/80 text-xs font-medium text-semantic-at-risk bg-transparent"
                 aria-label={`Monte Carlo P80 completion: ${p80Formatted}`}
               >
                 P80: {p80Formatted}
               </span>
             </>
           )}
-          <span className="hidden 2xl:contents">
+          {/* Online users — visible from lg (1024px), rule 45 */}
+          <span className="hidden lg:flex items-center gap-1">
             <span className="w-px h-3 bg-neutral-border" aria-hidden="true" />
-            <span>{stats.onlineUsers} online</span>
+            <span
+              className="w-1.5 h-1.5 bg-semantic-on-track rounded-full"
+              aria-hidden="true"
+            />
+            {stats.onlineUsers} users online
           </span>
         </>
       ) : (

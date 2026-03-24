@@ -32,7 +32,7 @@ export function TopBar({ onHamburgerClick }: Props) {
         onClick={onHamburgerClick}
         aria-label="Open sidebar"
         aria-expanded={!sidebarCollapsed}
-        className="md:hidden flex items-center justify-center w-8 h-8 rounded text-neutral-text-secondary
+        className="md:hidden flex items-center justify-center w-11 h-11 rounded text-neutral-text-secondary
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -50,7 +50,7 @@ export function TopBar({ onHamburgerClick }: Props) {
         {/* P80 badge — desktop only; mobile sees it in StatusBar (issue #33) */}
         {stats?.monteCarlop80 && (
           <span
-            className="hidden md:flex items-center gap-1 px-2 py-0.5 rounded border border-semantic-at-risk/40 bg-transparent text-xs font-medium text-semantic-at-risk"
+            className="hidden md:flex items-center gap-1 px-2 py-0.5 rounded border border-semantic-at-risk/80 bg-transparent text-xs font-medium text-semantic-at-risk"
             aria-label={`Monte Carlo P80 completion: ${stats.monteCarlop80}`}
           >
             P80:{' '}

@@ -118,4 +118,6 @@ export interface ShellStats {
   criticalTasks: ShellStatTask[];
   onlineUsers: number;
   lastSaved: string | null;
+  /** ISO timestamp of most recent CPM engine recalculation; null if never run */
+  recalculatedAt: string | null;
 }

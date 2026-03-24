@@ -33,10 +33,12 @@ export function BadgePopover({ label, count, items, colorVariant, icon, onItemCl
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
+  // /40 opacity yields 1.92:1 and 2.04:1 — fails WCAG 1.4.11 (need ≥3:1).
+  // /80 yields ~4.25:1+ against white, passing 3:1 threshold. (rule 39)
   const colorClasses =
     colorVariant === 'at-risk'
-      ? 'border-semantic-at-risk/40 text-semantic-at-risk'
-      : 'border-semantic-critical/40 text-semantic-critical';
+      ? 'border-semantic-at-risk/80 text-semantic-at-risk'
+      : 'border-semantic-critical/80 text-semantic-critical';
 
   // Outside-click dismiss
   useEffect(() => {
