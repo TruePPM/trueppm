@@ -202,6 +202,13 @@ class Task(VersionedModel):
     free_float = models.IntegerField(null=True, blank=True, help_text="Free float in working days")
     is_critical = models.BooleanField(null=True, blank=True)
 
+    # Explicit milestone flag — set by the PM or preserved from MS Project / P6 import.
+    # Duration=0 is a common convention for milestones but is not the canonical signal:
+    # MS Project carries a separate <Milestone> flag, P6 uses task_type=TT_Mile, and a
+    # PM may mark a 1-day gate meeting as a milestone without zeroing its duration.
+    # The CPM engine operates on duration only and ignores this field.
+    is_milestone = models.BooleanField(default=False)
+
     # Three-point PERT estimates (optional; used by Monte Carlo if present)
     optimistic_duration = models.IntegerField(null=True, blank=True)
     most_likely_duration = models.IntegerField(null=True, blank=True)

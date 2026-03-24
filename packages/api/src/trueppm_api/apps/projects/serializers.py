@@ -76,6 +76,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "total_float",
             "free_float",
             "is_critical",
+            "is_milestone",
             "optimistic_duration",
             "most_likely_duration",
             "pessimistic_duration",
