@@ -14,10 +14,11 @@ from trueppm_api.apps.access.permissions import (
     IsProjectAdmin,
     IsProjectMember,
     IsProjectMemberWrite,
+    IsProjectMemberWriteOrOwn,
     IsProjectOwner,
     IsProjectScheduler,
 )
-from trueppm_api.apps.projects.models import Calendar, Project
+from trueppm_api.apps.projects.models import Calendar, Project, Task
 
 User = get_user_model()
 
@@ -231,3 +232,144 @@ class TestProjectCreateAutoOwner:
         resp = c.get("/api/v1/projects/")
         assert resp.status_code == 200
         assert not any(p["name"] == "Hidden" for p in resp.data["results"])
+
+
+# ---------------------------------------------------------------------------
+# IsProjectMemberWriteOrOwn
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestIsProjectMemberWriteOrOwn:
+    def test_viewer_cannot_write(self, user: object, project: Project) -> None:
+        task = Task.objects.create(project=project, name="T", duration=1)
+        _add_member(user, project, Role.VIEWER)
+        perm = IsProjectMemberWriteOrOwn()
+        req = _make_request(user, method="PATCH")
+        assert perm.has_object_permission(req, MagicMock(), task) is False
+
+    def test_member_can_edit_own_task(self, user: object, project: Project) -> None:
+        task = Task.objects.create(project=project, name="T", duration=1, assignee=user)
+        _add_member(user, project, Role.MEMBER)
+        perm = IsProjectMemberWriteOrOwn()
+        req = _make_request(user, method="PATCH")
+        assert perm.has_object_permission(req, MagicMock(), task) is True
+
+    def test_member_cannot_edit_others_task(
+        self, user: object, other_user: object, project: Project
+    ) -> None:
+        task = Task.objects.create(project=project, name="T", duration=1, assignee=other_user)
+        _add_member(user, project, Role.MEMBER)
+        perm = IsProjectMemberWriteOrOwn()
+        req = _make_request(user, method="PATCH")
+        assert perm.has_object_permission(req, MagicMock(), task) is False
+
+    def test_member_cannot_edit_unassigned_task(self, user: object, project: Project) -> None:
+        task = Task.objects.create(project=project, name="T", duration=1, assignee=None)
+        _add_member(user, project, Role.MEMBER)
+        perm = IsProjectMemberWriteOrOwn()
+        req = _make_request(user, method="PATCH")
+        assert perm.has_object_permission(req, MagicMock(), task) is False
+
+    def test_scheduler_cannot_edit_task_content(self, user: object, project: Project) -> None:
+        """Resource Manager cannot edit task content — read-only for task fields."""
+        task = Task.objects.create(project=project, name="T", duration=1, assignee=user)
+        _add_member(user, project, Role.SCHEDULER)
+        perm = IsProjectMemberWriteOrOwn()
+        req = _make_request(user, method="PATCH")
+        assert perm.has_object_permission(req, MagicMock(), task) is False
+
+    def test_admin_can_edit_any_task(
+        self, user: object, other_user: object, project: Project
+    ) -> None:
+        """Project Manager can edit any task regardless of assignee."""
+        task = Task.objects.create(project=project, name="T", duration=1, assignee=other_user)
+        _add_member(user, project, Role.ADMIN)
+        perm = IsProjectMemberWriteOrOwn()
+        req = _make_request(user, method="PATCH")
+        assert perm.has_object_permission(req, MagicMock(), task) is True
+
+    def test_any_member_can_read(self, user: object, project: Project) -> None:
+        task = Task.objects.create(project=project, name="T", duration=1, assignee=None)
+        _add_member(user, project, Role.VIEWER)
+        perm = IsProjectMemberWriteOrOwn()
+        req = _make_request(user, method="GET")
+        assert perm.has_object_permission(req, MagicMock(), task) is True
+
+
+# ---------------------------------------------------------------------------
+# M1: soft-deleted membership not honored
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestSoftDeletedMembershipExcluded:
+    def test_soft_deleted_membership_denied(self, user: object, project: Project) -> None:
+        """A soft-deleted membership must not grant any access."""
+        m = _add_member(user, project, Role.OWNER)
+        m.soft_delete()
+        perm = IsProjectMember()
+        req = _make_request(user)
+        # has_object_permission queries is_deleted=False — soft-deleted must be excluded.
+        assert perm.has_object_permission(req, MagicMock(), project) is False
+
+
+# ---------------------------------------------------------------------------
+# ProjectViewSet.destroy — Owner only
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestProjectDestroyPermission:
+    def test_non_owner_cannot_delete(
+        self, user: object, project: Project, calendar: Calendar
+    ) -> None:
+        _add_member(user, project, Role.ADMIN)
+        c = APIClient()
+        c.force_authenticate(user=user)
+        resp = c.delete(f"/api/v1/projects/{project.pk}/")
+        assert resp.status_code == 403
+
+    def test_owner_can_delete(self, user: object, project: Project) -> None:
+        _add_member(user, project, Role.OWNER)
+        c = APIClient()
+        c.force_authenticate(user=user)
+        resp = c.delete(f"/api/v1/projects/{project.pk}/")
+        assert resp.status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# H1: non-member cannot create tasks or dependencies
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestH1NonMemberCannotCreate:
+    def test_non_member_cannot_create_task(
+        self, user: object, project: Project, other_user: object
+    ) -> None:
+        """H1: a user with no membership must receive 403 on task create, not 201."""
+        ProjectMembership.objects.create(project=project, user=user, role=Role.OWNER)
+        # other_user has no membership
+        c = APIClient()
+        c.force_authenticate(user=other_user)
+        resp = c.post(
+            "/api/v1/tasks/",
+            {"project": str(project.pk), "name": "Sneaky", "duration": 1},
+        )
+        assert resp.status_code == 403
+
+    def test_non_member_cannot_create_dependency(
+        self, user: object, project: Project, other_user: object
+    ) -> None:
+        """H1: a user with no membership must receive 403 on dependency create."""
+        ProjectMembership.objects.create(project=project, user=user, role=Role.OWNER)
+        t1 = Task.objects.create(project=project, name="A", duration=1)
+        t2 = Task.objects.create(project=project, name="B", duration=1)
+        c = APIClient()
+        c.force_authenticate(user=other_user)
+        resp = c.post(
+            "/api/v1/dependencies/",
+            {"predecessor": str(t1.pk), "successor": str(t2.pk), "dep_type": "FS"},
+        )
+        assert resp.status_code == 403

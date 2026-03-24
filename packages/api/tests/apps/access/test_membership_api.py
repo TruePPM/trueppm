@@ -237,3 +237,45 @@ def test_member_cannot_remove_owner(
 ) -> None:
     resp = member_client.delete(_url(project, owner_membership.pk))
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# role_label field (issue #11 label rename)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_list_includes_role_label(
+    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+) -> None:
+    """role_label must appear in the membership list response with the correct human label."""
+    resp = owner_client.get(_url(project))
+    assert resp.status_code == 200
+    row = next(m for m in resp.data if m["id"] == str(owner_membership.pk))
+    assert row["role_label"] == "Project Admin"
+
+
+@pytest.mark.django_db
+def test_retrieve_includes_role_label(
+    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+) -> None:
+    resp = owner_client.get(_url(project, owner_membership.pk))
+    assert resp.status_code == 200
+    assert resp.data["role_label"] == "Project Admin"
+
+
+# ---------------------------------------------------------------------------
+# M4: partial_update role escalation blocked
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_partial_update_cannot_assign_equal_role(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+) -> None:
+    """Owner (role=4) cannot assign Owner role (>= own role) to another member."""
+    resp = owner_client.patch(_url(project, member_membership.pk), {"role": Role.OWNER})
+    assert resp.status_code == 400

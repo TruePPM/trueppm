@@ -19,6 +19,9 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
     IsProjectMember,
     IsProjectMemberWrite,
+    IsProjectMemberWriteOrOwn,
+    IsProjectOwner,
+    IsProjectScheduler,
     ProjectScopedViewSet,
 )
 from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
@@ -62,9 +65,18 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
 
     Any authenticated user can create a project; on creation the creator is
     automatically assigned the Owner role via perform_create().
+
+    Permission matrix (issue #11):
+      list/retrieve/create/update — any member (IsProjectMember)
+      destroy                     — Project Admin (Owner) only (IsProjectOwner)
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def get_permissions(self) -> list[object]:
+        if self.action == "destroy":
+            return [IsAuthenticated(), IsProjectOwner()]
+        return [IsAuthenticated(), IsProjectMember()]
     queryset = Project.objects.select_related("calendar").order_by("start_date", "name")
     serializer_class = ProjectSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
@@ -115,9 +127,21 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     CPM output fields (early_start, early_finish, late_start, late_finish,
     total_float, free_float, is_critical) are read-only and populated by
     the auto-scheduling Celery task.
+
+    Permission matrix (issue #11):
+      list/retrieve    — any member (IsProjectMember)
+      create           — Team Member+ (IsProjectMemberWrite)
+      update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)
     """
 
     permission_classes = [IsAuthenticated, IsProjectMemberWrite]
+
+    def get_permissions(self) -> list[object]:
+        if self.action in ("update", "partial_update", "destroy"):
+            return [IsAuthenticated(), IsProjectMemberWriteOrOwn()]
+        if self.action == "create":
+            return [IsAuthenticated(), IsProjectMemberWrite()]
+        return [IsAuthenticated(), IsProjectMember()]
     serializer_class = TaskSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
@@ -137,6 +161,12 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     def perform_create(self, serializer: BaseSerializer[Task]) -> None:
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        # H1 fix: DRF does not call has_object_permission on create actions,
+        # so we must enforce project membership explicitly before saving.
+        project = serializer.validated_data.get("project")
+        if project is not None:
+            self.check_object_permissions(self.request, project)
 
         instance = serializer.save()
         project_id = str(instance.project_id)
@@ -172,9 +202,18 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
 
 
 class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency]):
-    """CRUD for task dependencies."""
+    """CRUD for task dependencies.
 
-    permission_classes = [IsAuthenticated, IsProjectMemberWrite]
+    Dependency creation/modification affects CPM scheduling; Resource Manager+
+    (IsProjectScheduler) is required for write operations (issue #11 role matrix).
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectScheduler]
+
+    def get_permissions(self) -> list[object]:
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated(), IsProjectMember()]
+        return [IsAuthenticated(), IsProjectScheduler()]
     serializer_class = DependencySerializer
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["dep_type"]
@@ -195,6 +234,13 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     def perform_create(self, serializer: BaseSerializer[Dependency]) -> None:
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        # H1 fix: DRF does not call has_object_permission on create actions,
+        # so we must verify the predecessor task belongs to a project the caller
+        # is a member of (Resource Manager+) before saving.
+        predecessor = serializer.validated_data.get("predecessor")
+        if predecessor is not None:
+            self.check_object_permissions(self.request, predecessor)
 
         instance = serializer.save()
         project_id = str(instance.predecessor.project_id)

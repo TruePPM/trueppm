@@ -342,3 +342,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   celery-worker services; non-root `trueppm` user in the API Dockerfile.
 - GitLab CI jobs for API lint, API tests (with PostgreSQL + Redis service containers),
   and Helm lint.
+
+### Added
+- `Task.assignee` field (nullable FK to the user model) — Team Members can now be
+  assigned to tasks via `PATCH /api/v1/tasks/{id}/` with `{ "assignee": "<uuid>" }`.
+  The field is included in all task list and retrieve responses.
+- `role_label` field in membership list/retrieve responses (`GET /api/v1/projects/{pk}/members/`)
+  — returns the human-readable role name (e.g. `"Project Manager"`) alongside the integer
+  `role` ordinal. Display-only; not accepted on write.
+
+### Changed
+- Role labels updated to PM-standard terminology (integer ordinals are unchanged — no data
+  migration required): `"Member"` → `"Team Member"`, `"Scheduler"` → `"Resource Manager"`,
+  `"Admin"` → `"Project Manager"`, `"Owner"` → `"Project Admin"`.
+- Task write permissions now enforce the full 5-role model (issue #11): Team Members may
+  only edit tasks where they are the assignee; Resource Managers cannot edit task content
+  (read-only for task fields); Project Managers and above can edit any task.
+- Dependency create/update/delete now requires Resource Manager role or above — previously
+  any Team Member could modify scheduling dependencies.
+
+### Fixed
+- Security: non-member users could create tasks in any project by supplying a known project
+  UUID — `TaskViewSet.perform_create` now calls `check_object_permissions` before saving
+  (DRF does not call it automatically on create actions).
+- Security: non-member users could create dependencies by supplying known task UUIDs —
+  same `check_object_permissions` guard added to `DependencyViewSet.perform_create`.
+- Security: soft-deleted project memberships were incorrectly treated as active in all
+  permission checks — `is_deleted=False` filter is now applied consistently to every
+  `ProjectMembership` query in the RBAC layer.
+- Security: `partial_update` role-change was vulnerable to a TOCTOU race where a
+  concurrent demotion of the actor could allow assigning a role equal to or higher than
+  the actor's effective role at save time — fixed with `SELECT FOR UPDATE` inside
+  `transaction.atomic()`.
