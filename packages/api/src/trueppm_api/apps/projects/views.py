@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import uuid
+from typing import Any
+
 from django.db import transaction
 from django.db.models import QuerySet
-from rest_framework import filters, viewsets
+from django.shortcuts import get_object_or_404
+from rest_framework import filters, status, viewsets
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
@@ -19,6 +26,8 @@ from trueppm_api.apps.projects.serializers import (
     CalendarSerializer,
     DependencySerializer,
     ProjectSerializer,
+    TaskBulkSerializer,
+    TaskReorderSerializer,
     TaskSerializer,
 )
 
@@ -218,3 +227,198 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_deleted", {"id": dep_id})
         )
+
+
+# ---------------------------------------------------------------------------
+# Reorder and Bulk views
+# ---------------------------------------------------------------------------
+
+
+def _build_wbs_path(parent_path: str, position: int) -> str:
+    """Compute a sibling's ltree path given its parent and 1-based position.
+
+    Examples:
+        _build_wbs_path("", 1)       → "1"
+        _build_wbs_path("1.2", 3)    → "1.2.3"
+    """
+    label = str(position)
+    return f"{parent_path}.{label}" if parent_path else label
+
+
+class TaskReorderView(APIView):
+    """Reorder sibling tasks within a WBS level.
+
+    POST /api/v1/projects/{pk}/tasks/reorder/
+
+    Body:
+        {
+            "parent_path": "1.2",          # empty string for root level
+            "ordered_ids": ["<uuid>", ...]  # all live siblings in desired order
+        }
+
+    The server recomputes wbs_path for every sibling (e.g. "1.2.1", "1.2.2",
+    ...) and saves them atomically.  All supplied IDs must be live, non-deleted
+    tasks belonging to this project under the given parent — otherwise 400.
+
+    Returns:
+        200 { "updated": [{ "id": "<uuid>", "wbs_path": "1.2.1" }, ...] }
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMemberWrite]
+
+    def post(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+
+        serializer = TaskReorderSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        parent_path: str = serializer.validated_data["parent_path"]
+        ordered_ids: list[uuid.UUID] = serializer.validated_data["ordered_ids"]
+
+        # Fetch live siblings for this parent, locked for update.
+        siblings_qs = Task.objects.select_for_update().filter(project_id=pk, is_deleted=False)
+        if parent_path:
+            # Exact siblings: their path is "{parent_path}.{single_label}",
+            # i.e. the path starts with the parent prefix and adds exactly one
+            # label segment.  We filter by prefix match then exclude deeper paths.
+            siblings_qs = siblings_qs.filter(wbs_path__startswith=f"{parent_path}.").exclude(
+                # Exclude tasks deeper than one level below parent_path.
+                # A descendant at depth+2 would have at least two dots after
+                # the parent prefix — filter those out.
+                wbs_path__regex=rf"^{parent_path}\.\d+\."
+            )
+        else:
+            # Root-level siblings have no dot in their path.
+            siblings_qs = siblings_qs.filter(wbs_path__regex=r"^\d+$")
+
+        siblings_by_id = {t.pk: t for t in siblings_qs}
+
+        # Validate: every supplied ID must be a live sibling.
+        supplied_ids = {uid: True for uid in ordered_ids}
+        unknown = [str(uid) for uid in ordered_ids if uid not in siblings_by_id]
+        if unknown:
+            return Response(
+                {"ordered_ids": [f"Unknown or invalid task IDs: {', '.join(unknown)}"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate: the supplied list must be complete (no missing siblings).
+        missing = [str(pk_) for pk_ in siblings_by_id if pk_ not in supplied_ids]
+        if missing:
+            return Response(
+                {"ordered_ids": [f"Missing siblings from ordered_ids: {', '.join(missing)}"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        updated: list[dict[str, Any]] = []
+
+        with transaction.atomic():
+            for position, task_id in enumerate(ordered_ids, start=1):
+                task = siblings_by_id[task_id]
+                new_path = _build_wbs_path(parent_path, position)
+                if task.wbs_path != new_path:
+                    task.wbs_path = new_path
+                    task.save(update_fields=["wbs_path"])
+                updated.append({"id": str(task_id), "wbs_path": new_path})
+
+            project_id = str(project.pk)
+            transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+            transaction.on_commit(lambda: broadcast_board_event(project_id, "tasks_reordered", {}))
+
+        return Response({"updated": updated}, status=status.HTTP_200_OK)
+
+
+class TaskBulkView(APIView):
+    """Atomically create, update, and delete tasks in a single request.
+
+    POST /api/v1/projects/{pk}/tasks/bulk/
+
+    Body:
+        {
+            "operations": [
+                { "op": "create", "data": { "name": "Sprint 1", "duration": 5, ... } },
+                { "op": "update", "id": "<uuid>", "data": { "percent_complete": 0.5 } },
+                { "op": "delete", "id": "<uuid>" }
+            ]
+        }
+
+    All operations execute inside a single transaction.atomic() block.
+    The scheduling engine is triggered once after commit regardless of how
+    many tasks were mutated.
+
+    Returns:
+        200 {
+            "created": [{ "id": "<uuid>", ...task fields... }, ...],
+            "updated": [{ "id": "<uuid>", ...task fields... }, ...],
+            "deleted": ["<uuid>", ...]
+        }
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMemberWrite]
+
+    def post(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+
+        serializer = TaskBulkSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        operations: list[dict[str, Any]] = serializer.validated_data["operations"]
+
+        # Collect update/delete IDs up front so we can lock the rows in one
+        # select_for_update() call — avoids repeated individual lookups.
+        mutated_ids = [op["id"] for op in operations if op["op"] in ("update", "delete")]
+        locked_tasks: dict[uuid.UUID, Task] = {}
+        if mutated_ids:
+            qs = Task.objects.select_for_update().filter(
+                pk__in=mutated_ids, project_id=pk, is_deleted=False
+            )
+            locked_tasks = {t.pk: t for t in qs}
+
+            # Validate all referenced tasks exist and belong to this project.
+            missing = [str(uid) for uid in mutated_ids if uid not in locked_tasks]
+            if missing:
+                return Response(
+                    {"operations": [f"Task(s) not found in project: {', '.join(missing)}"]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        result: dict[str, Any] = {"created": [], "updated": [], "deleted": []}
+
+        with transaction.atomic():
+            for op in operations:
+                op_type: str = op["op"]
+                data: dict[str, Any] = op.get("data", {})
+
+                if op_type == "create":
+                    task_serializer = TaskSerializer(data={**data, "project": str(project.pk)})
+                    task_serializer.is_valid(raise_exception=True)
+                    task = task_serializer.save()
+                    result["created"].append(TaskSerializer(task).data)
+
+                elif op_type == "update":
+                    task = locked_tasks[op["id"]]
+                    task_serializer = TaskSerializer(task, data=data, partial=True)
+                    task_serializer.is_valid(raise_exception=True)
+                    task = task_serializer.save()
+                    result["updated"].append(TaskSerializer(task).data)
+
+                elif op_type == "delete":
+                    task = locked_tasks[op["id"]]
+                    task.soft_delete()
+                    result["deleted"].append(str(op["id"]))
+
+            project_id = str(project.pk)
+            transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "tasks_bulk_mutated", {})
+            )
+
+        return Response(result, status=status.HTTP_200_OK)

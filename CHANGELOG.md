@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and any other management commands.
 
 ### Added
+- REST endpoint `POST /api/v1/projects/{pk}/tasks/reorder/` — atomically reorders
+  sibling tasks within a WBS level; accepts `parent_path` + `ordered_ids`, recomputes
+  `wbs_path` server-side, and returns updated paths so clients can invalidate caches
+  without a full refetch. Triggers CPM recalculation and real-time broadcast on commit.
+- REST endpoint `POST /api/v1/projects/{pk}/tasks/bulk/` — atomically creates, updates,
+  and deletes tasks in a single request; returns `{ created, updated, deleted }` lists.
+  Uses `SELECT FOR UPDATE` row-locking to prevent concurrent soft-delete races. Triggers
+  CPM recalculation once after all operations commit.
 - UI harmonization sprint (issue #44): sidebar, toolbar, and Gantt panel now share a
   consistent dark surface (`#0F1117`). Changes include:
   - Sidebar background migrated from brand-green to the same dark token as the Gantt
