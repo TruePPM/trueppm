@@ -98,20 +98,18 @@ def test_schedule_lock_collision_requeues(project: Project) -> None:
     # SET NX returns None (falsy) when lock is already held.
     mock_redis.set.return_value = None
 
+    from trueppm_api.apps.scheduling import tasks as sched_module
+
     with (
         patch("trueppm_api.apps.scheduling.tasks.redis_lib") as mock_redis_module,
         patch.object(recalculate_schedule, "apply_async") as mock_apply,
     ):
         mock_redis_module.from_url.return_value = mock_redis
 
-        # Call the task directly (bypass Celery worker).
-        self_mock = MagicMock()
-        self_mock.apply_async = mock_apply
-
-        # Import the underlying function to call it with the mocked self.
-        from trueppm_api.apps.scheduling import tasks as sched_module
-
-        sched_module.recalculate_schedule.__wrapped__(self_mock, str(project.pk))  # type: ignore[attr-defined]
+        # Call the task's run() method directly so self=recalculate_schedule
+        # (the Celery task instance), which is what bind=True provides at runtime.
+        # patch.object above intercepts self.apply_async inside the function body.
+        recalculate_schedule.run(str(project.pk))
 
         mock_apply.assert_called_once_with(
             args=[str(project.pk)],

@@ -100,7 +100,7 @@ async def test_connect_invalid_token_rejected(project: Project) -> None:
     close_mock.assert_called_once_with(code=4001)
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_connect_viewer_rejected(user: object, project: Project) -> None:
     """A Viewer (role=0) cannot connect to the WebSocket."""
@@ -153,7 +153,7 @@ async def test_connect_non_member_rejected(user: object, project: Project) -> No
     close_mock.assert_called_once_with(code=4003)
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_connect_member_accepted(user: object, project: Project) -> None:
     """A Member (role=1) can connect and is added to the project group."""
