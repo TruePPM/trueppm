@@ -1,21 +1,20 @@
 import { useState, useCallback } from 'react';
 
-const STORAGE_KEY = 'trueppm.gantt.columnWidths.v1';
+// v2: merged duration+start into durStart per rule 43
+const STORAGE_KEY = 'trueppm.gantt.columnWidths.v2';
 
 export const MIN_COL_WIDTHS = {
   task: 120,
-  duration: 48,
-  start: 60,
-  progress: 48,
+  durStart: 80,
+  progress: 40,
 } as const;
 
 export type ColumnKey = keyof typeof MIN_COL_WIDTHS;
 
 const DEFAULTS: Record<ColumnKey, number> = {
   task: 180,
-  duration: 60,
-  start: 72,
-  progress: 52,
+  durStart: 100,
+  progress: 48,
 };
 
 function load(): Record<ColumnKey, number> {
@@ -58,8 +57,7 @@ export function useColumnWidths(): ColumnWidths {
     });
   }, []);
 
-  const totalWidth =
-    widths.task + widths.duration + widths.start + widths.progress;
+  const totalWidth = widths.task + widths.durStart + widths.progress;
 
   return { widths, setWidth, totalWidth };
 }

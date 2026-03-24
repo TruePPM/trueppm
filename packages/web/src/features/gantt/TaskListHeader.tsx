@@ -56,7 +56,7 @@ export function TaskListHeader({ widths, setWidth }: Props) {
       role="row"
       aria-label="Task list columns"
     >
-      {/* Task column — flex-1 is replaced by explicit width so resize is consistent */}
+      {/* Task column */}
       <span
         className="relative truncate shrink-0"
         style={{ width: widths.task }}
@@ -66,24 +66,15 @@ export function TaskListHeader({ widths, setWidth }: Props) {
         <ResizeHandle colKey="task" setWidth={setWidth} currentWidth={widths.task} />
       </span>
 
+      {/* Combined duration · start column (rule 43) */}
       <span
         className="relative text-right shrink-0"
-        style={{ width: widths.duration }}
+        style={{ width: widths.durStart }}
         role="columnheader"
-        aria-label="Duration"
+        aria-label="Duration and start date"
       >
-        Dur
-        <ResizeHandle colKey="duration" setWidth={setWidth} currentWidth={widths.duration} />
-      </span>
-
-      <span
-        className="relative text-right shrink-0"
-        style={{ width: widths.start }}
-        role="columnheader"
-        aria-label="Start date"
-      >
-        Start
-        <ResizeHandle colKey="start" setWidth={setWidth} currentWidth={widths.start} />
+        Dur · Start
+        <ResizeHandle colKey="durStart" setWidth={setWidth} currentWidth={widths.durStart} />
       </span>
 
       <span
