@@ -2,21 +2,19 @@ import { render, screen, act } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PreviewOverlay } from './PreviewOverlay';
 import { useDragStore } from '@/stores/dragStore';
-import type { GanttScaleData } from '@/features/gantt/engine';
+import type { GanttScaleData } from '@svar-ui/gantt-store/dist/types/types';
 import type { DragPreviewResult } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Minimal scale data — covers 2025, week zoom (12px/day)
 // ---------------------------------------------------------------------------
 
-const DAY_MS = 86_400_000;
-const SCALES: GanttScaleData = {
+const SCALES = {
+  width: 365 * 12,
   start: new Date('2025-01-01T00:00:00Z'),
   end: new Date('2026-01-01T00:00:00Z'),
-  totalWidth: 365 * 12,
-  zoomLevel: 'week',
-  pxPerMs: 12 / DAY_MS,
-};
+  diff: (a: Date, b: Date) => Math.round((a.getTime() - b.getTime()) / 86_400_000),
+} as unknown as GanttScaleData;
 
 // Task IDs in render order
 const TASK_IDS = ['t1', 't2', 't3'];
@@ -146,7 +144,7 @@ describe('PreviewOverlay', () => {
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().updatePreview([CRITICAL_RESULT], null, 0);
       render(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
-      act(() => vi.advanceTimersByTime(400));
+      void act(() => vi.advanceTimersByTime(400));
       expect(screen.getByText('CP')).toBeInTheDocument();
     });
 
@@ -155,7 +153,7 @@ describe('PreviewOverlay', () => {
       useDragStore.getState().startDrag('t1');
       useDragStore.getState().updatePreview([CRITICAL_RESULT], null, 0);
       render(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
-      act(() => vi.advanceTimersByTime(399));
+      void act(() => vi.advanceTimersByTime(399));
       expect(screen.queryByText('CP')).toBeNull();
     });
 
@@ -166,10 +164,10 @@ describe('PreviewOverlay', () => {
       const { rerender } = render(
         <PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />,
       );
-      act(() => vi.advanceTimersByTime(400));
+      void act(() => vi.advanceTimersByTime(400));
       expect(screen.getByText('CP')).toBeInTheDocument();
 
-      act(() => useDragStore.getState().cancelDrag());
+      void act(() => useDragStore.getState().cancelDrag());
       rerender(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
       // Phase is idle → overlay not rendered → CP gone
       expect(screen.queryByText('CP')).toBeNull();
