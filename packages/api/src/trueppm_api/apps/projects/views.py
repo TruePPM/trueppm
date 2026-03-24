@@ -9,7 +9,7 @@ from django.db import transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import filters, status, viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -73,7 +73,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
 
     permission_classes = [IsAuthenticated, IsProjectMember]
 
-    def get_permissions(self) -> list[object]:
+    def get_permissions(self) -> list[BasePermission]:
         if self.action == "destroy":
             return [IsAuthenticated(), IsProjectOwner()]
         return [IsAuthenticated(), IsProjectMember()]
@@ -137,7 +137,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
 
     permission_classes = [IsAuthenticated, IsProjectMemberWrite]
 
-    def get_permissions(self) -> list[object]:
+    def get_permissions(self) -> list[BasePermission]:
         if self.action in ("update", "partial_update", "destroy"):
             return [IsAuthenticated(), IsProjectMemberWriteOrOwn()]
         if self.action == "create":
@@ -212,7 +212,7 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
 
     permission_classes = [IsAuthenticated, IsProjectScheduler]
 
-    def get_permissions(self) -> list[object]:
+    def get_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), IsProjectMember()]
         return [IsAuthenticated(), IsProjectScheduler()]

@@ -160,7 +160,9 @@ class ProjectMembershipViewSet(viewsets.GenericViewSet[ProjectMembership]):
         with transaction.atomic():
             try:
                 actor_membership = ProjectMembership.objects.select_for_update().get(
-                    project=project, user=request.user, is_deleted=False
+                    project=project,
+                    user=request.user,
+                    is_deleted=False,  # type: ignore[misc]
                 )
             except ProjectMembership.DoesNotExist:
                 from rest_framework.exceptions import PermissionDenied

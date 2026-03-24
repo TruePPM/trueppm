@@ -60,7 +60,7 @@ def _membership_role(request: Request, project_id: Any) -> int | None:
         return None
 
     # Per-request cache: initialise lazily on the DRF request object.
-    cache: dict[str, int | None] = getattr(request, "_rbac_role_cache", None)
+    cache: dict[str, int | None] | None = getattr(request, "_rbac_role_cache", None)
     if cache is None:
         cache = {}
         request._rbac_role_cache = cache  # type: ignore[attr-defined]
