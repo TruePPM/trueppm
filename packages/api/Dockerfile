@@ -42,4 +42,4 @@ USER trueppm
 
 EXPOSE 8000
 
-ENTRYPOINT ["uvicorn", "trueppm_api.asgi:application", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "trueppm_api.asgi:application", "--host", "0.0.0.0", "--port", "8000"]
