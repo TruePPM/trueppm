@@ -15,6 +15,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and any other management commands.
 
 ### Added
+- UI harmonization sprint (issue #44): sidebar, toolbar, and Gantt panel now share a
+  consistent dark surface (`#0F1117`). Changes include:
+  - Sidebar background migrated from brand-green to the same dark token as the Gantt
+    task-list panel; project health labels now use dark-surface semantic color variants
+    that meet WCAG 1.4.3 (previously 1.02–1.09:1 contrast — invisible).
+  - Sidebar active project row gains a 2px left border as a non-color selection indicator
+    (WCAG 1.4.1). "PROJECTS" section header added (rule 36).
+  - Gantt toolbar gains a `[Gantt · WBS · List]` view-mode switcher. WBS and List are
+    disabled placeholders until those panels ship in a follow-up branch.
+  - `ShellStats.recalculatedAt` field: StatusBar now displays a separate
+    "Recalculated: N min ago" indicator for the CPM engine, distinct from "Last saved"
+    (the data-entry save timestamp).
+- `gantt.*` Tailwind token group in `tailwind.config.ts` — `gantt-surface`,
+  `gantt-text-primary/secondary`, and `gantt-semantic-critical/at-risk/on-track` now
+  emit real CSS. All prior references were silent no-ops.
+
+### Fixed
+- Badge borders (`at-risk`, `critical`) in TopBar and StatusBar were at 40% opacity
+  (1.92–2.04:1 contrast), failing WCAG 1.4.11. Raised to 80% opacity (~4.25:1+).
+- Hamburger menu touch target increased from 32×32px to 44×44px (WCAG 2.5.5).
+- StatusBar online-user count was gated behind the `2xl` (1440px) breakpoint; changed
+  to `lg` (1024px) per design spec.
+- Gantt task-list column layout: separate Duration and Start columns merged into a single
+  "Dur · Start" column (`{n}d · {MMM D}`, 100px). Mini progress bar removed from the `%`
+  column — text percentage only.
 - Two runnable Jupyter notebooks for `trueppm-scheduler` (issue #38):
   `01-cpm-quickstart.ipynb` covers project definition, CPM run, float table,
   custom calendar with holiday, SS dependency with lag, cycle detection, and
