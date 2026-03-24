@@ -335,9 +335,7 @@ class TestTaskBulkView:
         membership: ProjectMembership,
     ) -> None:
         payload = {
-            "operations": [
-                {"op": "update", "id": str(uuid.uuid4()), "data": {"duration": 5}}
-            ]
+            "operations": [{"op": "update", "id": str(uuid.uuid4()), "data": {"duration": 5}}]
         }
         r = client.post(self.url(project), payload, format="json")
         assert r.status_code == 400
@@ -395,9 +393,7 @@ class TestTaskBulkView:
 
     def test_wrong_project_id_returns_404(self, client: APIClient) -> None:
         url = self.URL.format(pk=uuid.uuid4())
-        payload = {
-            "operations": [{"op": "create", "data": {"name": "X", "duration": 1}}]
-        }
+        payload = {"operations": [{"op": "create", "data": {"name": "X", "duration": 1}}]}
         r = client.post(url, payload, format="json")
         assert r.status_code == 404
 

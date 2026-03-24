@@ -280,16 +280,12 @@ class TaskReorderView(APIView):
         ordered_ids: list[uuid.UUID] = serializer.validated_data["ordered_ids"]
 
         # Fetch live siblings for this parent, locked for update.
-        siblings_qs = Task.objects.select_for_update().filter(
-            project_id=pk, is_deleted=False
-        )
+        siblings_qs = Task.objects.select_for_update().filter(project_id=pk, is_deleted=False)
         if parent_path:
             # Exact siblings: their path is "{parent_path}.{single_label}",
             # i.e. the path starts with the parent prefix and adds exactly one
             # label segment.  We filter by prefix match then exclude deeper paths.
-            siblings_qs = siblings_qs.filter(
-                wbs_path__startswith=f"{parent_path}."
-            ).exclude(
+            siblings_qs = siblings_qs.filter(wbs_path__startswith=f"{parent_path}.").exclude(
                 # Exclude tasks deeper than one level below parent_path.
                 # A descendant at depth+2 would have at least two dots after
                 # the parent prefix — filter those out.
@@ -331,9 +327,7 @@ class TaskReorderView(APIView):
 
             project_id = str(project.pk)
             transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
-            transaction.on_commit(
-                lambda: broadcast_board_event(project_id, "tasks_reordered", {})
-            )
+            transaction.on_commit(lambda: broadcast_board_event(project_id, "tasks_reordered", {}))
 
         return Response({"updated": updated}, status=status.HTTP_200_OK)
 
@@ -380,9 +374,7 @@ class TaskBulkView(APIView):
 
         # Collect update/delete IDs up front so we can lock the rows in one
         # select_for_update() call — avoids repeated individual lookups.
-        mutated_ids = [
-            op["id"] for op in operations if op["op"] in ("update", "delete")
-        ]
+        mutated_ids = [op["id"] for op in operations if op["op"] in ("update", "delete")]
         locked_tasks: dict[uuid.UUID, Task] = {}
         if mutated_ids:
             qs = Task.objects.select_for_update().filter(
@@ -406,9 +398,7 @@ class TaskBulkView(APIView):
                 data: dict[str, Any] = op.get("data", {})
 
                 if op_type == "create":
-                    task_serializer = TaskSerializer(
-                        data={**data, "project": str(project.pk)}
-                    )
+                    task_serializer = TaskSerializer(data={**data, "project": str(project.pk)})
                     task_serializer.is_valid(raise_exception=True)
                     task = task_serializer.save()
                     result["created"].append(TaskSerializer(task).data)

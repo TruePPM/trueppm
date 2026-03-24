@@ -131,9 +131,7 @@ class TaskBulkItemSerializer(serializers.Serializer[Any]):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         op = attrs["op"]
         if op in ("update", "delete") and not attrs.get("id"):
-            raise serializers.ValidationError(
-                {"id": f"'id' is required for op='{op}'."}
-            )
+            raise serializers.ValidationError({"id": f"'id' is required for op='{op}'."})
         return attrs
 
 
@@ -150,9 +148,7 @@ class TaskBulkSerializer(serializers.Serializer[Any]):
         min_length=1,
     )
 
-    def validate_operations(
-        self, ops: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def validate_operations(self, ops: list[dict[str, Any]]) -> list[dict[str, Any]]:
         # Catch duplicate IDs within a single bulk request — the ordering of
         # concurrent updates to the same row is undefined so we reject it early.
         ids_seen: set[uuid.UUID] = set()
@@ -160,9 +156,7 @@ class TaskBulkSerializer(serializers.Serializer[Any]):
             task_id = op.get("id")
             if task_id is not None:
                 if task_id in ids_seen:
-                    raise serializers.ValidationError(
-                        f"Duplicate id {task_id} in operations list."
-                    )
+                    raise serializers.ValidationError(f"Duplicate id {task_id} in operations list.")
                 ids_seen.add(task_id)
         return ops
 
