@@ -5,7 +5,7 @@ export type HealthState = 'on-track' | 'at-risk' | 'critical' | 'unknown';
 
 export type BarType = 'normal' | 'critical' | 'complete' | 'summary' | 'milestone' | 'baseline';
 export type LinkType = 'FS' | 'SS' | 'FF' | 'SF';
-export type ZoomLevel = 'day' | 'week' | 'month' | 'quarter';
+export type ZoomLevel = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
 export interface Task {
   id: string;

@@ -1,7 +1,7 @@
 /**
  * Orchestrates the Gantt drag CPM preview (issue #19).
  *
- * - Intercepts SVAR drag-start, drag-move, drag-end, and drag-cancel events.
+ * - Subscribes to GanttEngine drag-task, drag-task-move, and drag-task-end events.
  * - Spawns a Web Worker for incremental CPM forward passes.
  * - Writes results into the Zustand drag store.
  * - Commits the drop via PATCH on release (with offline guard per rule 29).
@@ -9,19 +9,24 @@
  *
  * Returns nothing — all side-effects go through the drag store and the
  * aria-live ref passed in by GanttView.
+ *
+ * Design rules enforced:
+ * - Rule 55: engine.on() always returns an unsubscribe; called in cleanup
+ * - Rule 56: uses engine coordinate system (leftToDate) not SVAR utils
+ * - Rule 57: drag event `left` is canvas-origin; no viewport offset needed
  */
 
 import { useEffect, useRef, type RefObject } from 'react';
-import type { IApi } from '@svar-ui/gantt-store';
+import type { GanttEngine } from '@/features/gantt/engine';
+import { leftToDate } from '@/features/gantt/engine';
 import type { Task, TaskLink } from '@/types';
 import type { RecalcMessage, ResultMessage } from '@/workers/cpmWorker.types';
 import { useDragStore } from '@/stores/dragStore';
 import { buildSubgraph } from '@/features/gantt/buildSubgraph';
-import { dateFromCanvasLeft } from '@/features/gantt/ganttUtils';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 
 interface UseDragCpmOptions {
-  ganttApi: IApi | null;
+  engine: GanttEngine | null;
   tasks: Task[];
   links: TaskLink[];
   /** DOM ref to the aria-live region — written directly to avoid re-render storms (rule 30). */
@@ -35,7 +40,7 @@ interface UseDragCpmOptions {
 }
 
 export function useDragCpm({
-  ganttApi,
+  engine,
   tasks,
   links,
   ariaLiveRef,
@@ -50,15 +55,15 @@ export function useDragCpm({
   const cancelDrag = useDragStore((s) => s.cancelDrag);
   const setError = useDragStore((s) => s.setError);
 
-  // Stable refs to avoid stale closures in SVAR intercept callbacks
+  // Stable refs to avoid stale closures in engine event callbacks
   const tasksRef = useRef(tasks);
   const linksRef = useRef(links);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
   useEffect(() => { linksRef.current = links; }, [links]);
 
-  // Spawn/terminate worker with the ganttApi lifecycle
+  // Spawn/terminate worker with the engine lifecycle
   useEffect(() => {
-    if (!ganttApi) return;
+    if (!engine) return;
 
     const worker = createCpmWorker();
     workerRef.current = worker;
@@ -66,7 +71,7 @@ export function useDragCpm({
     worker.onmessage = (event: MessageEvent<ResultMessage>) => {
       const msg = event.data;
       if (msg.type !== 'RESULT') return;
-      // Discard stale results (rule 30 — seq guard)
+      // Discard stale results (seq guard)
       if (msg.seq < seqRef.current) return;
 
       updatePreview(msg.results, msg.worstMilestone, msg.overflowCount);
@@ -85,82 +90,70 @@ export function useDragCpm({
       worker.terminate();
       workerRef.current = null;
     };
-  }, [ganttApi, updatePreview, ariaLiveRef]);
+  }, [engine, updatePreview, ariaLiveRef]);
 
-  // Wire SVAR intercepts
+  // Wire engine events (rule 55: always unsubscribe)
   useEffect(() => {
-    if (!ganttApi) return;
+    if (!engine) return;
 
     // drag-start: record dragged task, initialise state
-    // Note: SVAR's intercept() returns void — no unsubscribe mechanism is exposed.
-    ganttApi.intercept('drag-task', (ev: { id: string | number }) => {
-      const taskId = String(ev.id);
-      startDrag(taskId);
+    const offDragTask = engine.on('drag-task', (ev) => {
+      startDrag(ev.id);
       seqRef.current = 0;
     });
 
-    // drag-move: send RECALC to worker
-    ganttApi.intercept(
-      'drag-task-move',
-      (ev: { id: string | number; left: number }) => {
-        const worker = workerRef.current;
-        const api = ganttApi;
-        if (!worker) return;
+    // drag-move: send RECALC to worker (rule 56/57: use engine.scales + leftToDate)
+    const offDragMove = engine.on('drag-task-move', (ev) => {
+      const worker = workerRef.current;
+      if (!worker) return;
 
-        const taskId = String(ev.id);
-        const scaleData = api.getState()._scales;
-        if (!scaleData) return;
+      const scaleData = engine.scales;
+      if (!scaleData) return;
 
-        const newStartDate = dateFromCanvasLeft(ev.left, scaleData);
-        const newStartIso = newStartDate.toISOString().slice(0, 10);
+      // ev.left is canvas-origin (rule 57) — convert directly to date
+      const newStartDate = leftToDate(ev.left, scaleData);
+      const newStartIso = newStartDate.toISOString().slice(0, 10);
 
-        const subgraph = buildSubgraph(taskId, tasksRef.current, linksRef.current);
-        const seq = ++seqRef.current;
+      const subgraph = buildSubgraph(ev.id, tasksRef.current, linksRef.current);
+      const seq = ++seqRef.current;
 
-        const msg: RecalcMessage = {
-          type: 'RECALC',
-          seq,
-          draggedTaskId: taskId,
-          newStartIso,
-          subgraph,
-        };
-        worker.postMessage(msg);
-      },
-    );
+      const msg: RecalcMessage = {
+        type: 'RECALC',
+        seq,
+        draggedTaskId: ev.id,
+        newStartIso,
+        subgraph,
+      };
+      worker.postMessage(msg);
+    });
 
     // drag-end: commit or cancel
-    ganttApi.intercept(
-      'drag-task-end',
-      (ev: { id: string | number; left: number; cancelled?: boolean }) => {
-        if (ev.cancelled) {
-          cancelDrag();
-          if (ariaLiveRef.current) ariaLiveRef.current.textContent = 'Drag cancelled';
-          return;
-        }
+    const offDragEnd = engine.on('drag-task-end', (ev) => {
+      if (ev.cancelled) {
+        cancelDrag();
+        if (ariaLiveRef.current) ariaLiveRef.current.textContent = 'Drag cancelled';
+        return;
+      }
 
-        // Offline guard (rule 29)
-        if (!navigator.onLine) {
-          cancelDrag();
-          // Toast is handled at the GanttView level via store phase subscription
-          setError();
-          return;
-        }
+      // Offline guard (rule 29)
+      if (!navigator.onLine) {
+        cancelDrag();
+        setError();
+        return;
+      }
 
-        commitDrag();
-        // The actual PATCH is dispatched by GanttView watching phase === 'committing'
-      },
-    );
+      commitDrag();
+    });
 
     // Escape key to cancel (rule 28).
-    // Yields to useKeyboardReschedule when keyboard mode is active (issue #34)
-    // so the same Escape does not double-cancel.
+    // Yields to useKeyboardReschedule when keyboard mode is active (issue #34).
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (keyboardModeRef?.current) return;
         const phase = useDragStore.getState().phase;
         if (phase === 'dragging') {
           cancelDrag();
-          void ganttApi.exec?.('drag-task-cancel', {});
+          engine.cancelDrag();
           if (ariaLiveRef.current) ariaLiveRef.current.textContent = 'Drag cancelled';
         }
       }
@@ -168,7 +161,10 @@ export function useDragCpm({
     document.addEventListener('keydown', handleKeyDown);
 
     return () => {
+      offDragTask();
+      offDragMove();
+      offDragEnd();
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [ganttApi, startDrag, updatePreview, commitDrag, cancelDrag, setError, ariaLiveRef, keyboardModeRef]);
+  }, [engine, startDrag, updatePreview, commitDrag, cancelDrag, setError, ariaLiveRef, keyboardModeRef]);
 }

@@ -1,8 +1,8 @@
 import { useState, useRef, useCallback, type KeyboardEvent, type MouseEvent } from 'react';
-import type { GanttScaleData } from '@svar-ui/gantt-store/dist/types/types';
+import type { GanttScaleData } from './engine';
 import type { MonteCarloResult } from '@/types';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
-import { dateToLeft } from './ganttUtils';
+import { dateToLeft } from './engine';
 
 // Bar render order: P95 first (bottom), P80, P50 on top.
 // This ensures the shorter, solid P50 bar is always fully visible.
@@ -161,11 +161,12 @@ export function MonteCarloTimeline({ result, scrollLeft, scales }: Props) {
     [isOpen, closeTooltip, showAtCenter],
   );
 
-  // Bars start at the timeline canvas origin (project start ≈ scales.start)
+  // Bars start at the timeline canvas origin (project start ≈ scales.start).
+  // dateToLeft returns canvas-origin coords (rule 57); subtract scrollLeft to get viewport-relative.
   const originLeft = scales ? -scrollLeft : null;
-  const p50Left = scales ? dateToLeft(result.p50, scales, scrollLeft) : null;
-  const p80Left = scales ? dateToLeft(result.p80, scales, scrollLeft) : null;
-  const p95Left = scales ? dateToLeft(result.p95, scales, scrollLeft) : null;
+  const p50Left = scales ? dateToLeft(result.p50, scales) - scrollLeft : null;
+  const p80Left = scales ? dateToLeft(result.p80, scales) - scrollLeft : null;
+  const p95Left = scales ? dateToLeft(result.p95, scales) - scrollLeft : null;
   const barsReady =
     originLeft !== null && p50Left !== null && p80Left !== null && p95Left !== null;
   // Narrowed values, safe to use after barsReady guard

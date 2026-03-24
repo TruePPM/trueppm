@@ -3,21 +3,21 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { MonteCarloTimeline } from './MonteCarloTimeline';
 import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
-import type { GanttScaleData } from '@svar-ui/gantt-store/dist/types/types';
+import type { GanttScaleData } from '@/features/gantt/engine';
 
 /**
- * Minimal GanttScaleData stub that satisfies the date → pixel maths inside
- * MonteCarloTimeline.dateToLeft(). Using calendar-day units so the expected
- * left values are easy to reason about.
+ * Minimal GanttScaleData stub satisfying the engine's coordinate system.
+ * pxPerMs = pxPerDay / 86_400_000; scale covers 2026-01-01 to 2027-01-01.
  */
+const DAY_MS = 86_400_000;
+const PX_PER_DAY = 2.73972602739726; // 1000px / 365 days
 const MOCK_SCALES: GanttScaleData = {
-  width: 1000,
-  start: new Date('2026-01-01'),
-  end: new Date('2027-01-01'),
-  // Return the difference in whole calendar days
-  diff: (a: Date, b: Date) =>
-    Math.round((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24)),
-} as unknown as GanttScaleData;
+  start: new Date('2026-01-01T00:00:00Z'),
+  end: new Date('2027-01-01T00:00:00Z'),
+  totalWidth: 1000,
+  zoomLevel: 'month',
+  pxPerMs: PX_PER_DAY / DAY_MS,
+};
 
 describe('MonteCarloTimeline', () => {
   it('renders the interactive button element', () => {

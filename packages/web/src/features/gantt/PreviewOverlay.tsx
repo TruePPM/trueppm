@@ -17,10 +17,10 @@
  */
 
 import { useMemo, useEffect, useRef, useState } from 'react';
-import type { GanttScaleData } from '@svar-ui/gantt-store/dist/types/types';
+import type { GanttScaleData } from '@/features/gantt/engine';
 import type { DragPreviewResult } from '@/types';
 import { useDragStore } from '@/stores/dragStore';
-import { dateToLeft } from '@/features/gantt/ganttUtils';
+import { dateToLeft } from '@/features/gantt/engine';
 
 // Design tokens (defined in tailwind.config.ts — applied via style prop per rule 10)
 const GHOST_FILL = 'rgba(100, 116, 139, 0.12)';
@@ -42,8 +42,9 @@ interface PreviewBarProps {
 }
 
 function PreviewBar({ result, scales, scrollLeft, rowIndex, showCpBadge }: PreviewBarProps) {
-  const left = dateToLeft(result.earlyStart, scales, scrollLeft);
-  const right = dateToLeft(result.earlyFinish, scales, scrollLeft);
+  // dateToLeft returns canvas-origin coords (rule 57); subtract scrollLeft for viewport-relative
+  const left = dateToLeft(result.earlyStart, scales) - scrollLeft;
+  const right = dateToLeft(result.earlyFinish, scales) - scrollLeft;
   const width = Math.max(2, right - left);
   const top = rowIndex * ROW_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2;
 
@@ -89,8 +90,9 @@ interface OriginBarProps {
  * Shown only during keyboard reschedule so the user has a visual anchor.
  */
 function OriginBar({ originStart, originFinish, scales, scrollLeft, rowIndex }: OriginBarProps) {
-  const left = dateToLeft(originStart, scales, scrollLeft);
-  const right = dateToLeft(originFinish, scales, scrollLeft);
+  // dateToLeft returns canvas-origin coords (rule 57); subtract scrollLeft for viewport-relative
+  const left = dateToLeft(originStart, scales) - scrollLeft;
+  const right = dateToLeft(originFinish, scales) - scrollLeft;
   const width = Math.max(2, right - left);
   const top = rowIndex * ROW_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2;
 
