@@ -122,3 +122,150 @@ These rules are enforced at review time. Violations block merge.
     mode-entry announces the task name and key legend. The existing polite region
     (`ariaLiveRef`) continues to handle milestone slip messages. Never merge assertive and
     polite into one region — the polite queue delay makes nudge feedback unintelligible.
+
+## Canvas Renderer Rules (feat/gantt-canvas-renderer)
+
+> These rules govern the purpose-built canvas Gantt renderer that replaces
+> @svar-ui/react-gantt. SVAR-specific rules (16, 15's "scroll sync with SVAR",
+> 27's "route through SVAR") are superseded by the rules below for any code
+> inside `src/features/gantt/engine/` or that imports from it.
+
+### Architecture
+
+54. **`GanttEngine` is the sole integration boundary** — `GanttView`, `useDragCpm`,
+    `useKeyboardReschedule`, `PreviewOverlay`, and `MonteCarloTimeline` hold a
+    `GanttEngine | null` reference and nothing else. No component may import from
+    `GanttEngineImpl` or any engine sub-module directly — only through
+    `src/features/gantt/engine/index.ts`. Violations break the stable API contract.
+
+55. **`GanttEngine.on()` always returns an unsubscribe function — always call it.**
+    Every `engine.on(event, handler)` call must be paired with the returned teardown
+    in a `useEffect` cleanup. Do not use `engine.on()` outside of a `useEffect`.
+    This fixes the SVAR `intercept()` memory leak (handlers accumulated on remount).
+
+56. **`GanttScaleData` is the canonical coordinate system** — `dateToLeft`,
+    `leftToDate`, and `parseUTCDate` from `engine/GanttScaleData.ts` are the only
+    permitted coordinate utilities. Do not use SVAR's `scales.diff()`, the old
+    `dateFromCanvasLeft`, or any millisecond-approximation math. The new functions
+    are DST-safe (UTC-only arithmetic).
+
+57. **`dateToLeft` returns canvas-origin coordinates** — the result is px from the
+    canvas x=0 origin, not viewport-relative. Subtract `engine.scrollLeft` when
+    positioning DOM overlay elements (e.g. `PreviewOverlay`, `MilestoneDeltaTooltip`).
+    Pass canvas-origin coordinates directly to CPM workers and drag event handlers.
+
+58. **`GanttEngineStub` is the only permitted test double for `GanttEngine`** — do not
+    hand-roll mock objects with `{ on: vi.fn(), scales: null, ... }`. The stub is a
+    typed class that will fail to compile if the interface changes, surfacing test
+    staleness immediately.
+
+### Canvas Rendering
+
+59. **Three-layer canvas stack — one responsibility each:**
+    - `canvas-bg` (z-index 0): row bands, grid lines, today line, weekend shading. Rarely repaints.
+    - `canvas-bars` (z-index 1): task bars, dependency arrows, float bars, baseline ghosts. Dirty-rect per row.
+    - `canvas-interaction` (z-index 2): active drag shadow, resize highlight, link-creation preview. Cleared completely between frames.
+    Never draw task bar content on `canvas-bg` or interaction chrome on `canvas-bars`.
+
+60. **Dirty-rect invalidation — never full-repaint during drag.** On each drag-move
+    only the dragged row and the rows containing CPM preview results are invalidated.
+    A 500-task project must repaint ≤ 11 rows per frame during a typical drag.
+    Full repaints are only permitted on: zoom change, scroll > 1 viewport width,
+    window resize, baseline mode toggle.
+
+61. **Row virtualisation is mandatory — always.** The renderer only paints rows
+    whose `top` falls within `[scrollTop - overscan, scrollTop + viewportHeight + overscan]`
+    where `overscan = 5 rows`. This must hold from the first commit — never paint
+    all rows and optimise later. Phase 1 (≤500 tasks) and Phase 2 (2,000 tasks)
+    use the same virtualisation path.
+
+62. **`devicePixelRatio` scaling is applied once at canvas init and on `ResizeObserver`.**
+    All logical coordinates (bar positions, hit zones, font sizes) use logical pixels.
+    The canvas backing store is scaled by `window.devicePixelRatio`. Never scale
+    individual draw calls — scale the context once via `ctx.scale(dpr, dpr)`.
+
+63. **Hit testing uses a spatial index — never per-pixel color mapping.**
+    The `HitIndex` array is indexed by `rowIndex` and rebuilt on data change or
+    zoom change (O(n), < 1ms for 2,000 tasks). Hit zones per row:
+    - Bar body: `[barLeft, barRight]` × `[barTop, barBottom]`
+    - Resize handle: `[barRight - 8, barRight + 4]` logical px (expand to 20px on touch)
+    - Link-dot: `[barRight + 4, barRight + 16]` × full row height (expand to 44px on touch)
+
+### Interaction
+
+64. **Drag FSM has 5 states: IDLE → HOVER_WAIT → DRAG_STARTED → DRAGGING → DROP/CANCELLED.**
+    The 4px movement threshold between HOVER_WAIT and DRAG_STARTED prevents
+    accidental drags on clicks and tap-and-hold on iPad. `setPointerCapture` is
+    called at DRAG_STARTED to ensure `pointermove` fires outside the canvas.
+
+65. **Snap-to-day is applied inside the renderer before emitting `drag-task-move`.**
+    The `left` value in the event payload is always snapped to the nearest UTC
+    midnight boundary. Holding Shift suspends snap (free-drag). `useDragCpm` must
+    not snap independently — do not double-snap.
+
+66. **Use the Pointer Events API throughout — not Mouse Events or Touch Events.**
+    `touch-action: none` on all canvas elements. Pinch-to-zoom is handled via two
+    simultaneous active pointers (pointer span delta). This unifies mouse and touch
+    without branching.
+
+### Accessibility
+
+67. **`GanttAriaOverlay` is mandatory — canvas is `aria-hidden="true"`.**
+    A transparent DOM layer (`position: absolute; inset: 0; pointer-events: none`)
+    provides the WCAG 2.1 grid structure over the canvas. Structure:
+    `role="grid"` > `role="row"` > `role="gridcell"`. The overlay is virtualised
+    to match the canvas render window. Canvas elements have no ARIA attributes.
+
+68. **ARIA grid uses roving tabindex.** The focused `gridcell` has `tabIndex={0}`;
+    all others have `tabIndex={-1}`. When the focused row scrolls out of the
+    virtualised window, `engine.scrollToDate()` is called before `.focus()`.
+    Keyboard navigation (ArrowUp/Down, Enter, Space) is handled in the overlay
+    component, not in the canvas event listeners.
+
+69. **`buildTaskAriaLabel(task)` format is canonical:**
+    `"{name}, {durationDays} days, starts {start}, finishes {finish}, {CP status}"`
+    e.g. `"Design sprint, 10 days, starts Apr 7, finishes Apr 18, on the critical path"`.
+    Used as `aria-label` on the focused gridcell. The canvas bar is `aria-hidden`.
+
+70. **`prefers-reduced-motion` is evaluated at engine init and on media query change.**
+    When true: disable the today-line pulse, CP-flip animation, preview-bar fade,
+    scroll-to-date smooth behavior. Functionality is never disabled — only motion.
+
+### Visual Design (Canvas)
+
+71. **Canvas font is `"12px Inter, system-ui, sans-serif"`** — set once at engine
+    init, not per draw call. Must match Tailwind's `font-sans` stack so canvas
+    labels are visually identical to the task list text. `ctx.font` is a global
+    state — reset it after any draw call that changes it.
+
+72. **Bar label text uses `gantt-text-primary` (`#E8E8E8`) on `gantt-surface`.**
+    `ctx.fillStyle = '#E8E8E8'` for all label text on the dark canvas surface.
+    Never use neutral-text tokens inside the canvas render path (rule 40 / 41).
+
+73. **Critical path bars use `gantt-semantic-critical` (`#F87171`) — not `semantic-critical`.**
+    Same applies to at-risk and on-track: use the dark-surface `gantt-semantic-*`
+    variants. Standard semantic tokens fail WCAG 1.4.3 on `#0F1117` (rule 41).
+
+74. **Non-working day shading uses `rgba(255,255,255,0.03)`** — a very subtle
+    white overlay on weekend columns. Visible but not distracting. Applied on
+    `canvas-bg`, not recalculated during drag.
+
+75. **Dependency arrows are cubic Bézier curves** with control points offset 40px
+    horizontally from the source and target bar endpoints. FS arrows emerge from
+    the bar right edge and enter the next bar left edge. Critical-path arrows use
+    `gantt-semantic-critical` stroke; non-critical use `gantt-text-secondary`
+    (`rgba(148,163,184,0.6)`). Arrow line width: 1.5px logical px.
+
+### Performance
+
+76. **Performance budget (enforced in CI visual regression):**
+    - First render of 2,000 tasks: < 200ms
+    - Frame budget during drag (500 tasks): < 16ms (60fps)
+    - Zoom level change: < 100ms
+    - Smooth scroll at 60fps with no dropped frames
+    Any PR that regresses these targets must include a profiler screenshot.
+
+77. **`TaskSoA` (Structure of Arrays) is required at 10,000+ tasks (Phase 3).**
+    For Phase 1–2 (≤ 2,000 tasks), a plain `Task[]` array is acceptable.
+    Do not introduce SoA prematurely — the abstraction cost is not justified
+    below 10k tasks.
