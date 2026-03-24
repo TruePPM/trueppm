@@ -23,6 +23,9 @@
     "generate:types": "openapi-typescript http://localhost:8000/api/schema/ -o src/api/types.ts"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@tanstack/react-query": "^5.0.0",
     "@tanstack/react-virtual": "^3.13.23",
     "axios": "^1.7.0",
