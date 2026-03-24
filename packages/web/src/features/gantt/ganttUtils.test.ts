@@ -1,5 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { nudgeWorkingDays } from './ganttUtils';
+import { formatShortDate, nudgeWorkingDays } from './ganttUtils';
+
+// ---------------------------------------------------------------------------
+// formatShortDate
+// ---------------------------------------------------------------------------
+
+// formatShortDate wraps Intl.DateTimeFormat; tests verify the format contract
+// rather than specific date strings to stay timezone-independent.
+const fmt = (iso: string) =>
+  new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(new Date(iso));
+
+describe('formatShortDate', () => {
+  it('matches Intl.DateTimeFormat en-US short month + numeric day', () => {
+    expect(formatShortDate('2025-04-07')).toBe(fmt('2025-04-07'));
+  });
+
+  it('contains the month abbreviation for the given month', () => {
+    expect(formatShortDate('2025-12-25')).toContain('Dec');
+  });
+
+  it('does not include a four-digit year', () => {
+    expect(formatShortDate('2025-01-05')).not.toMatch(/\d{4}/);
+  });
+});
 
 describe('nudgeWorkingDays', () => {
   // 2025-03-17 is a Monday

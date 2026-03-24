@@ -9,7 +9,7 @@
  * - Rule 25: critical preview = semantic-critical border; fill stays ghost-fill
  * - Rule 26: CP badge (non-color critical signal, WCAG 1.4.1), shown ≥ 400ms
  * - Rule 27: pointer-events-none aria-hidden="true"
- * - Rule 28: "Esc to cancel" label rendered during pointer drag
+ * - Rule 28: "Esc to cancel" label rendered during pointer drag; keyboard legend in keyboard mode
  * - Rule 32: capped at 10 bars; "+N more" count label
  * - Rule 33: bars animate out only (150ms opacity, motion-safe)
  * - Rule 51: keyboard instruction strip rendered when isKeyboardMode is true
@@ -77,6 +77,7 @@ function PreviewBar({ result, scales, scrollLeft, rowIndex, showCpBadge }: Previ
   );
 }
 
+/** Dashed ghost bar showing the task's original position during keyboard reschedule (rule 52). */
 interface OriginBarProps {
   originStart: string;
   originFinish: string;
@@ -106,6 +107,7 @@ function OriginBar({ originStart, originFinish, scales, scrollLeft, rowIndex }: 
         height: BAR_HEIGHT,
         backgroundColor: 'transparent',
         border: `2px dashed ${ORIGIN_BORDER}`,
+        borderStyle: 'dashed',
       }}
       aria-hidden="true"
     />

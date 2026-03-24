@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that run against the production build in CI; covers shell landmarks, view-mode
   switcher state, task list accessibility, and Gantt legend. New `web:e2e` CI job
   uses the official Playwright Docker image and saves reports as artifacts on failure.
+- Test coverage for the Gantt drag CPM preview feature (issue #19): 51 new test cases
+  across `dragStore`, `useDragCpm`, `PreviewOverlay`, `MilestoneDeltaTooltip`, and
+  `ganttUtils` — covering the full drag state machine, CPM worker seq guard, offline drop
+  guard, Escape-key cancellation, CP badge timing (400 ms delay), overflow cap label,
+  keyboard instruction strip, origin ghost bar, and `nudgeWorkingDays` edge cases.
 
 ### Fixed
 - Celery worker container failed to start in Docker Compose — `packages/api/Dockerfile`
