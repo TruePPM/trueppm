@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Two runnable Jupyter notebooks for `trueppm-scheduler` (issue #38):
+  `01-cpm-quickstart.ipynb` covers project definition, CPM run, float table,
+  custom calendar with holiday, SS dependency with lag, cycle detection, and
+  JSON round-trip; `02-monte-carlo.ipynb` covers PERT three-point tasks, P50/P80/P95
+  output, matplotlib histogram with percentile lines, and scenario comparison.
+  Also corrects the scheduler API reference in `docs/features/scheduler.md` —
+  the previous doc used constructor signatures that do not exist
+  (`Calendar(id=, name=, working_days={set})`, `schedule(project, tasks, deps, cal)`).
 - PyPI publish pipeline for `trueppm-scheduler` (issue #37): pushing a git tag
   `scheduler-vX.Y.Z` triggers a new `publish` stage that builds an sdist + wheel
   via `python -m build` and uploads to PyPI via `twine`. A version-consistency

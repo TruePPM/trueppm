@@ -6,6 +6,23 @@ sidebar_position: 1
 
 The scheduling engine lives in `packages/scheduler` and ships independently as `trueppm-scheduler` on PyPI. It has no Django dependency.
 
+```bash
+pip install trueppm-scheduler
+```
+
+## Interactive notebooks
+
+| Notebook | Contents |
+|----------|----------|
+| [`01-cpm-quickstart.ipynb`](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/packages/scheduler/notebooks/01-cpm-quickstart.ipynb) | Project definition, CPM run, per-task float table, custom calendar, SS dependency, cycle detection, JSON round-trip |
+| [`02-monte-carlo.ipynb`](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/packages/scheduler/notebooks/02-monte-carlo.ipynb) | PERT three-point estimates, Monte Carlo run, P50/P80/P95 output, matplotlib histogram, scenario comparison |
+
+```bash
+# Run locally (from repo root)
+pip install -e "packages/scheduler[dev]" matplotlib
+jupyter notebook packages/scheduler/notebooks/
+```
+
 ## Critical Path Method
 
 `schedule()` performs a forward pass, backward pass, float calculation, and critical-path identification on a directed acyclic graph of tasks and dependencies.
@@ -23,18 +40,18 @@ Lag is in **calendar working days**. Negative lag (lead) is supported.
 
 ### Output fields
 
-| Field | Description |
-|-------|-------------|
-| `early_start` | Earliest date the task can start |
-| `early_finish` | Earliest date the task can finish |
-| `late_start` | Latest start without delaying the project |
-| `late_finish` | Latest finish without delaying the project |
-| `total_float` | Working days of slack before the task delays the project end |
-| `is_critical` | `True` when `total_float == 0` |
+| Field | Type | Description |
+|-------|------|-------------|
+| `early_start` | `date` | Earliest date the task can start |
+| `early_finish` | `date` | Earliest date the task can finish |
+| `late_start` | `date` | Latest start without delaying the project |
+| `late_finish` | `date` | Latest finish without delaying the project |
+| `total_float` | `timedelta` | Working days of slack before the task delays the project end |
+| `is_critical` | `bool` | `True` when `total_float == timedelta(0)` |
 
 ### Calendar arithmetic
 
-Working-day arithmetic skips weekends and any dates listed in `CalendarException`. Applied to all lag calculations and task duration expansions.
+Working-day arithmetic skips weekends and any dates listed in `Calendar.exceptions` (`DateRange` entries). Applied to all lag calculations and task duration expansions.
 
 ### Cycle detection
 
@@ -43,28 +60,71 @@ Working-day arithmetic skips weekends and any dates listed in `CalendarException
 ### Usage
 
 ```python
-from trueppm_scheduler import schedule, Calendar, Project, Task, Dependency
-from trueppm_scheduler.exceptions import CyclicDependencyError
+from datetime import date, timedelta
+from trueppm_scheduler import (
+    Calendar, DateRange, Dependency, DependencyType,
+    Project, Task, schedule, CyclicDependencyError,
+)
 
-calendar = Calendar(id="cal-1", name="Standard", working_days={0,1,2,3,4})
-project  = Project(id="p-1", name="Bridge", start_date="2026-04-01", calendar=calendar)
+# Calendar: Mon–Fri, Good Friday excluded
+cal = Calendar(
+    exceptions=[
+        DateRange(start=date(2026, 4, 3), end=date(2026, 4, 3)),
+    ]
+)
+
 tasks = [
-    Task(id="t-1", name="Design",  duration=10, project_id="p-1"),
-    Task(id="t-2", name="Procure", duration=15, project_id="p-1"),
-    Task(id="t-3", name="Build",   duration=30, project_id="p-1"),
+    Task(id="design", name="Design", duration=timedelta(days=5)),
+    Task(id="build",  name="Build",  duration=timedelta(days=10)),
+    Task(id="test",   name="Test",   duration=timedelta(days=7)),
+    Task(id="deploy", name="Deploy", duration=timedelta(days=2)),
 ]
+
 dependencies = [
-    Dependency(id="d-1", predecessor_id="t-1", successor_id="t-3", dep_type="FS"),
-    Dependency(id="d-2", predecessor_id="t-2", successor_id="t-3", dep_type="FS"),
+    Dependency(predecessor_id="design", successor_id="build"),
+    Dependency(predecessor_id="design", successor_id="test"),
+    Dependency(predecessor_id="build",  successor_id="deploy"),
+    Dependency(predecessor_id="test",   successor_id="deploy"),
 ]
+
+project = Project(
+    id="release-v1",
+    name="Release v1.0",
+    start_date=date(2026, 4, 1),
+    tasks=tasks,
+    dependencies=dependencies,
+    calendar=cal,
+)
 
 try:
-    result = schedule(project, tasks, dependencies, calendar)
+    result = schedule(project)
 except CyclicDependencyError as e:
     print("Cycle:", e.cycle)
 
-for task_id, t in result.tasks.items():
-    print(t.name, t.early_finish, "critical:", t.is_critical)
+print(f"Finish: {result.project_finish}")
+print(f"Critical path: {' → '.join(result.critical_path)}")
+
+for t in result.tasks:
+    print(t.name, t.early_finish, "float:", t.total_float.days, "critical:", t.is_critical)
+```
+
+Non-FS dependencies use the `dep_type` and optional `lag` arguments:
+
+```python
+Dependency(
+    predecessor_id="code",
+    successor_id="test",
+    dep_type=DependencyType.SS,
+    lag=timedelta(days=2),
+)
+```
+
+### JSON round-trip
+
+```python
+json_str = project.to_json(indent=2)
+project_rt = Project.from_json(json_str)
+result_rt = schedule(project_rt)
 ```
 
 ### CLI
@@ -76,36 +136,96 @@ trueppm-scheduler schedule --input project.json --json
 
 ## Monte Carlo Simulation
 
-`monte_carlo()` runs probabilistic simulation using PERT-Beta distributions.
+`monte_carlo()` runs probabilistic simulation using PERT-Beta distributions (method-of-moments parameterisation). Vectorised with numpy; 10,000 runs on a 200-task chain completes in under 5 seconds.
 
-### Inputs per task
+### Three-point estimates
+
+Add `optimistic_duration`, `most_likely_duration`, and `pessimistic_duration` to any task you want sampled stochastically. Tasks without these fields use their deterministic `duration` on every run.
 
 | Field | Meaning |
 |-------|---------|
-| `duration_optimistic` | Best-case duration |
-| `duration` | Most likely (used for CPM) |
-| `duration_pessimistic` | Worst-case duration |
+| `optimistic_duration` | Best-case (`timedelta`) |
+| `most_likely_duration` | Expected case — should match `duration` (`timedelta`) |
+| `pessimistic_duration` | Worst-case (`timedelta`) |
 
 ### Output
 
 | Field | Description |
 |-------|-------------|
+| `runs` | Number of simulations executed |
 | `p50` | Completion date in 50% of simulations |
-| `p80` | Completion date in 80% of simulations |
-| `p95` | Completion date in 95% of simulations |
+| `p80` | Completion date in 80% of simulations (recommended stakeholder commitment date) |
+| `p95` | Completion date in 95% of simulations (contractual deadline buffer) |
+| `distribution` | Full sorted list of completion dates (one per run) |
 
-Vectorised with numpy. 10,000 runs on a 200-task chain completes in under 5 seconds.
+### Usage
 
 ```python
-from trueppm_scheduler import monte_carlo
+from datetime import date, timedelta
+from trueppm_scheduler import Calendar, Dependency, Project, Task, monte_carlo, schedule
 
-result = monte_carlo(project, tasks, dependencies, calendar, iterations=10_000)
-print(result.p50, result.p80, result.p95)
+def days(n: int) -> timedelta:
+    return timedelta(days=n)
+
+tasks = [
+    Task(
+        id="design", name="Design",
+        duration=days(5),
+        optimistic_duration=days(3),
+        most_likely_duration=days(5),
+        pessimistic_duration=days(10),
+    ),
+    Task(
+        id="build", name="Build",
+        duration=days(15),
+        optimistic_duration=days(10),
+        most_likely_duration=days(15),
+        pessimistic_duration=days(25),
+    ),
+    # No PERT estimates — deterministic every run
+    Task(id="deploy", name="Deploy", duration=days(2)),
+]
+
+project = Project(
+    id="release-mc",
+    name="Release v1.0 (Monte Carlo)",
+    start_date=date(2026, 4, 1),
+    tasks=tasks,
+    dependencies=[
+        Dependency(predecessor_id="design", successor_id="build"),
+        Dependency(predecessor_id="build",  successor_id="deploy"),
+    ],
+    calendar=Calendar(),
+)
+
+# CPM deterministic baseline
+cpm = schedule(project)
+print(f"CPM finish (P50 proxy): {cpm.project_finish}")
+
+# Monte Carlo
+mc = monte_carlo(project, runs=10_000, seed=42)
+print(f"P50: {mc.p50}")
+print(f"P80: {mc.p80}  ← recommended commitment date")
+print(f"P95: {mc.p95}")
+
+slip = (mc.p80 - cpm.project_finish).days
+print(f"P80 vs CPM: +{slip} calendar days ({slip/7:.1f} weeks of schedule risk)")
 ```
 
+:::tip P80 is the commitment date
+
+The CPM deterministic finish is typically close to P50 — meaning there is only a **50% chance** the project finishes on the date shown in a traditional Gantt chart. Commit to the P80 date to reflect realistic schedule risk.
+
+:::
+
+### CLI
+
 ```bash
+# Summary output
 trueppm-scheduler monte-carlo --input project.json
-trueppm-scheduler monte-carlo --input project.json --distribution --json
+
+# JSON output with full weekly distribution (for frontend histograms)
+trueppm-scheduler monte-carlo --input project.json --json --distribution
 ```
 
 ## Auto-scheduling in the API
