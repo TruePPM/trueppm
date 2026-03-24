@@ -99,7 +99,7 @@ def test_schedule_lock_collision_requeues(project: Project) -> None:
     mock_redis.set.return_value = None
 
     with (
-        patch("trueppm_api.apps.scheduling.tasks.redis") as mock_redis_module,
+        patch("trueppm_api.apps.scheduling.tasks.redis_lib") as mock_redis_module,
         patch.object(recalculate_schedule, "apply_async") as mock_apply,
     ):
         mock_redis_module.from_url.return_value = mock_redis

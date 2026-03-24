@@ -6,6 +6,7 @@ from datetime import date
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from channels.db import database_sync_to_async
 from django.contrib.auth import get_user_model
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -68,7 +69,8 @@ async def test_connect_no_token_rejected(project: Project) -> None:
     from trueppm_api.apps.sync.consumers import ProjectConsumer
 
     scope = _make_scope(str(project.pk), token="")
-    consumer = ProjectConsumer(scope=scope)
+    consumer = ProjectConsumer()
+    consumer.scope = scope
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
 
@@ -86,7 +88,8 @@ async def test_connect_invalid_token_rejected(project: Project) -> None:
     from trueppm_api.apps.sync.consumers import ProjectConsumer
 
     scope = _make_scope(str(project.pk), token="not.a.valid.jwt")
-    consumer = ProjectConsumer(scope=scope)
+    consumer = ProjectConsumer()
+    consumer.scope = scope
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
 
@@ -101,12 +104,15 @@ async def test_connect_invalid_token_rejected(project: Project) -> None:
 @pytest.mark.asyncio
 async def test_connect_viewer_rejected(user: object, project: Project) -> None:
     """A Viewer (role=0) cannot connect to the WebSocket."""
-    ProjectMembership.objects.create(project=project, user=user, role=Role.VIEWER)
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.VIEWER
+    )
 
     from trueppm_api.apps.sync.consumers import ProjectConsumer
 
     scope = _make_scope(str(project.pk), token="valid.token")
-    consumer = ProjectConsumer(scope=scope)
+    consumer = ProjectConsumer()
+    consumer.scope = scope
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
 
@@ -130,7 +136,8 @@ async def test_connect_non_member_rejected(user: object, project: Project) -> No
     from trueppm_api.apps.sync.consumers import ProjectConsumer
 
     scope = _make_scope(str(project.pk), token="valid.token")
-    consumer = ProjectConsumer(scope=scope)
+    consumer = ProjectConsumer()
+    consumer.scope = scope
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
 
@@ -150,12 +157,15 @@ async def test_connect_non_member_rejected(user: object, project: Project) -> No
 @pytest.mark.asyncio
 async def test_connect_member_accepted(user: object, project: Project) -> None:
     """A Member (role=1) can connect and is added to the project group."""
-    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
 
     from trueppm_api.apps.sync.consumers import ProjectConsumer
 
     scope = _make_scope(str(project.pk), token="valid.token")
-    consumer = ProjectConsumer(scope=scope)
+    consumer = ProjectConsumer()
+    consumer.scope = scope
     channel_layer = AsyncMock()
     consumer.channel_layer = channel_layer
     consumer.channel_name = "test.channel"
@@ -188,7 +198,8 @@ async def test_disconnect_leaves_group(user: object, project: Project) -> None:
     from trueppm_api.apps.sync.consumers import ProjectConsumer
 
     scope = _make_scope(str(project.pk), token="valid.token")
-    consumer = ProjectConsumer(scope=scope)
+    consumer = ProjectConsumer()
+    consumer.scope = scope
     channel_layer = AsyncMock()
     consumer.channel_layer = channel_layer
     consumer.channel_name = "test.channel"
@@ -206,7 +217,8 @@ async def test_board_event_forwarded_to_client(user: object, project: Project) -
     from trueppm_api.apps.sync.consumers import ProjectConsumer
 
     scope = _make_scope(str(project.pk), token="valid.token")
-    consumer = ProjectConsumer(scope=scope)
+    consumer = ProjectConsumer()
+    consumer.scope = scope
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
     consumer.group_name = f"project_{project.pk}"
