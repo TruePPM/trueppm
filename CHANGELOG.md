@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Playwright E2E test scaffold (`packages/web/e2e/`) with smoke and Gantt tests
+  that run against the production build in CI; covers shell landmarks, view-mode
+  switcher state, task list accessibility, and Gantt legend. New `web:e2e` CI job
+  uses the official Playwright Docker image and saves reports as artifacts on failure.
+
 ### Fixed
 - Celery worker container failed to start in Docker Compose — `packages/api/Dockerfile`
   used `ENTRYPOINT` for uvicorn, causing docker-compose `command` overrides to be

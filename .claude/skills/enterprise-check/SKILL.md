@@ -125,6 +125,19 @@ Enterprise feature list (non-exhaustive):
 - Cross-project risk propagation
 - Risk-triggered approval workflows
 - Burn charts at portfolio/program level (cross-project scope)
+- Risk register: risk matrix visualization, risk-to-task linkage, severity scoring (OSS has basic CRUD only)
+- Monte Carlo: unlimited simulations and tasks, sensitivity analysis, confidence intervals (OSS has capped simulation only)
+- Custom fields / custom attributes on tasks and projects (org-specific metadata)
+- Guest / external stakeholder access (view-only client-facing Gantt without project membership)
+- Advanced report builder (custom queries, scheduled PDF delivery, executive templates)
+- White-label / custom domain (consulting firms branding the tool for clients)
+- Data retention policy controls (7-year archive, GDPR deletion workflows)
+- Priority support / SLA tiers (guaranteed response times)
+- Mobile: GPS-verified time entry (location-stamped timesheets for compliance)
+- Mobile: photo and file attachments from camera (attach site photos to tasks)
+- Mobile: offline CPM simulation (WASM scheduling engine running on-device without connectivity)
+- Mobile: smart push notifications with critical path intelligence (CP change, milestone slip, risk review due)
+- Mobile: daily standup digest (auto-generated morning briefing pushed to device)
 
 ## Boundary Rules
 

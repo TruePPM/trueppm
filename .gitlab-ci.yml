@@ -364,6 +364,33 @@ web:test:
     - npm run test:coverage
   coverage: '/^All files\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*([\d.]+)/'
 
+web:e2e:
+  # End-to-end Playwright tests against the production build.
+  # Uses the official Playwright Docker image (Chromium pre-installed) to avoid
+  # a costly `npx playwright install` download on every run.
+  # Runs after web:test so unit coverage is confirmed before E2E spins up.
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.58.2-noble
+  needs: [web:lint, web:type-check, web:build]
+  <<: *rules-web
+  cache:
+    <<: *web-cache
+    policy: pull
+  before_script:
+    - cd packages/web
+    - npm ci --prefer-offline --quiet
+    # Production build required for `vite preview` (webServer in playwright.config.ts).
+    # web:build already verified it compiles; this re-runs to produce the dist/ artifact
+    # in the current job's workspace (artifacts are not shared between jobs by default).
+    - npm run build
+  script:
+    - npx playwright test --reporter=line
+  artifacts:
+    when: on_failure
+    paths:
+      - packages/web/playwright-report/
+    expire_in: 7 days
+
 website:build:
   # Verify the Docusaurus documentation site builds cleanly.
   # Catches broken MDX, missing imports, and broken internal links early.
