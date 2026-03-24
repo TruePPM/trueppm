@@ -6,9 +6,10 @@ from datetime import date
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from channels.db import database_sync_to_async
 from django.contrib.auth import get_user_model
 
-from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project
 
 User = get_user_model()
@@ -31,15 +32,6 @@ def _make_scope(project_pk: str, token: str = "") -> dict:
     }
 
 
-def _make_consumer(scope: dict) -> object:
-    """Instantiate a ProjectConsumer and set its scope (Channels 4 pattern)."""
-    from trueppm_api.apps.sync.consumers import ProjectConsumer
-
-    consumer = ProjectConsumer()
-    consumer.scope = scope
-    return consumer
-
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -48,6 +40,11 @@ def _make_consumer(scope: dict) -> object:
 @pytest.fixture
 def user(db: object) -> object:
     return User.objects.create_user(username="ws_user", password="pw")
+
+
+@pytest.fixture
+def viewer_user(db: object) -> object:
+    return User.objects.create_user(username="ws_viewer", password="pw")
 
 
 @pytest.fixture
@@ -69,7 +66,11 @@ def project(calendar: Calendar) -> Project:
 @pytest.mark.asyncio
 async def test_connect_no_token_rejected(project: Project) -> None:
     """Connection without ?token= is rejected with close code 4001."""
-    consumer = _make_consumer(_make_scope(str(project.pk), token=""))
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    scope = _make_scope(str(project.pk), token="")
+    consumer = ProjectConsumer()
+    consumer.scope = scope
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
 
@@ -84,7 +85,11 @@ async def test_connect_no_token_rejected(project: Project) -> None:
 @pytest.mark.asyncio
 async def test_connect_invalid_token_rejected(project: Project) -> None:
     """Connection with an invalid JWT is rejected with close code 4001."""
-    consumer = _make_consumer(_make_scope(str(project.pk), token="not.a.valid.jwt"))
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    scope = _make_scope(str(project.pk), token="not.a.valid.jwt")
+    consumer = ProjectConsumer()
+    consumer.scope = scope
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
 
@@ -95,11 +100,19 @@ async def test_connect_invalid_token_rejected(project: Project) -> None:
     close_mock.assert_called_once_with(code=4001)
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_connect_viewer_rejected(user: object, project: Project) -> None:
     """A Viewer (role=0) cannot connect to the WebSocket."""
-    consumer = _make_consumer(_make_scope(str(project.pk), token="valid.token"))
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.VIEWER
+    )
+
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    scope = _make_scope(str(project.pk), token="valid.token")
+    consumer = ProjectConsumer()
+    consumer.scope = scope
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
 
@@ -120,7 +133,11 @@ async def test_connect_viewer_rejected(user: object, project: Project) -> None:
 @pytest.mark.asyncio
 async def test_connect_non_member_rejected(user: object, project: Project) -> None:
     """A user with no membership cannot connect."""
-    consumer = _make_consumer(_make_scope(str(project.pk), token="valid.token"))
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    scope = _make_scope(str(project.pk), token="valid.token")
+    consumer = ProjectConsumer()
+    consumer.scope = scope
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
 
@@ -136,11 +153,19 @@ async def test_connect_non_member_rejected(user: object, project: Project) -> No
     close_mock.assert_called_once_with(code=4003)
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_connect_member_accepted(user: object, project: Project) -> None:
     """A Member (role=1) can connect and is added to the project group."""
-    consumer = _make_consumer(_make_scope(str(project.pk), token="valid.token"))
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    scope = _make_scope(str(project.pk), token="valid.token")
+    consumer = ProjectConsumer()
+    consumer.scope = scope
     channel_layer = AsyncMock()
     consumer.channel_layer = channel_layer
     consumer.channel_name = "test.channel"
@@ -170,7 +195,11 @@ async def test_connect_member_accepted(user: object, project: Project) -> None:
 @pytest.mark.asyncio
 async def test_disconnect_leaves_group(user: object, project: Project) -> None:
     """Disconnecting removes the channel from the project group."""
-    consumer = _make_consumer(_make_scope(str(project.pk), token="valid.token"))
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    scope = _make_scope(str(project.pk), token="valid.token")
+    consumer = ProjectConsumer()
+    consumer.scope = scope
     channel_layer = AsyncMock()
     consumer.channel_layer = channel_layer
     consumer.channel_name = "test.channel"
@@ -185,7 +214,11 @@ async def test_disconnect_leaves_group(user: object, project: Project) -> None:
 @pytest.mark.asyncio
 async def test_board_event_forwarded_to_client(user: object, project: Project) -> None:
     """board.event channel messages are forwarded to the WebSocket client."""
-    consumer = _make_consumer(_make_scope(str(project.pk), token="valid.token"))
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    scope = _make_scope(str(project.pk), token="valid.token")
+    consumer = ProjectConsumer()
+    consumer.scope = scope
     consumer.channel_layer = AsyncMock()
     consumer.channel_name = "test.channel"
     consumer.group_name = f"project_{project.pk}"

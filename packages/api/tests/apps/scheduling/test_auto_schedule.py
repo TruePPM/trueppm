@@ -106,10 +106,10 @@ def test_schedule_lock_collision_requeues(project: Project) -> None:
     ):
         mock_redis_module.from_url.return_value = mock_redis
 
-        # Run the task synchronously in-process. With bind=True, `self` inside
-        # the function body is the actual task object (recalculate_schedule),
-        # so patching apply_async on it via patch.object is sufficient.
-        recalculate_schedule.apply(args=[str(project.pk)])
+        # Call the task's run() method directly so self=recalculate_schedule
+        # (the Celery task instance), which is what bind=True provides at runtime.
+        # patch.object above intercepts self.apply_async inside the function body.
+        recalculate_schedule.run(str(project.pk))
 
         mock_apply.assert_called_once_with(
             args=[str(project.pk)],
