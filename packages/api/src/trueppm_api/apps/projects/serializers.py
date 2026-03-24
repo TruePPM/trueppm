@@ -126,7 +126,7 @@ class TaskBulkItemSerializer(serializers.Serializer[Any]):
 
     op = serializers.ChoiceField(choices=OP_CHOICES)
     id = serializers.UUIDField(required=False, allow_null=True)
-    data = serializers.DictField(required=False, default=dict)
+    data = serializers.DictField(required=False, default=dict)  # type: ignore[assignment]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         op = attrs["op"]
