@@ -39,9 +39,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   WBS and Table buttons were disabled placeholders. Active view is tracked in the `?view=`
   URL search param so links are shareable and the TanStack Query cache is stable across
   view switches.
-- `RecalculatingBadge` component in the project toolbar — shows a non-blocking spinner
-  during CPM engine recomputation (wired to WebSocket scheduler events; currently stubbed
-  `isVisible={false}` until WS integration lands).
+- `RecalculatingBadge` in the project toolbar is now live — driven by WebSocket
+  `cpm_queued` / `cpm_complete` events so the spinner appears automatically when the
+  CPM engine is running and dismisses when recalculation finishes.
+- **WebSocket project channel** (`/ws/v1/projects/{id}/?token=…`): the frontend
+  establishes a persistent connection for the active project and dispatches incoming
+  events to the TanStack Query cache and Zustand scheduler store. Reconnects with
+  exponential backoff (1 s → 30 s cap) on drop.
+- `schedulerStore` Zustand slice: tracks `isRecalculating`, `cpmError`, and
+  `recalculatedAt` state driven by WebSocket CPM lifecycle events.
+- CPM engine now broadcasts a `cpm_queued` event to connected clients immediately
+  after acquiring the scheduling lock, so the frontend can show the in-progress
+  indicator without polling.
+- CPM engine broadcasts `cpm_error` with `error: "cyclic_dependency"` (including
+  the offending cycle) or `error: "internal_error"` so the frontend can surface a
+  meaningful error message rather than a silent stale schedule.
+- `useGanttTasks` now fetches tasks and dependencies from the live API
+  (`GET /api/v1/tasks/?project=…` and `GET /api/v1/dependencies/?project=…`)
+  instead of returning fixture data.
 - Playwright E2E test scaffold (`packages/web/e2e/`) with smoke and Gantt tests
   that run against the production build in CI; covers shell landmarks, view-mode
   switcher state, task list accessibility, and Gantt legend. New `web:e2e` CI job
@@ -69,6 +84,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an index range scan; critical for projects with hundreds of tasks.
 
 ### Fixed
+- Switching view tabs (Gantt / WBS / Table / Calendar / Resources) no longer drops the
+  `?project=` URL search param, which previously caused the active project to be lost on
+  every view switch.
 - Celery worker container failed to start in Docker Compose — `packages/api/Dockerfile`
   used `ENTRYPOINT` for uvicorn, causing docker-compose `command` overrides to be
   appended as uvicorn arguments instead of replacing the command. Changed to `CMD`

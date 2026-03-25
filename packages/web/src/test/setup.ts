@@ -20,6 +20,23 @@ class WorkerStub {
 }
 (globalThis as unknown as Record<string, unknown>).Worker = WorkerStub;
 
+// Stub WebSocket — jsdom does not implement WebSocket.
+// useProjectWebSocket only opens a socket when projectId and accessToken are
+// both present; in App-level tests neither is set, so the stub is never
+// instantiated, but module load still requires the global to exist.
+class WebSocketStub {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+  readyState = WebSocketStub.OPEN;
+  constructor(_url: string) {}
+  addEventListener(_type: string, _handler: unknown): void {}
+  removeEventListener(_type: string, _handler: unknown): void {}
+  close(): void {}
+}
+(globalThis as unknown as Record<string, unknown>).WebSocket = WebSocketStub;
+
 // Required by components that use responsive design / media queries
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
