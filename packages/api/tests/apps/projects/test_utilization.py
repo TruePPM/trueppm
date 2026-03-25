@@ -126,7 +126,7 @@ class TestUtilizationComputation:
             project=self.project,
             name="T",
             duration=5,
-            early_start=date(2026, 3, 2),   # Monday
+            early_start=date(2026, 3, 2),  # Monday
             early_finish=date(2026, 3, 6),  # Friday
         )
         TaskResource.objects.create(task=task, resource=resource, units="1.0")
@@ -153,8 +153,11 @@ class TestUtilizationComputation:
         """0.5 units → 4 h/day."""
         resource = Resource.objects.create(name="Bob", max_units="1.0")
         task = Task.objects.create(
-            project=self.project, name="T", duration=1,
-            early_start=date(2026, 3, 2), early_finish=date(2026, 3, 2),
+            project=self.project,
+            name="T",
+            duration=1,
+            early_start=date(2026, 3, 2),
+            early_finish=date(2026, 3, 2),
         )
         TaskResource.objects.create(task=task, resource=resource, units="0.5")
 
@@ -166,9 +169,11 @@ class TestUtilizationComputation:
         """Task spanning Mon–Sun: only Mon–Fri get load (working_days=31)."""
         resource = Resource.objects.create(name="Carol", max_units="1.0")
         task = Task.objects.create(
-            project=self.project, name="T", duration=5,
+            project=self.project,
+            name="T",
+            duration=5,
             early_start=date(2026, 3, 2),  # Monday
-            early_finish=date(2026, 3, 8), # Sunday
+            early_finish=date(2026, 3, 8),  # Sunday
         )
         TaskResource.objects.create(task=task, resource=resource, units="1.0")
 
@@ -189,8 +194,11 @@ class TestUtilizationComputation:
         )
         resource = Resource.objects.create(name="Dave", max_units="1.0")
         task = Task.objects.create(
-            project=self.project, name="T", duration=5,
-            early_start=date(2026, 3, 2), early_finish=date(2026, 3, 6),
+            project=self.project,
+            name="T",
+            duration=5,
+            early_start=date(2026, 3, 2),
+            early_finish=date(2026, 3, 6),
         )
         TaskResource.objects.create(task=task, resource=resource, units="1.0")
 
@@ -204,8 +212,11 @@ class TestUtilizationComputation:
         res_cal = Calendar.objects.create(name="Part-time", working_days=31, hours_per_day=6.0)
         resource = Resource.objects.create(name="Eve", max_units="1.0", calendar=res_cal)
         task = Task.objects.create(
-            project=self.project, name="T", duration=1,
-            early_start=date(2026, 3, 2), early_finish=date(2026, 3, 2),
+            project=self.project,
+            name="T",
+            duration=1,
+            early_start=date(2026, 3, 2),
+            early_finish=date(2026, 3, 2),
         )
         TaskResource.objects.create(task=task, resource=resource, units="1.0")
 
@@ -218,8 +229,11 @@ class TestUtilizationComputation:
         res_cal = Calendar.objects.create(name="Other", working_days=31, hours_per_day=8.0)
         resource = Resource.objects.create(name="Frank", max_units="1.0", calendar=res_cal)
         task = Task.objects.create(
-            project=self.project, name="T", duration=1,
-            early_start=date(2026, 3, 2), early_finish=date(2026, 3, 2),
+            project=self.project,
+            name="T",
+            duration=1,
+            early_start=date(2026, 3, 2),
+            early_finish=date(2026, 3, 2),
         )
         TaskResource.objects.create(task=task, resource=resource, units="1.0")
 
@@ -230,8 +244,11 @@ class TestUtilizationComputation:
         """Flag is false when resource.calendar is the same as project.calendar."""
         resource = Resource.objects.create(name="Grace", max_units="1.0", calendar=self.cal)
         task = Task.objects.create(
-            project=self.project, name="T", duration=1,
-            early_start=date(2026, 3, 2), early_finish=date(2026, 3, 2),
+            project=self.project,
+            name="T",
+            duration=1,
+            early_start=date(2026, 3, 2),
+            early_finish=date(2026, 3, 2),
         )
         TaskResource.objects.create(task=task, resource=resource, units="1.0")
 
@@ -241,8 +258,11 @@ class TestUtilizationComputation:
     def test_unassigned_task_count(self) -> None:
         """Tasks with CPM dates but no TaskResource are counted as unassigned."""
         Task.objects.create(
-            project=self.project, name="Unassigned", duration=1,
-            early_start=date(2026, 3, 2), early_finish=date(2026, 3, 2),
+            project=self.project,
+            name="Unassigned",
+            duration=1,
+            early_start=date(2026, 3, 2),
+            early_finish=date(2026, 3, 2),
         )
         resp = self._client().get(_url(self.project))
         assert resp.data["unassigned_task_count"] == 1
@@ -253,8 +273,11 @@ class TestUtilizationComputation:
         resource = Resource.objects.create(name="Hank", max_units="2.0")
         for name in ("T1", "T2"):
             task = Task.objects.create(
-                project=self.project, name=name, duration=1,
-                early_start=date(2026, 3, 2), early_finish=date(2026, 3, 2),
+                project=self.project,
+                name=name,
+                duration=1,
+                early_start=date(2026, 3, 2),
+                early_finish=date(2026, 3, 2),
             )
             TaskResource.objects.create(task=task, resource=resource, units="1.0")
 
@@ -278,8 +301,11 @@ class TestUtilizationWindow:
         self.resource = Resource.objects.create(name="Ida", max_units="1.0")
         # Task: Mon Mar 2 – Fri Mar 13 (10 working days)
         self.task = Task.objects.create(
-            project=self.project, name="T", duration=10,
-            early_start=date(2026, 3, 2), early_finish=date(2026, 3, 13),
+            project=self.project,
+            name="T",
+            duration=10,
+            early_start=date(2026, 3, 2),
+            early_finish=date(2026, 3, 13),
         )
         TaskResource.objects.create(task=self.task, resource=self.resource, units="1.0")
         self.client = _auth_client(Role.SCHEDULER, self.project)
