@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Calendar view** (issue #55): a month/week calendar overlaid with fragment chips for each
+  task. Tasks that span multiple weeks are split into contiguous chip fragments per row so
+  no task is ever truncated mid-week. Milestones render as ◆ diamond chips (using the
+  explicit `is_milestone` field — never inferred from `duration == 0`). Critical-path tasks
+  use `semantic-critical` color; complete tasks use `semantic-on-track`; normal tasks use
+  `brand-primary`. Up to 4 chip lanes per week row via greedy interval scheduling; overflow
+  shows "+N more". Month and week toggle stored in `?calView=` URL param. Prev/Next/Today
+  navigation with anchor stored in `?calAnchor=`. Accessible: chips are `<button>` elements
+  with `aria-label` carrying name + CP + milestone status; focus rings WCAG 2.1 AA.
+- `Task.is_milestone` field (`BooleanField(default=False)`) on the Task model and serializer.
+  Explicit flag preserved from MS Project `<Milestone>` / Primavera P6 `task_type=TT_Mile`
+  imports. Inferring milestone status from `duration == 0` is rejected — a 1-day gate
+  meeting is a valid milestone without zero duration, and inference breaks round-trip
+  fidelity with import sources.
+- **`[Gantt · WBS · Table]` view-mode switcher** extended to five tabs:
+  `[Gantt · WBS · Table · Calendar · Resources]` — both Calendar and Resources are live views.
 - **WBS Tree view** (issue #40): a collapsible hierarchy panel, accessible from the
   `[Gantt · WBS · Table]` view-mode switcher. Rows show WBS number, task name, progress
   bar, duration, and a critical-path (CP) badge. Summary rows use +/− expand/collapse
