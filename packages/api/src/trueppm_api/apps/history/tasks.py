@@ -6,14 +6,14 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from celery import shared_task  # type: ignore[import-untyped]
+from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="history.purge_old_records")  # type: ignore[misc]
+@shared_task(name="history.purge_old_records")  # type: ignore[untyped-decorator]
 def purge_old_history_records() -> dict[str, Any]:
     """Delete historical records older than HISTORY_RETENTION_DAYS.
 
@@ -36,9 +36,7 @@ def purge_old_history_records() -> dict[str, Any]:
     totals: dict[str, int] = {}
     for model in (Project, Task, Dependency):
         label = model.__name__
-        deleted, _ = model.history.filter(  # type: ignore[attr-defined]
-            history_date__lt=cutoff
-        ).delete()
+        deleted, _ = model.history.filter(history_date__lt=cutoff).delete()
         totals[label] = deleted
         if deleted:
             logger.info(

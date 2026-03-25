@@ -134,7 +134,7 @@ class TaskHistoryListView(APIView):
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
 
         records: list[Any] = list(
-            task.history.order_by("-history_date").select_related("history_user")  # type: ignore[attr-defined]
+            task.history.order_by("-history_date").select_related("history_user")
         )
 
         paginator = HistoryPagination()
@@ -164,7 +164,7 @@ class ProjectHistoryListView(APIView):
         self.check_object_permissions(request, project)
 
         records: list[Any] = list(
-            project.history.order_by("-history_date").select_related("history_user")  # type: ignore[attr-defined]
+            project.history.order_by("-history_date").select_related("history_user")
         )
 
         paginator = HistoryPagination()
@@ -223,17 +223,15 @@ class ProjectHistorySummaryView(APIView):
         since = timezone.now() - timedelta(days=VALID_WINDOWS[window_str])
 
         task_records: list[Any] = list(
-            Task.history.filter(  # type: ignore[attr-defined]
-                project_id=project_pk, history_date__gte=since
-            ).select_related("history_user")
+            Task.history.filter(project_id=project_pk, history_date__gte=since).select_related(
+                "history_user"
+            )
         )
         project_records: list[Any] = list(
-            project.history.filter(  # type: ignore[attr-defined]
-                history_date__gte=since
-            ).select_related("history_user")
+            project.history.filter(history_date__gte=since).select_related("history_user")
         )
         dep_records: list[Any] = list(
-            Dependency.history.filter(  # type: ignore[attr-defined]
+            Dependency.history.filter(
                 predecessor__project_id=project_pk, history_date__gte=since
             ).select_related("history_user")
         )

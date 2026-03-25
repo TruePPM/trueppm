@@ -52,7 +52,7 @@ def _connect_to_historical_models() -> None:
     from trueppm_api.apps.projects.models import Dependency, Project, Task
 
     for model in (Project, Task, Dependency):
-        historical_model = model.history.model  # type: ignore[union-attr]
+        historical_model = model.history.model
         post_save.connect(_dispatch_history_record_created, sender=historical_model)
 
 
