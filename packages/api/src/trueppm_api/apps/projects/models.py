@@ -212,6 +212,12 @@ class Task(VersionedModel):
         ordering = ["wbs_path", "name"]
         indexes = [
             models.Index(fields=["project"]),
+            # Composite index for the utilization window filter:
+            # WHERE project_id = X AND early_start <= window_end AND early_finish >= window_start
+            models.Index(
+                fields=["project", "early_start", "early_finish"],
+                name="task_utilization_window_idx",
+            ),
         ]
 
     def __str__(self) -> str:

@@ -2,18 +2,19 @@ import { useSearchParams } from 'react-router';
 import { GanttView } from '@/features/gantt/GanttView';
 import { WbsView } from '@/features/wbs/WbsView';
 import { TaskListView } from '@/features/tasklist/TaskListView';
+import { ResourceView } from '@/features/resource/ResourceView';
 import { RecalculatingBadge } from './RecalculatingBadge';
 
-// The three sub-views within the project Gantt experience.
 // Active view is tracked in ?view= search param so URLs are shareable
 // and the TanStack Query cache key (['tasks', projectId]) stays stable
 // across view switches.
-type ViewMode = 'gantt' | 'wbs' | 'list';
+type ViewMode = 'gantt' | 'wbs' | 'list' | 'resources';
 
 const VIEW_LABELS: Record<ViewMode, string> = {
   gantt: 'Gantt',
   wbs: 'WBS',
   list: 'Table',
+  resources: 'Resources',
 };
 
 export function ProjectShell() {
@@ -32,7 +33,7 @@ export function ProjectShell() {
           bg-neutral-surface-raised flex-shrink-0"
       >
         <div role="group" aria-label="View mode" className="flex items-center gap-1">
-          {(['gantt', 'wbs', 'list'] as const).map((v) => (
+          {(['gantt', 'wbs', 'list', 'resources'] as const).map((v) => (
             <button
               key={v}
               type="button"
@@ -64,6 +65,7 @@ export function ProjectShell() {
         {view === 'gantt' && <GanttView />}
         {view === 'wbs' && <WbsView />}
         {view === 'list' && <TaskListView />}
+        {view === 'resources' && <ResourceView />}
       </div>
     </div>
   );

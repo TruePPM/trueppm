@@ -35,6 +35,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ganttUtils` — covering the full drag state machine, CPM worker seq guard, offline drop
   guard, Escape-key cancellation, CP badge timing (400 ms delay), overflow cap label,
   keyboard instruction strip, origin ghost bar, and `nudgeWorkingDays` edge cases.
+- **Resource utilization view** (issue #22): new `Resources` tab in the project view
+  switcher shows per-resource daily load as percentage-filled bars, color-coded green
+  (< 85%), amber (85–100%), and red (overallocated > 100%). Capacity is calendar-driven
+  (`resource.calendar.hours_per_day × max_units`) — part-time workers are represented
+  correctly. Default window is ±4 weeks from today; a "Fit to project" toolbar button
+  expands to the full project span. A mismatch tooltip (ⓘ) appears on any resource whose
+  calendar differs from the project calendar. Permission-gated to Scheduler and above.
+- REST endpoint `GET /api/v1/projects/{id}/utilization/` returning per-resource daily
+  load hours, contributing task IDs, and `unassigned_task_count` for tasks with CPM
+  dates but no resource assignment. Accepts `?start=` and `?end=` date filters; returns
+  409 when no CPM dates exist. Permission gate: SCHEDULER (role ≥ 2) and above.
+- `Task.hours_per_day` is now included per resource in the utilization response,
+  enabling the frontend to compute load percentages without additional API calls.
+- Composite database index `task_utilization_window_idx` on `(project, early_start,
+  early_finish)` — cuts the utilization window filter from a full project-task scan to
+  an index range scan; critical for projects with hundreds of tasks.
 
 ### Fixed
 - Celery worker container failed to start in Docker Compose — `packages/api/Dockerfile`
