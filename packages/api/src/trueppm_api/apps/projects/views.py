@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Count, OuterRef, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -16,8 +16,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.views import APIView
-
-from django.db.models import Count, OuterRef, Subquery
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
@@ -29,7 +27,14 @@ from trueppm_api.apps.access.permissions import (
     IsProjectScheduler,
     ProjectScopedViewSet,
 )
-from trueppm_api.apps.projects.models import Baseline, BaselineTask, Calendar, Dependency, Project, Task
+from trueppm_api.apps.projects.models import (
+    Baseline,
+    BaselineTask,
+    Calendar,
+    Dependency,
+    Project,
+    Task,
+)
 from trueppm_api.apps.projects.serializers import (
     BaselineDetailSerializer,
     BaselineSerializer,
@@ -265,7 +270,10 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                     task_id=OuterRef("id"),
                 ).values("finish")[:1]
             )
-            qs = qs.annotate(baseline_start=Subquery(start_sub), baseline_finish=Subquery(finish_sub))
+            qs = qs.annotate(
+                baseline_start=Subquery(start_sub),
+                baseline_finish=Subquery(finish_sub),
+            )
 
         return qs
 
@@ -431,7 +439,9 @@ class BaselineActivateView(APIView):
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
         self.check_object_permissions(request, project)
 
-        baseline = get_object_or_404(Baseline, pk=baseline_pk, project_id=project_pk, is_deleted=False)
+        baseline = get_object_or_404(
+            Baseline, pk=baseline_pk, project_id=project_pk, is_deleted=False
+        )
 
         with transaction.atomic():
             Baseline.objects.filter(project_id=project_pk, is_active=True).update(is_active=False)

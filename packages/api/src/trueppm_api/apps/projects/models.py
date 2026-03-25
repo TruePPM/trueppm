@@ -371,6 +371,9 @@ class BaselineTask(models.Model):
             models.Index(fields=["baseline", "task_id"], name="baseline_task_lookup_idx"),
         ]
 
+    def __str__(self) -> str:
+        return f"BaselineTask {self.task_id} @ {self.baseline}"
+
     def save(self, *args: Any, **kwargs: Any) -> None:
         """Prevent mutation after creation."""
         if self.pk and BaselineTask.objects.filter(pk=self.pk).exists():
@@ -378,6 +381,3 @@ class BaselineTask(models.Model):
                 f"BaselineTask {self.pk} is immutable — snapshot rows cannot be updated."
             )
         super().save(*args, **kwargs)
-
-    def __str__(self) -> str:
-        return f"BaselineTask {self.task_id} @ {self.baseline}"

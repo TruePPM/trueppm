@@ -317,7 +317,7 @@ class TestBaselineRead:
         tasks_with_cpm: list[Task],
     ) -> None:
         with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
-            b = Baseline.objects.create(project=project, name="B1")
+            Baseline.objects.create(project=project, name="B1")
         r = viewer_client.get(f"/api/v1/projects/{project.pk}/baselines/")
         assert r.status_code == 200
 
@@ -446,7 +446,7 @@ class TestTaskListBaselineOverlay:
             )
         r = client.get(f"/api/v1/tasks/?project={project.pk}")
         assert r.status_code == 200
-        tasks = r.data["results"] if "results" in r.data else r.data
+        tasks = r.data.get("results", r.data)
         assert any(t["baseline_start"] is not None for t in tasks)
 
     def test_explicit_baseline_param_overrides_active(
@@ -472,7 +472,7 @@ class TestTaskListBaselineOverlay:
             )
         # Explicit ?baseline=b1 should return b1 dates (April), not b2 dates (May)
         r = client.get(f"/api/v1/tasks/?project={project.pk}&baseline={b1_id}")
-        tasks = r.data["results"] if "results" in r.data else r.data
+        tasks = r.data.get("results", r.data)
         starts = [t["baseline_start"] for t in tasks if t["baseline_start"]]
         assert all(s.startswith("2026-04") for s in starts)
 
@@ -485,5 +485,5 @@ class TestTaskListBaselineOverlay:
     ) -> None:
         r = client.get(f"/api/v1/tasks/?project={project.pk}")
         assert r.status_code == 200
-        tasks = r.data["results"] if "results" in r.data else r.data
+        tasks = r.data.get("results", r.data)
         assert all(t["baseline_start"] is None for t in tasks)
