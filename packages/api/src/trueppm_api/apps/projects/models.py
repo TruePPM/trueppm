@@ -16,7 +16,11 @@ from trueppm_api.fields import LtreeField
 # These are written by the scheduling engine via bulk_update (bypassing signals
 # entirely), but also excluded defensively so any accidental .save() call in a
 # CPM path can never produce misleading user-attributed audit rows.
-_HISTORY_EXCLUDED = [
+# Fields excluded from django-simple-history tracking on all versioned models.
+# CPM output fields only exist on Task; Project and Dependency use the base list.
+_HISTORY_EXCLUDED_BASE = ["server_version", "deleted_version"]
+_HISTORY_EXCLUDED_TASK = [
+    *_HISTORY_EXCLUDED_BASE,
     "early_start",
     "early_finish",
     "late_start",
@@ -24,8 +28,6 @@ _HISTORY_EXCLUDED = [
     "total_float",
     "free_float",
     "is_critical",
-    "server_version",
-    "deleted_version",
 ]
 
 
@@ -166,7 +168,7 @@ class Project(VersionedModel):
         blank=True,
     )
 
-    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED)
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
 
     class Meta:
         db_table = "projects_project"
@@ -244,7 +246,7 @@ class Task(VersionedModel):
     most_likely_duration = models.IntegerField(null=True, blank=True)
     pessimistic_duration = models.IntegerField(null=True, blank=True)
 
-    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED)
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_TASK)
 
     class Meta:
         db_table = "projects_task"
@@ -298,7 +300,7 @@ class Dependency(VersionedModel):
         help_text="Lag in calendar days (positive = delay, negative = lead)",
     )
 
-    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED)
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
 
     class Meta:
         db_table = "projects_dependency"
