@@ -12,9 +12,6 @@ from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 
-# NOTE(issue-11): When BaselineViewSet is implemented, its create/update/destroy
-# actions must use IsProjectScheduler (Resource Manager+). See role matrix §5.
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -185,7 +182,7 @@ class IsProjectMemberWriteOrOwn(BasePermission):
 class IsProjectScheduler(BasePermission):
     """Allow Resource Manager (2) or above.
 
-    Used on: dependency creation/edit, future baseline creation (see module note).
+    Used on: dependency creation/edit.
     """
 
     message = "You need at least Resource Manager role for this action."

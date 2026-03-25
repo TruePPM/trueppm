@@ -7,8 +7,19 @@ from typing import Any
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 from trueppm_api.fields import LtreeField
+
+
+class ImmutableModelError(Exception):
+    """Raised when code attempts to UPDATE an immutable model row.
+
+    BaselineTask rows are written once (bulk_create at snapshot time) and must
+    never be mutated — they are the historical record.  Any code path that calls
+    BaselineTask.save() on an existing row has a bug; raising here surfaces it
+    immediately rather than silently corrupting history.
+    """
 
 
 class VersionedModel(models.Model):
@@ -277,3 +288,96 @@ class Dependency(VersionedModel):
 
     def __str__(self) -> str:
         return f"{self.predecessor} {self.dep_type}+{self.lag}d {self.successor}"
+
+
+# ---------------------------------------------------------------------------
+# Baseline
+# ---------------------------------------------------------------------------
+
+
+class Baseline(VersionedModel):
+    """A frozen snapshot of all task dates at a point in time.
+
+    Baselines enable plan-vs-actual tracking: ghost bars on the Gantt canvas
+    render from BaselineTask.start / BaselineTask.finish.
+
+    Only one baseline per project may be "active" at a time; the active baseline
+    is overlaid automatically on GET /api/v1/tasks/ without a ?baseline= param.
+    The UniqueConstraint below enforces this at the DB level — race conditions
+    between two concurrent activate calls cannot produce two active baselines.
+
+    has_cpm_dates=False means the snapshot was taken before the CPM engine ran;
+    some or all BaselineTask rows may have null start/finish.  The API includes
+    this flag so the frontend can display a soft warning.
+    """
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="baselines")
+    name = models.CharField(max_length=255)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_baselines",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=False, db_index=True)
+    # True when every snapshotted task had a non-null early_start at creation time.
+    has_cpm_dates = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "projects_baseline"
+        ordering = ["created_at"]
+        constraints = [
+            # At most one active baseline per project — enforced at the DB level.
+            models.UniqueConstraint(
+                fields=["project"],
+                condition=Q(is_active=True),
+                name="unique_active_baseline_per_project",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.project.name} / {self.name}"
+
+
+class BaselineTask(models.Model):
+    """Immutable snapshot of a single task's dates within a Baseline.
+
+    task_id is a plain UUIDField (not FK to Task) so that the snapshot survives
+    task soft-delete.  task_name is denormalized for the same reason — the name
+    at the time of snapshot is historically meaningful.
+
+    start / finish mirror early_start / early_finish at snapshot time; they may
+    be null when the CPM engine had not yet run (Baseline.has_cpm_dates=False).
+
+    Mutation after creation raises ImmutableModelError.  BaselineTask rows are
+    only ever written via BaselineTask.objects.bulk_create() inside the snapshot
+    transaction; no code path should call .save() on an existing row.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    baseline = models.ForeignKey(Baseline, on_delete=models.CASCADE, related_name="tasks")
+    # Plain UUID — not FK — so the snapshot survives task soft-delete.
+    task_id = models.UUIDField(db_index=True)
+    task_name = models.CharField(max_length=512)
+    start = models.DateField(null=True, blank=True)
+    finish = models.DateField(null=True, blank=True)
+    duration = models.IntegerField()
+
+    class Meta:
+        db_table = "projects_baseline_task"
+        indexes = [
+            models.Index(fields=["baseline", "task_id"], name="baseline_task_lookup_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"BaselineTask {self.task_id} @ {self.baseline}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Prevent mutation after creation."""
+        if self.pk and BaselineTask.objects.filter(pk=self.pk).exists():
+            raise ImmutableModelError(
+                f"BaselineTask {self.pk} is immutable — snapshot rows cannot be updated."
+            )
+        super().save(*args, **kwargs)

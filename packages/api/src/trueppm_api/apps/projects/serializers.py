@@ -8,6 +8,8 @@ from typing import Any
 from rest_framework import serializers
 
 from trueppm_api.apps.projects.models import (
+    Baseline,
+    BaselineTask,
     Calendar,
     CalendarException,
     Dependency,
@@ -56,6 +58,12 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 class TaskSerializer(serializers.ModelSerializer[Task]):
     # Duration round-trips as integer working days.
     # CPM output fields are read-only — written by the scheduling engine.
+    #
+    # Baseline overlay fields: populated when the queryset is annotated with
+    # an active or explicit baseline (TaskViewSet.get_queryset).  Null when no
+    # baseline is active for the project.
+    baseline_start = serializers.DateField(read_only=True, allow_null=True, default=None)
+    baseline_finish = serializers.DateField(read_only=True, allow_null=True, default=None)
 
     class Meta:
         model = Task
@@ -80,6 +88,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "optimistic_duration",
             "most_likely_duration",
             "pessimistic_duration",
+            "baseline_start",
+            "baseline_finish",
         ]
         read_only_fields = [
             "id",
@@ -91,6 +101,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "total_float",
             "free_float",
             "is_critical",
+            "baseline_start",
+            "baseline_finish",
         ]
 
 
@@ -161,6 +173,50 @@ class TaskBulkSerializer(serializers.Serializer[Any]):
                     raise serializers.ValidationError(f"Duplicate id {task_id} in operations list.")
                 ids_seen.add(task_id)
         return ops
+
+
+class BaselineTaskSerializer(serializers.ModelSerializer[BaselineTask]):
+    """Read-only snapshot of a single task within a baseline."""
+
+    class Meta:
+        model = BaselineTask
+        fields = ["task_id", "task_name", "start", "finish", "duration"]
+        read_only_fields = fields
+
+
+class BaselineSerializer(serializers.ModelSerializer[Baseline]):
+    """List / create response shape for Baseline.
+
+    task_count is annotated by BaselineViewSet.get_queryset() and is read-only.
+    name is optional on create — the view supplies an auto-generated default.
+    """
+
+    task_count = serializers.IntegerField(read_only=True, default=0)
+
+    class Meta:
+        model = Baseline
+        fields = [
+            "id",
+            "project",
+            "name",
+            "created_by",
+            "created_at",
+            "is_active",
+            "has_cpm_dates",
+            "task_count",
+        ]
+        read_only_fields = ["id", "project", "created_by", "created_at", "has_cpm_dates"]
+        # name is optional on create — the view auto-generates "Baseline N" when omitted.
+        extra_kwargs = {"name": {"required": False, "allow_blank": True}}
+
+
+class BaselineDetailSerializer(BaselineSerializer):
+    """Retrieve response — includes the full task snapshot."""
+
+    tasks = BaselineTaskSerializer(many=True, read_only=True)
+
+    class Meta(BaselineSerializer.Meta):
+        fields = [*BaselineSerializer.Meta.fields, "tasks"]
 
 
 class DependencySerializer(serializers.ModelSerializer[Dependency]):

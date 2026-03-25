@@ -58,6 +58,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`GET /api/v1/tasks/?project=…` and `GET /api/v1/dependencies/?project=…`)
   instead of returning fixture data.
 - Playwright E2E test scaffold (`packages/web/e2e/`) with smoke and Gantt tests
+- **Baselines** (issue #9): snapshot the current schedule for comparison against actuals.
+  `POST /api/v1/projects/{pk}/baselines/` creates a named snapshot of all task
+  start/finish dates; auto-names as "Baseline 1", "Baseline 2", … when no name is
+  supplied (custom names accepted). Baselines are immutable once created — task rows
+  cannot be mutated after snapshot. `POST …/activate/` marks a baseline as the active
+  reference; only one baseline can be active per project at a time (enforced at the
+  DB level). `DELETE …/{id}/` soft-deletes a baseline (Owner only).
+- `GET /api/v1/tasks/` now returns `baseline_start` and `baseline_finish` date fields
+  annotated from the active baseline (or an explicit `?baseline=<id>` override).
+  Both fields are `null` when no baseline is active or the task was not present in the
+  snapshot. Gantt bar rendering uses these fields to draw the 6px baseline ghost bar.
+- `Baseline.has_cpm_dates` flag: `false` when the snapshot was taken before the CPM
+  engine has run (early start/finish are null). Creation still succeeds — the flag lets
+  the UI warn the user that date comparison will be meaningless until the scheduler runs.
+- WebSocket project channel now dispatches `baseline_created`, `baseline_activated`, and
+  `baseline_deleted` events to all connected clients; the frontend invalidates the
+  baselines and tasks cache on receipt.
   that run against the production build in CI; covers shell landmarks, view-mode
   switcher state, task list accessibility, and Gantt legend. New `web:e2e` CI job
   uses the official Playwright Docker image and saves reports as artifacts on failure.

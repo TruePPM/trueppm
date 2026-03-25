@@ -6,6 +6,7 @@
  *   cpm_complete  → invalidate tasks query, schedulerStore.setCpmComplete()
  *   cpm_error     → schedulerStore.setCpmError()
  *   task_created / task_updated / task_deleted → invalidate tasks query
+ *   baseline_created / baseline_activated / baseline_deleted → invalidate baselines + tasks
  *
  * Reconnects with exponential backoff (1s → 2s → 4s → … up to 30s).
  * Stops reconnecting when `projectId` is null/undefined or the token is absent.
@@ -83,6 +84,16 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         event_type === 'task_deleted'
       ) {
         void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+      } else if (
+        event_type === 'baseline_created' ||
+        event_type === 'baseline_activated' ||
+        event_type === 'baseline_deleted'
+      ) {
+        void queryClient.invalidateQueries({ queryKey: ['baselines', projectIdRef.current] });
+        // Active baseline change affects the task overlay annotation.
+        if (event_type === 'baseline_activated' || event_type === 'baseline_deleted') {
+          void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+        }
       }
     }
 
