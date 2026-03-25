@@ -206,12 +206,8 @@ class BaselineSerializer(serializers.ModelSerializer[Baseline]):
             "task_count",
         ]
         read_only_fields = ["id", "project", "created_by", "created_at", "has_cpm_dates"]
-
-    def validate_name(self, value: str) -> str:
-        # Enforce uniqueness of name per project at the serializer level so the
-        # error message is user-friendly (model-level DB unique was not added —
-        # the view generates the default name and checks uniqueness there).
-        return value
+        # name is optional on create — the view auto-generates "Baseline N" when omitted.
+        extra_kwargs = {"name": {"required": False, "allow_blank": True}}
 
 
 class BaselineDetailSerializer(BaselineSerializer):
