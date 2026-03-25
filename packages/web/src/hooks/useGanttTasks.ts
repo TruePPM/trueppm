@@ -19,6 +19,9 @@ interface ApiTask {
   is_milestone: boolean;
   // Summary tasks have a null parent — inferred from wbs_path depth in the UI
   // (no explicit is_summary field on the API yet).
+  // Baseline overlay — annotated by TaskViewSet when an active/explicit baseline exists.
+  baseline_start: string | null;
+  baseline_finish: string | null;
 }
 
 interface ApiDependency {
@@ -48,6 +51,8 @@ function mapTask(t: ApiTask): Task {
     isComplete: t.percent_complete >= 100,
     isSummary: false, // placeholder — summary flag added in issue #57
     isMilestone: t.is_milestone,
+    ...(t.baseline_start !== null && { baselineStart: t.baseline_start }),
+    ...(t.baseline_finish !== null && { baselineFinish: t.baseline_finish }),
   };
 }
 

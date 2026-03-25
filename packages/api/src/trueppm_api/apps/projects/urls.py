@@ -6,6 +6,8 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from trueppm_api.apps.projects.views import (
+    BaselineActivateView,
+    BaselineViewSet,
     CalendarViewSet,
     DependencyViewSet,
     ProjectViewSet,
@@ -32,5 +34,21 @@ urlpatterns = [
         "projects/<pk>/tasks/bulk/",
         TaskBulkView.as_view(),
         name="project-tasks-bulk",
+    ),
+    # Baseline endpoints — nested under /projects/<project_pk>/baselines/
+    path(
+        "projects/<project_pk>/baselines/",
+        BaselineViewSet.as_view({"get": "list", "post": "create"}),
+        name="project-baselines-list",
+    ),
+    path(
+        "projects/<project_pk>/baselines/<pk>/",
+        BaselineViewSet.as_view({"get": "retrieve", "delete": "destroy"}),
+        name="project-baselines-detail",
+    ),
+    path(
+        "projects/<project_pk>/baselines/<baseline_pk>/activate/",
+        BaselineActivateView.as_view(),
+        name="project-baselines-activate",
     ),
 ]

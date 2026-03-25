@@ -9,7 +9,7 @@ from typing import Any
 from django.db import transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
-from rest_framework import filters, status, viewsets
+from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -17,8 +17,11 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.views import APIView
 
+from django.db.models import Count, OuterRef, Subquery
+
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
+    IsProjectAdmin,
     IsProjectMember,
     IsProjectMemberWrite,
     IsProjectMemberWriteOrOwn,
@@ -26,8 +29,10 @@ from trueppm_api.apps.access.permissions import (
     IsProjectScheduler,
     ProjectScopedViewSet,
 )
-from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
+from trueppm_api.apps.projects.models import Baseline, BaselineTask, Calendar, Dependency, Project, Task
 from trueppm_api.apps.projects.serializers import (
+    BaselineDetailSerializer,
+    BaselineSerializer,
     CalendarSerializer,
     DependencySerializer,
     ProjectSerializer,
@@ -231,6 +236,37 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         is_critical = self.request.query_params.get("is_critical")
         if is_critical is not None:
             qs = qs.filter(is_critical=is_critical.lower() in ("true", "1"))
+
+        # Baseline overlay: annotate each task with baseline_start / baseline_finish.
+        # Resolution order:
+        #   1. ?baseline=<id> explicit override
+        #   2. the project's active baseline (is_active=True)
+        #   3. no annotation (both fields are null in the response)
+        resolved_baseline_id: str | None = self.request.query_params.get("baseline")
+        if resolved_baseline_id is None and project_id:
+            active = (
+                Baseline.objects.filter(project_id=project_id, is_active=True, is_deleted=False)
+                .values_list("id", flat=True)
+                .first()
+            )
+            if active is not None:
+                resolved_baseline_id = str(active)
+
+        if resolved_baseline_id is not None:
+            start_sub = (
+                BaselineTask.objects.filter(
+                    baseline_id=resolved_baseline_id,
+                    task_id=OuterRef("id"),
+                ).values("start")[:1]
+            )
+            finish_sub = (
+                BaselineTask.objects.filter(
+                    baseline_id=resolved_baseline_id,
+                    task_id=OuterRef("id"),
+                ).values("finish")[:1]
+            )
+            qs = qs.annotate(baseline_start=Subquery(start_sub), baseline_finish=Subquery(finish_sub))
+
         return qs
 
     def perform_create(self, serializer: BaseSerializer[Task]) -> None:
@@ -274,6 +310,143 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_deleted", {"id": task_id})
         )
+
+
+class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
+    """CRUD for schedule baselines within a project.
+
+    A baseline is a frozen snapshot of all task dates at a point in time,
+    used for plan-vs-actual tracking via ghost bars on the Gantt.
+
+    Permission matrix:
+      list / retrieve — any project member (Viewer+)
+      create          — Project Manager+ (IsProjectAdmin, role ≥ 3)
+      destroy         — Project Owner only (IsProjectOwner, role = 4)
+    """
+
+    queryset = Baseline.objects.filter(is_deleted=False)
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["created_at", "name"]
+
+    def get_serializer_class(self) -> type:
+        if self.action == "retrieve":
+            return BaselineDetailSerializer
+        return BaselineSerializer
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated(), IsProjectMember()]
+        if self.action == "destroy":
+            return [IsAuthenticated(), IsProjectOwner()]
+        return [IsAuthenticated(), IsProjectAdmin()]
+
+    def get_queryset(self) -> QuerySet[Baseline]:
+        qs = super().get_queryset()
+        project_pk = self.kwargs.get("project_pk")
+        if project_pk:
+            qs = qs.filter(project_id=project_pk)
+        return qs.annotate(task_count=Count("tasks"))
+
+    def perform_create(self, serializer: BaseSerializer[Baseline]) -> None:
+        """Snapshot all live task dates atomically and broadcast baseline_created."""
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_pk = self.kwargs["project_pk"]
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        self.check_object_permissions(self.request, project)
+
+        # Auto-name: "Baseline N" where N = existing count + 1
+        name = serializer.validated_data.get("name") or ""
+        if not name:
+            existing_count = Baseline.objects.filter(
+                project_id=project_pk, is_deleted=False
+            ).count()
+            name = f"Baseline {existing_count + 1}"
+
+        # Enforce unique name per project
+        if Baseline.objects.filter(project_id=project_pk, name=name, is_deleted=False).exists():
+            raise serializers.ValidationError(
+                {"name": f"A baseline named '{name}' already exists for this project."}
+            )
+
+        live_tasks = list(
+            Task.objects.filter(project_id=project_pk, is_deleted=False).values(
+                "id", "name", "early_start", "early_finish", "duration"
+            )
+        )
+        has_cpm_dates = bool(live_tasks) and all(t["early_start"] is not None for t in live_tasks)
+
+        with transaction.atomic():
+            baseline = serializer.save(
+                project=project,
+                created_by=self.request.user,  # type: ignore[misc]
+                name=name,
+                has_cpm_dates=has_cpm_dates,
+            )
+            BaselineTask.objects.bulk_create(
+                [
+                    BaselineTask(
+                        baseline=baseline,
+                        task_id=t["id"],
+                        task_name=t["name"],
+                        start=t["early_start"],
+                        finish=t["early_finish"],
+                        duration=t["duration"],
+                    )
+                    for t in live_tasks
+                ]
+            )
+            baseline_id = str(baseline.pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    str(project_pk), "baseline_created", {"id": baseline_id}
+                )
+            )
+
+    def perform_destroy(self, instance: Baseline) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_id = str(instance.project_id)
+        baseline_id = str(instance.pk)
+        instance.soft_delete()
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "baseline_deleted", {"id": baseline_id})
+        )
+
+
+class BaselineActivateView(APIView):
+    """Activate a specific baseline, deactivating all others for the project.
+
+    POST /api/v1/projects/{project_pk}/baselines/{baseline_pk}/activate/
+
+    Requires Project Manager+ (IsProjectAdmin, role ≥ 3).
+    Returns 200 with the updated baseline object.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectAdmin]
+
+    def post(self, request: Request, project_pk: str, baseline_pk: str) -> Response:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+
+        baseline = get_object_or_404(Baseline, pk=baseline_pk, project_id=project_pk, is_deleted=False)
+
+        with transaction.atomic():
+            Baseline.objects.filter(project_id=project_pk, is_active=True).update(is_active=False)
+            Baseline.objects.filter(pk=baseline_pk).update(is_active=True)
+            baseline.refresh_from_db()
+
+            baseline_id = str(baseline.pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    project_pk, "baseline_activated", {"id": baseline_id}
+                )
+            )
+
+        serializer = BaselineSerializer(baseline)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency]):
