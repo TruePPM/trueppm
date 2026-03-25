@@ -403,7 +403,7 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
             # Annotate task_count on the instance so the create response includes it
             # (get_queryset annotates for list/retrieve, but perform_create returns the
             # unsaved instance which lacks the annotation).
-            baseline.task_count = len(live_tasks)
+            baseline.task_count = len(live_tasks)  # type: ignore[attr-defined]
             baseline_id = str(baseline.pk)
             transaction.on_commit(
                 lambda: broadcast_board_event(
