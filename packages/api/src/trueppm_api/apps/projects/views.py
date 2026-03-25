@@ -258,18 +258,14 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 resolved_baseline_id = str(active)
 
         if resolved_baseline_id is not None:
-            start_sub = (
-                BaselineTask.objects.filter(
-                    baseline_id=resolved_baseline_id,
-                    task_id=OuterRef("id"),
-                ).values("start")[:1]
-            )
-            finish_sub = (
-                BaselineTask.objects.filter(
-                    baseline_id=resolved_baseline_id,
-                    task_id=OuterRef("id"),
-                ).values("finish")[:1]
-            )
+            start_sub = BaselineTask.objects.filter(
+                baseline_id=resolved_baseline_id,
+                task_id=OuterRef("id"),
+            ).values("start")[:1]
+            finish_sub = BaselineTask.objects.filter(
+                baseline_id=resolved_baseline_id,
+                task_id=OuterRef("id"),
+            ).values("finish")[:1]
             qs = qs.annotate(
                 baseline_start=Subquery(start_sub),
                 baseline_finish=Subquery(finish_sub),
@@ -450,9 +446,7 @@ class BaselineActivateView(APIView):
 
             baseline_id = str(baseline.pk)
             transaction.on_commit(
-                lambda: broadcast_board_event(
-                    project_pk, "baseline_activated", {"id": baseline_id}
-                )
+                lambda: broadcast_board_event(project_pk, "baseline_activated", {"id": baseline_id})
             )
 
         serializer = BaselineSerializer(baseline)

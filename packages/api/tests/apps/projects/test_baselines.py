@@ -106,10 +106,7 @@ def tasks_with_cpm(project: Project) -> list[Task]:
 @pytest.fixture
 def tasks_without_cpm(project: Project) -> list[Task]:
     """Three tasks with no CPM dates — baseline will have has_cpm_dates=False."""
-    return [
-        Task.objects.create(project=project, name=f"NoCpm {i}", duration=3)
-        for i in range(3)
-    ]
+    return [Task.objects.create(project=project, name=f"NoCpm {i}", duration=3) for i in range(3)]
 
 
 # ---------------------------------------------------------------------------
@@ -260,9 +257,7 @@ class TestBaselineCreate:
         owner_membership: ProjectMembership,
         tasks_with_cpm: list[Task],
     ) -> None:
-        with patch(
-            "trueppm_api.apps.sync.broadcast.broadcast_board_event"
-        ) as mock_broadcast:
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast:
             r = client.post(f"/api/v1/projects/{project.pk}/baselines/")
         assert r.status_code == 201
         event_types = [call.args[1] for call in mock_broadcast.call_args_list]
@@ -375,9 +370,7 @@ class TestBaselineActivate:
     ) -> None:
         with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
             b = Baseline.objects.create(project=project, name="B1")
-            r = client.post(
-                f"/api/v1/projects/{project.pk}/baselines/{b.pk}/activate/"
-            )
+            r = client.post(f"/api/v1/projects/{project.pk}/baselines/{b.pk}/activate/")
         assert r.status_code == 200
         assert r.data["is_active"] is True
 
@@ -404,9 +397,7 @@ class TestBaselineActivate:
         owner_membership: ProjectMembership,
     ) -> None:
         b = Baseline.objects.create(project=project, name="B1")
-        with patch(
-            "trueppm_api.apps.sync.broadcast.broadcast_board_event"
-        ) as mock_broadcast:
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast:
             client.post(f"/api/v1/projects/{project.pk}/baselines/{b.pk}/activate/")
         event_types = [call.args[1] for call in mock_broadcast.call_args_list]
         assert "baseline_activated" in event_types
@@ -418,9 +409,7 @@ class TestBaselineActivate:
         member_membership: ProjectMembership,
     ) -> None:
         b = Baseline.objects.create(project=project, name="B1")
-        r = member_client.post(
-            f"/api/v1/projects/{project.pk}/baselines/{b.pk}/activate/"
-        )
+        r = member_client.post(f"/api/v1/projects/{project.pk}/baselines/{b.pk}/activate/")
         assert r.status_code == 403
 
 
@@ -441,9 +430,7 @@ class TestTaskListBaselineOverlay:
         with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
             create_r = client.post(f"/api/v1/projects/{project.pk}/baselines/")
             baseline_id = create_r.data["id"]
-            client.post(
-                f"/api/v1/projects/{project.pk}/baselines/{baseline_id}/activate/"
-            )
+            client.post(f"/api/v1/projects/{project.pk}/baselines/{baseline_id}/activate/")
         r = client.get(f"/api/v1/tasks/?project={project.pk}")
         assert r.status_code == 200
         tasks = r.data.get("results", r.data)
@@ -467,9 +454,7 @@ class TestTaskListBaselineOverlay:
             r2 = client.post(f"/api/v1/projects/{project.pk}/baselines/")
             b2_id = r2.data["id"]
             # Activate b2
-            client.post(
-                f"/api/v1/projects/{project.pk}/baselines/{b2_id}/activate/"
-            )
+            client.post(f"/api/v1/projects/{project.pk}/baselines/{b2_id}/activate/")
         # Explicit ?baseline=b1 should return b1 dates (April), not b2 dates (May)
         r = client.get(f"/api/v1/tasks/?project={project.pk}&baseline={b1_id}")
         tasks = r.data.get("results", r.data)
