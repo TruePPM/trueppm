@@ -349,7 +349,7 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
         project_pk = self.kwargs.get("project_pk")
         if project_pk:
             qs = qs.filter(project_id=project_pk)
-        return qs.annotate(task_count=Count("tasks"))
+        return qs.annotate(task_count=Count("tasks"))  # type: ignore[return-value]
 
     def perform_create(self, serializer: BaseSerializer[Baseline]) -> None:
         """Snapshot all live task dates atomically and broadcast baseline_created."""
@@ -383,7 +383,7 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
         with transaction.atomic():
             baseline = serializer.save(
                 project=project,
-                created_by=self.request.user,  # type: ignore[misc]
+                created_by=self.request.user,
                 name=name,
                 has_cpm_dates=has_cpm_dates,
             )
