@@ -266,6 +266,7 @@ class TestTaskHistoryAPI:
         task: Task,
         owner_membership: ProjectMembership,
     ) -> None:
+        task._history_user = owner  # type: ignore[attr-defined]
         task.name = "Name change"
         task.save()
         r = owner_client.get(f"/api/v1/projects/{project.pk}/tasks/{task.pk}/history/")
