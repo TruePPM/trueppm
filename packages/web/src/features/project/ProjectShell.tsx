@@ -5,6 +5,8 @@ import { TaskListView } from '@/features/tasklist/TaskListView';
 import { CalendarView } from '@/features/calendar/CalendarView';
 import { ResourceView } from '@/features/resource/ResourceView';
 import { RecalculatingBadge } from './RecalculatingBadge';
+import { useProjectWebSocket } from '@/hooks/useProjectWebSocket';
+import { useSchedulerStore } from '@/stores/schedulerStore';
 
 // Active view is tracked in ?view= search param so URLs are shareable
 // and the TanStack Query cache key (['tasks', projectId]) stays stable
@@ -22,9 +24,21 @@ const VIEW_LABELS: Record<ViewMode, string> = {
 export function ProjectShell() {
   const [searchParams, setSearchParams] = useSearchParams();
   const view = (searchParams.get('view') ?? 'gantt') as ViewMode;
+  const projectId = searchParams.get('project');
+
+  useProjectWebSocket(projectId);
+
+  const isRecalculating = useSchedulerStore((s) => s.isRecalculating);
 
   function setView(v: ViewMode) {
-    setSearchParams({ view: v }, { replace: true });
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('view', v);
+        return next;
+      },
+      { replace: true },
+    );
   }
 
   return (
@@ -59,7 +73,7 @@ export function ProjectShell() {
         <div className="flex-1" />
 
         {/* RecalculatingBadge — wired to WebSocket scheduler events (issue #40) */}
-        <RecalculatingBadge isVisible={false} />
+        <RecalculatingBadge isVisible={isRecalculating} />
       </div>
 
       {/* Active view */}

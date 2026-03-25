@@ -47,6 +47,11 @@ def recalculate_schedule(self: object, project_id: str) -> None:
         self.apply_async(args=[project_id], countdown=_REQUEUE_COUNTDOWN)  # type: ignore[attr-defined]
         return
 
+    # Broadcast that CPM is now running so the frontend can show the badge.
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    broadcast_board_event(project_id=project_id, event_type="cpm_queued", payload={})
+
     try:
         _run_schedule(project_id)
     finally:
@@ -55,7 +60,7 @@ def recalculate_schedule(self: object, project_id: str) -> None:
 
 def _run_schedule(project_id: str) -> None:
     """Load tasks/dependencies, run CPM, bulk_update results, broadcast completion."""
-    from trueppm_scheduler.engine import schedule
+    from trueppm_scheduler.engine import CyclicDependencyError, schedule
     from trueppm_scheduler.models import Calendar as SchedCalendar
     from trueppm_scheduler.models import Dependency as SchedDependency
     from trueppm_scheduler.models import DependencyType
@@ -134,8 +139,29 @@ def _run_schedule(project_id: str) -> None:
 
     try:
         result = schedule(sched_project)
+    except CyclicDependencyError as exc:
+        logger.warning(
+            "recalculate_schedule: cyclic dependency in project %s: %s",
+            project_id,
+            exc.cycle,
+        )
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        broadcast_board_event(
+            project_id=project_id,
+            event_type="cpm_error",
+            payload={"error": "cyclic_dependency", "cycle": exc.cycle},
+        )
+        return
     except Exception:
         logger.exception("recalculate_schedule: CPM failed for project %s", project_id)
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        broadcast_board_event(
+            project_id=project_id,
+            event_type="cpm_error",
+            payload={"error": "internal_error", "cycle": []},
+        )
         return
 
     # Build a map from task id string to computed CPM values.
