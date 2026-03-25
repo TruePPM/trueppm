@@ -250,6 +250,7 @@ class TestBaselineCreate:
         r = viewer_client.post(f"/api/v1/projects/{project.pk}/baselines/")
         assert r.status_code == 403
 
+    @pytest.mark.django_db(transaction=True)
     def test_broadcasts_baseline_created(
         self,
         client: APIClient,
@@ -283,7 +284,7 @@ class TestBaselineRead:
             client.post(f"/api/v1/projects/{project.pk}/baselines/")
         r = client.get(f"/api/v1/projects/{project.pk}/baselines/")
         assert r.status_code == 200
-        assert len(r.data) == 2
+        assert len(r.data.get("results", r.data)) == 2
 
     def test_retrieve_includes_task_snapshot(
         self,
@@ -390,6 +391,7 @@ class TestBaselineActivate:
         assert b1.is_active is False
         assert b2.is_active is True
 
+    @pytest.mark.django_db(transaction=True)
     def test_activate_broadcasts_event(
         self,
         client: APIClient,
