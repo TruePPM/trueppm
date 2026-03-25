@@ -40,6 +40,7 @@ THIRD_PARTY_APPS = [
     "allauth.account",
     "channels",
     "drf_spectacular",
+    "simple_history",
 ]
 
 LOCAL_APPS = [
@@ -48,6 +49,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.resources",
     "trueppm_api.apps.scheduling",
     "trueppm_api.apps.sync",
+    "trueppm_api.apps.history",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -63,6 +65,7 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "allauth.account.middleware.AccountMiddleware",
+    "simple_history.middleware.HistoryRequestMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -120,6 +123,13 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "UTC"
+CELERY_BEAT_SCHEDULE = {
+    "history-purge-nightly": {
+        "task": "history.purge_old_records",
+        # 02:00 UTC every night — off-peak, avoids overlap with report generation.
+        "schedule": {"crontab": {"hour": "2", "minute": "0"}},
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Auth / Passwords
@@ -177,6 +187,19 @@ REST_FRAMEWORK = {
 
 SITE_ID = 1
 ACCOUNT_EMAIL_VERIFICATION = "none"
+
+# ---------------------------------------------------------------------------
+# drf-spectacular (OpenAPI)
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Object change history (django-simple-history)
+# ---------------------------------------------------------------------------
+
+# Retention window in days. Records older than this are purged nightly by the
+# Celery beat task in trueppm_api.apps.history.tasks.
+# Set to None to disable automatic purging (enterprise unlimited retention).
+HISTORY_RETENTION_DAYS: int | None = env.int("HISTORY_RETENTION_DAYS", default=90)
 
 # ---------------------------------------------------------------------------
 # drf-spectacular (OpenAPI)

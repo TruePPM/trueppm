@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Object change history** (issue #51): every user-initiated mutation to `Task`, `Project`,
+  and `Dependency` is now recorded via `django-simple-history` with field-level diffs (old
+  value, new value, who changed it, when). CPM output fields (`early_start`, `early_finish`,
+  etc.) are excluded. New endpoints: `GET /api/v1/projects/{pid}/tasks/{task_id}/history/`,
+  `GET /api/v1/projects/{pid}/history/`, and `GET /api/v1/projects/{pid}/history/summary/`
+  (mutation counts by field and object type, 5-minute Redis cache with `?refresh=1` bust).
+  `history_user` details visible to Owner/Admin only; Viewer/Member receive null. Nightly
+  Celery purge task controlled by `HISTORY_RETENTION_DAYS` setting (default 90 days; `None`
+  disables purging for enterprise unlimited retention). Closes issue #12 (superseded).
+  Enterprise extension point: `history_record_created` Django signal fires after each record
+  save for cold-storage archiving without OSS modification.
 - **Calendar view** (issue #55): a month/week calendar overlaid with fragment chips for each
   task. Tasks that span multiple weeks are split into contiguous chip fragments per row so
   no task is ever truncated mid-week. Milestones render as ◆ diamond chips (using the
