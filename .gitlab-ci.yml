@@ -432,7 +432,11 @@ security:pip-audit:
     - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e packages/api --quiet
   script:
-    - pip-audit --progress-spinner=off --desc on
+    # CVE-2026-4539: local-access-only ReDoS in pygments AdlLexer (CVSS low/medium).
+    # No fix version exists as of 2026-03-25 — pygments 2.19.2 is the latest release.
+    # Ignored explicitly so any new HIGH/CRITICAL CVE still blocks the pipeline.
+    # Remove this ignore once a patched pygments version is released.
+    - pip-audit --progress-spinner=off --desc on --ignore-vuln CVE-2026-4539
 
 web:security:
   # CVE scan for npm dependencies. Equivalent of pip-audit for the web package.

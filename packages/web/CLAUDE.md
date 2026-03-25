@@ -349,3 +349,66 @@ These rules are enforced at review time. Violations block merge.
     bg-brand-primary`. Positioned above the BottomNav rail. Uses `border border-brand-primary-dark`
     for elevation affordance (no drop shadow, per rule 1). The FAB opens the bottom sheet.
     Tap count to save a minimal risk must be ≤ 4 taps + typing.
+
+## Resource Utilization View Rules (Issue #22)
+
+91. **Cell display is load % bars — not task bars.** Each cell in the resource grid shows a
+    single filled bar representing load as a percentage of capacity. Task bars (mini) are not
+    the default; they may only appear in a drill-down tooltip. Color thresholds:
+    - Green (`semantic-on-track`): load < 85% of capacity
+    - Amber (`semantic-at-risk`): 85% ≤ load ≤ 100%
+    - Red (`semantic-critical`): load > 100% (overallocated)
+    Never invert this color scheme. Red must mean overallocation without exception.
+
+92. **Capacity baseline is `resource.calendar.hours_per_day` — never a fixed 8h/day global.**
+    The API returns actual hours computed from the resource's own calendar. The UI divides
+    `day.hours / resource_calendar_hours_per_day` to compute the fill percentage. Part-time
+    workers (e.g. 6 h/day) must show 100% at 6 h, not at 8 h. Never hard-code 8 as the
+    denominator. If `resource.calendar` is null, fall back to `project.calendar.hours_per_day`,
+    then to 8.0 as a last resort — in that priority order.
+
+93. **Default date range is rolling ±4 weeks from today.** On first render, `window_start` =
+    Monday of (today − 4 weeks) and `window_end` = Sunday of (today + 4 weeks). A
+    **"Fit to project"** button in the toolbar resets the range to
+    `[project.start_date, max(task.early_finish)]`. After "Fit to project" is clicked,
+    the button label changes to "Reset to today" until the user navigates away.
+
+94. **Permission gate: ResourceView is only rendered for SCHEDULER (role ≥ 2) and above.**
+    Team Member (MEMBER, role=1) and Viewer (role=0) must see `PermissionDeniedNotice`
+    instead of the grid. Gate via `useCurrentUserRole()` on the client side; the API
+    enforces the same gate server-side (HTTP 403). Never render the grid for lower roles
+    even if the API call happens to return 200.
+
+95. **409 "schedule not run" state renders `ResourceEmptyState` with a scheduler CTA.**
+    When the API returns HTTP 409, show the empty-state component with the message
+    "Run the scheduler to see resource utilization" and a "Run Scheduler" button that
+    triggers a CPM recalculation. Do not show a generic error toast for 409.
+
+96. **`calendar_differs_from_project` flag triggers a tooltip on the resource name.**
+    When `resource.calendar_differs_from_project === true`, render a `ⓘ` icon next to
+    the resource name. The `CalendarMismatchTooltip` reads: "This resource uses a different
+    calendar than the project. Load is computed from the resource's calendar." Never
+    suppress this flag silently.
+
+97. **Column headers are week labels (Mon DD MMM), not individual day labels.** The grid
+    groups days into ISO weeks. Each column header shows the Monday of that week formatted
+    as `"Mon 2 Mar"`. Individual day cells are 32px wide; the week header spans 7 × 32px.
+    Weekends are rendered at 50% opacity — they are never working days in the default
+    calendar but are shown for date continuity.
+
+98. **Resource rows are sorted alphabetically by `resource_name`.** The API returns them
+    pre-sorted; the frontend must not re-sort. Unassigned task count (`unassigned_task_count`)
+    is displayed in the toolbar as `"{N} task(s) without resource assignment"` in
+    `text-semantic-at-risk` when N > 0, hidden when N = 0.
+
+99. **Load tooltip on cell hover shows hours + task list.** Hovering any cell with load > 0
+    opens `LoadTooltip` containing: total hours for that day, capacity hours, percentage,
+    and a bulleted list of task names contributing to the load. The tooltip is positioned
+    above the cell and uses `role="tooltip"` with `aria-describedby` wiring. It must
+    dismiss on `Escape` and on pointer-leave.
+
+100. **ResourceGrid uses CSS Grid, not canvas.** Unlike the Gantt (rule 59), the resource
+     grid is a standard HTML/CSS layout: `display: grid` with `grid-template-columns`
+     driven by the date window. Row virtualization is not required for the initial
+     implementation (projects have ≤ 50 resources). Do not apply canvas-rendering rules
+     (rules 59–85) to the resource grid.

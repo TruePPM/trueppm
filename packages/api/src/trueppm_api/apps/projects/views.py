@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import uuid
 from typing import Any
 
@@ -9,6 +10,7 @@ from django.db import transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import filters, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -76,6 +78,8 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
     def get_permissions(self) -> list[BasePermission]:
         if self.action == "destroy":
             return [IsAuthenticated(), IsProjectOwner()]
+        if self.action == "utilization":
+            return [IsAuthenticated(), IsProjectScheduler()]
         return [IsAuthenticated(), IsProjectMember()]
 
     queryset = Project.objects.select_related("calendar").order_by("start_date", "name")
@@ -120,6 +124,75 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "project_deleted", {"id": project_id})
         )
+
+    @action(detail=True, methods=["get"], url_path="utilization")
+    def utilization(self, request: Request, pk: str | None = None) -> Response:
+        """Per-resource daily utilization for a project.
+
+        Returns a sparse map of resource → working day → {hours, task_ids}.
+        Requires Resource Manager role (SCHEDULER ≥ 2).
+
+        Query parameters:
+          start (YYYY-MM-DD) — window start, inclusive; defaults to earliest
+                               early_start across all project tasks.
+          end   (YYYY-MM-DD) — window end, inclusive; defaults to latest
+                               early_finish across all project tasks.
+
+        Returns 409 when no CPM dates exist on any task (scheduler not run yet).
+        """
+        from trueppm_api.apps.projects.utilization import compute_utilization
+
+        project = self.get_object()  # handles 404 + object-level permission check
+
+        # Resolve window bounds
+        start_str = request.query_params.get("start")
+        end_str = request.query_params.get("end")
+
+        def _parse_date(s: str, param: str) -> datetime.date:
+            try:
+                return datetime.date.fromisoformat(s)
+            except ValueError:
+                raise ValueError(f"'{param}' must be a valid ISO 8601 date (YYYY-MM-DD).") from None
+
+        try:
+            if start_str:
+                window_start = _parse_date(start_str, "start")
+            else:
+                first = (
+                    project.tasks.filter(is_deleted=False, early_start__isnull=False)
+                    .order_by("early_start")
+                    .values_list("early_start", flat=True)
+                    .first()
+                )
+                if first is None:
+                    return Response(
+                        {"detail": "Schedule has not been computed. Run the scheduler first."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                window_start = first
+
+            if end_str:
+                window_end = _parse_date(end_str, "end")
+            else:
+                last = (
+                    project.tasks.filter(is_deleted=False, early_finish__isnull=False)
+                    .order_by("-early_finish")
+                    .values_list("early_finish", flat=True)
+                    .first()
+                )
+                window_end = last if last is not None else window_start
+
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if window_start > window_end:
+            return Response(
+                {"detail": "'start' must not be after 'end'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        result = compute_utilization(project, window_start, window_end)
+        return Response(result)
 
 
 class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
