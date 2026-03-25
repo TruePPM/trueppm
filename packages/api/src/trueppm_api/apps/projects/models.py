@@ -9,7 +9,25 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
+from simple_history.models import HistoricalRecords
+
 from trueppm_api.fields import LtreeField
+
+# CPM output fields and sync internals — excluded from history tracking.
+# These are written by the scheduling engine via bulk_update (bypassing signals
+# entirely), but also excluded defensively so any accidental .save() call in a
+# CPM path can never produce misleading user-attributed audit rows.
+_HISTORY_EXCLUDED = [
+    "early_start",
+    "early_finish",
+    "late_start",
+    "late_finish",
+    "total_float",
+    "free_float",
+    "is_critical",
+    "server_version",
+    "deleted_version",
+]
 
 
 class ImmutableModelError(Exception):
@@ -149,6 +167,8 @@ class Project(VersionedModel):
         blank=True,
     )
 
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED)
+
     class Meta:
         db_table = "projects_project"
         ordering = ["start_date", "name"]
@@ -225,6 +245,8 @@ class Task(VersionedModel):
     most_likely_duration = models.IntegerField(null=True, blank=True)
     pessimistic_duration = models.IntegerField(null=True, blank=True)
 
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED)
+
     class Meta:
         db_table = "projects_task"
         ordering = ["wbs_path", "name"]
@@ -276,6 +298,8 @@ class Dependency(VersionedModel):
         default=0,
         help_text="Lag in calendar days (positive = delay, negative = lead)",
     )
+
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED)
 
     class Meta:
         db_table = "projects_dependency"
