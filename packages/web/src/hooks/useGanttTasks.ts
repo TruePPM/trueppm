@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router';
 import { apiClient } from '@/api';
 import type { Task, TaskLink, LinkType } from '@/types';
 
@@ -72,24 +73,29 @@ export interface UseGanttTasksResult {
 }
 
 export function useGanttTasks(projectId?: string): UseGanttTasksResult {
+  const [searchParams] = useSearchParams();
+  // Callers may pass projectId directly; fall back to ?project= search param so
+  // GanttView (and other consumers) don't need to plumb it through props.
+  const resolvedId = projectId ?? searchParams.get('project') ?? undefined;
+
   const tasksQuery = useQuery<Task[], Error>({
-    queryKey: ['tasks', projectId],
+    queryKey: ['tasks', resolvedId],
     queryFn: async () => {
-      const res = await apiClient.get<ApiTask[]>('/tasks/', { params: { project: projectId } });
+      const res = await apiClient.get<ApiTask[]>('/tasks/', { params: { project: resolvedId } });
       return res.data.map(mapTask);
     },
-    enabled: !!projectId,
+    enabled: !!resolvedId,
   });
 
   const linksQuery = useQuery<TaskLink[], Error>({
-    queryKey: ['dependencies', projectId],
+    queryKey: ['dependencies', resolvedId],
     queryFn: async () => {
       const res = await apiClient.get<ApiDependency[]>('/dependencies/', {
-        params: { project: projectId },
+        params: { project: resolvedId },
       });
       return res.data.map(mapDependency);
     },
-    enabled: !!projectId,
+    enabled: !!resolvedId,
   });
 
   return {
