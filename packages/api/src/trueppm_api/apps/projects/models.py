@@ -8,7 +8,6 @@ from typing import Any
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
-
 from simple_history.models import HistoricalRecords
 
 from trueppm_api.fields import LtreeField
