@@ -6,6 +6,7 @@ import logging
 from datetime import timedelta
 from typing import Any
 
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -22,6 +23,8 @@ from trueppm_api.apps.history.serializers import HistoryRecordSerializer
 from trueppm_api.apps.projects.models import Dependency, Project, Task
 
 logger = logging.getLogger(__name__)
+
+User = get_user_model()
 
 # Fields excluded from all diffs — CPM outputs, sync internals, and
 # django-simple-history's own bookkeeping columns.
@@ -65,7 +68,7 @@ def _compute_diffs(records: list[Any]) -> dict[int, list[dict[str, Any]]]:
         prev = record.prev_record
         if prev is None:
             # Creation — list non-null fields as old=None → new=value.
-            changes = [
+            changes: list[dict[str, Any]] = [
                 {"field": f.attname, "old": None, "new": getattr(record, f.attname)}
                 for f in record._meta.fields
                 if f.attname not in _DIFF_EXCLUDED and getattr(record, f.attname) is not None
@@ -103,7 +106,11 @@ def _count_field_changes(records: list[Any]) -> dict[str, int]:
 def _caller_can_see_user(request: Request, project: Project) -> bool:
     """True if the caller holds Owner or Admin role (>= ADMIN = 3)."""
     try:
-        m = ProjectMembership.objects.get(user=request.user, project=project, is_deleted=False)
+        m = ProjectMembership.objects.get(
+            user=request.user,  # type: ignore[misc]
+            project=project,
+            is_deleted=False,
+        )
         return m.role >= Role.ADMIN
     except ProjectMembership.DoesNotExist:
         return False
@@ -126,15 +133,15 @@ class TaskHistoryListView(APIView):
         self.check_object_permissions(request, project)
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
 
-        records = list(task.history.order_by("-history_date").select_related("history_user"))
+        records: list[Any] = list(
+            task.history.order_by("-history_date").select_related("history_user")  # type: ignore[attr-defined]
+        )
 
         paginator = HistoryPagination()
-        page = paginator.paginate_queryset(records, request, view=self)
-        page = page if page is not None else records
+        page: list[Any] = paginator.paginate_queryset(records, request, view=self) or records  # type: ignore[arg-type]
 
         diffs = _compute_diffs(page)
         hide_user = not _caller_can_see_user(request, project)
-        # Omit records where no tracked fields changed.
         visible = [r for r in page if diffs.get(r.history_id)]
         serializer = HistoryRecordSerializer(
             visible,
@@ -156,11 +163,12 @@ class ProjectHistoryListView(APIView):
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
         self.check_object_permissions(request, project)
 
-        records = list(project.history.order_by("-history_date").select_related("history_user"))
+        records: list[Any] = list(
+            project.history.order_by("-history_date").select_related("history_user")  # type: ignore[attr-defined]
+        )
 
         paginator = HistoryPagination()
-        page = paginator.paginate_queryset(records, request, view=self)
-        page = page if page is not None else records
+        page: list[Any] = paginator.paginate_queryset(records, request, view=self) or records  # type: ignore[arg-type]
 
         diffs = _compute_diffs(page)
         hide_user = not _caller_can_see_user(request, project)
@@ -178,7 +186,7 @@ class ProjectHistorySummaryView(APIView):
 
     GET /api/v1/projects/{project_pk}/history/summary/?window=7d
 
-    Supported windows: 1d (default: 7d), 7d, 30d, 90d.
+    Supported windows: 1d, 7d (default), 30d, 90d.
     Response is cached in Redis for 5 minutes. Pass ``?refresh=1`` to bust
     the cache — the UI should call this when the user hits the refresh button.
 
@@ -208,21 +216,23 @@ class ProjectHistorySummaryView(APIView):
         cache_key = f"history_summary:{project_pk}:{window_str}"
 
         if not force_refresh:
-            cached = cache.get(cache_key)
+            cached: dict[str, Any] | None = cache.get(cache_key)
             if cached is not None:
                 return Response(cached)
 
         since = timezone.now() - timedelta(days=VALID_WINDOWS[window_str])
 
-        task_records = list(
+        task_records: list[Any] = list(
             Task.history.filter(  # type: ignore[attr-defined]
                 project_id=project_pk, history_date__gte=since
             ).select_related("history_user")
         )
-        project_records = list(
-            project.history.filter(history_date__gte=since).select_related("history_user")
+        project_records: list[Any] = list(
+            project.history.filter(  # type: ignore[attr-defined]
+                history_date__gte=since
+            ).select_related("history_user")
         )
-        dep_records = list(
+        dep_records: list[Any] = list(
             Dependency.history.filter(  # type: ignore[attr-defined]
                 predecessor__project_id=project_pk, history_date__gte=since
             ).select_related("history_user")
@@ -233,13 +243,13 @@ class ProjectHistorySummaryView(APIView):
             for field, count in _count_field_changes(batch).items():
                 field_counts[field] = field_counts.get(field, 0) + count
 
-        by_field = sorted(
+        by_field: list[dict[str, Any]] = sorted(
             [{"field": f, "count": c} for f, c in field_counts.items()],
-            key=lambda x: x["count"],
+            key=lambda x: int(x["count"]),
             reverse=True,
         )
 
-        payload = {
+        payload: dict[str, Any] = {
             "project_id": str(project_pk),
             "window": window_str,
             "total_mutations": len(task_records) + len(project_records) + len(dep_records),

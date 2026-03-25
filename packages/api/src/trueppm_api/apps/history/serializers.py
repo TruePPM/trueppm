@@ -53,8 +53,8 @@ class HistoryRecordSerializer(serializers.Serializer[Any]):
         user = obj.history_user
         if user is None:
             return None
-        return HistoryUserSerializer(user).data  # type: ignore[return-value]
+        return HistoryUserSerializer(user).data  # type: ignore[return-value]  # ReturnedDict
 
     def get_diff(self, obj: Any) -> list[dict[str, Any]]:
-        diffs: dict[str, dict[str, Any]] = self.context.get("diffs", {})
+        diffs: dict[int, list[dict[str, Any]]] = self.context.get("diffs", {})
         return diffs.get(obj.history_id, [])

@@ -65,6 +65,7 @@ module = [
     "celery.*",
     "environ",
     "channels.*",
+    "simple_history.*",
     "trueppm_api.apps.scheduling.*",
     "trueppm_api.apps.sync.*",
 ]
