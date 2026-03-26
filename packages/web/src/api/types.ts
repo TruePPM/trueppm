@@ -5,3 +5,22 @@
 // Regenerate when the API schema changes: npm run generate:types (requires a running API).
 
 export type {};
+
+// Risk Register types (issue #52). Hand-authored until openapi-typescript regeneration.
+export interface Risk {
+  id: string;
+  server_version: number;
+  project: string;
+  title: string;
+  description: string;
+  status: 'OPEN' | 'MITIGATING' | 'RESOLVED' | 'ACCEPTED' | 'CLOSED';
+  probability: number;
+  impact: number;
+  /** Computed by the API: probability × impact (1–25). */
+  severity: number;
+  owner: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  tasks: string[];
+}

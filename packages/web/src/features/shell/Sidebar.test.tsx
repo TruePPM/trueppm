@@ -3,7 +3,13 @@ import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { useShellStore } from '@/stores/shellStore';
+import { FIXTURE_PROJECTS } from '@/fixtures/projects';
 import { Sidebar } from './Sidebar';
+
+// useProjects now calls the live API — stub it with fixture data for unit tests.
+vi.mock('@/hooks/useProjects', () => ({
+  useProjects: () => ({ data: FIXTURE_PROJECTS, isLoading: false, error: null }),
+}));
 
 describe('Sidebar', () => {
   beforeEach(() => {

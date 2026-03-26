@@ -80,17 +80,20 @@ describe('apiClient', () => {
       expect(fulfilled(fakeResponse)).toBe(fakeResponse);
     });
 
-    it('clears auth tokens when a 401 response is received', async () => {
+    it('clears auth tokens after a failed token refresh on 401', async () => {
       useAuthStore.getState().setTokens('access', 'refresh');
       const client = await getApiClient();
       const { rejected } = getResponseInterceptors(client);
 
+      // config is required — the new interceptor reads _retried and headers from it.
+      // The refresh attempt will fail (no network in tests) → the catch block calls
+      // clearTokens() and re-throws 'Session expired'.
       const axiosError = Object.assign(new Error('Unauthorized'), {
         isAxiosError: true,
         response: { status: 401 },
+        config: { headers: {} },
       });
-      // Spy on isAxiosError — it checks a static property on the error object
-      await expect(rejected(axiosError)).rejects.toThrow();
+      await expect(rejected(axiosError)).rejects.toThrow('Session expired');
       expect(useAuthStore.getState().accessToken).toBeNull();
     });
 

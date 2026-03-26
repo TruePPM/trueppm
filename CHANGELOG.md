@@ -25,6 +25,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   project via a many-to-many through table (`RiskTask`). Ordering by severity supported via
   `?ordering=-severity`. Status filter via `?status=OPEN`. WebSocket events
   (`risk_created`, `risk_updated`, `risk_deleted`) broadcast on commit.
+- **Risk Register web UI** (issue #52): `Risks` tab added to the project view switcher
+  (ViewTabs desktop + BottomNav mobile). The register shows a sortable table with
+  WCAG-compliant severity chips (CRITICAL/HIGH/MEDIUM/LOW/MINIMAL), status badges, and a
+  5×5 probability × impact matrix that highlights occupied cells. Desktop: risk detail
+  opens in a 480px right-side drawer. Mobile: 85vh bottom sheet with drag handle.
+  Create/edit form; mobile FAB above the nav rail. All rules 86–90 from
+  `packages/web/CLAUDE.md` are enforced.
+- **Web authentication**: JWT login page (`POST /api/v1/auth/token/`), `RequireAuth`
+  route guard (redirects to `/login?next=` when unauthenticated), and single-flight
+  token refresh interceptor (coalesces concurrent 401s, retries originals, dispatches
+  `auth:sessionExpired` on refresh failure). All routes except `/login` are protected.
+  Dead placeholder routes (`/board`, `/list`, `/calendar`, `/resources`) removed; `*`
+  catch-all redirects to `/gantt`. `useGanttTasks` and `useProjects` now call the live
+  API (fixture stubs removed).
 - **Object change history** (issue #51): every user-initiated mutation to `Task`, `Project`,
   and `Dependency` is now recorded via `django-simple-history` with field-level diffs (old
   value, new value, who changed it, when). CPM output fields (`early_start`, `early_finish`,

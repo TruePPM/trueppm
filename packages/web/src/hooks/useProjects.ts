@@ -1,6 +1,5 @@
-// Stub hook — returns fixture data until real API hooks are wired in.
-// Replace the body with a real useQuery call; the return type is stable.
-import { FIXTURE_PROJECTS } from '@/fixtures/projects';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/api/client';
 import type { Project } from '@/types';
 
 export interface UseProjectsResult {
@@ -9,6 +8,51 @@ export interface UseProjectsResult {
   error: Error | null;
 }
 
+interface ApiProject {
+  id: string;
+  name: string;
+  description: string;
+  start_date: string;
+  calendar: string;
+}
+
+// Deterministic palette cycled by index — no server-side color assignment yet.
+// Values are Design System hex literals kept here as the canonical definition
+// (components must not reference this array directly — they consume Project.colorDot).
+const COLOR_PALETTE: ReadonlyArray<string> = [
+  '#1C6B3A',
+  '#E8A020',
+  '#B91C1C',
+  '#6B6965',
+  '#145229',
+  '#1D4ED8',
+  '#7C3AED',
+  '#0E7490',
+];
+
+function mapProject(p: ApiProject, index: number): Project {
+  return {
+    id: p.id,
+    name: p.name,
+    // healthState is not computed server-side yet; default to unknown
+    healthState: 'unknown',
+    // The modulo guarantees index is in bounds; fallback keeps TS happy on the readonly array type
+    colorDot: COLOR_PALETTE[index % COLOR_PALETTE.length] ?? '#1C6B3A',
+  };
+}
+
 export function useProjects(): UseProjectsResult {
-  return { data: FIXTURE_PROJECTS, isLoading: false, error: null };
+  const query = useQuery({
+    queryKey: ['projects'],
+    queryFn: async () => {
+      const res = await apiClient.get<ApiProject[]>('/projects/');
+      return res.data.map(mapProject);
+    },
+  });
+
+  return {
+    data: query.data,
+    isLoading: query.isLoading,
+    error: query.error,
+  };
 }
