@@ -30,6 +30,14 @@ class CyclicDependencyError(ValueError):
         super().__init__(f"Cyclic dependency detected: {ids}")
 
 
+class SimulationCapExceeded(ValueError):
+    """Raised when n_simulations or task count exceeds the configured cap.
+
+    The message is user-facing and suitable for inclusion in an API response
+    body without further processing.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Result types
 # ---------------------------------------------------------------------------
@@ -457,8 +465,10 @@ def _build_working_day_index(start: date, calendar: Calendar, n_working_days: in
 
 def monte_carlo(
     project: Project,
-    runs: int = 10_000,
+    runs: int = 1_000,
     seed: int | None = None,
+    max_runs: int | None = 1_000,
+    max_tasks: int | None = 500,
 ) -> MonteCarloResult:
     """Run Monte Carlo probabilistic scheduling on a project.
 
@@ -471,19 +481,36 @@ def monte_carlo(
     so 10 000 runs on a 200-task project completes in well under 100 ms.
 
     Args:
-        project: The project to simulate. Must have at least one task and
-                 no cyclic dependencies.
-        runs:    Number of Monte Carlo iterations. Default 10 000.
-        seed:    Optional RNG seed for reproducibility.
+        project:   The project to simulate. Must have at least one task and
+                   no cyclic dependencies.
+        runs:      Number of Monte Carlo iterations. Default 1 000 (OSS cap).
+        seed:      Optional RNG seed for reproducibility.
+        max_runs:  Maximum allowed value for ``runs``. Pass ``None`` to disable
+                   the cap (Team tier). Default 1 000.
+        max_tasks: Maximum number of tasks allowed. Pass ``None`` to disable
+                   the cap (Team tier). Default 500.
 
     Returns:
         MonteCarloResult with P50, P80, P95 completion dates and the full
         sorted distribution.
 
     Raises:
+        SimulationCapExceeded: If ``runs`` exceeds ``max_runs`` or the project
+            has more tasks than ``max_tasks``.
         CyclicDependencyError: If the dependency graph contains a cycle.
         ValueError: If the project has no tasks.
     """
+    if max_tasks is not None and len(project.tasks) > max_tasks:
+        raise SimulationCapExceeded(
+            f"This project has {len(project.tasks)} tasks. "
+            f"OSS tier supports up to {max_tasks} tasks for Monte Carlo simulation. "
+            "Upgrade to Team tier for unlimited simulations."
+        )
+    if max_runs is not None and runs > max_runs:
+        raise SimulationCapExceeded(
+            f"OSS tier supports up to {max_runs} simulations per run. "
+            "Upgrade to Team tier for unlimited simulations."
+        )
     if not project.tasks:
         raise ValueError("Project must have at least one task.")
 
