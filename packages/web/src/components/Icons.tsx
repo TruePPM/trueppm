@@ -90,6 +90,15 @@ export function CriticalDotIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/** Shield — risk register icon */
+export function RiskIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={className} {...rest}>
+      <path d="M8 1L2 3.5V8c0 3.31 2.55 5.8 6 6.85C11.45 13.8 14 11.31 14 8V3.5L8 1zm0 2.1l4 1.6V8c0 2.37-1.72 4.27-4 5.22C5.72 12.27 4 10.37 4 8V4.7l4-1.6z" />
+    </svg>
+  );
+}
+
 /** Logo mark — mini Gantt bars forming a "T" silhouette */
 export function LogoMark({ className, ...rest }: IconProps) {
   return (

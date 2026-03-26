@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router';
-import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon } from '@/components/Icons';
+import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon } from '@/components/Icons';
 import type { ComponentType } from 'react';
 
 interface NavItem {
@@ -15,6 +15,7 @@ const NAV_ITEMS: NavItem[] = [
   { view: 'list',      label: 'List',      Icon: ListIcon },
   { view: 'calendar',  label: 'Calendar',  Icon: CalendarIcon },
   { view: 'resources', label: 'Resources', Icon: ResourcesIcon },
+  { view: 'risk',      label: 'Risks',     Icon: RiskIcon },
 ];
 
 export function BottomNav() {
