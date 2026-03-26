@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   project via a many-to-many through table (`RiskTask`). Ordering by severity supported via
   `?ordering=-severity`. Status filter via `?status=OPEN`. WebSocket events
   (`risk_created`, `risk_updated`, `risk_deleted`) broadcast on commit.
+  `Risk` is included in the offline sync pull endpoint
+  (`GET /api/v1/projects/{pk}/sync/`) with task IDs serialized as a flat UUID list
+  (`task_ids`) on the risk payload — mobile clients receive risk changes in the same
+  delta pull as tasks and memberships. A `risk_changed` Django signal is emitted on
+  every probability, impact, or status change and on soft-delete; Enterprise can attach
+  portfolio rollup receivers without modifying OSS code.
 - **Risk Register web UI** (issue #52): `Risks` tab added to the project view switcher
   (ViewTabs desktop + BottomNav mobile). The register shows a sortable table with
   WCAG-compliant severity chips (CRITICAL/HIGH/MEDIUM/LOW/MINIMAL), status badges, and a
