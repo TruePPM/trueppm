@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Task
+from trueppm_api.apps.projects.models import Calendar, Project, Risk, Task
 
 User = get_user_model()
 
@@ -92,7 +92,7 @@ def test_sync_response_shape(
     assert resp.status_code == 200
     assert "changes" in resp.data
     assert "timestamp" in resp.data
-    for key in ("projects", "tasks", "dependencies", "calendars", "memberships"):
+    for key in ("projects", "tasks", "dependencies", "calendars", "memberships", "risks"):
         assert key in resp.data["changes"]
         bucket = resp.data["changes"][key]
         assert "created" in bucket
@@ -171,3 +171,76 @@ def test_sync_delta_respects_since(
     task_ids = [t["id"] for t in resp.data["changes"]["tasks"]["updated"]]
     assert str(task_a.pk) in task_ids
     assert str(task_b.pk) not in task_ids
+
+
+# ---------------------------------------------------------------------------
+# Risks in sync payload
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_sync_includes_risks_bucket(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    with patch.object(
+        __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
+        "_snapshot_max_version",
+        return_value=99,
+    ):
+        resp = authed_client.get(_url(project), {"since": "0"})
+    assert resp.status_code == 200
+    assert "risks" in resp.data["changes"]
+    bucket = resp.data["changes"]["risks"]
+    assert "created" in bucket
+    assert "updated" in bucket
+    assert "deleted" in bucket
+    assert bucket["created"] == []
+
+
+@pytest.mark.django_db
+def test_sync_returns_live_risks(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    risk = Risk.objects.create(project=project, title="Budget overrun", probability=3, impact=4)
+    with patch.object(
+        __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
+        "_snapshot_max_version",
+        return_value=99,
+    ):
+        resp = authed_client.get(_url(project), {"since": "0"})
+    risk_ids = [r["id"] for r in resp.data["changes"]["risks"]["updated"]]
+    assert str(risk.pk) in risk_ids
+
+
+@pytest.mark.django_db
+def test_sync_risk_payload_includes_task_ids(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    task = Task.objects.create(project=project, name="T1", duration=2)
+    risk = Risk.objects.create(project=project, title="Schedule slip", probability=2, impact=5)
+    risk.tasks.set([task])
+    with patch.object(
+        __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
+        "_snapshot_max_version",
+        return_value=99,
+    ):
+        resp = authed_client.get(_url(project), {"since": "0"})
+    risk_data = next(r for r in resp.data["changes"]["risks"]["updated"] if r["id"] == str(risk.pk))
+    assert str(task.pk) in risk_data["task_ids"]
+
+
+@pytest.mark.django_db
+def test_sync_soft_deleted_risk_appears_in_deleted_list(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    risk = Risk.objects.create(project=project, title="Obsolete risk", probability=1, impact=1)
+    risk.soft_delete()
+    with patch.object(
+        __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
+        "_snapshot_max_version",
+        return_value=99,
+    ):
+        resp = authed_client.get(_url(project), {"since": "0"})
+    assert str(risk.pk) in resp.data["changes"]["risks"]["deleted"]
+    risk_updated_ids = [r["id"] for r in resp.data["changes"]["risks"]["updated"]]
+    assert str(risk.pk) not in risk_updated_ids
