@@ -467,7 +467,7 @@ class Risk(VersionedModel):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    tasks = models.ManyToManyField(
+    tasks: models.ManyToManyField[Task, RiskTask] = models.ManyToManyField(
         Task,
         through="RiskTask",
         blank=True,

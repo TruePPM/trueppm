@@ -772,7 +772,7 @@ class RiskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
         if status_filter:
             qs = qs.filter(status=status_filter)
         # Annotate computed severity so OrderingFilter can sort without Python.
-        return qs.annotate(
+        return qs.annotate(  # type: ignore[no-any-return]
             severity=ExpressionWrapper(
                 F("probability") * F("impact"),
                 output_field=IntegerField(),

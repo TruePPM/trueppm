@@ -259,7 +259,7 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
     )
 
     def get_severity(self, obj: Risk) -> int:
-        return obj.probability * obj.impact  # type: ignore[return-value]
+        return obj.probability * obj.impact
 
     def validate_probability(self, value: int) -> int:
         if not 1 <= value <= 5:

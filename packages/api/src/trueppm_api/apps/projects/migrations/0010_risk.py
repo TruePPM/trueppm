@@ -124,16 +124,26 @@ class Migration(migrations.Migration):
             name="risktask",
             unique_together={("risk", "task")},
         ),
+        # tasks M2M — must come after RiskTask is created
+        migrations.AddField(
+            model_name="risk",
+            name="tasks",
+            field=models.ManyToManyField(
+                blank=True,
+                related_name="risks",
+                through="projects.RiskTask",
+                to="projects.task",
+            ),
+        ),
         # -----------------------------------------------------------------------
         # HistoricalRisk (django-simple-history audit table)
+        # server_version and deleted_version are excluded via excluded_fields=_HISTORY_EXCLUDED_BASE
         # -----------------------------------------------------------------------
         migrations.CreateModel(
             name="HistoricalRisk",
             fields=[
                 ("id", models.UUIDField(db_index=True, default=uuid.uuid4, editable=False)),
-                ("server_version", models.BigIntegerField(default=0, editable=False)),
                 ("is_deleted", models.BooleanField(db_index=True, default=False)),
-                ("deleted_version", models.BigIntegerField(blank=True, editable=False, null=True)),
                 ("title", models.CharField(max_length=512)),
                 ("description", models.TextField(blank=True)),
                 (
@@ -211,7 +221,7 @@ class Migration(migrations.Migration):
             options={
                 "verbose_name": "historical risk",
                 "verbose_name_plural": "historical risks",
-                "ordering": ["-history_date", "-history_id"],
+                "ordering": ("-history_date", "-history_id"),
                 "get_latest_by": ("history_date", "history_id"),
             },
             bases=(simple_history.models.HistoricalChanges, models.Model),
