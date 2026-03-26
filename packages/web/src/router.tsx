@@ -1,19 +1,37 @@
-import { createBrowserRouter } from 'react-router';
+import { createBrowserRouter, Navigate } from 'react-router';
 import { AppShell } from '@/features/shell/AppShell';
-import { PlaceholderView } from '@/features/shell/PlaceholderView';
 import { ProjectShell } from '@/features/project/ProjectShell';
+import { LoginPage } from '@/features/auth/LoginPage';
+import { RequireAuth } from '@/features/auth/RequireAuth';
 
 export const router = createBrowserRouter([
   {
-    path: '/',
-    element: <AppShell />,
+    path: '/login',
+    element: <LoginPage />,
+  },
+  {
+    element: <RequireAuth />,
     children: [
-      { index: true, element: <ProjectShell /> },
-      { path: 'gantt', element: <ProjectShell /> },
-      { path: 'board', element: <PlaceholderView name="Board" /> },
-      { path: 'list', element: <PlaceholderView name="List" /> },
-      { path: 'calendar', element: <PlaceholderView name="Calendar" /> },
-      { path: 'resources', element: <PlaceholderView name="Resources" /> },
+      {
+        path: '/',
+        element: <AppShell />,
+        children: [
+          { index: true, element: <ProjectShell /> },
+          { path: 'gantt', element: <ProjectShell /> },
+          { path: '*', element: <Navigate to="/gantt" replace /> },
+        ],
+      },
     ],
+  },
+  {
+    path: '*',
+    element: (
+      <div className="min-h-screen flex items-center justify-center bg-neutral-surface-raised">
+        <div className="text-center">
+          <p className="text-4xl font-semibold text-neutral-text-primary">404</p>
+          <p className="mt-2 text-sm text-neutral-text-secondary">Page not found</p>
+        </div>
+      </div>
+    ),
   },
 ]);
