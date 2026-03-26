@@ -93,8 +93,9 @@ class ProjectSyncView(APIView):
                 SyncMembershipSerializer,
             ),
             "risks": self._collect(
-                Risk.objects.filter(project=project, server_version__gt=since)
-                .prefetch_related("tasks"),
+                Risk.objects.filter(project=project, server_version__gt=since).prefetch_related(
+                    "tasks"
+                ),
                 SyncRiskSerializer,
             ),
         }
