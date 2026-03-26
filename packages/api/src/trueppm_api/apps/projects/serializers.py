@@ -309,6 +309,7 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
         read_only_fields = [
             "id",
             "server_version",
+            "project",
             "severity",
             "created_by",
             "created_at",

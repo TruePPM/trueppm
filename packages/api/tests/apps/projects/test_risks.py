@@ -218,6 +218,7 @@ class TestRiskCreate:
         assert r.status_code == 201
         assert r.data["created_by"] == user.pk  # type: ignore[attr-defined]
 
+    @pytest.mark.django_db(transaction=True)
     def test_broadcasts_risk_created(
         self,
         client: APIClient,
@@ -250,7 +251,7 @@ class TestRiskRead:
     ) -> None:
         r = viewer_client.get(f"/api/v1/projects/{project.pk}/risks/")
         assert r.status_code == 200
-        assert len(r.data) >= 1
+        assert len(r.data["results"]) >= 1
 
     def test_viewer_can_retrieve(
         self,
@@ -290,7 +291,7 @@ class TestRiskRead:
         )
         r = client.get(f"/api/v1/projects/{project.pk}/risks/?status=OPEN")
         assert r.status_code == 200
-        assert all(item["status"] == "OPEN" for item in r.data)
+        assert all(item["status"] == "OPEN" for item in r.data["results"])
 
     def test_ordering_by_severity(
         self,
@@ -303,7 +304,7 @@ class TestRiskRead:
         Risk.objects.create(project=project, title="Med", probability=3, impact=3)
         r = client.get(f"/api/v1/projects/{project.pk}/risks/?ordering=-severity")
         assert r.status_code == 200
-        severities = [item["severity"] for item in r.data]
+        severities = [item["severity"] for item in r.data["results"]]
         assert severities == sorted(severities, reverse=True)
 
 
@@ -344,6 +345,7 @@ class TestRiskUpdate:
         )
         assert r.status_code == 403
 
+    @pytest.mark.django_db(transaction=True)
     def test_broadcasts_risk_updated(
         self,
         client: APIClient,
@@ -403,6 +405,7 @@ class TestRiskDelete:
         deleted = Risk.objects.filter(pk=risk.pk, is_deleted=True)
         assert deleted.exists()
 
+    @pytest.mark.django_db(transaction=True)
     def test_broadcasts_risk_deleted(
         self,
         client: APIClient,
