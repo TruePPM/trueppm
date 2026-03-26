@@ -14,6 +14,7 @@ from trueppm_api.apps.projects.models import (
     CalendarException,
     Dependency,
     Project,
+    Risk,
     Task,
 )
 
@@ -237,3 +238,88 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
                 "Predecessor and successor must belong to the same project."
             )
         return attrs
+
+
+class RiskSerializer(serializers.ModelSerializer[Risk]):
+    """Read/write serializer for project risks.
+
+    severity is a computed read-only field (probability × impact); it is not
+    stored in the database to avoid write-consistency hazards.
+
+    tasks is a writable PrimaryKeyRelatedField that accepts task UUIDs on
+    create and update.  The viewset annotates a severity DB expression on the
+    queryset so OrderingFilter can sort without round-tripping to Python.
+    """
+
+    severity = serializers.SerializerMethodField()
+    tasks = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Task.objects.filter(is_deleted=False),
+        required=False,
+    )
+
+    def get_severity(self, obj: Risk) -> int:
+        return obj.probability * obj.impact
+
+    def validate_probability(self, value: int) -> int:
+        if not 1 <= value <= 5:
+            raise serializers.ValidationError("probability must be between 1 and 5.")
+        return value
+
+    def validate_impact(self, value: int) -> int:
+        if not 1 <= value <= 5:
+            raise serializers.ValidationError("impact must be between 1 and 5.")
+        return value
+
+    def validate_tasks(self, tasks: list[Task]) -> list[Task]:
+        if len(tasks) > 10:
+            raise serializers.ValidationError("A risk may link to at most 10 tasks.")
+        return tasks
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # All linked tasks must belong to the same project as the risk.
+        # project is read-only, so resolve from URL kwargs on create or from
+        # the existing instance on update.
+        request = self.context.get("request")
+        if self.instance:
+            project_pk = str(self.instance.project_id)
+        elif request is not None:
+            project_pk = str(request.parser_context["kwargs"].get("project_pk", ""))
+        else:
+            project_pk = ""
+        tasks = attrs.get("tasks", [])
+        if project_pk and tasks:
+            bad = [t for t in tasks if str(t.project_id) != project_pk]
+            if bad:
+                raise serializers.ValidationError(
+                    {"tasks": "All linked tasks must belong to the same project as this risk."}
+                )
+        return attrs
+
+    class Meta:
+        model = Risk
+        fields = [
+            "id",
+            "server_version",
+            "project",
+            "title",
+            "description",
+            "status",
+            "probability",
+            "impact",
+            "severity",
+            "owner",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "tasks",
+        ]
+        read_only_fields = [
+            "id",
+            "server_version",
+            "project",
+            "severity",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
