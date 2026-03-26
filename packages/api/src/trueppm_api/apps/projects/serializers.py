@@ -278,10 +278,18 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # All linked tasks must belong to the same project as the risk.
-        project = attrs.get("project") or (self.instance.project if self.instance else None)
+        # project is read-only, so resolve from URL kwargs on create or from
+        # the existing instance on update.
+        request = self.context.get("request")
+        if self.instance:
+            project_pk = str(self.instance.project_id)
+        elif request is not None:
+            project_pk = str(request.parser_context["kwargs"].get("project_pk", ""))
+        else:
+            project_pk = ""
         tasks = attrs.get("tasks", [])
-        if project and tasks:
-            bad = [t for t in tasks if t.project_id != project.pk]
+        if project_pk and tasks:
+            bad = [t for t in tasks if str(t.project_id) != project_pk]
             if bad:
                 raise serializers.ValidationError(
                     {"tasks": "All linked tasks must belong to the same project as this risk."}
