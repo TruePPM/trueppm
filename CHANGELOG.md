@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Monte Carlo simulation API** (issue #54): new synchronous endpoint
+  `POST /api/v1/projects/{pk}/monte-carlo/` returns P50/P80/P95 completion dates.
+  OSS tier is capped at 1 000 simulations and 500 tasks per run (configurable via
+  `MC_SIMULATION_CAP` / `MC_TASK_CAP` settings; set to `None` for Team tier unlimited).
+  Exceeding the cap returns HTTP 402 with `{"error": "simulation_cap_exceeded", "tier": "team",
+  "message": "..."}`. Requires project Viewer role or above. No database writes; results are
+  returned directly. `SimulationCapExceeded` exception added to `trueppm-scheduler` public API.
+  ADR-0012.
 - **Risk Register** (issue #52): per-project risk tracking with probability × impact severity
   scoring. New `Risk` model (`RiskStatus` choices: OPEN / MITIGATING / RESOLVED / ACCEPTED /
   CLOSED) with soft-delete and `django-simple-history` audit trail. REST endpoints:

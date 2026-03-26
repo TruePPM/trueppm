@@ -15,6 +15,7 @@ from trueppm_scheduler import (
     MonteCarloResult,
     Project,
     ScheduleResult,
+    SimulationCapExceeded,
     Task,
     monte_carlo,
     schedule,
@@ -377,9 +378,38 @@ class TestMonteCarlo:
         p = make_project(tasks, deps)
 
         start = time.perf_counter()
-        monte_carlo(p, runs=10_000, seed=0)
+        # Pass max_runs=None to bypass the OSS cap for this performance test.
+        monte_carlo(p, runs=10_000, seed=0, max_runs=None)
         elapsed = time.perf_counter() - start
         assert elapsed < 5.0, f"Monte Carlo too slow: {elapsed:.2f}s"
+
+    def test_cap_exceeded_by_runs(self) -> None:
+        """Requesting more runs than max_runs raises SimulationCapExceeded."""
+        with pytest.raises(SimulationCapExceeded, match="1000 simulations"):
+            monte_carlo(self._simple_mc_project(), runs=1_001, max_runs=1_000)
+
+    def test_cap_exceeded_by_task_count(self) -> None:
+        """Projects with more tasks than max_tasks raises SimulationCapExceeded."""
+        tasks = [task(str(i), f"Task {i}", 1) for i in range(3)]
+        p = make_project(tasks, [])
+        with pytest.raises(SimulationCapExceeded, match="3 tasks"):
+            monte_carlo(p, runs=10, max_tasks=2)
+
+    def test_cap_disabled_when_none(self) -> None:
+        """max_runs=None and max_tasks=None disables all caps (Team tier)."""
+        tasks = [task(str(i), f"Task {i}", 1) for i in range(3)]
+        p = make_project(tasks, [])
+        # Should not raise even though runs > default cap and tasks > default cap.
+        result = monte_carlo(p, runs=2_000, seed=0, max_runs=None, max_tasks=None)
+        assert result.runs == 2_000
+
+    def test_cap_exceeded_message_is_user_facing(self) -> None:
+        """Error message is suitable for direct display in a UI or API response."""
+        with pytest.raises(SimulationCapExceeded) as exc_info:
+            monte_carlo(self._simple_mc_project(), runs=1_001, max_runs=1_000)
+        msg = str(exc_info.value)
+        assert "OSS tier" in msg
+        assert "Team tier" in msg
 
     def test_no_tasks_raises(self) -> None:
         with pytest.raises(ValueError, match="at least one task"):

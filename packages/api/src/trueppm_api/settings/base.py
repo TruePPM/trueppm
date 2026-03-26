@@ -161,6 +161,14 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ---------------------------------------------------------------------------
+# Monte Carlo simulation caps (OSS tier)
+# Set to None for unlimited (Team tier overrides these in enterprise settings).
+# ---------------------------------------------------------------------------
+
+MC_SIMULATION_CAP: int | None = 1_000
+MC_TASK_CAP: int | None = 500
+
+# ---------------------------------------------------------------------------
 # Django REST Framework
 # ---------------------------------------------------------------------------
 
