@@ -5,11 +5,15 @@ import { test, expect } from '@playwright/test';
  *
  * The app makes real API calls; we intercept them with Playwright route mocking
  * and navigate to /?project=<fixture-id> so useGanttTasks fires the queries.
- * Auth token is absent in E2E — the apiClient still sends the request (no
- * auth header), and route interception handles it before the network.
+ * Auth state is seeded in localStorage before each test so RequireAuth passes.
  */
 
 const FIXTURE_PROJECT_ID = 'e2e-fixture-00000000-0000-0000-0000-000000000001';
+
+/** Minimal API-format projects matching what useProjects expects. */
+const FIXTURE_API_PROJECTS = [
+  { id: FIXTURE_PROJECT_ID, name: 'Alpha Platform Upgrade', description: '', start_date: '2026-01-01', calendar: 'default' },
+];
 
 /** Minimal API-format tasks (snake_case) matching TaskSerializer output. */
 const FIXTURE_API_TASKS = [
@@ -42,6 +46,19 @@ const FIXTURE_API_TASKS = [
 
 /** Set up API route interception and navigate to the project Gantt. */
 async function gotoGantt(page: import('@playwright/test').Page) {
+  // Seed auth state so RequireAuth lets the test through.
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'trueppm-auth',
+      JSON.stringify({
+        state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
+        version: 0,
+      }),
+    );
+  });
+  await page.route('**/api/v1/projects/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_API_PROJECTS) }),
+  );
   await page.route('**/api/v1/tasks/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_API_TASKS) }),
   );
@@ -122,13 +139,15 @@ test.describe('GanttView task list', () => {
 });
 
 test.describe('Accessibility basics', () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoGantt(page);
+  });
+
   test('sidebar has accessible label', async ({ page }) => {
-    await page.goto('/');
     await expect(page.getByRole('complementary', { name: 'Projects' })).toBeVisible();
   });
 
   test('status bar is a contentinfo landmark', async ({ page }) => {
-    await page.goto('/');
     await expect(
       page.getByRole('contentinfo', { name: 'Project status' }),
     ).toBeVisible();
@@ -137,7 +156,6 @@ test.describe('Accessibility basics', () => {
   test('Gantt legend lists Complete, In progress, Critical path, Milestone', async ({
     page,
   }) => {
-    await page.goto('/');
     const legend = page.getByLabel('Gantt legend');
     await expect(legend).toBeVisible();
     for (const label of ['Complete', 'In progress', 'Critical path', 'Milestone']) {
