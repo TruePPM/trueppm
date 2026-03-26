@@ -13,12 +13,13 @@ from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership
 from trueppm_api.apps.access.permissions import _membership_role
-from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
+from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Risk, Task
 from trueppm_api.apps.sync.serializers import (
     SyncCalendarSerializer,
     SyncDependencySerializer,
     SyncMembershipSerializer,
     SyncProjectSerializer,
+    SyncRiskSerializer,
     SyncTaskSerializer,
 )
 
@@ -91,6 +92,12 @@ class ProjectSyncView(APIView):
                 ProjectMembership.objects.filter(project=project, server_version__gt=since),
                 SyncMembershipSerializer,
             ),
+            "risks": self._collect(
+                Risk.objects.filter(project=project, server_version__gt=since).prefetch_related(
+                    "tasks"
+                ),
+                SyncRiskSerializer,
+            ),
         }
 
         return Response({"changes": changes, "timestamp": timestamp})
@@ -142,9 +149,12 @@ class ProjectSyncView(APIView):
                     UNION ALL
                     SELECT MAX(server_version)
                       FROM access_project_membership WHERE project_id = %s
+                    UNION ALL
+                    SELECT MAX(server_version)
+                      FROM projects_risk WHERE project_id = %s
                 ) sub
                 """,
-                [project_pk, project_pk, project_pk, project_pk, project_pk],
+                [project_pk, project_pk, project_pk, project_pk, project_pk, project_pk],
             )
             result = cursor.fetchone()
         return int(result[0]) if result and result[0] is not None else 0

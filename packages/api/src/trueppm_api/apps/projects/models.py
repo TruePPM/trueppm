@@ -485,6 +485,30 @@ class Risk(VersionedModel):
     def __str__(self) -> str:
         return f"[{self.status}] {self.title}"
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Capture update_fields before super() expands it so we can tell
+        # which fields the caller intended to change.
+        _update_fields = kwargs.get("update_fields")
+        super().save(*args, **kwargs)
+        # Suppress "saved" signal when this call is from soft_delete() — the
+        # deletion signal is emitted by soft_delete() instead.
+        if self.is_deleted:
+            return
+        _scoring_fields = frozenset(("probability", "impact", "status"))
+        if _update_fields is None or not _scoring_fields.isdisjoint(_update_fields):
+            from trueppm_api.apps.projects.signals import risk_changed
+
+            risk_changed.send(sender=type(self), risk=self, action="saved")
+
+    def soft_delete(self) -> None:
+        # VersionedModel.soft_delete() calls self.save(); the save() override
+        # above suppresses the "saved" signal when is_deleted is True, so we
+        # emit a single "deleted" signal here after the deletion is committed.
+        super().soft_delete()
+        from trueppm_api.apps.projects.signals import risk_changed
+
+        risk_changed.send(sender=type(self), risk=self, action="deleted")
+
 
 class RiskTask(models.Model):
     """Explicit through table for the Risk ↔ Task many-to-many relationship.
