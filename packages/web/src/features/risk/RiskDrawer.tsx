@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { type RefObject, useEffect, useRef, useState } from 'react';
 import type { Risk } from '@/api/types';
 import { RiskChip } from './RiskChip';
 import { RiskForm } from './RiskForm';
@@ -167,7 +167,7 @@ interface DrawerContentProps {
   isEditing: boolean;
   drawerTitle: string;
   showForm: boolean;
-  closeButtonRef: React.RefObject<HTMLButtonElement | null>;
+  closeButtonRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
   onEdit: () => void;
   onFormSuccess: () => void;
