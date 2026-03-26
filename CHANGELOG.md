@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Risk Register** (issue #52): per-project risk tracking with probability × impact severity
+  scoring. New `Risk` model (`RiskStatus` choices: OPEN / MITIGATING / RESOLVED / ACCEPTED /
+  CLOSED) with soft-delete and `django-simple-history` audit trail. REST endpoints:
+  `POST /api/v1/projects/{pk}/risks/` (create, Member+), `GET` (list/retrieve, Viewer+),
+  `PATCH`/`PUT` (update, Member+), `DELETE` (soft-delete, Owner only). `severity` is computed
+  as `probability × impact` (1–25, never stored). Risks may link to up to 10 tasks in the same
+  project via a many-to-many through table (`RiskTask`). Ordering by severity supported via
+  `?ordering=-severity`. Status filter via `?status=OPEN`. WebSocket events
+  (`risk_created`, `risk_updated`, `risk_deleted`) broadcast on commit.
 - **Object change history** (issue #51): every user-initiated mutation to `Task`, `Project`,
   and `Dependency` is now recorded via `django-simple-history` with field-level diffs (old
   value, new value, who changed it, when). CPM output fields (`early_start`, `early_finish`,

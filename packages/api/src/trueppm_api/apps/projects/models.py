@@ -406,3 +406,101 @@ class BaselineTask(models.Model):
                 f"BaselineTask {self.pk} is immutable — snapshot rows cannot be updated."
             )
         super().save(*args, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Risk register
+# ---------------------------------------------------------------------------
+
+
+class RiskStatus(models.TextChoices):
+    """Lifecycle states for a project risk."""
+
+    OPEN = "OPEN", "Open"
+    MITIGATING = "MITIGATING", "Mitigating"
+    RESOLVED = "RESOLVED", "Resolved"
+    ACCEPTED = "ACCEPTED", "Accepted"
+    CLOSED = "CLOSED", "Closed"
+
+
+class Risk(VersionedModel):
+    """A project risk with probability × impact severity scoring.
+
+    Severity is computed (probability * impact) rather than stored to avoid
+    write-consistency hazards. The RiskSerializer exposes it as a read-only
+    field. The viewset annotates it on the queryset so OrderingFilter can sort
+    by severity without a round-trip to Python.
+
+    Tasks linked to a risk are advisory — they indicate which tasks are
+    affected by or related to this risk. The link is many-to-many and
+    optional.
+    """
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="risks",
+    )
+    title = models.CharField(max_length=512)
+    description = models.TextField(blank=True)
+    status = models.CharField(
+        max_length=12,
+        choices=RiskStatus.choices,
+        default=RiskStatus.OPEN,
+        db_index=True,
+    )
+    probability = models.PositiveSmallIntegerField()
+    impact = models.PositiveSmallIntegerField()
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="owned_risks",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_risks",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    tasks = models.ManyToManyField(
+        Task,
+        through="RiskTask",
+        blank=True,
+        related_name="risks",
+    )
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
+
+    class Meta:
+        db_table = "projects_risk"
+        ordering = ["-impact", "-probability", "title"]
+        indexes = [
+            models.Index(fields=["project", "status"], name="risk_project_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"[{self.status}] {self.title}"
+
+
+class RiskTask(models.Model):
+    """Explicit through table for the Risk ↔ Task many-to-many relationship.
+
+    Using an explicit through table rather than a hidden auto-generated one
+    keeps the schema legible and leaves the door open for attaching metadata
+    (e.g. impact direction) to the link in a future migration.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    risk = models.ForeignKey(Risk, on_delete=models.CASCADE)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE)
+
+    class Meta:
+        db_table = "projects_risk_task"
+        unique_together = [("risk", "task")]
+
+    def __str__(self) -> str:
+        return f"RiskTask risk={self.risk_id} task={self.task_id}"

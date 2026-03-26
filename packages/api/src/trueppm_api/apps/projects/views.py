@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Count, OuterRef, QuerySet, Subquery
+from django.db.models import Count, ExpressionWrapper, F, IntegerField, OuterRef, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -33,6 +33,7 @@ from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
     Project,
+    Risk,
     Task,
 )
 from trueppm_api.apps.projects.serializers import (
@@ -41,6 +42,7 @@ from trueppm_api.apps.projects.serializers import (
     CalendarSerializer,
     DependencySerializer,
     ProjectSerializer,
+    RiskSerializer,
     TaskBulkSerializer,
     TaskReorderSerializer,
     TaskSerializer,
@@ -725,3 +727,91 @@ class TaskBulkView(APIView):
             )
 
         return Response(result, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Risk register
+# ---------------------------------------------------------------------------
+
+
+class RiskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
+    """CRUD for risks within a project.
+
+    Permission matrix:
+      list / retrieve         — Viewer+ (IsProjectMember)
+      create / update         — Team Member+ (IsProjectMemberWrite)
+      destroy                 — Project Owner only (IsProjectOwner)
+
+    Severity (probability × impact) is annotated on the queryset so
+    OrderingFilter can sort by it without a Python round-trip.
+    """
+
+    queryset = (
+        Risk.objects.select_related("project", "owner", "created_by")
+        .prefetch_related("tasks")
+        .filter(is_deleted=False)
+    )
+    serializer_class = RiskSerializer
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["title", "description"]
+    ordering_fields = ["severity", "probability", "impact", "status", "created_at"]
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated(), IsProjectMember()]
+        if self.action == "destroy":
+            return [IsAuthenticated(), IsProjectOwner()]
+        return [IsAuthenticated(), IsProjectMemberWrite()]
+
+    def get_queryset(self) -> QuerySet[Risk]:
+        qs = super().get_queryset()
+        project_pk = self.kwargs.get("project_pk")
+        if project_pk:
+            qs = qs.filter(project_id=project_pk)
+        status_filter = self.request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        # Annotate computed severity so OrderingFilter can sort without Python.
+        return qs.annotate(
+            severity=ExpressionWrapper(
+                F("probability") * F("impact"),
+                output_field=IntegerField(),
+            )
+        )
+
+    def perform_create(self, serializer: BaseSerializer[Risk]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_pk = self.kwargs["project_pk"]
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        # DRF does not call has_object_permission on create — check explicitly.
+        self.check_object_permissions(self.request, project)
+
+        instance = serializer.save(
+            project=project,
+            created_by=self.request.user,
+        )
+        risk_id = str(instance.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(str(project_pk), "risk_created", {"id": risk_id})
+        )
+
+    def perform_update(self, serializer: BaseSerializer[Risk]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        instance = serializer.save()
+        project_id = str(instance.project_id)
+        risk_id = str(instance.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "risk_updated", {"id": risk_id})
+        )
+
+    def perform_destroy(self, instance: Risk) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_id = str(instance.project_id)
+        risk_id = str(instance.pk)
+        instance.soft_delete()
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "risk_deleted", {"id": risk_id})
+        )

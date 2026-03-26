@@ -11,6 +11,7 @@ from trueppm_api.apps.projects.views import (
     CalendarViewSet,
     DependencyViewSet,
     ProjectViewSet,
+    RiskViewSet,
     TaskBulkView,
     TaskReorderView,
     TaskViewSet,
@@ -50,5 +51,23 @@ urlpatterns = [
         "projects/<project_pk>/baselines/<baseline_pk>/activate/",
         BaselineActivateView.as_view(),
         name="project-baselines-activate",
+    ),
+    # Risk endpoints — nested under /projects/<project_pk>/risks/
+    path(
+        "projects/<project_pk>/risks/",
+        RiskViewSet.as_view({"get": "list", "post": "create"}),
+        name="project-risks-list",
+    ),
+    path(
+        "projects/<project_pk>/risks/<pk>/",
+        RiskViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="project-risks-detail",
     ),
 ]
