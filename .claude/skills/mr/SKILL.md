@@ -67,7 +67,17 @@ Check if an MR already exists for this branch:
 ```bash
 glab mr list --source-branch $(git branch --show-current) 2>/dev/null
 ```
-If one exists, report its URL and stop — do not create a duplicate.
+If one exists, **verify it belongs to the current work** before stopping:
+
+- Read the existing MR title and compare it against `git log main..HEAD --oneline`.
+- If the title matches the current commits (same feature/scope), report the URL and stop — do not create a duplicate.
+- If the title does **not** match (e.g. the branch was reused and the MR belongs to different work), **stop and tell the user** — do not update or close the existing MR automatically. Describe the conflict clearly:
+  ```
+  ⚠️  MR !N already exists for this branch but its title ("<existing title>")
+  does not match the current commits. The branch may have been reused.
+  Please resolve manually before creating a new MR.
+  ```
+  Do not proceed until the user explicitly instructs you on how to handle it.
 
 ---
 
@@ -137,6 +147,7 @@ If the pipeline hasn't started yet, note that CI will run automatically on push.
 ## Rules
 
 - **Never force-push** to prepare for an MR — if the branch is behind main, tell the user and let them decide whether to rebase
+- **Before any force-push to a remote branch**, check whether an open MR exists against that branch (`glab mr list --source-branch <branch>`). If one exists and belongs to different work, stop and tell the user — force-pushing will silently replace the MR's diff with unrelated commits
 - **Never open an MR to a branch other than main** without explicit user instruction
 - **Never create duplicate MRs** — check first
 - **Heredoc syntax is mandatory** for multi-line MR bodies — never use inline `\n`
