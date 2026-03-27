@@ -294,10 +294,7 @@ class Task(VersionedModel):
             # One indexed lookup to capture the pre-save status for the signal payload.
             # Only executed on explicit status updates (board drag) or full saves.
             _old_status = (
-                type(self)
-                .objects.filter(pk=self.pk)
-                .values_list("status", flat=True)
-                .first()
+                type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
             )
         super().save(*args, **kwargs)
         if _track and _old_status != self.status:
