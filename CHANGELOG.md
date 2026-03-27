@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Task status field** (issue #58): `Task.status` field with four values —
+  `NOT_STARTED` (default), `IN_PROGRESS`, `ON_HOLD`, `COMPLETE`. Exposed on all task
+  list and detail endpoints; writable via `PATCH /api/v1/tasks/{id}/`. Filter tasks by
+  status using `?status=<value>` on the task list. Status is included in the offline
+  sync pull endpoint so mobile clients receive it in delta pulls. A
+  `task_status_changed` Django signal is emitted whenever the value changes (with
+  `old_status` and `new_status` kwargs); Enterprise can attach receivers without
+  modifying OSS code. ADR-0013.
 - **Monte Carlo simulation API** (issue #54): new synchronous endpoint
   `POST /api/v1/projects/{pk}/monte-carlo/` returns P50/P80/P95 completion dates.
   OSS tier is capped at 1 000 simulations and 500 tasks per run (configurable via
