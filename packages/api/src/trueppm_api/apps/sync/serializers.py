@@ -49,6 +49,7 @@ class SyncTaskSerializer(serializers.ModelSerializer[Task]):
             "project",
             "name",
             "wbs_path",
+            "status",
             "duration",
             "percent_complete",
             "notes",

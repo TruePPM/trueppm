@@ -412,3 +412,35 @@ These rules are enforced at review time. Violations block merge.
      driven by the date window. Row virtualization is not required for the initial
      implementation (projects have ≤ 50 resources). Do not apply canvas-rendering rules
      (rules 59–85) to the resource grid.
+
+## Board / Kanban View Rules (Issue #21)
+
+101. **Board column header style** — same token as Sidebar section headers (rule 36):
+     `text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary`.
+     Column count badge: `ml-2 text-neutral-text-disabled`. Column headers are `<h2>`
+     elements with `aria-label` matching the visible text (e.g. `aria-label="In Progress, 12 tasks"`).
+
+102. **Board card elevation** — `bg-neutral-surface border border-neutral-border rounded-md p-3`.
+     No shadow (rule 1). Drag-lifted state: `ring-2 ring-brand-primary opacity-60 scale-105`
+     with `motion-safe:rotate-1`. The original slot shows a dashed placeholder of equal height
+     (`border-2 border-dashed border-neutral-border rounded-md`). Never animate the card on entry —
+     only the lifted (drag) and snap-back (error) states animate.
+
+103. **Board drag-over target** — `bg-brand-primary/5` fill + `border-l-2 border-brand-primary`
+     on the column container during an active drag. Applied on `pointerenter` over the column drop
+     zone; removed on `pointerleave` and `pointerup`. Never highlight the source column while a
+     drag is in progress.
+
+104. **Mobile board uses horizontal snap scroll** — `scroll-snap-type: x mandatory` on the board
+     container; each column `scroll-snap-align: start`; column width `85vw`. A dot-strip indicator
+     (`role="tablist"` with one `role="tab"` per column, `aria-selected` on the visible column)
+     sits below the board and updates on scroll. Never use a column-picker dropdown on mobile — it
+     hides spatial context. The mobile FAB creates a task in the currently-visible column's status,
+     following the same pattern as the Risk Register FAB (rule 90).
+
+105. **Board keyboard move alternative is mandatory** — drag-and-drop is not keyboard accessible
+     (known WCAG 2.1.1 gap, parallel to Gantt rule 34). Every card's `···` overflow menu **must**
+     include a "Move to…" item that opens a submenu listing the other three columns. Arrow keys
+     navigate the submenu; Enter commits. An `aria-live="polite"` region announces the result:
+     `"{task name} moved to {column name}"`. This is not optional — it is the only keyboard path
+     to change task status from the board.

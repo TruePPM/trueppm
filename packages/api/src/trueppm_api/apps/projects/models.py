@@ -190,6 +190,21 @@ DEPENDENCY_TYPE_CHOICES = [
 ]
 
 
+class TaskStatus(models.TextChoices):
+    """Workflow state for a task on the Kanban board.
+
+    status and percent_complete are independent fields — a task can be On Hold
+    at 60% complete, or marked Complete while percent_complete is still 0.8 if
+    the PM chooses to track progress separately. The CPM engine ignores status;
+    it drives the schedule from duration and dependencies only.
+    """
+
+    NOT_STARTED = "NOT_STARTED", "Not started"
+    IN_PROGRESS = "IN_PROGRESS", "In progress"
+    ON_HOLD = "ON_HOLD", "On hold"
+    COMPLETE = "COMPLETE", "Complete"
+
+
 class Task(VersionedModel):
     """A schedulable unit of work within a project.
 
@@ -220,6 +235,12 @@ class Task(VersionedModel):
     )
     # Duration in working days — mirrors trueppm_scheduler.Task.duration.days
     duration = models.IntegerField(default=1, help_text="Duration in working days")
+    status = models.CharField(
+        max_length=12,
+        choices=TaskStatus.choices,
+        default=TaskStatus.NOT_STARTED,
+        db_index=True,
+    )
     percent_complete = models.FloatField(default=0.0)
     notes = models.TextField(blank=True)
 
@@ -263,6 +284,28 @@ class Task(VersionedModel):
 
     def __str__(self) -> str:
         return f"{self.project.name} / {self.name}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Capture whether status is being written before super() expands update_fields.
+        _update_fields = kwargs.get("update_fields")
+        _track = _update_fields is None or "status" in _update_fields
+        _old_status: str | None = None
+        if _track and self.pk:
+            # One indexed lookup to capture the pre-save status for the signal payload.
+            # Only executed on explicit status updates (board drag) or full saves.
+            _old_status = (
+                type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            )
+        super().save(*args, **kwargs)
+        if _track and _old_status != self.status:
+            from trueppm_api.apps.projects.signals import task_status_changed
+
+            task_status_changed.send(
+                sender=type(self),
+                task=self,
+                old_status=_old_status,
+                new_status=self.status,
+            )
 
     def soft_delete(self) -> None:
         """Soft-delete the task and cascade to all its dependency edges.

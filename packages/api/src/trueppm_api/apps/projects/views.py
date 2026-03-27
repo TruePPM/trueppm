@@ -232,7 +232,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     serializer_class = TaskSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
-    ordering_fields = ["wbs_path", "name", "early_start"]
+    ordering_fields = ["wbs_path", "name", "early_start", "status"]
     queryset = Task.objects.select_related("project").filter(is_deleted=False)
 
     def get_queryset(self) -> QuerySet[Task]:
@@ -243,6 +243,9 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         is_critical = self.request.query_params.get("is_critical")
         if is_critical is not None:
             qs = qs.filter(is_critical=is_critical.lower() in ("true", "1"))
+        status = self.request.query_params.get("status")
+        if status:
+            qs = qs.filter(status=status)
 
         # Baseline overlay: annotate each task with baseline_start / baseline_finish.
         # Resolution order:

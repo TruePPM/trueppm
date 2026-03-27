@@ -75,6 +75,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "name",
             "assignee",
             "wbs_path",
+            "status",
             "duration",
             "percent_complete",
             "notes",

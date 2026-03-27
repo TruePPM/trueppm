@@ -33,3 +33,16 @@ import django.dispatch
 # For soft-deletes, ``action="deleted"`` is sent by Risk.soft_delete()
 # and the save() emission is suppressed (is_deleted is already True).
 risk_changed = django.dispatch.Signal()
+
+# Sent after a Task's status field changes (board card drag or direct API update).
+#
+# Keyword arguments:
+#   sender     — the Task class
+#   task       — the Task instance (post-save state)
+#   old_status — previous TaskStatus value (None on first save / INSERT)
+#   new_status — new TaskStatus value
+#
+# Only emitted when the status value actually changes. CPM bulk_update bypasses
+# Task.save() so this signal never fires for scheduling engine writes.
+# Enterprise receivers must use transaction.on_commit() for any I/O side-effects.
+task_status_changed = django.dispatch.Signal()
