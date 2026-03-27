@@ -14,6 +14,7 @@
 import type { Task } from '@/types';
 import type { GanttScaleData } from './GanttScaleData';
 import { dateToLeft } from './GanttScaleData';
+import { HEADER_HEIGHT } from '../ganttConstants';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -145,9 +146,9 @@ export function buildHitIndex(tasks: Task[], scales: GanttScaleData): HitIndex {
     const task = tasks[i];
     const barLeft = dateToLeft(task.start, scales);
     const barRight = dateToLeft(task.finish, scales);
-    const barTop = i * ROW_HEIGHT + BAR_TOP_OFFSET;
+    const barTop = i * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
     const barBottom = barTop + BAR_HEIGHT;
-    const rowTop = i * ROW_HEIGHT;
+    const rowTop = i * ROW_HEIGHT + HEADER_HEIGHT;
 
     rows.push({ taskId: task.id, rowIndex: i, barLeft, barRight, barTop, barBottom, rowTop });
   }

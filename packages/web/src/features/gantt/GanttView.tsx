@@ -1,6 +1,7 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
 import type { GanttEngine } from './engine';
 import { dateToLeft } from './engine';
+import { HEADER_HEIGHT, ROW_HEIGHT } from './ganttConstants';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
 import { useGanttStore } from '@/stores/ganttStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
@@ -310,7 +311,7 @@ export function GanttView() {
             <div
               style={{
                 width: totalCanvasWidth > 0 ? totalCanvasWidth : '100%',
-                height: tasks.length * 28,
+                height: HEADER_HEIGHT + tasks.length * ROW_HEIGHT,
                 position: 'relative',
               }}
             >
