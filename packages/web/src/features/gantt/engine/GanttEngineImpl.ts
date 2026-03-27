@@ -25,6 +25,7 @@ import {
   drawRowBands,
   drawGridLines,
   drawTodayLine,
+  drawTimelineHeader,
   drawTaskBar,
   drawSummaryBar,
   drawMilestone,
@@ -32,6 +33,7 @@ import {
   drawDragShadow,
   drawResizeIndicator,
 } from './GanttRenderer';
+import { HEADER_HEIGHT } from '../ganttConstants';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -473,8 +475,9 @@ export class GanttEngineImpl implements GanttEngine {
 
   private _visibleRange(): { firstRow: number; lastRow: number } {
     const overscan = OVERSCAN_ROWS * ROW_HEIGHT;
+    // The usable viewport height for tasks is reduced by the fixed header band.
     const minY = this._scrollTop - overscan;
-    const maxY = this._scrollTop + this._viewportHeight + overscan;
+    const maxY = this._scrollTop + this._viewportHeight - HEADER_HEIGHT + overscan;
     const firstRow = Math.max(0, Math.floor(minY / ROW_HEIGHT));
     const lastRow = Math.min(this._tasks.length - 1, Math.ceil(maxY / ROW_HEIGHT));
     return { firstRow, lastRow };
@@ -499,7 +502,7 @@ export class GanttEngineImpl implements GanttEngine {
 
     const { firstRow, lastRow } = this._visibleRange();
 
-    drawRowBands(ctx, firstRow, lastRow, this._scrollLeft, w);
+    drawRowBands(ctx, firstRow, lastRow, this._scrollLeft, this._scrollTop, w);
     drawGridLines(
       ctx,
       this._scales,
@@ -510,6 +513,8 @@ export class GanttEngineImpl implements GanttEngine {
       lastRow,
     );
     drawTodayLine(ctx, this._scales, this._scrollLeft, h);
+    // Timeline header drawn last so it paints over any content in the header band
+    drawTimelineHeader(ctx, this._scales, this._scrollLeft, w);
   }
 
   // ---------------------------------------------------------------------------
@@ -532,23 +537,28 @@ export class GanttEngineImpl implements GanttEngine {
     }
 
     // Dependency arrows on top of bars
-    drawDependencyArrows(ctx, this._tasks, this._links, this._scales, this._scrollLeft);
+    drawDependencyArrows(ctx, this._tasks, this._links, this._scales, this._scrollLeft, this._scrollTop);
   }
 
   private _paintRow(rowIndex: number): void {
     if (!this._scales) return;
     const ctx = this._barsCtx;
-    const rowTop = rowIndex * ROW_HEIGHT - this._scrollTop;
+    const rowTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT - this._scrollTop;
     const rowBottom = rowTop + ROW_HEIGHT;
 
-    // Clear only the row rect
-    ctx.clearRect(0, rowTop, this._viewportWidth, ROW_HEIGHT);
+    // Clamp to avoid overwriting the fixed header band
+    const clampedTop = Math.max(rowTop, HEADER_HEIGHT);
+    const clampedHeight = rowBottom - clampedTop;
+    if (clampedHeight <= 0) return;
+
+    // Clear only the row rect (below the header)
+    ctx.clearRect(0, clampedTop, this._viewportWidth, clampedHeight);
 
     // Re-fill surface color for the cleared row
     ctx.fillStyle = COLOR.surface;
-    ctx.fillRect(0, rowTop, this._viewportWidth, ROW_HEIGHT);
+    ctx.fillRect(0, clampedTop, this._viewportWidth, clampedHeight);
 
-    if (rowTop > this._viewportHeight || rowBottom < 0) return;
+    if (rowTop > this._viewportHeight || rowBottom < HEADER_HEIGHT) return;
 
     this._paintTaskAt(ctx, rowIndex);
   }
@@ -611,7 +621,7 @@ export class GanttEngineImpl implements GanttEngine {
       const snappedX = snapToDayBoundary(currentX, this._scales);
       drawDragShadow(ctx, task, snappedX, rowIndex, this._scales);
     } else if (fsm.state === 'RESIZING') {
-      const barTop = rowIndex * ROW_HEIGHT + BAR_TOP_OFFSET;
+      const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
       drawResizeIndicator(ctx, currentX, barTop);
     }
 
@@ -640,6 +650,10 @@ export class GanttEngineImpl implements GanttEngine {
 
   private readonly _onPointerDown = (e: PointerEvent): void => {
     if (!this._hitIndex || !this._scales) return;
+
+    // Ignore pointer events in the fixed header band (viewport y < HEADER_HEIGHT)
+    const rect = this._ixCanvas.getBoundingClientRect();
+    if (e.clientY - rect.top < HEADER_HEIGHT) return;
 
     const { x, y } = this._pointerToCanvas(e);
     const isTouch = e.pointerType === 'touch';

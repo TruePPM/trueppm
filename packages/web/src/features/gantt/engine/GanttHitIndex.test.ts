@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildHitIndex, ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './GanttHitIndex';
 import { buildScaleData } from './GanttScaleData';
+import { HEADER_HEIGHT } from '../ganttConstants';
 import type { Task } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -36,13 +37,13 @@ const taskB = makeTask('b', '2026-04-14', '2026-04-21'); // row 1
 // Precompute expected bar positions for taskA (row 0)
 const barLeftA = scales.pxPerMs * (new Date('2026-04-07T00:00:00Z').getTime() - scales.start.getTime());
 const barRightA = scales.pxPerMs * (new Date('2026-04-14T00:00:00Z').getTime() - scales.start.getTime());
-const barTopA = BAR_TOP_OFFSET;          // row 0: 0 * ROW_HEIGHT + BAR_TOP_OFFSET
+const barTopA = HEADER_HEIGHT + BAR_TOP_OFFSET;  // row 0: 0 * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET
 const barBottomA = barTopA + BAR_HEIGHT;
 
 // taskB (row 1)
 const barLeftB = scales.pxPerMs * (new Date('2026-04-14T00:00:00Z').getTime() - scales.start.getTime());
 const barRightB = scales.pxPerMs * (new Date('2026-04-21T00:00:00Z').getTime() - scales.start.getTime());
-const barTopB = ROW_HEIGHT + BAR_TOP_OFFSET; // row 1
+const barTopB = HEADER_HEIGHT + ROW_HEIGHT + BAR_TOP_OFFSET; // row 1: 1 * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -139,12 +140,10 @@ describe('buildHitIndex', () => {
     // On mouse: zone is barTop..barBottom (18px) — outside is null
     const aboveBar = barTopA - 5; // above bar top
     expect(idx.query(linkX, aboveBar, false)).toBeNull();
-    // On touch: zone expands to 44px centered in ROW_HEIGHT (28px)
-    // center = rowTop + 14; expanded zone: [14 - 22, 14 + 22] = [-8, 36]
-    // so barTopA - 5 = 0 should be within the expanded zone
+    // On touch: zone expands to 44px centered in the row (rowTop + ROW_HEIGHT/2)
+    // rowTop = HEADER_HEIGHT = 28; center = 28 + 14 = 42; expanded zone: [20, 64]
+    // aboveBar = barTopA - 5 = HEADER_HEIGHT + BAR_TOP_OFFSET - 5 = 28 → 28 >= 20 → within zone
     const touchZone = idx.query(linkX, aboveBar, true);
-    // Touch zone centered on ROW_HEIGHT/2 = 14, radius 22 → [-8, 36]
-    // aboveBar = barTopA - 5 = 0 → 0 >= -8 → within zone
     expect(touchZone?.type).toBe('link-dot');
   });
 

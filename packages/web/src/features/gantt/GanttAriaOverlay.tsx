@@ -18,6 +18,7 @@ import type { Task } from '@/types';
 import type { GanttEngine } from './engine';
 import { dateToLeft } from './engine';
 import { ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './engine/GanttHitIndex';
+import { HEADER_HEIGHT } from './ganttConstants';
 
 const OVERSCAN_ROWS = 5;
 
@@ -91,10 +92,10 @@ export function GanttAriaOverlay({ engine, tasks, containerRef }: GanttAriaOverl
     };
   }, [containerRef]);
 
-  // Virtualised row range
+  // Virtualised row range — viewportHeight is reduced by fixed header band
   const overscan = OVERSCAN_ROWS * ROW_HEIGHT;
   const minY = scrollTop - overscan;
-  const maxY = scrollTop + viewportHeight + overscan;
+  const maxY = scrollTop + viewportHeight - HEADER_HEIGHT + overscan;
   const firstRow = Math.max(0, Math.floor(minY / ROW_HEIGHT));
   const lastRow = Math.min(tasks.length - 1, Math.ceil(maxY / ROW_HEIGHT));
 
@@ -149,7 +150,7 @@ export function GanttAriaOverlay({ engine, tasks, containerRef }: GanttAriaOverl
     >
       {tasks.slice(firstRow, lastRow + 1).map((task, sliceIdx) => {
         const rowIndex = firstRow + sliceIdx;
-        const rowTop = rowIndex * ROW_HEIGHT - scrollTop;
+        const rowTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT - scrollTop;
         const isFocused = task.id === focusedTaskId;
 
         // Bar geometry for focus ring positioning (rule 68)

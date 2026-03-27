@@ -165,6 +165,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   appended as uvicorn arguments instead of replacing the command. Changed to `CMD`
   so `docker compose run` and `command:` overrides work correctly for celery, migrations,
   and any other management commands.
+- **Gantt canvas rendering** (issue #19 follow-up): four visual bugs fixed.
+  Task bars were painted 28 px too high (no `HEADER_HEIGHT` offset), alternating row
+  bands drifted away from their rows on vertical scroll (`drawRowBands` ignored
+  `scrollTop`), dependency arrows disconnected from bars on scroll (`drawDependencyArrows`
+  ignored `scrollTop`), and no date labels were shown on the timeline. A two-row
+  timeline header (major unit / minor unit) is now drawn in the top 28 px of the
+  canvas on every full repaint, matching the task-list header height so rows
+  align correctly.
 
 ### Added
 - REST endpoint `POST /api/v1/projects/{pk}/tasks/reorder/` — atomically reorders

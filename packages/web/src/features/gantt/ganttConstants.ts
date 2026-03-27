@@ -1,5 +1,10 @@
 /** Fixed row height — must match SVAR's internal row height for scroll sync */
 export const ROW_HEIGHT = 28;
+/**
+ * Height of the canvas timeline header (major + minor date labels).
+ * Must match TaskListHeader h-7 (28px) so task-list rows align with canvas bars.
+ */
+export const HEADER_HEIGHT = 28;
 /** WBS indent per level in pixels */
 export const WBS_INDENT = 16;
 /**

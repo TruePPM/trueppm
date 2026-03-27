@@ -17,7 +17,8 @@
 
 import type { Task, TaskLink } from '@/types';
 import type { GanttScaleData } from './GanttScaleData';
-import { dateToLeft, parseUTCDate } from './GanttScaleData';
+import { ZOOM_CONFIGS, dateToLeft, parseUTCDate } from './GanttScaleData';
+import { HEADER_HEIGHT } from '../ganttConstants';
 
 // ---------------------------------------------------------------------------
 // Constants (exported — used by GanttEngineImpl and GanttHitIndex)
@@ -29,6 +30,11 @@ export const BAR_HEIGHT = 18;
 export const SUMMARY_BAR_HEIGHT = 8;
 export const MILESTONE_SIZE = 12;
 export const CANVAS_FONT = '12px Inter, system-ui, sans-serif';
+
+/** Height of the major label row inside the HEADER_HEIGHT band. */
+const HEADER_MAJOR_HEIGHT = 14;
+/** Height of the minor label row inside the HEADER_HEIGHT band. */
+const HEADER_MINOR_HEIGHT = 14;
 
 // ---------------------------------------------------------------------------
 // Color palette (rule 72/73: dark-surface tokens only — no Tailwind classes)
@@ -70,18 +76,20 @@ function isWeekend(date: Date): boolean {
 /**
  * Draw alternating row bands for the given visible row range.
  * Called on canvas-bg; only odd rows get the alt shade.
+ * All y-coordinates are viewport-relative: subtract scrollTop from content y.
  */
 export function drawRowBands(
   ctx: CanvasRenderingContext2D,
   firstRow: number,
   lastRow: number,
   scrollLeft: number,
+  scrollTop: number,
   canvasWidth: number,
 ): void {
   for (let i = firstRow; i <= lastRow; i++) {
     if (i % 2 !== 0) {
       ctx.fillStyle = COLOR.rowBandAlt;
-      ctx.fillRect(0, i * ROW_HEIGHT - 0, canvasWidth + scrollLeft, ROW_HEIGHT);
+      ctx.fillRect(0, i * ROW_HEIGHT + HEADER_HEIGHT - scrollTop, canvasWidth + scrollLeft, ROW_HEIGHT);
     }
   }
 }
@@ -116,13 +124,13 @@ export function drawGridLines(
     const x = (ms - startMs) * scales.pxPerMs - scrollLeft;
     if (x >= -1 && x <= ctx.canvas.width / (window.devicePixelRatio || 1) + 1) {
       const date = new Date(ms);
-      // Weekend shading (rule 74) — draw on bg canvas
+      // Weekend shading (rule 74) — draw on bg canvas, below the header
       if (isWeekend(date)) {
         const dayWidth = dayMs * scales.pxPerMs;
         ctx.fillStyle = COLOR.weekend;
-        ctx.fillRect(x, 0, dayWidth, canvasHeight + scrollTop);
+        ctx.fillRect(x, HEADER_HEIGHT, dayWidth, canvasHeight + scrollTop - HEADER_HEIGHT);
       }
-      ctx.moveTo(x + 0.5, 0);
+      ctx.moveTo(x + 0.5, HEADER_HEIGHT);
       ctx.lineTo(x + 0.5, canvasHeight + scrollTop);
     }
     ms += dayMs;
@@ -133,7 +141,7 @@ export function drawGridLines(
   ctx.beginPath();
   ctx.strokeStyle = COLOR.gridLine;
   for (let i = firstRow; i <= lastRow + 1; i++) {
-    const y = i * ROW_HEIGHT - scrollTop + 0.5;
+    const y = i * ROW_HEIGHT + HEADER_HEIGHT - scrollTop + 0.5;
     ctx.moveTo(0, y);
     ctx.lineTo(ctx.canvas.width / (window.devicePixelRatio || 1), y);
   }
@@ -160,10 +168,168 @@ export function drawTodayLine(
   ctx.lineWidth = 2;
   ctx.globalAlpha = 0.9;
   ctx.beginPath();
-  ctx.moveTo(x + 0.5, 0);
+  ctx.moveTo(x + 0.5, HEADER_HEIGHT);
   ctx.lineTo(x + 0.5, canvasHeight);
   ctx.stroke();
   ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Draw: timeline date header
+// ---------------------------------------------------------------------------
+
+/**
+ * Return a stable string key for the major or minor unit that contains `date`.
+ * Used to detect unit-boundary transitions when walking the date range.
+ */
+function getUnitKey(
+  date: Date,
+  unit: 'day' | 'week' | 'month' | 'quarter' | 'year',
+): string {
+  switch (unit) {
+    case 'day':
+      return date.toISOString().slice(0, 10);
+    case 'week': {
+      const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+      d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+      const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+      const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
+      return `${d.getUTCFullYear()}-W${weekNo}`;
+    }
+    case 'month':
+      return `${date.getUTCFullYear()}-${date.getUTCMonth()}`;
+    case 'quarter':
+      return `${date.getUTCFullYear()}-Q${Math.floor(date.getUTCMonth() / 3)}`;
+    case 'year':
+      return `${date.getUTCFullYear()}`;
+  }
+}
+
+/** Draw a single header cell (label + left border) clipped to its bounds. */
+function drawHeaderCell(
+  ctx: CanvasRenderingContext2D,
+  label: string,
+  cellX: number,
+  cellY: number,
+  cellWidth: number,
+  cellHeight: number,
+): void {
+  if (cellWidth < 4) return;
+
+  // Left separator
+  ctx.strokeStyle = COLOR.gridLine;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(Math.floor(cellX) + 0.5, cellY);
+  ctx.lineTo(Math.floor(cellX) + 0.5, cellY + cellHeight);
+  ctx.stroke();
+
+  // Label text, clipped to the cell
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(cellX + 4, cellY, Math.max(0, cellWidth - 4), cellHeight);
+  ctx.clip();
+  ctx.fillStyle = COLOR.textSecondary;
+  ctx.font = '11px Inter, system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, cellX + 6, cellY + cellHeight / 2);
+  ctx.restore();
+}
+
+/**
+ * Draw the two-row timeline header at y = 0..HEADER_HEIGHT on canvas-bg.
+ * Top row: major unit (month, quarter, or year).
+ * Bottom row: minor unit (day, week, month, quarter, or year).
+ *
+ * Called on every full repaint of canvas-bg, after row bands and grid lines
+ * so it paints over any content that overflowed into the header area.
+ */
+export function drawTimelineHeader(
+  ctx: CanvasRenderingContext2D,
+  scales: GanttScaleData,
+  scrollLeft: number,
+  canvasWidth: number,
+): void {
+  const cfg = ZOOM_CONFIGS[scales.zoomLevel];
+  const dayMs = 86_400_000;
+  const startMs = scales.start.getTime();
+  const endMs = scales.end.getTime();
+
+  // Opaque background covers any row bands that reached the header area
+  ctx.fillStyle = COLOR.surface;
+  ctx.fillRect(0, 0, canvasWidth, HEADER_HEIGHT);
+
+  // Bottom border separating header from task area
+  ctx.strokeStyle = COLOR.gridLine;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, HEADER_HEIGHT - 0.5);
+  ctx.lineTo(canvasWidth, HEADER_HEIGHT - 0.5);
+  ctx.stroke();
+
+  // --- Major row (top half) ---
+  {
+    let prevKey = '';
+    let cellStartCanvasX = 0;
+    let cellStartDate: Date | null = null;
+
+    let ms = startMs;
+    while (ms <= endMs + dayMs) {
+      const date = new Date(ms);
+      const key = getUnitKey(date, cfg.majorUnit);
+
+      if (key !== prevKey) {
+        if (cellStartDate !== null) {
+          const canvasX = (ms - startMs) * scales.pxPerMs;
+          const cellX = cellStartCanvasX - scrollLeft;
+          const cellWidth = canvasX - scrollLeft - cellX;
+          drawHeaderCell(ctx, cfg.majorFormat(cellStartDate), cellX, 0, cellWidth, HEADER_MAJOR_HEIGHT);
+        }
+        cellStartCanvasX = (ms - startMs) * scales.pxPerMs;
+        cellStartDate = date;
+        prevKey = key;
+      }
+      ms += dayMs;
+    }
+    // Flush last cell
+    if (cellStartDate !== null) {
+      const cellX = cellStartCanvasX - scrollLeft;
+      const cellWidth = canvasWidth - cellX;
+      drawHeaderCell(ctx, cfg.majorFormat(cellStartDate), cellX, 0, cellWidth, HEADER_MAJOR_HEIGHT);
+    }
+  }
+
+  // --- Minor row (bottom half) ---
+  {
+    let prevKey = '';
+    let cellStartCanvasX = 0;
+    let cellStartDate: Date | null = null;
+
+    let ms = startMs;
+    while (ms <= endMs + dayMs) {
+      const date = new Date(ms);
+      const key = getUnitKey(date, cfg.minorUnit);
+
+      if (key !== prevKey) {
+        if (cellStartDate !== null) {
+          const canvasX = (ms - startMs) * scales.pxPerMs;
+          const cellX = cellStartCanvasX - scrollLeft;
+          const cellWidth = canvasX - scrollLeft - cellX;
+          drawHeaderCell(ctx, cfg.minorFormat(cellStartDate), cellX, HEADER_MAJOR_HEIGHT, cellWidth, HEADER_MINOR_HEIGHT);
+        }
+        cellStartCanvasX = (ms - startMs) * scales.pxPerMs;
+        cellStartDate = date;
+        prevKey = key;
+      }
+      ms += dayMs;
+    }
+    // Flush last cell
+    if (cellStartDate !== null) {
+      const cellX = cellStartCanvasX - scrollLeft;
+      const cellWidth = canvasWidth - cellX;
+      drawHeaderCell(ctx, cfg.minorFormat(cellStartDate), cellX, HEADER_MAJOR_HEIGHT, cellWidth, HEADER_MINOR_HEIGHT);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -193,7 +359,7 @@ export function drawTaskBar(
   const barLeft = dateToLeft(task.start, scales) - scrollLeft;
   const barRight = dateToLeft(task.finish, scales) - scrollLeft;
   const barWidth = Math.max(2, barRight - barLeft);
-  const barTop = rowIndex * ROW_HEIGHT + BAR_TOP_OFFSET;
+  const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
 
   const fill = barFillColor(task);
 
@@ -252,7 +418,7 @@ export function drawSummaryBar(
   const barRight = dateToLeft(task.finish, scales) - scrollLeft;
   const barWidth = Math.max(2, barRight - barLeft);
   // Center the 8px summary bar vertically in the 28px row
-  const barTop = rowIndex * ROW_HEIGHT + (ROW_HEIGHT - SUMMARY_BAR_HEIGHT) / 2;
+  const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + (ROW_HEIGHT - SUMMARY_BAR_HEIGHT) / 2;
 
   ctx.save();
   ctx.fillStyle = COLOR.barSummary;
@@ -290,7 +456,7 @@ export function drawMilestone(
   isSelected: boolean,
 ): void {
   const centerX = dateToLeft(task.start, scales) - scrollLeft;
-  const centerY = rowIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
+  const centerY = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2;
   const half = MILESTONE_SIZE / 2;
 
   ctx.save();
@@ -323,6 +489,7 @@ export function drawDependencyArrows(
   links: TaskLink[],
   scales: GanttScaleData,
   scrollLeft: number,
+  scrollTop: number,
 ): void {
   if (links.length === 0) return;
 
@@ -350,9 +517,9 @@ export function drawDependencyArrows(
     if (!src || !tgt) continue;
 
     const x1 = src.barRight;
-    const y1 = src.rowIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
+    const y1 = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
     const x2 = tgt.barLeft;
-    const y2 = tgt.rowIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
+    const y2 = tgt.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
 
     // Skip if entirely off-screen
     if (
@@ -411,7 +578,7 @@ export function drawDragShadow(
 ): void {
   const duration = parseUTCDate(task.finish).getTime() - parseUTCDate(task.start).getTime();
   const barWidth = Math.max(2, duration * scales.pxPerMs);
-  const barTop = rowIndex * ROW_HEIGHT + BAR_TOP_OFFSET;
+  const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
 
   ctx.save();
   ctx.fillStyle = COLOR.ghostFill;
