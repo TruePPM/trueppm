@@ -1,0 +1,220 @@
+"""Tests for Task.status field, API filter, and task_status_changed signal (#58)."""
+
+from __future__ import annotations
+
+from datetime import date
+from unittest.mock import MagicMock, patch
+
+import pytest
+from django.contrib.auth import get_user_model
+from rest_framework.test import APIClient
+
+from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskStatus
+from trueppm_api.apps.projects.signals import task_status_changed
+
+User = get_user_model()
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def user(db: object) -> object:
+    return User.objects.create_user(username="pm", password="pw")
+
+
+@pytest.fixture
+def member(db: object) -> object:
+    return User.objects.create_user(username="member", password="pw")
+
+
+@pytest.fixture
+def calendar(db: object) -> Calendar:
+    return Calendar.objects.create(name="Std")
+
+
+@pytest.fixture
+def project(calendar: Calendar) -> Project:
+    return Project.objects.create(name="P", start_date=date(2026, 4, 1), calendar=calendar)
+
+
+@pytest.fixture
+def membership(project: Project, user: object) -> ProjectMembership:
+    return ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+
+
+@pytest.fixture
+def client(user: object, membership: ProjectMembership) -> APIClient:
+    c = APIClient()
+    c.force_authenticate(user=user)
+    return c
+
+
+@pytest.fixture
+def task(project: Project) -> Task:
+    return Task.objects.create(project=project, name="T1", duration=2)
+
+
+# ---------------------------------------------------------------------------
+# Model defaults
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_task_status_defaults_to_not_started(project: Project) -> None:
+    task = Task.objects.create(project=project, name="T", duration=1)
+    assert task.status == TaskStatus.NOT_STARTED
+
+
+# ---------------------------------------------------------------------------
+# API — read and write
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_task_list_includes_status_field(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    r = client.get(f"/api/v1/tasks/?project={project.pk}")
+    assert r.status_code == 200
+    results = r.data.get("results", r.data)
+    first = next(t for t in results if t["id"] == str(task.pk))
+    assert "status" in first
+    assert first["status"] == TaskStatus.NOT_STARTED
+
+
+@pytest.mark.django_db
+def test_patch_status_updates_task(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        r = client.patch(
+            f"/api/v1/tasks/{task.pk}/",
+            {"status": "IN_PROGRESS"},
+            format="json",
+        )
+    assert r.status_code == 200
+    task.refresh_from_db()
+    assert task.status == TaskStatus.IN_PROGRESS
+
+
+@pytest.mark.django_db
+def test_patch_invalid_status_rejected(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    r = client.patch(
+        f"/api/v1/tasks/{task.pk}/",
+        {"status": "BOGUS"},
+        format="json",
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.django_db
+def test_filter_tasks_by_status(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        t_open = Task.objects.create(
+            project=project, name="Open", duration=1, status=TaskStatus.NOT_STARTED
+        )
+        t_done = Task.objects.create(
+            project=project, name="Done", duration=1, status=TaskStatus.COMPLETE
+        )
+
+    r = client.get(f"/api/v1/tasks/?project={project.pk}&status=COMPLETE")
+    assert r.status_code == 200
+    results = r.data.get("results", r.data)
+    ids = [t["id"] for t in results]
+    assert str(t_done.pk) in ids
+    assert str(t_open.pk) not in ids
+
+
+# ---------------------------------------------------------------------------
+# Signal — task_status_changed
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_signal_emitted_when_status_changes(project: Project, task: Task) -> None:
+    handler = MagicMock()
+    task_status_changed.connect(handler)
+    try:
+        task.status = TaskStatus.IN_PROGRESS
+        task.save(update_fields=["status"])
+        handler.assert_called_once()
+        _, kwargs = handler.call_args
+        assert kwargs["old_status"] == TaskStatus.NOT_STARTED
+        assert kwargs["new_status"] == TaskStatus.IN_PROGRESS
+        assert kwargs["task"] == task
+    finally:
+        task_status_changed.disconnect(handler)
+
+
+@pytest.mark.django_db
+def test_signal_not_emitted_when_status_unchanged(project: Project, task: Task) -> None:
+    handler = MagicMock()
+    task_status_changed.connect(handler)
+    try:
+        task.name = "Renamed"
+        task.save(update_fields=["name"])
+        handler.assert_not_called()
+    finally:
+        task_status_changed.disconnect(handler)
+
+
+@pytest.mark.django_db
+def test_signal_not_emitted_when_value_does_not_change(project: Project, task: Task) -> None:
+    # status is already NOT_STARTED; saving it again should not fire
+    handler = MagicMock()
+    task_status_changed.connect(handler)
+    try:
+        task.status = TaskStatus.NOT_STARTED
+        task.save(update_fields=["status"])
+        handler.assert_not_called()
+    finally:
+        task_status_changed.disconnect(handler)
+
+
+@pytest.mark.django_db
+def test_signal_includes_old_and_new_status_on_full_save(project: Project, task: Task) -> None:
+    task.status = TaskStatus.IN_PROGRESS
+    task.save(update_fields=["status"])  # set up initial state
+
+    calls: list[dict[str, object]] = []
+
+    def capture(sender: object, **kwargs: object) -> None:
+        calls.append(dict(kwargs))
+
+    task_status_changed.connect(capture)
+    try:
+        task.status = TaskStatus.COMPLETE
+        task.save()  # full save — no update_fields
+        assert len(calls) == 1
+        assert calls[0]["old_status"] == TaskStatus.IN_PROGRESS
+        assert calls[0]["new_status"] == TaskStatus.COMPLETE
+    finally:
+        task_status_changed.disconnect(capture)
+
+
+# ---------------------------------------------------------------------------
+# Sync serializer includes status
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_sync_task_serializer_includes_status(project: Project, task: Task) -> None:
+    from trueppm_api.apps.sync.serializers import SyncTaskSerializer
+
+    data = SyncTaskSerializer(task).data
+    assert "status" in data
+    assert data["status"] == TaskStatus.NOT_STARTED
