@@ -244,6 +244,18 @@ class Task(VersionedModel):
     percent_complete = models.FloatField(default=0.0)
     notes = models.TextField(blank=True)
 
+    # SNET constraint — set by the PM (e.g. via Gantt drag-to-reschedule).
+    # The CPM forward pass applies this as a floor:
+    #   early_start = max(CPM-computed early_start, planned_start)
+    # Absence of constraint_type implies SNET for alpha; a constraint_type
+    # column may be added post-alpha without breaking changes.
+    planned_start = models.DateField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Start no earlier than (SNET). CPM floor applied during forward pass.",
+    )
+
     # CPM output fields — populated by the scheduling Celery task
     early_start = models.DateField(null=True, blank=True)
     early_finish = models.DateField(null=True, blank=True)

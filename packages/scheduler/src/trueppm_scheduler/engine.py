@@ -215,7 +215,11 @@ def _forward_pass(
         duration_days = task.duration.days
 
         # Collect ES and EF constraints from all predecessor dependencies.
+        # planned_start (SNET) is an additional ES lower-bound: the task may
+        # not start before this date regardless of network logic.
         es_constraints: list[date] = [start]
+        if task.planned_start is not None:
+            es_constraints.append(_next_working_day(task.planned_start, calendar))
         ef_constraints: list[date] = []
 
         for pred_id in g.predecessors(node_id):

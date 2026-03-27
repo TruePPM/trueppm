@@ -98,6 +98,7 @@ def _run_schedule(project_id: str) -> None:
             id=str(t.id),
             name=t.name,
             duration=timedelta(days=t.duration),
+            planned_start=t.planned_start,
             percent_complete=t.percent_complete,
             optimistic_duration=timedelta(days=t.optimistic_duration)
             if t.optimistic_duration is not None
