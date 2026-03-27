@@ -6,20 +6,19 @@ _HELP = "Start no earlier than (SNET). CPM floor applied during forward pass."
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('projects', '0012_task_status'),
+        ("projects", "0012_task_status"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='historicaltask',
-            name='planned_start',
+            model_name="historicaltask",
+            name="planned_start",
             field=models.DateField(blank=True, db_index=True, help_text=_HELP, null=True),
         ),
         migrations.AddField(
-            model_name='task',
-            name='planned_start',
+            model_name="task",
+            name="planned_start",
             field=models.DateField(blank=True, db_index=True, help_text=_HELP, null=True),
         ),
     ]

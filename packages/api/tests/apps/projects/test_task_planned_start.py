@@ -149,9 +149,7 @@ def test_sync_task_serializer_includes_planned_start(project: Project, task: Tas
 
 
 @pytest.mark.django_db
-def test_sync_task_serializer_planned_start_null_when_unset(
-    project: Project, task: Task
-) -> None:
+def test_sync_task_serializer_planned_start_null_when_unset(project: Project, task: Task) -> None:
     from trueppm_api.apps.sync.serializers import SyncTaskSerializer
 
     data = SyncTaskSerializer(task).data
