@@ -264,6 +264,67 @@ class TestScheduleFloat:
 # ---------------------------------------------------------------------------
 
 
+class TestSchedulePlannedStart:
+    """planned_start is a SNET (start no earlier than) constraint.
+
+    The forward pass applies it as a floor:
+        early_start = max(CPM-computed early_start, planned_start)
+    """
+
+    def test_planned_start_later_than_cpm_raises_early_start(self) -> None:
+        """planned_start after CPM date delays the task."""
+        p = make_project(
+            tasks=[task("A", "A", 3, planned_start=date(2026, 3, 9))]  # 1 week after project start
+        )
+        r = schedule(p)
+        t = next(t for t in r.tasks if t.id == "A")
+        # CPM would place early_start on 2026-03-02 (project start),
+        # but planned_start pushes it to 2026-03-09.
+        assert t.early_start == date(2026, 3, 9)
+        assert t.early_finish == date(2026, 3, 11)  # 3 working days from Mon 9
+
+    def test_planned_start_before_cpm_has_no_effect(self) -> None:
+        """planned_start before CPM-computed date is ignored (it's already satisfied)."""
+        p = make_project(
+            tasks=[task("A", "A", 3, planned_start=date(2026, 2, 23))]  # week before project start
+        )
+        r = schedule(p)
+        t = next(t for t in r.tasks if t.id == "A")
+        # planned_start is satisfied by CPM; early_start stays at project start.
+        assert t.early_start == date(2026, 3, 2)
+
+    def test_planned_start_on_weekend_snaps_to_next_working_day(self) -> None:
+        """planned_start on a weekend is advanced to the next working day."""
+        p = make_project(
+            tasks=[task("A", "A", 2, planned_start=date(2026, 3, 7))]  # Saturday
+        )
+        r = schedule(p)
+        t = next(t for t in r.tasks if t.id == "A")
+        assert t.early_start == date(2026, 3, 9)  # Monday
+
+    def test_planned_start_cascades_to_successors(self) -> None:
+        """Delaying task A via planned_start pushes dependent task B forward."""
+        p = make_project(
+            tasks=[
+                task("A", "A", 3, planned_start=date(2026, 3, 9)),  # pushed 1 week
+                task("B", "B", 2),
+            ],
+            dependencies=[Dependency("A", "B")],
+        )
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+        # A starts 2026-03-09, finishes 2026-03-11 (3 days)
+        # B cannot start until day after A finishes → 2026-03-12
+        assert by_id["A"].early_start == date(2026, 3, 9)
+        assert by_id["B"].early_start == date(2026, 3, 12)
+
+    def test_none_planned_start_is_ignored(self) -> None:
+        """Tasks with no planned_start use CPM dates unchanged."""
+        p = make_project(tasks=[task("A", "A", 5)])
+        r = schedule(p)
+        assert r.tasks[0].early_start == date(2026, 3, 2)
+
+
 class TestScheduleCycleDetection:
     def test_direct_cycle_raises(self) -> None:
         p = make_project(

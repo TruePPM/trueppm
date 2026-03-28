@@ -53,6 +53,7 @@ class SyncTaskSerializer(serializers.ModelSerializer[Task]):
             "duration",
             "percent_complete",
             "notes",
+            "planned_start",
             "early_start",
             "early_finish",
             "late_start",

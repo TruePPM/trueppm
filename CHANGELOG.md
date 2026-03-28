@@ -175,6 +175,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   align correctly.
 
 ### Added
+- `Task.planned_start` field (SNET — start no earlier than): PMs can now set a
+  constraint date on any task via `PATCH /api/v1/tasks/{id}/`. The CPM forward
+  pass applies it as a floor (`early_start = max(CPM-computed, planned_start)`),
+  so constrained tasks cascade correctly to successors. Included in the mobile
+  sync delta payload (`SyncTaskSerializer`) so on-device CPM respects the
+  constraint offline.
 - REST endpoint `POST /api/v1/projects/{pk}/tasks/reorder/` — atomically reorders
   sibling tasks within a WBS level; accepts `parent_path` + `ordered_ids`, recomputes
   `wbs_path` server-side, and returns updated paths so clients can invalidate caches
