@@ -5,6 +5,14 @@ stages:
   - security  # CVE scans + license audit (MR + main only)
   - publish   # tag-triggered: scheduler PyPI release
 
+default:
+  interruptible: true
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
   POSTGRES_DB: trueppm_test
@@ -548,6 +556,7 @@ license:check:
         - packages/scheduler/**/*
         - packages/api/**/*
         - packages/web/**/*
+        - packages/wasm-scheduler/**/*
         - .gitlab-ci.yml
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc nodejs npm
@@ -567,6 +576,19 @@ license:check:
     # --onlyAllow covers --failOn implicitly: any license not in the list fails.
     - npx --prefix packages/web license-checker --production
         --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;Unlicense;WTFPL;BlueOak-1.0.0"
+
+wasm:license-check:
+  # Verify no copyleft-licensed Rust dependency has been introduced.
+  # Uses cargo-deny to check crate licenses against an allow-list in deny.toml.
+  extends: .wasm
+  stage: security
+  needs: [wasm:test]
+  <<: *rules-wasm
+  before_script:
+    - cargo install cargo-deny --locked
+    - cd packages/wasm-scheduler
+  script:
+    - cargo deny check licenses
 
 # ---------------------------------------------------------------------------
 # PUBLISH — tag-triggered release jobs.
