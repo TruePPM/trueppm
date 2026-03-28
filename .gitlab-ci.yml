@@ -585,7 +585,9 @@ wasm:license-check:
   needs: [wasm:test]
   <<: *rules-wasm
   before_script:
-    - cargo install cargo-deny@0.18.3 --locked
+    - apt-get update -qq && apt-get install -y -qq curl
+    - curl -sSfL https://github.com/EmbarkStudios/cargo-deny/releases/download/0.18.3/cargo-deny-0.18.3-x86_64-unknown-linux-musl.tar.gz
+        | tar xz -C /usr/local/bin --strip-components=1 cargo-deny-0.18.3-x86_64-unknown-linux-musl/cargo-deny
     - cd packages/wasm-scheduler
   script:
     - cargo deny check licenses
