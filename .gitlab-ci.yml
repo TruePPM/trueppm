@@ -12,6 +12,10 @@ default:
     when:
       - runner_system_failure
       - stuck_or_timeout_failure
+  after_script:
+    # Free workspace disk before cache upload to reduce runner disk pressure.
+    # Runs inside the container — safe even if the main script failed.
+    - rm -rf /tmp/* 2>/dev/null || true
 
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
@@ -183,13 +187,9 @@ workflow:
 
 .wasm:
   image: rust:1.85-slim
-  cache:
-    key:
-      files:
-        - packages/wasm-scheduler/Cargo.toml
-      prefix: wasm-cargo
-    paths:
-      - packages/wasm-scheduler/target/
+  # No cargo target cache — the ~1 GB target/ directory was exhausting shared
+  # runner disk. Cold builds take ~40s which is acceptable until we have a
+  # self-hosted runner with more disk (issues #29/#30).
   before_script:
     - rustup component add clippy
     - rustup target add wasm32-unknown-unknown
