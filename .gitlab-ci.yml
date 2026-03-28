@@ -585,7 +585,7 @@ wasm:license-check:
   needs: [wasm:test]
   <<: *rules-wasm
   before_script:
-    - cargo install cargo-deny --locked
+    - cargo install cargo-deny@0.18.3 --locked
     - cd packages/wasm-scheduler
   script:
     - cargo deny check licenses
