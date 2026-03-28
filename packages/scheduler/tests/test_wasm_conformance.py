@@ -73,8 +73,8 @@ def test_fixture_conformance(fixture_name: str) -> None:
         assert actual["project_finish"] == expected["project_finish"]
         assert actual["critical_path"] == expected["critical_path"]
 
-        for at, et in zip(actual["tasks"], expected["tasks"]):
-            assert at["id"] == et["id"], f"Task ID mismatch"
+        for at, et in zip(actual["tasks"], expected["tasks"], strict=True):
+            assert at["id"] == et["id"], "Task ID mismatch"
             assert at["early_start"] == et["early_start"], f"{at['id']}: early_start"
             assert at["early_finish"] == et["early_finish"], f"{at['id']}: early_finish"
             assert at["late_start"] == et["late_start"], f"{at['id']}: late_start"

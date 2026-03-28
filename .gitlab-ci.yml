@@ -183,6 +183,7 @@ workflow:
     paths:
       - packages/wasm-scheduler/target/
   before_script:
+    - rustup component add clippy
     - rustup target add wasm32-unknown-unknown
     - cd packages/wasm-scheduler
 
