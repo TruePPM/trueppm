@@ -1,5 +1,6 @@
 ---
 name: architect
+model: opus
 description: >
   System architecture design and decision-making for TruePPM. Use when designing new
   subsystems, evaluating technology choices, planning data flow between components,
@@ -67,6 +68,22 @@ Portfolio Governance  ───────────────────�
   Groupings belong in Enterprise.
 
 ## When Invoked
+
+### Phase 1 — Research (Sonnet sub-agents, in parallel)
+
+Spawn these sub-agents concurrently using the Agent tool with `model: "sonnet"`:
+
+1. **Existing architecture scan**: "Read all ADRs in docs/adr/. List each ADR number, title, status, and the packages it affects. Report any that relate to: `<feature description>`."
+
+2. **Codebase impact scan**: "Search the codebase for models, serializers, views, and components related to `<feature description>`. List each file path, class name, and a one-line summary. Check `grep -r 'trueppm_enterprise' packages/` and report results."
+
+3. **Data model survey**: "Read all Django models in packages/api/src/ that are relevant to `<feature description>`. For each model, list fields, indexes, FK relationships, and whether it has `server_version`. Also check if any existing migration touches these models."
+
+Wait for all three agents to return before proceeding.
+
+### Phase 2 — Synthesis (Opus, main context)
+
+Using the research results:
 
 1. **Understand the request**: What system, subsystem, or integration is being designed?
 2. **Identify the P3M layer**: Which layer does this feature serve? Does it span layers?

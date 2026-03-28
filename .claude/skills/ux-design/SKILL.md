@@ -1,5 +1,6 @@
 ---
 name: ux-design
+model: opus
 description: >
   UI and UX design for TruePPM features. Use when designing new screens, components,
   interactions, or workflows for the web or mobile apps. Produces wireframes (ASCII

@@ -1,5 +1,6 @@
 ---
 name: brand
+model: sonnet
 description: >
   TruePPM brand and design system reference. Use when writing any frontend code
   (React web, React Native mobile) to ensure correct colors, typography, spacing,

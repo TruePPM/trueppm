@@ -1,5 +1,6 @@
 ---
 name: dependency
+model: sonnet
 description: >
   Dependency audit for TruePPM before adding any new pip or npm package. Checks
   license compatibility (Apache 2.0 codebase), known CVEs, package health, and

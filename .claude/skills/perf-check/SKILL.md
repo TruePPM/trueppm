@@ -1,5 +1,6 @@
 ---
 name: perf-check
+model: sonnet
 description: >
   Performance audit for TruePPM API endpoints and serializers. Use when adding or
   modifying a viewset, serializer, or any code that queries the database to catch

@@ -1,5 +1,6 @@
 ---
 name: migration-check
+model: sonnet
 description: >
   Django migration safety audit for TruePPM. Use whenever a models.py file is
   modified to catch missing migrations, destructive operations, and NOT NULL columns

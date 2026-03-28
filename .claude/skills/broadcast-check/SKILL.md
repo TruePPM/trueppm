@@ -1,5 +1,6 @@
 ---
 name: broadcast-check
+model: sonnet
 description: >
   WebSocket real-time broadcast audit for TruePPM. Use when adding or modifying any
   write operation (create, update, delete) on board-scoped resources to verify

@@ -1,5 +1,6 @@
 ---
 name: code-review
+model: sonnet
 description: >
   Code review for TruePPM following project conventions. Use when reviewing PRs,
   auditing code quality, or checking adherence to CLAUDE.md standards. Checks Python
