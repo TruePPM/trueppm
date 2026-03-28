@@ -5,6 +5,18 @@ stages:
   - security  # CVE scans + license audit (MR + main only)
   - publish   # tag-triggered: scheduler PyPI release
 
+default:
+  interruptible: true
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - stuck_or_timeout_failure
+  after_script:
+    # Free workspace disk before cache upload to reduce runner disk pressure.
+    # Runs inside the container — safe even if the main script failed.
+    - rm -rf /tmp/* 2>/dev/null || true
+
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
   POSTGRES_DB: trueppm_test
@@ -70,6 +82,14 @@ workflow:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/website/**/*
+        - .gitlab-ci.yml
+
+.rules-wasm: &rules-wasm
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/wasm-scheduler/**/*
         - .gitlab-ci.yml
 
 .rules-helm: &rules-helm
@@ -165,6 +185,16 @@ workflow:
     - cd packages/website
     - npm ci --prefer-offline --quiet
 
+.wasm:
+  image: rust:1.85-slim
+  # No cargo target cache — the ~1 GB target/ directory was exhausting shared
+  # runner disk. Cold builds take ~40s which is acceptable until we have a
+  # self-hosted runner with more disk (issues #29/#30).
+  before_script:
+    - rustup component add clippy
+    - rustup target add wasm32-unknown-unknown
+    - cd packages/wasm-scheduler
+
 # ---------------------------------------------------------------------------
 # LINT — fastest jobs, highest failure rate. Gates all downstream work.
 # ---------------------------------------------------------------------------
@@ -222,6 +252,13 @@ web:lint:
   <<: *rules-web
   script:
     - npm run lint
+
+wasm:lint:
+  extends: .wasm
+  stage: lint
+  <<: *rules-wasm
+  script:
+    - cargo clippy --all-targets -- -D warnings
 
 helm:lint:
   image:
@@ -290,6 +327,22 @@ web:type-check:
   script:
     - npm run typecheck
 
+wasm:build:
+  # Verify the WASM crate compiles to wasm32. The pkg/ output is not passed
+  # downstream — this validates the build is clean.
+  extends: .wasm
+  stage: analyze
+  needs: [wasm:lint]
+  <<: *rules-wasm
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl
+    - rustup component add clippy
+    - rustup target add wasm32-unknown-unknown
+    - curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+    - cd packages/wasm-scheduler
+  script:
+    - wasm-pack build --target web --release
+
 web:build:
   # Build artifact is not passed downstream — this job validates the build
   # is clean. web:test runs vitest independently.
@@ -343,6 +396,36 @@ scheduler:test:
     - cd packages/scheduler
     - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+%)/'
+
+wasm:test:
+  extends: .wasm
+  stage: test
+  needs: [wasm:lint, wasm:build]
+  <<: *rules-wasm
+  script:
+    - cargo test --all-targets
+
+wasm:conformance:
+  # Cross-engine conformance: run the Python scheduler against the same shared
+  # fixtures that the Rust tests use. If both pass, the engines agree.
+  stage: test
+  image: python:3.11-slim
+  needs: [scheduler:lint, wasm:lint]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/wasm-scheduler/**/*
+        - packages/scheduler/**/*
+        - .gitlab-ci.yml
+  cache:
+    <<: *scheduler-cache
+    policy: pull
+  before_script:
+    - pip install -e "packages/scheduler[dev]" --quiet
+  script:
+    - cd packages/scheduler
+    - pytest tests/test_wasm_conformance.py -v
 
 api:test:
   extends: .api
@@ -473,6 +556,7 @@ license:check:
         - packages/scheduler/**/*
         - packages/api/**/*
         - packages/web/**/*
+        - packages/wasm-scheduler/**/*
         - .gitlab-ci.yml
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc nodejs npm
@@ -492,6 +576,21 @@ license:check:
     # --onlyAllow covers --failOn implicitly: any license not in the list fails.
     - npx --prefix packages/web license-checker --production
         --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;Unlicense;WTFPL;BlueOak-1.0.0"
+
+wasm:license-check:
+  # Verify no copyleft-licensed Rust dependency has been introduced.
+  # Uses cargo-deny to check crate licenses against an allow-list in deny.toml.
+  extends: .wasm
+  stage: security
+  needs: [wasm:test]
+  <<: *rules-wasm
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl
+    - curl -sSfL https://github.com/EmbarkStudios/cargo-deny/releases/download/0.18.3/cargo-deny-0.18.3-x86_64-unknown-linux-musl.tar.gz
+        | tar xz -C /usr/local/bin --strip-components=1 cargo-deny-0.18.3-x86_64-unknown-linux-musl/cargo-deny
+    - cd packages/wasm-scheduler
+  script:
+    - cargo deny check licenses
 
 # ---------------------------------------------------------------------------
 # PUBLISH — tag-triggered release jobs.

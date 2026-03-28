@@ -1,0 +1,11 @@
+[licenses]
+# Only allow these licenses — anything else (including copyleft) is denied.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+]

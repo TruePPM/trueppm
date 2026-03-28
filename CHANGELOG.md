@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **WASM CPM engine** (issue #39): Rust + petgraph scheduling engine compiled to
+  WebAssembly via wasm-pack. Exposes `compute_schedule()` and `incremental_update()`
+  for in-browser Gantt drag simulation and future offline mobile scheduling. Shared
+  JSON fixture suite enforces Python ↔ Rust parity in CI. 184 KB raw / 81 KB gzip
+  bundle. ADR-0015.
 - **Task status field** (issue #58): `Task.status` field with four values —
   `NOT_STARTED` (default), `IN_PROGRESS`, `ON_HOLD`, `COMPLETE`. Exposed on all task
   list and detail endpoints; writable via `PATCH /api/v1/tasks/{id}/`. Filter tasks by

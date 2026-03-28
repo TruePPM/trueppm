@@ -1,0 +1,20 @@
+{
+  "id": "p-cal-exc",
+  "name": "Calendar Exceptions",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 432000.0},
+    {"id": "B", "name": "Task B", "duration": 259200.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [
+      {"start": "2026-04-06", "end": "2026-04-07"}
+    ],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}
