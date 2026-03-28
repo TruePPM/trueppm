@@ -1,5 +1,6 @@
 ---
 name: scheduler-engine
+model: opus
 description: >
   CPM, Monte Carlo, and scheduling algorithm work for trueppm-scheduler. Use when
   implementing or modifying the scheduling engine, adding new algorithm features,

@@ -1,5 +1,6 @@
 ---
 name: api-design
+model: opus
 description: >
   Design REST and WebSocket API endpoints for TruePPM. Use when adding new endpoints,
   modifying existing ones, or designing the sync protocol. Follows API-first principles:

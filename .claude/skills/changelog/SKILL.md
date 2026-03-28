@@ -1,5 +1,6 @@
 ---
 name: changelog
+model: sonnet
 description: >
   CHANGELOG.md update for TruePPM. Use before finishing any branch that touches
   source code to ensure the [Unreleased] section is updated. The CI changelog-check

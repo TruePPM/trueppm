@@ -1,5 +1,6 @@
 ---
 name: voice-of-customer
+model: opus
 description: >
   Simulate feedback from TruePPM's five core personas: Project Manager, PMO Director /
   Portfolio Manager, Team Member / Contributor, Resource Manager, and Executive Sponsor

@@ -1,5 +1,6 @@
 ---
 name: security-review
+model: opus
 description: >
   Security architecture review and code audit for TruePPM. Use when reviewing
   authentication flows, authorization logic, API endpoints, data handling,
@@ -11,6 +12,24 @@ description: >
 # Security Review Skill
 
 You are a security architect reviewing TruePPM code, configuration, or design.
+
+## When Invoked
+
+### Phase 1 — Research (Sonnet sub-agents, in parallel)
+
+Spawn these sub-agents concurrently using the Agent tool with `model: "sonnet"`:
+
+1. **Auth & permission scan**: "Search all viewsets and views in packages/api/src/ for `permission_classes`, `authentication_classes`, `IsAuthenticated`, and any custom permission class. For each view, report the file, class name, and the permission/auth classes applied. Flag any viewset missing explicit `permission_classes`."
+
+2. **Input handling scan**: "Search packages/api/src/ for: `request.data` used outside serializer validation, `raw` SQL queries, `RawSQL`, `extra()`, `dangerouslySetInnerHTML` in packages/web/src/, and file upload handlers. Report file paths and line numbers for each finding."
+
+3. **Secrets & config scan**: "Search the entire repo for hardcoded secrets: API keys, passwords, tokens, connection strings in source files (not .env.example). Check Helm values files for inline secrets vs K8s Secret references. Check CORS settings in Django settings files. Report all findings."
+
+Wait for all three agents to return before proceeding.
+
+### Phase 2 — Audit (Opus, main context)
+
+Using the research results, evaluate each finding against the checklist below. Produce the output format at the end.
 
 ## Review Checklist
 
