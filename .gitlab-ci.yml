@@ -72,6 +72,14 @@ workflow:
         - packages/website/**/*
         - .gitlab-ci.yml
 
+.rules-wasm: &rules-wasm
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/wasm-scheduler/**/*
+        - .gitlab-ci.yml
+
 .rules-helm: &rules-helm
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -165,6 +173,19 @@ workflow:
     - cd packages/website
     - npm ci --prefer-offline --quiet
 
+.wasm:
+  image: rust:1.82-slim
+  cache:
+    key:
+      files:
+        - packages/wasm-scheduler/Cargo.toml
+      prefix: wasm-cargo
+    paths:
+      - packages/wasm-scheduler/target/
+  before_script:
+    - rustup target add wasm32-unknown-unknown
+    - cd packages/wasm-scheduler
+
 # ---------------------------------------------------------------------------
 # LINT — fastest jobs, highest failure rate. Gates all downstream work.
 # ---------------------------------------------------------------------------
@@ -222,6 +243,13 @@ web:lint:
   <<: *rules-web
   script:
     - npm run lint
+
+wasm:lint:
+  extends: .wasm
+  stage: lint
+  <<: *rules-wasm
+  script:
+    - cargo clippy --all-targets -- -D warnings
 
 helm:lint:
   image:
@@ -290,6 +318,20 @@ web:type-check:
   script:
     - npm run typecheck
 
+wasm:build:
+  # Verify the WASM crate compiles to wasm32. The pkg/ output is not passed
+  # downstream — this validates the build is clean.
+  extends: .wasm
+  stage: analyze
+  needs: [wasm:lint]
+  <<: *rules-wasm
+  before_script:
+    - rustup target add wasm32-unknown-unknown
+    - cargo install wasm-pack --locked || true
+    - cd packages/wasm-scheduler
+  script:
+    - wasm-pack build --target web --release
+
 web:build:
   # Build artifact is not passed downstream — this job validates the build
   # is clean. web:test runs vitest independently.
@@ -343,6 +385,36 @@ scheduler:test:
     - cd packages/scheduler
     - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+%)/'
+
+wasm:test:
+  extends: .wasm
+  stage: test
+  needs: [wasm:lint, wasm:build]
+  <<: *rules-wasm
+  script:
+    - cargo test --all-targets
+
+wasm:conformance:
+  # Cross-engine conformance: run the Python scheduler against the same shared
+  # fixtures that the Rust tests use. If both pass, the engines agree.
+  stage: test
+  image: python:3.11-slim
+  needs: [scheduler:lint, wasm:lint]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/wasm-scheduler/**/*
+        - packages/scheduler/**/*
+        - .gitlab-ci.yml
+  cache:
+    <<: *scheduler-cache
+    policy: pull
+  before_script:
+    - pip install -e "packages/scheduler[dev]" --quiet
+  script:
+    - cd packages/scheduler
+    - pytest tests/test_wasm_conformance.py -v
 
 api:test:
   extends: .api

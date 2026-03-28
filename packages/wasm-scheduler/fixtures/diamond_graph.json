@@ -1,0 +1,23 @@
+{
+  "id": "p-diamond",
+  "name": "Diamond Graph (Convergent Dependencies)",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "Start", "duration": 259200.0},
+    {"id": "B", "name": "Long Path", "duration": 432000.0},
+    {"id": "C", "name": "Short Path", "duration": 172800.0},
+    {"id": "D", "name": "End", "duration": 259200.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "A", "successor_id": "B", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "A", "successor_id": "C", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "B", "successor_id": "D", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "C", "successor_id": "D", "dep_type": "FS", "lag": 0.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}
