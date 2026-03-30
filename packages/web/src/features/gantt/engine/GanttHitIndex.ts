@@ -144,6 +144,8 @@ export function buildHitIndex(tasks: Task[], scales: GanttScaleData): HitIndex {
 
   for (let i = 0; i < tasks.length; i++) {
     const task = tasks[i];
+    // Skip unscheduled tasks — no valid bar position
+    if (!task.start || !task.finish) continue;
     const barLeft = dateToLeft(task.start, scales);
     const barRight = dateToLeft(task.finish, scales);
     const barTop = i * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;

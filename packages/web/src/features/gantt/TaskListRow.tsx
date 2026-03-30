@@ -10,7 +10,10 @@ interface Props {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 export function TaskListRow({ task, level, widths }: Props) {
@@ -61,9 +64,9 @@ export function TaskListRow({ task, level, widths }: Props) {
       <span
         className="shrink-0 text-right text-gantt-text-secondary tabular-nums"
         style={{ width: widths.durStart }}
-        aria-label={task.isMilestone ? 'milestone' : `${task.duration} days, starts ${formatDate(task.start)}`}
+        aria-label={task.isMilestone ? 'milestone' : task.start ? `${task.duration} days, starts ${formatDate(task.start)}` : `${task.duration} days, unscheduled`}
       >
-        {task.isMilestone ? '—' : `${task.duration}d · ${formatDate(task.start)}`}
+        {task.isMilestone ? '—' : task.start ? `${task.duration}d · ${formatDate(task.start)}` : `${task.duration}d`}
       </span>
 
       {/* Progress — text only; no mini bar (rule 43) */}

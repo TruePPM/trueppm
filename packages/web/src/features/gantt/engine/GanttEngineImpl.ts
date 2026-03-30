@@ -343,9 +343,19 @@ export class GanttEngineImpl implements GanttEngine {
 
   private _updateProjectRange(): void {
     if (this._tasks.length === 0) return;
-    let start = this._tasks[0].start;
-    let end = this._tasks[0].finish;
-    for (const t of this._tasks) {
+    // Skip tasks with empty/missing dates — unscheduled tasks have no position
+    const dated = this._tasks.filter((t) => t.start && t.finish);
+    if (dated.length === 0) {
+      // All tasks unscheduled — default to ±30 days around today
+      const today = new Date();
+      const pad = 30 * 86_400_000;
+      this._projectStart = new Date(today.getTime() - pad).toISOString().slice(0, 10);
+      this._projectEnd = new Date(today.getTime() + pad).toISOString().slice(0, 10);
+      return;
+    }
+    let start = dated[0].start;
+    let end = dated[0].finish;
+    for (const t of dated) {
       if (t.start < start) start = t.start;
       if (t.finish > end) end = t.finish;
     }
@@ -566,7 +576,7 @@ export class GanttEngineImpl implements GanttEngine {
   private _paintTaskAt(ctx: CanvasRenderingContext2D, rowIndex: number): void {
     if (!this._scales) return;
     const task = this._tasks[rowIndex];
-    if (!task) return;
+    if (!task || !task.start || !task.finish) return;
 
     const isSelected = this._selectedTaskIds.has(task.id);
 
