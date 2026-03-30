@@ -162,6 +162,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an index range scan; critical for projects with hundreds of tasks.
 
 ### Fixed
+- **Gantt blank rendering on unscheduled tasks**: tasks with null `early_start`/`early_finish`
+  dates produced `Invalid Date` / NaN canvas coordinates, causing both the task list and
+  timeline panels to render as blank boxes. Engine now filters unscheduled tasks from
+  range calculation and rendering; task list shows duration without a start date.
 - Switching view tabs (Gantt / WBS / Table / Calendar / Resources) no longer drops the
   `?project=` URL search param, which previously caused the active project to be lost on
   every view switch.
