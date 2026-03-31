@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Outlet } from 'react-router';
+import { Outlet, useNavigate } from 'react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { queryClient } from '@/lib/queryClient';
@@ -11,6 +11,7 @@ import { BottomNav } from './BottomNav';
 export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const navigate = useNavigate();
 
   const openDrawer = useCallback(() => setDrawerOpen(true), []);
   const closeDrawer = useCallback(() => {
@@ -18,6 +19,17 @@ export function AppShell() {
     // Return focus to hamburger button after drawer closes (WCAG 2.1 §2.4.3)
     hamburgerRef.current?.focus();
   }, []);
+
+  // Redirect to /login when the Axios interceptor gives up refreshing the session.
+  // Without this listener the user stays on a broken screen seeing "Failed to load".
+  useEffect(() => {
+    const handler = () => {
+      queryClient.clear();
+      void navigate('/login', { replace: true });
+    };
+    window.addEventListener('auth:sessionExpired', handler);
+    return () => window.removeEventListener('auth:sessionExpired', handler);
+  }, [navigate]);
 
   // Close drawer on viewport resize to ≥ md
   useEffect(() => {
