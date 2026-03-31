@@ -27,6 +27,14 @@ interface RiskRegisterViewProps {
 }
 
 export function RiskRegisterView({ projectId }: RiskRegisterViewProps) {
+  if (!projectId) {
+    return (
+      <div className="flex h-full items-center justify-center bg-neutral-surface">
+        <p className="text-sm text-neutral-text-secondary">Select a project to view risks.</p>
+      </div>
+    );
+  }
+
   const { risks, isLoading, error } = useRisks(projectId || null);
 
   // null   = drawer closed
