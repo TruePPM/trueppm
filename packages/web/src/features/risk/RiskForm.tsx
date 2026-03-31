@@ -1,8 +1,24 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
+import axios from 'axios';
 import type { Risk } from '@/api/types';
 import { useCreateRisk, useUpdateRisk } from '@/hooks/useRisks';
 import { RiskChip } from './RiskChip';
+
+function formatMutationError(error: Error): string {
+  if (axios.isAxiosError(error) && error.response?.data) {
+    const data = error.response.data as Record<string, unknown>;
+    // DRF returns { field: ["error"] } or { detail: "error" }
+    if (typeof data.detail === 'string') return data.detail;
+    const messages: string[] = [];
+    for (const [key, val] of Object.entries(data)) {
+      if (Array.isArray(val)) messages.push(`${key}: ${val.join(', ')}`);
+      else if (typeof val === 'string') messages.push(`${key}: ${val}`);
+    }
+    if (messages.length > 0) return messages.join('. ');
+  }
+  return error.message || 'Failed to save risk. Please try again.';
+}
 
 export interface RiskFormProps {
   projectId: string;
@@ -40,6 +56,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
   const updateMutation = useUpdateRisk();
 
   const isPending = createMutation.isPending || updateMutation.isPending;
+  const mutationError = createMutation.error ?? updateMutation.error;
   const severity  = probability * impact;
 
   function validate(): boolean {
@@ -53,6 +70,8 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    createMutation.reset();
+    updateMutation.reset();
     if (!validate()) return;
 
     const payload = {
@@ -197,6 +216,15 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
           className={`${INPUT_BASE} resize-none py-2`}
         />
       </div>
+
+      {/* Mutation error */}
+      {mutationError && (
+        <div role="alert" className="rounded border border-semantic-critical/30 bg-semantic-critical/5 px-3 py-2">
+          <p className="text-sm text-semantic-critical">
+            {mutationError instanceof Error ? formatMutationError(mutationError) : 'Failed to save risk. Please try again.'}
+          </p>
+        </div>
+      )}
 
       {/* Actions */}
       <div className="flex justify-end gap-3 pt-2">
