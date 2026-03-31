@@ -27,6 +27,13 @@ interface RiskRegisterViewProps {
 }
 
 export function RiskRegisterView({ projectId }: RiskRegisterViewProps) {
+  const { risks, isLoading, error } = useRisks(projectId || null);
+
+  // null   = drawer closed
+  // undefined = create mode (drawer open, no risk)
+  // Risk  = view/edit mode
+  const [selectedRisk, setSelectedRisk] = useState<Risk | null | undefined>(null);
+
   if (!projectId) {
     return (
       <div className="flex h-full items-center justify-center bg-neutral-surface">
@@ -34,13 +41,6 @@ export function RiskRegisterView({ projectId }: RiskRegisterViewProps) {
       </div>
     );
   }
-
-  const { risks, isLoading, error } = useRisks(projectId || null);
-
-  // null   = drawer closed
-  // undefined = create mode (drawer open, no risk)
-  // Risk  = view/edit mode
-  const [selectedRisk, setSelectedRisk] = useState<Risk | null | undefined>(null);
 
   const isDrawerOpen = selectedRisk !== null;
 
