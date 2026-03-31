@@ -162,6 +162,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an index range scan; critical for projects with hundreds of tasks.
 
 ### Fixed
+- **Sidebar blank on API failure**: when the projects API returned an error (e.g. 401 while unauthenticated), the sidebar rendered completely blank with no message. Now shows "Failed to load projects" in the error state.
+- **Risk register: add risk fails silently**: `POST /api/v1/projects//risks/` 404 when `projectId` was empty string — `RiskRegisterView` now returns early with a "Select a project" prompt instead of rendering the broken form. API errors (400, 403, 404) are now surfaced in the form as a visible error banner.
 - **Gantt blank rendering on unscheduled tasks**: tasks with null `early_start`/`early_finish`
   dates produced `Invalid Date` / NaN canvas coordinates, causing both the task list and
   timeline panels to render as blank boxes. Engine now filters unscheduled tasks from

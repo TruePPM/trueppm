@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
+import { queryClient } from '@/lib/queryClient';
 
 interface TokenResponse {
   access: string;
@@ -29,6 +30,8 @@ export function LoginPage() {
         password,
       });
       setTokens(response.data.access, response.data.refresh);
+      // Clear stale cached errors so all queries refetch with the new token.
+      queryClient.clear();
       const next = searchParams.get('next') ?? '/';
       void navigate(next, { replace: true });
     } catch (err: unknown) {

@@ -34,6 +34,14 @@ export function RiskRegisterView({ projectId }: RiskRegisterViewProps) {
   // Risk  = view/edit mode
   const [selectedRisk, setSelectedRisk] = useState<Risk | null | undefined>(null);
 
+  if (!projectId) {
+    return (
+      <div className="flex h-full items-center justify-center bg-neutral-surface">
+        <p className="text-sm text-neutral-text-secondary">Select a project to view risks.</p>
+      </div>
+    );
+  }
+
   const isDrawerOpen = selectedRisk !== null;
 
   function openCreate() {

@@ -12,7 +12,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const { sidebarCollapsed, sidebarUserControlled, toggleSidebar, setSidebarCollapsed } =
     useShellStore();
   const sidebarWidth = useShellStore(selectSidebarWidth);
-  const { data: projects, isLoading } = useProjects();
+  const { data: projects, isLoading, error } = useProjects();
 
   // Auto-collapse at < lg (1024px) unless user has manually set state
   const handleResize = useCallback(() => {
@@ -93,6 +93,13 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               <li key={i} className="h-9 rounded animate-pulse bg-white/20" aria-hidden="true" />
             ))}
           </ul>
+        ) : error ? (
+          <p
+            role="alert"
+            className="px-3 py-2 text-xs text-gantt-semantic-critical"
+          >
+            Failed to load projects
+          </p>
         ) : (
           <ul className="space-y-0.5 px-2">
             {projects?.map((project) => (
