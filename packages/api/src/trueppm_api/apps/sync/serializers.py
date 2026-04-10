@@ -46,6 +46,7 @@ class SyncTaskSerializer(serializers.ModelSerializer[Task]):
         fields = [
             "id",
             "server_version",
+            "short_id",
             "project",
             "name",
             "wbs_path",
@@ -98,6 +99,7 @@ class SyncRiskSerializer(serializers.ModelSerializer[Risk]):
         fields = [
             "id",
             "server_version",
+            "short_id",
             "project",
             "title",
             "description",

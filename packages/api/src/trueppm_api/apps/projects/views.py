@@ -240,6 +240,9 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         project_id = self.request.query_params.get("project")
         if project_id:
             qs = qs.filter(project_id=project_id)
+        short_id = self.request.query_params.get("short_id")
+        if short_id:
+            qs = qs.filter(short_id=short_id.upper())
         is_critical = self.request.query_params.get("is_critical")
         if is_critical is not None:
             qs = qs.filter(is_critical=is_critical.lower() in ("true", "1"))
@@ -771,6 +774,9 @@ class RiskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
         project_pk = self.kwargs.get("project_pk")
         if project_pk:
             qs = qs.filter(project_id=project_pk)
+        short_id = self.request.query_params.get("short_id")
+        if short_id:
+            qs = qs.filter(short_id=short_id.upper())
         status_filter = self.request.query_params.get("status")
         if status_filter:
             qs = qs.filter(status=status_filter)

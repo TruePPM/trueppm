@@ -71,6 +71,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         fields = [
             "id",
             "server_version",
+            "short_id",
             "project",
             "name",
             "assignee",
@@ -97,6 +98,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         read_only_fields = [
             "id",
             "server_version",
+            "short_id",
             "early_start",
             "early_finish",
             "late_start",
@@ -303,6 +305,7 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
         fields = [
             "id",
             "server_version",
+            "short_id",
             "project",
             "title",
             "description",
@@ -319,6 +322,7 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
         read_only_fields = [
             "id",
             "server_version",
+            "short_id",
             "project",
             "severity",
             "created_by",

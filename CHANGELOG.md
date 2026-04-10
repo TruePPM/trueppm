@@ -187,6 +187,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   align correctly.
 
 ### Added
+- **Short hex object IDs** (issue #50, ADR-0016): Tasks and Risks now receive a
+  human-readable 8-character hex identifier (e.g. `000A3F`) on creation, scoped
+  per project. Exposed as read-only `short_id` on `TaskSerializer`,
+  `RiskSerializer`, and their sync counterparts. Filterable via
+  `?short_id=000A3F` on task and risk list endpoints. Existing objects are
+  backfilled via data migration.
 - `Task.planned_start` field (SNET — start no earlier than): PMs can now set a
   constraint date on any task via `PATCH /api/v1/tasks/{id}/`. The CPM forward
   pass applies it as a floor (`early_start = max(CPM-computed, planned_start)`),
