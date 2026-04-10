@@ -227,6 +227,9 @@ echo "  Bumped manifests to $NEW_VERSION"
 CHANGELOG="CHANGELOG.md"
 
 if ! $IS_PRERELEASE; then
+  # Assemble any pending changelog fragments into [Unreleased] before rotating.
+  bash scripts/assemble-changelog.sh
+
   if ! grep -q "## \[Unreleased\]" "$CHANGELOG"; then
     die "$CHANGELOG has no [Unreleased] section — add release notes before releasing."
   fi
