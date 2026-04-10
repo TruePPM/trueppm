@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that catches accidental collisions. `recalculate_schedule` migrated from hand-rolled Redis
   lock to `@idempotent_task(on_contention="queue")`; `purge_old_history_records` now uses
   `@idempotent_task(on_contention="skip")` for global lock protection. ADR-0018.
+- **Resource utilization hook wired to API** (issue #14): replaced stub
+  `useResourceUtilization` with a real TanStack Query hook that calls
+  `GET /api/v1/projects/{pk}/utilization/`. Handles 409 (schedule not run) and
+  403 (permission denied) responses with distinct status values. The backend
+  models (`Resource`, `TaskResource`), `compute_utilization()` function, and full
+  frontend component tree were already implemented — this wires the last connection.
 - **Board / Kanban view** (issue #21): four-column drag-and-drop board view (To Do,
   In Progress, On Hold, Done) built with @dnd-kit. Cards can be dragged between columns
   to update task status via API PATCH. Keyboard move alternative via overflow menu
