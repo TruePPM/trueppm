@@ -1,6 +1,7 @@
 ---
 name: mr
 model: opus
+disable-model-invocation: true
 description: >
   Open a GitLab merge request for the current branch targeting main. Runs
   pre-flight checks (clean branch, green local checks, CHANGELOG updated),
