@@ -5,6 +5,7 @@ export type HealthState = 'on-track' | 'at-risk' | 'critical' | 'unknown';
 
 export type BarType = 'normal' | 'critical' | 'complete' | 'summary' | 'milestone' | 'baseline';
 export type LinkType = 'FS' | 'SS' | 'FF' | 'SF';
+export type TaskStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'ON_HOLD' | 'COMPLETE';
 export type ZoomLevel = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
 export interface Task {
@@ -23,6 +24,7 @@ export interface Task {
   isComplete: boolean;
   isSummary: boolean;
   isMilestone: boolean;
+  status: TaskStatus;
   baselineStart?: string;
   baselineFinish?: string;
 }

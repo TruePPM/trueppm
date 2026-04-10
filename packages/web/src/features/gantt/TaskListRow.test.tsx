@@ -15,6 +15,7 @@ const base: Task = {
   id: 't1', wbs: '1.1', name: 'Design Phase', start: '2026-10-05', finish: '2026-10-15',
   duration: 10, progress: 50, parentId: 't0',
   isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
+  status: 'NOT_STARTED',
 };
 
 describe('TaskListRow', () => {

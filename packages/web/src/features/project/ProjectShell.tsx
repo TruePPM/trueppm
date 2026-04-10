@@ -5,6 +5,7 @@ import { TaskListView } from '@/features/tasklist/TaskListView';
 import { CalendarView } from '@/features/calendar/CalendarView';
 import { ResourceView } from '@/features/resource/ResourceView';
 import { RiskRegisterView } from '@/features/risk/RiskRegisterView';
+import { BoardView } from '@/features/board/BoardView';
 import { RecalculatingBadge } from './RecalculatingBadge';
 import { useProjectWebSocket } from '@/hooks/useProjectWebSocket';
 import { useSchedulerStore } from '@/stores/schedulerStore';
@@ -12,12 +13,13 @@ import { useSchedulerStore } from '@/stores/schedulerStore';
 // Active view is tracked in ?view= search param so URLs are shareable
 // and the TanStack Query cache key (['tasks', projectId]) stays stable
 // across view switches.
-type ViewMode = 'gantt' | 'wbs' | 'list' | 'calendar' | 'resources' | 'risk';
+type ViewMode = 'gantt' | 'wbs' | 'list' | 'board' | 'calendar' | 'resources' | 'risk';
 
 const VIEW_LABELS: Record<ViewMode, string> = {
   gantt: 'Gantt',
   wbs: 'WBS',
   list: 'Table',
+  board: 'Board',
   calendar: 'Calendar',
   resources: 'Resources',
   risk: 'Risks',
@@ -51,7 +53,7 @@ export function ProjectShell() {
           bg-neutral-surface-raised flex-shrink-0"
       >
         <div role="group" aria-label="View mode" className="flex items-center gap-1">
-          {(['gantt', 'wbs', 'list', 'calendar', 'resources', 'risk'] as const).map((v) => (
+          {(['gantt', 'wbs', 'list', 'board', 'calendar', 'resources', 'risk'] as const).map((v) => (
             <button
               key={v}
               type="button"
@@ -83,6 +85,7 @@ export function ProjectShell() {
         {view === 'gantt' && <GanttView />}
         {view === 'wbs' && <WbsView />}
         {view === 'list' && <TaskListView />}
+        {view === 'board' && <BoardView />}
         {view === 'calendar' && <CalendarView />}
         {view === 'resources' && <ResourceView />}
         {view === 'risk' && <RiskRegisterView projectId={projectId ?? ''} />}

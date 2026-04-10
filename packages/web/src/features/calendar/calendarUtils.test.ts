@@ -27,6 +27,7 @@ function makeTask(overrides: Partial<Task> & { id: string; start: string; finish
     duration: 1,
     progress: 0,
     parentId: null,
+    status: 'NOT_STARTED',
     isCritical: false,
     isComplete: false,
     isSummary: false,

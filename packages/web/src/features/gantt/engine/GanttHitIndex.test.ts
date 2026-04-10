@@ -24,6 +24,7 @@ function makeTask(id: string, start: string, finish: string): Task {
     isComplete: false,
     isSummary: false,
     isMilestone: false,
+    status: 'NOT_STARTED',
   };
 }
 

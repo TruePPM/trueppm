@@ -16,6 +16,7 @@ const TASK: Task = {
   isComplete: false,
   isSummary: false,
   isMilestone: false,
+  status: 'NOT_STARTED',
 };
 
 describe('DateInputPopover', () => {
