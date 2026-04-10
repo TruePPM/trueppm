@@ -6,15 +6,21 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
+
+from trueppm_api.core.idempotent import idempotent_task
 
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="history.purge_old_records")  # type: ignore[untyped-decorator]
-def purge_old_history_records() -> dict[str, Any]:
+@idempotent_task(
+    lock_key_template="history_purge",
+    lock_ttl=600,
+    on_contention="skip",
+    name="history.purge_old_records",
+)  # type: ignore[misc]
+def purge_old_history_records(self: object) -> dict[str, Any]:
     """Delete historical records older than HISTORY_RETENTION_DAYS.
 
     Registered in CELERY_BEAT_SCHEDULE to run nightly. Returns a summary
