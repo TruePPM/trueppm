@@ -162,7 +162,7 @@ def test_task_filter_short_id_case_insensitive(
     client: APIClient, project: Project, membership: ProjectMembership
 ) -> None:
     """Filter should match regardless of case."""
-    t = Task.objects.create(project=project, name="T1", duration=1)
+    Task.objects.create(project=project, name="T1", duration=1)
     r = client.get(f"/api/v1/tasks/?project={project.pk}&short_id=00000001")
     results = r.data.get("results", r.data)
     assert len(results) == 1
