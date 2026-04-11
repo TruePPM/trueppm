@@ -166,6 +166,6 @@ def _add_summary_task(tasks_el: ET.Element, project: object) -> None:
     """Add the UID 0 project summary task."""
     task_el = ET.SubElement(tasks_el, f"{{{_NS}}}Task")
     _sub_text(task_el, "UID", "0")
-    _sub_text(task_el, "Name", project.name)  # type: ignore[union-attr]
+    _sub_text(task_el, "Name", project.name)  # type: ignore[attr-defined]
     _sub_text(task_el, "OutlineLevel", "0")
     _sub_text(task_el, "OutlineNumber", "0")

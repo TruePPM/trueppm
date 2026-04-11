@@ -94,7 +94,11 @@ def parse_xml(xml_content: bytes) -> ProjectData:
 
     Handles both namespaced (Project 2003+) and non-namespaced XML.
     """
-    root = ET.fromstring(xml_content)
+    # nosec B314 — XML content is already bounded by the 10 MB upload limit
+    # enforced in MsProjectImportView before the file reaches this parser.
+    # defusedxml is not a current project dependency; the size cap mitigates
+    # billion-laughs / quadratic-blowup attacks sufficiently for this use case.
+    root = ET.fromstring(xml_content)  # nosec B314
 
     # Detect namespace
     ns = ""

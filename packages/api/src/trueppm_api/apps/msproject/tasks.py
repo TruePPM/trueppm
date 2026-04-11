@@ -33,7 +33,7 @@ def _get_tracker(
 ) -> Generator[Any, None, None]:
     """Try to use TaskRunTracker; fall back to no-op if not available."""
     try:
-        from trueppm_api.apps.taskruns.tracker import TaskRunTracker
+        from trueppm_api.apps.taskruns.tracker import TaskRunTracker  # type: ignore[import-untyped]
 
         with TaskRunTracker(
             celery_task,
@@ -46,7 +46,7 @@ def _get_tracker(
         yield _NoOpTracker()
 
 
-@shared_task(bind=True, name="msproject.import_file")
+@shared_task(bind=True, name="msproject.import_file")  # type: ignore[untyped-decorator]
 def import_msproject(
     self: Any,
     project_id: str,
