@@ -162,6 +162,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an index range scan; critical for projects with hundreds of tasks.
 
 ### Fixed
+- **Auth 401-retry race on login**: after logging in, TanStack Query retried stale 401 errors before the new token was stored, causing a persistent "Failed to load projects" screen. Fixed by gating renders on Zustand hydration, clearing the query cache on login, suppressing 401 retries at the query level, and redirecting to `/login` on session expiry via a custom event.
 - **Sidebar blank on API failure**: when the projects API returned an error (e.g. 401 while unauthenticated), the sidebar rendered completely blank with no message. Now shows "Failed to load projects" in the error state.
 - **Risk register: add risk fails silently**: `POST /api/v1/projects//risks/` 404 when `projectId` was empty string — `RiskRegisterView` now returns early with a "Select a project" prompt instead of rendering the broken form. API errors (400, 403, 404) are now surfaced in the form as a visible error banner.
 - **Gantt blank rendering on unscheduled tasks**: tasks with null `early_start`/`early_finish`
