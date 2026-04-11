@@ -1,6 +1,7 @@
 ---
 name: fix-mr
 model: opus
+disable-model-invocation: true
 description: >
   Watch and fix a failing GitLab MR pipeline for TruePPM. Fetches pipeline
   status, reads job logs, diagnoses the root cause, applies fixes, commits,

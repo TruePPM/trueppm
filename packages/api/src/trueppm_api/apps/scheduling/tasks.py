@@ -5,25 +5,25 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-import redis as redis_lib
-from celery import shared_task
+from trueppm_api.core.idempotent import idempotent_task
 
 logger = logging.getLogger(__name__)
 
-# Redis SET NX lock TTL — prevents two workers from scheduling the same project
-# simultaneously. On lock collision the task re-queues itself with a 10-second
-# countdown so the second update is never silently dropped.
-_LOCK_TTL_SECONDS = 300
-_REQUEUE_COUNTDOWN = 10
 
-
-@shared_task(bind=True)  # type: ignore[untyped-decorator]
+@idempotent_task(
+    lock_key_template="schedule_lock:{0}",
+    lock_ttl=300,
+    on_contention="queue",
+    queue_countdown=10,
+    max_queue_attempts=5,
+)
 def recalculate_schedule(self: object, project_id: str) -> None:
     """Run CPM on a project and persist the results.
 
-    Idempotency is enforced via a Redis SET NX lock keyed by project_id.
-    If another worker holds the lock the task re-queues itself after
-    _REQUEUE_COUNTDOWN seconds so that the triggering mutation is not lost.
+    Idempotency is enforced by the ``@idempotent_task`` decorator which
+    acquires a Redis SET NX lock keyed by project_id and auto-extends it
+    for long-running schedules. On lock contention the task is re-queued
+    with a 10-second countdown (up to 5 attempts).
 
     After writing CPM results back to the database this task broadcasts a
     cpm_complete event to the project's WebSocket group.
@@ -31,31 +31,12 @@ def recalculate_schedule(self: object, project_id: str) -> None:
     Args:
         project_id: UUID string of the project to reschedule.
     """
-    from django.conf import settings
-
-    redis_client = redis_lib.from_url(settings.REDIS_URL)
-    lock_key = f"schedule_lock:{project_id}"
-
-    # Attempt to acquire an exclusive lock (SET NX with TTL).
-    acquired = redis_client.set(lock_key, "1", nx=True, ex=_LOCK_TTL_SECONDS)
-    if not acquired:
-        logger.info(
-            "recalculate_schedule: lock held for project %s, re-queuing in %ds",
-            project_id,
-            _REQUEUE_COUNTDOWN,
-        )
-        self.apply_async(args=[project_id], countdown=_REQUEUE_COUNTDOWN)  # type: ignore[attr-defined]
-        return
-
     # Broadcast that CPM is now running so the frontend can show the badge.
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
     broadcast_board_event(project_id=project_id, event_type="cpm_queued", payload={})
 
-    try:
-        _run_schedule(project_id)
-    finally:
-        redis_client.delete(lock_key)
+    _run_schedule(project_id)
 
 
 def _run_schedule(project_id: str) -> None:

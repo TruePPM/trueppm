@@ -99,10 +99,8 @@ def test_schedule_lock_collision_requeues(project: Project) -> None:
     # SET NX returns None (falsy) when lock is already held.
     mock_redis.set.return_value = None
 
-    from trueppm_api.apps.scheduling import tasks as sched_module
-
     with (
-        patch("trueppm_api.apps.scheduling.tasks.redis_lib") as mock_redis_module,
+        patch("trueppm_api.core.idempotent.redis_lib") as mock_redis_module,
         patch.object(recalculate_schedule, "apply_async") as mock_apply,
     ):
         mock_redis_module.from_url.return_value = mock_redis
@@ -114,7 +112,9 @@ def test_schedule_lock_collision_requeues(project: Project) -> None:
 
         mock_apply.assert_called_once_with(
             args=[str(project.pk)],
-            countdown=sched_module._REQUEUE_COUNTDOWN,
+            kwargs={},
+            countdown=10,
+            headers={"x-requeue-count": 1},
         )
 
 

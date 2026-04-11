@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Idempotent task framework** (issue #63): reusable `@idempotent_task` decorator in
+  `trueppm_api.core.idempotent` that wraps `@shared_task` with Redis distributed locking.
+  Supports three contention strategies (`retry`, `skip`, `queue`), automatic lock extension
+  via daemon thread with Lua compare-and-extend script, and an import-time lock key registry
+  that catches accidental collisions. `recalculate_schedule` migrated from hand-rolled Redis
+  lock to `@idempotent_task(on_contention="queue")`; `purge_old_history_records` now uses
+  `@idempotent_task(on_contention="skip")` for global lock protection. ADR-0018.
 - **WASM CPM engine** (issue #39): Rust + petgraph scheduling engine compiled to
   WebAssembly via wasm-pack. Exposes `compute_schedule()` and `incremental_update()`
   for in-browser Gantt drag simulation and future offline mobile scheduling. Shared
