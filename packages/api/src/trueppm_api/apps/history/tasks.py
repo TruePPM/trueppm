@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
     lock_ttl=600,
     on_contention="skip",
     name="history.purge_old_records",
-)  # type: ignore[misc]
+)
 def purge_old_history_records(self: object) -> dict[str, Any]:
     """Delete historical records older than HISTORY_RETENTION_DAYS.
 

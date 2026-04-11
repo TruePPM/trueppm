@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
     on_contention="queue",
     queue_countdown=10,
     max_queue_attempts=5,
-)  # type: ignore[misc]
+)
 def recalculate_schedule(self: object, project_id: str) -> None:
     """Run CPM on a project and persist the results.
 

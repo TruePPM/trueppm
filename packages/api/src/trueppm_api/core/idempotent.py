@@ -72,7 +72,7 @@ class _LockExtender:
 
     def __init__(
         self,
-        redis_client: redis_lib.Redis,  # type: ignore[type-arg]
+        redis_client: redis_lib.Redis,
         lock_key: str,
         token: str,
         ttl: int,
@@ -158,7 +158,7 @@ def idempotent_task(
     def decorator(fn: Callable[..., Any]) -> Any:
         @functools.wraps(fn)
         def wrapper(self: Any, *args: Any, **kwargs: Any) -> Any:
-            redis_client: redis_lib.Redis = redis_lib.from_url(settings.REDIS_URL)  # type: ignore[type-arg]
+            redis_client: redis_lib.Redis = redis_lib.from_url(settings.REDIS_URL)
             lock_key = lock_key_template.format(*args)
             token = uuid.uuid4().hex
 
@@ -181,7 +181,7 @@ def idempotent_task(
                 lock_key,
                 token,
                 lock_ttl,
-                lock_extend_interval,  # type: ignore[arg-type]
+                lock_extend_interval,
             )
             extender.start()
             try:
@@ -192,7 +192,7 @@ def idempotent_task(
                 release = redis_client.register_script(_RELEASE_SCRIPT)
                 release(keys=[lock_key], args=[token])
 
-        return shared_task(**task_kwargs)(wrapper)  # type: ignore[untyped-decorator]
+        return shared_task(**task_kwargs)(wrapper)
 
     return decorator
 
