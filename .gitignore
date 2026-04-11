@@ -18,6 +18,16 @@ env/
 .coverage
 htmlcov/
 
+# Node
+node_modules/
+
+# Coverage
+coverage/
+coverage.xml
+
+# uv lockfile — trueppm-scheduler is a library; lockfile not committed
+uv.lock
+
 # Docker
 *.override.yml
 

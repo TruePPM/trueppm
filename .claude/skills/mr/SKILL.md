@@ -3,7 +3,7 @@ name: mr
 model: opus
 description: >
   Open a GitLab merge request for the current branch targeting main. Runs
-  pre-flight checks (clean branch, green local checks, CHANGELOG updated),
+  pre-flight checks (clean branch, green local checks, changelog fragment present),
   writes a structured MR description, and creates the MR via glab. Use this
   whenever the user asks to open, create, or submit an MR.
 ---
@@ -29,19 +29,19 @@ Spawn these sub-agents concurrently using the Agent tool with `model: "sonnet"`:
 1. **Branch & diff analysis**: "Run `git branch --show-current`, `git status --short`, `git log main..HEAD --oneline`, `git diff main...HEAD --stat`, and `git status --porcelain`. Return all output verbatim. If there are uncommitted changes (porcelain output is non-empty), flag it prominently."
 
 2. **Pre-flight checks**: "Run these checks and report results:
-   (a) CHANGELOG: run `grep -A 30 '\\[Unreleased\\]' CHANGELOG.md | head -40` and report whether entries exist for the current branch's changes.
+   (a) Changelog fragment: run `git diff --name-only origin/main...HEAD | grep -E '^changelog\\.d/[^/]+\\.(added|changed|fixed|security)\\.md$'` and report whether a fragment file is present. Also run `ls changelog.d/` to show existing fragments.
    (b) Branch naming: run `git branch --show-current` and verify it follows `feat/`, `fix/`, `docs/`, `chore/`, `test/`, `refactor/`, `perf/`, `ci/` prefix convention.
    (c) Existing MR: run `glab mr list --source-branch $(git branch --show-current) 2>/dev/null` and report any existing MRs with their titles and URLs."
 
 Wait for both agents to return. Then evaluate:
 
 - If there are uncommitted changes, **stop and tell the user**.
-- If CHANGELOG is missing and the branch is **not** exempt (CI config, dependency bumps, test-only, docs-only, chores), add an entry first and commit it.
+- If no changelog fragment is present and the branch is **not** exempt, run the `/changelog` skill to create one before proceeding.
 - If an existing MR exists, verify it belongs to the current work:
   - If the title matches the current commits, report the URL and stop.
   - If the title does **not** match, **stop and tell the user** with a clear conflict description.
 
-**Exempt from CHANGELOG**: CI config changes, dependency bumps, test-only changes, docs-only changes, chores with no behavior change.
+**Exempt from changelog fragment**: `chore/*`, `ci/*`, `docs/*` branches; dependency bumps; test-only changes with no behavior change.
 
 ---
 
@@ -115,5 +115,5 @@ If the pipeline hasn't started yet, note that CI will run automatically on push.
 - **Never open an MR to a branch other than main** without explicit user instruction
 - **Never create duplicate MRs** — check first
 - **Heredoc syntax is mandatory** for multi-line MR bodies — never use inline `\n`
-- **Stop and ask** if CHANGELOG is missing and the change is not clearly exempt
+- **Create a changelog fragment** (via `/changelog`) if none is present and the branch is not exempt — do not open the MR without it
 - If `glab` is not authenticated, tell the user to run `glab auth login` and stop

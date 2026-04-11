@@ -77,27 +77,27 @@ trueppm-suite/
 ## Build & Run
 
 ```bash
+# First-time setup
+make setup    # installs git hooks via pre-commit
+make doctor   # verifies all prerequisites
+
 # Development (Docker Compose)
-docker compose up -d
+make up       # docker compose up -d
 # Web UI: http://localhost:5173
 # API:    http://localhost:8000
 # PostgreSQL: localhost:5432
 # Redis:      localhost:6379
 
-# Run tests
+# Common tasks (Makefile wraps per-package commands)
+make lint         # ruff + eslint across all packages
+make typecheck    # mypy + tsc across all packages
+make test         # pytest + vitest across all packages
+make build        # web bundle
+
+# Or run per-package directly:
 cd packages/scheduler && pytest     # scheduler
 cd packages/api && pytest           # API
 cd packages/web && npm test         # web (vitest)
-
-# Lint everything
-cd packages/scheduler && ruff check src/ tests/  # scheduler
-cd packages/api && ruff check src/               # API
-cd packages/web && npm run lint                  # web (eslint)
-
-# Type check
-cd packages/scheduler && mypy
-cd packages/api && mypy src/trueppm_api
-cd packages/web && npm run typecheck
 ```
 
 ## General Conventions
@@ -110,7 +110,7 @@ cd packages/web && npm run typecheck
   3. Make changes, commit, push branch
   4. Open MR targeting `main`, wait for a **green pipeline**, then merge
 - Release commits also go through branches and MRs — `scripts/release.sh` handles this automatically
-- Always update `CHANGELOG.md` `[Unreleased]` section on any branch before merging. Append to the existing `### Added` / `### Changed` / `### Fixed` block — never create duplicate headings in the same release block
+- **Changelog entries use fragment files** — create `changelog.d/<slug>.<type>.md` instead of editing `CHANGELOG.md` directly. Valid types: `added`, `changed`, `fixed`, `security`. Fragments are assembled at release time by `scripts/assemble-changelog.sh`. See `changelog.d/README.md` for the naming convention. **Never edit `CHANGELOG.md` directly** — the CI `changelog:check` job looks for fragment files and will block the pipeline if none are present.
 - **Every new or modified feature must include test cases and documentation updates in the same MR** — do not ship a feature without both
 - Use **US English** in all code, comments, documentation, commit messages, MR descriptions, and UI copy (e.g. "color" not "colour", "canceled" not "cancelled")
 - For complex business logic (model methods, serializer behaviour, transaction sequences, permission checks), add a docstring or inline comment explaining **why** — the intent or constraint, not what the code does

@@ -201,12 +201,18 @@ workflow:
 
 changelog:check:
   # Pure git diff — ~10 seconds. Run first so MR authors get instant feedback
-  # if they forgot to update the changelog, before any build jobs start.
-  # Exempt: chore/* and ci/* branches carry no user-visible behaviour change.
+  # if they forgot a changelog fragment, before any build jobs start.
+  #
+  # Changelog fragments live in changelog.d/<slug>.<type>.md (not CHANGELOG.md).
+  # Fragments are assembled into CHANGELOG.md at release time by
+  # scripts/assemble-changelog.sh. See changelog.d/README.md for details.
+  #
+  # Exempt branches: chore/*, ci/*, docs/* carry no user-visible change.
+  # Exempt MRs: add the ~no-changelog label in GitLab to skip this check.
   stage: lint
   image: alpine:latest
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^(chore|ci)\//i'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^(chore|ci|docs)\//i'
       when: never
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
@@ -214,14 +220,29 @@ changelog:check:
   script:
     - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --depth=20
     - |
-      ADDED=$(git diff "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME...HEAD" -- CHANGELOG.md \
-        | grep '^+' | grep -v '^+++' | wc -l | tr -d ' ')
-      if [ "$ADDED" -eq 0 ]; then
-        echo "ERROR: CHANGELOG.md has not been updated on this branch."
-        echo "Add an entry to the [Unreleased] section before merging."
+      # Skip if the MR has the ~no-changelog label
+      if echo "$CI_MERGE_REQUEST_LABELS" | grep -qF "no-changelog"; then
+        echo "Skipping changelog check — ~no-changelog label present."
+        exit 0
+      fi
+    - |
+      CHANGED=$(git diff --name-only "origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME...HEAD")
+      FRAGMENTS=$(echo "$CHANGED" | grep -E '^changelog\.d/[^/]+\.(added|changed|fixed|security)\.md$' || true)
+      if [ -z "$FRAGMENTS" ]; then
+        echo "ERROR: No changelog fragment found on this branch."
+        echo ""
+        echo "Create a file in changelog.d/ with the format:"
+        echo "  changelog.d/<slug>.<type>.md"
+        echo ""
+        echo "Types: added, changed, fixed, security"
+        echo "Example: changelog.d/auth-retry-race.fixed.md"
+        echo ""
+        echo "See changelog.d/README.md for details."
+        echo "To skip this check, add the ~no-changelog label to the MR."
         exit 1
       fi
-      echo "CHANGELOG.md OK — $ADDED line(s) added."
+      echo "OK: Changelog fragment(s) found:"
+      echo "$FRAGMENTS"
 
 scheduler:lint:
   extends: .scheduler
