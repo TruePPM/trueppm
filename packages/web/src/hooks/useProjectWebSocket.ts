@@ -2,9 +2,12 @@
  * Connects to the project WebSocket channel and dispatches incoming events.
  *
  * Events handled:
- *   cpm_queued    → schedulerStore.setRecalculating(true)
- *   cpm_complete  → invalidate tasks query, schedulerStore.setCpmComplete()
- *   cpm_error     → schedulerStore.setCpmError()
+ *   task_run_started  → taskRunStore.addRun(); for scheduling tasks also setRecalculating(true)
+ *   task_run_progress → taskRunStore.updateProgress()
+ *   task_run_completed → taskRunStore.completeRun(); for scheduling tasks also setCpmComplete()
+ *   task_run_failed   → taskRunStore.failRun(); for scheduling tasks also setCpmError()
+ *   task_run_cancelled → taskRunStore.cancelRun()
+ *   cpm_complete      → invalidate tasks query, schedulerStore.setCpmComplete() (compat broadcast)
  *   task_created / task_updated / task_deleted → invalidate tasks query
  *   baseline_created / baseline_activated / baseline_deleted → invalidate baselines + tasks
  *
@@ -15,6 +18,7 @@ import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
 import { useSchedulerStore } from '@/stores/schedulerStore';
+import { useTaskRunStore } from '@/stores/taskRunStore';
 import type { CpmError } from '@/stores/schedulerStore';
 
 interface WsEnvelope {
@@ -35,6 +39,11 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
   const setRecalculating = useSchedulerStore((s) => s.setRecalculating);
   const setCpmError = useSchedulerStore((s) => s.setCpmError);
   const setCpmComplete = useSchedulerStore((s) => s.setCpmComplete);
+  const addRun = useTaskRunStore((s) => s.addRun);
+  const updateProgress = useTaskRunStore((s) => s.updateProgress);
+  const completeRun = useTaskRunStore((s) => s.completeRun);
+  const failRun = useTaskRunStore((s) => s.failRun);
+  const cancelRun = useTaskRunStore((s) => s.cancelRun);
 
   // Stable refs so the reconnect loop doesn't capture stale closures.
   const projectIdRef = useRef(projectId);
@@ -69,16 +78,62 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
 
       const { event_type, payload } = envelope;
 
-      if (event_type === 'cpm_queued') {
-        setRecalculating(true);
-      } else if (event_type === 'cpm_complete') {
-        const projectFinish = typeof payload.project_finish === 'string' ? payload.project_finish : new Date().toISOString();
+      // --- Task run progress events ---
+      if (event_type === 'task_run_started') {
+        const taskRunId = payload.task_run_id as string;
+        const taskName = payload.task_name as string;
+        const pid = (payload.project_id as string | null) ?? null;
+        addRun({ taskRunId, taskName, projectId: pid, pct: 0, msg: '', status: 'running' });
+        // Scheduling integration: signal CPM is running.
+        if (taskName === 'scheduling.recalculate') {
+          setRecalculating(true);
+        }
+      } else if (event_type === 'task_run_progress') {
+        const taskRunId = payload.task_run_id as string;
+        const pct = typeof payload.pct === 'number' ? payload.pct : 0;
+        const msg = typeof payload.msg === 'string' ? payload.msg : '';
+        updateProgress(taskRunId, pct, msg);
+      } else if (event_type === 'task_run_completed') {
+        const taskRunId = payload.task_run_id as string;
+        const resultSummary = (payload.result_summary as Record<string, unknown> | null) ?? null;
+        completeRun(taskRunId, resultSummary);
+        // task_run_completed from the scheduler carries result_summary with project_finish.
+        // cpm_complete is still also broadcast for compatibility; this handles the task_run path.
+        if (resultSummary && typeof resultSummary.project_finish === 'string') {
+          setCpmComplete(resultSummary.project_finish);
+          void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+          void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
+        }
+      } else if (event_type === 'task_run_failed') {
+        const taskRunId = payload.task_run_id as string;
+        const errorDetail = typeof payload.error_detail === 'string' ? payload.error_detail : '';
+        failRun(taskRunId, errorDetail);
+        // Scheduling integration: if this was the CPM task, set error state.
+        const run = useTaskRunStore.getState().runs[taskRunId];
+        if (run?.taskName === 'scheduling.recalculate') {
+          setCpmError({ error: 'internal_error', cycle: [] } as CpmError);
+        }
+      } else if (event_type === 'task_run_cancelled') {
+        const taskRunId = payload.task_run_id as string;
+        cancelRun(taskRunId);
+      }
+
+      // --- Legacy CPM compat broadcast ---
+      else if (event_type === 'cpm_complete') {
+        // cpm_complete is still emitted by the scheduler for any client that hasn't
+        // migrated to task_run_completed. Handle it here so nothing breaks during
+        // the transition period.
+        const projectFinish =
+          typeof payload.project_finish === 'string'
+            ? payload.project_finish
+            : new Date().toISOString();
         setCpmComplete(projectFinish);
         void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
         void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
-      } else if (event_type === 'cpm_error') {
-        setCpmError(payload as unknown as CpmError);
-      } else if (
+      }
+
+      // --- Mutation events ---
+      else if (
         event_type === 'task_created' ||
         event_type === 'task_updated' ||
         event_type === 'task_deleted'

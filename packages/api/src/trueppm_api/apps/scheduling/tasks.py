@@ -41,24 +41,30 @@ def recalculate_schedule(self: object, project_id: str) -> None:
     for long-running schedules. On lock contention the task is re-queued
     with a 10-second countdown (up to 5 attempts).
 
-    After writing CPM results back to the database this task broadcasts a
-    cpm_complete event to the project's WebSocket group.
+    Progress is tracked via TaskRunTracker, which persists status to the
+    TaskRun model and broadcasts task_run_* WebSocket events. The frontend
+    subscribes to these events instead of the old cpm_queued/complete/error
+    events (replaced by ADR-0020).
 
     Args:
         project_id: UUID string of the project to reschedule.
     """
-    # Broadcast that CPM is now running so the frontend can show the badge.
-    from trueppm_api.apps.sync.broadcast import broadcast_board_event
-
-    broadcast_board_event(project_id=project_id, event_type="cpm_queued", payload={})
+    from trueppm_api.apps.taskruns.tracker import TaskRunTracker  # type: ignore[import-untyped]
 
     try:
-        _run_schedule(project_id)
+        with TaskRunTracker(
+            self,
+            project_id=project_id,
+            task_name="scheduling.recalculate",
+        ) as tracker:
+            _run_schedule(project_id, tracker)
     except SoftTimeLimitExceeded:
         logger.error(
             "recalculate_schedule: soft time limit exceeded for project %s",
             project_id,
         )
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
         broadcast_board_event(
             project_id=project_id,
             event_type="cpm_error",
@@ -81,9 +87,14 @@ def _dead_letter_current(task: object, project_id: str, exc: BaseException) -> N
     )
 
 
-def _run_schedule(project_id: str) -> None:
-    """Load tasks/dependencies, run CPM, bulk_update results, broadcast completion."""
-    from trueppm_scheduler.engine import CyclicDependencyError, schedule
+def _run_schedule(project_id: str, tracker: object = None) -> None:
+    """Load tasks/dependencies, run CPM, bulk_update results, broadcast completion.
+
+    Args:
+        project_id: UUID string of the project to schedule.
+        tracker: Optional TaskRunTracker for progress reporting.
+    """
+    from trueppm_scheduler.engine import schedule
     from trueppm_scheduler.models import Calendar as SchedCalendar
     from trueppm_scheduler.models import Dependency as SchedDependency
     from trueppm_scheduler.models import DependencyType
@@ -91,6 +102,12 @@ def _run_schedule(project_id: str) -> None:
     from trueppm_scheduler.models import Task as SchedTask
 
     from trueppm_api.apps.projects.models import Dependency, Project, Task
+
+    def _update(pct: int, msg: str) -> None:
+        if tracker is not None:
+            tracker.update(pct, msg)  # type: ignore[attr-defined]
+
+    _update(10, "Loading project data…")
 
     try:
         db_project = (
@@ -106,6 +123,8 @@ def _run_schedule(project_id: str) -> None:
     if not db_tasks:
         logger.info("recalculate_schedule: project %s has no tasks, skipping", project_id)
         return
+
+    _update(25, "Building schedule model…")
 
     # Build a trueppm_scheduler.Calendar from the project's calendar (or default).
     cal = db_project.calendar
@@ -161,32 +180,13 @@ def _run_schedule(project_id: str) -> None:
         calendar=sched_calendar,
     )
 
-    try:
-        result = schedule(sched_project)
-    except CyclicDependencyError as exc:
-        logger.warning(
-            "recalculate_schedule: cyclic dependency in project %s: %s",
-            project_id,
-            exc.cycle,
-        )
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+    _update(50, "Running CPM…")
 
-        broadcast_board_event(
-            project_id=project_id,
-            event_type="cpm_error",
-            payload={"error": "cyclic_dependency", "cycle": exc.cycle},
-        )
-        return
-    except Exception:
-        logger.exception("recalculate_schedule: CPM failed for project %s", project_id)
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+    # Exceptions propagate to TaskRunTracker.__exit__, which marks the run FAILED
+    # and broadcasts task_run_failed to connected clients.
+    result = schedule(sched_project)
 
-        broadcast_board_event(
-            project_id=project_id,
-            event_type="cpm_error",
-            payload={"error": "internal_error", "cycle": []},
-        )
-        return
+    _update(80, "Writing results…")
 
     # Build a map from task id string to computed CPM values.
     result_map = {t.id: t for t in result.tasks}
@@ -234,7 +234,17 @@ def _run_schedule(project_id: str) -> None:
         result.project_finish,
     )
 
-    # Broadcast CPM completion event to connected WebSocket clients.
+    cpm_payload = {
+        "project_finish": result.project_finish.isoformat(),
+        "critical_path": result.critical_path,
+    }
+
+    # Store CPM result summary for audit / frontend access.
+    if tracker is not None:
+        tracker.set_result(cpm_payload)  # type: ignore[attr-defined]
+
+    # Also broadcast the cpm_complete event for backwards-compatibility with
+    # any existing clients that haven't migrated to task_run_completed yet.
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
     cpm_payload = {

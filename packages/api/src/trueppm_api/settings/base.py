@@ -53,6 +53,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.history",
     "trueppm_api.apps.msproject",
     "trueppm_api.apps.webhooks",
+    "trueppm_api.apps.taskruns",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -134,6 +135,11 @@ CELERY_BEAT_SCHEDULE = {
         # 02:00 UTC every night — off-peak, avoids overlap with report generation.
         "schedule": crontab(hour=2, minute=0),
     },
+    "task-runs-purge-nightly": {
+        "task": "taskruns.purge_old_records",
+        # 02:30 UTC — stagger from history purge.
+        "schedule": {"crontab": {"hour": "2", "minute": "30"}},
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -213,6 +219,14 @@ ACCOUNT_EMAIL_VERIFICATION = "none"
 # Celery beat task in trueppm_api.apps.history.tasks.
 # Set to None to disable automatic purging (enterprise unlimited retention).
 HISTORY_RETENTION_DAYS: int | None = env.int("HISTORY_RETENTION_DAYS", default=90)
+
+# ---------------------------------------------------------------------------
+# Task run retention (trueppm_api.apps.taskruns)
+# ---------------------------------------------------------------------------
+
+# Retention window in days for completed/failed/cancelled TaskRun records.
+# Set to None to disable automatic purging.
+TASK_RUN_RETENTION_DAYS: int | None = env.int("TASK_RUN_RETENTION_DAYS", default=30)
 
 # ---------------------------------------------------------------------------
 # drf-spectacular (OpenAPI)

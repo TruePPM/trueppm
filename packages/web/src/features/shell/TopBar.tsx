@@ -6,6 +6,7 @@ import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
 import { Logo } from './Logo';
 import { ViewTabs } from './ViewTabs';
 import { BadgePopover } from './BadgePopover';
+import { TaskRunIndicator } from './TaskRunIndicator';
 
 interface Props {
   onHamburgerClick: () => void;
@@ -84,6 +85,9 @@ export function TopBar({ onHamburgerClick }: Props) {
             onItemClick={handleTaskNavigate}
           />
         )}
+
+        {/* Background operations indicator — visible only when runs are active */}
+        <TaskRunIndicator />
 
         {/* User avatar — menu deferred to auth feature */}
         <button
