@@ -84,7 +84,7 @@ class Migration(migrations.Migration):
                 "indexes": [
                     models.Index(
                         fields=["project", "status", "created_at"],
-                        name="taskrun_project_status_created_idx",
+                        name="taskrun_proj_status_idx",
                     )
                 ],
             },

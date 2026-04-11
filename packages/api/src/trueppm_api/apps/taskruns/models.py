@@ -59,7 +59,7 @@ class TaskRun(models.Model):
         indexes = [
             models.Index(
                 fields=["project", "status", "created_at"],
-                name="taskrun_project_status_created_idx",
+                name="taskrun_proj_status_idx",
             ),
         ]
         ordering = ["-created_at"]
