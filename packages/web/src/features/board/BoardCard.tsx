@@ -66,6 +66,7 @@ export function BoardCard({ task, isOverlay, onMenuMove, columns }: BoardCardPro
       className="bg-neutral-surface border border-neutral-border rounded-md p-3
         cursor-grab active:cursor-grabbing relative group
         focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      role="button"
       tabIndex={0}
     >
       <p className="text-sm font-medium text-neutral-text-primary truncate pr-6">
