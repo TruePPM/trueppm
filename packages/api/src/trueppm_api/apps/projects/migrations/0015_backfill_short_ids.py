@@ -7,7 +7,7 @@ Sets Project.object_sequence to the highest assigned value.
 from django.db import migrations
 
 
-def backfill_short_ids(apps, schema_editor):
+def backfill_short_ids(apps: object, schema_editor: object) -> None:
     Project = apps.get_model("projects", "Project")
     Task = apps.get_model("projects", "Task")
     Risk = apps.get_model("projects", "Risk")
@@ -27,7 +27,7 @@ def backfill_short_ids(apps, schema_editor):
             Project.objects.filter(pk=project.pk).update(object_sequence=seq)
 
 
-def reverse_backfill(apps, schema_editor):
+def reverse_backfill(apps: object, schema_editor: object) -> None:
     Task = apps.get_model("projects", "Task")
     Risk = apps.get_model("projects", "Risk")
     Project = apps.get_model("projects", "Project")
