@@ -50,6 +50,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.scheduling",
     "trueppm_api.apps.sync",
     "trueppm_api.apps.history",
+    "trueppm_api.apps.msproject",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
