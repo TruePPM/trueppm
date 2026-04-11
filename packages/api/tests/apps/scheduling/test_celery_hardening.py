@@ -107,8 +107,10 @@ class TestTaskLifecycleSignals:
 
         # All four signals exist and are Django Signal instances
         signals = (
-            celery_task_started, celery_task_succeeded,
-            celery_task_failed, celery_task_retried,
+            celery_task_started,
+            celery_task_succeeded,
+            celery_task_failed,
+            celery_task_retried,
         )
         for sig in signals:
             assert hasattr(sig, "send")
