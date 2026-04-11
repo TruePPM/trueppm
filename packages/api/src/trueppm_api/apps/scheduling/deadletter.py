@@ -24,7 +24,9 @@ def record_failed_task(
 
     exc_type = type(exception).__qualname__
     exc_msg = str(exception)
-    exc_tb = "".join(tb_module.format_exception(type(exception), exception, exception.__traceback__))
+    exc_tb = "".join(
+        tb_module.format_exception(type(exception), exception, exception.__traceback__)
+    )
 
     obj, created = FailedTask.objects.update_or_create(
         task_id=task_id,
