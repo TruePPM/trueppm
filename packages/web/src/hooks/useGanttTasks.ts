@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
 import { apiClient } from '@/api/client';
 import type { Task, TaskLink, TaskStatus, LinkType } from '@/types';
+import type { PaginatedResponse } from '@/api/types';
 
 export interface UseGanttTasksResult {
   tasks: Task[] | undefined;
@@ -73,10 +74,10 @@ export function useGanttTasks(projectId?: string): UseGanttTasksResult {
   const tasksQuery = useQuery({
     queryKey: ['tasks', resolvedId],
     queryFn: async () => {
-      const res = await apiClient.get<ApiTask[]>('/tasks/', {
+      const res = await apiClient.get<PaginatedResponse<ApiTask>>('/tasks/', {
         params: { project: resolvedId },
       });
-      return res.data.map(mapTask);
+      return res.data.results.map(mapTask);
     },
     enabled: !!resolvedId,
   });
@@ -84,10 +85,10 @@ export function useGanttTasks(projectId?: string): UseGanttTasksResult {
   const linksQuery = useQuery({
     queryKey: ['dependencies', resolvedId],
     queryFn: async () => {
-      const res = await apiClient.get<ApiDependency[]>('/dependencies/', {
+      const res = await apiClient.get<PaginatedResponse<ApiDependency>>('/dependencies/', {
         params: { project: resolvedId },
       });
-      return res.data.map(mapDependency);
+      return res.data.results.map(mapDependency);
     },
     enabled: !!resolvedId,
   });

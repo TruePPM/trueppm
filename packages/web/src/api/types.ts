@@ -6,6 +6,17 @@
 
 export type {};
 
+/**
+ * DRF PageNumberPagination envelope — all list endpoints return this shape.
+ * The API uses PAGE_SIZE=50 globally (settings/base.py).
+ */
+export interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
 // Risk Register types (issue #52). Hand-authored until openapi-typescript regeneration.
 export interface Risk {
   id: string;

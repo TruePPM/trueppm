@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import type { Risk } from '@/api/types';
+import type { Risk, PaginatedResponse } from '@/api/types';
 
 export interface CreateRiskPayload {
   title: string;
@@ -22,8 +22,8 @@ export function useRisks(projectId: string | null): UseRisksResult {
   const query = useQuery({
     queryKey: ['risks', projectId],
     queryFn: async () => {
-      const res = await apiClient.get<Risk[]>(`/projects/${projectId}/risks/`);
-      return res.data;
+      const res = await apiClient.get<PaginatedResponse<Risk>>(`/projects/${projectId}/risks/`);
+      return res.data.results;
     },
     enabled: !!projectId,
   });
