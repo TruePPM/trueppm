@@ -4,15 +4,20 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from celery import current_app
 from django.conf import settings
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
+from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.viewsets import GenericViewSet
 
 from trueppm_api.apps.access.permissions import IsProjectMember, IsProjectScheduler
 from trueppm_api.apps.projects.models import Dependency, Project
+from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
+from trueppm_api.apps.scheduling.serializers import FailedTaskSerializer
 from trueppm_api.apps.scheduling.tasks import recalculate_schedule
 
 
@@ -149,3 +154,37 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
     return Response(mc_result.to_dict())
+
+
+class FailedTaskViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):  # type: ignore[type-arg]
+    """Admin endpoint for dead-lettered Celery tasks.
+
+    List/detail: any authenticated user (operational visibility).
+    Retry/dismiss: staff users only (admin action).
+    """
+
+    serializer_class = FailedTaskSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = FailedTask.objects.all()
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    def retry(self, request: Request, pk: str | None = None) -> Response:
+        """Re-enqueue the original task with stored args/kwargs."""
+        failed = self.get_object()
+        if failed.status not in (FailedTaskStatus.DEAD, FailedTaskStatus.PENDING_RETRY):
+            return Response(
+                {"detail": f"Cannot retry a task with status '{failed.status}'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        current_app.send_task(failed.task_name, args=failed.args, kwargs=failed.kwargs)
+        failed.status = FailedTaskStatus.RETRIED
+        failed.save(update_fields=["status", "last_failed_at"])
+        return Response(FailedTaskSerializer(failed).data)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    def dismiss(self, request: Request, pk: str | None = None) -> Response:
+        """Mark a dead-lettered task as dismissed (acknowledged, no retry)."""
+        failed = self.get_object()
+        failed.status = FailedTaskStatus.DISMISSED
+        failed.save(update_fields=["status", "last_failed_at"])
+        return Response(FailedTaskSerializer(failed).data)

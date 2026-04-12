@@ -7,6 +7,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
+from django.db import OperationalError
 from django.utils import timezone
 
 from trueppm_api.core.idempotent import idempotent_task
@@ -19,6 +20,14 @@ logger = logging.getLogger(__name__)
     lock_ttl=600,
     on_contention="skip",
     name="history.purge_old_records",
+    autoretry_for=(ConnectionError, OperationalError),
+    retry_backoff=60,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=3,
+    soft_time_limit=300,
+    time_limit=360,
+    acks_late=True,
 )
 def purge_old_history_records(self: object) -> dict[str, Any]:
     """Delete historical records older than HISTORY_RETENTION_DAYS.

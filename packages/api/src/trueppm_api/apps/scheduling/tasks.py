@@ -5,9 +5,16 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
+import redis as redis_lib
+from celery.exceptions import SoftTimeLimitExceeded
+from django.db import OperationalError
+
 from trueppm_api.core.idempotent import idempotent_task
 
 logger = logging.getLogger(__name__)
+
+# Exceptions that are transient and should trigger Celery's built-in retry.
+_RETRIABLE = (ConnectionError, redis_lib.ConnectionError, OperationalError)
 
 
 @idempotent_task(
@@ -16,6 +23,15 @@ logger = logging.getLogger(__name__)
     on_contention="queue",
     queue_countdown=10,
     max_queue_attempts=5,
+    autoretry_for=_RETRIABLE,
+    retry_backoff=30,
+    retry_backoff_max=300,
+    retry_jitter=True,
+    max_retries=3,
+    soft_time_limit=480,
+    time_limit=600,
+    acks_late=True,
+    reject_on_worker_lost=True,
 )
 def recalculate_schedule(self: object, project_id: str) -> None:
     """Run CPM on a project and persist the results.
@@ -36,7 +52,33 @@ def recalculate_schedule(self: object, project_id: str) -> None:
 
     broadcast_board_event(project_id=project_id, event_type="cpm_queued", payload={})
 
-    _run_schedule(project_id)
+    try:
+        _run_schedule(project_id)
+    except SoftTimeLimitExceeded:
+        logger.error(
+            "recalculate_schedule: soft time limit exceeded for project %s",
+            project_id,
+        )
+        broadcast_board_event(
+            project_id=project_id,
+            event_type="cpm_error",
+            payload={"error": "timeout"},
+        )
+        _dead_letter_current(self, project_id, SoftTimeLimitExceeded("CPM computation timed out"))
+
+
+def _dead_letter_current(task: object, project_id: str, exc: BaseException) -> None:
+    """Write a FailedTask record for the current task invocation."""
+    from trueppm_api.apps.scheduling.deadletter import record_failed_task
+
+    request = task.request  # type: ignore[attr-defined]
+    record_failed_task(
+        task_name=getattr(task, "name", "unknown"),
+        task_id=request.id or "unknown",
+        args=[project_id],
+        kwargs={},
+        exception=exc,
+    )
 
 
 def _run_schedule(project_id: str) -> None:

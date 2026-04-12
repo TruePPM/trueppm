@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "Move to..." submenu (WCAG 2.1.1). Mobile horizontal snap scroll with dot indicator.
   `TaskStatus` type added to frontend `Task` interface. Wired into ProjectShell view
   switcher and BottomNav. ADR-0013.
+- **Celery task hardening** (issue #62): all Celery tasks now have retry policies
+  (exponential backoff + jitter for transient errors), time limits (CPM: 480s/600s,
+  purge: 300s/360s), and dead-letter tracking via new `FailedTask` model. Admin API
+  at `/api/v1/admin/failed-tasks/` for list/retry/dismiss. Task lifecycle Django
+  signals (`celery_task_started`, `celery_task_succeeded`, `celery_task_failed`,
+  `celery_task_retried`) bridged from Celery framework signals — enterprise extension
+  point. Re-queue loop in `recalculate_schedule` capped at 5 attempts. Beat schedule
+  format fixed (was malformed dict, now proper `crontab` object). ADR-0017.
 - **WASM CPM engine** (issue #39): Rust + petgraph scheduling engine compiled to
   WebAssembly via wasm-pack. Exposes `compute_schedule()` and `incremental_update()`
   for in-browser Gantt drag simulation and future offline mobile scheduling. Shared

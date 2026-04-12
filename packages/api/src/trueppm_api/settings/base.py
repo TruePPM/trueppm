@@ -123,11 +123,13 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "UTC"
+from celery.schedules import crontab  # noqa: E402 — must follow REDIS_URL
+
 CELERY_BEAT_SCHEDULE = {
     "history-purge-nightly": {
         "task": "history.purge_old_records",
         # 02:00 UTC every night — off-peak, avoids overlap with report generation.
-        "schedule": {"crontab": {"hour": "2", "minute": "0"}},
+        "schedule": crontab(hour=2, minute=0),
     },
 }
 
