@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+<<<<<<< HEAD
 - **Idempotent task framework** (issue #63): reusable `@idempotent_task` decorator in
   `trueppm_api.core.idempotent` that wraps `@shared_task` with Redis distributed locking.
   Supports three contention strategies (`retry`, `skip`, `queue`), automatic lock extension
@@ -47,6 +48,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `GET /api/v1/projects/{id}/export/msproject.xml` (Viewer+). Import summary includes
   counts of tasks, dependencies, resources matched/created, assignments, and warnings.
   Round-trip tested: import → export → verify. ADR-0021.
+- **Outbound webhooks** (issue #13): per-project webhook subscriptions for external system
+  integration. New `webhooks` Django app with `Webhook` and `WebhookDelivery` models.
+  Event types: `task.created`, `task.updated`, `task.deleted`, `dependency.created`,
+  `dependency.deleted`, `schedule.recalculated`, `project.created`. Delivery via Celery
+  with exponential backoff retry (max 5 attempts). HMAC-SHA256 signature in
+  `X-TruePPM-Signature` header. CRUD endpoints at
+  `GET/POST /api/v1/projects/{pk}/webhooks/`, detail at `/{id}/`, delivery log at
+  `/{id}/deliveries/`, test ping at `/{id}/test/`. Admin+ role required for
+  create/update/delete; Viewer+ for listing. Secret field is write-only. ADR-0019.
 - **WASM CPM engine** (issue #39): Rust + petgraph scheduling engine compiled to
   WebAssembly via wasm-pack. Exposes `compute_schedule()` and `incremental_update()`
   for in-browser Gantt drag simulation and future offline mobile scheduling. Shared

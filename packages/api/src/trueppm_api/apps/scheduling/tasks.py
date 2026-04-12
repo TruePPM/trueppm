@@ -237,11 +237,21 @@ def _run_schedule(project_id: str) -> None:
     # Broadcast CPM completion event to connected WebSocket clients.
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
+    cpm_payload = {
+        "project_finish": result.project_finish.isoformat(),
+        "critical_path": result.critical_path,
+    }
     broadcast_board_event(
         project_id=project_id,
         event_type="cpm_complete",
-        payload={
-            "project_finish": result.project_finish.isoformat(),
-            "critical_path": result.critical_path,
-        },
+        payload=cpm_payload,
+    )
+
+    # Dispatch schedule.recalculated webhook to external subscribers.
+    from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
+
+    dispatch_webhooks(
+        project_id=project_id,
+        event_type="schedule.recalculated",
+        payload={"project": project_id, **cpm_payload},
     )

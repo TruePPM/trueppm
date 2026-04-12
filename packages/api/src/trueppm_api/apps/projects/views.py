@@ -118,6 +118,8 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "project_created", {"id": project_id})
         )
+        payload = {"id": project_id, "name": project.name, "start_date": str(project.start_date)}
+        transaction.on_commit(lambda: _dispatch_webhooks(project_id, "project.created", payload))
 
     def perform_update(self, serializer: BaseSerializer[Project]) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -298,6 +300,8 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_created", {"id": task_id})
         )
+        payload = _task_webhook_payload(instance)
+        transaction.on_commit(lambda: _dispatch_webhooks(project_id, "task.created", payload))
 
     def perform_update(self, serializer: BaseSerializer[Task]) -> None:
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
@@ -310,6 +314,8 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
         )
+        payload = _task_webhook_payload(instance)
+        transaction.on_commit(lambda: _dispatch_webhooks(project_id, "task.updated", payload))
 
     def perform_destroy(self, instance: Task) -> None:
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
@@ -321,6 +327,11 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_deleted", {"id": task_id})
+        )
+        transaction.on_commit(
+            lambda: _dispatch_webhooks(
+                project_id, "task.deleted", {"id": task_id, "project": project_id}
+            )
         )
 
 
@@ -514,6 +525,16 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_created", {"id": dep_id})
         )
+        dep_payload = {
+            "id": dep_id,
+            "predecessor": str(instance.predecessor_id),
+            "successor": str(instance.successor_id),
+            "dep_type": instance.dep_type,
+            "lag": instance.lag,
+        }
+        transaction.on_commit(
+            lambda: _dispatch_webhooks(project_id, "dependency.created", dep_payload)
+        )
 
     def perform_update(self, serializer: BaseSerializer[Dependency]) -> None:
         from trueppm_api.apps.scheduling.tasks import recalculate_schedule
@@ -537,6 +558,9 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_deleted", {"id": dep_id})
+        )
+        transaction.on_commit(
+            lambda: _dispatch_webhooks(project_id, "dependency.deleted", {"id": dep_id})
         )
 
 
@@ -824,3 +848,27 @@ class RiskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "risk_deleted", {"id": risk_id})
         )
+
+
+# ---------------------------------------------------------------------------
+# Webhook dispatch helpers
+# ---------------------------------------------------------------------------
+
+
+def _dispatch_webhooks(project_id: str, event_type: str, payload: dict) -> None:  # type: ignore[type-arg]
+    """Enqueue webhook deliveries for matching subscriptions."""
+    from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
+
+    dispatch_webhooks(project_id, event_type, payload)
+
+
+def _task_webhook_payload(task: Task) -> dict:  # type: ignore[type-arg]
+    """Build a webhook payload dict for a task event."""
+    return {
+        "id": str(task.pk),
+        "project": str(task.project_id),
+        "name": task.name,
+        "status": task.status,
+        "duration": task.duration,
+        "assignee": str(task.assignee_id) if task.assignee_id else None,
+    }
