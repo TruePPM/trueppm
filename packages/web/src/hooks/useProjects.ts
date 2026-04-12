@@ -53,6 +53,10 @@ export function useProjects(): UseProjectsResult {
   return {
     data: query.data,
     isLoading: query.isLoading,
-    error: query.error,
+    // Suppress transient errors during the 401→token-refresh→retry cycle:
+    // the axios interceptor retries transparently, so query.isFetching is true
+    // while the retry is in flight. Showing an error during that window causes
+    // a visible "Failed to load projects" flash even though the retry succeeds.
+    error: query.isError && !query.isFetching ? query.error : null,
   };
 }
