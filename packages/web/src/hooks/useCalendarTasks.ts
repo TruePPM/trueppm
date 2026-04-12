@@ -21,6 +21,7 @@ const FIXTURE_TASKS: Task[] = [
     isComplete: true,
     isSummary: false,
     isMilestone: true,
+    status: 'COMPLETE',
   },
   {
     id: 'task-2',
@@ -35,6 +36,7 @@ const FIXTURE_TASKS: Task[] = [
     isComplete: false,
     isSummary: false,
     isMilestone: false,
+    status: 'IN_PROGRESS',
   },
   {
     id: 'task-3',
@@ -49,6 +51,7 @@ const FIXTURE_TASKS: Task[] = [
     isComplete: false,
     isSummary: false,
     isMilestone: false,
+    status: 'IN_PROGRESS',
   },
   {
     id: 'task-4',
@@ -63,6 +66,7 @@ const FIXTURE_TASKS: Task[] = [
     isComplete: false,
     isSummary: false,
     isMilestone: false,
+    status: 'NOT_STARTED',
   },
   {
     id: 'task-5',
@@ -77,6 +81,7 @@ const FIXTURE_TASKS: Task[] = [
     isComplete: false,
     isSummary: false,
     isMilestone: true,
+    status: 'NOT_STARTED',
   },
 ];
 

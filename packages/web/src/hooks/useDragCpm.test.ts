@@ -99,6 +99,7 @@ const TASKS: Task[] = [
     isComplete: false,
     isSummary: false,
     isMilestone: false,
+    status: 'NOT_STARTED',
   },
 ];
 const LINKS: TaskLink[] = [];

@@ -16,6 +16,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     isComplete: false,
     isSummary: false,
     isMilestone: false,
+    status: 'NOT_STARTED',
     ...overrides,
   };
 }

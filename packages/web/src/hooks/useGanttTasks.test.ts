@@ -22,6 +22,7 @@ interface ApiTask {
   early_finish: string | null;
   duration: number;
   percent_complete: number;
+  status: string;
   is_critical: boolean;
   is_milestone: boolean;
 }
@@ -41,6 +42,7 @@ function mapTask(t: ApiTask) {
     isComplete: t.percent_complete >= 100,
     isSummary: false,
     isMilestone: t.is_milestone,
+    status: t.status,
   };
 }
 
@@ -54,6 +56,7 @@ describe('useGanttTasks mapper', () => {
       early_finish: '2026-10-15',
       duration: 10,
       percent_complete: 60,
+      status: 'IN_PROGRESS',
       is_critical: true,
       is_milestone: false,
     };
@@ -76,6 +79,7 @@ describe('useGanttTasks mapper', () => {
       early_finish: null,
       duration: 5,
       percent_complete: 0,
+      status: 'NOT_STARTED',
       is_critical: false,
       is_milestone: false,
     };
@@ -93,6 +97,7 @@ describe('useGanttTasks mapper', () => {
       early_finish: '2026-01-05',
       duration: 4,
       percent_complete: 100,
+      status: 'COMPLETE',
       is_critical: false,
       is_milestone: false,
     };

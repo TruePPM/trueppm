@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that catches accidental collisions. `recalculate_schedule` migrated from hand-rolled Redis
   lock to `@idempotent_task(on_contention="queue")`; `purge_old_history_records` now uses
   `@idempotent_task(on_contention="skip")` for global lock protection. ADR-0018.
+- **Board / Kanban view** (issue #21): four-column drag-and-drop board view (To Do,
+  In Progress, On Hold, Done) built with @dnd-kit. Cards can be dragged between columns
+  to update task status via API PATCH. Keyboard move alternative via overflow menu
+  "Move to..." submenu (WCAG 2.1.1). Mobile horizontal snap scroll with dot indicator.
+  `TaskStatus` type added to frontend `Task` interface. Wired into ProjectShell view
+  switcher and BottomNav. ADR-0013.
 - **WASM CPM engine** (issue #39): Rust + petgraph scheduling engine compiled to
   WebAssembly via wasm-pack. Exposes `compute_schedule()` and `incremental_update()`
   for in-browser Gantt drag simulation and future offline mobile scheduling. Shared
