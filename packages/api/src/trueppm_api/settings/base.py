@@ -103,6 +103,9 @@ DATABASES = {
     "default": env.db("DATABASE_URL", default="postgres://trueppm:trueppm@db:5432/trueppm")
 }
 DATABASES["default"]["CONN_MAX_AGE"] = 60
+# Wrap every request in a transaction so transaction.on_commit() defers
+# callbacks to after commit rather than firing immediately in autocommit mode.
+DATABASES["default"]["ATOMIC_REQUESTS"] = True
 
 # ---------------------------------------------------------------------------
 # Cache / Channels / Celery  (all backed by Redis)
