@@ -73,6 +73,113 @@ def recalculate_schedule(self: object, project_id: str) -> None:
         _dead_letter_current(self, project_id, SoftTimeLimitExceeded("CPM computation timed out"))
 
 
+@idempotent_task(
+    lock_key_template="drain_schedule_queue",
+    lock_ttl=60,
+    on_contention="skip",
+    soft_time_limit=25,
+    time_limit=30,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def drain_schedule_queue(self: object) -> None:
+    """Dispatch any pending ScheduleRequest outbox rows.
+
+    Runs every 30 seconds via Celery Beat. For each project with a pending
+    row, calls recalculate_schedule.delay() and marks the row as dispatched.
+
+    Also recovers orphaned dispatched rows older than 10 minutes — the
+    recalculate_schedule soft_time_limit is 480 s (8 min), so 10 min ensures
+    any prior task invocation has either completed or timed out before we
+    re-dispatch.
+
+    The @idempotent_task singleton lock ensures at most one drain runs at a
+    time; on_contention="skip" drops any concurrent trigger rather than
+    queuing, because the next Beat tick will cover it.
+    """
+    _do_drain()
+
+
+@idempotent_task(
+    lock_key_template="purge_old_schedule_requests",
+    lock_ttl=120,
+    on_contention="skip",
+    soft_time_limit=55,
+    time_limit=90,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def purge_old_schedule_requests(self: object) -> None:
+    """Delete done/dead ScheduleRequest rows older than 7 days.
+
+    Runs nightly at 02:15 UTC via Celery Beat. Keeps the outbox table small
+    so index scans on (status, requested_at) stay fast.
+    """
+    _do_purge()
+
+
+def _do_drain() -> None:
+    """Business logic for drain_schedule_queue — extracted for testability."""
+    from django.utils import timezone
+
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+
+    now = timezone.now()
+    orphan_cutoff = now - timedelta(minutes=10)
+
+    # Recover orphaned rows: dispatched but not completed within 10 minutes.
+    recovered = ScheduleRequest.objects.filter(
+        status=ScheduleRequestStatus.DISPATCHED,
+        dispatched_at__lt=orphan_cutoff,
+    ).update(status=ScheduleRequestStatus.PENDING, celery_task_id="")
+    if recovered:
+        logger.warning(
+            "drain_schedule_queue: recovered %d orphaned dispatched row(s)", recovered
+        )
+
+    # Dispatch all currently pending rows (one Celery task per project).
+    pending = list(ScheduleRequest.objects.filter(status=ScheduleRequestStatus.PENDING))
+    dispatched = 0
+    for req in pending:
+        try:
+            result = recalculate_schedule.delay(str(req.project_id))
+        except Exception:
+            logger.warning(
+                "drain_schedule_queue: broker unavailable — project %s stays pending",
+                req.project_id,
+            )
+            continue
+        # Conditional update: only flip to dispatched if it's still pending
+        # (guards against a concurrent on_commit _enqueue_recalculate call).
+        ScheduleRequest.objects.filter(
+            id=req.id, status=ScheduleRequestStatus.PENDING
+        ).update(
+            status=ScheduleRequestStatus.DISPATCHED,
+            celery_task_id=result.id,
+            dispatched_at=now,
+        )
+        dispatched += 1
+
+    if dispatched or recovered:
+        logger.info(
+            "drain_schedule_queue: dispatched=%d recovered=%d", dispatched, recovered
+        )
+
+
+def _do_purge() -> None:
+    """Business logic for purge_old_schedule_requests — extracted for testability."""
+    from django.utils import timezone
+
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+
+    cutoff = timezone.now() - timedelta(days=7)
+    deleted, _ = ScheduleRequest.objects.filter(
+        status__in=[ScheduleRequestStatus.DONE, ScheduleRequestStatus.DEAD],
+        requested_at__lt=cutoff,
+    ).delete()
+    logger.info("purge_old_schedule_requests: deleted %d row(s)", deleted)
+
+
 def _dead_letter_current(task: object, project_id: str, exc: BaseException) -> None:
     """Write a FailedTask record for the current task invocation."""
     from trueppm_api.apps.scheduling.deadletter import record_failed_task
@@ -265,3 +372,12 @@ def _run_schedule(project_id: str, tracker: object = None) -> None:
         event_type="schedule.recalculated",
         payload={"project": project_id, **cpm_payload},
     )
+
+    # Mark the outbox row done so the drain task knows this project is clean.
+    # Filter on status=dispatched to avoid racing with the drain during orphan
+    # recovery (which resets rows back to pending).
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+
+    ScheduleRequest.objects.filter(
+        project_id=project_id, status=ScheduleRequestStatus.DISPATCHED
+    ).update(status=ScheduleRequestStatus.DONE)
