@@ -33,9 +33,7 @@ def calendar(db: object) -> Calendar:
 
 @pytest.fixture
 def project(calendar: Calendar) -> Project:
-    return Project.objects.create(
-        name="TR Project", start_date=date(2026, 1, 1), calendar=calendar
-    )
+    return Project.objects.create(name="TR Project", start_date=date(2026, 1, 1), calendar=calendar)
 
 
 @pytest.fixture
@@ -109,17 +107,19 @@ def test_tracker_success_lifecycle(project: Project) -> None:
 
     mock_task = _make_celery_task()
 
-    with patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event"):
-        with TaskRunTracker(
+    with (
+        patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event"),
+        TaskRunTracker(
             mock_task,
             project_id=str(project.pk),
             task_name="test.success",
-        ) as tracker:
-            assert tracker.task_run_id is not None
-            run = TaskRun.objects.get(pk=tracker.task_run_id)
-            assert run.status == TaskRunStatus.RUNNING
-            assert run.started_at is not None
-            tracker.set_result({"items": 5})
+        ) as tracker,
+    ):
+        assert tracker.task_run_id is not None
+        run = TaskRun.objects.get(pk=tracker.task_run_id)
+        assert run.status == TaskRunStatus.RUNNING
+        assert run.started_at is not None
+        tracker.set_result({"items": 5})
 
     run.refresh_from_db()
     assert run.status == TaskRunStatus.SUCCESS
@@ -136,15 +136,17 @@ def test_tracker_failure_lifecycle(project: Project) -> None:
     mock_task = _make_celery_task()
     task_run_id: str | None = None
 
-    with patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event"):
-        with pytest.raises(ValueError, match="something went wrong"):
-            with TaskRunTracker(
-                mock_task,
-                project_id=str(project.pk),
-                task_name="test.failure",
-            ) as tracker:
-                task_run_id = tracker.task_run_id
-                raise ValueError("something went wrong")
+    with (
+        patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event"),
+        pytest.raises(ValueError, match="something went wrong"),
+        TaskRunTracker(
+            mock_task,
+            project_id=str(project.pk),
+            task_name="test.failure",
+        ) as tracker,
+    ):
+        task_run_id = tracker.task_run_id
+        raise ValueError("something went wrong")
 
     assert task_run_id is not None
     run = TaskRun.objects.get(pk=task_run_id)
@@ -161,15 +163,17 @@ def test_tracker_cancellation(project: Project) -> None:
     mock_task = _make_celery_task()
     task_run_id: str | None = None
 
-    with patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event"):
-        # TaskCancelled should be suppressed (not re-raised).
-        with TaskRunTracker(
+    # TaskCancelled should be suppressed (not re-raised).
+    with (
+        patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event"),
+        TaskRunTracker(
             mock_task,
             project_id=str(project.pk),
             task_name="test.cancel",
-        ) as tracker:
-            task_run_id = tracker.task_run_id
-            raise TaskCancelled()
+        ) as tracker,
+    ):
+        task_run_id = tracker.task_run_id
+        raise TaskCancelled()
 
     assert task_run_id is not None
     run = TaskRun.objects.get(pk=task_run_id)
@@ -185,16 +189,21 @@ def test_tracker_progress_update(project: Project) -> None:
     mock_task = _make_celery_task()
     task_run_id: str | None = None
 
-    with patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event"):
-        # Disable debounce by making Redis unavailable.
-        with patch("trueppm_api.apps.taskruns.tracker.TaskRunTracker._get_redis", return_value=None):
-            with TaskRunTracker(
-                mock_task,
-                project_id=str(project.pk),
-                task_name="test.progress",
-            ) as tracker:
-                task_run_id = tracker.task_run_id
-                tracker.update(42, "Processing items…")
+    # Disable debounce by making Redis unavailable.
+    with (
+        patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event"),
+        patch(
+            "trueppm_api.apps.taskruns.tracker.TaskRunTracker._get_redis",
+            return_value=None,
+        ),
+        TaskRunTracker(
+            mock_task,
+            project_id=str(project.pk),
+            task_name="test.progress",
+        ) as tracker,
+    ):
+        task_run_id = tracker.task_run_id
+        tracker.update(42, "Processing items…")
 
     assert task_run_id is not None
     run = TaskRun.objects.get(pk=task_run_id)
@@ -213,16 +222,18 @@ def test_tracker_broadcasts_started_and_completed(project: Project) -> None:
     def capture(**kwargs: object) -> None:
         broadcast_calls.append(dict(kwargs))
 
-    with patch(
-        "trueppm_api.apps.taskruns.tracker.broadcast_board_event",
-        side_effect=capture,
-    ):
-        with TaskRunTracker(
+    with (
+        patch(
+            "trueppm_api.apps.taskruns.tracker.broadcast_board_event",
+            side_effect=capture,
+        ),
+        TaskRunTracker(
             mock_task,
             project_id=str(project.pk),
             task_name="test.broadcast",
-        ):
-            pass
+        ),
+    ):
+        pass
 
     event_types = [c["event_type"] for c in broadcast_calls]
     assert "task_run_started" in event_types
@@ -240,17 +251,19 @@ def test_tracker_broadcasts_failed(project: Project) -> None:
     def capture(**kwargs: object) -> None:
         broadcast_calls.append(dict(kwargs))
 
-    with patch(
-        "trueppm_api.apps.taskruns.tracker.broadcast_board_event",
-        side_effect=capture,
+    with (
+        patch(
+            "trueppm_api.apps.taskruns.tracker.broadcast_board_event",
+            side_effect=capture,
+        ),
+        pytest.raises(RuntimeError),
+        TaskRunTracker(
+            mock_task,
+            project_id=str(project.pk),
+            task_name="test.fail_broadcast",
+        ),
     ):
-        with pytest.raises(RuntimeError):
-            with TaskRunTracker(
-                mock_task,
-                project_id=str(project.pk),
-                task_name="test.fail_broadcast",
-            ):
-                raise RuntimeError("boom")
+        raise RuntimeError("boom")
 
     event_types = [c["event_type"] for c in broadcast_calls]
     assert "task_run_started" in event_types
@@ -260,8 +273,6 @@ def test_tracker_broadcasts_failed(project: Project) -> None:
 @pytest.mark.django_db
 def test_tracker_debounce_skips_rapid_updates(project: Project) -> None:
     """tracker.update() is skipped when called more than once within 1 second."""
-    import redis as redis_lib
-
     from trueppm_api.apps.taskruns.tracker import TaskRunTracker
 
     mock_task = _make_celery_task()
@@ -271,18 +282,20 @@ def test_tracker_debounce_skips_rapid_updates(project: Project) -> None:
     mock_redis.exists.return_value = 0  # no cancel signal
     mock_redis.get.return_value = b"9999999999.0"  # far future — always debounced
 
-    with patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event"):
-        with patch(
+    with (
+        patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event"),
+        patch(
             "trueppm_api.apps.taskruns.tracker.TaskRunTracker._get_redis",
             return_value=mock_redis,
-        ):
-            with TaskRunTracker(
-                mock_task,
-                project_id=str(project.pk),
-                task_name="test.debounce",
-            ) as tracker:
-                tracker.update(10, "first")
-                tracker.update(20, "second")  # should be skipped by debounce
+        ),
+        TaskRunTracker(
+            mock_task,
+            project_id=str(project.pk),
+            task_name="test.debounce",
+        ) as tracker,
+    ):
+        tracker.update(10, "first")
+        tracker.update(20, "second")  # should be skipped by debounce
 
     # Only one debounce check was needed; confirm Redis.get was called.
     assert mock_redis.get.called
@@ -291,7 +304,7 @@ def test_tracker_debounce_skips_rapid_updates(project: Project) -> None:
 @pytest.mark.django_db
 def test_tracker_cancel_signal_raises(project: Project) -> None:
     """tracker.update() raises TaskCancelled when the Redis cancel key is set."""
-    from trueppm_api.apps.taskruns.tracker import TaskCancelled, TaskRunTracker
+    from trueppm_api.apps.taskruns.tracker import TaskRunTracker
 
     mock_task = _make_celery_task()
 
@@ -302,19 +315,21 @@ def test_tracker_cancel_signal_raises(project: Project) -> None:
 
     task_run_id: str | None = None
 
-    with patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event"):
-        with patch(
+    # TaskCancelled must propagate to __exit__ — do NOT catch it here.
+    with (
+        patch("trueppm_api.apps.taskruns.tracker.broadcast_board_event"),
+        patch(
             "trueppm_api.apps.taskruns.tracker.TaskRunTracker._get_redis",
             return_value=mock_redis,
-        ):
-            # TaskCancelled must propagate to __exit__ — do NOT catch it here.
-            with TaskRunTracker(
-                mock_task,
-                project_id=str(project.pk),
-                task_name="test.cancel_signal",
-            ) as tracker:
-                task_run_id = tracker.task_run_id
-                tracker.update(10, "should raise")  # raises TaskCancelled → __exit__
+        ),
+        TaskRunTracker(
+            mock_task,
+            project_id=str(project.pk),
+            task_name="test.cancel_signal",
+        ) as tracker,
+    ):
+        task_run_id = tracker.task_run_id
+        tracker.update(10, "should raise")  # raises TaskCancelled → __exit__
 
     assert task_run_id is not None
     # The TaskCancelled was raised inside the with block; __exit__ sees it.
@@ -338,9 +353,7 @@ def test_list_task_runs_viewer(
 
 
 @pytest.mark.django_db
-def test_retrieve_task_run(
-    admin_client: APIClient, project: Project, task_run: TaskRun
-) -> None:
+def test_retrieve_task_run(admin_client: APIClient, project: Project, task_run: TaskRun) -> None:
     resp = admin_client.get(f"/api/v1/projects/{project.pk}/task-runs/{task_run.pk}/")
     assert resp.status_code == 200
     assert resp.data["task_name"] == "scheduling.recalculate"
@@ -352,9 +365,7 @@ def test_cancel_requires_admin(
 ) -> None:
     task_run.status = TaskRunStatus.RUNNING
     task_run.save()
-    resp = viewer_client.post(
-        f"/api/v1/projects/{project.pk}/task-runs/{task_run.pk}/cancel/"
-    )
+    resp = viewer_client.post(f"/api/v1/projects/{project.pk}/task-runs/{task_run.pk}/cancel/")
     assert resp.status_code == 403
 
 
@@ -369,9 +380,7 @@ def test_cancel_running_task_run(
         mock_redis_inst = MagicMock()
         mock_redis_mod.from_url.return_value = mock_redis_inst
 
-        resp = admin_client.post(
-            f"/api/v1/projects/{project.pk}/task-runs/{task_run.pk}/cancel/"
-        )
+        resp = admin_client.post(f"/api/v1/projects/{project.pk}/task-runs/{task_run.pk}/cancel/")
     assert resp.status_code == 202
     mock_redis_inst.set.assert_called_once()
 
@@ -382,16 +391,12 @@ def test_cancel_already_done_returns_409(
 ) -> None:
     task_run.status = TaskRunStatus.SUCCESS
     task_run.save()
-    resp = admin_client.post(
-        f"/api/v1/projects/{project.pk}/task-runs/{task_run.pk}/cancel/"
-    )
+    resp = admin_client.post(f"/api/v1/projects/{project.pk}/task-runs/{task_run.pk}/cancel/")
     assert resp.status_code == 409
 
 
 @pytest.mark.django_db
-def test_global_active_endpoint(
-    admin_client: APIClient, project: Project, user: object
-) -> None:
+def test_global_active_endpoint(admin_client: APIClient, project: Project, user: object) -> None:
     TaskRun.objects.create(
         task_name="scheduling.recalculate",
         celery_task_id="t1",
