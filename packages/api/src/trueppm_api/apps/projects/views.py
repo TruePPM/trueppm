@@ -87,9 +87,7 @@ def _enqueue_recalculate(project_id: str) -> None:
 
     from django.utils import timezone
 
-    ScheduleRequest.objects.filter(
-        id=req.id, status=ScheduleRequestStatus.PENDING
-    ).update(
+    ScheduleRequest.objects.filter(id=req.id, status=ScheduleRequestStatus.PENDING).update(
         status=ScheduleRequestStatus.DISPATCHED,
         celery_task_id=result.id,
         dispatched_at=timezone.now(),

@@ -133,9 +133,7 @@ def _do_drain() -> None:
         dispatched_at__lt=orphan_cutoff,
     ).update(status=ScheduleRequestStatus.PENDING, celery_task_id="")
     if recovered:
-        logger.warning(
-            "drain_schedule_queue: recovered %d orphaned dispatched row(s)", recovered
-        )
+        logger.warning("drain_schedule_queue: recovered %d orphaned dispatched row(s)", recovered)
 
     # Dispatch all currently pending rows (one Celery task per project).
     pending = list(ScheduleRequest.objects.filter(status=ScheduleRequestStatus.PENDING))
@@ -151,9 +149,7 @@ def _do_drain() -> None:
             continue
         # Conditional update: only flip to dispatched if it's still pending
         # (guards against a concurrent on_commit _enqueue_recalculate call).
-        ScheduleRequest.objects.filter(
-            id=req.id, status=ScheduleRequestStatus.PENDING
-        ).update(
+        ScheduleRequest.objects.filter(id=req.id, status=ScheduleRequestStatus.PENDING).update(
             status=ScheduleRequestStatus.DISPATCHED,
             celery_task_id=result.id,
             dispatched_at=now,
@@ -161,9 +157,7 @@ def _do_drain() -> None:
         dispatched += 1
 
     if dispatched or recovered:
-        logger.info(
-            "drain_schedule_queue: dispatched=%d recovered=%d", dispatched, recovered
-        )
+        logger.info("drain_schedule_queue: dispatched=%d recovered=%d", dispatched, recovered)
 
 
 def _do_purge() -> None:
