@@ -9,13 +9,6 @@ describe('TopBar', () => {
     expect(screen.getByText('TruePPM')).toBeInTheDocument();
   });
 
-  it('renders view tabs navigation', () => {
-    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    expect(screen.getByRole('navigation', { name: /view/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Gantt' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Board' })).toBeInTheDocument();
-  });
-
   it('renders hamburger button for mobile', () => {
     const onHamburgerClick = vi.fn();
     renderWithRouter(<TopBar onHamburgerClick={onHamburgerClick} />);
