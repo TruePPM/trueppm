@@ -7,7 +7,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
 from simple_history.models import HistoricalRecords
 
 from trueppm_api.fields import LtreeField
@@ -106,6 +106,22 @@ class VersionedModel(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# Short ID helpers
+# ---------------------------------------------------------------------------
+
+
+def _next_short_id(project_id: uuid.UUID | str) -> str:
+    """Atomically allocate the next short_id for a project.
+
+    Increments Project.object_sequence via F() in a single UPDATE and reads
+    the new value back.  Returns an 8-character uppercase hex string.
+    """
+    Project.objects.filter(pk=project_id).update(object_sequence=F("object_sequence") + 1)
+    seq: int = Project.objects.values_list("object_sequence", flat=True).get(pk=project_id)
+    return f"{seq:08X}"
+
+
+# ---------------------------------------------------------------------------
 # Calendar
 # ---------------------------------------------------------------------------
 
@@ -167,6 +183,11 @@ class Project(VersionedModel):
         null=True,
         blank=True,
     )
+    # Per-project sequential counter for generating short_id values on Tasks
+    # and Risks.  Incremented atomically via F() on every INSERT to either model.
+    # Tasks and Risks share the same counter so that short_id is unique across
+    # entity types within a project (no "task #3 vs risk #3" ambiguity).
+    object_sequence = models.BigIntegerField(default=0, editable=False)
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
 
@@ -217,6 +238,9 @@ class Task(VersionedModel):
     """
 
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="tasks")
+    # Human-readable, project-scoped identifier — e.g. "000A3F".  Assigned on
+    # INSERT from Project.object_sequence; immutable after creation.
+    short_id = models.CharField(max_length=8, editable=False, blank=True)
     name = models.CharField(max_length=512)
     # Assignee: the Team Member responsible for this task. Nullable — unassigned
     # tasks may only be edited by Project Manager (ADMIN, 3) or above.
@@ -293,18 +317,26 @@ class Task(VersionedModel):
                 name="task_utilization_window_idx",
             ),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "short_id"],
+                name="unique_task_short_id_per_project",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.project.name} / {self.name}"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        # Assign short_id on INSERT (first save).
+        is_new = not type(self).objects.filter(pk=self.pk).exists() if self.pk else True
+        if is_new and not self.short_id:
+            self.short_id = _next_short_id(self.project_id)
         # Capture whether status is being written before super() expands update_fields.
         _update_fields = kwargs.get("update_fields")
         _track = _update_fields is None or "status" in _update_fields
         _old_status: str | None = None
-        if _track and self.pk:
-            # One indexed lookup to capture the pre-save status for the signal payload.
-            # Only executed on explicit status updates (board drag) or full saves.
+        if _track and not is_new:
             _old_status = (
                 type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
             )
@@ -496,6 +528,7 @@ class Risk(VersionedModel):
         on_delete=models.CASCADE,
         related_name="risks",
     )
+    short_id = models.CharField(max_length=8, editable=False, blank=True)
     title = models.CharField(max_length=512)
     description = models.TextField(blank=True)
     status = models.CharField(
@@ -536,11 +569,21 @@ class Risk(VersionedModel):
         indexes = [
             models.Index(fields=["project", "status"], name="risk_project_status_idx"),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "short_id"],
+                name="unique_risk_short_id_per_project",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"[{self.status}] {self.title}"
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        # Assign short_id on INSERT (first save).
+        is_new = not type(self).objects.filter(pk=self.pk).exists() if self.pk else True
+        if is_new and not self.short_id:
+            self.short_id = _next_short_id(self.project_id)
         # Capture update_fields before super() expands it so we can tell
         # which fields the caller intended to change.
         _update_fields = kwargs.get("update_fields")
