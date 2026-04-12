@@ -16,7 +16,8 @@ import { ZoomControl } from './ZoomControl';
 import { MonteCarloRow } from './MonteCarloRow';
 import { MilestoneDeltaTooltip } from './MilestoneDeltaTooltip';
 import { DateInputPopover } from './DateInputPopover';
-import { AddTaskForm } from '@/features/project/AddTaskForm';
+import { AddTaskForm, type AddTaskFormHandle } from '@/features/project/AddTaskForm';
+import { RecalculatingBadge } from '@/features/project/RecalculatingBadge';
 import type { Task } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -92,7 +93,25 @@ export function GanttView() {
   const { tasks, links, isLoading, error } = useGanttTasks();
   const zoomLevel = useGanttStore((s) => s.zoomLevel);
   const [showAddForm, setShowAddForm] = useState(false);
+  const addFormRef = useRef<AddTaskFormHandle>(null);
   const createTask = useCreateTask(projectId);
+
+  // Tracks tasks created but not yet scheduled (null dates filtered from Gantt).
+  // Entries are removed when the task appears in the scheduled tasks list.
+  const [pendingTaskIds, setPendingTaskIds] = useState<Map<string, string>>(new Map());
+
+  // Remove pending entries once the scheduler assigns them dates
+  useEffect(() => {
+    if (!tasks || pendingTaskIds.size === 0) return;
+    const taskIds = new Set(tasks.map((t) => t.id));
+    setPendingTaskIds((prev) => {
+      const next = new Map(prev);
+      for (const id of prev.keys()) {
+        if (taskIds.has(id)) next.delete(id);
+      }
+      return next;
+    });
+  }, [tasks, pendingTaskIds.size]);
 
   const taskListScrollRef = useRef<HTMLDivElement>(null);
   const [engine, setEngine] = useState<GanttEngine | null>(null);
@@ -229,12 +248,12 @@ export function GanttView() {
 
   if (error) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-semantic-critical">
+      <div className="flex h-full items-center justify-center bg-gantt-surface">
+        <p className="text-sm text-gantt-semantic-critical">
           Couldn&apos;t load tasks.{' '}
           <button
             type="button"
-            className="underline focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+            className="underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
             onClick={() => window.location.reload()}
           >
             Retry
@@ -246,13 +265,13 @@ export function GanttView() {
 
   if (isLoading || !tasks) {
     return (
-      <div className="flex h-full" aria-busy="true" aria-label="Loading Gantt">
-        <div className="w-[280px] flex-shrink-0 border-r border-neutral-border p-2 space-y-1">
+      <div className="flex h-full bg-gantt-surface" aria-busy="true" aria-label="Loading Gantt">
+        <div className="w-[280px] flex-shrink-0 border-r border-white/10 p-2 space-y-1">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-7 rounded animate-pulse bg-neutral-surface-raised" />
+            <div key={i} className="h-7 rounded animate-pulse bg-white/10" />
           ))}
         </div>
-        <div className="flex-1 bg-neutral-surface" />
+        <div className="flex-1 bg-gantt-surface" />
       </div>
     );
   }
@@ -290,8 +309,9 @@ export function GanttView() {
         {projectId && (
           <button
             type="button"
-            onClick={() => setShowAddForm(true)}
+            onClick={() => setShowAddForm((v) => !v)}
             aria-label="Add task"
+            aria-expanded={showAddForm}
             className="border border-neutral-border rounded h-7 px-3 text-xs font-medium
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
               hover:border-brand-primary hover:text-brand-primary"
@@ -299,6 +319,7 @@ export function GanttView() {
             + Task
           </button>
         )}
+        <RecalculatingBadge isVisible={pendingTaskIds.size > 0} />
         <div className="flex-1" />
         {/* "Today" button (rule 82) */}
         <button
@@ -311,12 +332,26 @@ export function GanttView() {
         <ZoomControl />
       </div>
 
-      {/* Inline task-creation form — shown below toolbar when "+ Task" is clicked */}
+      {/* Inline task-creation form — stays open for rapid entry; closed by Cancel/Escape */}
       {showAddForm && (
         <AddTaskForm
+          ref={addFormRef}
           isPending={createTask.isPending}
           onSubmit={(name, duration) => {
-            createTask.mutate({ name, duration }, { onSuccess: () => setShowAddForm(false) });
+            createTask.mutate(
+              { name, duration },
+              {
+                onSuccess: (data) => {
+                  // Keep form open, clear fields, track as pending until scheduler assigns dates
+                  addFormRef.current?.reset();
+                  setPendingTaskIds((prev) => new Map(prev).set(data.id, data.name));
+                  if (ariaLiveRef.current) {
+                    ariaLiveRef.current.textContent =
+                      `Task "${data.name}" added — recalculating schedule.`;
+                  }
+                },
+              },
+            );
           }}
           onCancel={() => setShowAddForm(false)}
         />
@@ -325,6 +360,7 @@ export function GanttView() {
       <div className="flex flex-1 overflow-hidden" ref={timelineContainerRef}>
         <TaskListPanel
           tasks={tasks}
+          pendingTaskIds={pendingTaskIds}
           scrollRef={taskListScrollRef}
           widths={widths}
           setWidth={setWidth}

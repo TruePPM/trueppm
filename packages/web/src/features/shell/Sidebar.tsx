@@ -63,7 +63,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             onClick={toggleSidebar}
             aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             aria-expanded={!sidebarCollapsed}
-            className="flex items-center justify-center w-8 h-8 rounded text-gantt-text-secondary hover:text-gantt-text-primary hover:bg-white/10
+            className="flex items-center justify-center w-11 h-11 rounded text-gantt-text-secondary hover:text-gantt-text-primary hover:bg-white/10
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface"
           >
             <svg
@@ -91,13 +91,15 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             >
               PROJECTS
             </h2>
+            {/* Touch target is 44×44px; icon stays 12×12px visually (Rule 5) */}
             <button
               type="button"
               onClick={() => setShowNewProject(true)}
               aria-label="New project"
-              className="flex items-center justify-center w-5 h-5 rounded text-gantt-text-secondary
-                hover:text-gantt-text-primary hover:bg-white/10
-                focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white"
+              className="flex items-center justify-center w-11 h-11 -mr-2 rounded
+                text-gantt-text-secondary hover:text-gantt-text-primary hover:bg-white/10
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
+                focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface"
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
                 <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
