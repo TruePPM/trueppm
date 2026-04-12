@@ -57,6 +57,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `GET/POST /api/v1/projects/{pk}/webhooks/`, detail at `/{id}/`, delivery log at
   `/{id}/deliveries/`, test ping at `/{id}/test/`. Admin+ role required for
   create/update/delete; Viewer+ for listing. Secret field is write-only. ADR-0019.
+- **Long-running task progress tracking** (issue #64): new `taskruns` Django app with
+  `TaskRun` model tracking every Celery operation's lifecycle (PENDING → RUNNING →
+  SUCCESS / FAILED / CANCELLED). `TaskRunTracker` context manager wraps any Celery task
+  body and reports progress via `tracker.update(pct, msg)`, debounced to 1 write/second.
+  REST endpoints: `GET /api/v1/projects/{id}/task-runs/` (Viewer+), `GET /api/v1/task-runs/{id}/`,
+  `POST /api/v1/task-runs/{id}/cancel/` (Admin+), `GET /api/v1/task-runs/active/` (personal
+  in-flight view across user's projects). WebSocket events `task_run_started/progress/completed/
+  failed/cancelled` broadcast on the project channel. `recalculate_schedule` migrated to use
+  `TaskRunTracker`; CPM lifecycle now surfaces as `task_run_*` events in addition to
+  `cpm_complete` (kept for compatibility). `TaskRunIndicator` added to `TopBar` — a subtle
+  spinner badge visible while any run is active. `ProgressBar` component for inline use in
+  import dialogs. `useTaskRun(id)` hook for subscribing to a specific run's events. Nightly
+  purge controlled by `TASK_RUN_RETENTION_DAYS` setting (default 30 days). ADR-0020.
 - **WASM CPM engine** (issue #39): Rust + petgraph scheduling engine compiled to
   WebAssembly via wasm-pack. Exposes `compute_schedule()` and `incremental_update()`
   for in-browser Gantt drag simulation and future offline mobile scheduling. Shared

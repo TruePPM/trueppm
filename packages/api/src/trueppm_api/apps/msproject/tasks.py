@@ -33,7 +33,7 @@ def _get_tracker(
 ) -> Generator[Any, None, None]:
     """Try to use TaskRunTracker; fall back to no-op if not available."""
     try:
-        from trueppm_api.apps.taskruns.tracker import TaskRunTracker  # type: ignore[import-untyped]
+        from trueppm_api.apps.taskruns.tracker import TaskRunTracker
 
         with TaskRunTracker(
             celery_task,
