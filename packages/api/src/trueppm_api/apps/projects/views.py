@@ -66,7 +66,8 @@ def _enqueue_recalculate(project_id: str) -> None:
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
 
     try:
-        req = ScheduleRequest.objects.create(project_id=project_id)
+        with transaction.atomic():
+            req = ScheduleRequest.objects.create(project_id=project_id)
     except IntegrityError:
         # A pending row already exists — the drain task will handle it.
         return

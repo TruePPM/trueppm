@@ -61,7 +61,9 @@ def test_task_create_triggers_schedule(user: object, project: Project, calendar:
     c.force_authenticate(user=user)
 
     with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
-        mock_task.delay = MagicMock()
+        mock_result = MagicMock()
+        mock_result.id = "mock-celery-id"
+        mock_task.delay = MagicMock(return_value=mock_result)
         resp = c.post(
             "/api/v1/tasks/",
             {"project": str(project.pk), "name": "Build", "duration": 2},
@@ -79,7 +81,9 @@ def test_task_delete_triggers_schedule(user: object, project: Project, task: Tas
     c.force_authenticate(user=user)
 
     with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
-        mock_task.delay = MagicMock()
+        mock_result = MagicMock()
+        mock_result.id = "mock-celery-id"
+        mock_task.delay = MagicMock(return_value=mock_result)
         resp = c.delete(f"/api/v1/tasks/{task.pk}/")
         assert resp.status_code == 204
         mock_task.delay.assert_called_once_with(str(project.pk))
