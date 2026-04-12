@@ -1,4 +1,4 @@
-"""AppConfig for the taskruns app."""
+"""AppConfig for the taskruns app — long-running task progress tracking."""
 
 from __future__ import annotations
 
