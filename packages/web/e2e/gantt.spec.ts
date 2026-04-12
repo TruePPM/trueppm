@@ -65,7 +65,7 @@ async function gotoGantt(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
-  await page.goto(`/?project=${FIXTURE_PROJECT_ID}`);
+  await page.goto(`/gantt?project=${FIXTURE_PROJECT_ID}`);
 }
 
 test.describe('GanttView toolbar', () => {
@@ -77,34 +77,36 @@ test.describe('GanttView toolbar', () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test('view-mode switcher has Gantt active; WBS and Table are enabled', async ({ page }) => {
-    const group = page.getByRole('group', { name: 'View mode' });
-    await expect(group).toBeVisible();
+  test('view-mode switcher has Gantt active; WBS and Table are present', async ({ page }) => {
+    // ViewTabs renders as <nav aria-label="View"> with <Link> children (role="link").
+    // Active state is indicated by aria-current="page" (not aria-pressed).
+    const nav = page.getByRole('navigation', { name: 'View' });
+    await expect(nav).toBeVisible();
 
-    const ganttBtn = group.getByRole('button', { name: 'Gantt' });
-    const wbsBtn = group.getByRole('button', { name: 'WBS' });
-    const tableBtn = group.getByRole('button', { name: 'Table' });
+    const ganttLink = nav.getByRole('link', { name: 'Gantt' });
+    const wbsLink = nav.getByRole('link', { name: 'WBS' });
+    const tableLink = nav.getByRole('link', { name: 'Table' });
 
-    await expect(ganttBtn).toBeVisible();
-    await expect(ganttBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(ganttLink).toBeVisible();
+    await expect(ganttLink).toHaveAttribute('aria-current', 'page');
 
-    await expect(wbsBtn).toBeEnabled();
-    await expect(wbsBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(wbsLink).toBeVisible();
+    await expect(wbsLink).not.toHaveAttribute('aria-current', 'page');
 
-    await expect(tableBtn).toBeEnabled();
-    await expect(tableBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(tableLink).toBeVisible();
+    await expect(tableLink).not.toHaveAttribute('aria-current', 'page');
   });
 
   test('switching to WBS view shows the treegrid', async ({ page }) => {
-    const group = page.getByRole('group', { name: 'View mode' });
-    await group.getByRole('button', { name: 'WBS' }).click();
+    const nav = page.getByRole('navigation', { name: 'View' });
+    await nav.getByRole('link', { name: 'WBS' }).click();
     await expect(page).toHaveURL(/[?&]view=wbs/);
     await expect(page.getByRole('treegrid', { name: 'WBS task tree' })).toBeVisible();
   });
 
   test('switching to Table view shows the task grid', async ({ page }) => {
-    const group = page.getByRole('group', { name: 'View mode' });
-    await group.getByRole('button', { name: 'Table' }).click();
+    const nav = page.getByRole('navigation', { name: 'View' });
+    await nav.getByRole('link', { name: 'Table' }).click();
     await expect(page).toHaveURL(/[?&]view=list/);
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
   });

@@ -90,6 +90,18 @@ export function CriticalDotIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/** WBS — hierarchical indented outline (three rows with indent levels) */
+export function WbsIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={className} {...rest}>
+      <rect x="1" y="2"   width="8"  height="2" rx="1" />
+      <rect x="3" y="6"   width="6"  height="2" rx="1" />
+      <rect x="3" y="10"  width="9"  height="2" rx="1" />
+      <rect x="5" y="13.5" width="5" height="1.5" rx="0.75" />
+    </svg>
+  );
+}
+
 /** Shield — risk register icon */
 export function RiskIcon({ className, ...rest }: IconProps) {
   return (

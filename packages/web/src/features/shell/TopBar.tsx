@@ -4,6 +4,7 @@ import { useShellStats } from '@/hooks/useShellStats';
 import { useGanttStore } from '@/stores/ganttStore';
 import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
 import { Logo } from './Logo';
+import { ViewTabs } from './ViewTabs';
 import { BadgePopover } from './BadgePopover';
 import { TaskRunIndicator } from './TaskRunIndicator';
 
@@ -43,6 +44,7 @@ export function TopBar({ onHamburgerClick }: Props) {
       </button>
 
       <Logo />
+      <ViewTabs />
 
       {/* Badges — pushed to the right */}
       <div className="ml-auto flex items-center gap-2">
