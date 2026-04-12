@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect, type RefObject, type KeyboardEvent } from 'react';
+import { useRef, useState, useCallback, useEffect, type RefObject, type KeyboardEvent, type FocusEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
@@ -67,6 +67,84 @@ function TaskListEmptyState() {
 }
 
 // ---------------------------------------------------------------------------
+// ConfirmDeleteStrip — in-place replacement for the sub-toolbar during confirm
+// ---------------------------------------------------------------------------
+
+interface ConfirmDeleteStripProps {
+  count: number;
+  isDeleting: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ConfirmDeleteStrip({ count, isDeleting, onConfirm, onCancel }: ConfirmDeleteStripProps) {
+  const confirmRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    confirmRef.current?.focus();
+  }, []);
+
+  // Auto-cancel after 5 seconds if user takes no action
+  useEffect(() => {
+    if (isDeleting) return;
+    const timer = setTimeout(onCancel, 5000);
+    return () => clearTimeout(timer);
+  }, [isDeleting, onCancel]);
+
+  const noun = `task${count !== 1 ? 's' : ''}`;
+
+  return (
+    <div
+      role="alertdialog"
+      aria-label={`Confirm deletion of ${count} ${noun}`}
+      className="flex items-center gap-3 w-full"
+    >
+      <span className="flex-1 min-w-0">
+        <span className="text-xs text-gantt-text-primary">
+          Delete {count} {noun}?
+        </span>
+        {!isDeleting && (
+          <span aria-hidden="true" className="block h-0.5 mt-0.5 rounded-full bg-white/10 overflow-hidden">
+            <span
+              className="block h-full rounded-full bg-gantt-semantic-critical/60"
+              style={{ animation: 'shrink-bar 5s linear forwards' }}
+            />
+          </span>
+        )}
+      </span>
+      <button
+        ref={confirmRef}
+        type="button"
+        onClick={onConfirm}
+        disabled={isDeleting}
+        aria-keyshortcuts="Enter"
+        className="flex-shrink-0 h-7 px-3 rounded text-xs font-medium
+          bg-gantt-semantic-critical/20 border border-gantt-semantic-critical/50
+          text-gantt-semantic-critical disabled:opacity-50
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
+          focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface"
+      >
+        {isDeleting ? 'Deleting…' : 'Confirm delete'}
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        disabled={isDeleting}
+        aria-keyshortcuts="Escape"
+        className="flex-shrink-0 h-7 px-3 rounded text-xs font-medium
+          border border-neutral-800 text-gantt-text-secondary hover:text-gantt-text-primary
+          disabled:opacity-50
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
+          focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface"
+      >
+        Cancel
+      </button>
+      <style>{`@keyframes shrink-bar { from { width: 100% } to { width: 0% } }`}</style>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Row component
 // ---------------------------------------------------------------------------
 
@@ -101,6 +179,13 @@ function TaskRow({
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') onRename(e.currentTarget.value);
     else if (e.key === 'Escape') onCancelRename();
+  };
+
+  // Only commit on blur if focus is leaving the row entirely (not moving within it)
+  const handleBlur = (e: FocusEvent<HTMLInputElement>) => {
+    const related = e.relatedTarget as Element | null;
+    if (related && e.currentTarget.closest('[role="row"]')?.contains(related)) return;
+    onRename(e.target.value);
   };
 
   const handleRowKeyDown = (e: KeyboardEvent) => {
@@ -162,12 +247,14 @@ function TaskRow({
             ref={inputRef}
             type="text"
             defaultValue={task.name}
-            onBlur={(e) => onRename(e.target.value)}
+            onBlur={handleBlur}
             onKeyDown={handleKeyDown}
             aria-label="Rename task"
             className="
               w-full bg-transparent border-b border-brand-primary
               text-sm text-gantt-text-primary outline-none caret-white px-0
+              focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1
+              focus-visible:ring-offset-gantt-surface
             "
           />
         ) : (
@@ -176,7 +263,7 @@ function TaskRow({
               text-sm truncate block
               ${task.isSummary ? 'font-semibold text-gantt-text-primary' : 'text-gantt-text-primary'}
             `}
-            title={task.isSummary ? undefined : 'Double-click to rename'}
+            aria-label={`${task.name}, press F2 or double-click to rename`}
           >
             {task.name}
           </span>
@@ -247,6 +334,8 @@ function TaskRow({
 // TaskListView
 // ---------------------------------------------------------------------------
 
+type DeletePhase = 'idle' | 'confirming' | 'deleting';
+
 export function TaskListView() {
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project');
@@ -257,10 +346,18 @@ export function TaskListView() {
 
   const [sortCol, setSortCol] = useState<SortCol>('wbs');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
-  const [myTasksOnly, setMyTasksOnly] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [deletePhase, setDeletePhase] = useState<DeletePhase>('idle');
+  const [toast, setToast] = useState<{ text: string; isError: boolean } | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-dismiss toast after 4 seconds
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
 
   const handleHeaderClick = useCallback(
     (col: SortCol) => {
@@ -282,10 +379,28 @@ export function TaskListView() {
     }
   }, [projectId, updateTask]);
 
-  const handleBulkDelete = useCallback(() => {
+  const handleDeleteClick = useCallback(() => {
     if (selectedIds.size === 0 || !projectId) return;
-    bulkDelete.mutate([...selectedIds], { onSuccess: () => clearSelection() });
-  }, [selectedIds, projectId, bulkDelete, clearSelection]);
+    setDeletePhase('confirming');
+  }, [selectedIds, projectId]);
+
+  const handleConfirmDelete = useCallback(() => {
+    const count = selectedIds.size;
+    setDeletePhase('deleting');
+    bulkDelete.mutate([...selectedIds], {
+      onSuccess: () => {
+        clearSelection();
+        setDeletePhase('idle');
+        setToast({ text: `${count} task${count !== 1 ? 's' : ''} deleted.`, isError: false });
+      },
+      onError: () => {
+        setDeletePhase('idle');
+        setToast({ text: "Couldn't delete tasks — try again.", isError: true });
+      },
+    });
+  }, [selectedIds, bulkDelete, clearSelection]);
+
+  const handleCancelDelete = useCallback(() => setDeletePhase('idle'), []);
 
   if (error) {
     return (
@@ -294,7 +409,7 @@ export function TaskListView() {
           Couldn&apos;t load tasks.{' '}
           <button
             type="button"
-            className="underline focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+            className="underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
             onClick={() => window.location.reload()}
           >
             Retry
@@ -308,7 +423,7 @@ export function TaskListView() {
     return (
       <div className="flex h-full flex-col bg-gantt-surface p-3 gap-1" aria-busy="true">
         {Array.from({ length: 10 }).map((_, i) => (
-          <div key={i} className="h-11 rounded animate-pulse bg-neutral-800/60" />
+          <div key={i} className="h-11 rounded animate-pulse bg-white/10" />
         ))}
       </div>
     );
@@ -316,30 +431,16 @@ export function TaskListView() {
 
   if (tasks.length === 0) return <TaskListEmptyState />;
 
-  // Apply "my tasks" filter (stub — no auth yet, filter has no effect)
-  const filtered = myTasksOnly ? tasks : tasks;
-  const sorted = sortTasks(filtered, sortCol, sortDir);
+  const sorted = sortTasks(tasks, sortCol, sortDir);
   const allIds = sorted.map((t) => t.id);
   const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
 
   function SortIndicator({ col }: { col: SortCol }) {
     if (sortCol !== col) return null;
-    return (
-      <span aria-hidden="true" className="ml-0.5">
-        {sortDir === 'asc' ? '↑' : '↓'}
-      </span>
-    );
+    return <span aria-hidden="true" className="ml-0.5">{sortDir === 'asc' ? '↑' : '↓'}</span>;
   }
 
-  function ColHeader({
-    col,
-    label,
-    className,
-  }: {
-    col: SortCol;
-    label: string;
-    className: string;
-  }) {
+  function ColHeader({ col, label, className }: { col: SortCol; label: string; className: string }) {
     return (
       <span
         role="columnheader"
@@ -351,7 +452,8 @@ export function TaskListView() {
           onClick={() => handleHeaderClick(col)}
           className="flex items-center gap-0.5 text-left w-full
             hover:text-gantt-text-primary transition-colors
-            focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none"
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
+            focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface"
         >
           {label}
           <SortIndicator col={col} />
@@ -361,51 +463,66 @@ export function TaskListView() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-gantt-surface overflow-hidden">
-      {/* Sub-toolbar: select-all, my tasks, bulk delete */}
+    <div className="flex flex-col h-full bg-gantt-surface overflow-hidden relative">
+      {/* Sub-toolbar */}
       <div className="flex items-center gap-3 px-3 h-9 border-b border-neutral-800 flex-shrink-0">
-        <input
-          type="checkbox"
-          checked={allSelected}
-          onChange={() => (allSelected ? clearSelection() : selectAll(allIds))}
-          aria-label={allSelected ? 'Deselect all tasks' : 'Select all tasks'}
-          className="
-            w-4 h-4 rounded border-neutral-600 bg-transparent
-            checked:bg-brand-primary checked:border-brand-primary
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
-            cursor-pointer
-          "
-        />
-        {selectedIds.size > 0 && (
+        {deletePhase !== 'idle' ? (
+          <ConfirmDeleteStrip
+            count={selectedIds.size}
+            isDeleting={deletePhase === 'deleting'}
+            onConfirm={handleConfirmDelete}
+            onCancel={handleCancelDelete}
+          />
+        ) : (
           <>
-            <span className="text-xs text-gantt-text-secondary">
-              {selectedIds.size} selected
-            </span>
-            <button
-              type="button"
-              onClick={handleBulkDelete}
-              className="text-xs text-gantt-semantic-critical
-                hover:underline
-                focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none"
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={() => (allSelected ? clearSelection() : selectAll(allIds))}
+              aria-label={allSelected ? 'Deselect all tasks' : 'Select all tasks'}
+              className="
+                w-4 h-4 rounded border-neutral-600 bg-transparent
+                checked:bg-brand-primary checked:border-brand-primary
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
+                cursor-pointer
+              "
+            />
+            {selectedIds.size > 0 && (
+              <>
+                <span className="text-xs text-gantt-text-secondary">
+                  {selectedIds.size} selected
+                </span>
+                <button
+                  type="button"
+                  onClick={handleDeleteClick}
+                  className="text-xs text-gantt-semantic-critical hover:underline
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
+                    focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface"
+                >
+                  Delete
+                </button>
+              </>
+            )}
+            <div className="flex-1" />
+            {/* My tasks — disabled until auth is wired (#auth) */}
+            <label
+              className="flex items-center gap-1.5 text-xs text-gantt-text-disabled cursor-not-allowed"
+              title="Requires sign-in — coming in a future update"
             >
-              Delete
-            </button>
+              <input
+                type="checkbox"
+                disabled
+                aria-disabled="true"
+                readOnly
+                checked={false}
+                className="w-4 h-4 rounded border-neutral-600 bg-transparent opacity-50 cursor-not-allowed
+                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+              />
+              My tasks
+              <span aria-hidden="true" className="text-gantt-text-disabled">ⓘ</span>
+            </label>
           </>
         )}
-        <div className="flex-1" />
-        <label className="flex items-center gap-1.5 text-xs text-gantt-text-secondary cursor-pointer">
-          <input
-            type="checkbox"
-            checked={myTasksOnly}
-            onChange={(e) => setMyTasksOnly(e.target.checked)}
-            className="
-              w-4 h-4 rounded border-neutral-600 bg-transparent
-              checked:bg-brand-primary checked:border-brand-primary
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
-            "
-          />
-          My tasks
-        </label>
       </div>
 
       {/* Column headers */}
@@ -413,18 +530,13 @@ export function TaskListView() {
         role="row"
         className="flex items-center h-8 border-b border-neutral-800 px-2 flex-shrink-0
           text-xs font-semibold tracking-wide uppercase text-gantt-text-secondary"
-        aria-hidden="true"
       >
         <span className={COL_CHECKBOX} />
         <ColHeader col="wbs" label="WBS" className={`${COL_WBS} text-right pr-2`} />
         <ColHeader col="name" label="Name" className="flex-1 min-w-0" />
         <ColHeader col="start" label="Start" className={`${COL_START} text-right pr-2`} />
         <ColHeader col="finish" label="Finish" className={`${COL_FINISH} text-right pr-2`} />
-        <ColHeader
-          col="duration"
-          label="Dur"
-          className={`${COL_DURATION} text-right pr-2`}
-        />
+        <ColHeader col="duration" label="Dur" className={`${COL_DURATION} text-right pr-2`} />
         <ColHeader col="progress" label="Progress" className={`${COL_PROGRESS}`} />
         <span className={COL_CP} />
       </div>
@@ -448,6 +560,22 @@ export function TaskListView() {
           onCancelRename={() => setRenamingId(null)}
         />
       </div>
+
+      {/* Delete result toast */}
+      {toast && (
+        <div
+          role={toast.isError ? 'alert' : 'status'}
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-50
+            flex items-center gap-2 px-4 py-2 rounded
+            bg-neutral-800 border border-neutral-700
+            text-xs text-gantt-text-primary whitespace-nowrap"
+        >
+          {!toast.isError && (
+            <span aria-hidden="true" className="text-gantt-semantic-on-track">✓</span>
+          )}
+          {toast.text}
+        </div>
+      )}
     </div>
   );
 }
@@ -485,10 +613,7 @@ function VirtualRows({
   });
 
   return (
-    <div
-      style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}
-      aria-rowcount={tasks.length}
-    >
+    <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
       {rowVirtualizer.getVirtualItems().map((vRow) => {
         const task = tasks[vRow.index];
         if (!task) return null;
@@ -496,13 +621,7 @@ function VirtualRows({
           <div
             key={task.id}
             aria-rowindex={vRow.index + 1}
-            style={{
-              position: 'absolute',
-              top: vRow.start,
-              left: 0,
-              right: 0,
-              height: vRow.size,
-            }}
+            style={{ position: 'absolute', top: vRow.start, left: 0, right: 0, height: vRow.size }}
           >
             <TaskRow
               task={task}
