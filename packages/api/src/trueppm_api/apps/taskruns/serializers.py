@@ -7,7 +7,7 @@ from rest_framework import serializers
 from trueppm_api.apps.taskruns.models import TaskRun
 
 
-class TaskRunSerializer(serializers.ModelSerializer):
+class TaskRunSerializer(serializers.ModelSerializer[TaskRun]):
     class Meta:
         model = TaskRun
         fields = [

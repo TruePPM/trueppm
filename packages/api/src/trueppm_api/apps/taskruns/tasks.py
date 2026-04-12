@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any
 
 from celery import shared_task
@@ -12,7 +13,7 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="taskruns.purge_old_records")
+@shared_task(name="taskruns.purge_old_records")  # type: ignore[untyped-decorator]
 def purge_old_task_runs() -> dict[str, Any]:
     """Delete completed/failed/cancelled TaskRun records older than retention window.
 
@@ -25,7 +26,7 @@ def purge_old_task_runs() -> dict[str, Any]:
     if retention_days is None:
         return {"deleted": 0, "skipped": "retention disabled"}
 
-    cutoff = timezone.now() - timezone.timedelta(days=retention_days)
+    cutoff = timezone.now() - timedelta(days=retention_days)
     terminal_statuses = [
         TaskRunStatus.SUCCESS,
         TaskRunStatus.FAILED,

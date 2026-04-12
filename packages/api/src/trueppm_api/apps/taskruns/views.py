@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import redis as redis_lib
+from django.db.models import QuerySet
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet, ReadOnlyModelViewSet
@@ -16,7 +17,7 @@ from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
 from trueppm_api.apps.taskruns.serializers import TaskRunSerializer
 
 
-class ProjectTaskRunViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
+class ProjectTaskRunViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet[TaskRun]):
     """List and retrieve TaskRuns scoped to a project.
 
     List/retrieve: Viewer+ (IsProjectMember).
@@ -25,17 +26,17 @@ class ProjectTaskRunViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
 
     serializer_class = TaskRunSerializer
 
-    def get_permissions(self) -> list:
+    def get_permissions(self) -> list[BasePermission]:
         if self.action == "cancel":
             return [IsAuthenticated(), IsProjectAdmin()]
         return [IsAuthenticated(), IsProjectMember()]
 
-    def get_queryset(self) -> object:
+    def get_queryset(self) -> QuerySet[TaskRun]:
         project_pk = self.kwargs["project_pk"]
         return TaskRun.objects.filter(project_id=project_pk)
 
     def get_object(self) -> TaskRun:
-        obj = super().get_object()
+        obj: TaskRun = super().get_object()
         self.check_object_permissions(self.request, obj.project)
         return obj
 
@@ -73,7 +74,7 @@ class ProjectTaskRunViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):
         return Response({"detail": "Cancellation requested."}, status=status.HTTP_202_ACCEPTED)
 
 
-class GlobalTaskRunViewSet(ReadOnlyModelViewSet):
+class GlobalTaskRunViewSet(ReadOnlyModelViewSet[TaskRun]):
     """Global task run access — detail by UUID and active runs across projects.
 
     Active runs are scoped to projects where the requesting user is a member.
@@ -83,11 +84,16 @@ class GlobalTaskRunViewSet(ReadOnlyModelViewSet):
     serializer_class = TaskRunSerializer
     permission_classes = [IsAuthenticated]
 
-    def get_queryset(self) -> object:
-        user = self.request.user
-        # Scope to projects the user is a member of.
+    def get_queryset(self) -> QuerySet[TaskRun]:
+        from django.contrib.auth.models import AbstractBaseUser
+
         from trueppm_api.apps.access.models import ProjectMembership
 
+        user = self.request.user
+        # Scope to projects the user is a member of. AnonymousUser is excluded
+        # by IsAuthenticated before this is called, but mypy needs the cast.
+        if not isinstance(user, AbstractBaseUser):
+            return TaskRun.objects.none()
         project_ids = ProjectMembership.objects.filter(user=user).values_list(
             "project_id", flat=True
         )

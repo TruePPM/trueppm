@@ -49,7 +49,7 @@ def recalculate_schedule(self: object, project_id: str) -> None:
     Args:
         project_id: UUID string of the project to reschedule.
     """
-    from trueppm_api.apps.taskruns.tracker import TaskRunTracker  # type: ignore[import-untyped]
+    from trueppm_api.apps.taskruns.tracker import TaskRunTracker
 
     try:
         with TaskRunTracker(
