@@ -431,7 +431,14 @@ wasm:conformance:
   # fixtures that the Rust tests use. If both pass, the engines agree.
   stage: test
   image: python:3.11-slim
-  needs: [scheduler:lint, wasm:lint]
+  needs:
+    - scheduler:lint
+    # wasm:lint is optional: this job also fires on scheduler-only changes
+    # (where wasm:lint is skipped). Without optional, GitLab fails the whole
+    # pipeline with "needs job does not exist" the moment an MR touches
+    # scheduler but not wasm-scheduler.
+    - job: wasm:lint
+      optional: true
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
