@@ -1,6 +1,8 @@
 import { useRef, useState, useCallback, useEffect, type RefObject, type KeyboardEvent } from 'react';
+import { useSearchParams } from 'react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
+import { useUpdateTask, useBulkDeleteTasks } from '@/hooks/useTaskMutations';
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
 import type { Task } from '@/types';
 
@@ -246,8 +248,12 @@ function TaskRow({
 // ---------------------------------------------------------------------------
 
 export function TaskListView() {
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get('project');
   const { tasks, isLoading, error } = useGanttTasks();
   const { selectedIds, toggle, selectAll, clearSelection } = useTaskSelectionStore();
+  const updateTask = useUpdateTask();
+  const bulkDelete = useBulkDeleteTasks(projectId);
 
   const [sortCol, setSortCol] = useState<SortCol>('wbs');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
@@ -271,14 +277,15 @@ export function TaskListView() {
   const handleRename = useCallback((task: Task, newName: string) => {
     setRenamingId(null);
     if (newName.trim() === '' || newName === task.name) return;
-    // TODO: call PATCH /api/v1/tasks/{id}/ when real API is wired
-  }, []);
+    if (projectId) {
+      updateTask.mutate({ id: task.id, projectId, name: newName.trim() });
+    }
+  }, [projectId, updateTask]);
 
   const handleBulkDelete = useCallback(() => {
-    if (selectedIds.size === 0) return;
-    // TODO: call POST /api/v1/projects/{id}/tasks/bulk/ when real API is wired
-    clearSelection();
-  }, [selectedIds, clearSelection]);
+    if (selectedIds.size === 0 || !projectId) return;
+    bulkDelete.mutate([...selectedIds], { onSuccess: () => clearSelection() });
+  }, [selectedIds, projectId, bulkDelete, clearSelection]);
 
   if (error) {
     return (

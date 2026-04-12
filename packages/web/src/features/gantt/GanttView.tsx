@@ -1,8 +1,10 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router';
 import type { GanttEngine } from './engine';
 import { dateToLeft } from './engine';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './ganttConstants';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
+import { useCreateTask } from '@/hooks/useTaskMutations';
 import { useGanttStore } from '@/stores/ganttStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
 import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
@@ -14,6 +16,7 @@ import { ZoomControl } from './ZoomControl';
 import { MonteCarloRow } from './MonteCarloRow';
 import { MilestoneDeltaTooltip } from './MilestoneDeltaTooltip';
 import { DateInputPopover } from './DateInputPopover';
+import { AddTaskForm } from '@/features/project/AddTaskForm';
 import type { Task } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -84,8 +87,12 @@ function canvasIsSupported(): boolean {
 // ---------------------------------------------------------------------------
 
 export function GanttView() {
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get('project');
   const { tasks, links, isLoading, error } = useGanttTasks();
   const zoomLevel = useGanttStore((s) => s.zoomLevel);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const createTask = useCreateTask(projectId);
 
   const taskListScrollRef = useRef<HTMLDivElement>(null);
   const [engine, setEngine] = useState<GanttEngine | null>(null);
@@ -277,8 +284,22 @@ export function GanttView() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Gantt-specific toolbar — Today + Zoom (view switcher owned by ProjectShell) */}
-      <div className="flex items-center justify-end gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
+      {/* Gantt-specific toolbar — Today + Zoom + Add Task */}
+      <div className="flex items-center gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
+        {/* "+ Task" button — only shown when a project is selected */}
+        {projectId && (
+          <button
+            type="button"
+            onClick={() => setShowAddForm(true)}
+            aria-label="Add task"
+            className="border border-neutral-border rounded h-7 px-3 text-xs font-medium
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
+              hover:border-brand-primary hover:text-brand-primary"
+          >
+            + Task
+          </button>
+        )}
+        <div className="flex-1" />
         {/* "Today" button (rule 82) */}
         <button
           type="button"
@@ -289,6 +310,17 @@ export function GanttView() {
         </button>
         <ZoomControl />
       </div>
+
+      {/* Inline task-creation form — shown below toolbar when "+ Task" is clicked */}
+      {showAddForm && (
+        <AddTaskForm
+          isPending={createTask.isPending}
+          onSubmit={(name, duration) => {
+            createTask.mutate({ name, duration }, { onSuccess: () => setShowAddForm(false) });
+          }}
+          onCancel={() => setShowAddForm(false)}
+        />
+      )}
 
       <div className="flex flex-1 overflow-hidden" ref={timelineContainerRef}>
         <TaskListPanel

@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router';
+import { NavLink, useLocation } from 'react-router';
 import type { Project, HealthState } from '@/types';
 
 const HEALTH_LABELS: Record<HealthState, string> = {
@@ -23,20 +23,27 @@ interface Props {
 }
 
 export function ProjectListItem({ project, collapsed }: Props) {
+  const location = useLocation();
+  // NavLink.isActive only checks pathname, not search params — all projects would
+  // appear active since they all link to /gantt. Check ?project= explicitly.
+  const currentProjectId = new URLSearchParams(location.search).get('project');
+  const isThisProject = currentProjectId === project.id;
+
   return (
     <li>
       <NavLink
         to={`/gantt?project=${project.id}`}
         title={collapsed ? project.name : undefined}
-        className={({ isActive }) =>
+        className={() =>
           [
             'flex items-center gap-2 px-3 py-2 rounded text-sm transition-colors',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface',
             // Active: fill + 2px left border (rule 37 — border is primary non-color signal)
-            isActive ? 'bg-white/10 border-l-2 border-brand-primary' : 'hover:bg-white/5',
+            isThisProject ? 'bg-white/10 border-l-2 border-brand-primary' : 'hover:bg-white/5',
           ].join(' ')
         }
         aria-label={collapsed ? `${project.name} — ${HEALTH_LABELS[project.healthState]}` : undefined}
+        aria-current={isThisProject ? 'page' : undefined}
       >
         {/* 8px color dot — aria-hidden; health conveyed via label or text below */}
         <span
