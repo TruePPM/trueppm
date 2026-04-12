@@ -29,7 +29,9 @@ def import_project(
     Returns:
         Summary dict for result_summary.
     """
-    from trueppm_api.apps.projects.models import Dependency, Task
+    from django.db.models import F
+
+    from trueppm_api.apps.projects.models import Dependency, Project, Task
     from trueppm_api.apps.resources.models import Resource, TaskResource
 
     def _update(pct: int, msg: str) -> None:
@@ -83,7 +85,14 @@ def import_project(
     task_uid_to_pk: dict[int, str] = {}
     task_objects: list[Task] = []
 
-    for td in data.tasks:
+    # Allocate a batch of short_ids: increment object_sequence by len(tasks)
+    # in one UPDATE, then assign sequential hex IDs.
+    task_count = len(data.tasks)
+    Project.objects.filter(pk=project_id).update(object_sequence=F("object_sequence") + task_count)
+    end_seq: int = Project.objects.values_list("object_sequence", flat=True).get(pk=project_id)
+    start_seq = end_seq - task_count + 1
+
+    for i, td in enumerate(data.tasks):
         wbs_path = _outline_number_to_ltree(td.outline_number)
         task = Task(
             project_id=project_id,
@@ -94,6 +103,7 @@ def import_project(
             percent_complete=td.percent_complete,
             notes=td.notes,
             planned_start=td.start if td.start else None,
+            short_id=f"{start_seq + i:08X}",
         )
         task_objects.append(task)
 
