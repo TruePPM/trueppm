@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import {
   DndContext,
   closestCenter,
@@ -14,9 +15,11 @@ import {
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
+import { useCreateTask, useUpdateTask, useReorderTasks } from '@/hooks/useTaskMutations';
 import { useWbsStore } from '@/stores/wbsStore';
 import { buildWbsTree, flattenVisible, collectAllIds } from './buildWbsTree';
 import { WbsRow } from './WbsRow';
+import { AddTaskForm } from '@/features/project/AddTaskForm';
 import type { Task } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -56,10 +59,16 @@ function WbsEmptyState() {
 // ---------------------------------------------------------------------------
 
 export function WbsView() {
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get('project');
   const { tasks, isLoading, error } = useGanttTasks();
   const { expandedIds, toggle, expandAll, collapseAll } = useWbsStore();
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
   const [liveAnnouncement, setLiveAnnouncement] = useState('');
+  const createTask = useCreateTask(projectId);
+  const updateTask = useUpdateTask();
+  const reorderTasks = useReorderTasks(projectId);
 
   // Expand all root-level summary nodes on first load
   useEffect(() => {
@@ -113,19 +122,29 @@ export function WbsView() {
         `${activeTask.name} moved to position ${newIndex + 1} under ${activeTask.parentId ? tasks.find((t) => t.id === activeTask.parentId)?.name ?? 'root' : 'root'}`,
       );
 
-      // TODO: call POST /api/v1/projects/{id}/tasks/reorder/ when real API is wired
-      void reordered;
+      // Derive parent_path: the wbs_path of the parent task, or "" for root
+      const parentTask = activeTask.parentId ? tasks.find((t) => t.id === activeTask.parentId) : null;
+      const parent_path = parentTask?.wbs ?? '';
+
+      if (projectId) {
+        reorderTasks.mutate({
+          parent_path,
+          ordered_ids: reordered.map((t) => t.id),
+        });
+      }
     },
-    [tasks],
+    [tasks, projectId, reorderTasks],
   );
 
   const handleRename = useCallback(
     (task: Task, newName: string) => {
       setRenamingId(null);
       if (newName.trim() === '' || newName === task.name) return;
-      // TODO: call PATCH /api/v1/tasks/{id}/ when real API is wired
+      if (projectId) {
+        updateTask.mutate({ id: task.id, projectId, name: newName.trim() });
+      }
     },
-    [],
+    [projectId, updateTask],
   );
 
   const handleExpandAll = useCallback(() => {
@@ -176,6 +195,18 @@ export function WbsView() {
     <div className="flex flex-col h-full bg-gantt-surface overflow-hidden">
       {/* Toolbar row */}
       <div className="flex items-center gap-2 px-3 h-9 border-b border-neutral-800 flex-shrink-0">
+        {projectId && (
+          <button
+            type="button"
+            onClick={() => setShowAddForm(true)}
+            aria-label="Add task"
+            className="text-xs text-gantt-text-secondary hover:text-gantt-text-primary
+              focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none px-1"
+          >
+            + Task
+          </button>
+        )}
+        <div className="flex-1" />
         <button
           type="button"
           onClick={handleExpandAll}
@@ -195,6 +226,17 @@ export function WbsView() {
           − All
         </button>
       </div>
+
+      {/* Inline task-creation form */}
+      {showAddForm && (
+        <AddTaskForm
+          isPending={createTask.isPending}
+          onSubmit={(name, duration) => {
+            createTask.mutate({ name, duration }, { onSuccess: () => setShowAddForm(false) });
+          }}
+          onCancel={() => setShowAddForm(false)}
+        />
+      )}
 
       {/* Column headers */}
       <div
