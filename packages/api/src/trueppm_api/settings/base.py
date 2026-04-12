@@ -143,6 +143,18 @@ CELERY_BEAT_SCHEDULE = {
         # 02:30 UTC — stagger from history purge.
         "schedule": {"crontab": {"hour": "2", "minute": "30"}},
     },
+    # Outbox drain: dispatches pending ScheduleRequest rows every 30 seconds.
+    # Also recovers orphaned dispatched rows (worker died before completing).
+    "drain-schedule-queue": {
+        "task": "scheduling.drain_schedule_queue",
+        "schedule": 30.0,
+    },
+    # Nightly cleanup: deletes done/dead ScheduleRequest rows older than 7 days.
+    "schedule-requests-purge-nightly": {
+        "task": "scheduling.purge_old_schedule_requests",
+        # 02:15 UTC — between the two existing purge jobs.
+        "schedule": crontab(hour=2, minute=15),
+    },
 }
 
 # ---------------------------------------------------------------------------

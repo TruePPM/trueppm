@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import uuid
 from typing import Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, ExpressionWrapper, F, IntegerField, OuterRef, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from rest_framework import filters, serializers, status, viewsets
@@ -47,6 +48,51 @@ from trueppm_api.apps.projects.serializers import (
     TaskReorderSerializer,
     TaskSerializer,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _enqueue_recalculate(project_id: str) -> None:
+    """Insert a ScheduleRequest outbox row and attempt immediate dispatch.
+
+    Called exclusively from transaction.on_commit() callbacks so the outbox
+    write is guaranteed to run after the triggering task-data write commits.
+
+    If the partial unique index raises IntegrityError (a pending row already
+    exists for this project) the exception is swallowed — idempotent by design.
+    If the broker is unavailable the row is left pending and the Beat drain
+    task will dispatch it within 30 seconds.
+    """
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+
+    try:
+        with transaction.atomic():
+            req = ScheduleRequest.objects.create(project_id=project_id)
+    except IntegrityError:
+        # A pending row already exists — the drain task will handle it.
+        return
+
+    # Best-effort immediate dispatch — keeps recalculation latency low when
+    # the broker is healthy.
+    from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+
+    try:
+        result = recalculate_schedule.delay(project_id)
+    except Exception:
+        logger.warning(
+            "Could not immediately dispatch recalculate_schedule for project %s — "
+            "drain task will pick it up within 30 s",
+            project_id,
+        )
+        return
+
+    from django.utils import timezone
+
+    ScheduleRequest.objects.filter(id=req.id, status=ScheduleRequestStatus.PENDING).update(
+        status=ScheduleRequestStatus.DISPATCHED,
+        celery_task_id=result.id,
+        dispatched_at=timezone.now(),
+    )
 
 
 class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
@@ -284,7 +330,6 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         return qs
 
     def perform_create(self, serializer: BaseSerializer[Task]) -> None:
-        from trueppm_api.apps.scheduling.tasks import recalculate_schedule
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         # H1 fix: DRF does not call has_object_permission on create actions,
@@ -296,7 +341,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         instance = serializer.save()
         project_id = str(instance.project_id)
         task_id = str(instance.pk)
-        transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_created", {"id": task_id})
         )
@@ -304,13 +349,12 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         transaction.on_commit(lambda: _dispatch_webhooks(project_id, "task.created", payload))
 
     def perform_update(self, serializer: BaseSerializer[Task]) -> None:
-        from trueppm_api.apps.scheduling.tasks import recalculate_schedule
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         instance = serializer.save()
         project_id = str(instance.project_id)
         task_id = str(instance.pk)
-        transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
         )
@@ -318,13 +362,12 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         transaction.on_commit(lambda: _dispatch_webhooks(project_id, "task.updated", payload))
 
     def perform_destroy(self, instance: Task) -> None:
-        from trueppm_api.apps.scheduling.tasks import recalculate_schedule
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project_id = str(instance.project_id)
         task_id = str(instance.pk)
         instance.soft_delete()
-        transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_deleted", {"id": task_id})
         )
@@ -508,7 +551,6 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         return qs
 
     def perform_create(self, serializer: BaseSerializer[Dependency]) -> None:
-        from trueppm_api.apps.scheduling.tasks import recalculate_schedule
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         # H1 fix: DRF does not call has_object_permission on create actions,
@@ -521,7 +563,7 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         instance = serializer.save()
         project_id = str(instance.predecessor.project_id)
         dep_id = str(instance.pk)
-        transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_created", {"id": dep_id})
         )
@@ -537,25 +579,23 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         )
 
     def perform_update(self, serializer: BaseSerializer[Dependency]) -> None:
-        from trueppm_api.apps.scheduling.tasks import recalculate_schedule
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         instance = serializer.save()
         project_id = str(instance.predecessor.project_id)
         dep_id = str(instance.pk)
-        transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_updated", {"id": dep_id})
         )
 
     def perform_destroy(self, instance: Dependency) -> None:
-        from trueppm_api.apps.scheduling.tasks import recalculate_schedule
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project_id = str(instance.predecessor.project_id)
         dep_id = str(instance.pk)
         instance.soft_delete()
-        transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_deleted", {"id": dep_id})
         )
@@ -602,7 +642,6 @@ class TaskReorderView(APIView):
     permission_classes = [IsAuthenticated, IsProjectMemberWrite]
 
     def post(self, request: Request, pk: str) -> Response:
-        from trueppm_api.apps.scheduling.tasks import recalculate_schedule
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
@@ -661,7 +700,7 @@ class TaskReorderView(APIView):
                 updated.append({"id": str(task_id), "wbs_path": new_path})
 
             project_id = str(project.pk)
-            transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+            transaction.on_commit(lambda: _enqueue_recalculate(project_id))
             transaction.on_commit(lambda: broadcast_board_event(project_id, "tasks_reordered", {}))
 
         return Response({"updated": updated}, status=status.HTTP_200_OK)
@@ -696,7 +735,6 @@ class TaskBulkView(APIView):
     permission_classes = [IsAuthenticated, IsProjectMemberWrite]
 
     def post(self, request: Request, pk: str) -> Response:
-        from trueppm_api.apps.scheduling.tasks import recalculate_schedule
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
@@ -751,7 +789,7 @@ class TaskBulkView(APIView):
                     result["deleted"].append(str(op["id"]))
 
             project_id = str(project.pk)
-            transaction.on_commit(lambda: recalculate_schedule.delay(project_id))
+            transaction.on_commit(lambda: _enqueue_recalculate(project_id))
             transaction.on_commit(
                 lambda: broadcast_board_event(project_id, "tasks_bulk_mutated", {})
             )
