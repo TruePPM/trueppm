@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 def record_failed_task(
     task_name: str,
     task_id: str,
-    args: list | tuple,
-    kwargs: dict,
+    args: list[object] | tuple[object, ...],
+    kwargs: dict[str, object],
     exception: BaseException,
 ) -> None:
     """Write a FailedTask row for a permanently failed Celery task.

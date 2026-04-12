@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from django.apps import AppConfig
 
@@ -28,8 +29,8 @@ class SchedulingConfig(AppConfig):
             celery_task_succeeded,
         )
 
-        @task_prerun.connect
-        def _on_task_prerun(sender: object, task_id: str, task: object, **kwargs: object) -> None:
+        @task_prerun.connect  # type: ignore[misc]
+        def _on_task_prerun(sender: Any, task_id: str, task: Any, **kwargs: Any) -> None:
             celery_task_started.send(
                 sender=type(task).__name__,
                 task_id=task_id,
@@ -38,9 +39,9 @@ class SchedulingConfig(AppConfig):
                 kwargs=kwargs.get("kwargs", {}),
             )
 
-        @task_postrun.connect
+        @task_postrun.connect  # type: ignore[misc]
         def _on_task_postrun(
-            sender: object, task_id: str, task: object, retval: object, **kwargs: object
+            sender: Any, task_id: str, task: Any, retval: Any, **kwargs: Any
         ) -> None:
             # task_postrun fires on success and failure; only emit succeeded on success
             state = kwargs.get("state", "")
@@ -52,9 +53,9 @@ class SchedulingConfig(AppConfig):
                     runtime_seconds=getattr(task.request, "runtime", 0) or 0,
                 )
 
-        @task_failure.connect
+        @task_failure.connect  # type: ignore[misc]
         def _on_task_failure(
-            sender: object, task_id: str, exception: BaseException, **kwargs: object
+            sender: Any, task_id: str, exception: BaseException, **kwargs: Any
         ) -> None:
             import traceback as tb_module
 
@@ -68,10 +69,8 @@ class SchedulingConfig(AppConfig):
                 ),
             )
 
-        @task_retry.connect
-        def _on_task_retry(
-            sender: object, request: object, reason: object, **kwargs: object
-        ) -> None:
+        @task_retry.connect  # type: ignore[misc]
+        def _on_task_retry(sender: Any, request: Any, reason: Any, **kwargs: Any) -> None:
             celery_task_retried.send(
                 sender=type(sender).__name__,
                 task_id=getattr(request, "id", ""),
