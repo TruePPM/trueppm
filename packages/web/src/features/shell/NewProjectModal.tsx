@@ -80,23 +80,21 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-50 bg-black/40"
-        aria-hidden="true"
+      {/* Backdrop — <button> so the click handler satisfies a11y lint rules */}
+      <button
+        type="button"
+        aria-label="Close dialog"
+        className="fixed inset-0 z-50 bg-black/40 cursor-default"
         onClick={onClose}
       />
-      {/* Dialog — stopPropagation prevents backdrop click from firing on dialog clicks */}
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        onClick={(e) => e.stopPropagation()}
-      >
+      {/* Dialog — higher z-index so it sits above the backdrop button */}
+      <div className="fixed inset-0 z-[51] flex items-center justify-center p-4 pointer-events-none">
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-label="New project"
-          className="w-full max-w-md rounded-lg border border-neutral-border bg-neutral-surface p-6"
+          className="w-full max-w-md rounded-lg border border-neutral-border bg-neutral-surface p-6 pointer-events-auto"
         >
           <h2 className="text-base font-semibold text-neutral-text-primary mb-4">
             New project

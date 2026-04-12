@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect, type RefObject, type KeyboardEvent } from 'react';
+import { useRef, useState, useCallback, useEffect, type RefObject, type KeyboardEvent, type FocusEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
@@ -182,7 +182,7 @@ function TaskRow({
   };
 
   // Only commit on blur if focus is leaving the row entirely (not moving within it)
-  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+  const handleBlur = (e: FocusEvent<HTMLInputElement>) => {
     const related = e.relatedTarget as Element | null;
     if (related && e.currentTarget.closest('[role="row"]')?.contains(related)) return;
     onRename(e.target.value);
