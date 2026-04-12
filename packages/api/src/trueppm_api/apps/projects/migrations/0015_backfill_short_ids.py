@@ -4,10 +4,12 @@ Assigns sequential hex IDs ordered by PK (UUID, deterministic but arbitrary).
 Sets Project.object_sequence to the highest assigned value.
 """
 
+from typing import Any
+
 from django.db import migrations
 
 
-def backfill_short_ids(apps: object, schema_editor: object) -> None:
+def backfill_short_ids(apps: Any, schema_editor: Any) -> None:
     Project = apps.get_model("projects", "Project")
     Task = apps.get_model("projects", "Task")
     Risk = apps.get_model("projects", "Risk")
@@ -27,7 +29,7 @@ def backfill_short_ids(apps: object, schema_editor: object) -> None:
             Project.objects.filter(pk=project.pk).update(object_sequence=seq)
 
 
-def reverse_backfill(apps: object, schema_editor: object) -> None:
+def reverse_backfill(apps: Any, schema_editor: Any) -> None:
     Task = apps.get_model("projects", "Task")
     Risk = apps.get_model("projects", "Risk")
     Project = apps.get_model("projects", "Project")
