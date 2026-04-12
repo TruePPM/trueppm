@@ -31,6 +31,7 @@ DJANGO_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.postgres",
 ]
 
 THIRD_PARTY_APPS = [
@@ -51,6 +52,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.sync",
     "trueppm_api.apps.history",
     "trueppm_api.apps.msproject",
+    "trueppm_api.apps.webhooks",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

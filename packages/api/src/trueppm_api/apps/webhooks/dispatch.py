@@ -1,0 +1,39 @@
+"""Webhook dispatch helper — called from transaction.on_commit callbacks."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+
+def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any]) -> None:
+    """Query matching active webhooks and enqueue a delivery task for each.
+
+    This function MUST be called inside a ``transaction.on_commit`` callback
+    (same as ``broadcast_board_event``) so that delivery is never enqueued
+    for a rolled-back mutation.
+    """
+    from trueppm_api.apps.webhooks.models import Webhook, WebhookDelivery
+    from trueppm_api.apps.webhooks.tasks import deliver_webhook
+
+    webhooks = Webhook.objects.filter(
+        project_id=project_id,
+        is_active=True,
+        events__contains=[event_type],
+    )
+
+    for webhook in webhooks:
+        delivery = WebhookDelivery.objects.create(
+            webhook=webhook,
+            event_type=event_type,
+            payload=payload,
+        )
+        deliver_webhook.delay(str(delivery.pk))
+        logger.debug(
+            "dispatch_webhooks: enqueued delivery %s for webhook %s (%s)",
+            delivery.pk,
+            webhook.pk,
+            event_type,
+        )
