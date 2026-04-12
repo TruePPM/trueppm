@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router';
-import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon } from '@/components/Icons';
+import { GanttIcon, WbsIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon } from '@/components/Icons';
 import type { ComponentType } from 'react';
 
 interface Tab {
@@ -10,8 +10,9 @@ interface Tab {
 
 const TABS: Tab[] = [
   { view: 'gantt',     label: 'Gantt',     Icon: GanttIcon },
+  { view: 'wbs',       label: 'WBS',       Icon: WbsIcon },
   { view: 'board',     label: 'Board',     Icon: BoardIcon },
-  { view: 'list',      label: 'List',      Icon: ListIcon },
+  { view: 'list',      label: 'Table',     Icon: ListIcon },
   { view: 'calendar',  label: 'Calendar',  Icon: CalendarIcon },
   { view: 'resources', label: 'Resources', Icon: ResourcesIcon },
   { view: 'risk',      label: 'Risks',     Icon: RiskIcon },

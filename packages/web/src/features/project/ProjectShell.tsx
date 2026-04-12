@@ -12,21 +12,12 @@ import { useSchedulerStore } from '@/stores/schedulerStore';
 
 // Active view is tracked in ?view= search param so URLs are shareable
 // and the TanStack Query cache key (['tasks', projectId]) stays stable
-// across view switches.
+// across view switches. ViewTabs in TopBar is the navigation control;
+// ProjectShell reads the param and renders the matching view.
 type ViewMode = 'gantt' | 'wbs' | 'list' | 'board' | 'calendar' | 'resources' | 'risk';
 
-const VIEW_LABELS: Record<ViewMode, string> = {
-  gantt: 'Gantt',
-  wbs: 'WBS',
-  list: 'Table',
-  board: 'Board',
-  calendar: 'Calendar',
-  resources: 'Resources',
-  risk: 'Risks',
-};
-
 export function ProjectShell() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const view = (searchParams.get('view') ?? 'gantt') as ViewMode;
   const projectId = searchParams.get('project');
 
@@ -34,51 +25,14 @@ export function ProjectShell() {
 
   const isRecalculating = useSchedulerStore((s) => s.isRecalculating);
 
-  function setView(v: ViewMode) {
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.set('view', v);
-        return next;
-      },
-      { replace: true },
-    );
-  }
-
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Primary toolbar — view mode switcher (rule 42) */}
-      <div
-        className="flex items-center gap-2 px-4 h-10 border-b border-neutral-border
-          bg-neutral-surface-raised flex-shrink-0"
-      >
-        <div role="group" aria-label="View mode" className="flex items-center gap-1">
-          {(['gantt', 'wbs', 'list', 'board', 'calendar', 'resources', 'risk'] as const).map((v) => (
-            <button
-              key={v}
-              type="button"
-              aria-pressed={view === v}
-              onClick={() => setView(v)}
-              className={`
-                border rounded h-7 px-3 text-xs font-medium
-                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
-                ${
-                  view === v
-                    ? 'border-brand-primary/40 bg-brand-primary/10 text-brand-primary'
-                    : 'border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary'
-                }
-              `}
-            >
-              {VIEW_LABELS[v]}
-            </button>
-          ))}
+      {/* RecalculatingBadge strip — visible while CPM is running (issue #40) */}
+      {isRecalculating && (
+        <div className="flex justify-end px-4 py-1 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
+          <RecalculatingBadge isVisible={isRecalculating} />
         </div>
-
-        <div className="flex-1" />
-
-        {/* RecalculatingBadge — wired to WebSocket scheduler events (issue #40) */}
-        <RecalculatingBadge isVisible={isRecalculating} />
-      </div>
+      )}
 
       {/* Active view */}
       <div className="flex-1 min-h-0 overflow-hidden">
