@@ -70,6 +70,42 @@ export function useUpdateTask() {
 }
 
 // ---------------------------------------------------------------------------
+// useDeleteTask — DELETE /api/v1/tasks/{id}/
+// ---------------------------------------------------------------------------
+
+export function useDeleteTask(projectId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (taskId: string) => {
+      await apiClient.delete(`/tasks/${taskId}/`);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// useBulkDeleteTasks — POST /api/v1/projects/{pk}/tasks/bulk/ (delete ops)
+// ---------------------------------------------------------------------------
+
+export function useBulkDeleteTasks(projectId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (taskIds: string[]) => {
+      await apiClient.post(`/projects/${projectId}/tasks/bulk/`, {
+        operations: taskIds.map((id) => ({ op: 'delete', id })),
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // useReorderTasks — POST /api/v1/projects/{pk}/tasks/reorder/
 // ---------------------------------------------------------------------------
 
