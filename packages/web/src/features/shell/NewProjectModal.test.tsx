@@ -72,8 +72,11 @@ describe('NewProjectModal', () => {
     await userEvent.click(screen.getByRole('button', { name: /create project/i }));
 
     expect(mutateMock).toHaveBeenCalledOnce();
-    const [payload] = mutateMock.mock.calls[0];
-    expect(payload.name).toBe('Alpha');
+    expect(mutateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Alpha' }),
+      expect.anything(),
+    );
+    const payload = mutateMock.mock.calls[0][0] as Record<string, unknown>;
     expect(payload.start_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(payload.description).toBeUndefined();
   });
@@ -84,8 +87,10 @@ describe('NewProjectModal', () => {
     await userEvent.type(screen.getByPlaceholderText(/optional/i), 'A description');
     await userEvent.click(screen.getByRole('button', { name: /create project/i }));
 
-    const [payload] = mutateMock.mock.calls[0];
-    expect(payload.description).toBe('A description');
+    expect(mutateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Beta', description: 'A description' }),
+      expect.anything(),
+    );
   });
 
   it('does not submit when name is whitespace only', async () => {
