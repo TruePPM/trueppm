@@ -81,7 +81,7 @@ describe('useTaskRunStore', () => {
 
   it('activeCount does not go below zero', () => {
     useTaskRunStore.setState({ runs: { 'run-1': makeEntry() }, activeCount: 0 });
-    useTaskRunStore.getState().completeRun('run-1');
+    useTaskRunStore.getState().completeRun('run-1', null);
     expect(useTaskRunStore.getState().activeCount).toBe(0);
   });
 
