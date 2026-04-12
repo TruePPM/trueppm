@@ -35,6 +35,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `celery_task_retried`) bridged from Celery framework signals — enterprise extension
   point. Re-queue loop in `recalculate_schedule` capped at 5 attempts. Beat schedule
   format fixed (was malformed dict, now proper `crontab` object). ADR-0017.
+- **MS Project import/export** (issue #10): new `msproject` Django app supporting
+  `.xml` import/export and `.mpp` import (via MPXJ subprocess). Parses tasks with
+  full WBS hierarchy (`OutlineNumber` → `wbs_path`), all four dependency types
+  (FS/SS/FF/SF + lag), milestones, percent complete, notes, resources (case-insensitive
+  name matching, creates new if unmatched), and resource assignments. Export produces
+  standards-compliant MS Project XML with sequential UIDs, predecessor links, resources,
+  and assignments. Async import via Celery with TaskRunTracker progress reporting and
+  CPM recalculation on completion. REST endpoints:
+  `POST /api/v1/projects/{id}/import/msproject/` (Admin+, multipart file upload, 10 MB max),
+  `GET /api/v1/projects/{id}/export/msproject.xml` (Viewer+). Import summary includes
+  counts of tasks, dependencies, resources matched/created, assignments, and warnings.
+  Round-trip tested: import → export → verify. ADR-0021.
 - **WASM CPM engine** (issue #39): Rust + petgraph scheduling engine compiled to
   WebAssembly via wasm-pack. Exposes `compute_schedule()` and `incremental_update()`
   for in-browser Gantt drag simulation and future offline mobile scheduling. Shared

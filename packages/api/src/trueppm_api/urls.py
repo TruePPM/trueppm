@@ -22,4 +22,5 @@ urlpatterns = [
     path("api/v1/", include("trueppm_api.apps.scheduling.urls")),
     path("api/v1/", include("trueppm_api.apps.sync.urls")),
     path("api/v1/", include("trueppm_api.apps.history.urls")),
+    path("api/v1/", include("trueppm_api.apps.msproject.urls")),
 ]
