@@ -57,13 +57,13 @@ async function gotoGantt(page: import('@playwright/test').Page) {
     );
   });
   await page.route('**/api/v1/projects/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_API_PROJECTS) }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: FIXTURE_API_PROJECTS.length, next: null, previous: null, results: FIXTURE_API_PROJECTS }) }),
   );
   await page.route('**/api/v1/tasks/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_API_TASKS) }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: FIXTURE_API_TASKS.length, next: null, previous: null, results: FIXTURE_API_TASKS }) }),
   );
   await page.route('**/api/v1/dependencies/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
   );
   await page.goto(`/gantt?project=${FIXTURE_PROJECT_ID}`);
 }
