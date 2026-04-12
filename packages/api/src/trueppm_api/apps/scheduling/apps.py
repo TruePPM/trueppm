@@ -29,7 +29,7 @@ class SchedulingConfig(AppConfig):
             celery_task_succeeded,
         )
 
-        @task_prerun.connect  # type: ignore[misc]
+        @task_prerun.connect  # type: ignore[untyped-decorator]
         def _on_task_prerun(sender: Any, task_id: str, task: Any, **kwargs: Any) -> None:
             celery_task_started.send(
                 sender=type(task).__name__,
@@ -39,7 +39,7 @@ class SchedulingConfig(AppConfig):
                 kwargs=kwargs.get("kwargs", {}),
             )
 
-        @task_postrun.connect  # type: ignore[misc]
+        @task_postrun.connect  # type: ignore[untyped-decorator]
         def _on_task_postrun(
             sender: Any, task_id: str, task: Any, retval: Any, **kwargs: Any
         ) -> None:
@@ -53,7 +53,7 @@ class SchedulingConfig(AppConfig):
                     runtime_seconds=getattr(task.request, "runtime", 0) or 0,
                 )
 
-        @task_failure.connect  # type: ignore[misc]
+        @task_failure.connect  # type: ignore[untyped-decorator]
         def _on_task_failure(
             sender: Any, task_id: str, exception: BaseException, **kwargs: Any
         ) -> None:
@@ -69,7 +69,7 @@ class SchedulingConfig(AppConfig):
                 ),
             )
 
-        @task_retry.connect  # type: ignore[misc]
+        @task_retry.connect  # type: ignore[untyped-decorator]
         def _on_task_retry(sender: Any, request: Any, reason: Any, **kwargs: Any) -> None:
             celery_task_retried.send(
                 sender=type(sender).__name__,
