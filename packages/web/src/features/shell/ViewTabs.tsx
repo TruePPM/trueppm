@@ -20,17 +20,23 @@ const TABS: Tab[] = [
 
 export function ViewTabs() {
   const location = useLocation();
+  const params = new URLSearchParams(location.search);
   // Derive active view from ?view= param; default to 'gantt' when absent
-  const currentView = new URLSearchParams(location.search).get('view') ?? 'gantt';
+  const currentView = params.get('view') ?? 'gantt';
+  // Preserve ?project= when switching views so the active project context is not lost
+  const projectId = params.get('project');
 
   return (
     <nav aria-label="View" className="hidden md:flex items-stretch h-full gap-0.5">
       {TABS.map(({ view, label, Icon }) => {
         const isActive = currentView === view;
+        const href = projectId
+          ? `/gantt?view=${view}&project=${encodeURIComponent(projectId)}`
+          : `/gantt?view=${view}`;
         return (
           <Link
             key={view}
-            to={`/gantt?view=${view}`}
+            to={href}
             replace
             className={[
               'flex items-center gap-1.5 px-3 text-sm font-medium border-b-2 transition-colors',

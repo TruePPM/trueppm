@@ -65,7 +65,7 @@ async function gotoGantt(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
-  await page.goto(`/?project=${FIXTURE_PROJECT_ID}`);
+  await page.goto(`/gantt?project=${FIXTURE_PROJECT_ID}`);
 }
 
 test.describe('GanttView toolbar', () => {
