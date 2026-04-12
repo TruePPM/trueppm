@@ -77,7 +77,12 @@ export function useGanttTasks(projectId?: string): UseGanttTasksResult {
       const res = await apiClient.get<PaginatedResponse<ApiTask>>('/tasks/', {
         params: { project: resolvedId },
       });
-      return res.data.results.map(mapTask);
+      // Only include tasks that have been scheduled — null dates crash the
+      // Gantt engine's date-to-canvas conversion. New tasks appear once the
+      // CPM worker assigns early_start / early_finish.
+      return res.data.results
+        .filter((t) => t.early_start !== null && t.early_finish !== null)
+        .map(mapTask);
     },
     enabled: !!resolvedId,
   });
