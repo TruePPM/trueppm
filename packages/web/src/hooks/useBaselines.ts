@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api';
+import type { PaginatedResponse } from '@/api/types';
 
 // ---------------------------------------------------------------------------
 // API shapes (matches BaselineSerializer / BaselineDetailSerializer)
@@ -37,10 +38,10 @@ export function useBaselines(projectId: string | null | undefined) {
   return useQuery<ApiBaseline[], Error>({
     queryKey: ['baselines', projectId],
     queryFn: async () => {
-      const res = await apiClient.get<ApiBaseline[]>(
+      const res = await apiClient.get<PaginatedResponse<ApiBaseline>>(
         `/projects/${projectId}/baselines/`,
       );
-      return res.data;
+      return res.data.results;
     },
     enabled: !!projectId,
   });

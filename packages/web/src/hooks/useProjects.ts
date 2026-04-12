@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { Project } from '@/types';
+import type { PaginatedResponse } from '@/api/types';
 
 export interface UseProjectsResult {
   data: Project[] | undefined;
@@ -45,8 +46,8 @@ export function useProjects(): UseProjectsResult {
   const query = useQuery({
     queryKey: ['projects'],
     queryFn: async () => {
-      const res = await apiClient.get<ApiProject[]>('/projects/');
-      return res.data.map(mapProject);
+      const res = await apiClient.get<PaginatedResponse<ApiProject>>('/projects/');
+      return res.data.results.map(mapProject);
     },
   });
 
