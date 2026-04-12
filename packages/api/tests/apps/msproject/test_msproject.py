@@ -489,22 +489,8 @@ class TestImporter:
 @pytest.mark.django_db
 class TestExporter:
     def test_export_basic(self, project: Project) -> None:
-        Task.objects.bulk_create(
-            [
-                Task(
-                    project=project,
-                    name="Task A",
-                    duration=3,
-                    wbs_path="1",
-                ),
-                Task(
-                    project=project,
-                    name="Task B",
-                    duration=5,
-                    wbs_path="2",
-                ),
-            ]
-        )
+        Task.objects.create(project=project, name="Task A", duration=3, wbs_path="1")
+        Task.objects.create(project=project, name="Task B", duration=5, wbs_path="2")
         xml_bytes = export_project_xml(str(project.pk))
         assert xml_bytes.startswith(b"<?xml")
         root = ET.fromstring(xml_bytes)
@@ -557,22 +543,8 @@ class TestExporter:
         assert kickoff.findtext(f"{ns}Milestone") == "1"
 
     def test_export_wbs_hierarchy(self, project: Project) -> None:
-        Task.objects.bulk_create(
-            [
-                Task(
-                    project=project,
-                    name="Phase 1",
-                    duration=1,
-                    wbs_path="1",
-                ),
-                Task(
-                    project=project,
-                    name="Design",
-                    duration=1,
-                    wbs_path="1.1",
-                ),
-            ]
-        )
+        Task.objects.create(project=project, name="Phase 1", duration=1, wbs_path="1")
+        Task.objects.create(project=project, name="Design", duration=1, wbs_path="1.1")
         xml_bytes = export_project_xml(str(project.pk))
         root = ET.fromstring(xml_bytes)
         ns = f"{{{_NS}}}"
