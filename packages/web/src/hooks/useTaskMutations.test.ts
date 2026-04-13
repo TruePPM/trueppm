@@ -10,10 +10,12 @@ import { createElement } from 'react';
 import { useRescheduleTask } from './useTaskMutations';
 import type { Task } from '@/types';
 
+const { patchMock } = vi.hoisted(() => ({
+  patchMock: vi.fn().mockResolvedValue({ data: {} }),
+}));
+
 vi.mock('@/api/client', () => ({
-  apiClient: {
-    patch: vi.fn().mockResolvedValue({ data: {} }),
-  },
+  apiClient: { patch: patchMock },
 }));
 
 const baseTask: Task = {
@@ -26,8 +28,10 @@ const baseTask: Task = {
 };
 
 function makeWrapper(qc: QueryClient) {
-  return ({ children }: { children: ReactNode }) =>
-    createElement(QueryClientProvider, { client: qc }, children);
+  function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client: qc }, children);
+  }
+  return Wrapper;
 }
 
 describe('useRescheduleTask', () => {
@@ -90,8 +94,7 @@ describe('useRescheduleTask', () => {
   });
 
   it('rolls back the cache to the snapshot on API error', async () => {
-    const { apiClient } = await import('@/api/client');
-    vi.mocked(apiClient.patch).mockRejectedValueOnce(new Error('Network error'));
+    patchMock.mockRejectedValueOnce(new Error('Network error'));
 
     qc.setQueryData<Task[]>(['tasks', 'proj1'], [baseTask]);
     const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
