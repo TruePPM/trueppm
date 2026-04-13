@@ -345,22 +345,25 @@ export class GanttEngineImpl implements GanttEngine {
     if (this._tasks.length === 0) return;
     // Skip tasks with empty/missing dates — unscheduled tasks have no position
     const dated = this._tasks.filter((t) => t.start && t.finish);
+    const PAD_BEFORE_MS = 30 * 86_400_000;   // 30 days before earliest task
+    const PAD_AFTER_MS  = 90 * 86_400_000;   // 90 days after latest task
     if (dated.length === 0) {
-      // All tasks unscheduled — default to ±30 days around today
+      // All tasks unscheduled — default to ±90 days around today
       const today = new Date();
-      const pad = 30 * 86_400_000;
-      this._projectStart = new Date(today.getTime() - pad).toISOString().slice(0, 10);
-      this._projectEnd = new Date(today.getTime() + pad).toISOString().slice(0, 10);
+      this._projectStart = new Date(today.getTime() - PAD_BEFORE_MS).toISOString().slice(0, 10);
+      this._projectEnd   = new Date(today.getTime() + PAD_AFTER_MS).toISOString().slice(0, 10);
       return;
     }
-    let start = dated[0].start;
-    let end = dated[0].finish;
+    let startMs = new Date(dated[0].start + 'T00:00:00Z').getTime();
+    let endMs   = new Date(dated[0].finish + 'T00:00:00Z').getTime();
     for (const t of dated) {
-      if (t.start < start) start = t.start;
-      if (t.finish > end) end = t.finish;
+      const s = new Date(t.start + 'T00:00:00Z').getTime();
+      const e = new Date(t.finish + 'T00:00:00Z').getTime();
+      if (s < startMs) startMs = s;
+      if (e > endMs)   endMs   = e;
     }
-    this._projectStart = start;
-    this._projectEnd = end;
+    this._projectStart = new Date(startMs - PAD_BEFORE_MS).toISOString().slice(0, 10);
+    this._projectEnd   = new Date(endMs   + PAD_AFTER_MS).toISOString().slice(0, 10);
   }
 
   private _rebuildScales(): void {
