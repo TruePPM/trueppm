@@ -25,9 +25,9 @@ export const BAR_TOP_OFFSET = 5;
 export const BAR_HEIGHT = 18;
 
 /** Width of the resize handle in logical px (non-touch). */
-const RESIZE_HANDLE_WIDTH = 8;
+const RESIZE_HANDLE_WIDTH = 16;
 /** How many px the resize zone extends past the right edge. */
-const RESIZE_RIGHT_OVERHANG = 4;
+const RESIZE_RIGHT_OVERHANG = 8;
 /** Right edge of the link-dot zone. */
 const LINK_DOT_RIGHT = 16;
 

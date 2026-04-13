@@ -28,8 +28,8 @@ export function buildWbsTree(tasks: Task[]): WbsNode[] {
 
   // Sort siblings by wbs path numerically at each segment
   const wbsCompare = (a: Task, b: Task): number => {
-    const aParts = a.wbs.split('.').map(Number);
-    const bParts = b.wbs.split('.').map(Number);
+    const aParts = (a.wbs || '0').split('.').map(Number);
+    const bParts = (b.wbs || '0').split('.').map(Number);
     const len = Math.max(aParts.length, bParts.length);
     for (let i = 0; i < len; i++) {
       const diff = (aParts[i] ?? 0) - (bParts[i] ?? 0);

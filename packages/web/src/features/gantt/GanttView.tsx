@@ -1,10 +1,10 @@
-import { useRef, useCallback, useState, useEffect } from 'react';
+import { useRef, useCallback, useState, useEffect, type PointerEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import type { GanttEngine } from './engine';
-import { dateToLeft } from './engine';
+import { dateToLeft, leftToDate } from './engine';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './ganttConstants';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
-import { useCreateTask } from '@/hooks/useTaskMutations';
+import { useCreateTask, useRescheduleTask } from '@/hooks/useTaskMutations';
 import { useGanttStore } from '@/stores/ganttStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
 import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
@@ -28,7 +28,7 @@ function GanttEmptyState() {
   return (
     <div
       role="status"
-      className="flex h-full items-center justify-center bg-gantt-surface"
+      className="flex flex-1 h-full items-center justify-center bg-gantt-surface"
     >
       <p className="text-sm text-gantt-text-secondary">No tasks yet. Add a task to get started.</p>
     </div>
@@ -81,6 +81,49 @@ function canvasIsSupported(): boolean {
   } catch {
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// PanelSplitter — drag handle between task list and timeline
+// ---------------------------------------------------------------------------
+
+interface PanelSplitterProps {
+  currentTaskWidth: number;
+  setWidth: (col: 'task', width: number) => void;
+}
+
+function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
+  const startXRef = useRef<number | null>(null);
+  const startWidthRef = useRef<number>(currentTaskWidth);
+
+  function onPointerDown(e: PointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    startXRef.current = e.clientX;
+    startWidthRef.current = currentTaskWidth;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function onPointerMove(e: PointerEvent<HTMLDivElement>) {
+    if (startXRef.current === null) return;
+    const delta = e.clientX - startXRef.current;
+    setWidth('task', startWidthRef.current + delta);
+  }
+
+  function onPointerUp() {
+    startXRef.current = null;
+  }
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize task list panel"
+      className="w-1 flex-shrink-0 cursor-col-resize bg-white/10 hover:bg-brand-primary/60 transition-colors z-10"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +248,55 @@ export function GanttView() {
     keyboardModeRef,
     onOpenDatePopover: handleOpenDatePopover,
   });
+
+  // Bar drag — convert canvas-origin left-x to planned_start and PATCH
+  const rescheduleTask = useRescheduleTask();
+  useEffect(() => {
+    if (!engine || !projectId) return;
+    return engine.on('drag-task-end', ({ id, left, cancelled }) => {
+      if (cancelled) return;
+      if (!navigator.onLine) return; // offline case handled by useDragCpm
+      const scales = engine.scales;
+      if (!scales) return;
+      const task = tasks?.find((t) => t.id === id);
+      if (!task) return;
+      const newStartIso = leftToDate(left, scales).toISOString().slice(0, 10);
+      if (newStartIso === task.start) return;
+      // Approximate finish keeps the bar width; CPM recomputes the real value
+      const newFinishIso = new Date(
+        new Date(newStartIso + 'T00:00:00Z').getTime() + task.duration * 86_400_000,
+      ).toISOString().slice(0, 10);
+      rescheduleTask.mutate({
+        id,
+        projectId,
+        planned_start: newStartIso,
+        optimistic: { start: newStartIso, finish: newFinishIso },
+      });
+    });
+  }, [engine, projectId, tasks, rescheduleTask]);
+
+  // Bar resize — convert canvas-origin right-x to new finish date and PATCH
+  useEffect(() => {
+    if (!engine || !projectId) return;
+    return engine.on('resize-task-end', ({ id, right, cancelled }) => {
+      if (cancelled) return;
+      const scales = engine.scales;
+      if (!scales) return;
+      const task = tasks?.find((t) => t.id === id);
+      if (!task?.start) return;
+      const newFinish = leftToDate(right, scales);
+      const newFinishIso = newFinish.toISOString().slice(0, 10);
+      const startMs = new Date(task.start + 'T00:00:00Z').getTime();
+      const newDuration = Math.max(1, Math.round((newFinish.getTime() - startMs) / 86_400_000));
+      if (newDuration === task.duration) return;
+      rescheduleTask.mutate({
+        id,
+        projectId,
+        duration: newDuration,
+        optimistic: { finish: newFinishIso, duration: newDuration },
+      });
+    });
+  }, [engine, projectId, tasks, rescheduleTask]);
 
   const dragPhase = useDragStore((s) => s.phase);
 
@@ -366,6 +458,8 @@ export function GanttView() {
           setWidth={setWidth}
           totalWidth={totalWidth}
         />
+        {/* Panel splitter — drag to resize task list width */}
+        <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
 
         {tasks.length === 0 ? (
           <GanttEmptyState />

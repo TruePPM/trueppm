@@ -1,7 +1,10 @@
+import { useState, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router';
 import type { Task } from '@/types';
 import { ROW_HEIGHT, WBS_INDENT } from './ganttConstants';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useGanttStore } from '@/stores/ganttStore';
+import { useUpdateTask } from '@/hooks/useTaskMutations';
 
 interface Props {
   task: Task;
@@ -17,9 +20,41 @@ function formatDate(iso: string): string {
 }
 
 export function TaskListRow({ task, level, widths }: Props) {
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get('project') ?? '';
   const selectedTaskId = useGanttStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useGanttStore((s) => s.setSelectedTaskId);
   const isSelected = selectedTaskId === task.id;
+  const updateTask = useUpdateTask();
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const startEdit = useCallback(() => {
+    setEditValue(task.name);
+    setIsEditing(true);
+  }, [task.name]);
+
+  // Focus and select when edit mode activates (avoids jsx-a11y/no-autofocus)
+  const prevEditingRef = useRef(false);
+  if (isEditing && !prevEditingRef.current && inputRef.current) {
+    inputRef.current.focus();
+    inputRef.current.select();
+  }
+  prevEditingRef.current = isEditing;
+
+  const commitEdit = useCallback(() => {
+    const trimmed = editValue.trim();
+    if (trimmed && trimmed !== task.name) {
+      updateTask.mutate({ id: task.id, projectId, name: trimmed });
+    }
+    setIsEditing(false);
+  }, [editValue, task.id, task.name, projectId, updateTask]);
+
+  const cancelEdit = useCallback(() => {
+    setIsEditing(false);
+  }, []);
 
   const isCriticalStyle = task.isCritical
     ? 'font-semibold text-gantt-semantic-critical'
@@ -31,18 +66,25 @@ export function TaskListRow({ task, level, widths }: Props) {
     <div
       role="row"
       aria-selected={isSelected}
-      tabIndex={0}
+      tabIndex={isEditing ? -1 : 0}
       style={{ height: ROW_HEIGHT, paddingLeft: (level - 1) * WBS_INDENT + 8 }}
       className={[
-        'flex items-center pr-2 text-xs cursor-pointer border-b border-neutral-border/20',
+        'flex items-center pr-2 text-xs border-b border-neutral-border/20',
+        isEditing ? 'cursor-text' : 'cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white',
-        isSelected ? 'bg-white/10 border-l-2 border-brand-primary' : 'hover:bg-white/5',
+        isSelected && !isEditing ? 'bg-white/10 border-l-2 border-brand-primary' : 'hover:bg-white/5',
       ].join(' ')}
-      onClick={() => setSelectedTaskId(isSelected ? null : task.id)}
+      onClick={() => { if (!isEditing) setSelectedTaskId(isSelected ? null : task.id); }}
+      onDoubleClick={startEdit}
       onKeyDown={(e) => {
+        if (isEditing) return;
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           setSelectedTaskId(isSelected ? null : task.id);
+        }
+        if (e.key === 'F2') {
+          e.preventDefault();
+          startEdit();
         }
       }}
     >
@@ -51,32 +93,54 @@ export function TaskListRow({ task, level, widths }: Props) {
         <span className="mr-1 text-brand-accent" aria-hidden="true">◆</span>
       )}
 
-      <span
-        className={`shrink-0 truncate ${isCriticalStyle} ${isSummaryStyle}`}
-        style={{ width: widths.task - (level - 1) * WBS_INDENT - 8 }}
-        title={task.name}
-        aria-label={`${task.wbs} ${task.name}${task.isCritical ? ' (critical path)' : ''}`}
-      >
-        {task.name}
-      </span>
+      {/* Task name — inline input when editing */}
+      {isEditing ? (
+        <input
+          ref={inputRef}
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={commitEdit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
+            if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+          }}
+          className="flex-1 min-w-0 bg-white/10 text-gantt-text-primary text-xs px-1 rounded
+            outline-none ring-1 ring-brand-primary truncate"
+          style={{ height: 20 }}
+          aria-label={`Rename task ${task.name}`}
+        />
+      ) : (
+        <span
+          className={`flex-1 min-w-0 truncate ${isCriticalStyle} ${isSummaryStyle}`}
+          style={{ width: widths.task - (level - 1) * WBS_INDENT - 8 }}
+          title={`${task.name} — double-click to rename`}
+          aria-label={`${task.wbs} ${task.name}${task.isCritical ? ' (critical path)' : ''}`}
+        >
+          {task.name}
+        </span>
+      )}
 
-      {/* Combined duration · start column (rule 43: COL_DUR_START = 100px) */}
-      <span
-        className="shrink-0 text-right text-gantt-text-secondary tabular-nums"
-        style={{ width: widths.durStart }}
-        aria-label={task.isMilestone ? 'milestone' : task.start ? `${task.duration} days, starts ${formatDate(task.start)}` : `${task.duration} days, unscheduled`}
-      >
-        {task.isMilestone ? '—' : task.start ? `${task.duration}d · ${formatDate(task.start)}` : `${task.duration}d`}
-      </span>
+      {/* Combined duration · start column (rule 43) */}
+      {!isEditing && (
+        <>
+          <span
+            className="shrink-0 text-right text-gantt-text-secondary tabular-nums"
+            style={{ width: widths.durStart }}
+            aria-label={task.isMilestone ? 'milestone' : task.start ? `${task.duration} days, starts ${formatDate(task.start)}` : `${task.duration} days, unscheduled`}
+          >
+            {task.isMilestone ? '—' : task.start ? `${task.duration}d · ${formatDate(task.start)}` : `${task.duration}d`}
+          </span>
 
-      {/* Progress — text only; no mini bar (rule 43) */}
-      <span
-        className="shrink-0 text-right text-gantt-text-secondary tabular-nums"
-        style={{ width: widths.progress }}
-        aria-label={`${task.progress}% complete`}
-      >
-        {!task.isMilestone && `${task.progress}%`}
-      </span>
+          {/* Progress — text only; no mini bar (rule 43) */}
+          <span
+            className="shrink-0 text-right text-gantt-text-secondary tabular-nums"
+            style={{ width: widths.progress }}
+            aria-label={`${task.progress}% complete`}
+          >
+            {!task.isMilestone && `${task.progress}%`}
+          </span>
+        </>
+      )}
     </div>
   );
 }

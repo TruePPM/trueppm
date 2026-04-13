@@ -13,10 +13,11 @@ export interface UseGanttTasksResult {
 
 interface ApiTask {
   id: string;
-  wbs_path: string;
+  wbs_path: string | null;
   name: string;
   early_start: string | null;
   early_finish: string | null;
+  planned_start: string | null;
   duration: number;
   percent_complete: number;
   is_critical: boolean;
@@ -38,12 +39,29 @@ interface ApiDependency {
 }
 
 function mapTask(t: ApiTask): Task {
+  // Prefer planned_start over early_start: PATCH saves planned_start immediately
+  // while CPM recomputes early_start asynchronously (Celery). early_start is not
+  // null on already-scheduled tasks, so using early_start ?? planned_start would
+  // always pick the stale CPM value. planned_start is null on tasks that have
+  // never been explicitly constrained, in which case early_start is the correct
+  // CPM-computed start.
+  const start = t.planned_start ?? t.early_start ?? '';
+
+  // Derive finish from start + duration rather than early_finish directly.
+  // early_finish is only updated after CPM runs; using start + duration means
+  // the bar width is always consistent with the duration the user just set.
+  const finish = (start && t.duration > 0)
+    ? new Date(
+        new Date(start + 'T00:00:00Z').getTime() + t.duration * 86_400_000,
+      ).toISOString().slice(0, 10)
+    : (t.early_finish ?? '');
+
   return {
     id: t.id,
-    wbs: t.wbs_path,
+    wbs: t.wbs_path ?? '',
     name: t.name,
-    start: t.early_start ?? '',
-    finish: t.early_finish ?? '',
+    start,
+    finish,
     duration: t.duration,
     progress: t.percent_complete,
     parentId: t.parent_id,
@@ -80,11 +98,16 @@ export function useGanttTasks(projectId?: string): UseGanttTasksResult {
       // Only include tasks that have been scheduled — null dates crash the
       // Gantt engine's date-to-canvas conversion. New tasks appear once the
       // CPM worker assigns early_start / early_finish.
-      return res.data.results
-        .filter((t) => t.early_start !== null && t.early_finish !== null)
-        .map(mapTask);
+      // Pass all tasks to the engine — _paintTaskAt skips bars for unscheduled
+      // tasks (empty start/finish), and _updateProjectRange defaults to today
+      // ±30 days when no task has dates yet. Filtering here caused the task list
+      // to show "No tasks yet" even when the project had unscheduled tasks.
+      return res.data.results.map(mapTask);
     },
     enabled: !!resolvedId,
+    // Poll every 2 s so CPM-computed dates (early_start/early_finish) propagate
+    // to the canvas and task list without requiring a manual page refresh.
+    refetchInterval: 2000,
   });
 
   const linksQuery = useQuery({

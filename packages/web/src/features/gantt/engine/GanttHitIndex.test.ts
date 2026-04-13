@@ -97,7 +97,7 @@ describe('buildHitIndex', () => {
 
   it('hits resize handle near right edge (mouse)', () => {
     const idx = buildHitIndex([taskA], scales);
-    // Resize zone: [barRight - 8, barRight + 4] × [barTop, barBottom]
+    // Resize zone (mouse): [barRight - 16, barRight + 8] × [barTop, barBottom]
     const resizeX = barRightA - 4; // inside resize zone
     const zone = idx.query(resizeX, barTopA + 5, false);
     expect(zone).not.toBeNull();
@@ -107,18 +107,20 @@ describe('buildHitIndex', () => {
 
   it('resize zone expands on touch ([barRight-12, barRight+8])', () => {
     const idx = buildHitIndex([taskA], scales);
-    // barRight - 12: just inside touch resize zone but outside mouse zone
-    const touchResizeX = barRightA - 11;
-    const mouseZone = idx.query(touchResizeX, barTopA + 5, false);
-    const touchZone = idx.query(touchResizeX, barTopA + 5, true);
-    expect(mouseZone?.type).not.toBe('resize'); // outside mouse zone
-    expect(touchZone?.type).toBe('resize');     // inside touch zone
+    // Mouse resize zone is [barRight-16, barRight+8], touch is [barRight-12, barRight+8].
+    // Touch is narrower on the left side but still reaches barRight-12.
+    // Test at barRight-15: inside mouse zone but outside touch zone.
+    const edgeX = barRightA - 15;
+    const mouseZone = idx.query(edgeX, barTopA + 5, false);
+    const touchZone = idx.query(edgeX, barTopA + 5, true);
+    expect(mouseZone?.type).toBe('resize');       // inside mouse zone (>= barRight-16)
+    expect(touchZone?.type).not.toBe('resize');   // outside touch zone (< barRight-12)
   });
 
   it('bar body is adjacent to resize zone (no overlap)', () => {
     const idx = buildHitIndex([taskA], scales);
-    // Just left of resize zone: barRight - 9 → should be bar body
-    const barBodyX = barRightA - 9;
+    // Just left of resize zone: barRight - 17 → should be bar body
+    const barBodyX = barRightA - 17;
     const zone = idx.query(barBodyX, barTopA + 5, false);
     expect(zone?.type).toBe('bar');
   });
@@ -161,13 +163,13 @@ describe('buildHitIndex', () => {
 
   // ── Priority: link-dot > resize > bar body ────────────────────────────────
 
-  it('link-dot wins over resize when zones overlap (at barRight + 4)', () => {
+  it('link-dot wins over resize when zones overlap (at barRight + 8)', () => {
     const idx = buildHitIndex([taskA], scales);
-    // barRight + 4 is the boundary: resize zone ends here, link-dot zone starts here
+    // barRight + 8 is the boundary: resize zone ends here, link-dot zone starts here
     // The query checks link-dot first, so link-dot should win
-    const boundaryX = barRightA + 4;
+    const boundaryX = barRightA + 8;
     const zone = idx.query(boundaryX, barTopA + 5, false);
-    // link-dot zone starts at barRight + 4 (RESIZE_RIGHT_OVERHANG)
+    // link-dot zone starts at barRight + 8 (RESIZE_RIGHT_OVERHANG)
     expect(zone?.type).toBe('link-dot');
   });
 

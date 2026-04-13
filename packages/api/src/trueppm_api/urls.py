@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 from django.contrib import admin
+from django.http import JsonResponse
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+
+def health(_request: object) -> JsonResponse:
+    return JsonResponse({"status": "ok"})
+
+
 urlpatterns = [
+    path("api/v1/health/", health, name="health"),
     path("admin/", admin.site.urls),
     # OpenAPI schema and interactive docs
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

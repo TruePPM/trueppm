@@ -117,6 +117,11 @@ export class GanttEngineImpl implements GanttEngine {
   // Current hover hit zone (for cursor management)
   private _hoverZone: HitZone | null = null;
 
+  // Offset between the pointer and the bar's left edge at drag start.
+  // Subtracted from pointer x on every move/up so the bar follows the grab point,
+  // not the cursor position.
+  private _dragOffsetX = 0;
+
   // ---------------------------------------------------------------------------
   // Constructor
   // ---------------------------------------------------------------------------
@@ -345,22 +350,25 @@ export class GanttEngineImpl implements GanttEngine {
     if (this._tasks.length === 0) return;
     // Skip tasks with empty/missing dates — unscheduled tasks have no position
     const dated = this._tasks.filter((t) => t.start && t.finish);
+    const PAD_BEFORE_MS = 30 * 86_400_000;   // 30 days before earliest task
+    const PAD_AFTER_MS  = 90 * 86_400_000;   // 90 days after latest task
     if (dated.length === 0) {
-      // All tasks unscheduled — default to ±30 days around today
+      // All tasks unscheduled — default to ±90 days around today
       const today = new Date();
-      const pad = 30 * 86_400_000;
-      this._projectStart = new Date(today.getTime() - pad).toISOString().slice(0, 10);
-      this._projectEnd = new Date(today.getTime() + pad).toISOString().slice(0, 10);
+      this._projectStart = new Date(today.getTime() - PAD_BEFORE_MS).toISOString().slice(0, 10);
+      this._projectEnd   = new Date(today.getTime() + PAD_AFTER_MS).toISOString().slice(0, 10);
       return;
     }
-    let start = dated[0].start;
-    let end = dated[0].finish;
+    let startMs = new Date(dated[0].start + 'T00:00:00Z').getTime();
+    let endMs   = new Date(dated[0].finish + 'T00:00:00Z').getTime();
     for (const t of dated) {
-      if (t.start < start) start = t.start;
-      if (t.finish > end) end = t.finish;
+      const s = new Date(t.start + 'T00:00:00Z').getTime();
+      const e = new Date(t.finish + 'T00:00:00Z').getTime();
+      if (s < startMs) startMs = s;
+      if (e > endMs)   endMs   = e;
     }
-    this._projectStart = start;
-    this._projectEnd = end;
+    this._projectStart = new Date(startMs - PAD_BEFORE_MS).toISOString().slice(0, 10);
+    this._projectEnd   = new Date(endMs   + PAD_AFTER_MS).toISOString().slice(0, 10);
   }
 
   private _rebuildScales(): void {
@@ -627,12 +635,14 @@ export class GanttEngineImpl implements GanttEngine {
     ctx.translate(0, -this._scrollTop);
 
     if (fsm.state === 'DRAGGING' || fsm.state === 'DRAG_STARTED') {
-      // Snap to day boundary (rule 65)
-      const snappedX = snapToDayBoundary(currentX, this._scales);
+      // Subtract drag offset so the shadow's left edge tracks the bar's left edge,
+      // not the cursor. Subtract scrollLeft to convert canvas-origin to viewport-relative.
+      const snappedX = snapToDayBoundary(currentX - this._dragOffsetX, this._scales) - this._scrollLeft;
       drawDragShadow(ctx, task, snappedX, rowIndex, this._scales);
     } else if (fsm.state === 'RESIZING') {
       const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
-      drawResizeIndicator(ctx, currentX, barTop);
+      // currentX is canvas-origin; convert to viewport-relative for drawing.
+      drawResizeIndicator(ctx, currentX - this._scrollLeft, barTop);
     }
 
     ctx.restore();
@@ -674,6 +684,9 @@ export class GanttEngineImpl implements GanttEngine {
     e.preventDefault();
     const dragType = zone.type === 'resize' ? 'resize' : 'move';
     this._dragFSM.onPointerDown(zone.taskId, x, y, e.pointerId, dragType);
+    // Record how far inside the bar the user clicked so the bar follows the
+    // grab point rather than jumping its left edge to the cursor.
+    this._dragOffsetX = dragType === 'move' ? x - zone.barLeft : 0;
     this._ixCanvas.setPointerCapture(e.pointerId);
 
     // Emit drag-task or resize-task start
@@ -705,7 +718,7 @@ export class GanttEngineImpl implements GanttEngine {
     if (!taskId || !this._scales) return;
 
     if (isDragType === 'move') {
-      const snappedX = snapToDayBoundary(x, this._scales);
+      const snappedX = snapToDayBoundary(x - this._dragOffsetX, this._scales);
       this._emit('drag-task-move', { id: taskId, left: snappedX });
       this._updateCursor({ type: 'bar' } as HitZone);
     } else {
@@ -725,7 +738,7 @@ export class GanttEngineImpl implements GanttEngine {
       (prevState === 'DRAGGING' || prevState === 'DRAG_STARTED' || prevState === 'RESIZING')
     ) {
       if (isDragType === 'move') {
-        const snappedX = this._scales ? snapToDayBoundary(currentX, this._scales) : currentX;
+        const snappedX = this._scales ? snapToDayBoundary(currentX - this._dragOffsetX, this._scales) : currentX;
         this._emit('drag-task-end', { id: taskId, left: snappedX });
       } else {
         this._emit('resize-task-end', { id: taskId, right: currentX });

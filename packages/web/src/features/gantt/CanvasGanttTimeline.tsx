@@ -68,6 +68,7 @@ export function CanvasGanttTimeline({
     position: 'absolute',
     inset: 0,
     touchAction: 'none',
+    pointerEvents: 'none', // bg and bars layers are display-only
   };
 
   return (
@@ -84,11 +85,11 @@ export function CanvasGanttTimeline({
         aria-hidden="true"
         style={{ ...canvasStyle, zIndex: 1 }}
       />
-      {/* Layer 2: drag shadow, resize indicator (topmost canvas) */}
+      {/* Layer 2: drag shadow, resize indicator — must receive pointer events */}
       <canvas
         ref={ixCanvasRef}
         aria-hidden="true"
-        style={{ ...canvasStyle, zIndex: 2 }}
+        style={{ ...canvasStyle, zIndex: 2, pointerEvents: 'auto' }}
       />
       {/* Layer 3: accessible ARIA grid overlay (pointer-events: none) */}
       <GanttAriaOverlay engine={engine} tasks={tasks} containerRef={containerRef} />
