@@ -31,6 +31,14 @@ export const SUMMARY_BAR_HEIGHT = 8;
 export const MILESTONE_SIZE = 12;
 export const CANVAS_FONT = '12px Inter, system-ui, sans-serif';
 
+/** Extract initials from a full name (e.g. "Jane Smith" → "JS"). */
+function getInitials(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 0 || parts[0] === '') return '?';
+  if (parts.length === 1) return parts[0][0].toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 /** Height of the major label row inside the HEADER_HEIGHT band. */
 const HEADER_MAJOR_HEIGHT = 14;
 /** Height of the minor label row inside the HEADER_HEIGHT band. */
@@ -398,6 +406,16 @@ export function drawTaskBar(
   ctx.rect(barLeft, barTop, barWidth, BAR_HEIGHT);
   ctx.clip();
   ctx.fillText(task.name, barLeft + 11, barTop + BAR_HEIGHT / 2);
+
+  // Assignee initials — right-aligned, only when bar is wide enough (>= 48px)
+  if (barWidth >= 48 && task.assignees.length > 0) {
+    const initials = getInitials(task.assignees[0].name);
+    ctx.font = '10px Inter, system-ui, sans-serif';
+    ctx.fillStyle = COLOR.text;
+    const textWidth = ctx.measureText(initials).width;
+    ctx.fillText(initials, barLeft + barWidth - 4 - textWidth, barTop + BAR_HEIGHT / 2);
+    ctx.font = CANVAS_FONT; // Reset to engine default (rule 71)
+  }
 
   ctx.restore();
 }

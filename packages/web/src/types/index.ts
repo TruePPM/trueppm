@@ -8,6 +8,12 @@ export type LinkType = 'FS' | 'SS' | 'FF' | 'SF';
 export type TaskStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'ON_HOLD' | 'COMPLETE';
 export type ZoomLevel = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
+export interface TaskAssignee {
+  resourceId: string;
+  name: string;
+  units: number;
+}
+
 export interface Task {
   id: string;
   wbs: string;
@@ -33,6 +39,8 @@ export interface Task {
   scheduleVarianceDays?: number | null;
   baselineStart?: string;
   baselineFinish?: string;
+  /** Resource assignments from TaskResource */
+  assignees: TaskAssignee[];
 }
 
 export interface TaskLink {

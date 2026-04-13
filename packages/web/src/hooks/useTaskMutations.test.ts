@@ -25,6 +25,7 @@ const baseTask: Task = {
   isCritical: false, isComplete: false,
   isSummary: false, isMilestone: false,
   status: 'NOT_STARTED',
+  assignees: [],
 };
 
 function makeWrapper(qc: QueryClient) {
