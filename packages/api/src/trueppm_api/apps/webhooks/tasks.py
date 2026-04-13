@@ -8,11 +8,20 @@ import json
 import logging
 import urllib.error
 import urllib.request
+from datetime import timedelta
 
 from celery import shared_task
 from django.utils import timezone
 
+from trueppm_api.core.idempotent import idempotent_task
+
 logger = logging.getLogger(__name__)
+
+# Deliveries created more than this many minutes ago with attempt_count == 0
+# are considered stranded (the .delay() call was lost) and re-dispatched by the
+# drain.  Deliveries created *within* the window are left alone — they may still
+# be inside a transaction.on_commit() pipeline.
+_DRAIN_ORPHAN_MINUTES = 5
 
 # Exponential backoff countdown sequence (seconds): 30, 60, 120, 240, 480
 _MAX_RETRIES = 5
@@ -124,3 +133,68 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
     raise self.retry(  # type: ignore[attr-defined]
         countdown=_BACKOFF_BASE * (2 ** (delivery.attempt_count - 1)),
     )
+
+
+# ---------------------------------------------------------------------------
+# Webhook delivery drain
+# ---------------------------------------------------------------------------
+
+
+def _do_drain_webhooks() -> None:
+    """Dispatch any WebhookDelivery rows that were never enqueued.
+
+    A delivery row is considered stranded when:
+      - status is PENDING  (not yet successfully delivered or failed)
+      - attempt_count == 0 (the .delay() call after creation was lost)
+      - created_at is older than _DRAIN_ORPHAN_MINUTES
+
+    Deliveries with attempt_count > 0 are inside Celery's built-in retry
+    chain and must not be re-dispatched here.
+    """
+    from trueppm_api.apps.webhooks.models import DeliveryStatus, WebhookDelivery
+
+    cutoff = timezone.now() - timedelta(minutes=_DRAIN_ORPHAN_MINUTES)
+    stranded = list(
+        WebhookDelivery.objects.filter(
+            status=DeliveryStatus.PENDING,
+            attempt_count=0,
+            created_at__lt=cutoff,
+        ).select_related("webhook")
+    )
+
+    for delivery in stranded:
+        if not delivery.webhook.is_active:
+            delivery.status = DeliveryStatus.FAILED
+            delivery.completed_at = timezone.now()
+            delivery.save(update_fields=["status", "completed_at"])
+            logger.info(
+                "_do_drain_webhooks: marked delivery %s failed — webhook inactive",
+                delivery.pk,
+            )
+            continue
+
+        try:
+            deliver_webhook.delay(str(delivery.pk))
+            logger.info(
+                "_do_drain_webhooks: re-dispatched stranded delivery %s",
+                delivery.pk,
+            )
+        except Exception:
+            logger.warning(
+                "_do_drain_webhooks: broker unavailable — delivery %s stays pending",
+                delivery.pk,
+            )
+
+
+@idempotent_task(
+    lock_key_template="drain_webhook_queue",
+    lock_ttl=60,
+    on_contention="skip",
+    soft_time_limit=25,
+    time_limit=30,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def drain_webhook_queue(self: object) -> None:
+    """Beat task: drain stranded PENDING webhook deliveries every 30 seconds."""
+    _do_drain_webhooks()

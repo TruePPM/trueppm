@@ -91,9 +91,9 @@ class TestScheduleRequestModel:
 @pytest.mark.django_db
 class TestEnqueueRecalculate:
     def _call(self, project_id: str) -> None:
-        from trueppm_api.apps.projects.views import _enqueue_recalculate
+        from trueppm_api.apps.scheduling.services import enqueue_recalculate
 
-        _enqueue_recalculate(project_id)
+        enqueue_recalculate(project_id)
 
     def test_creates_outbox_row_and_dispatches(self, project) -> None:
         mock_result = MagicMock()
@@ -265,3 +265,143 @@ class TestDoPurge:
         ScheduleRequest.objects.filter(pk=req.pk).update(requested_at=cutoff)
         self._purge()
         assert ScheduleRequest.objects.filter(pk=req.pk).exists()
+
+
+# ---------------------------------------------------------------------------
+# trigger_schedule view — Gap 1 fix
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestTriggerScheduleView:
+    """trigger_schedule now routes through enqueue_recalculate (outbox)."""
+
+    @pytest.fixture()
+    def user(self, db: object) -> object:
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        return User.objects.create_user(username="scheduler_user", password="pw")
+
+    @pytest.fixture()
+    def project_with_member(self, project: object, user: object) -> object:
+        from trueppm_api.apps.access.models import ProjectMembership, Role
+
+        ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
+        return project
+
+    def test_trigger_creates_outbox_row(self, project_with_member, user) -> None:
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        with patch(
+            "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+            return_value=MagicMock(id="trigger-task-id"),
+        ):
+            resp = client.post(f"/api/v1/projects/{project_with_member.pk}/schedule/trigger/")
+
+        assert resp.status_code == 202
+        assert resp.data == {"queued": True}
+        req = ScheduleRequest.objects.get(project=project_with_member)
+        assert req.status == ScheduleRequestStatus.DISPATCHED
+
+    def test_trigger_broker_down_leaves_row_pending(self, project_with_member, user) -> None:
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        with patch(
+            "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+            side_effect=ConnectionError("broker down"),
+        ):
+            resp = client.post(f"/api/v1/projects/{project_with_member.pk}/schedule/trigger/")
+
+        assert resp.status_code == 202
+        req = ScheduleRequest.objects.get(project=project_with_member)
+        assert req.status == ScheduleRequestStatus.PENDING
+
+
+# ---------------------------------------------------------------------------
+# msproject import task — Gap 2 fix
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestImportMSProjectOutbox:
+    """import_msproject calls enqueue_recalculate at completion (outbox path)."""
+
+    def test_import_completion_enqueues_via_outbox(self, project) -> None:
+        """Tasks-created > 0: enqueue_recalculate is called, outbox row created."""
+        mock_summary = {"tasks_created": 3, "tasks_updated": 0, "dependencies_created": 0}
+        with (
+            patch(
+                "trueppm_api.apps.msproject.tasks.base64.b64decode",
+                return_value=b"<xml/>",
+            ),
+            patch(
+                "trueppm_api.apps.msproject.parser.parse_xml",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "trueppm_api.apps.msproject.importer.import_project",
+                return_value=mock_summary,
+            ),
+            patch(
+                "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+                return_value=MagicMock(id="import-task-id"),
+            ) as mock_delay,
+        ):
+            from trueppm_api.apps.msproject.tasks import import_msproject
+
+            import_msproject(
+                str(project.pk),
+                "PHhtbC8+",  # base64("<xml/>")
+                "test.xml",
+            )
+
+        mock_delay.assert_called_once_with(str(project.pk))
+        assert ScheduleRequest.objects.filter(project=project).exists()
+
+    def test_import_completion_zero_tasks_no_outbox(self, project) -> None:
+        """No tasks created → enqueue_recalculate not called, no outbox row."""
+        mock_summary = {"tasks_created": 0, "tasks_updated": 0, "dependencies_created": 0}
+        with (
+            patch("trueppm_api.apps.msproject.tasks.base64.b64decode", return_value=b"<xml/>"),
+            patch("trueppm_api.apps.msproject.parser.parse_xml", return_value=MagicMock()),
+            patch(
+                "trueppm_api.apps.msproject.importer.import_project",
+                return_value=mock_summary,
+            ),
+            patch(
+                "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+            ) as mock_delay,
+        ):
+            from trueppm_api.apps.msproject.tasks import import_msproject
+
+            import_msproject(str(project.pk), "PHhtbC8+", "test.xml")
+
+        mock_delay.assert_not_called()
+        assert not ScheduleRequest.objects.filter(project=project).exists()
+
+    def test_import_broker_down_leaves_row_pending(self, project) -> None:
+        """Broker outage at import completion → row stays PENDING for drain."""
+        mock_summary = {"tasks_created": 2, "tasks_updated": 0, "dependencies_created": 0}
+        with (
+            patch("trueppm_api.apps.msproject.tasks.base64.b64decode", return_value=b"<xml/>"),
+            patch("trueppm_api.apps.msproject.parser.parse_xml", return_value=MagicMock()),
+            patch(
+                "trueppm_api.apps.msproject.importer.import_project",
+                return_value=mock_summary,
+            ),
+            patch(
+                "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+                side_effect=ConnectionError("broker down"),
+            ),
+        ):
+            from trueppm_api.apps.msproject.tasks import import_msproject
+
+            import_msproject(str(project.pk), "PHhtbC8+", "test.xml")
+
+        req = ScheduleRequest.objects.get(project=project)
+        assert req.status == ScheduleRequestStatus.PENDING

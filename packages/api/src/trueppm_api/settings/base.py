@@ -155,6 +155,12 @@ CELERY_BEAT_SCHEDULE = {
         # 02:15 UTC — between the two existing purge jobs.
         "schedule": crontab(hour=2, minute=15),
     },
+    # Webhook delivery drain: re-enqueues stranded PENDING deliveries whose
+    # initial .delay() call was lost (e.g. broker down at creation time).
+    "drain-webhook-queue": {
+        "task": "webhooks.drain_webhook_queue",
+        "schedule": 30.0,
+    },
 }
 
 # ---------------------------------------------------------------------------
