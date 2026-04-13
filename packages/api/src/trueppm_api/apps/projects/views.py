@@ -395,7 +395,13 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
 
         live_tasks = list(
             Task.objects.filter(project_id=project_pk, is_deleted=False).values(
-                "id", "name", "early_start", "early_finish", "duration"
+                "id",
+                "name",
+                "early_start",
+                "early_finish",
+                "duration",
+                "actual_start",
+                "actual_finish",
             )
         )
         has_cpm_dates = bool(live_tasks) and all(t["early_start"] is not None for t in live_tasks)
@@ -416,6 +422,8 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
                         start=t["early_start"],
                         finish=t["early_finish"],
                         duration=t["duration"],
+                        actual_start=t["actual_start"],
+                        actual_finish=t["actual_finish"],
                     )
                     for t in live_tasks
                 ]
@@ -867,4 +875,6 @@ def _task_webhook_payload(task: Task) -> dict:  # type: ignore[type-arg]
         "status": task.status,
         "duration": task.duration,
         "assignee": str(task.assignee_id) if task.assignee_id else None,
+        "actual_start": str(task.actual_start) if task.actual_start else None,
+        "actual_finish": str(task.actual_finish) if task.actual_finish else None,
     }

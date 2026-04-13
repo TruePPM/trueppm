@@ -298,6 +298,11 @@ class Task(VersionedModel):
     # The CPM engine operates on duration only and ignores this field.
     is_milestone = models.BooleanField(default=False)
 
+    # Actual execution dates — auto-set on status transition to IN_PROGRESS /
+    # COMPLETE (via TaskSerializer.update), manually overridable by PMs.
+    actual_start = models.DateField(null=True, blank=True, db_index=True)
+    actual_finish = models.DateField(null=True, blank=True, db_index=True)
+
     # Three-point PERT estimates (optional; used by Monte Carlo if present)
     optimistic_duration = models.IntegerField(null=True, blank=True)
     most_likely_duration = models.IntegerField(null=True, blank=True)
@@ -476,6 +481,8 @@ class BaselineTask(models.Model):
     start = models.DateField(null=True, blank=True)
     finish = models.DateField(null=True, blank=True)
     duration = models.IntegerField()
+    actual_start = models.DateField(null=True, blank=True)
+    actual_finish = models.DateField(null=True, blank=True)
 
     class Meta:
         db_table = "projects_baseline_task"

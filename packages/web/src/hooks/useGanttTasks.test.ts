@@ -28,6 +28,9 @@ interface ApiTask {
   is_milestone: boolean;
   is_summary: boolean;
   parent_id: string | null;
+  actual_start: string | null;
+  actual_finish: string | null;
+  schedule_variance_days: number | null;
   baseline_start: string | null;
   baseline_finish: string | null;
 }
@@ -58,6 +61,9 @@ function mapTask(t: ApiTask) {
     isSummary: t.is_summary,
     isMilestone: t.is_milestone,
     status: t.status,
+    actualStart: t.actual_start ?? undefined,
+    actualFinish: t.actual_finish ?? undefined,
+    scheduleVarianceDays: t.schedule_variance_days,
     baselineStart: t.baseline_start ?? undefined,
     baselineFinish: t.baseline_finish ?? undefined,
   };
@@ -78,6 +84,9 @@ describe('useGanttTasks mapper', () => {
     is_milestone: false,
     is_summary: false,
     parent_id: null,
+    actual_start: null,
+    actual_finish: null,
+    schedule_variance_days: null,
     baseline_start: null,
     baseline_finish: null,
   };
@@ -156,5 +165,26 @@ describe('useGanttTasks mapper', () => {
       early_start: '2026-10-05',
     });
     expect(task.start).toBe('2026-10-05');
+  });
+
+  // ---- actual dates ----
+
+  it('maps actual dates when present', () => {
+    const task = mapTask({
+      ...base,
+      actual_start: '2026-10-06',
+      actual_finish: '2026-10-16',
+      schedule_variance_days: 1,
+    });
+    expect(task.actualStart).toBe('2026-10-06');
+    expect(task.actualFinish).toBe('2026-10-16');
+    expect(task.scheduleVarianceDays).toBe(1);
+  });
+
+  it('maps actual dates as undefined when null', () => {
+    const task = mapTask(base);
+    expect(task.actualStart).toBeUndefined();
+    expect(task.actualFinish).toBeUndefined();
+    expect(task.scheduleVarianceDays).toBeNull();
   });
 });

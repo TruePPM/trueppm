@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from django.utils import timezone
 from rest_framework import serializers
 
 from trueppm_api.apps.projects.models import (
@@ -16,6 +17,7 @@ from trueppm_api.apps.projects.models import (
     Project,
     Risk,
     Task,
+    TaskStatus,
 )
 
 
@@ -66,6 +68,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     baseline_start = serializers.DateField(read_only=True, allow_null=True, default=None)
     baseline_finish = serializers.DateField(read_only=True, allow_null=True, default=None)
 
+    # Computed: actual_finish - early_finish in days.  Positive = late, negative = early.
+    schedule_variance_days = serializers.SerializerMethodField()
+
     class Meta:
         model = Task
         fields = [
@@ -81,6 +86,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "percent_complete",
             "notes",
             "planned_start",
+            "actual_start",
+            "actual_finish",
             "early_start",
             "early_finish",
             "late_start",
@@ -94,6 +101,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "pessimistic_duration",
             "baseline_start",
             "baseline_finish",
+            "schedule_variance_days",
         ]
         read_only_fields = [
             "id",
@@ -108,7 +116,46 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_critical",
             "baseline_start",
             "baseline_finish",
+            "schedule_variance_days",
         ]
+
+    def get_schedule_variance_days(self, obj: Task) -> int | None:
+        """Compute schedule variance: actual_finish - early_finish in calendar days."""
+        if obj.actual_finish and obj.early_finish:
+            return (obj.actual_finish - obj.early_finish).days
+        return None
+
+    def update(self, instance: Task, validated_data: dict[str, Any]) -> Task:
+        """Auto-set actual dates on status transitions.
+
+        Rules:
+        - Any → IN_PROGRESS: set actual_start = today if currently null
+        - Any → COMPLETE: set actual_finish = today; also set actual_start if null
+        - COMPLETE → reopened (any non-COMPLETE status): clear actual_finish
+        - Explicit values in the payload always take precedence over auto-set
+        """
+        new_status = validated_data.get("status")
+        old_status = instance.status
+
+        if new_status and new_status != old_status:
+            today = timezone.localdate()
+
+            # Reopening from COMPLETE: clear actual_finish unless explicitly provided.
+            # Checked first so it applies regardless of the target status.
+            if old_status == TaskStatus.COMPLETE and "actual_finish" not in validated_data:
+                validated_data["actual_finish"] = None
+
+            if new_status == TaskStatus.IN_PROGRESS:
+                if "actual_start" not in validated_data and not instance.actual_start:
+                    validated_data["actual_start"] = today
+
+            elif new_status == TaskStatus.COMPLETE:
+                if "actual_finish" not in validated_data:
+                    validated_data["actual_finish"] = today
+                if "actual_start" not in validated_data and not instance.actual_start:
+                    validated_data["actual_start"] = today
+
+        return super().update(instance, validated_data)
 
 
 class TaskReorderSerializer(serializers.Serializer[Any]):
@@ -185,7 +232,15 @@ class BaselineTaskSerializer(serializers.ModelSerializer[BaselineTask]):
 
     class Meta:
         model = BaselineTask
-        fields = ["task_id", "task_name", "start", "finish", "duration"]
+        fields = [
+            "task_id",
+            "task_name",
+            "start",
+            "finish",
+            "duration",
+            "actual_start",
+            "actual_finish",
+        ]
         read_only_fields = fields
 
 
