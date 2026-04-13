@@ -1,8 +1,11 @@
 ---
-id: installation
 title: Installation
-sidebar_position: 1
+description: Set up a local TruePPM instance with Docker Compose.
 ---
+
+:::caution[Pre-Alpha]
+TruePPM is under active development and not yet suitable for production use. These instructions are for evaluation, development, and contribution.
+:::
 
 ## Prerequisites
 
@@ -37,7 +40,7 @@ This starts five services:
 | `celery` | — | CPM auto-scheduling worker |
 | `web` | 5173 | React frontend (nginx, serves the Vite build) |
 
-Wait for all services to be healthy (usually 15–20 seconds), then apply migrations:
+Wait for all services to be healthy (usually 15-20 seconds), then apply migrations:
 
 ```bash
 docker compose exec api python manage.py migrate
@@ -51,9 +54,7 @@ curl http://localhost:8000/api/v1/projects/
 # → {"count":0,"results":[]}
 ```
 
-The web UI is at `http://localhost:5173`. The Gantt view is at `http://localhost:5173/gantt` (fixture data until API wiring is complete).
-
-The OpenAPI schema is at `http://localhost:8000/api/schema/` (YAML) and `http://localhost:8000/api/schema/swagger-ui/` (interactive).
+The web UI is at `http://localhost:5173`. The OpenAPI schema is at `http://localhost:8000/api/schema/` (YAML) and `http://localhost:8000/api/schema/swagger-ui/` (interactive).
 
 ## Scheduler package only
 
@@ -78,7 +79,7 @@ print(result.tasks["t-2"].early_finish)  # 2026-01-20
 
 ## Environment variables
 
-For local development, `docker-compose.yml` sets sensible defaults. For production, set at minimum:
+For local development, `docker-compose.yml` sets sensible defaults. For production configuration, see the [Administration guide](/administration/configuration/).
 
 | Variable | Description |
 |----------|-------------|

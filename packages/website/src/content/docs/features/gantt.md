@@ -1,15 +1,14 @@
 ---
-id: gantt
-title: Gantt View
-sidebar_position: 5
+title: "Gantt View"
+description: "Split-pane Gantt with 6 bar types, 4 dependency types, zoom levels, and scroll sync."
 ---
 
 The Gantt view is the primary scheduling interface in TruePPM. It is a split-pane layout: a task list on the left and a timeline on the right, synchronized by scroll.
 
 Navigate to `http://localhost:5173/gantt` to open it.
 
-:::note Early stage
-The Gantt view currently renders fixture data. Live API wiring (real projects, tasks, and dependencies) is planned for a subsequent milestone.
+:::caution Pre-Alpha
+The Gantt view currently renders fixture data. Live API wiring — fetching real projects, tasks, and dependencies from the REST API — is in progress. The visualization layer (bar types, dependency arrows, zoom, scroll sync) is functional and tested.
 :::
 
 ## Layout

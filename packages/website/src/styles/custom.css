@@ -1,0 +1,28 @@
+/* TruePPM brand colors for Starlight */
+:root {
+  --sl-color-accent-low: #1e2f6b;
+  --sl-color-accent: #3b5bdb;
+  --sl-color-accent-high: #c5d0f6;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #eef0f6;
+  --sl-color-gray-2: #c2c6d3;
+  --sl-color-gray-3: #8b90a0;
+  --sl-color-gray-4: #545867;
+  --sl-color-gray-5: #353847;
+  --sl-color-gray-6: #24262f;
+  --sl-color-black: #17181c;
+}
+
+:root[data-theme="dark"] {
+  --sl-color-accent-low: #1a2a5e;
+  --sl-color-accent: #7b9ff9;
+  --sl-color-accent-high: #d5e2fd;
+  --sl-color-white: #17181c;
+  --sl-color-gray-1: #24262f;
+  --sl-color-gray-2: #353847;
+  --sl-color-gray-3: #545867;
+  --sl-color-gray-4: #8b90a0;
+  --sl-color-gray-5: #c2c6d3;
+  --sl-color-gray-6: #eef0f6;
+  --sl-color-black: #ffffff;
+}

@@ -1,7 +1,6 @@
 ---
-id: real-time
-title: Real-Time Collaboration
-sidebar_position: 3
+title: "Real-Time Collaboration"
+description: "WebSocket broadcasts for all project mutations via Django Channels."
 ---
 
 TruePPM uses Django Channels 4 to push project changes to connected clients over WebSocket.

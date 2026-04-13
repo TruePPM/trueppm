@@ -1,7 +1,6 @@
 ---
-id: scheduler
-title: CPM Scheduler
-sidebar_position: 1
+title: "CPM Scheduler"
+description: "Forward/backward pass, calendar-aware lag, Monte Carlo simulation, and auto-scheduling."
 ---
 
 The scheduling engine lives in `packages/scheduler` and ships independently as `trueppm-scheduler` on PyPI. It has no Django dependency.

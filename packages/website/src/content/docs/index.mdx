@@ -1,0 +1,77 @@
+---
+title: TruePPM
+description: Open-source project scheduling that actually computes the math.
+template: splash
+hero:
+  tagline: Open-source project scheduling that actually computes the math. CPM, Monte Carlo, real-time collaboration — not just task lists.
+  actions:
+    - text: Get Started
+      link: /getting-started/installation/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitLab
+      link: https://gitlab.com/trueppm/trueppm
+      icon: external
+---
+
+import { Card, CardGrid, Badge } from "@astrojs/starlight/components";
+
+:::caution[Pre-Alpha]
+TruePPM is under active development. The scheduling engine, REST API, and real-time backend are functional and tested. The web UI is in early development. Not yet suitable for production use.
+:::
+
+## Why TruePPM?
+
+<CardGrid stagger>
+  <Card title="Real scheduling, not task lists" icon="rocket">
+    CPM forward/backward pass on every change. You always know which tasks drive your deadline and where you have float. All 4 dependency types with calendar-aware lag.
+  </Card>
+  <Card title="Monte Carlo risk analysis" icon="random">
+    Add three-point estimates and get P50/P80/P95 completion dates. Commit to P80 — there's only a 50% chance you'll hit the CPM date.
+  </Card>
+  <Card title="Self-hosted, Apache 2.0" icon="open-book">
+    Your data stays yours. Run it on your infrastructure. The scheduling engine ships standalone on PyPI — use it without the API if you just need the math.
+  </Card>
+  <Card title="Built for collaboration" icon="laptop">
+    Real-time WebSocket push, 5-role RBAC, offline-first sync for mobile. Every mutation broadcast to connected clients.
+  </Card>
+</CardGrid>
+
+## Who is it for?
+
+| Role | TruePPM helps you... | Status |
+|------|---------------------|--------|
+| **Project Managers** | Build and maintain CPM schedules, run Monte Carlo simulations, track critical path and float | Available now |
+| **Team Members** | See assignments, log progress, get real-time updates when the plan changes | Available now |
+| **Resource Managers** | Assign people to tasks, track allocations across projects | Basic now, full in enterprise |
+| **PMO Directors** | Evaluate schedule confidence with probabilistic forecasting, enforce governance | Enterprise roadmap |
+| **Executives** | Get portfolio visibility, RAG status, board-ready reporting | Enterprise roadmap |
+
+## What's built today
+
+| Component | Status | Description |
+|-----------|--------|-------------|
+| Scheduling engine | **Stable** | CPM + Monte Carlo. Ships as `trueppm-scheduler` on PyPI. |
+| REST API | **Stable** | Full CRUD for projects, tasks, dependencies, resources, calendars, members. |
+| RBAC | **Stable** | 5-role per-project permissions on every endpoint. |
+| Real-time | **Stable** | WebSocket broadcasts for all mutations. |
+| Offline sync | **Stable** | Delta protocol with version tracking and soft-delete tombstones. |
+| Web UI | **Early** | Gantt view with fixture data. API wiring in progress. |
+| Helm chart | **Draft** | Kubernetes deployment with PostgreSQL and Redis sub-charts. |
+
+## Next steps
+
+<CardGrid>
+  <Card title="Install" icon="setting">
+    [Set up a local instance](/getting-started/installation/) with Docker Compose in under 5 minutes.
+  </Card>
+  <Card title="Try the API" icon="document">
+    [Create a project and schedule](/getting-started/quickstart/) — tasks, dependencies, and CPM results via curl.
+  </Card>
+  <Card title="Find your guide" icon="star">
+    Read the guide for [project managers](/guides/project-managers/), [team members](/guides/team-members/), [resource managers](/guides/resource-managers/), or [executives](/guides/executives/).
+  </Card>
+  <Card title="Evaluate" icon="magnifier">
+    [Architecture overview](/architecture/overview/) and [API reference](/api/reference/) for technical evaluation.
+  </Card>
+</CardGrid>

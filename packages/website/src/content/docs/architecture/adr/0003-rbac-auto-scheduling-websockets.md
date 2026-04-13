@@ -1,7 +1,5 @@
 ---
-id: 0003-rbac-auto-scheduling-websockets
 title: "ADR-0003: RBAC, Auto-Scheduling, WebSockets"
-sidebar_position: 1
 ---
 
 # ADR-0003: 5-Role RBAC, Incremental CPM Auto-Scheduling, and WebSocket Real-Time Collaboration

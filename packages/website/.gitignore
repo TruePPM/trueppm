@@ -1,4 +1,4 @@
-# Docusaurus build output
-.docusaurus/
-build/
+# Astro build output
+dist/
+.astro/
 node_modules/
