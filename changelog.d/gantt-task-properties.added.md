@@ -10,3 +10,6 @@
   added via a task picker and removed with the delete button. The CPM engine
   recalculates and moves dependent tasks automatically after any dependency
   change.
+- **Gantt task start date**: the task bar now uses the later of `planned_start`
+  (user constraint) and `early_start` (CPM result), so dependency-driven delays
+  are reflected immediately even before the next CPM run completes.
