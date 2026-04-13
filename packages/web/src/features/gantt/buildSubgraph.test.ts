@@ -22,7 +22,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
 }
 
 function link(id: string, sourceId: string, targetId: string, type: TaskLink['type'] = 'FS'): TaskLink {
-  return { id, sourceId, targetId, type, isCritical: false };
+  return { id, sourceId, targetId, type, lag: 0, isCritical: false };
 }
 
 describe('buildSubgraph', () => {

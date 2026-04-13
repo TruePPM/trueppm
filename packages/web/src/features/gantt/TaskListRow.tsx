@@ -69,7 +69,7 @@ export function TaskListRow({ task, level, widths }: Props) {
       tabIndex={isEditing ? -1 : 0}
       style={{ height: ROW_HEIGHT, paddingLeft: (level - 1) * WBS_INDENT + 8 }}
       className={[
-        'flex items-center pr-2 text-xs border-b border-neutral-border/20',
+        'group flex items-center pr-1 text-xs border-b border-neutral-border/20',
         isEditing ? 'cursor-text' : 'cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white',
         isSelected && !isEditing ? 'bg-white/10 border-l-2 border-brand-primary' : 'hover:bg-white/5',
@@ -139,6 +139,34 @@ export function TaskListRow({ task, level, widths }: Props) {
           >
             {!task.isMilestone && `${task.progress}%`}
           </span>
+
+          {/* Properties button — visible on row hover/focus or when selected.
+              Opens the task detail drawer (predecessor/successor management). */}
+          <button
+            type="button"
+            aria-label={`Open properties for ${task.name}`}
+            title="Task properties"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedTaskId(task.id);
+            }}
+            className={[
+              'shrink-0 w-5 h-5 flex items-center justify-center rounded ml-1',
+              'text-gantt-text-secondary hover:text-gantt-text-primary',
+              'transition-opacity duration-100',
+              isSelected
+                ? 'opacity-100'
+                : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white',
+            ].join(' ')}
+          >
+            {/* Horizontal ellipsis */}
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+              <circle cx="2" cy="6" r="1.2" />
+              <circle cx="6" cy="6" r="1.2" />
+              <circle cx="10" cy="6" r="1.2" />
+            </svg>
+          </button>
         </>
       )}
     </div>

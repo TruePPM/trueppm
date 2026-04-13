@@ -50,9 +50,9 @@ export const FIXTURE_TASKS: Task[] = [
 ];
 
 export const FIXTURE_LINKS: TaskLink[] = [
-  { id: 'l1', sourceId: 't2', targetId: 't3', type: 'FS', isCritical: true },
-  { id: 'l2', sourceId: 't3', targetId: 't4', type: 'SS', isCritical: false },
-  { id: 'l3', sourceId: 't4', targetId: 't5', type: 'FF', isCritical: false },
-  { id: 'l4', sourceId: 't5', targetId: 't6', type: 'FS', isCritical: true },
-  { id: 'l5', sourceId: 't2', targetId: 't7', type: 'SF', isCritical: false },
+  { id: 'l1', sourceId: 't2', targetId: 't3', type: 'FS', lag: 0, isCritical: true },
+  { id: 'l2', sourceId: 't3', targetId: 't4', type: 'SS', lag: 0, isCritical: false },
+  { id: 'l3', sourceId: 't4', targetId: 't5', type: 'FF', lag: 0, isCritical: false },
+  { id: 'l4', sourceId: 't5', targetId: 't6', type: 'FS', lag: 0, isCritical: true },
+  { id: 'l5', sourceId: 't2', targetId: 't7', type: 'SF', lag: 0, isCritical: false },
 ];

@@ -480,7 +480,18 @@ export function drawMilestone(
 }
 
 /**
- * Draw all FS dependency arrows for the visible task set.
+ * Draw dependency arrows for all four link types (FS, SS, FF, SF).
+ *
+ * Anchor points and Bézier control-point offsets per type (rule 75 — 40px):
+ *   FS  Finish → Start  : exits right from src finish, enters left  at tgt start
+ *   SS  Start  → Start  : exits left  from src start,  enters left  at tgt start
+ *   FF  Finish → Finish : exits right from src finish, enters right at tgt finish
+ *   SF  Start  → Finish : exits left  from src start,  enters right at tgt finish
+ *
+ * Control points share the y-coordinate of their anchor so the curve exits and
+ * enters horizontally (tangent is purely horizontal at both endpoints). This
+ * means the arrowhead angle is always 0 (→) for FS/SS and π (←) for FF/SF.
+ *
  * Critical-path arrows (both tasks isCritical) use arrowCritical stroke.
  */
 export function drawDependencyArrows(
@@ -509,24 +520,43 @@ export function drawDependencyArrows(
   const cpHeight = ctx.canvas.height / (window.devicePixelRatio || 1);
 
   for (const link of links) {
-    // Only FS links in phase 1
-    if (link.type !== 'FS') continue;
-
     const src = taskMap.get(link.sourceId);
     const tgt = taskMap.get(link.targetId);
     if (!src || !tgt) continue;
 
-    const x1 = src.barRight;
-    const y1 = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
-    const x2 = tgt.barLeft;
-    const y2 = tgt.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+    const srcY = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+    const tgtY = tgt.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+
+    // Compute anchor x-coords and Bézier control x-coords per dependency type.
+    let x1: number, x2: number, cx1: number, cx2: number;
+    switch (link.type) {
+      case 'SS':
+        // Start → Start: both anchors on left bar edge, loop out to the left
+        x1 = src.barLeft;  x2 = tgt.barLeft;
+        cx1 = x1 - 40;    cx2 = x2 - 40;
+        break;
+      case 'FF':
+        // Finish → Finish: both anchors on right bar edge, loop out to the right
+        x1 = src.barRight; x2 = tgt.barRight;
+        cx1 = x1 + 40;    cx2 = x2 + 40;
+        break;
+      case 'SF':
+        // Start → Finish: source exits left, target enters right
+        x1 = src.barLeft;  x2 = tgt.barRight;
+        cx1 = x1 - 40;    cx2 = x2 + 40;
+        break;
+      default: // 'FS'
+        // Finish → Start: source exits right, target enters left (most common)
+        x1 = src.barRight; x2 = tgt.barLeft;
+        cx1 = x1 + 40;    cx2 = x2 - 40;
+    }
 
     // Skip if entirely off-screen
     if (
       (x1 < -10 && x2 < -10) ||
       (x1 > cpWidth + 10 && x2 > cpWidth + 10) ||
-      (y1 < -10 && y2 < -10) ||
-      (y1 > cpHeight + 10 && y2 > cpHeight + 10)
+      (srcY < -10 && tgtY < -10) ||
+      (srcY > cpHeight + 10 && tgtY > cpHeight + 10)
     ) {
       continue;
     }
@@ -539,21 +569,21 @@ export function drawDependencyArrows(
     ctx.lineWidth = 1.5;
     ctx.beginPath();
 
-    // Cubic Bézier: 40px horizontal control point offset (rule 75)
-    const cx1 = x1 + 40;
-    const cx2 = x2 - 40;
-    ctx.moveTo(x1, y1);
-    ctx.bezierCurveTo(cx1, y1, cx2, y2, x2, y2);
+    // Cubic Bézier: control y-coords match anchor y-coords → horizontal entry/exit tangent (rule 75)
+    ctx.moveTo(x1, srcY);
+    ctx.bezierCurveTo(cx1, srcY, cx2, tgtY, x2, tgtY);
     ctx.stroke();
 
-    // Arrowhead at target (x2, y2) pointing left
+    // Arrowhead: tangent at t=1 is horizontal, so angle is atan2(0, x2 - cx2).
+    // FS/SS: cx2 < x2  → angle = 0  → arrowhead points right (entering left edge)
+    // FF/SF: cx2 > x2  → angle = π  → arrowhead points left  (entering right edge)
     const arrowSize = 6;
-    const angle = Math.atan2(y2 - y1, x2 - x1);
+    const angle = Math.atan2(0, x2 - cx2);
     ctx.fillStyle = stroke;
     ctx.beginPath();
-    ctx.moveTo(x2, y2);
-    ctx.lineTo(x2 - arrowSize * Math.cos(angle - 0.4), y2 - arrowSize * Math.sin(angle - 0.4));
-    ctx.lineTo(x2 - arrowSize * Math.cos(angle + 0.4), y2 - arrowSize * Math.sin(angle + 0.4));
+    ctx.moveTo(x2, tgtY);
+    ctx.lineTo(x2 - arrowSize * Math.cos(angle - 0.4), tgtY - arrowSize * Math.sin(angle - 0.4));
+    ctx.lineTo(x2 - arrowSize * Math.cos(angle + 0.4), tgtY - arrowSize * Math.sin(angle + 0.4));
     ctx.closePath();
     ctx.fill();
 
