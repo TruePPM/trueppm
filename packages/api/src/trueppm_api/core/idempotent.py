@@ -194,7 +194,7 @@ def idempotent_task(
 
         task = shared_task(**task_kwargs)(wrapper)
         # Expose config for introspection in tests and monitoring.
-        task._idempotent_config = {  # type: ignore[attr-defined]
+        task._idempotent_config = {
             "lock_key_template": lock_key_template,
             "lock_ttl": lock_ttl,
             "on_contention": on_contention,
