@@ -54,6 +54,9 @@ export interface UpdateTaskPayload {
   duration?: number;
   percent_complete?: number;
   planned_start?: string | null;
+  status?: string;
+  actual_start?: string | null;
+  actual_finish?: string | null;
 }
 
 export function useUpdateTask() {

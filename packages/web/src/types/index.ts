@@ -25,6 +25,12 @@ export interface Task {
   isSummary: boolean;
   isMilestone: boolean;
   status: TaskStatus;
+  /** ISO date string — when work actually started */
+  actualStart?: string;
+  /** ISO date string — when work actually finished */
+  actualFinish?: string;
+  /** actual_finish - early_finish in calendar days; positive = late */
+  scheduleVarianceDays?: number | null;
   baselineStart?: string;
   baselineFinish?: string;
 }

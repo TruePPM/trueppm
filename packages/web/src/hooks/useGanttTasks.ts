@@ -25,6 +25,9 @@ interface ApiTask {
   is_milestone: boolean;
   is_summary: boolean;
   parent_id: string | null;
+  actual_start: string | null;
+  actual_finish: string | null;
+  schedule_variance_days: number | null;
   baseline_start: string | null;
   baseline_finish: string | null;
 }
@@ -73,6 +76,9 @@ function mapTask(t: ApiTask): Task {
     isSummary: t.is_summary,
     isMilestone: t.is_milestone,
     status: t.status,
+    actualStart: t.actual_start ?? undefined,
+    actualFinish: t.actual_finish ?? undefined,
+    scheduleVarianceDays: t.schedule_variance_days,
     baselineStart: t.baseline_start ?? undefined,
     baselineFinish: t.baseline_finish ?? undefined,
   };
