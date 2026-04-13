@@ -124,6 +124,51 @@ export function useRescheduleTask() {
 }
 
 // ---------------------------------------------------------------------------
+// useIndentTask — POST /api/v1/projects/{pk}/tasks/{id}/indent/
+// ---------------------------------------------------------------------------
+
+export interface IndentOutdentResponse {
+  updated: Array<{ id: string; wbs_path: string }>;
+  warning: 'has_assignments' | null;
+}
+
+export function useIndentTask(projectId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (taskId: string) => {
+      const res = await apiClient.post<IndentOutdentResponse>(
+        `/projects/${projectId}/tasks/${taskId}/indent/`,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// useOutdentTask — POST /api/v1/projects/{pk}/tasks/{id}/outdent/
+// ---------------------------------------------------------------------------
+
+export function useOutdentTask(projectId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (taskId: string) => {
+      const res = await apiClient.post<IndentOutdentResponse>(
+        `/projects/${projectId}/tasks/${taskId}/outdent/`,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // useDeleteTask — DELETE /api/v1/tasks/{id}/
 // ---------------------------------------------------------------------------
 

@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import {
   DndContext,
@@ -15,7 +15,7 @@ import {
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
-import { useCreateTask, useUpdateTask, useReorderTasks } from '@/hooks/useTaskMutations';
+import { useCreateTask, useUpdateTask, useReorderTasks, useIndentTask, useOutdentTask } from '@/hooks/useTaskMutations';
 import { useWbsStore } from '@/stores/wbsStore';
 import { buildWbsTree, flattenVisible, collectAllIds } from './buildWbsTree';
 import { WbsRow } from './WbsRow';
@@ -62,13 +62,15 @@ export function WbsView() {
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project');
   const { tasks, isLoading, error } = useGanttTasks();
-  const { expandedIds, toggle, expandAll, collapseAll } = useWbsStore();
+  const { expandedIds, toggle, expandAll, collapseAll, selectedTaskId, setSelectedTaskId } = useWbsStore();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [liveAnnouncement, setLiveAnnouncement] = useState('');
   const createTask = useCreateTask(projectId);
   const updateTask = useUpdateTask();
   const reorderTasks = useReorderTasks(projectId);
+  const indentTask = useIndentTask(projectId);
+  const outdentTask = useOutdentTask(projectId);
 
   // Expand all root-level summary nodes on first load
   useEffect(() => {
@@ -145,6 +147,102 @@ export function WbsView() {
       }
     },
     [projectId, updateTask],
+  );
+
+  // Keyboard shortcuts: Tab=indent, Shift+Tab=outdent, Alt+Up/Down=reorder, Up/Down=navigate
+  const handleTreeKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (!tasks || renamingId) return;
+
+      const tree = buildWbsTree(tasks);
+      const visible = flattenVisible(tree, expandedIds);
+      const currentIdx = visible.findIndex((n) => n.task.id === selectedTaskId);
+
+      // Tab = indent, Shift+Tab = outdent
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        if (!selectedTaskId) return;
+        if (e.shiftKey) {
+          // Outdent
+          outdentTask.mutate(selectedTaskId, {
+            onSuccess: (data) => {
+              const warning = data.warning === 'has_assignments'
+                ? ' — warning: task had resource assignments'
+                : '';
+              setLiveAnnouncement(`Task outdented${warning}`);
+            },
+            onError: () => setLiveAnnouncement('Cannot outdent: task is already at root level'),
+          });
+        } else {
+          // Indent
+          indentTask.mutate(selectedTaskId, {
+            onSuccess: (data) => {
+              const warning = data.warning === 'has_assignments'
+                ? ' — warning: parent task had resource assignments'
+                : '';
+              setLiveAnnouncement(`Task indented${warning}`);
+            },
+            onError: () => setLiveAnnouncement('Cannot indent: no previous sibling to become parent'),
+          });
+        }
+        return;
+      }
+
+      // Alt+Up/Down = reorder within siblings
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.altKey) {
+        e.preventDefault();
+        if (!selectedTaskId || currentIdx === -1) return;
+        const currentTask = visible[currentIdx].task;
+        const siblings = tasks
+          .filter((t) => t.parentId === currentTask.parentId)
+          .sort((a, b) => {
+            const aParts = (a.wbs || '0').split('.').map(Number);
+            const bParts = (b.wbs || '0').split('.').map(Number);
+            for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+              const diff = (aParts[i] ?? 0) - (bParts[i] ?? 0);
+              if (diff !== 0) return diff;
+            }
+            return 0;
+          });
+        const sibIdx = siblings.findIndex((t) => t.id === selectedTaskId);
+        const newIdx = e.key === 'ArrowUp' ? sibIdx - 1 : sibIdx + 1;
+        if (newIdx < 0 || newIdx >= siblings.length) return;
+
+        const reordered = [...siblings];
+        reordered.splice(sibIdx, 1);
+        reordered.splice(newIdx, 0, currentTask);
+
+        const parentTask = currentTask.parentId
+          ? tasks.find((t) => t.id === currentTask.parentId)
+          : null;
+        const parent_path = parentTask?.wbs ?? '';
+
+        if (projectId) {
+          reorderTasks.mutate(
+            { parent_path, ordered_ids: reordered.map((t) => t.id) },
+            { onSuccess: () => setLiveAnnouncement(`${currentTask.name} moved ${e.key === 'ArrowUp' ? 'up' : 'down'}`) },
+          );
+        }
+        return;
+      }
+
+      // Up/Down = navigate rows
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const newIdx = e.key === 'ArrowUp'
+          ? Math.max(0, currentIdx - 1)
+          : Math.min(visible.length - 1, currentIdx + 1);
+        const newTask = visible[newIdx];
+        if (newTask) {
+          setSelectedTaskId(newTask.task.id);
+          const row = document.querySelector<HTMLElement>(`[data-task-id="${newTask.task.id}"]`);
+          row?.focus();
+        }
+        return;
+      }
+    },
+    [tasks, renamingId, expandedIds, selectedTaskId, setSelectedTaskId, projectId,
+      indentTask, outdentTask, reorderTasks, setLiveAnnouncement],
   );
 
   const handleExpandAll = useCallback(() => {
@@ -252,10 +350,12 @@ export function WbsView() {
       </div>
 
       {/* Tree */}
+      {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus -- roving tabindex on rows */}
       <div
         role="treegrid"
         aria-label="WBS task tree"
         className="flex-1 overflow-y-auto"
+        onKeyDown={handleTreeKeyDown}
       >
         <DndContext
           sensors={sensors}
@@ -269,7 +369,9 @@ export function WbsView() {
                 node={node}
                 isExpanded={expandedIds.has(node.task.id)}
                 isRenaming={renamingId === node.task.id}
+                isSelected={selectedTaskId === node.task.id}
                 onToggle={() => toggle(node.task.id)}
+                onSelect={() => setSelectedTaskId(node.task.id)}
                 onStartRename={() => setRenamingId(node.task.id)}
                 onRename={(name) => handleRename(node.task, name)}
                 onCancelRename={() => setRenamingId(null)}

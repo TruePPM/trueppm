@@ -68,9 +68,15 @@ interface Props {
   widths: ColumnWidths['widths'];
   setWidth: ColumnWidths['setWidth'];
   totalWidth: number;
+  /** Set of task IDs that have children (are summary tasks). */
+  summaryIds: Set<string>;
+  /** Set of expanded task IDs for collapse/expand. */
+  expandedIds: Set<string>;
+  /** Toggle expand/collapse for a task. */
+  onToggle: (id: string) => void;
 }
 
-export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, setWidth, totalWidth }: Props) {
+export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, setWidth, totalWidth, summaryIds, expandedIds, onToggle }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useGanttStore((s) => s.scrollToTaskId);
   const scrollToTask = useGanttStore((s) => s.scrollToTask);
@@ -125,7 +131,14 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, setWid
                   height: ROW_HEIGHT,
                 }}
               >
-                <TaskListRow task={task} level={wbsLevel(task.wbs)} widths={widths} />
+                <TaskListRow
+                  task={task}
+                  level={wbsLevel(task.wbs)}
+                  widths={widths}
+                  hasChildren={summaryIds.has(task.id)}
+                  isExpanded={expandedIds.has(task.id)}
+                  onToggle={() => onToggle(task.id)}
+                />
               </div>
             );
           })}

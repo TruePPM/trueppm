@@ -2,13 +2,16 @@ import { create } from 'zustand';
 
 interface WbsStoreState {
   expandedIds: Set<string>;
+  selectedTaskId: string | null;
   toggle: (id: string) => void;
   expandAll: (ids: string[]) => void;
   collapseAll: () => void;
+  setSelectedTaskId: (id: string | null) => void;
 }
 
 export const useWbsStore = create<WbsStoreState>((set) => ({
   expandedIds: new Set<string>(),
+  selectedTaskId: null,
 
   toggle: (id) =>
     set((s) => {
@@ -24,4 +27,6 @@ export const useWbsStore = create<WbsStoreState>((set) => ({
   expandAll: (ids) => set({ expandedIds: new Set(ids) }),
 
   collapseAll: () => set({ expandedIds: new Set<string>() }),
+
+  setSelectedTaskId: (id) => set({ selectedTaskId: id }),
 }));

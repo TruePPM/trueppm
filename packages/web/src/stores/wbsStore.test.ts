@@ -5,6 +5,7 @@ describe('wbsStore', () => {
   beforeEach(() => {
     useWbsStore.setState({
       expandedIds: new Set(),
+      selectedTaskId: null,
     });
   });
 
@@ -27,4 +28,11 @@ describe('wbsStore', () => {
     expect(useWbsStore.getState().expandedIds.size).toBe(0);
   });
 
+  it('setSelectedTaskId sets and clears selection', () => {
+    useWbsStore.getState().setSelectedTaskId('t1');
+    expect(useWbsStore.getState().selectedTaskId).toBe('t1');
+
+    useWbsStore.getState().setSelectedTaskId(null);
+    expect(useWbsStore.getState().selectedTaskId).toBeNull();
+  });
 });

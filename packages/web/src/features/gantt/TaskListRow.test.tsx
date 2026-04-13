@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { useGanttStore } from '@/stores/ganttStore';
 import { TaskListRow } from './TaskListRow';
@@ -19,18 +19,24 @@ const base: Task = {
   assignees: [],
 };
 
+const defaultTreeProps = {
+  hasChildren: false,
+  isExpanded: false,
+  onToggle: vi.fn(),
+};
+
 describe('TaskListRow', () => {
   beforeEach(() => {
     useGanttStore.setState({ selectedTaskId: null });
   });
 
   it('renders task name', () => {
-    renderWithRouter(<TaskListRow task={base} level={2} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={base} level={2} widths={defaultWidths} {...defaultTreeProps} />);
     expect(screen.getByText('Design Phase')).toBeInTheDocument();
   });
 
   it('renders duration and progress', () => {
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} {...defaultTreeProps} />);
     expect(screen.getByLabelText(/10 days/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/50% complete/i)).toBeInTheDocument();
   });
@@ -43,7 +49,7 @@ describe('TaskListRow', () => {
   });
 
   it('critical task has aria-label mentioning critical path', () => {
-    renderWithRouter(<TaskListRow task={{ ...base, isCritical: true }} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={{ ...base, isCritical: true }} level={1} widths={defaultWidths} {...defaultTreeProps} />);
     expect(screen.getByLabelText(/critical path/i)).toBeInTheDocument();
   });
 
@@ -54,20 +60,20 @@ describe('TaskListRow', () => {
   });
 
   it('milestone shows diamond and hides duration/progress', () => {
-    renderWithRouter(<TaskListRow task={{ ...base, isMilestone: true, duration: 0, progress: 0 }} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={{ ...base, isMilestone: true, duration: 0, progress: 0 }} level={1} widths={defaultWidths} {...defaultTreeProps} />);
     expect(screen.getByText('◆')).toBeInTheDocument();
     expect(screen.getByLabelText('milestone')).toBeInTheDocument();
   });
 
   it('clicking row selects it in the store', async () => {
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} {...defaultTreeProps} />);
     await userEvent.click(screen.getByRole('row'));
     expect(useGanttStore.getState().selectedTaskId).toBe('t1');
   });
 
   it('clicking selected row deselects it', async () => {
     useGanttStore.setState({ selectedTaskId: 't1' });
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} {...defaultTreeProps} />);
     await userEvent.click(screen.getByRole('row'));
     expect(useGanttStore.getState().selectedTaskId).toBeNull();
   });
@@ -183,5 +189,60 @@ describe('TaskListRow', () => {
     // Enter in input commits, Space types a space
     await userEvent.type(input, ' extra');
     expect(input).toHaveValue('Design Phase extra');
+  });
+
+  it('renders expand chevron for summary tasks with children', () => {
+    const toggleFn = vi.fn();
+    renderWithRouter(
+      <TaskListRow
+        task={{ ...base, isSummary: true }}
+        level={1}
+        widths={defaultWidths}
+        hasChildren={true}
+        isExpanded={false}
+        onToggle={toggleFn}
+      />,
+    );
+    expect(screen.getByLabelText(/Expand Design Phase/i)).toBeInTheDocument();
+  });
+
+  it('chevron rotates when expanded', () => {
+    renderWithRouter(
+      <TaskListRow
+        task={{ ...base, isSummary: true }}
+        level={1}
+        widths={defaultWidths}
+        hasChildren={true}
+        isExpanded={true}
+        onToggle={vi.fn()}
+      />,
+    );
+    expect(screen.getByLabelText(/Collapse Design Phase/i)).toBeInTheDocument();
+    const svg = screen.getByLabelText(/Collapse Design Phase/i).querySelector('svg');
+    expect(svg?.getAttribute('class')).toContain('rotate-90');
+  });
+
+  it('clicking chevron calls onToggle without toggling selection', async () => {
+    const toggleFn = vi.fn();
+    renderWithRouter(
+      <TaskListRow
+        task={{ ...base, isSummary: true }}
+        level={1}
+        widths={defaultWidths}
+        hasChildren={true}
+        isExpanded={false}
+        onToggle={toggleFn}
+      />,
+    );
+    await userEvent.click(screen.getByLabelText(/Expand Design Phase/i));
+    expect(toggleFn).toHaveBeenCalledTimes(1);
+    // Should not toggle selection (stopPropagation)
+    expect(useGanttStore.getState().selectedTaskId).toBeNull();
+  });
+
+  it('leaf tasks show spacer instead of chevron', () => {
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} {...defaultTreeProps} />);
+    expect(screen.queryByLabelText(/Expand/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Collapse/i)).not.toBeInTheDocument();
   });
 });

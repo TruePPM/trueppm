@@ -11,6 +11,9 @@ interface Props {
   task: Task;
   level: number;
   widths: ColumnWidths['widths'];
+  hasChildren: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
 }
 
 function formatDate(iso: string): string {
@@ -20,7 +23,7 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export function TaskListRow({ task, level, widths }: Props) {
+export function TaskListRow({ task, level, widths, hasChildren, isExpanded, onToggle }: Props) {
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project') ?? '';
   const selectedTaskId = useGanttStore((s) => s.selectedTaskId);
@@ -89,6 +92,28 @@ export function TaskListRow({ task, level, widths }: Props) {
         }
       }}
     >
+      {/* Collapse/expand chevron for summary tasks */}
+      {hasChildren ? (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          aria-expanded={isExpanded}
+          aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
+          className="shrink-0 w-4 h-4 flex items-center justify-center mr-0.5
+            text-gantt-text-secondary hover:text-gantt-text-primary
+            focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white rounded"
+        >
+          <svg
+            width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true"
+            className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+          >
+            <path d="M2 1l4 3-4 3z" />
+          </svg>
+        </button>
+      ) : (
+        <span className="shrink-0 w-4 mr-0.5" aria-hidden="true" />
+      )}
+
       {/* Milestone diamond indicator */}
       {task.isMilestone && (
         <span className="mr-1 text-brand-accent" aria-hidden="true">◆</span>
