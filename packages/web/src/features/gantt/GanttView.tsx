@@ -1,10 +1,10 @@
 import { useRef, useCallback, useState, useEffect, type PointerEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import type { GanttEngine } from './engine';
-import { dateToLeft } from './engine';
+import { dateToLeft, leftToDate } from './engine';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './ganttConstants';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
-import { useCreateTask } from '@/hooks/useTaskMutations';
+import { useCreateTask, useUpdateTask } from '@/hooks/useTaskMutations';
 import { useGanttStore } from '@/stores/ganttStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
 import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
@@ -248,6 +248,24 @@ export function GanttView() {
     keyboardModeRef,
     onOpenDatePopover: handleOpenDatePopover,
   });
+
+  // Bar resize — convert canvas-origin right-x to duration and PATCH
+  const updateTask = useUpdateTask();
+  useEffect(() => {
+    if (!engine || !projectId) return;
+    return engine.on('resize-task-end', ({ id, right, cancelled }) => {
+      if (cancelled) return;
+      const scales = engine.scales;
+      if (!scales) return;
+      const task = tasks?.find((t) => t.id === id);
+      if (!task?.start) return;
+      const newFinish = leftToDate(right, scales);
+      const startMs = new Date(task.start + 'T00:00:00Z').getTime();
+      const newDuration = Math.max(1, Math.round((newFinish.getTime() - startMs) / 86_400_000));
+      if (newDuration === task.duration) return;
+      updateTask.mutate({ id, projectId, duration: newDuration });
+    });
+  }, [engine, projectId, tasks, updateTask]);
 
   const dragPhase = useDragStore((s) => s.phase);
 
