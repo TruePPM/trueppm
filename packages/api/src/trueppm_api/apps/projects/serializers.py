@@ -140,6 +140,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         if new_status and new_status != old_status:
             today = timezone.localdate()
 
+            # Reopening from COMPLETE: clear actual_finish unless explicitly provided.
+            # Checked first so it applies regardless of the target status.
+            if old_status == TaskStatus.COMPLETE and "actual_finish" not in validated_data:
+                validated_data["actual_finish"] = None
+
             if new_status == TaskStatus.IN_PROGRESS:
                 if "actual_start" not in validated_data and not instance.actual_start:
                     validated_data["actual_start"] = today
@@ -149,10 +154,6 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     validated_data["actual_finish"] = today
                 if "actual_start" not in validated_data and not instance.actual_start:
                     validated_data["actual_start"] = today
-
-            elif old_status == TaskStatus.COMPLETE and "actual_finish" not in validated_data:
-                # Reopening: clear actual_finish unless explicitly provided
-                validated_data["actual_finish"] = None
 
         return super().update(instance, validated_data)
 

@@ -30,4 +30,14 @@ class Migration(migrations.Migration):
             name="actual_finish",
             field=models.DateField(blank=True, null=True),
         ),
+        migrations.AddField(
+            model_name="historicaltask",
+            name="actual_start",
+            field=models.DateField(blank=True, db_index=True, null=True),
+        ),
+        migrations.AddField(
+            model_name="historicaltask",
+            name="actual_finish",
+            field=models.DateField(blank=True, db_index=True, null=True),
+        ),
     ]
