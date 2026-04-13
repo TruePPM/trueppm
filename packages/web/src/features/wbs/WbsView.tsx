@@ -99,8 +99,8 @@ export function WbsView() {
       const siblings = tasks
         .filter((t) => t.parentId === activeTask.parentId)
         .sort((a, b) => {
-          const aParts = a.wbs.split('.').map(Number);
-          const bParts = b.wbs.split('.').map(Number);
+          const aParts = (a.wbs || '0').split('.').map(Number);
+          const bParts = (b.wbs || '0').split('.').map(Number);
           for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
             const diff = (aParts[i] ?? 0) - (bParts[i] ?? 0);
             if (diff !== 0) return diff;

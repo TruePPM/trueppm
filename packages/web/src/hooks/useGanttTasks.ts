@@ -13,7 +13,7 @@ export interface UseGanttTasksResult {
 
 interface ApiTask {
   id: string;
-  wbs_path: string;
+  wbs_path: string | null;
   name: string;
   early_start: string | null;
   early_finish: string | null;
@@ -40,7 +40,7 @@ interface ApiDependency {
 function mapTask(t: ApiTask): Task {
   return {
     id: t.id,
-    wbs: t.wbs_path,
+    wbs: t.wbs_path ?? '',
     name: t.name,
     start: t.early_start ?? '',
     finish: t.early_finish ?? '',
