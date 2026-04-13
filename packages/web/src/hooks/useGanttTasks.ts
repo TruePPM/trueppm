@@ -17,6 +17,7 @@ interface ApiTask {
   name: string;
   early_start: string | null;
   early_finish: string | null;
+  planned_start: string | null;
   duration: number;
   percent_complete: number;
   is_critical: boolean;
@@ -38,12 +39,26 @@ interface ApiDependency {
 }
 
 function mapTask(t: ApiTask): Task {
+  // Use planned_start as fallback for early_start — PATCH saves planned_start
+  // immediately while CPM recomputes early_start asynchronously (Celery).
+  // This prevents the bar from snapping back to the old position after a drag.
+  const start = t.early_start ?? t.planned_start ?? '';
+
+  // Derive finish from start + duration rather than early_finish directly.
+  // early_finish is only updated after CPM runs; using start + duration means
+  // the bar width is always consistent with the duration the user just set.
+  const finish = (start && t.duration > 0)
+    ? new Date(
+        new Date(start + 'T00:00:00Z').getTime() + t.duration * 86_400_000,
+      ).toISOString().slice(0, 10)
+    : (t.early_finish ?? '');
+
   return {
     id: t.id,
     wbs: t.wbs_path ?? '',
     name: t.name,
-    start: t.early_start ?? '',
-    finish: t.early_finish ?? '',
+    start,
+    finish,
     duration: t.duration,
     progress: t.percent_complete,
     parentId: t.parent_id,
