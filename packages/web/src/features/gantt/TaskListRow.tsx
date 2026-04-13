@@ -34,9 +34,15 @@ export function TaskListRow({ task, level, widths }: Props) {
   const startEdit = useCallback(() => {
     setEditValue(task.name);
     setIsEditing(true);
-    // Focus after render
-    setTimeout(() => inputRef.current?.select(), 0);
   }, [task.name]);
+
+  // Focus and select when edit mode activates (avoids jsx-a11y/no-autofocus)
+  const prevEditingRef = useRef(false);
+  if (isEditing && !prevEditingRef.current && inputRef.current) {
+    inputRef.current.focus();
+    inputRef.current.select();
+  }
+  prevEditingRef.current = isEditing;
 
   const commitEdit = useCallback(() => {
     const trimmed = editValue.trim();
@@ -102,7 +108,6 @@ export function TaskListRow({ task, level, widths }: Props) {
             outline-none ring-1 ring-brand-primary truncate"
           style={{ height: 20 }}
           aria-label={`Rename task ${task.name}`}
-          autoFocus
         />
       ) : (
         <span
