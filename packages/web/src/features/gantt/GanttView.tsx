@@ -18,6 +18,7 @@ import { MilestoneDeltaTooltip } from './MilestoneDeltaTooltip';
 import { DateInputPopover } from './DateInputPopover';
 import { AddTaskForm, type AddTaskFormHandle } from '@/features/project/AddTaskForm';
 import { RecalculatingBadge } from '@/features/project/RecalculatingBadge';
+import { TaskDetailDrawer } from './TaskDetailDrawer';
 import type { Task } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -134,7 +135,13 @@ export function GanttView() {
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project');
   const { tasks, links, isLoading, error } = useGanttTasks();
-  const zoomLevel = useGanttStore((s) => s.zoomLevel);
+  const allTasks          = tasks ?? [];
+  const zoomLevel         = useGanttStore((s) => s.zoomLevel);
+  const selectedTaskId    = useGanttStore((s) => s.selectedTaskId);
+  const setSelectedTaskId = useGanttStore((s) => s.setSelectedTaskId);
+  const selectedTask      = selectedTaskId
+    ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
+    : null;
   const [showAddForm, setShowAddForm] = useState(false);
   const addFormRef = useRef<AddTaskFormHandle>(null);
   const createTask = useCreateTask(projectId);
@@ -528,6 +535,17 @@ export function GanttView() {
         >
           You&apos;re offline — change not saved.
         </div>
+      )}
+
+      {/* Task detail drawer — predecessor/successor management (rule 89 pattern) */}
+      {projectId && (
+        <TaskDetailDrawer
+          task={selectedTask}
+          tasks={allTasks}
+          links={links ?? []}
+          projectId={projectId}
+          onClose={() => setSelectedTaskId(null)}
+        />
       )}
     </div>
   );

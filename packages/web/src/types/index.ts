@@ -34,6 +34,8 @@ export interface TaskLink {
   sourceId: string;
   targetId: string;
   type: LinkType;
+  /** Lag in working days (positive = delay, negative = lead). */
+  lag: number;
   isCritical: boolean;
 }
 

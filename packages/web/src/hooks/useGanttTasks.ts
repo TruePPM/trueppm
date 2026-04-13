@@ -81,6 +81,7 @@ function mapDependency(d: ApiDependency): TaskLink {
     sourceId: d.predecessor,
     targetId: d.successor,
     type: d.dep_type as LinkType,
+    lag: d.lag,
     isCritical: d.is_critical,
   };
 }
