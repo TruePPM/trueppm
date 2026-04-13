@@ -28,7 +28,7 @@ function GanttEmptyState() {
   return (
     <div
       role="status"
-      className="flex h-full items-center justify-center bg-gantt-surface"
+      className="flex flex-1 h-full items-center justify-center bg-gantt-surface"
     >
       <p className="text-sm text-gantt-text-secondary">No tasks yet. Add a task to get started.</p>
     </div>

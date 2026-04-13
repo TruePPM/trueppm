@@ -27,6 +27,7 @@ const OVERSCAN_ROWS = 5;
 // ---------------------------------------------------------------------------
 
 function formatAriaDate(isoDate: string): string {
+  if (!isoDate) return 'unscheduled';
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
     .format(new Date(isoDate + 'T00:00:00Z'));
 }
@@ -37,6 +38,9 @@ function formatAriaDate(isoDate: string): string {
  */
 export function buildTaskAriaLabel(task: Task): string {
   const cp = task.isCritical ? ', on the critical path' : '';
+  if (!task.start || !task.finish) {
+    return `${task.name}, ${task.duration} days, unscheduled`;
+  }
   return `${task.name}, ${task.duration} days, starts ${formatAriaDate(task.start)}, finishes ${formatAriaDate(task.finish)}${cp}`;
 }
 

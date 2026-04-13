@@ -80,9 +80,11 @@ export function useGanttTasks(projectId?: string): UseGanttTasksResult {
       // Only include tasks that have been scheduled — null dates crash the
       // Gantt engine's date-to-canvas conversion. New tasks appear once the
       // CPM worker assigns early_start / early_finish.
-      return res.data.results
-        .filter((t) => t.early_start !== null && t.early_finish !== null)
-        .map(mapTask);
+      // Pass all tasks to the engine — _paintTaskAt skips bars for unscheduled
+      // tasks (empty start/finish), and _updateProjectRange defaults to today
+      // ±30 days when no task has dates yet. Filtering here caused the task list
+      // to show "No tasks yet" even when the project had unscheduled tasks.
+      return res.data.results.map(mapTask);
     },
     enabled: !!resolvedId,
   });
