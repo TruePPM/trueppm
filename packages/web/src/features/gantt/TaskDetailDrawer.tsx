@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { type RefObject, useEffect, useRef, useState } from 'react';
 import type { Task, TaskLink, LinkType } from '@/types';
 import {
   useCreateDependency,
@@ -144,7 +144,7 @@ interface DrawerBodyProps {
   tasks: Task[];
   links: TaskLink[];
   projectId: string;
-  closeButtonRef: React.RefObject<HTMLButtonElement | null>;
+  closeButtonRef: RefObject<HTMLButtonElement | null>;
   drawerTitle: string;
   onClose: () => void;
 }
