@@ -85,6 +85,7 @@ class WebhookDelivery(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["webhook", "created_at"], name="delivery_webhook_created_idx"),
+            models.Index(fields=["status", "created_at"], name="delivery_status_created_idx"),
         ]
         ordering = ["-created_at"]
 
