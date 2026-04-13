@@ -249,8 +249,29 @@ export function GanttView() {
     onOpenDatePopover: handleOpenDatePopover,
   });
 
-  // Bar resize — convert canvas-origin right-x to duration and PATCH
+  // Bar drag — convert canvas-origin left-x to planned_start and PATCH
   const updateTask = useUpdateTask();
+  useEffect(() => {
+    if (!engine || !projectId) return;
+    return engine.on('drag-task-end', ({ id, left, cancelled }) => {
+      if (cancelled) return;
+      if (!navigator.onLine) return; // offline case handled by useDragCpm
+      const scales = engine.scales;
+      if (!scales) return;
+      const task = tasks?.find((t) => t.id === id);
+      if (!task) return;
+      const newStartIso = leftToDate(left, scales).toISOString().slice(0, 10);
+      if (newStartIso === task.start) return;
+      // Optimistic canvas update — bar moves immediately; CPM corrects on refetch
+      const newFinishIso = new Date(
+        new Date(newStartIso + 'T00:00:00Z').getTime() + task.duration * 86_400_000,
+      ).toISOString().slice(0, 10);
+      engine.updateTask(id, { start: newStartIso, finish: newFinishIso });
+      updateTask.mutate({ id, projectId, planned_start: newStartIso });
+    });
+  }, [engine, projectId, tasks, updateTask]);
+
+  // Bar resize — convert canvas-origin right-x to new finish date and PATCH
   useEffect(() => {
     if (!engine || !projectId) return;
     return engine.on('resize-task-end', ({ id, right, cancelled }) => {
@@ -260,9 +281,12 @@ export function GanttView() {
       const task = tasks?.find((t) => t.id === id);
       if (!task?.start) return;
       const newFinish = leftToDate(right, scales);
+      const newFinishIso = newFinish.toISOString().slice(0, 10);
       const startMs = new Date(task.start + 'T00:00:00Z').getTime();
       const newDuration = Math.max(1, Math.round((newFinish.getTime() - startMs) / 86_400_000));
       if (newDuration === task.duration) return;
+      // Optimistic canvas update — bar stretches immediately; CPM corrects on refetch
+      engine.updateTask(id, { finish: newFinishIso, duration: newDuration });
       updateTask.mutate({ id, projectId, duration: newDuration });
     });
   }, [engine, projectId, tasks, updateTask]);
