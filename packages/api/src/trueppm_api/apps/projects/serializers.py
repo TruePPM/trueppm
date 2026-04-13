@@ -233,8 +233,13 @@ class BaselineTaskSerializer(serializers.ModelSerializer[BaselineTask]):
     class Meta:
         model = BaselineTask
         fields = [
-            "task_id", "task_name", "start", "finish", "duration",
-            "actual_start", "actual_finish",
+            "task_id",
+            "task_name",
+            "start",
+            "finish",
+            "duration",
+            "actual_start",
+            "actual_finish",
         ]
         read_only_fields = fields
 

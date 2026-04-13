@@ -395,8 +395,13 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
 
         live_tasks = list(
             Task.objects.filter(project_id=project_pk, is_deleted=False).values(
-                "id", "name", "early_start", "early_finish", "duration",
-                "actual_start", "actual_finish",
+                "id",
+                "name",
+                "early_start",
+                "early_finish",
+                "duration",
+                "actual_start",
+                "actual_finish",
             )
         )
         has_cpm_dates = bool(live_tasks) and all(t["early_start"] is not None for t in live_tasks)
