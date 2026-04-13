@@ -1,0 +1,1 @@
+Filled three durability gaps in the transactional outbox: the manual schedule trigger and MS Project import now route through `enqueue_recalculate()` so broker outages leave a recoverable PENDING row. Added a webhook delivery drain poller (`drain_webhook_queue` Beat task, every 30 s) that re-dispatches stranded PENDING deliveries and marks inactive-webhook deliveries as FAILED.
