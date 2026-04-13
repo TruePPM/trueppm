@@ -192,7 +192,14 @@ def idempotent_task(
                 release = redis_client.register_script(_RELEASE_SCRIPT)
                 release(keys=[lock_key], args=[token])
 
-        return shared_task(**task_kwargs)(wrapper)
+        task = shared_task(**task_kwargs)(wrapper)
+        # Expose config for introspection in tests and monitoring.
+        task._idempotent_config = {  # type: ignore[attr-defined]
+            "lock_key_template": lock_key_template,
+            "lock_ttl": lock_ttl,
+            "on_contention": on_contention,
+        }
+        return task
 
     return decorator
 

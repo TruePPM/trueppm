@@ -299,7 +299,7 @@ class TestTriggerScheduleView:
             "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
             return_value=MagicMock(id="trigger-task-id"),
         ):
-            resp = client.post(f"/api/v1/projects/{project_with_member.pk}/schedule/trigger/")
+            resp = client.post(f"/api/v1/projects/{project_with_member.pk}/schedule/")
 
         assert resp.status_code == 202
         assert resp.data == {"queued": True}
@@ -315,7 +315,7 @@ class TestTriggerScheduleView:
             "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
             side_effect=ConnectionError("broker down"),
         ):
-            resp = client.post(f"/api/v1/projects/{project_with_member.pk}/schedule/trigger/")
+            resp = client.post(f"/api/v1/projects/{project_with_member.pk}/schedule/")
 
         assert resp.status_code == 202
         req = ScheduleRequest.objects.get(project=project_with_member)

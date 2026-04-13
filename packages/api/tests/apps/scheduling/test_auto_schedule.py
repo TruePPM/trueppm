@@ -140,13 +140,13 @@ def test_trigger_endpoint_requires_scheduler_role(user: object, project: Project
 @pytest.mark.django_db
 def test_trigger_endpoint_enqueues_task(scheduler_client: APIClient, project: Project) -> None:
     """A Scheduler-role user can trigger the schedule endpoint."""
-    with patch("trueppm_api.apps.scheduling.views.recalculate_schedule") as mock_task:
-        mock_async = MagicMock()
-        mock_async.id = "test-celery-id"
-        mock_task.delay.return_value = mock_async
+    with patch(
+        "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+        return_value=MagicMock(id="test-celery-id"),
+    ):
         resp = scheduler_client.post(f"/api/v1/projects/{project.pk}/schedule/")
     assert resp.status_code == 202
-    assert "task_id" in resp.data
+    assert resp.data == {"queued": True}
 
 
 @pytest.mark.django_db
