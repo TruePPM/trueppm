@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState, useEffect } from 'react';
+import { useRef, useCallback, useState, useEffect, type PointerEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import type { GanttEngine } from './engine';
 import { dateToLeft } from './engine';
@@ -81,6 +81,49 @@ function canvasIsSupported(): boolean {
   } catch {
     return false;
   }
+}
+
+// ---------------------------------------------------------------------------
+// PanelSplitter — drag handle between task list and timeline
+// ---------------------------------------------------------------------------
+
+interface PanelSplitterProps {
+  currentTaskWidth: number;
+  setWidth: (col: 'task', width: number) => void;
+}
+
+function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
+  const startXRef = useRef<number | null>(null);
+  const startWidthRef = useRef<number>(currentTaskWidth);
+
+  function onPointerDown(e: PointerEvent<HTMLDivElement>) {
+    e.preventDefault();
+    startXRef.current = e.clientX;
+    startWidthRef.current = currentTaskWidth;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function onPointerMove(e: PointerEvent<HTMLDivElement>) {
+    if (startXRef.current === null) return;
+    const delta = e.clientX - startXRef.current;
+    setWidth('task', startWidthRef.current + delta);
+  }
+
+  function onPointerUp() {
+    startXRef.current = null;
+  }
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize task list panel"
+      className="w-1 flex-shrink-0 cursor-col-resize bg-white/10 hover:bg-brand-primary/60 transition-colors z-10"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -366,6 +409,8 @@ export function GanttView() {
           setWidth={setWidth}
           totalWidth={totalWidth}
         />
+        {/* Panel splitter — drag to resize task list width */}
+        <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
 
         {tasks.length === 0 ? (
           <GanttEmptyState />
