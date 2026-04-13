@@ -627,12 +627,14 @@ export class GanttEngineImpl implements GanttEngine {
     ctx.translate(0, -this._scrollTop);
 
     if (fsm.state === 'DRAGGING' || fsm.state === 'DRAG_STARTED') {
-      // Snap to day boundary (rule 65)
-      const snappedX = snapToDayBoundary(currentX, this._scales);
+      // Snap to day boundary (rule 65). Subtract scrollLeft to convert
+      // canvas-origin x to viewport-relative x for drawing (canvas is viewport-sized).
+      const snappedX = snapToDayBoundary(currentX, this._scales) - this._scrollLeft;
       drawDragShadow(ctx, task, snappedX, rowIndex, this._scales);
     } else if (fsm.state === 'RESIZING') {
       const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
-      drawResizeIndicator(ctx, currentX, barTop);
+      // currentX is canvas-origin; convert to viewport-relative for drawing.
+      drawResizeIndicator(ctx, currentX - this._scrollLeft, barTop);
     }
 
     ctx.restore();
