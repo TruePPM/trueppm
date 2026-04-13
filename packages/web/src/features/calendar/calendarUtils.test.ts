@@ -32,6 +32,7 @@ function makeTask(overrides: Partial<Task> & { id: string; start: string; finish
     isComplete: false,
     isSummary: false,
     isMilestone: false,
+    assignees: [],
     ...overrides,
   };
 }

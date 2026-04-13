@@ -5,6 +5,7 @@ import { ROW_HEIGHT, WBS_INDENT } from './ganttConstants';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useGanttStore } from '@/stores/ganttStore';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
+import { AssigneeChips } from './AssigneeChips';
 
 interface Props {
   task: Task;
@@ -110,14 +111,21 @@ export function TaskListRow({ task, level, widths }: Props) {
           aria-label={`Rename task ${task.name}`}
         />
       ) : (
-        <span
-          className={`flex-1 min-w-0 truncate ${isCriticalStyle} ${isSummaryStyle}`}
+        <div
+          className="flex flex-1 min-w-0 items-center gap-1 overflow-hidden"
           style={{ width: widths.task - (level - 1) * WBS_INDENT - 8 }}
-          title={`${task.name} — double-click to rename`}
-          aria-label={`${task.wbs} ${task.name}${task.isCritical ? ' (critical path)' : ''}`}
         >
-          {task.name}
-        </span>
+          <span
+            className={`min-w-0 shrink truncate ${isCriticalStyle} ${isSummaryStyle}`}
+            title={`${task.name} — double-click to rename`}
+            aria-label={`${task.wbs} ${task.name}${task.isCritical ? ' (critical path)' : ''}${task.assignees.length > 0 ? ` — assigned to ${task.assignees.map((a) => a.name).join(', ')}` : ''}`}
+          >
+            {task.name}
+          </span>
+          {!task.isSummary && !task.isMilestone && (
+            <AssigneeChips assignees={task.assignees} />
+          )}
+        </div>
       )}
 
       {/* Combined duration · start column (rule 43) */}

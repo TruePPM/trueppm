@@ -16,6 +16,7 @@ const base: Task = {
   duration: 10, progress: 50, parentId: 't0',
   isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
   status: 'NOT_STARTED',
+  assignees: [],
 };
 
 describe('TaskListRow', () => {
@@ -34,14 +35,28 @@ describe('TaskListRow', () => {
     expect(screen.getByLabelText(/50% complete/i)).toBeInTheDocument();
   });
 
+  it('renders duration without start date when unscheduled', () => {
+    renderWithRouter(
+      <TaskListRow task={{ ...base, start: '' }} level={1} widths={defaultWidths} />,
+    );
+    expect(screen.getByLabelText(/10 days, unscheduled/i)).toBeInTheDocument();
+  });
+
   it('critical task has aria-label mentioning critical path', () => {
     renderWithRouter(<TaskListRow task={{ ...base, isCritical: true }} level={1} widths={defaultWidths} />);
     expect(screen.getByLabelText(/critical path/i)).toBeInTheDocument();
   });
 
+  it('summary task applies font-medium style', () => {
+    renderWithRouter(<TaskListRow task={{ ...base, isSummary: true }} level={1} widths={defaultWidths} />);
+    const nameEl = screen.getByText('Design Phase');
+    expect(nameEl.className).toContain('font-medium');
+  });
+
   it('milestone shows diamond and hides duration/progress', () => {
     renderWithRouter(<TaskListRow task={{ ...base, isMilestone: true, duration: 0, progress: 0 }} level={1} widths={defaultWidths} />);
     expect(screen.getByText('◆')).toBeInTheDocument();
+    expect(screen.getByLabelText('milestone')).toBeInTheDocument();
   });
 
   it('clicking row selects it in the store', async () => {
@@ -55,5 +70,118 @@ describe('TaskListRow', () => {
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
     await userEvent.click(screen.getByRole('row'));
     expect(useGanttStore.getState().selectedTaskId).toBeNull();
+  });
+
+  it('Enter key toggles selection', async () => {
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    const row = screen.getByRole('row');
+    row.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(useGanttStore.getState().selectedTaskId).toBe('t1');
+  });
+
+  it('Space key toggles selection', async () => {
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    const row = screen.getByRole('row');
+    row.focus();
+    await userEvent.keyboard(' ');
+    expect(useGanttStore.getState().selectedTaskId).toBe('t1');
+  });
+
+  it('F2 key enters edit mode', async () => {
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    const row = screen.getByRole('row');
+    row.focus();
+    await userEvent.keyboard('{F2}');
+    expect(screen.getByLabelText(/Rename task/i)).toBeInTheDocument();
+  });
+
+  it('double-click enters edit mode', async () => {
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    await userEvent.dblClick(screen.getByRole('row'));
+    expect(screen.getByLabelText(/Rename task/i)).toBeInTheDocument();
+  });
+
+  it('Escape cancels edit', async () => {
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    await userEvent.dblClick(screen.getByRole('row'));
+    const input = screen.getByLabelText(/Rename task/i);
+    await userEvent.type(input, 'New Name');
+    await userEvent.keyboard('{Escape}');
+    // Should exit edit mode without renaming
+    expect(screen.queryByLabelText(/Rename task/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Design Phase')).toBeInTheDocument();
+  });
+
+  it('Enter in edit mode commits the change', async () => {
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    await userEvent.dblClick(screen.getByRole('row'));
+    const input = screen.getByLabelText(/Rename task/i);
+    await userEvent.clear(input);
+    await userEvent.type(input, 'Updated Name');
+    await userEvent.keyboard('{Enter}');
+    // Should exit edit mode
+    expect(screen.queryByLabelText(/Rename task/i)).not.toBeInTheDocument();
+  });
+
+  it('blur commits edit', async () => {
+    renderWithRouter(
+      <div>
+        <TaskListRow task={base} level={1} widths={defaultWidths} />
+        <button type="button">Other</button>
+      </div>,
+    );
+    await userEvent.dblClick(screen.getByRole('row'));
+    const input = screen.getByLabelText(/Rename task/i);
+    await userEvent.clear(input);
+    await userEvent.type(input, 'Blur Name');
+    await userEvent.click(screen.getByText('Other'));
+    expect(screen.queryByLabelText(/Rename task/i)).not.toBeInTheDocument();
+  });
+
+  it('properties button selects the task', async () => {
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    const propBtn = screen.getByLabelText(/Open properties/i);
+    await userEvent.click(propBtn);
+    expect(useGanttStore.getState().selectedTaskId).toBe('t1');
+  });
+
+  it('renders assignee chips for non-summary non-milestone tasks', () => {
+    const taskWithAssignees = {
+      ...base,
+      assignees: [
+        { resourceId: 'r1', name: 'Alice', units: 100 },
+        { resourceId: 'r2', name: 'Bob', units: 50 },
+      ],
+    };
+    renderWithRouter(<TaskListRow task={taskWithAssignees} level={1} widths={defaultWidths} />);
+    expect(screen.getByLabelText(/assigned to Alice, Bob/i)).toBeInTheDocument();
+  });
+
+  it('does not render assignee chips for summary tasks', () => {
+    const summaryTask = {
+      ...base,
+      isSummary: true,
+      assignees: [{ resourceId: 'r1', name: 'Alice', units: 100 }],
+    };
+    renderWithRouter(<TaskListRow task={summaryTask} level={1} widths={defaultWidths} />);
+    // AssigneeChips should not render for summary tasks
+    expect(screen.queryByText('A')).not.toBeInTheDocument();
+  });
+
+  it('clicking row during edit mode does not toggle selection', async () => {
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    await userEvent.dblClick(screen.getByRole('row'));
+    // Now in edit mode — click should not toggle selection
+    expect(useGanttStore.getState().selectedTaskId).toBeNull();
+  });
+
+  it('keyboard events are ignored during edit mode', async () => {
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    await userEvent.dblClick(screen.getByRole('row'));
+    const input = screen.getByLabelText(/Rename task/i);
+    // Enter in input commits, Space types a space
+    await userEvent.type(input, ' extra');
+    expect(input).toHaveValue('Design Phase extra');
   });
 });

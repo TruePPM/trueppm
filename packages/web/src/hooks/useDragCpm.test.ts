@@ -100,6 +100,7 @@ const TASKS: Task[] = [
     isSummary: false,
     isMilestone: false,
     status: 'NOT_STARTED',
+    assignees: [],
   },
 ];
 const LINKS: TaskLink[] = [];

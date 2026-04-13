@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
 import { apiClient } from '@/api/client';
-import type { Task, TaskLink, TaskStatus, LinkType } from '@/types';
+import type { Task, TaskAssignee, TaskLink, TaskStatus, LinkType } from '@/types';
 import type { PaginatedResponse } from '@/api/types';
 
 export interface UseGanttTasksResult {
@@ -30,6 +30,11 @@ interface ApiTask {
   schedule_variance_days: number | null;
   baseline_start: string | null;
   baseline_finish: string | null;
+  assignments?: Array<{
+    resource_id: string;
+    resource_name: string;
+    units: number;
+  }>;
 }
 
 interface ApiDependency {
@@ -81,6 +86,13 @@ function mapTask(t: ApiTask): Task {
     scheduleVarianceDays: t.schedule_variance_days,
     baselineStart: t.baseline_start ?? undefined,
     baselineFinish: t.baseline_finish ?? undefined,
+    assignees: (t.assignments ?? []).map(
+      (a): TaskAssignee => ({
+        resourceId: a.resource_id,
+        name: a.resource_name,
+        units: a.units,
+      }),
+    ),
   };
 }
 

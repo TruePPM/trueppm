@@ -19,6 +19,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskStatus,
 )
+from trueppm_api.apps.resources.models import TaskResource
 
 
 class CalendarExceptionSerializer(serializers.ModelSerializer[CalendarException]):
@@ -58,6 +59,22 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         read_only_fields = ["id", "server_version"]
 
 
+class TaskAssignmentSerializer(serializers.ModelSerializer[TaskResource]):
+    """Lightweight read-only serializer for task-resource assignments.
+
+    Nested inside TaskSerializer so the Gantt can display assignee chips
+    without a separate API call per task.
+    """
+
+    resource_id = serializers.UUIDField(source="resource.id", read_only=True)
+    resource_name = serializers.CharField(source="resource.name", read_only=True)
+
+    class Meta:
+        model = TaskResource
+        fields = ["resource_id", "resource_name", "units"]
+        read_only_fields = fields
+
+
 class TaskSerializer(serializers.ModelSerializer[Task]):
     # Duration round-trips as integer working days.
     # CPM output fields are read-only — written by the scheduling engine.
@@ -74,6 +91,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # Summary task annotations — computed from wbs_path hierarchy, not stored.
     is_summary = serializers.BooleanField(read_only=True, default=False)
     parent_id = serializers.UUIDField(read_only=True, allow_null=True, default=None)
+
+    # Nested resource assignments — read-only, used for Gantt assignee chips.
+    assignments = TaskAssignmentSerializer(many=True, read_only=True)
 
     class Meta:
         model = Task
@@ -108,6 +128,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "schedule_variance_days",
             "is_summary",
             "parent_id",
+            "assignments",
         ]
         read_only_fields = [
             "id",
@@ -125,6 +146,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "schedule_variance_days",
             "is_summary",
             "parent_id",
+            "assignments",
         ]
 
     def get_schedule_variance_days(self, obj: Task) -> int | None:

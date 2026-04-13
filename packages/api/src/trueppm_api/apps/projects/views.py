@@ -250,7 +250,11 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
     ordering_fields = ["wbs_path", "name", "early_start", "status"]
-    queryset = Task.objects.select_related("project").filter(is_deleted=False)
+    queryset = (
+        Task.objects.select_related("project")
+        .prefetch_related("assignments__resource")
+        .filter(is_deleted=False)
+    )
 
     def get_queryset(self) -> QuerySet[Task]:
         qs = super().get_queryset()
