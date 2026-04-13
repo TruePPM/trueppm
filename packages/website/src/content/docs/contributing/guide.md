@@ -1,0 +1,106 @@
+---
+title: Contributing
+description: How to contribute to TruePPM — branching, commits, testing, and the changelog.
+---
+
+TruePPM is in its early days and contributions are welcome. The project uses GitLab for issue tracking and merge requests.
+
+## Getting set up
+
+```bash
+git clone git@gitlab.com:trueppm/trueppm.git
+cd trueppm
+make setup    # installs git hooks via pre-commit
+make doctor   # verifies all prerequisites
+```
+
+See [Installation](/getting-started/installation/) for Docker Compose setup.
+
+## Branching
+
+Branch from `main` with a conventional prefix:
+
+```bash
+git checkout main && git pull origin main
+git checkout -b feat/my-feature    # or fix/, docs/, chore/, test/, refactor/
+```
+
+Never commit or push directly to `main` — all changes go through a feature branch and merge request.
+
+## Commits
+
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+feat(web): add board/kanban view
+fix(api): prevent duplicate membership creation
+docs(scheduler): add Monte Carlo CLI examples
+test(api): add permission tests for task deletion
+chore(ci): upgrade Node to 22 in CI image
+```
+
+Scopes: `scheduler`, `api`, `web`, `helm`, `sync`, `docs`, `ci`.
+
+## Changelog
+
+Every MR that touches source code must include a changelog fragment in `changelog.d/`:
+
+```bash
+# Naming: <slug>.<type>.md
+# Types: added, changed, fixed, security
+echo "Add board/kanban view with drag-and-drop" > changelog.d/kanban-view.added.md
+```
+
+The CI `changelog:check` job blocks the pipeline if the fragment is missing. Fragments are assembled automatically at release time — **never edit `CHANGELOG.md` directly**.
+
+Exempt: CI config, dependency bumps, test-only changes, docs-only changes.
+
+## Testing
+
+```bash
+make test     # runs all packages
+# Or per-package:
+cd packages/scheduler && pytest
+cd packages/api && pytest
+cd packages/web && npm test
+```
+
+- **Scheduler:** pytest, coverage >= 80%
+- **API:** pytest with testcontainers PostgreSQL, coverage >= 65%
+- **Web:** vitest, coverage >= 80%
+
+All MRs require a green pipeline before merge.
+
+## Code style
+
+| Package | Formatter | Linter | Type checker |
+|---------|-----------|--------|-------------|
+| Scheduler | ruff format | ruff check | mypy |
+| API | ruff format | ruff check | mypy --strict |
+| Web | prettier | eslint | tsc --noEmit |
+
+```bash
+make lint       # runs all linters
+make typecheck  # runs all type checkers
+```
+
+## Merge requests
+
+1. Push your branch and open an MR targeting `main`
+2. Wait for a green pipeline
+3. Include: description, testing done, screenshots (if UI), issue link
+4. Don't merge with a failing pipeline — fix the root cause on the branch
+
+## OSS / Enterprise boundary
+
+Before writing code for a new feature, determine if it belongs in the community or enterprise repo:
+
+- **Community (this repo):** features an individual PM or small team needs
+- **Enterprise (separate repo):** features requiring cross-project, cross-team, or organizational coordination
+
+The community edition must never import from `trueppm_enterprise`. Verify with:
+
+```bash
+grep -r "trueppm_enterprise" packages/
+# Must return zero results
+```

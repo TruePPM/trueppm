@@ -4,6 +4,7 @@ stages:
   - test      # unit + integration tests (per-package, DAG-gated on analyze)
   - security  # CVE scans + license audit (MR + main only)
   - publish   # tag-triggered: scheduler PyPI release
+  - deploy    # docs deployment to GitLab Pages
 
 default:
   interruptible: true
@@ -503,13 +504,46 @@ web:e2e:
     expire_in: 7 days
 
 website:build:
-  # Verify the Docusaurus documentation site builds cleanly.
-  # Catches broken MDX, missing imports, and broken internal links early.
+  # Verify the Starlight documentation site builds cleanly.
+  # Catches broken links, invalid frontmatter, and build errors early.
   extends: .website
   stage: test
   <<: *rules-website
   script:
     - npm run build
+  artifacts:
+    paths:
+      - packages/website/dist/
+    expire_in: 1 day
+
+# ---------------------------------------------------------------------------
+# DEPLOY — GitLab Pages for documentation.
+#
+# - Release tags (v*): auto-deploy (docs always ship with a release)
+# - Main branch: manual deploy for "next" (unreleased) docs
+# ---------------------------------------------------------------------------
+
+pages:
+  # GitLab Pages requires the job name to be "pages" and artifacts in public/.
+  extends: .website
+  stage: deploy
+  needs: ["website:build"]
+  rules:
+    # Auto-deploy on release tags
+    - if: '$CI_COMMIT_TAG =~ /^v\d+/'
+      when: on_success
+    # Manual deploy from main (for "next" docs)
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
+  script:
+    - npm run build
+    # GitLab Pages serves from public/ at the repo root
+    - mkdir -p ../../public
+    - cp -r dist/* ../../public/
+  artifacts:
+    paths:
+      - public/
 
 # ---------------------------------------------------------------------------
 # SECURITY — CVE scans + license audit. MR + main only.

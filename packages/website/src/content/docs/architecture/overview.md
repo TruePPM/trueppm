@@ -1,8 +1,9 @@
 ---
-id: overview
 title: Architecture Overview
-sidebar_position: 1
+description: System diagram, design decisions, and package structure.
 ---
+
+This page describes the architecture of TruePPM as it exists today. The scheduling engine, API, and real-time layer are functional; the web frontend is in early development.
 
 ## System diagram
 
@@ -42,7 +43,7 @@ Every feature is a REST or WebSocket endpoint before it is a UI element. Web and
 
 ### Offline-first sync protocol
 
-The API exposes a WatermelonDB-compatible sync endpoint (`GET /api/v1/projects/{pk}/sync/`) returning `changes` and `deleted` arrays keyed by `server_version`. This is designed for future mobile and PWA clients — see [Offline Sync](../features/offline-sync.md) for details.
+The API exposes a WatermelonDB-compatible sync endpoint (`GET /api/v1/projects/{pk}/sync/`) returning `changes` and `deleted` arrays keyed by `server_version`. This is designed for future mobile and PWA clients — see [Offline Sync](/features/offline-sync/) for details.
 
 ### Scheduling as a separate package
 
@@ -81,7 +82,7 @@ Every mutation is followed by a `broadcast_board_event()` call deferred inside `
 Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo). Ships on PyPI as `trueppm-scheduler`.
 
 ### packages/web
-React 19 + TypeScript + Vite 6. Tailwind CSS with Design System v1.0 tokens (WCAG 2.1 AA). TanStack Query for server state, Zustand for client state, React Router v7. The Gantt view uses SVAR React Gantt (MIT). Currently wired to fixture data; API hooks will be wired in subsequent milestones.
+React 19 + TypeScript + Vite 6. Tailwind CSS with Design System v1.0 tokens (WCAG 2.1 AA). TanStack Query for server state, Zustand for client state, React Router v7. The Gantt view uses SVAR React Gantt (MIT). **Early stage** — the application shell and Gantt view are built; live API wiring is in progress.
 
 ### packages/api
 Django 5.1 + DRF 3.15. Django Channels 4 (ASGI). Celery 5.4 + Redis. django-allauth + simplejwt. drf-spectacular (OpenAPI 3.1). PostgreSQL 16 with `ltree` for WBS hierarchy.

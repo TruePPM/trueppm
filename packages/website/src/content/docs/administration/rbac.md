@@ -1,38 +1,37 @@
 ---
-id: rbac
-title: Role-Based Access Control
-sidebar_position: 2
+title: Roles and Permissions
+description: TruePPM's 5-role RBAC model — setup, enforcement, and permission matrix.
 ---
 
-TruePPM uses a 5-role per-project permission model stored in `ProjectMembership` and enforced on every API endpoint.
+TruePPM uses a 5-role per-project permission model stored in `ProjectMembership` and enforced on every API endpoint and WebSocket connection.
 
 ## Roles
 
 | Role | Ordinal | Description |
 |------|---------|-------------|
-| Owner | 4 | Full control. Manages members, can assign any role below Owner. |
-| Admin | 3 | Modifies project settings, tasks, dependencies, resources. |
-| Scheduler | 2 | Creates and modifies tasks and dependencies. |
-| Member | 1 | Views all project data. Logs time. |
-| Viewer | 0 | Read-only. Can sync to mobile. |
+| **Owner** | 4 | Full control. Manages members, can assign any role below Owner. |
+| **Admin** | 3 | Modifies project settings, tasks, dependencies, resources. |
+| **Scheduler** | 2 | Creates and modifies tasks and dependencies. |
+| **Member** | 1 | Views all project data. Logs time. |
+| **Viewer** | 0 | Read-only. Can sync to mobile. |
 
 ## Permission matrix
 
 | Action | Owner | Admin | Scheduler | Member | Viewer |
 |--------|:-----:|:-----:|:---------:|:------:|:------:|
-| View project data | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Pull delta sync | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Connect WebSocket | ✓ | ✓ | ✓ | ✓ | — |
-| Create/edit tasks | ✓ | ✓ | ✓ | — | — |
-| Create/edit dependencies | ✓ | ✓ | ✓ | — | — |
-| Manage resources | ✓ | ✓ | — | — | — |
-| Edit project settings | ✓ | ✓ | — | — | — |
-| Manage members | ✓ | — | — | — | — |
-| Self-remove | ✓ | ✓ | ✓ | ✓ | ✓ |
+| View project data | Yes | Yes | Yes | Yes | Yes |
+| Pull delta sync | Yes | Yes | Yes | Yes | Yes |
+| Connect WebSocket | Yes | Yes | Yes | Yes | — |
+| Create/edit tasks | Yes | Yes | Yes | — | — |
+| Create/edit dependencies | Yes | Yes | Yes | — | — |
+| Manage resources | Yes | Yes | — | — | — |
+| Edit project settings | Yes | Yes | — | — | — |
+| Manage members | Yes | — | — | — | — |
+| Self-remove | Yes | Yes | Yes | Yes | Yes |
 
-## Membership API
+## Managing members
 
-Memberships are managed at `/api/v1/projects/{project_id}/members/`.
+Members are managed at `/api/v1/projects/{project_id}/members/`.
 
 ### Add a member
 

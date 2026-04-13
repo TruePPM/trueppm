@@ -1,10 +1,13 @@
 ---
-id: quickstart
 title: Quickstart
-sidebar_position: 2
+description: Create your first project and schedule via the API.
 ---
 
-This guide creates a project with two tasks and a dependency, triggers a CPM schedule calculation, and reads the result back. It assumes you have completed [Installation](installation.md) and the stack is running.
+This guide creates a project with two tasks and a dependency, triggers a CPM schedule calculation, and reads the result back — all via the REST API. It assumes you have completed [Installation](/getting-started/installation/) and the stack is running.
+
+:::tip
+The web UI is in early development. For now, the API is the primary way to interact with TruePPM. The examples below use `curl` and `jq`.
+:::
 
 ## 1. Authenticate
 
@@ -97,14 +100,11 @@ Role values: Owner=4, Admin=3, Scheduler=2, Member=1, Viewer=0.
 
 ## 8. Open the web UI
 
-Navigate to `http://localhost:5173` in your browser. The Gantt view is at `http://localhost:5173/gantt`.
-
-The web UI currently renders fixture data. API wiring to live projects is coming in a subsequent milestone.
+Navigate to `http://localhost:5173` in your browser. The Gantt view displays example tasks and dependencies to demonstrate the visualization. Live API wiring is in progress.
 
 ## Next steps
 
-- [Gantt View](../features/gantt.md)
-- [CPM Scheduler](../features/scheduler.md)
-- [RBAC](../features/rbac.md)
-- [Offline Sync](../features/offline-sync.md)
-- [API Reference](../api/index.md)
+- [CPM Scheduler](/features/scheduler/) — deep dive into the scheduling engine and Monte Carlo
+- [Gantt View](/features/gantt/) — the primary visualization
+- [RBAC](/administration/rbac/) — role and permission details
+- [API Reference](/api/reference/) — full endpoint listing
