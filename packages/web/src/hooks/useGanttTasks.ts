@@ -39,13 +39,16 @@ interface ApiDependency {
 }
 
 function mapTask(t: ApiTask): Task {
-  // Prefer planned_start over early_start: PATCH saves planned_start immediately
-  // while CPM recomputes early_start asynchronously (Celery). early_start is not
-  // null on already-scheduled tasks, so using early_start ?? planned_start would
-  // always pick the stale CPM value. planned_start is null on tasks that have
-  // never been explicitly constrained, in which case early_start is the correct
-  // CPM-computed start.
-  const start = t.planned_start ?? t.early_start ?? '';
+  // Use the later of planned_start (SNET constraint) and early_start (CPM result).
+  //
+  // CPM guarantees early_start = max(forward-pass result, planned_start), so after
+  // CPM runs, early_start ≥ planned_start. Taking max() here means:
+  //   • Right after a drag (planned_start updated, CPM pending): planned_start wins ✓
+  //   • After CPM with a new dependency pushing the task later: early_start wins ✓
+  //   • No SNET constraint (planned_start = null): early_start is used directly ✓
+  const p = t.planned_start;
+  const e = t.early_start;
+  const start = (p && e) ? (p >= e ? p : e) : (p ?? e ?? '');
 
   // Derive finish from start + duration rather than early_finish directly.
   // early_finish is only updated after CPM runs; using start + duration means
