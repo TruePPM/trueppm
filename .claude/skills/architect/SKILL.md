@@ -129,6 +129,42 @@ What is the chosen approach?
 - OSS or Enterprise: which repo does this go in?
 ```
 
+## Durable Execution Checklist
+
+For any enhancement that involves background work, async dispatch, or side effects
+triggered by user actions, answer these questions before proposing an approach:
+
+1. **What happens if the broker is down at the moment of dispatch?**
+   - Direct `.delay()` calls at the view/signal layer are a durability gap — the DB
+     commits but the task is never queued. The correct pattern is the transactional
+     outbox: write an outbox row atomically with the DB change, attempt `.delay()`,
+     and rely on a periodic drain task to re-dispatch failures.
+
+2. **Does this need a drain task?**
+   - Any new category of async work needs its own Beat drain (every 30 s,
+     `@idempotent_task(on_contention="skip")`). Re-use existing drain tasks only when
+     the semantics exactly match.
+
+3. **What is the orphan window?**
+   - Rows inside an open `transaction.on_commit()` callback aren't visible until commit.
+     The drain must filter to rows older than N minutes (5 min for webhooks, 10 min
+     for schedule requests) to avoid racing with in-flight commits.
+
+4. **Is there an existing service layer to go through?**
+   - CPM recalculation: always call `scheduling/services.py::enqueue_recalculate()`,
+     never `recalculate_schedule.delay()` directly.
+   - New dispatch paths for other work should get their own `services.py` function.
+
+5. **What does the API response look like when dispatch is best-effort?**
+   - If the caller cannot get a synchronous task ID (outbox pattern), return
+     `{"queued": true}` (202) — not `{"task_id": "..."}`. Document this in the ADR.
+
+6. **How is the outbox row cleaned up?**
+   - Completed rows should be purged on a nightly schedule (7-day retention is the
+     existing convention). Add a `_do_purge` function and register it in Beat.
+
+State the answer to each in the ADR's **Implementation Notes** section.
+
 ## Key Architectural Constraints
 
 - **PostgreSQL is the only database.** No graph DB, no MongoDB, no DynamoDB.

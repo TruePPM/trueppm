@@ -18,7 +18,7 @@ from trueppm_api.apps.access.permissions import IsProjectMember, IsProjectSchedu
 from trueppm_api.apps.projects.models import Dependency, Project
 from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
 from trueppm_api.apps.scheduling.serializers import FailedTaskSerializer
-from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+from trueppm_api.apps.scheduling.services import enqueue_recalculate
 
 
 @api_view(["POST"])
@@ -27,8 +27,9 @@ def trigger_schedule(request: Request, pk: str) -> Response:
     """Manually trigger a CPM recalculation for a project.
 
     Requires the requesting user to hold at least the Scheduler role on the
-    project. The task is enqueued asynchronously; the caller receives the
-    Celery task_id for status polling.
+    project.  The request is written to the transactional outbox and dispatched
+    immediately if the broker is available; otherwise the Beat drain task picks
+    it up within 30 seconds.
 
     Returns 404 if the project does not exist.
     """
@@ -41,8 +42,8 @@ def trigger_schedule(request: Request, pk: str) -> Response:
     if not IsProjectScheduler().has_object_permission(request, None, project):  # type: ignore[arg-type]
         return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
 
-    result = recalculate_schedule.delay(str(project.pk))
-    return Response({"task_id": result.id}, status=status.HTTP_202_ACCEPTED)
+    enqueue_recalculate(str(project.pk))
+    return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
 
 
 @api_view(["POST"])

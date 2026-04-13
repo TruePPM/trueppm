@@ -7,7 +7,7 @@ import logging
 import uuid
 from typing import Any
 
-from django.db import IntegrityError, transaction
+from django.db import transaction
 from django.db.models import Count, ExpressionWrapper, F, IntegerField, OuterRef, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from rest_framework import filters, serializers, status, viewsets
@@ -48,51 +48,9 @@ from trueppm_api.apps.projects.serializers import (
     TaskReorderSerializer,
     TaskSerializer,
 )
+from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
 
 logger = logging.getLogger(__name__)
-
-
-def _enqueue_recalculate(project_id: str) -> None:
-    """Insert a ScheduleRequest outbox row and attempt immediate dispatch.
-
-    Called exclusively from transaction.on_commit() callbacks so the outbox
-    write is guaranteed to run after the triggering task-data write commits.
-
-    If the partial unique index raises IntegrityError (a pending row already
-    exists for this project) the exception is swallowed — idempotent by design.
-    If the broker is unavailable the row is left pending and the Beat drain
-    task will dispatch it within 30 seconds.
-    """
-    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
-
-    try:
-        with transaction.atomic():
-            req = ScheduleRequest.objects.create(project_id=project_id)
-    except IntegrityError:
-        # A pending row already exists — the drain task will handle it.
-        return
-
-    # Best-effort immediate dispatch — keeps recalculation latency low when
-    # the broker is healthy.
-    from trueppm_api.apps.scheduling.tasks import recalculate_schedule
-
-    try:
-        result = recalculate_schedule.delay(project_id)
-    except Exception:
-        logger.warning(
-            "Could not immediately dispatch recalculate_schedule for project %s — "
-            "drain task will pick it up within 30 s",
-            project_id,
-        )
-        return
-
-    from django.utils import timezone
-
-    ScheduleRequest.objects.filter(id=req.id, status=ScheduleRequestStatus.PENDING).update(
-        status=ScheduleRequestStatus.DISPATCHED,
-        celery_task_id=result.id,
-        dispatched_at=timezone.now(),
-    )
 
 
 class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):

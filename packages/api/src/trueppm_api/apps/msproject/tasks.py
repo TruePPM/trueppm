@@ -84,8 +84,12 @@ def import_msproject(
         tracker.set_result(summary)
 
         if summary["tasks_created"] > 0:
-            from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+            # Use the outbox service rather than a direct .delay() call so that
+            # a broker outage at import-completion time does not silently drop
+            # the recalculation.  The Celery task context has no ambient
+            # transaction, so enqueue_recalculate opens its own atomic() block.
+            from trueppm_api.apps.scheduling.services import enqueue_recalculate
 
-            recalculate_schedule.delay(project_id)
+            enqueue_recalculate(project_id)
 
     return summary
