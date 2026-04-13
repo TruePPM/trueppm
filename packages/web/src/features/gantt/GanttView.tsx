@@ -4,7 +4,7 @@ import type { GanttEngine } from './engine';
 import { dateToLeft, leftToDate } from './engine';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './ganttConstants';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
-import { useCreateTask, useUpdateTask } from '@/hooks/useTaskMutations';
+import { useCreateTask, useRescheduleTask } from '@/hooks/useTaskMutations';
 import { useGanttStore } from '@/stores/ganttStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
 import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
@@ -250,7 +250,7 @@ export function GanttView() {
   });
 
   // Bar drag — convert canvas-origin left-x to planned_start and PATCH
-  const updateTask = useUpdateTask();
+  const rescheduleTask = useRescheduleTask();
   useEffect(() => {
     if (!engine || !projectId) return;
     return engine.on('drag-task-end', ({ id, left, cancelled }) => {
@@ -262,14 +262,18 @@ export function GanttView() {
       if (!task) return;
       const newStartIso = leftToDate(left, scales).toISOString().slice(0, 10);
       if (newStartIso === task.start) return;
-      // Optimistic canvas update — bar moves immediately; CPM corrects on refetch
+      // Approximate finish keeps the bar width; CPM recomputes the real value
       const newFinishIso = new Date(
         new Date(newStartIso + 'T00:00:00Z').getTime() + task.duration * 86_400_000,
       ).toISOString().slice(0, 10);
-      engine.updateTask(id, { start: newStartIso, finish: newFinishIso });
-      updateTask.mutate({ id, projectId, planned_start: newStartIso });
+      rescheduleTask.mutate({
+        id,
+        projectId,
+        planned_start: newStartIso,
+        optimistic: { start: newStartIso, finish: newFinishIso },
+      });
     });
-  }, [engine, projectId, tasks, updateTask]);
+  }, [engine, projectId, tasks, rescheduleTask]);
 
   // Bar resize — convert canvas-origin right-x to new finish date and PATCH
   useEffect(() => {
@@ -285,11 +289,14 @@ export function GanttView() {
       const startMs = new Date(task.start + 'T00:00:00Z').getTime();
       const newDuration = Math.max(1, Math.round((newFinish.getTime() - startMs) / 86_400_000));
       if (newDuration === task.duration) return;
-      // Optimistic canvas update — bar stretches immediately; CPM corrects on refetch
-      engine.updateTask(id, { finish: newFinishIso, duration: newDuration });
-      updateTask.mutate({ id, projectId, duration: newDuration });
+      rescheduleTask.mutate({
+        id,
+        projectId,
+        duration: newDuration,
+        optimistic: { finish: newFinishIso, duration: newDuration },
+      });
     });
-  }, [engine, projectId, tasks, updateTask]);
+  }, [engine, projectId, tasks, rescheduleTask]);
 
   const dragPhase = useDragStore((s) => s.phase);
 

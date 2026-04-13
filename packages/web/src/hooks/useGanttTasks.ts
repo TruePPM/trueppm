@@ -87,6 +87,9 @@ export function useGanttTasks(projectId?: string): UseGanttTasksResult {
       return res.data.results.map(mapTask);
     },
     enabled: !!resolvedId,
+    // Poll every 2 s so CPM-computed dates (early_start/early_finish) propagate
+    // to the canvas and task list without requiring a manual page refresh.
+    refetchInterval: 2000,
   });
 
   const linksQuery = useQuery({

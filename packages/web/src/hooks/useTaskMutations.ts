@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import type { Task } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Shared API shape — returned by POST /tasks/ and PATCH /tasks/{id}/
@@ -66,6 +67,56 @@ export function useUpdateTask() {
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// useRescheduleTask — PATCH for drag/resize with optimistic cache update
+//
+// Unlike useUpdateTask (which invalidates immediately), this hook applies an
+// optimistic patch to the React Query cache in onMutate so both the canvas
+// and task list update instantly. It does NOT call invalidateQueries — instead
+// useGanttTasks polls every 2 s, which picks up CPM-computed dates once Celery
+// finishes without causing a stale-data snap-back.
+// ---------------------------------------------------------------------------
+
+export interface RescheduleTaskPayload {
+  id: string;
+  projectId: string;
+  planned_start?: string | null;
+  duration?: number;
+  /** Partial Task values applied to the cache immediately (optimistic UI). */
+  optimistic: Partial<Task>;
+}
+
+export function useRescheduleTask() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      projectId: _p,
+      optimistic: _o,
+      ...data
+    }: RescheduleTaskPayload) => {
+      await apiClient.patch(`/tasks/${id}/`, data);
+    },
+    onMutate: async ({ id, projectId, optimistic }) => {
+      // Cancel any in-flight fetches so they don't overwrite our optimistic data
+      await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
+      const snapshot = queryClient.getQueryData<Task[]>(['tasks', projectId]);
+      queryClient.setQueryData<Task[]>(['tasks', projectId], (old) =>
+        old?.map((t) => (t.id === id ? { ...t, ...optimistic } : t)) ?? [],
+      );
+      return { snapshot };
+    },
+    onError: (_err, { projectId }, context) => {
+      // Roll back on API error
+      if (context?.snapshot) {
+        queryClient.setQueryData(['tasks', projectId], context.snapshot);
+      }
+    },
+    // No onSuccess invalidation — useGanttTasks refetchInterval picks up CPM results
   });
 }
 
