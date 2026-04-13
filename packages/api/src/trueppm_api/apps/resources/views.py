@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from django.db import connection
 from django.db.models import QuerySet
 from rest_framework import filters, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.serializers import BaseSerializer
 
 from trueppm_api.apps.access.permissions import IsProjectMember, ProjectScopedViewSet
 from trueppm_api.apps.resources.models import Resource, TaskResource
@@ -48,3 +51,28 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         if resource_id:
             qs = qs.filter(resource_id=resource_id)
         return qs
+
+    def perform_create(self, serializer: BaseSerializer[TaskResource]) -> None:
+        """Block assignment creation for summary tasks.
+
+        Summary tasks roll up from children — direct resource assignments on
+        them create ambiguous scheduling semantics (ADR-0024).
+        """
+        task = serializer.validated_data.get("task")
+        if task and task.wbs_path:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT EXISTS("
+                    "  SELECT 1 FROM projects_task c"
+                    "  WHERE c.project_id = %s"
+                    "    AND c.is_deleted = false"
+                    "    AND c.id != %s"
+                    "    AND c.wbs_path IS NOT NULL"
+                    "    AND c.wbs_path ~ (%s || '.*{1}')::lquery"
+                    ")",
+                    [task.project_id, task.pk, str(task.wbs_path)],
+                )
+                is_summary = cursor.fetchone()[0]
+                if is_summary:
+                    raise ValidationError({"task": "Cannot assign resources to a summary task."})
+        serializer.save()

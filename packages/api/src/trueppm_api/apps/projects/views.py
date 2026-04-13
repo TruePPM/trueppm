@@ -5,10 +5,21 @@ from __future__ import annotations
 import datetime
 import logging
 import uuid
-from typing import Any
+from typing import Any, cast
 
+from django.db import models as db_models
 from django.db import transaction
-from django.db.models import Count, ExpressionWrapper, F, IntegerField, OuterRef, QuerySet, Subquery
+from django.db.models import (
+    BooleanField,
+    Count,
+    ExpressionWrapper,
+    F,
+    IntegerField,
+    OuterRef,
+    QuerySet,
+    Subquery,
+)
+from django.db.models.expressions import RawSQL
 from django.shortcuts import get_object_or_404
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -256,6 +267,41 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         if status:
             qs = qs.filter(status=status)
 
+        # Summary task annotations: is_summary = has at least one direct child,
+        # parent_id = the task whose wbs_path is this task's parent path.
+        # Uses ltree operators via RawSQL for PostgreSQL-native performance.
+        qs = qs.annotate(
+            is_summary=RawSQL(
+                "EXISTS("
+                "  SELECT 1 FROM projects_task c"
+                "  WHERE c.project_id = projects_task.project_id"
+                "    AND c.is_deleted = false"
+                "    AND c.id != projects_task.id"
+                "    AND c.wbs_path IS NOT NULL"
+                "    AND projects_task.wbs_path IS NOT NULL"
+                "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1}')::lquery"
+                ")",
+                [],
+                output_field=BooleanField(),
+            ),
+            parent_id=RawSQL(
+                "("
+                "  SELECT p.id FROM projects_task p"
+                "  WHERE p.project_id = projects_task.project_id"
+                "    AND p.is_deleted = false"
+                "    AND projects_task.wbs_path IS NOT NULL"
+                "    AND nlevel(projects_task.wbs_path) > 1"
+                "    AND p.wbs_path = subpath("
+                "        projects_task.wbs_path, 0,"
+                "        nlevel(projects_task.wbs_path) - 1"
+                "    )"
+                "  LIMIT 1"
+                ")",
+                [],
+                output_field=db_models.UUIDField(),
+            ),
+        )
+
         # Baseline overlay: annotate each task with baseline_start / baseline_finish.
         # Resolution order:
         #   1. ?baseline=<id> explicit override
@@ -285,7 +331,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 baseline_finish=Subquery(finish_sub),
             )
 
-        return qs
+        return cast("QuerySet[Task]", qs)
 
     def perform_create(self, serializer: BaseSerializer[Task]) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -670,6 +716,285 @@ class TaskReorderView(APIView):
             transaction.on_commit(lambda: broadcast_board_event(project_id, "tasks_reordered", {}))
 
         return Response({"updated": updated}, status=status.HTTP_200_OK)
+
+
+def _get_parent_path(wbs_path: str) -> str:
+    """Return the parent's wbs_path by stripping the last label, or '' for root."""
+    parts = wbs_path.split(".")
+    return ".".join(parts[:-1]) if len(parts) > 1 else ""
+
+
+def _get_siblings(project_id: str, parent_path: str, *, lock: bool = False) -> list[Task]:
+    """Fetch live tasks at the given parent level, ordered by wbs_path."""
+    qs = Task.objects.filter(project_id=project_id, is_deleted=False)
+    if lock:
+        qs = qs.select_for_update()
+    if parent_path:
+        qs = qs.filter(wbs_path__startswith=f"{parent_path}.").exclude(
+            wbs_path__regex=rf"^{parent_path}\.\d+\."
+        )
+    else:
+        qs = qs.filter(wbs_path__regex=r"^\d+$")
+    return list(qs.order_by("wbs_path"))
+
+
+def _get_descendants(project_id: str, wbs_path: str, *, lock: bool = False) -> list[Task]:
+    """Fetch all live descendants of a task (not including the task itself)."""
+    qs = Task.objects.filter(
+        project_id=project_id,
+        is_deleted=False,
+        wbs_path__startswith=f"{wbs_path}.",
+    )
+    if lock:
+        qs = qs.select_for_update()
+    return list(qs.order_by("wbs_path"))
+
+
+def _renumber_siblings(siblings: list[Task], parent_path: str) -> list[dict[str, Any]]:
+    """Assign sequential wbs_path to siblings and save changed ones.
+
+    Returns list of {"id": ..., "wbs_path": ...} for all siblings.
+    """
+    updated: list[dict[str, Any]] = []
+    for position, task in enumerate(siblings, start=1):
+        new_path = _build_wbs_path(parent_path, position)
+        if task.wbs_path != new_path:
+            task.wbs_path = new_path
+            task.save(update_fields=["wbs_path"])
+        updated.append({"id": str(task.pk), "wbs_path": new_path})
+    return updated
+
+
+def _rewrite_descendants(
+    descendants: list[Task], old_prefix: str, new_prefix: str
+) -> list[dict[str, Any]]:
+    """Update wbs_path for all descendants when a parent's path changes."""
+    updated: list[dict[str, Any]] = []
+    for task in descendants:
+        if task.wbs_path and task.wbs_path.startswith(old_prefix):
+            new_path = new_prefix + task.wbs_path[len(old_prefix) :]
+            if task.wbs_path != new_path:
+                task.wbs_path = new_path
+                task.save(update_fields=["wbs_path"])
+            updated.append({"id": str(task.pk), "wbs_path": new_path})
+    return updated
+
+
+class TaskIndentView(APIView):
+    """Indent a task — make it the last child of its previous sibling.
+
+    POST /api/v1/projects/{pk}/tasks/{task_id}/indent/
+
+    No request body.  The task moves under the immediately preceding sibling
+    at the same WBS level.
+
+    Returns:
+        200 { "updated": [...], "warning": null | "has_assignments" }
+        400 when the task is first at its level (no previous sibling).
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMemberWrite]
+
+    def post(self, request: Request, pk: str, task_id: str) -> Response:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+
+        with transaction.atomic():
+            task = get_object_or_404(
+                Task.objects.select_for_update(),
+                pk=task_id,
+                project_id=pk,
+                is_deleted=False,
+            )
+            if not task.wbs_path:
+                return Response(
+                    {"detail": "Task has no WBS path."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            parent_path = _get_parent_path(task.wbs_path)
+            siblings = _get_siblings(str(project.pk), parent_path, lock=True)
+
+            task_idx = next((i for i, s in enumerate(siblings) if s.pk == task.pk), None)
+            if task_idx is None or task_idx == 0:
+                return Response(
+                    {"detail": "Cannot indent: task is first at its level."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            prev_sibling = siblings[task_idx - 1]
+            descendants = _get_descendants(str(project.pk), task.wbs_path, lock=True)
+
+            # Count existing children of previous sibling to determine insertion position.
+            prev_children = _get_siblings(str(project.pk), prev_sibling.wbs_path, lock=True)
+            new_position = len(prev_children) + 1
+            old_path = task.wbs_path
+            new_path = _build_wbs_path(prev_sibling.wbs_path, new_position)
+
+            # Move the task under previous sibling.
+            task.wbs_path = new_path
+            task.save(update_fields=["wbs_path"])
+
+            all_updated: list[dict[str, Any]] = [{"id": str(task.pk), "wbs_path": new_path}]
+            all_updated.extend(_rewrite_descendants(descendants, old_path, new_path))
+
+            # Renumber old siblings (remove the gap left by the moved task).
+            remaining_siblings = [s for s in siblings if s.pk != task.pk]
+            all_updated.extend(_renumber_siblings(remaining_siblings, parent_path))
+
+            # Check if previous sibling just became a summary task with assignments.
+            warning: str | None = None
+            if not prev_children:
+                from trueppm_api.apps.resources.models import TaskResource
+
+                if TaskResource.objects.filter(task=prev_sibling).exists():
+                    warning = "has_assignments"
+
+            project_id = str(project.pk)
+            transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "tasks_restructured", {})
+            )
+
+        return Response(
+            {"updated": all_updated, "warning": warning},
+            status=status.HTTP_200_OK,
+        )
+
+
+class TaskOutdentView(APIView):
+    """Outdent a task — promote to parent's level (MS Project convention).
+
+    POST /api/v1/projects/{pk}/tasks/{task_id}/outdent/
+
+    No request body.  Following siblings at the old level become children
+    of the outdented task (MS Project convention).
+
+    Returns:
+        200 { "updated": [...], "warning": null | "has_assignments" }
+        400 when the task is at root level.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMemberWrite]
+
+    def post(self, request: Request, pk: str, task_id: str) -> Response:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+
+        with transaction.atomic():
+            task = get_object_or_404(
+                Task.objects.select_for_update(),
+                pk=task_id,
+                project_id=pk,
+                is_deleted=False,
+            )
+            if not task.wbs_path:
+                return Response(
+                    {"detail": "Task has no WBS path."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            parent_path = _get_parent_path(task.wbs_path)
+            if not parent_path:
+                return Response(
+                    {"detail": "Cannot outdent: task is at root level."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            grandparent_path = _get_parent_path(parent_path)
+
+            # Current siblings and task position.
+            old_siblings = _get_siblings(str(project.pk), parent_path, lock=True)
+            task_idx = next((i for i, s in enumerate(old_siblings) if s.pk == task.pk), None)
+            if task_idx is None:
+                return Response(
+                    {"detail": "Task not found among its siblings."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # MS Project convention: following siblings become children.
+            following_siblings = old_siblings[task_idx + 1 :]
+            remaining_old = old_siblings[:task_idx]
+
+            # Task's existing descendants.
+            task_descendants = _get_descendants(str(project.pk), task.wbs_path, lock=True)
+
+            # Siblings at the new (grandparent) level — for insertion positioning.
+            new_level_siblings = _get_siblings(str(project.pk), grandparent_path, lock=True)
+            parent_idx = next(
+                (i for i, s in enumerate(new_level_siblings) if s.wbs_path == parent_path),
+                None,
+            )
+            if parent_idx is None:
+                return Response(
+                    {"detail": "Parent task not found."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            old_path = task.wbs_path
+
+            # Count existing children of the task.
+            existing_children = _get_siblings(str(project.pk), task.wbs_path, lock=True)
+            next_child_pos = len(existing_children) + 1
+
+            all_updated: list[dict[str, Any]] = []
+
+            # Step 1: Compute the task's new path at the grandparent level.
+            # It goes immediately after its old parent.
+            new_task_path = _build_wbs_path(grandparent_path, parent_idx + 2)
+
+            # Step 2: Move the task itself.
+            task.wbs_path = new_task_path
+            task.save(update_fields=["wbs_path"])
+            all_updated.append({"id": str(task.pk), "wbs_path": new_task_path})
+
+            # Rewrite the task's original descendants under the new path.
+            all_updated.extend(_rewrite_descendants(task_descendants, old_path, new_task_path))
+
+            # Step 3: Adopt following siblings as children of the outdented task.
+            # Use new_task_path as parent so paths are immediately correct.
+            for follower in following_siblings:
+                follower_old_path = follower.wbs_path
+                follower_new_path = _build_wbs_path(new_task_path, next_child_pos)
+                follower_desc = _get_descendants(str(project.pk), follower_old_path, lock=True)
+
+                follower.wbs_path = follower_new_path
+                follower.save(update_fields=["wbs_path"])
+                all_updated.append({"id": str(follower.pk), "wbs_path": follower_new_path})
+                all_updated.extend(
+                    _rewrite_descendants(follower_desc, follower_old_path, follower_new_path)
+                )
+                next_child_pos += 1
+
+            # Step 3: Renumber remaining siblings at the old level.
+            all_updated.extend(_renumber_siblings(remaining_old, parent_path))
+
+            # Step 4: Renumber siblings at the new level (insert task after parent).
+            refreshed_new_siblings = _get_siblings(str(project.pk), grandparent_path, lock=True)
+            all_updated.extend(_renumber_siblings(refreshed_new_siblings, grandparent_path))
+
+            # Assignment warning if the task gained children (adopted followers).
+            warning: str | None = None
+            if following_siblings and not existing_children:
+                from trueppm_api.apps.resources.models import TaskResource
+
+                if TaskResource.objects.filter(task=task).exists():
+                    warning = "has_assignments"
+
+            project_id = str(project.pk)
+            transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "tasks_restructured", {})
+            )
+
+        return Response(
+            {"updated": all_updated, "warning": warning},
+            status=status.HTTP_200_OK,
+        )
 
 
 class TaskBulkView(APIView):

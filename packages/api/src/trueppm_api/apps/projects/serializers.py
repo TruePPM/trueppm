@@ -71,6 +71,10 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # Computed: actual_finish - early_finish in days.  Positive = late, negative = early.
     schedule_variance_days = serializers.SerializerMethodField()
 
+    # Summary task annotations — computed from wbs_path hierarchy, not stored.
+    is_summary = serializers.BooleanField(read_only=True, default=False)
+    parent_id = serializers.UUIDField(read_only=True, allow_null=True, default=None)
+
     class Meta:
         model = Task
         fields = [
@@ -102,6 +106,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "baseline_start",
             "baseline_finish",
             "schedule_variance_days",
+            "is_summary",
+            "parent_id",
         ]
         read_only_fields = [
             "id",
@@ -117,6 +123,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "baseline_start",
             "baseline_finish",
             "schedule_variance_days",
+            "is_summary",
+            "parent_id",
         ]
 
     def get_schedule_variance_days(self, obj: Task) -> int | None:
@@ -124,6 +132,25 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         if obj.actual_finish and obj.early_finish:
             return (obj.actual_finish - obj.early_finish).days
         return None
+
+    def to_representation(self, instance: Task) -> dict[str, Any]:
+        """Override percent_complete for summary tasks with duration-weighted child average."""
+        data = super().to_representation(instance)
+        if data.get("is_summary") and instance.wbs_path:
+            # Direct children only: ltree ~ 'parent_path.*{1}' matches exactly
+            # one level deeper. Uses RawSQL to leverage the GiST index.
+            children = Task.objects.raw(
+                "SELECT id, duration, percent_complete FROM projects_task"
+                " WHERE project_id = %s"
+                "   AND is_deleted = false"
+                "   AND wbs_path ~ (%s || '.*{1}')::lquery",
+                [instance.project_id, str(instance.wbs_path)],
+            )
+            total_duration = sum(c.duration for c in children)
+            if total_duration > 0:
+                weighted = sum(c.duration * c.percent_complete for c in children)
+                data["percent_complete"] = round(weighted / total_duration, 2)
+        return data
 
     def update(self, instance: Task, validated_data: dict[str, Any]) -> Task:
         """Auto-set actual dates on status transitions.

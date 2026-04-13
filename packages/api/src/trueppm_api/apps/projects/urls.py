@@ -13,6 +13,8 @@ from trueppm_api.apps.projects.views import (
     ProjectViewSet,
     RiskViewSet,
     TaskBulkView,
+    TaskIndentView,
+    TaskOutdentView,
     TaskReorderView,
     TaskViewSet,
 )
@@ -35,6 +37,16 @@ urlpatterns = [
         "projects/<pk>/tasks/bulk/",
         TaskBulkView.as_view(),
         name="project-tasks-bulk",
+    ),
+    path(
+        "projects/<pk>/tasks/<task_id>/indent/",
+        TaskIndentView.as_view(),
+        name="project-task-indent",
+    ),
+    path(
+        "projects/<pk>/tasks/<task_id>/outdent/",
+        TaskOutdentView.as_view(),
+        name="project-task-outdent",
     ),
     # Baseline endpoints — nested under /projects/<project_pk>/baselines/
     path(
