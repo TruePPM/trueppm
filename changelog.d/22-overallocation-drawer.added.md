@@ -1,0 +1,1 @@
+Overallocated cells (load > 100%) in the resource grid are now interactive: clicking or pressing Enter/Space opens the **Overallocation Drawer** (480px right-side panel on desktop, 85vh bottom sheet on mobile) showing load summary, hours over capacity, and contributing task IDs. Includes focus trap, Escape-to-close, and `aria-live` announcement on open.

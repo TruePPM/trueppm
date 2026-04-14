@@ -4,14 +4,16 @@
 import { CalendarMismatchTooltip } from './CalendarMismatchTooltip';
 import { ResourceCell } from './ResourceCell';
 import type { UtilizationResource } from './resourceUtils';
+import type { OverallocationTarget } from './ResourceOverallocationDrawer';
 
 interface Props {
   resource: UtilizationResource;
   days: string[]; // ordered ISO date strings for the visible window
   rowIndex: number;
+  onOpenDrawer?: (target: OverallocationTarget) => void;
 }
 
-export function ResourceRow({ resource, days, rowIndex }: Props) {
+export function ResourceRow({ resource, days, rowIndex, onOpenDrawer }: Props) {
   const isEvenRow = rowIndex % 2 === 0;
 
   return (
@@ -45,6 +47,9 @@ export function ResourceRow({ resource, days, rowIndex }: Props) {
           hoursPerDay={resource.hours_per_day}
           maxUnits={parseFloat(resource.max_units)}
           tooltipId={`tooltip-${resource.resource_id}-${iso}`}
+          resourceId={resource.resource_id}
+          resourceName={resource.resource_name}
+          onOpenDrawer={onOpenDrawer}
         />
       ))}
     </div>

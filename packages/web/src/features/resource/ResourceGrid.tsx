@@ -19,6 +19,7 @@ import {
   todayISO,
 } from './resourceUtils';
 import type { UtilizationResource } from './resourceUtils';
+import type { OverallocationTarget } from './ResourceOverallocationDrawer';
 
 const NAME_COL_WIDTH = 160; // px
 const DAY_COL_WIDTH = 32;   // px (rule 97)
@@ -27,9 +28,10 @@ interface Props {
   resources: UtilizationResource[];
   windowStart: string;
   windowEnd: string;
+  onOpenDrawer?: (target: OverallocationTarget) => void;
 }
 
-export function ResourceGrid({ resources, windowStart, windowEnd }: Props) {
+export function ResourceGrid({ resources, windowStart, windowEnd, onOpenDrawer }: Props) {
   const days = dateRange(windowStart, windowEnd);
   const weeks = groupByWeek(days);
   const today = todayISO();
@@ -94,6 +96,7 @@ export function ResourceGrid({ resources, windowStart, windowEnd }: Props) {
             resource={resource}
             days={days}
             rowIndex={idx}
+            onOpenDrawer={onOpenDrawer}
           />
         ))}
       </div>
