@@ -36,7 +36,5 @@ class TaskResourceSerializer(serializers.ModelSerializer[TaskResource]):
         maximum to catch data-entry errors while still allowing overtime.
         """
         if value < Decimal("0.01") or value > Decimal("2.0"):
-            raise serializers.ValidationError(
-                "units must be between 0.01 and 2.0 (1% to 200%)"
-            )
+            raise serializers.ValidationError("units must be between 0.01 and 2.0 (1% to 200%)")
         return value
