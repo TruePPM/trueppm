@@ -73,7 +73,7 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
       tabIndex={isEditing ? -1 : 0}
       style={{ height: ROW_HEIGHT, paddingLeft: (level - 1) * WBS_INDENT + 8 }}
       className={[
-        'group flex items-center pr-1 text-xs border-b border-neutral-border/20',
+        'relative group flex items-center pr-1 text-xs border-b border-neutral-border/20',
         isEditing ? 'cursor-text' : 'cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white',
         isSelected && !isEditing ? 'bg-white/10 border-l-2 border-brand-primary' : 'hover:bg-white/5',
@@ -137,8 +137,8 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
         />
       ) : (
         <div
-          className="flex flex-1 min-w-0 items-center gap-1 overflow-hidden"
-          style={{ width: widths.task - (level - 1) * WBS_INDENT - 8 }}
+          className="flex shrink-0 min-w-0 items-center gap-1 overflow-hidden"
+          style={{ width: widths.task - (level - 1) * WBS_INDENT - 18 }}
         >
           <span
             className={`min-w-0 shrink truncate ${isCriticalStyle} ${isSummaryStyle}`}
@@ -173,8 +173,9 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
             {!task.isMilestone && `${task.progress}%`}
           </span>
 
-          {/* Properties button — visible on row hover/focus or when selected.
-              Opens the task detail drawer (predecessor/successor management). */}
+          {/* Properties button — absolutely positioned so it does not affect column
+              layout. Right-aligned within the row; visible on hover/focus or when
+              selected. (#92: button was in the flex flow and shifted durStart/% columns.) */}
           <button
             type="button"
             aria-label={`Open properties for ${task.name}`}
@@ -184,7 +185,7 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
               setSelectedTaskId(task.id);
             }}
             className={[
-              'shrink-0 w-5 h-5 flex items-center justify-center rounded ml-1',
+              'absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded',
               'text-gantt-text-secondary hover:text-gantt-text-primary',
               'transition-opacity duration-100',
               isSelected
