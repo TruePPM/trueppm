@@ -29,6 +29,8 @@ export const BAR_TOP_OFFSET = 5;
 export const BAR_HEIGHT = 18;
 export const SUMMARY_BAR_HEIGHT = 8;
 export const MILESTONE_SIZE = 12;
+/** Baseline ghost bar and actual-date overlay height (rule 14). */
+export const GHOST_BAR_HEIGHT = 6;
 export const CANVAS_FONT = '12px Inter, system-ui, sans-serif';
 
 /** Extract initials from a full name (e.g. "Jane Smith" → "JS"). */
@@ -417,6 +419,101 @@ export function drawTaskBar(
     ctx.font = CANVAS_FONT; // Reset to engine default (rule 71)
   }
 
+  ctx.restore();
+}
+
+/**
+ * Draw the actual-date overlay for a task that has been at least partially
+ * executed (actualStart or actualFinish is set).
+ *
+ * Renders a 6px dashed bar at the bottom of the row (GHOST_BAR_HEIGHT, rule 14)
+ * positioned below the planned bar.  Color:
+ *   - Finished late (scheduleVarianceDays > 0) → gantt-semantic-critical (#F87171)
+ *   - Finished early (scheduleVarianceDays < 0) → gantt-semantic-on-track (#4ADE80)
+ *   - In progress or no variance info        → ghostBorder (slate-500 @55%)
+ *
+ * Drawn on canvas-bars (rule 59) after the main bar so it appears on top.
+ * Callers must translate(0, -scrollTop) before invoking.
+ */
+export function drawActualDateBar(
+  ctx: CanvasRenderingContext2D,
+  task: Task,
+  rowIndex: number,
+  scales: GanttScaleData,
+  scrollLeft: number,
+): void {
+  // Only render when execution has actually started (explicit actual dates required).
+  if (!task.actualStart && !task.actualFinish) return;
+  const drawStart = task.actualStart ?? task.start;
+  const drawEnd = task.actualFinish ?? task.finish;
+
+  const left = dateToLeft(drawStart, scales) - scrollLeft;
+  const right = dateToLeft(drawEnd, scales) - scrollLeft;
+  const width = Math.max(2, right - left);
+
+  // Position: bottom of the planned bar (barTop + BAR_HEIGHT + 1px gap)
+  const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
+  const actualTop = barTop + BAR_HEIGHT + 1;
+
+  const variance = task.scheduleVarianceDays ?? null;
+  let color: string;
+  if (variance !== null && variance > 0) {
+    color = COLOR.barCritical;   // late — gantt-semantic-critical
+  } else if (variance !== null && variance < 0) {
+    color = COLOR.barComplete;   // early — gantt-semantic-on-track
+  } else {
+    color = COLOR.ghostBorder;   // in-progress or no variance info
+  }
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = GHOST_BAR_HEIGHT;
+  ctx.lineCap = 'butt';
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(left, actualTop + GHOST_BAR_HEIGHT / 2);
+  ctx.lineTo(left + width, actualTop + GHOST_BAR_HEIGHT / 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+/**
+ * Draw a schedule-variance badge to the right of the task bar when the task
+ * has a non-zero scheduleVarianceDays value.
+ *
+ * Format: "+3d" (late) or "-2d" (early).  Positive = late (critical color),
+ * negative = early (on-track color).  Badge only renders when the bar right
+ * edge is within viewport (no off-screen labels).
+ *
+ * Drawn on canvas-bars after drawActualDateBar so the badge sits above the
+ * overlay.  Callers must translate(0, -scrollTop) before invoking.
+ */
+export function drawScheduleVarianceBadge(
+  ctx: CanvasRenderingContext2D,
+  task: Task,
+  rowIndex: number,
+  scales: GanttScaleData,
+  scrollLeft: number,
+  viewportWidth: number,
+): void {
+  const variance = task.scheduleVarianceDays;
+  if (variance === null || variance === undefined || variance === 0) return;
+
+  const barRight = dateToLeft(task.finish, scales) - scrollLeft;
+  if (barRight < 0 || barRight > viewportWidth) return;
+
+  const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
+  const badgeY = barTop + BAR_HEIGHT / 2;
+  const label = variance > 0 ? `+${variance}d` : `${variance}d`;
+  const color = variance > 0 ? COLOR.barCritical : COLOR.barComplete;
+
+  ctx.save();
+  ctx.font = '10px Inter, system-ui, sans-serif';
+  ctx.fillStyle = color;
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, barRight + 4, badgeY);
+  ctx.font = CANVAS_FONT; // restore engine default (rule 71)
   ctx.restore();
 }
 

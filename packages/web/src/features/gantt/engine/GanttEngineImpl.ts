@@ -32,6 +32,8 @@ import {
   drawDependencyArrows,
   drawDragShadow,
   drawResizeIndicator,
+  drawActualDateBar,
+  drawScheduleVarianceBadge,
 } from './GanttRenderer';
 import { HEADER_HEIGHT } from '../ganttConstants';
 
@@ -598,6 +600,15 @@ export class GanttEngineImpl implements GanttEngine {
       drawSummaryBar(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected);
     } else {
       drawTaskBar(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected);
+    }
+
+    // Actual-date overlay: drawn after the planned bar so it renders on top.
+    // Only shown for non-summary tasks that have actual execution data.
+    if (!task.isSummary && !task.isMilestone && (task.actualStart || task.actualFinish)) {
+      drawActualDateBar(ctx, task, rowIndex, this._scales, this._scrollLeft);
+      drawScheduleVarianceBadge(
+        ctx, task, rowIndex, this._scales, this._scrollLeft, this._viewportWidth,
+      );
     }
 
     ctx.restore();
