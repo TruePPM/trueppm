@@ -341,6 +341,25 @@ api:openapi-check:
     - cd packages/api
     - python manage.py spectacular --validate --file /dev/null
 
+api:schema-drift:
+  # Ensures docs/api/openapi.json stays in sync with the live DRF schema.
+  # Fails the pipeline if a model/serializer/view change alters the public
+  # surface without the committed artifact being regenerated.
+  extends: .api-no-db
+  stage: analyze
+  needs: [api:lint]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/api/**/*
+        - packages/scheduler/**/*
+        - docs/api/openapi.json
+        - scripts/export-openapi.sh
+        - .gitlab-ci.yml
+  script:
+    - ./scripts/export-openapi.sh --check
+
 web:type-check:
   extends: .web
   stage: analyze
