@@ -368,7 +368,7 @@ _DEFAULT_COLUMNS = [
 ]
 
 
-class BoardColumnConfigSerializer(serializers.Serializer):
+class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
     """Read/write serializer for BoardColumnConfig.
 
     Validates each column entry: status must be a valid TaskStatus, label
@@ -378,7 +378,7 @@ class BoardColumnConfigSerializer(serializers.Serializer):
 
     columns = serializers.ListField(child=serializers.DictField(), allow_empty=False)
 
-    def validate_columns(self, value: list) -> list:  # type: ignore[override]
+    def validate_columns(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         valid_statuses = {s.value for s in TaskStatus}
         seen: set[str] = set()
         for entry in value:
