@@ -54,20 +54,28 @@ def tasks(project: Project) -> list[Task]:
     """Four tasks covering different parts of January 2026."""
     return [
         Task.objects.create(
-            project=project, name="Jan 1-5",
-            early_start=date(2026, 1, 1), early_finish=date(2026, 1, 5),
+            project=project,
+            name="Jan 1-5",
+            early_start=date(2026, 1, 1),
+            early_finish=date(2026, 1, 5),
         ),
         Task.objects.create(
-            project=project, name="Jan 6-10",
-            early_start=date(2026, 1, 6), early_finish=date(2026, 1, 10),
+            project=project,
+            name="Jan 6-10",
+            early_start=date(2026, 1, 6),
+            early_finish=date(2026, 1, 10),
         ),
         Task.objects.create(
-            project=project, name="Jan 11-20",
-            early_start=date(2026, 1, 11), early_finish=date(2026, 1, 20),
+            project=project,
+            name="Jan 11-20",
+            early_start=date(2026, 1, 11),
+            early_finish=date(2026, 1, 20),
         ),
         Task.objects.create(
-            project=project, name="Jan 21-31",
-            early_start=date(2026, 1, 21), early_finish=date(2026, 1, 31),
+            project=project,
+            name="Jan 21-31",
+            early_start=date(2026, 1, 21),
+            early_finish=date(2026, 1, 31),
         ),
     ]
 
@@ -136,7 +144,7 @@ class TestTaskDateRangeFilter:
         names = _names(resp)
         # Only "Jan 6-10" overlaps [6, 10]: early_finish 10 >= 6 AND early_start 6 <= 10.
         assert names == ["Jan 6-10"] or set(names) == {"Jan 6-10"}
-        assert "Jan 1-5" not in names    # finishes 5 < 6
+        assert "Jan 1-5" not in names  # finishes 5 < 6
         assert "Jan 11-20" not in names  # starts 11 > 10
 
     def test_no_filter_returns_all_tasks(
