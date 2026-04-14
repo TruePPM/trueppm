@@ -238,10 +238,14 @@ export function buildScaleData(
   const cfg = ZOOM_CONFIGS[zoomLevel];
   const pxPerMs = cfg.pxPerDay / 86_400_000;
 
-  // Pad one zoom unit on each side for visual breathing room
+  // Pad one zoom unit on the leading side and one zoom unit + 28 days on the
+  // trailing side. The extra 28 days ("endless scroll" buffer) ensures header
+  // columns (weeks/months/quarters) extend well past the last task bar so
+  // users can see full schedule context and plan ahead (issue #96).
+  const TRAILING_BUFFER_MS = 28 * 86_400_000; // 4 weeks
   const padMs = padMsForZoom(zoomLevel);
   const start = new Date(parseUTCDate(startIso).getTime() - padMs);
-  const end = new Date(parseUTCDate(endIso).getTime() + padMs);
+  const end = new Date(parseUTCDate(endIso).getTime() + padMs + TRAILING_BUFFER_MS);
 
   // Snap start to UTC midnight
   start.setUTCHours(0, 0, 0, 0);
