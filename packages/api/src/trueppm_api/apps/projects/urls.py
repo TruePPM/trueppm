@@ -10,6 +10,7 @@ from trueppm_api.apps.projects.views import (
     BaselineViewSet,
     CalendarViewSet,
     DependencyViewSet,
+    ProjectPresenceView,
     ProjectViewSet,
     RiskViewSet,
     TaskBulkView,
@@ -69,6 +70,12 @@ urlpatterns = [
         "projects/<project_pk>/baselines/<baseline_pk>/activate/",
         BaselineActivateView.as_view(),
         name="project-baselines-activate",
+    ),
+    # Presence endpoint — who is connected to this project's WebSocket
+    path(
+        "projects/<pk>/presence/",
+        ProjectPresenceView.as_view(),
+        name="project-presence",
     ),
     # Risk endpoints — nested under /projects/<project_pk>/risks/
     path(

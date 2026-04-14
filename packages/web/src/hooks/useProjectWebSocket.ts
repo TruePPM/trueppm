@@ -17,6 +17,7 @@
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/authStore';
+import { usePresenceStore } from '@/stores/presenceStore';
 import { useSchedulerStore } from '@/stores/schedulerStore';
 import { useTaskRunStore } from '@/stores/taskRunStore';
 import type { CpmError } from '@/stores/schedulerStore';
@@ -44,6 +45,8 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
   const completeRun = useTaskRunStore((s) => s.completeRun);
   const failRun = useTaskRunStore((s) => s.failRun);
   const cancelRun = useTaskRunStore((s) => s.cancelRun);
+  const addPresenceUser = usePresenceStore((s) => s.addUser);
+  const removePresenceUser = usePresenceStore((s) => s.removeUser);
 
   // Stable refs so the reconnect loop doesn't capture stale closures.
   const projectIdRef = useRef(projectId);
@@ -116,6 +119,15 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       } else if (event_type === 'task_run_cancelled') {
         const taskRunId = payload.task_run_id as string;
         cancelRun(taskRunId);
+      }
+
+      // --- Presence events ---
+      else if (event_type === 'presence.join') {
+        const userId = payload.user_id as string;
+        const displayName = (payload.display_name as string | undefined) ?? userId;
+        addPresenceUser({ user_id: userId, display_name: displayName });
+      } else if (event_type === 'presence.leave') {
+        removePresenceUser(payload.user_id as string);
       }
 
       // --- Legacy CPM compat broadcast ---

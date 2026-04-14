@@ -175,6 +175,10 @@ async def test_connect_member_accepted(user: object, project: Project) -> None:
     close_mock = AsyncMock()
     consumer.close = close_mock
 
+    mock_redis = AsyncMock()
+    mock_redis.hset = AsyncMock()
+    mock_redis.expire = AsyncMock()
+
     with (
         patch.object(consumer, "_authenticate", new=AsyncMock(return_value=user)),
         patch.object(consumer, "_get_role", new=AsyncMock(return_value=Role.MEMBER)),
@@ -182,6 +186,11 @@ async def test_connect_member_accepted(user: object, project: Project) -> None:
             "channels.generic.websocket.AsyncJsonWebsocketConsumer.websocket_connect",
             new=super_connect,
         ),
+        patch(
+            "trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis",
+            new=AsyncMock(return_value=mock_redis),
+        ),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
     ):
         await consumer.websocket_connect({"type": "websocket.connect"})
 
@@ -204,6 +213,7 @@ async def test_disconnect_leaves_group(user: object, project: Project) -> None:
     consumer.channel_layer = channel_layer
     consumer.channel_name = "test.channel"
     consumer.group_name = f"project_{project.pk}"
+    # disconnect() also hits Redis for presence; no _user set → presence leave skipped.
 
     await consumer.disconnect(1000)
 
@@ -240,3 +250,92 @@ async def test_board_event_forwarded_to_client(user: object, project: Project) -
     assert len(sent) == 1
     assert sent[0]["event_type"] == "cpm_complete"
     assert sent[0]["payload"]["project_finish"] == "2026-06-01"
+
+
+# ---------------------------------------------------------------------------
+# Presence — join and leave broadcasts (#7)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_presence_join_broadcast_on_connect(user: object, project: Project) -> None:
+    """When a user connects, a presence.join event is broadcast to the project group."""
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    scope = _make_scope(str(project.pk), token="valid.token")
+    consumer = ProjectConsumer()
+    consumer.scope = scope
+    channel_layer = AsyncMock()
+    consumer.channel_layer = channel_layer
+    consumer.channel_name = "test.channel"
+
+    super_connect = AsyncMock()
+    consumer.close = AsyncMock()
+
+    broadcast_calls: list[dict] = []
+
+    def _mock_broadcast(project_id: str, event_type: str, payload: dict) -> None:
+        broadcast_calls.append({"event_type": event_type, "payload": payload})
+
+    mock_redis = AsyncMock()
+    mock_redis.hset = AsyncMock()
+    mock_redis.expire = AsyncMock()
+
+    with (
+        patch.object(consumer, "_authenticate", new=AsyncMock(return_value=user)),
+        patch.object(consumer, "_get_role", new=AsyncMock(return_value=Role.MEMBER)),
+        patch(
+            "channels.generic.websocket.AsyncJsonWebsocketConsumer.websocket_connect",
+            new=super_connect,
+        ),
+        patch("trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis", new=AsyncMock(return_value=mock_redis)),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", side_effect=_mock_broadcast),
+    ):
+        await consumer.websocket_connect({"type": "websocket.connect"})
+
+    join_events = [c for c in broadcast_calls if c["event_type"] == "presence.join"]
+    assert len(join_events) == 1
+    assert join_events[0]["payload"]["user_id"] == str(user.pk)  # type: ignore[attr-defined]
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_presence_leave_broadcast_on_disconnect(user: object, project: Project) -> None:
+    """When a user disconnects, a presence.leave event is broadcast to the project group."""
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    scope = _make_scope(str(project.pk), token="valid.token")
+    consumer = ProjectConsumer()
+    consumer.scope = scope
+    channel_layer = AsyncMock()
+    consumer.channel_layer = channel_layer
+    consumer.channel_name = "test.channel"
+    consumer.group_name = f"project_{project.pk}"
+    consumer.project_pk = str(project.pk)
+    consumer._user = user
+    consumer._display_name = user.username  # type: ignore[attr-defined]
+
+    broadcast_calls: list[dict] = []
+
+    def _mock_broadcast(project_id: str, event_type: str, payload: dict) -> None:
+        broadcast_calls.append({"event_type": event_type, "payload": payload})
+
+    mock_redis = AsyncMock()
+    mock_redis.hdel = AsyncMock()
+
+    with (
+        patch("trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis", new=AsyncMock(return_value=mock_redis)),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", side_effect=_mock_broadcast),
+    ):
+        await consumer.disconnect(1000)
+
+    leave_events = [c for c in broadcast_calls if c["event_type"] == "presence.leave"]
+    assert len(leave_events) == 1
+    assert leave_events[0]["payload"]["user_id"] == str(user.pk)  # type: ignore[attr-defined]
+    # Presence entry must be removed from Redis.
+    mock_redis.hdel.assert_called_once()
