@@ -37,7 +37,9 @@ class TaskResource(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="assignments")
-    resource = models.ForeignKey(Resource, on_delete=models.CASCADE, related_name="assignments")
+    resource = models.ForeignKey(
+        Resource, on_delete=models.CASCADE, related_name="assignments", db_index=True
+    )
     # Units assigned as a fraction of full-time (mirrors max_units on Resource)
     units = models.DecimalField(max_digits=4, decimal_places=2, default=1.0)
 

@@ -543,10 +543,13 @@ export function GanttView() {
             className="flex-1 min-w-0 overflow-auto relative"
             onScroll={handleCanvasScroll}
           >
-            {/* Scrollable content area sized to the full canvas width */}
+            {/* Scrollable content area sized to the full canvas width.
+                minWidth:'100%' ensures the timeline fills the viewport even when
+                the task date range is narrower than the available panel width (#92). */}
             <div
               style={{
                 width: totalCanvasWidth > 0 ? totalCanvasWidth : '100%',
+                minWidth: '100%',
                 height: HEADER_HEIGHT + visibleTasks.length * ROW_HEIGHT,
                 position: 'relative',
               }}

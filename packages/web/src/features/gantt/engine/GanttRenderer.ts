@@ -366,6 +366,8 @@ export function drawTaskBar(
   scrollLeft: number,
   isSelected: boolean,
 ): void {
+  // Defense-in-depth: _paintTaskAt already guards, but protect against direct callers too
+  if (!task.start || !task.finish) return;
   const barLeft = dateToLeft(task.start, scales) - scrollLeft;
   const barRight = dateToLeft(task.finish, scales) - scrollLeft;
   const barWidth = Math.max(2, barRight - barLeft);
@@ -530,6 +532,7 @@ export function drawSummaryBar(
   scrollLeft: number,
   isSelected: boolean,
 ): void {
+  if (!task.start || !task.finish) return;
   const barLeft = dateToLeft(task.start, scales) - scrollLeft;
   const barRight = dateToLeft(task.finish, scales) - scrollLeft;
   const barWidth = Math.max(2, barRight - barLeft);
@@ -580,6 +583,7 @@ export function drawMilestone(
   scrollLeft: number,
   isSelected: boolean,
 ): void {
+  if (!task.start) return;
   const centerX = dateToLeft(task.start, scales) - scrollLeft;
   const centerY = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2;
   const half = MILESTONE_SIZE / 2;
@@ -630,9 +634,12 @@ export function drawDependencyArrows(
   if (links.length === 0) return;
 
   // Build a quick lookup: taskId → { rowIndex, barLeft, barRight }
+  // Skip unscheduled tasks (empty start/finish) — NaN coordinates in the map
+  // can cause degenerate Bézier paths or unexpected arrow rendering (#92).
   const taskMap = new Map<string, { rowIndex: number; barLeft: number; barRight: number; isCritical: boolean }>();
   for (let i = 0; i < tasks.length; i++) {
     const t = tasks[i];
+    if (!t.start || !t.finish) continue;
     taskMap.set(t.id, {
       rowIndex: i,
       barLeft: dateToLeft(t.start, scales) - scrollLeft,

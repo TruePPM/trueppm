@@ -5,6 +5,7 @@ import {
   useUpdateDependency,
   useDeleteDependency,
 } from '@/hooks/useDependencyMutations';
+import { ResourceAssignmentSection } from './ResourceAssignmentSection';
 
 export interface TaskDetailDrawerProps {
   task: Task | null;
@@ -238,6 +239,9 @@ function DrawerBody({
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-6">
+
+        {/* Resource Assignments */}
+        <ResourceAssignmentSection taskId={taskId} projectId={projectId} />
 
         {/* Predecessors */}
         <section aria-label="Predecessors">
