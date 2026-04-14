@@ -19,6 +19,7 @@ import {
   todayISO,
 } from './resourceUtils';
 import type { UtilizationResource } from './resourceUtils';
+import type { OverallocationTarget } from './ResourceOverallocationDrawer';
 
 const NAME_COL_WIDTH = 160; // px
 const DAY_COL_WIDTH = 32;   // px (rule 97)
@@ -27,9 +28,10 @@ interface Props {
   resources: UtilizationResource[];
   windowStart: string;
   windowEnd: string;
+  onOpenDrawer?: (target: OverallocationTarget) => void;
 }
 
-export function ResourceGrid({ resources, windowStart, windowEnd }: Props) {
+export function ResourceGrid({ resources, windowStart, windowEnd, onOpenDrawer }: Props) {
   const days = dateRange(windowStart, windowEnd);
   const weeks = groupByWeek(days);
   const today = todayISO();
@@ -51,7 +53,7 @@ export function ResourceGrid({ resources, windowStart, windowEnd }: Props) {
               className="flex-none border-r border-neutral-border/50 px-1 flex items-center"
               style={{ width: weekDays.length * DAY_COL_WIDTH }}
             >
-              <span className="text-[11px] font-medium text-neutral-text-secondary truncate">
+              <span className="text-xs font-medium text-neutral-text-secondary truncate">
                 {formatWeekHeader(weekStart)}
               </span>
             </div>
@@ -73,7 +75,7 @@ export function ResourceGrid({ resources, windowStart, windowEnd }: Props) {
                 key={iso}
                 className={`
                   flex-none flex items-center justify-center h-5
-                  border-r border-neutral-border/30 text-[10px]
+                  border-r border-neutral-border/30 text-xs
                   ${weekend ? 'opacity-50' : ''}
                   ${isToday ? 'font-bold text-brand-primary' : 'text-neutral-text-secondary'}
                 `}
@@ -94,6 +96,7 @@ export function ResourceGrid({ resources, windowStart, windowEnd }: Props) {
             resource={resource}
             days={days}
             rowIndex={idx}
+            onOpenDrawer={onOpenDrawer}
           />
         ))}
       </div>

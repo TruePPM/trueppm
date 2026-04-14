@@ -41,7 +41,7 @@ export function ProjectShell() {
         {view === 'list' && <TaskListView />}
         {view === 'board' && <BoardView />}
         {view === 'calendar' && <CalendarView />}
-        {view === 'resources' && <ResourceView />}
+        {view === 'resources' && <ResourceView projectId={projectId ?? undefined} />}
         {view === 'risk' && <RiskRegisterView projectId={projectId ?? ''} />}
       </div>
     </div>
