@@ -7,7 +7,9 @@ interface WbsRowProps {
   node: WbsNode;
   isExpanded: boolean;
   isRenaming: boolean;
+  isSelected: boolean;
   onToggle: () => void;
+  onSelect: () => void;
   onStartRename: () => void;
   onRename: (name: string) => void;
   onCancelRename: () => void;
@@ -17,7 +19,9 @@ export function WbsRow({
   node,
   isExpanded,
   isRenaming,
+  isSelected,
   onToggle,
+  onSelect,
   onStartRename,
   onRename,
   onCancelRename,
@@ -73,21 +77,24 @@ export function WbsRow({
     <div
       ref={setNodeRef}
       style={style}
+      data-task-id={task.id}
       role="row"
       aria-level={depth + 1}
       aria-expanded={hasChildren ? isExpanded : undefined}
-      aria-selected="false"
+      aria-selected={isSelected}
       className={`
         flex items-center h-11 px-2 gap-1
         border-b border-neutral-800/50
         hover:bg-neutral-800/40 group
         focus-within:bg-neutral-800/30
+        ${isSelected ? 'bg-white/10 !border-l-2 !border-l-brand-primary' : ''}
         ${rowBg}
         ${isDragging ? 'opacity-50' : ''}
       `}
+      onClick={onSelect}
       onDoubleClick={task.isSummary ? undefined : onStartRename}
       onKeyDown={handleNameKeyDown}
-      tabIndex={0}
+      tabIndex={isSelected ? 0 : -1}
     >
       {/* Drag handle — hidden on summary rows and on touch < md */}
       <span

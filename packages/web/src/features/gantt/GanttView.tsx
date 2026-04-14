@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState, useEffect, type PointerEvent } from 'react';
+import { useRef, useCallback, useState, useEffect, useMemo, type PointerEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import type { GanttEngine } from './engine';
 import { dateToLeft, leftToDate } from './engine';
@@ -6,10 +6,12 @@ import { HEADER_HEIGHT, ROW_HEIGHT } from './ganttConstants';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
 import { useCreateTask, useRescheduleTask } from '@/hooks/useTaskMutations';
 import { useGanttStore } from '@/stores/ganttStore';
+import { useWbsStore } from '@/stores/wbsStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
 import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
 import { useDragStore } from '@/stores/dragStore';
 import { useColumnWidths } from '@/hooks/useColumnWidths';
+import { buildWbsTree, flattenVisible, collectAllIds } from '@/features/wbs/buildWbsTree';
 import { TaskListPanel } from './TaskListPanel';
 import { CanvasGanttTimeline } from './CanvasGanttTimeline';
 import { ZoomControl } from './ZoomControl';
@@ -134,8 +136,30 @@ function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
 export function GanttView() {
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project');
-  const { tasks, links, isLoading, error } = useGanttTasks();
-  const allTasks          = tasks ?? [];
+  const { tasks: rawTasks, links, isLoading, error } = useGanttTasks();
+  const allTasks          = useMemo(() => rawTasks ?? [], [rawTasks]);
+  const { expandedIds, toggle: toggleExpand, expandAll } = useWbsStore();
+
+  // Build tree and compute visible tasks for collapse/expand
+  const { visibleTasks, summaryIds } = useMemo(() => {
+    if (allTasks.length === 0) return { visibleTasks: allTasks, summaryIds: new Set<string>() };
+    const tree = buildWbsTree(allTasks);
+    const sIds = new Set(allTasks.filter((t) => t.isSummary).map((t) => t.id));
+    const visible = flattenVisible(tree, expandedIds).map((n) => n.task);
+    return { visibleTasks: visible, summaryIds: sIds };
+  }, [allTasks, expandedIds]);
+
+  // Auto-expand root-level summary nodes on first load
+  useEffect(() => {
+    if (allTasks.length === 0) return;
+    const tree = buildWbsTree(allTasks);
+    const rootSummaryIds = tree.filter((n) => n.task.isSummary).map((n) => n.task.id);
+    if (rootSummaryIds.length > 0) {
+      expandAll(collectAllIds(tree));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allTasks.length]);
+
   const zoomLevel         = useGanttStore((s) => s.zoomLevel);
   const selectedTaskId    = useGanttStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useGanttStore((s) => s.setSelectedTaskId);
@@ -152,8 +176,8 @@ export function GanttView() {
 
   // Remove pending entries once the scheduler assigns them dates
   useEffect(() => {
-    if (!tasks || pendingTaskIds.size === 0) return;
-    const taskIds = new Set(tasks.map((t) => t.id));
+    if (!rawTasks || pendingTaskIds.size === 0) return;
+    const taskIds = new Set(rawTasks.map((t) => t.id));
     setPendingTaskIds((prev) => {
       const next = new Map(prev);
       for (const id of prev.keys()) {
@@ -161,7 +185,7 @@ export function GanttView() {
       }
       return next;
     });
-  }, [tasks, pendingTaskIds.size]);
+  }, [rawTasks, pendingTaskIds.size]);
 
   const taskListScrollRef = useRef<HTMLDivElement>(null);
   const [engine, setEngine] = useState<GanttEngine | null>(null);
@@ -231,7 +255,7 @@ export function GanttView() {
   // Drag CPM preview — wires engine events + Web Worker (issue #19)
   useDragCpm({
     engine,
-    tasks: tasks ?? [],
+    tasks: allTasks,
     links: links ?? [],
     ariaLiveRef,
     keyboardModeRef,
@@ -240,15 +264,15 @@ export function GanttView() {
   // Keyboard rescheduling — Enter/Arrow/d/Escape (issue #34)
   const handleOpenDatePopover = useCallback(
     (taskId: string) => {
-      const task = tasks?.find((t) => t.id === taskId) ?? null;
+      const task = allTasks.find((t) => t.id === taskId) ?? null;
       setDatePopoverTask(task);
     },
-    [tasks],
+    [allTasks],
   );
 
   useKeyboardReschedule({
     engine,
-    tasks: tasks ?? [],
+    tasks: allTasks,
     links: links ?? [],
     ariaLiveRef,
     ariaAssertiveRef,
@@ -265,7 +289,7 @@ export function GanttView() {
       if (!navigator.onLine) return; // offline case handled by useDragCpm
       const scales = engine.scales;
       if (!scales) return;
-      const task = tasks?.find((t) => t.id === id);
+      const task = allTasks.find((t) => t.id === id);
       if (!task) return;
       const newStartIso = leftToDate(left, scales).toISOString().slice(0, 10);
       if (newStartIso === task.start) return;
@@ -280,7 +304,7 @@ export function GanttView() {
         optimistic: { start: newStartIso, finish: newFinishIso },
       });
     });
-  }, [engine, projectId, tasks, rescheduleTask]);
+  }, [engine, projectId, allTasks, rescheduleTask]);
 
   // Bar resize — convert canvas-origin right-x to new finish date and PATCH
   useEffect(() => {
@@ -289,7 +313,7 @@ export function GanttView() {
       if (cancelled) return;
       const scales = engine.scales;
       if (!scales) return;
-      const task = tasks?.find((t) => t.id === id);
+      const task = allTasks.find((t) => t.id === id);
       if (!task?.start) return;
       const newFinish = leftToDate(right, scales);
       const newFinishIso = newFinish.toISOString().slice(0, 10);
@@ -303,7 +327,7 @@ export function GanttView() {
         optimistic: { finish: newFinishIso, duration: newDuration },
       });
     });
-  }, [engine, projectId, tasks, rescheduleTask]);
+  }, [engine, projectId, allTasks, rescheduleTask]);
 
   const dragPhase = useDragStore((s) => s.phase);
 
@@ -362,7 +386,7 @@ export function GanttView() {
     );
   }
 
-  if (isLoading || !tasks) {
+  if (isLoading || !rawTasks) {
     return (
       <div className="flex h-full bg-gantt-surface" aria-busy="true" aria-label="Loading Gantt">
         <div className="w-[280px] flex-shrink-0 border-r border-white/10 p-2 space-y-1">
@@ -384,13 +408,16 @@ export function GanttView() {
 
         <div className="flex flex-1 overflow-hidden">
           <TaskListPanel
-            tasks={tasks}
+            tasks={visibleTasks}
             scrollRef={taskListScrollRef}
             widths={widths}
             setWidth={setWidth}
             totalWidth={totalWidth}
+            summaryIds={summaryIds}
+            expandedIds={expandedIds}
+            onToggle={toggleExpand}
           />
-          <GanttFallbackTable tasks={tasks} />
+          <GanttFallbackTable tasks={visibleTasks} />
         </div>
       </div>
     );
@@ -458,17 +485,20 @@ export function GanttView() {
 
       <div className="flex flex-1 overflow-hidden" ref={timelineContainerRef}>
         <TaskListPanel
-          tasks={tasks}
+          tasks={visibleTasks}
           pendingTaskIds={pendingTaskIds}
           scrollRef={taskListScrollRef}
           widths={widths}
           setWidth={setWidth}
           totalWidth={totalWidth}
+          summaryIds={summaryIds}
+          expandedIds={expandedIds}
+          onToggle={toggleExpand}
         />
         {/* Panel splitter — drag to resize task list width */}
         <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
 
-        {tasks.length === 0 ? (
+        {visibleTasks.length === 0 ? (
           <GanttEmptyState />
         ) : (
           <div
@@ -480,7 +510,7 @@ export function GanttView() {
             <div
               style={{
                 width: totalCanvasWidth > 0 ? totalCanvasWidth : '100%',
-                height: HEADER_HEIGHT + tasks.length * ROW_HEIGHT,
+                height: HEADER_HEIGHT + visibleTasks.length * ROW_HEIGHT,
                 position: 'relative',
               }}
             >
@@ -496,7 +526,7 @@ export function GanttView() {
                 }}
               >
                 <CanvasGanttTimeline
-                  tasks={tasks}
+                  tasks={visibleTasks}
                   links={links ?? []}
                   zoomLevel={zoomLevel}
                   containerRef={canvasScrollRef}
