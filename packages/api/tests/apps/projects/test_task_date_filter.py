@@ -79,7 +79,11 @@ def _names(resp: object) -> list[str]:
 @pytest.mark.django_db
 class TestTaskDateRangeFilter:
     def test_start_gte_excludes_tasks_finishing_before(
-        self, auth_client: APIClient, project: Project, tasks: list[Task], _membership: ProjectMembership
+        self,
+        auth_client: APIClient,
+        project: Project,
+        tasks: list[Task],
+        _membership: ProjectMembership,
     ) -> None:
         # Only tasks with early_finish >= 2026-01-11 should be returned.
         resp = auth_client.get(
@@ -94,7 +98,11 @@ class TestTaskDateRangeFilter:
         assert "Jan 21-31" in names
 
     def test_finish_lte_excludes_tasks_starting_after(
-        self, auth_client: APIClient, project: Project, tasks: list[Task], _membership: ProjectMembership
+        self,
+        auth_client: APIClient,
+        project: Project,
+        tasks: list[Task],
+        _membership: ProjectMembership,
     ) -> None:
         # Only tasks with early_start <= 2026-01-10 should be returned.
         resp = auth_client.get(
@@ -109,7 +117,11 @@ class TestTaskDateRangeFilter:
         assert "Jan 21-31" not in names
 
     def test_combined_window_returns_overlapping_tasks(
-        self, auth_client: APIClient, project: Project, tasks: list[Task], _membership: ProjectMembership
+        self,
+        auth_client: APIClient,
+        project: Project,
+        tasks: list[Task],
+        _membership: ProjectMembership,
     ) -> None:
         # Window Jan 6–Jan 10: tasks that started before Jan 10 AND finish after Jan 6.
         resp = auth_client.get(
@@ -128,7 +140,11 @@ class TestTaskDateRangeFilter:
         assert "Jan 11-20" not in names  # starts 11 > 10
 
     def test_no_filter_returns_all_tasks(
-        self, auth_client: APIClient, project: Project, tasks: list[Task], _membership: ProjectMembership
+        self,
+        auth_client: APIClient,
+        project: Project,
+        tasks: list[Task],
+        _membership: ProjectMembership,
     ) -> None:
         resp = auth_client.get("/api/v1/tasks/", {"project": str(project.pk)})
         assert resp.status_code == 200
