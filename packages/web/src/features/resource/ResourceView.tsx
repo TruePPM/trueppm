@@ -54,6 +54,15 @@ export function ResourceView({ projectId, projectStartDate }: Props) {
     );
   }
 
+  // --- No project selected ---
+  if (status === 'idle') {
+    return (
+      <div className="flex items-center justify-center h-full text-xs text-neutral-text-secondary">
+        No project selected.
+      </div>
+    );
+  }
+
   // --- 409 state (rule 95) ---
   if (status === 'schedule-not-run') {
     return (
