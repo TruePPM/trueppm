@@ -11,7 +11,7 @@
  * - Aria: role="dialog" aria-modal aria-label={title}
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { capacityHours, loadPercent } from './resourceUtils';
 import type { UtilizationDayEntry } from './resourceUtils';
 
@@ -36,7 +36,7 @@ interface DrawerBodyProps {
   overHours: number;
   capacity: number;
   drawerTitle: string;
-  closeButtonRef: React.RefObject<HTMLButtonElement>;
+  closeButtonRef: RefObject<HTMLButtonElement>;
   onClose: () => void;
 }
 
