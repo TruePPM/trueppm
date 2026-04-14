@@ -13,8 +13,10 @@ pip install trueppm-scheduler
 
 | Notebook | Contents |
 |----------|----------|
-| [`01-cpm-quickstart.ipynb`](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/packages/scheduler/notebooks/01-cpm-quickstart.ipynb) | Project definition, CPM run, per-task float table, custom calendar, SS dependency, cycle detection, JSON round-trip |
-| [`02-monte-carlo.ipynb`](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/packages/scheduler/notebooks/02-monte-carlo.ipynb) | PERT three-point estimates, Monte Carlo run, P50/P80/P95 output, matplotlib histogram, scenario comparison |
+| [`01-cpm-quickstart.ipynb`](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/notebooks/01-cpm-quickstart.ipynb) | Project definition, CPM run, per-task float table, custom calendar, SS dependency, cycle detection, JSON round-trip |
+| [`02-monte-carlo.ipynb`](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/notebooks/02-monte-carlo.ipynb) | PERT three-point estimates, Monte Carlo run, P50/P80/P95 output, matplotlib histogram, scenario comparison |
+| [`03-calendar-aware.ipynb`](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/notebooks/03-calendar-aware.ipynb) | Mon–Sat weeks, public holiday exceptions, multi-week shutdown blocks, calendar-aware lag, JSON round-trip |
+| [`04-incremental-scheduling.ipynb`](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/notebooks/04-incremental-scheduling.ipynb) | Incremental CPM, equivalence verification, fallback behaviour, local bench |
 
 ```bash
 # Run locally (from repo root)
