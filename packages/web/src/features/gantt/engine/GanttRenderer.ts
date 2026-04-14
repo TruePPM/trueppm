@@ -422,7 +422,8 @@ export function drawTaskBar(
 
 /**
  * Draw a summary (parent) task bar — thinner, centered vertically, no label.
- * Uses a simpler bracket shape at reduced height.
+ * End-caps are filled diamonds matching the milestone diamond geometry
+ * (rule 14: milestone = 12px), signalling the start/finish of a rollup span.
  */
 export function drawSummaryBar(
   ctx: CanvasRenderingContext2D,
@@ -435,8 +436,8 @@ export function drawSummaryBar(
   const barLeft = dateToLeft(task.start, scales) - scrollLeft;
   const barRight = dateToLeft(task.finish, scales) - scrollLeft;
   const barWidth = Math.max(2, barRight - barLeft);
-  // Center the 8px summary bar vertically in the 28px row
-  const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + (ROW_HEIGHT - SUMMARY_BAR_HEIGHT) / 2;
+  const rowCenterY = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2;
+  const barTop = rowCenterY - SUMMARY_BAR_HEIGHT / 2;
 
   ctx.save();
   ctx.fillStyle = COLOR.barSummary;
@@ -452,11 +453,20 @@ export function drawSummaryBar(
     ctx.stroke();
   }
 
-  // Hanging end-caps (bracket tails)
-  const capHeight = 5;
+  // Diamond end-caps — same 45°-rotated square as drawMilestone, centered on
+  // the bar midline at each end so the summary endpoints visually match
+  // milestones on adjacent rows.
+  const capHalf = MILESTONE_SIZE / 2;
   ctx.fillStyle = COLOR.barSummary;
-  ctx.fillRect(barLeft, barTop, 3, capHeight + SUMMARY_BAR_HEIGHT);
-  ctx.fillRect(barRight - 3, barTop, 3, capHeight + SUMMARY_BAR_HEIGHT);
+  for (const centerX of [barLeft, barRight]) {
+    ctx.save();
+    ctx.translate(centerX, rowCenterY);
+    ctx.rotate(Math.PI / 4);
+    ctx.beginPath();
+    ctx.rect(-capHalf, -capHalf, MILESTONE_SIZE, MILESTONE_SIZE);
+    ctx.fill();
+    ctx.restore();
+  }
 
   ctx.restore();
 }
