@@ -216,3 +216,110 @@ in v1. The API contract (`GET /projects/{pk}/resources/utilization/`) is defined
 - ADR-0001: WBS Tree, Task List, and Calendar View Architecture
 - ADR-0002: UI Harmonization (ViewTabs / BottomNav patterns)
 - `trueppm-enterprise#41`: Program/portfolio Kanban (swimlanes per project)
+
+---
+
+## Amendment — 2026-04-13 (Issue #21 reopen)
+
+### Context
+
+Two gaps surfaced in audit:
+
+1. **Hard-coded columns.** The original decision said "server-defined and stable,
+   not client-configurable in OSS." VoC panel reversed this: Sarah (PM) and Marcus
+   (PMO) both want per-project column configuration (labels, order, WIP limits).
+   Full custom status values are still out of scope — the four canonical
+   `TaskStatus` values stay authoritative; config only decides **display**.
+2. **Visiban bridge** — removed from scope. Deferred to a new enterprise-repo
+   issue. A separate OSS issue is opened for Jira integration (higher persona
+   priority per VoC).
+
+### Decision
+
+#### New app: `boards`
+
+`packages/api/src/trueppm_api/apps/boards/`. Keeps `projects/models.py` from
+growing further and prepares for board-level features (swimlanes, filters) without
+polluting the core project entity.
+
+#### New model
+
+```python
+# boards/models.py
+class BoardColumnConfig(VersionedModel):
+    project = OneToOneField(Project, CASCADE, related_name="board_config")
+    columns = JSONField(default=_default_columns)
+    # columns shape: [{"status": "NOT_STARTED", "label": "To do", "wip_limit": null}, ...]
+
+def _default_columns():
+    return [
+        {"status": "NOT_STARTED", "label": "To do",       "wip_limit": None},
+        {"status": "IN_PROGRESS", "label": "In progress", "wip_limit": None},
+        {"status": "ON_HOLD",     "label": "On hold",     "wip_limit": None},
+        {"status": "COMPLETE",    "label": "Complete",    "wip_limit": None},
+    ]
+```
+
+Extends `VersionedModel` (synced to mobile so the board renders the same columns
+offline). `project` is OneToOne — at most one config per project.
+
+**Validation:**
+- Every `status` in `columns` must be a valid `TaskStatus` choice
+- No duplicate statuses
+- `wip_limit` is null or a positive int
+- At least one column with each of the four canonical statuses
+  (prevents orphaning tasks whose status has no column)
+
+#### New endpoints
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/api/v1/projects/{id}/board-config/` | `IsProjectMember` |
+| PUT | `/api/v1/projects/{id}/board-config/` | `IsProjectAdmin` |
+| POST | `/api/v1/projects/{id}/board-config/reset/` | `IsProjectAdmin` |
+
+PUT uses optimistic concurrency via `server_version` (per `VersionedModel` convention).
+Conflict returns 409 with current config; client re-fetches and retries.
+
+#### Frontend
+
+- New section **Board** under `/projects/:id/settings` (NOT a hidden `/boards/config/`
+  page — UX sign-off). See ux-design output for layout.
+- `useBoardConfig(project_id)` TanStack Query hook; BoardView subscribes.
+- On mutation, `broadcast_board_event(project_id, {type: "board_config_updated",
+  config})` fires. Open BoardView tabs invalidate their config query.
+
+#### Delete-blocked state
+
+Deleting a column whose `status` has tasks returns 422 with `{detail: "Column has N
+tasks. Move or complete them first."}`. UI surfaces this as a blocking modal with
+deep-link to tasks filtered to that status.
+
+#### Visiban removed from OSS
+
+The original issue listed Visiban as an opt-in bridge. Deferred to
+`trueppm-enterprise#<TBD>`. OSS has no Visiban dependencies, imports, or UI.
+
+### Migration
+
+- `boards/0001_initial.py` — creates `BoardColumnConfig` table
+- `boards/0002_backfill_configs.py` — data migration: for every existing Project,
+  create a config row with the default 4 columns. Idempotent (skips if exists).
+
+Both migrations are additive. Must pass `migration-check`.
+
+### No-regression surface
+
+- `Task.status` field unchanged; still canonical
+- `PATCH /tasks/{id}/` status update path unchanged
+- @dnd-kit DnD, keyboard "Move to…" menu, aria-live announcements unchanged
+- `task_updated` WebSocket event unchanged
+- `task_status_changed` signal unchanged
+- `SyncTaskSerializer.status` unchanged
+- Existing BoardView falls back to default config when API returns 404 (new projects
+  before their config row is created)
+
+### Related
+
+- New enterprise-repo issue: Visiban bridge (TBD)
+- New OSS issue: Jira integration (VoC-driven — Marcus + Priya)

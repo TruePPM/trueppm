@@ -1,7 +1,7 @@
 # ADR-0015: WASM CPM Engine — Rust + wasm-pack
 
 ## Status
-Proposed
+Accepted (partial) — see Amendment below
 
 ## Context
 
@@ -223,3 +223,60 @@ means the first drag interaction hangs — unacceptable for the "instant feedbac
 7. Integrate into `cpmWorker.ts` with WASM/TS fallback
 8. Add CI job: `wasm-pack build` + `wasm-pack test` + conformance check
 9. Performance benchmarks against 5,000-task fixture
+
+---
+
+## Amendment — 2026-04-13 (Issue #19 reopen)
+
+### Context
+
+Issue #19 originally required the Gantt drag-preview worker to load the Rust WASM
+scheduler via `wasm-pack`. Implementation shipped with a native-TypeScript CPM in the
+worker (`packages/web/src/workers/cpmEngine.ts`) — no WASM import. The Rust WASM build
+exists at `packages/wasm-scheduler/pkg/` and its conformance suite
+(`packages/scheduler/tests/test_wasm_conformance.py`) is green, but it is not loaded
+by the web client.
+
+VoC panel near-tie (Path A 4.8, Path B 5.0): no persona blocks on the implementation
+language, and no customer has filed a perf complaint on the current drag-preview
+path. Rewriting a working worker without a driver fails the decision-framework
+priority "fewer moving parts = better."
+
+### Decision — partial acceptance
+
+1. **Rust WASM remains the conformance reference.** The Python ↔ Rust equivalence
+   suite stays green and is the correctness guard for any future client-side CPM work.
+2. **Drag-preview worker stays native TypeScript for now.** No code change to
+   `cpmEngine.ts` or `cpmWorker.ts`. Original ADR's "Integration points: Web" section
+   is **not executed in the current release** — it is held for a future migration
+   triggered by a scale complaint or offline-mobile scheduling (#26).
+3. **Performance regression guard added.** New Playwright spec drags a 1000-task
+   fixture and asserts preview-bar frame cost ≤ 33ms p95 (≥30fps). Drives the
+   decision on when Path B becomes necessary.
+4. **Mobile (#26) still targets WASM via JSI.** The original integration plan for
+   mobile is unchanged; mobile does not inherit the web's native-TS shortcut.
+
+### Scope of this amendment
+
+- No code changes.
+- ADR status moves from Proposed → Accepted (partial).
+- Issue #19's AC is amended to match the shipped native-TS path; Pyodide/WASM
+  language is removed from the OSS web-drag-preview AC.
+
+### Migration path (when a complaint arrives)
+
+The original ADR's migration plan (feature-detection + WASM preferred + TS fallback)
+is preserved verbatim. Trigger conditions for executing it:
+
+- A customer reports drag-preview jank on projects > 2,000 tasks, OR
+- #26 (offline mobile) ships and needs WASM in the JSI bridge anyway — at which
+  point shipping the same WASM to web is marginal cost, OR
+- Playwright perf guard starts failing.
+
+### No-regression surface
+
+- `cpmWorker.ts`, `cpmEngine.ts`, `createCpmWorker.ts`, `useDragCpm.ts` unchanged
+- Preview overlay (10-bar cap, CP badge, Esc-to-cancel) unchanged
+- `useKeyboardReschedule` keyboard parity unchanged
+- `packages/wasm-scheduler/` build + conformance CI unchanged
+
