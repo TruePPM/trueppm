@@ -14,7 +14,11 @@ from rest_framework.viewsets import GenericViewSet, ReadOnlyModelViewSet
 
 from trueppm_api.apps.access.permissions import IsProjectAdmin, IsProjectMember
 from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
-from trueppm_api.apps.taskruns.serializers import TaskRunSerializer
+from trueppm_api.apps.taskruns.serializers import SchedulerRunSerializer, TaskRunSerializer
+
+# Task name written by scheduling.tasks.recalculate_schedule via TaskRunTracker.
+# The scheduler-runs endpoint is a typed thin view over TaskRun filtered on this.
+SCHEDULER_TASK_NAME = "scheduling.recalculate"
 
 
 class ProjectTaskRunViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet[TaskRun]):
@@ -105,3 +109,50 @@ class GlobalTaskRunViewSet(ReadOnlyModelViewSet[TaskRun]):
         qs = self.get_queryset().filter(status__in=[TaskRunStatus.PENDING, TaskRunStatus.RUNNING])
         serializer = self.get_serializer(qs, many=True)
         return Response(serializer.data)
+
+
+class ProjectSchedulerRunViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet[TaskRun]):
+    """Scheduler recalculation history for a project.
+
+    Thin typed view over TaskRun filtered to ``task_name='scheduling.recalculate'``.
+    Used by the Shell's "last recalculated" indicator and for SOC 2 audit evidence
+    (filter by status / date range, read-only).
+
+    Query params:
+        status: one or more TaskRunStatus values (repeat: ?status=success&status=failed)
+        started_after: ISO-8601 datetime — include runs with started_at >= this
+        started_before: ISO-8601 datetime — include runs with started_at <= this
+        ordering: created_at | -created_at (default: -created_at)
+    """
+
+    serializer_class = SchedulerRunSerializer
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def get_queryset(self) -> QuerySet[TaskRun]:
+        project_pk = self.kwargs["project_pk"]
+        qs = TaskRun.objects.filter(
+            project_id=project_pk, task_name=SCHEDULER_TASK_NAME
+        ).select_related("initiated_by")
+
+        statuses = self.request.query_params.getlist("status")
+        valid = {s.value for s in TaskRunStatus}
+        statuses = [s for s in statuses if s in valid]
+        if statuses:
+            qs = qs.filter(status__in=statuses)
+
+        started_after = self.request.query_params.get("started_after")
+        if started_after:
+            qs = qs.filter(started_at__gte=started_after)
+        started_before = self.request.query_params.get("started_before")
+        if started_before:
+            qs = qs.filter(started_at__lte=started_before)
+
+        ordering = self.request.query_params.get("ordering", "-created_at")
+        if ordering not in ("created_at", "-created_at"):
+            ordering = "-created_at"
+        return qs.order_by(ordering)
+
+    def get_object(self) -> TaskRun:
+        obj: TaskRun = super().get_object()
+        self.check_object_permissions(self.request, obj.project)
+        return obj
