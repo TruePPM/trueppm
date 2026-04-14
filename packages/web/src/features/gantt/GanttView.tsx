@@ -23,6 +23,21 @@ import { RecalculatingBadge } from '@/features/project/RecalculatingBadge';
 import { TaskDetailDrawer } from './TaskDetailDrawer';
 import type { Task } from '@/types';
 
+/**
+ * Build the aria-live announcement fired when a summary task is
+ * expanded or collapsed from the WBS column (#71).
+ */
+export function formatToggleAnnouncement(
+  wasExpanded: boolean,
+  name: string,
+  childCount: number,
+): string {
+  const label = name || 'Summary';
+  if (wasExpanded) return `${label} collapsed.`;
+  const noun = childCount === 1 ? 'child' : 'children';
+  return `${label} expanded, ${childCount} ${noun} visible.`;
+}
+
 // ---------------------------------------------------------------------------
 // GanttEmptyState — shown when tasks.length === 0 (rule 78)
 // ---------------------------------------------------------------------------
@@ -138,16 +153,56 @@ export function GanttView() {
   const projectId = searchParams.get('project');
   const { tasks: rawTasks, links, isLoading, error } = useGanttTasks();
   const allTasks          = useMemo(() => rawTasks ?? [], [rawTasks]);
-  const { expandedIds, toggle: toggleExpand, expandAll } = useWbsStore();
+  const { expandedIds, toggle: toggleExpandRaw, expandAll } = useWbsStore();
+
+  // aria-live (polite) — drag announcements via DOM ref (rule 30)
+  const ariaLiveRef = useRef<HTMLDivElement>(null);
+  // aria-live (assertive) — keyboard nudge announcements; must interrupt immediately (rule 53)
+  const ariaAssertiveRef = useRef<HTMLDivElement>(null);
 
   // Build tree and compute visible tasks for collapse/expand
-  const { visibleTasks, summaryIds } = useMemo(() => {
-    if (allTasks.length === 0) return { visibleTasks: allTasks, summaryIds: new Set<string>() };
+  const { visibleTasks, summaryIds, childCountById } = useMemo(() => {
+    if (allTasks.length === 0)
+      return {
+        visibleTasks: allTasks,
+        summaryIds: new Set<string>(),
+        childCountById: new Map<string, { name: string; count: number }>(),
+      };
     const tree = buildWbsTree(allTasks);
     const sIds = new Set(allTasks.filter((t) => t.isSummary).map((t) => t.id));
     const visible = flattenVisible(tree, expandedIds).map((n) => n.task);
-    return { visibleTasks: visible, summaryIds: sIds };
+    // Count descendants per summary — used for aria-live announcements
+    const counts = new Map<string, { name: string; count: number }>();
+    const walk = (nodes: ReturnType<typeof buildWbsTree>): number => {
+      let total = 0;
+      for (const n of nodes) {
+        const descendants = walk(n.children);
+        total += 1 + descendants;
+        if (n.task.isSummary) counts.set(n.task.id, { name: n.task.name, count: descendants });
+      }
+      return total;
+    };
+    walk(tree);
+    return { visibleTasks: visible, summaryIds: sIds, childCountById: counts };
   }, [allTasks, expandedIds]);
+
+  // Wrap toggle to announce the new state to the polite aria-live region.
+  // Written via DOM ref (rule 30) — avoids a state-driven re-render on every toggle.
+  const toggleExpand = useCallback(
+    (id: string) => {
+      const wasExpanded = expandedIds.has(id);
+      toggleExpandRaw(id);
+      const meta = childCountById.get(id);
+      if (meta && ariaLiveRef.current) {
+        ariaLiveRef.current.textContent = formatToggleAnnouncement(
+          wasExpanded,
+          meta.name,
+          meta.count,
+        );
+      }
+    },
+    [expandedIds, toggleExpandRaw, childCountById],
+  );
 
   // Auto-expand root-level summary nodes on first load
   useEffect(() => {
@@ -190,11 +245,6 @@ export function GanttView() {
   const taskListScrollRef = useRef<HTMLDivElement>(null);
   const [engine, setEngine] = useState<GanttEngine | null>(null);
   const { widths, setWidth, totalWidth } = useColumnWidths();
-
-  // aria-live (polite) — drag announcements via DOM ref (rule 30)
-  const ariaLiveRef = useRef<HTMLDivElement>(null);
-  // aria-live (assertive) — keyboard nudge announcements; must interrupt immediately (rule 53)
-  const ariaAssertiveRef = useRef<HTMLDivElement>(null);
 
   // Ref to the split-pane container for MilestoneDeltaTooltip positioning (rule 31)
   const timelineContainerRef = useRef<HTMLDivElement>(null);
