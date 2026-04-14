@@ -36,7 +36,7 @@ interface DrawerBodyProps {
   overHours: number;
   capacity: number;
   drawerTitle: string;
-  closeButtonRef: RefObject<HTMLButtonElement>;
+  closeButtonRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
 }
 
