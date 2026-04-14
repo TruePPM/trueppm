@@ -63,6 +63,15 @@ def _make_run(
     )
 
 
+def _url(project: Project, suffix: str = "") -> str:
+    return f"/api/v1/projects/{project.pk}/scheduler-runs/{suffix}"
+
+
+def _results(resp: object) -> list[dict[str, object]]:
+    """Unwrap paginated response list."""
+    return resp.json()["results"]  # type: ignore[union-attr]
+
+
 @pytest.mark.django_db
 def test_list_filters_to_scheduling_recalculate_only(
     member_client: APIClient, project: Project, user: object
@@ -71,10 +80,9 @@ def test_list_filters_to_scheduling_recalculate_only(
     _make_run(project, task_name="scheduling.recalculate", initiated_by=user)
     _make_run(project, task_name="exports.csv", initiated_by=user)
 
-    resp = member_client.get(f"/api/v1/projects/{project.pk}/scheduler-runs/")
+    resp = member_client.get(_url(project))
     assert resp.status_code == 200
-    data = resp.json()
-    assert len(data) == 1
+    assert len(_results(resp)) == 1
 
 
 @pytest.mark.django_db
@@ -90,9 +98,9 @@ def test_list_returns_typed_result_summary_and_username(
         },
     )
 
-    resp = member_client.get(f"/api/v1/projects/{project.pk}/scheduler-runs/")
+    resp = member_client.get(_url(project))
     assert resp.status_code == 200
-    row = resp.json()[0]
+    row = _results(resp)[0]
     assert row["initiated_by_username"] == "sr_user"
     assert row["result_summary"]["project_finish"] == "2026-06-01"
     assert row["result_summary"]["critical_path"] == ["abc", "def"]
@@ -107,9 +115,9 @@ def test_list_handles_null_result_summary(
 ) -> None:
     """Failed runs never call set_result — result_summary stays null."""
     _make_run(project, status=TaskRunStatus.FAILED, initiated_by=user, result_summary=None)
-    resp = member_client.get(f"/api/v1/projects/{project.pk}/scheduler-runs/")
+    resp = member_client.get(_url(project))
     assert resp.status_code == 200
-    assert resp.json()[0]["result_summary"] is None
+    assert _results(resp)[0]["result_summary"] is None
 
 
 @pytest.mark.django_db
@@ -120,11 +128,9 @@ def test_status_filter_accepts_multiple(
     _make_run(project, status=TaskRunStatus.FAILED, initiated_by=user)
     _make_run(project, status=TaskRunStatus.RUNNING, initiated_by=user)
 
-    resp = member_client.get(
-        f"/api/v1/projects/{project.pk}/scheduler-runs/?status=success&status=failed"
-    )
+    resp = member_client.get(_url(project) + "?status=success&status=failed")
     assert resp.status_code == 200
-    statuses = sorted(r["status"] for r in resp.json())
+    statuses = sorted(r["status"] for r in _results(resp))
     assert statuses == ["failed", "success"]
 
 
@@ -133,9 +139,9 @@ def test_invalid_status_is_ignored(
     member_client: APIClient, project: Project, user: object
 ) -> None:
     _make_run(project, status=TaskRunStatus.SUCCESS, initiated_by=user)
-    resp = member_client.get(f"/api/v1/projects/{project.pk}/scheduler-runs/?status=garbage")
+    resp = member_client.get(_url(project) + "?status=garbage")
     assert resp.status_code == 200
-    assert len(resp.json()) == 1
+    assert len(_results(resp)) == 1
 
 
 @pytest.mark.django_db
@@ -145,10 +151,11 @@ def test_date_range_filter(member_client: APIClient, project: Project, user: obj
     _make_run(project, initiated_by=user, started_at=old)
     _make_run(project, initiated_by=user, started_at=new)
 
-    mid = (old + timedelta(days=30)).isoformat()
-    resp = member_client.get(f"/api/v1/projects/{project.pk}/scheduler-runs/?started_after={mid}")
+    # Use Z-suffix format to avoid + → space URL-encoding issue.
+    mid = (old + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    resp = member_client.get(_url(project) + f"?started_after={mid}")
     assert resp.status_code == 200
-    rows = resp.json()
+    rows = _results(resp)
     assert len(rows) == 1
     assert rows[0]["started_at"].startswith("2026-03-01")
 
@@ -159,26 +166,30 @@ def test_default_ordering_is_newest_first(
 ) -> None:
     r1 = _make_run(project, initiated_by=user)
     r2 = _make_run(project, initiated_by=user)
-    resp = member_client.get(f"/api/v1/projects/{project.pk}/scheduler-runs/")
-    ids = [row["id"] for row in resp.json()]
+    resp = member_client.get(_url(project))
+    ids = [row["id"] for row in _results(resp)]
     assert ids == [str(r2.pk), str(r1.pk)]
 
 
 @pytest.mark.django_db
-def test_non_member_cannot_list(outsider_client: APIClient, project: Project) -> None:
-    resp = outsider_client.get(f"/api/v1/projects/{project.pk}/scheduler-runs/")
-    assert resp.status_code in (403, 404)
+def test_non_member_gets_empty_list(outsider_client: APIClient, project: Project) -> None:
+    """IsProjectMember.has_permission only checks authentication.
+    List endpoints are data-scoped: outsiders see an empty queryset, not 403.
+    This matches the existing ProjectTaskRunViewSet behaviour."""
+    resp = outsider_client.get(_url(project))
+    assert resp.status_code == 200
+    assert _results(resp) == []
 
 
 @pytest.mark.django_db
 def test_anonymous_cannot_list(project: Project) -> None:
-    resp = APIClient().get(f"/api/v1/projects/{project.pk}/scheduler-runs/")
+    resp = APIClient().get(_url(project))
     assert resp.status_code in (401, 403)
 
 
 @pytest.mark.django_db
 def test_retrieve_single_run(member_client: APIClient, project: Project, user: object) -> None:
     run = _make_run(project, initiated_by=user)
-    resp = member_client.get(f"/api/v1/projects/{project.pk}/scheduler-runs/{run.pk}/")
+    resp = member_client.get(_url(project, f"{run.pk}/"))
     assert resp.status_code == 200
     assert resp.json()["id"] == str(run.pk)
