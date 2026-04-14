@@ -713,3 +713,63 @@ scheduler:publish:
     paths:
       - packages/scheduler/dist/
     expire_in: 7 days
+
+scheduler:publish:test:
+  # Publishes a dev build of trueppm-scheduler to TestPyPI on every main
+  # merge. Version is suffixed with .dev${CI_PIPELINE_IID} to guarantee
+  # uniqueness across merges (TestPyPI rejects duplicate versions).
+  #
+  # Required CI/CD variable (Settings -> CI/CD -> Variables):
+  #   TEST_PYPI_TOKEN - TestPyPI API token with upload scope. Mark Masked
+  #                     and Protected (main is a protected ref).
+  stage: publish
+  image: python:3.11-slim
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/scheduler/**/*
+        - .gitlab-ci.yml
+  cache:
+    <<: *scheduler-cache
+    policy: pull
+  variables:
+    TWINE_USERNAME: __token__
+    TWINE_PASSWORD: $TEST_PYPI_TOKEN
+    TWINE_REPOSITORY_URL: https://test.pypi.org/legacy/
+    PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+  before_script:
+    - pip install build twine --quiet
+  script:
+    # Rewrite the version in pyproject.toml to append .dev${CI_PIPELINE_IID}
+    # before building. This is an in-container mutation only; no commit back.
+    - |
+      python - <<'PY'
+      import re
+      import os
+      path = "packages/scheduler/pyproject.toml"
+      with open(path) as f:
+          content = f.read()
+      pipeline_iid = os.environ["CI_PIPELINE_IID"]
+      new_content, n = re.subn(
+          r'^(version\s*=\s*")([^"]+)(")',
+          lambda m: f'{m.group(1)}{m.group(2)}.dev{pipeline_iid}{m.group(3)}',
+          content,
+          count=1,
+          flags=re.MULTILINE,
+      )
+      if n != 1:
+          raise SystemExit("Failed to locate version line in pyproject.toml")
+      with open(path, "w") as f:
+          f.write(new_content)
+      print(f"Rewrote scheduler version with .dev{pipeline_iid} suffix")
+      PY
+    - cd packages/scheduler
+    - python -m build
+    # --skip-existing is belt-and-braces: the .dev suffix should already
+    # guarantee uniqueness, but TestPyPI can flake and this avoids red
+    # pipelines from a transient re-upload.
+    - twine upload --skip-existing dist/* --non-interactive
+  artifacts:
+    paths:
+      - packages/scheduler/dist/
+    expire_in: 7 days
