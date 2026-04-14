@@ -182,7 +182,19 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         - Any → COMPLETE: set actual_finish = today; also set actual_start if null
         - COMPLETE → reopened (any non-COMPLETE status): clear actual_finish
         - Explicit values in the payload always take precedence over auto-set
+
+        Also resets early_start when planned_start changes so the frontend's
+        max(planned_start, early_start) logic doesn't snap the Gantt bar back
+        to the pre-drag CPM value before the next CPM run completes.
+        CPM will re-compute early_start correctly once it runs.
         """
+        if (
+            "planned_start" in validated_data
+            and validated_data["planned_start"] != instance.planned_start
+            and "early_start" not in validated_data
+        ):
+            validated_data["early_start"] = validated_data["planned_start"]
+
         new_status = validated_data.get("status")
         old_status = instance.status
 
