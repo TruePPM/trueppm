@@ -18,12 +18,6 @@ const LEGEND = [
 export function StatusBar() {
   const { data: stats } = useShellStats();
 
-  const p80Formatted = stats?.monteCarlop80
-    ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
-        new Date(stats.monteCarlop80),
-      )
-    : null;
-
   return (
     <footer
       role="contentinfo"
@@ -57,18 +51,9 @@ export function StatusBar() {
               </time>
             </>
           )}
-          {/* P80 chip — mobile only (<md); desktop shows full MC row. Issue #33. */}
-          {p80Formatted && (
-            <>
-              <span className="md:hidden w-px h-3 bg-neutral-border" aria-hidden="true" />
-              <span
-                className="md:hidden inline-flex items-center px-1.5 py-0.5 rounded border border-semantic-at-risk/80 text-xs font-medium text-semantic-at-risk bg-transparent"
-                aria-label={`Monte Carlo P80 completion: ${p80Formatted}`}
-              >
-                P80: {p80Formatted}
-              </span>
-            </>
-          )}
+          {/* Mobile MC signal now lives in MobileMonteCarloCard above StatusBar
+              (issue #33); StatusBar itself is hidden md:block, so a md:hidden
+              chip here was unreachable. */}
           {/* Online users — visible from lg (1024px), rule 45 */}
           <span className="hidden lg:flex items-center gap-1">
             <span className="w-px h-3 bg-neutral-border" aria-hidden="true" />
