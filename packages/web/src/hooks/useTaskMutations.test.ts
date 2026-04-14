@@ -7,15 +7,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
-import { useRescheduleTask } from './useTaskMutations';
+import { useRescheduleTask, useReparentTask } from './useTaskMutations';
 import type { Task } from '@/types';
 
-const { patchMock } = vi.hoisted(() => ({
+const { patchMock, postMock } = vi.hoisted(() => ({
   patchMock: vi.fn().mockResolvedValue({ data: {} }),
+  postMock: vi.fn().mockResolvedValue({ data: { updated: [], warning: null } }),
 }));
 
 vi.mock('@/api/client', () => ({
-  apiClient: { patch: patchMock },
+  apiClient: { patch: patchMock, post: postMock },
 }));
 
 const baseTask: Task = {
@@ -111,5 +112,44 @@ describe('useRescheduleTask', () => {
       const cached = qc.getQueryData<Task[]>(['tasks', 'proj1']);
       expect(cached?.[0].start).toBe('2026-01-01');
     });
+  });
+});
+
+describe('useReparentTask', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+  });
+
+  it('POSTs new_parent_id in the request body to the reparent endpoint', async () => {
+    const { result } = renderHook(() => useReparentTask('proj1'), {
+      wrapper: makeWrapper(qc),
+    });
+    result.current.mutate({ taskId: 't1', newParentId: 'summary-99' });
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        '/projects/proj1/tasks/t1/reparent/',
+        { new_parent_id: 'summary-99' },
+      ),
+    );
+  });
+
+  it('passes null as new_parent_id when promoting to root', async () => {
+    const { result } = renderHook(() => useReparentTask('proj1'), {
+      wrapper: makeWrapper(qc),
+    });
+    result.current.mutate({ taskId: 't1', newParentId: null });
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        '/projects/proj1/tasks/t1/reparent/',
+        { new_parent_id: null },
+      ),
+    );
   });
 });

@@ -16,6 +16,7 @@ from trueppm_api.apps.projects.views import (
     TaskIndentView,
     TaskOutdentView,
     TaskReorderView,
+    TaskReparentView,
     TaskViewSet,
 )
 
@@ -47,6 +48,11 @@ urlpatterns = [
         "projects/<pk>/tasks/<task_id>/outdent/",
         TaskOutdentView.as_view(),
         name="project-task-outdent",
+    ),
+    path(
+        "projects/<pk>/tasks/<task_id>/reparent/",
+        TaskReparentView.as_view(),
+        name="project-task-reparent",
     ),
     # Baseline endpoints — nested under /projects/<project_pk>/baselines/
     path(

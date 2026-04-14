@@ -8,6 +8,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragOverEvent,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -15,7 +16,7 @@ import {
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
-import { useCreateTask, useUpdateTask, useReorderTasks, useIndentTask, useOutdentTask } from '@/hooks/useTaskMutations';
+import { useCreateTask, useUpdateTask, useReorderTasks, useIndentTask, useOutdentTask, useReparentTask } from '@/hooks/useTaskMutations';
 import { useWbsStore } from '@/stores/wbsStore';
 import { buildWbsTree, flattenVisible, collectAllIds } from './buildWbsTree';
 import { WbsRow } from './WbsRow';
@@ -71,6 +72,8 @@ export function WbsView() {
   const reorderTasks = useReorderTasks(projectId);
   const indentTask = useIndentTask(projectId);
   const outdentTask = useOutdentTask(projectId);
+  const reparentTask = useReparentTask(projectId);
+  const [reparentTargetId, setReparentTargetId] = useState<string | null>(null);
 
   // Expand all root-level summary nodes on first load
   useEffect(() => {
@@ -88,14 +91,65 @@ export function WbsView() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  // Track reparent drop target during drag — announces via aria-live on transition.
+  const handleDragOver = useCallback(
+    (event: DragOverEvent) => {
+      const { active, over } = event;
+      if (!over || !tasks) {
+        if (reparentTargetId !== null) setReparentTargetId(null);
+        return;
+      }
+      const activeTask = tasks.find((t) => t.id === active.id);
+      const overTask = tasks.find((t) => t.id === over.id);
+      const isReparent =
+        activeTask &&
+        overTask &&
+        overTask.isSummary &&
+        overTask.id !== activeTask.id &&
+        overTask.id !== activeTask.parentId;
+      const nextTargetId = isReparent ? overTask.id : null;
+      if (nextTargetId !== reparentTargetId) {
+        setReparentTargetId(nextTargetId);
+        if (nextTargetId && activeTask && overTask) {
+          setLiveAnnouncement(`${activeTask.name} will become child of ${overTask.name}`);
+        }
+      }
+    },
+    [tasks, reparentTargetId],
+  );
+
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
+      setReparentTargetId(null);
       const { active, over } = event;
       if (!over || active.id === over.id || !tasks) return;
 
       const activeTask = tasks.find((t) => t.id === active.id);
       const overTask = tasks.find((t) => t.id === over.id);
-      if (!activeTask || !overTask || activeTask.parentId !== overTask.parentId) return;
+      if (!activeTask || !overTask) return;
+
+      // Drop onto a summary re-parents the task — unless it's already that parent.
+      if (overTask.isSummary && overTask.id !== activeTask.parentId) {
+        if (!projectId) return;
+        reparentTask.mutate(
+          { taskId: activeTask.id, newParentId: overTask.id },
+          {
+            onSuccess: (data) => {
+              const warning = data.warning === 'has_assignments'
+                ? ' — warning: new parent had resource assignments'
+                : '';
+              setLiveAnnouncement(
+                `${activeTask.name} moved under ${overTask.name}${warning}`,
+              );
+            },
+            onError: () =>
+              setLiveAnnouncement(`Couldn't move ${activeTask.name} under ${overTask.name}`),
+          },
+        );
+        return;
+      }
+
+      if (activeTask.parentId !== overTask.parentId) return;
 
       // Get the sibling list for this parent
       const siblings = tasks
@@ -135,7 +189,7 @@ export function WbsView() {
         });
       }
     },
-    [tasks, projectId, reorderTasks],
+    [tasks, projectId, reorderTasks, reparentTask],
   );
 
   const handleRename = useCallback(
@@ -360,7 +414,9 @@ export function WbsView() {
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
+          onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
+          onDragCancel={() => setReparentTargetId(null)}
         >
           <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
             {visible.map((node) => (
@@ -370,6 +426,7 @@ export function WbsView() {
                 isExpanded={expandedIds.has(node.task.id)}
                 isRenaming={renamingId === node.task.id}
                 isSelected={selectedTaskId === node.task.id}
+                isReparentTarget={reparentTargetId === node.task.id}
                 onToggle={() => toggle(node.task.id)}
                 onSelect={() => setSelectedTaskId(node.task.id)}
                 onStartRename={() => setRenamingId(node.task.id)}
