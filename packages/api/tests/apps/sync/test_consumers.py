@@ -293,7 +293,10 @@ async def test_presence_join_broadcast_on_connect(user: object, project: Project
             "channels.generic.websocket.AsyncJsonWebsocketConsumer.websocket_connect",
             new=super_connect,
         ),
-        patch("trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis", new=AsyncMock(return_value=mock_redis)),
+        patch(
+            "trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis",
+            new=AsyncMock(return_value=mock_redis),
+        ),
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", side_effect=_mock_broadcast),
     ):
         await consumer.websocket_connect({"type": "websocket.connect"})
@@ -329,7 +332,10 @@ async def test_presence_leave_broadcast_on_disconnect(user: object, project: Pro
     mock_redis.hdel = AsyncMock()
 
     with (
-        patch("trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis", new=AsyncMock(return_value=mock_redis)),
+        patch(
+            "trueppm_api.apps.sync.consumers.ProjectConsumer._get_redis",
+            new=AsyncMock(return_value=mock_redis),
+        ),
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event", side_effect=_mock_broadcast),
     ):
         await consumer.disconnect(1000)

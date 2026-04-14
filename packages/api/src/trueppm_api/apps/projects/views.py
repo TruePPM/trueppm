@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import logging
 import uuid
@@ -1351,10 +1352,8 @@ class ProjectPresenceView(APIView):
 
         users = []
         for _uid, entry_json in raw.items():
-            try:
+            with contextlib.suppress(ValueError, KeyError):
                 users.append(_json.loads(entry_json))
-            except (ValueError, KeyError):
-                pass
 
         return Response(users, status=status.HTTP_200_OK)
 
