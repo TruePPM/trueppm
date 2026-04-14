@@ -13,8 +13,19 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="BoardColumnConfig",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("columns", models.JSONField(default=list, help_text="Ordered list of {status, label, visible} objects.")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True, primary_key=True, serialize=False, verbose_name="ID"
+                    ),
+                ),
+                (
+                    "columns",
+                    models.JSONField(
+                        default=list,
+                        help_text="Ordered list of {status, label, visible} objects.",
+                    ),
+                ),
                 (
                     "project",
                     models.OneToOneField(

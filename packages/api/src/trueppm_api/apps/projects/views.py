@@ -50,6 +50,7 @@ from trueppm_api.apps.projects.models import (
     Task,
 )
 from trueppm_api.apps.projects.serializers import (
+    _DEFAULT_COLUMNS,
     BaselineDetailSerializer,
     BaselineSerializer,
     BoardColumnConfigSerializer,
@@ -60,7 +61,6 @@ from trueppm_api.apps.projects.serializers import (
     TaskBulkSerializer,
     TaskReorderSerializer,
     TaskSerializer,
-    _DEFAULT_COLUMNS,
 )
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
 
