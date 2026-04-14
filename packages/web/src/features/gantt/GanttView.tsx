@@ -17,6 +17,7 @@ import { TaskListPanel } from './TaskListPanel';
 import { CanvasGanttTimeline } from './CanvasGanttTimeline';
 import { ZoomControl } from './ZoomControl';
 import { MonteCarloRow } from './MonteCarloRow';
+import { MobileMonteCarloCard } from './MobileMonteCarloCard';
 import { MilestoneDeltaTooltip } from './MilestoneDeltaTooltip';
 import { DateInputPopover } from './DateInputPopover';
 import { AddTaskForm, type AddTaskFormHandle } from '@/features/project/AddTaskForm';
@@ -576,6 +577,9 @@ export function GanttView() {
       </div>
 
       <MonteCarloRow engine={engine} taskListWidth={totalWidth} />
+
+      {/* Mobile MC card — md:hidden; desktop uses MonteCarloRow above (issue #33) */}
+      <MobileMonteCarloCard projectId={projectId ?? undefined} />
 
       {/* Milestone delta tooltip — at GanttView level to escape overflow:hidden (rule 31) */}
       <MilestoneDeltaTooltip milestoneLeft={null} timelineTop={timelineTop} />
