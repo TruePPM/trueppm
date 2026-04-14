@@ -293,9 +293,7 @@ def _run_schedule(project_id: str, tracker: object = None) -> None:
     summary_ids = set(children_map.keys())
 
     # Expand summary dependencies into leaf-level edges before CPM.
-    leaf_tasks, expanded_deps = expand_summary_dependencies(
-        sched_tasks, sched_deps, children_map
-    )
+    leaf_tasks, expanded_deps = expand_summary_dependencies(sched_tasks, sched_deps, children_map)
 
     sched_project = SchedProject(
         id=project_id,

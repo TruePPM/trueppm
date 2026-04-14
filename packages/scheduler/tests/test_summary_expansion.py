@@ -6,7 +6,6 @@ from datetime import timedelta
 
 from trueppm_scheduler import Dependency, DependencyType, Task, expand_summary_dependencies
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -57,7 +56,7 @@ class TestExpandSummaryDependencies:
         deps = [Dependency(predecessor_id="T", successor_id="S", dep_type=DependencyType.FS)]
         children_map = {"S": ["S1", "S2"]}
 
-        leaf_tasks, expanded = expand_summary_dependencies(tasks, deps, children_map)
+        _, expanded = expand_summary_dependencies(tasks, deps, children_map)
 
         edges = {(d.predecessor_id, d.successor_id) for d in expanded}
         assert edges == {("T", "S1"), ("T", "S2")}
