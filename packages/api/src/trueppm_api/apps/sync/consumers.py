@@ -69,7 +69,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         self.project_pk = project_pk
         self.group_name = f"project_{project_pk}"
         self._user = user
-        self._display_name: str = user.get_full_name() or user.username  # type: ignore[attr-defined]
+        self._display_name: str = user.get_full_name() or user.username
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
 
@@ -109,7 +109,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         r = await self._get_redis()
         key = _presence_key(self.project_pk)
         entry = json.dumps({"user_id": str(self._user.pk), "display_name": self._display_name})
-        await r.hset(key, str(self._user.pk), entry)  # type: ignore[call-arg]
+        await r.hset(key, str(self._user.pk), entry)
         await r.expire(key, _PRESENCE_TTL)
 
         from trueppm_api.apps.sync.broadcast import broadcast_board_event

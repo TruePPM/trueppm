@@ -1177,6 +1177,38 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/presence/": {
+            "get": {
+                "operationId": "v1_projects_presence_retrieve",
+                "description": "Return JSON list of online users for the given project.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/schedule/": {
             "post": {
                 "operationId": "v1_projects_schedule_create",
