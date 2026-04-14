@@ -457,6 +457,24 @@ scheduler:bench:
       - packages/scheduler/bench-output.txt
     expire_in: 90 days
 
+scheduler:notebooks:
+  # Execute all scheduler notebooks to catch code drift and broken examples.
+  # jupyter nbconvert --execute runs each cell in order; a cell that raises an
+  # exception fails the job. matplotlib is optional — notebooks guard against
+  # ImportError with a try/except so missing it is not a failure.
+  extends: .scheduler
+  stage: test
+  needs: [scheduler:test]
+  <<: *rules-scheduler
+  script:
+    - cd packages/scheduler
+    - pip install jupyter nbconvert
+    - jupyter nbconvert --to notebook --execute --inplace notebooks/*.ipynb
+  artifacts:
+    paths:
+      - packages/scheduler/notebooks/*.ipynb
+    expire_in: 7 days
+
 wasm:test:
   extends: .wasm
   stage: test

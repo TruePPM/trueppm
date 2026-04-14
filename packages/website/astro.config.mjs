@@ -86,6 +86,15 @@ export default defineConfig({
           label: "API",
           items: [{ slug: "api/reference" }],
         },
+        // --- Integration guides ---
+        {
+          label: "Integration",
+          items: [
+            { slug: "integration/standalone" },
+            { slug: "integration/django" },
+            { slug: "integration/fastapi" },
+          ],
+        },
         // --- Architecture (evaluators + contributors) ---
         {
           label: "Architecture",
