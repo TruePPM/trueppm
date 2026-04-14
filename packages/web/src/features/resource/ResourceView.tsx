@@ -5,7 +5,7 @@
  * Permission gate: SCHEDULER (role ≥ 2) only (rule 94).
  * Default window: rolling ±4 weeks from today (rule 93).
  */
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { ResourceToolbar } from './ResourceToolbar';
 import { ResourceGrid } from './ResourceGrid';
 import { ResourceEmptyState } from './ResourceEmptyState';
@@ -36,6 +36,14 @@ export function ResourceView({ projectId, projectStartDate }: Props) {
   const { data, status } = useResourceUtilization(projectId, window_.start, window_.end);
   const { target, isOpen, openDrawer, closeDrawer, ariaMessage } = useResolveOverallocation();
   const ariaLiveRef = useRef<HTMLDivElement>(null);
+
+  // Write aria announcements via DOM ref rather than React state binding (rule 30) — avoids
+  // a React render cycle between the openDrawer() call and the AT announcement.
+  useEffect(() => {
+    if (ariaLiveRef.current) {
+      ariaLiveRef.current.textContent = ariaMessage ?? '';
+    }
+  }, [ariaMessage]);
 
   // --- Permission gate (rule 94) ---
   if (STUB_ROLE < SCHEDULER_ROLE) {
@@ -141,15 +149,13 @@ export function ResourceView({ projectId, projectStartDate }: Props) {
         )}
       </div>
 
-      {/* Aria-live region for overallocation drawer announcements (rule 30 pattern) */}
+      {/* Aria-live region — content written via DOM ref (rule 30), not React state */}
       <div
         ref={ariaLiveRef}
         aria-live="polite"
         aria-atomic="true"
         className="sr-only"
-      >
-        {ariaMessage}
-      </div>
+      />
 
       <ResourceOverallocationDrawer
         target={target}

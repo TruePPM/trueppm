@@ -79,7 +79,7 @@ export function ResourceCell({
         className={`
           ${cellClass}
           cursor-pointer
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
           focus-visible:ring-inset
         `}
         aria-label={`${Math.round(pct)}% load on ${iso} — overallocated. Press Enter to view details.`}
@@ -100,15 +100,29 @@ export function ResourceCell({
     );
   }
 
+  // Loaded non-overallocated cells expose hover tooltip via keyboard too (WCAG 2.1.1).
+  // tabIndex and onKeyDown make the cell focusable and activatable with Enter/Space.
+  const hasLoad = hours > 0;
   return (
     <div
       className={`
         ${cellClass}
-        ${hours > 0 ? 'cursor-pointer' : ''}
+        ${hasLoad ? 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset' : ''}
       `}
-      onMouseEnter={() => hours > 0 && setShowTooltip(true)}
+      tabIndex={hasLoad ? 0 : undefined}
+      role={hasLoad ? 'button' : undefined}
+      aria-label={hasLoad ? `${Math.round(pct)}% load on ${iso}` : undefined}
+      aria-describedby={hasLoad ? tooltipId : undefined}
+      onMouseEnter={() => hasLoad && setShowTooltip(true)}
       onMouseLeave={() => setShowTooltip(false)}
-      aria-describedby={hours > 0 ? tooltipId : undefined}
+      onFocus={() => hasLoad && setShowTooltip(true)}
+      onBlur={() => setShowTooltip(false)}
+      onKeyDown={(e) => {
+        if (hasLoad && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          setShowTooltip((v) => !v);
+        }
+      }}
     >
       {barContent}
     </div>
