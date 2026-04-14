@@ -40,3 +40,9 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Docusaurus build cache
+.docusaurus/
+
+# Claude Code runtime state
+.claude/scheduled_tasks.lock
