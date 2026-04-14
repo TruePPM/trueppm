@@ -5,7 +5,11 @@ from __future__ import annotations
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from trueppm_api.apps.taskruns.views import GlobalTaskRunViewSet, ProjectTaskRunViewSet
+from trueppm_api.apps.taskruns.views import (
+    GlobalTaskRunViewSet,
+    ProjectSchedulerRunViewSet,
+    ProjectTaskRunViewSet,
+)
 
 # Global task-run endpoints: /task-runs/<id>/ and /task-runs/active/.
 router = DefaultRouter()
@@ -27,6 +31,16 @@ urlpatterns = [
         "projects/<project_pk>/task-runs/<pk>/cancel/",
         ProjectTaskRunViewSet.as_view({"post": "cancel"}),
         name="project-task-runs-cancel",
+    ),
+    path(
+        "projects/<project_pk>/scheduler-runs/",
+        ProjectSchedulerRunViewSet.as_view({"get": "list"}),
+        name="project-scheduler-runs-list",
+    ),
+    path(
+        "projects/<project_pk>/scheduler-runs/<pk>/",
+        ProjectSchedulerRunViewSet.as_view({"get": "retrieve"}),
+        name="project-scheduler-runs-detail",
     ),
     *router.urls,
 ]

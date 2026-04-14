@@ -2472,6 +2472,119 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/scheduler-runs/": {
+            "get": {
+                "operationId": "v1_projects_scheduler_runs_list",
+                "description": "Scheduler recalculation history for a project.\n\nThin typed view over TaskRun filtered to ``task_name='scheduling.recalculate'``.\nUsed by the Shell's \"last recalculated\" indicator and for SOC 2 audit evidence\n(filter by status / date range, read-only).\n\nQuery params:\n    status: one or more TaskRunStatus values (repeat: ?status=success&status=failed)\n    started_after: ISO-8601 datetime — include runs with started_at >= this\n    started_before: ISO-8601 datetime — include runs with started_at <= this\n    ordering: created_at | -created_at (default: -created_at)",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedSchedulerRunList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/scheduler-runs/{id}/": {
+            "get": {
+                "operationId": "v1_projects_scheduler_runs_retrieve",
+                "description": "Scheduler recalculation history for a project.\n\nThin typed view over TaskRun filtered to ``task_name='scheduling.recalculate'``.\nUsed by the Shell's \"last recalculated\" indicator and for SOC 2 audit evidence\n(filter by status / date range, read-only).\n\nQuery params:\n    status: one or more TaskRunStatus values (repeat: ?status=success&status=failed)\n    started_after: ISO-8601 datetime — include runs with started_at >= this\n    started_before: ISO-8601 datetime — include runs with started_at <= this\n    ordering: created_at | -created_at (default: -created_at)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SchedulerRun"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/task-runs/": {
             "get": {
                 "operationId": "v1_projects_task_runs_list",
@@ -4845,6 +4958,37 @@
                     }
                 }
             },
+            "PaginatedSchedulerRunList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SchedulerRun"
+                        }
+                    }
+                }
+            },
             "PaginatedTaskList": {
                 "type": "object",
                 "required": [
@@ -5623,6 +5767,108 @@
                 "type": "integer",
                 "description": "* `0` - Viewer\n* `1` - Team Member\n* `2` - Resource Manager\n* `3` - Project Manager\n* `4` - Project Admin"
             },
+            "SchedulerRun": {
+                "type": "object",
+                "description": "Typed view over TaskRun records for scheduler recalculation runs.\n\nExposes ``initiated_by`` as a username string rather than a user UUID —\nobservability audit readers (Marcus/SOC 2) want a human-readable name, and\nthis avoids leaking user PKs to non-admin project members.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Status9bdEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "progress_pct": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "progress_msg": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "result_summary": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SchedulerRunResultSummary"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "error_detail": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "initiated_by_username": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "completed_at",
+                    "created_at",
+                    "error_detail",
+                    "id",
+                    "initiated_by_username",
+                    "progress_msg",
+                    "progress_pct",
+                    "started_at",
+                    "status"
+                ]
+            },
+            "SchedulerRunResultSummary": {
+                "type": "object",
+                "description": "Typed view over TaskRun.result_summary when task_name='scheduling.recalculate'.\n\nThe tracker writes ``{\"project_finish\": \"YYYY-MM-DD\", \"critical_path\": [uuid, ...]}``\nfrom ``_run_schedule``. Fields are optional because failed runs may never\nreach ``set_result()``.",
+                "properties": {
+                    "project_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "critical_path": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "nullable": true
+                    }
+                }
+            },
+            "Status9bdEnum": {
+                "enum": [
+                    "pending",
+                    "running",
+                    "success",
+                    "failed",
+                    "cancelled"
+                ],
+                "type": "string",
+                "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `cancelled` - Cancelled"
+            },
             "Task": {
                 "type": "object",
                 "properties": {
@@ -5994,7 +6240,7 @@
                     "status": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/TaskRunStatusEnum"
+                                "$ref": "#/components/schemas/Status9bdEnum"
                             }
                         ],
                         "readOnly": true
@@ -6049,17 +6295,6 @@
                     "status",
                     "task_name"
                 ]
-            },
-            "TaskRunStatusEnum": {
-                "enum": [
-                    "pending",
-                    "running",
-                    "success",
-                    "failed",
-                    "cancelled"
-                ],
-                "type": "string",
-                "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `cancelled` - Cancelled"
             },
             "TaskStatusEnum": {
                 "enum": [
