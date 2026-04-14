@@ -438,6 +438,25 @@ scheduler:test:
     - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+%)/'
 
+scheduler:bench:
+  # Performance regression guard for the CPM engine.
+  # Runs on every MR that touches packages/scheduler/ and on main.
+  # Timing output is stored as an artifact so regressions can be spotted
+  # by comparing successive runs in the GitLab UI.
+  # The test itself hard-fails at 2s (catastrophic regression circuit-breaker);
+  # the > 20% regression signal requires manual comparison of artifacts.
+  extends: .scheduler
+  stage: test
+  needs: [scheduler:test]
+  <<: *rules-scheduler
+  script:
+    - cd packages/scheduler
+    - pytest tests/test_bench.py -v --tb=short 2>&1 | tee bench-output.txt
+  artifacts:
+    paths:
+      - packages/scheduler/bench-output.txt
+    expire_in: 90 days
+
 wasm:test:
   extends: .wasm
   stage: test
@@ -483,7 +502,7 @@ api:test:
   script:
     - cd packages/api
     - python -m pytest tests/ --tb=short -q
-        --cov=trueppm_api --cov-report=term-missing --cov-fail-under=65
+        --cov=trueppm_api --cov-report=term-missing --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+%)/'
 
 web:test:
