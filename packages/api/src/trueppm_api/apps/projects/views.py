@@ -271,6 +271,17 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         if status:
             qs = qs.filter(status=status)
 
+        # Date-range filter for calendar / resource views.
+        # ?start__gte=YYYY-MM-DD  — tasks whose early_finish >= this date (still active)
+        # ?finish__lte=YYYY-MM-DD — tasks whose early_start <= this date (already started)
+        # Combined, they return tasks that overlap [start__gte, finish__lte].
+        start_gte = self.request.query_params.get("start__gte")
+        if start_gte:
+            qs = qs.filter(early_finish__gte=start_gte)
+        finish_lte = self.request.query_params.get("finish__lte")
+        if finish_lte:
+            qs = qs.filter(early_start__lte=finish_lte)
+
         # Summary task annotations: is_summary = has at least one direct child,
         # parent_id = the task whose wbs_path is this task's parent path.
         # Uses ltree operators via RawSQL for PostgreSQL-native performance.

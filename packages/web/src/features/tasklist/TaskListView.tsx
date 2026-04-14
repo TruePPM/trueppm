@@ -4,6 +4,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
 import { useUpdateTask, useBulkDeleteTasks } from '@/hooks/useTaskMutations';
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
+import { exportTasksToCsv } from '@/utils/exportCsv';
 import type { Task } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -504,6 +505,22 @@ export function TaskListView() {
               </>
             )}
             <div className="flex-1" />
+            <button
+              type="button"
+              onClick={() => exportTasksToCsv(sorted, `tasks-${projectId ?? 'export'}.csv`)}
+              disabled={sorted.length === 0}
+              aria-label={`Export ${sorted.length} tasks as CSV`}
+              className="
+                text-xs text-gantt-text-secondary border border-neutral-700 rounded
+                h-6 px-2 hover:text-gantt-text-primary hover:border-neutral-500
+                disabled:opacity-40 disabled:cursor-not-allowed
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
+                focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface
+                transition-colors
+              "
+            >
+              Export CSV
+            </button>
             {/* My tasks — disabled until auth is wired (#auth) */}
             <label
               className="flex items-center gap-1.5 text-xs text-gantt-text-disabled cursor-not-allowed"
