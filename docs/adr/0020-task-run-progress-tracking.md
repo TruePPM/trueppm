@@ -156,3 +156,97 @@ audit, and adds minimal operational complexity.
 - OSS or Enterprise: OSS (`trueppm-suite`)
 - `TASK_RUN_RETENTION_DAYS` setting added to `settings/base.py` (default 30)
 - `ProjectConsumer` gains `user_{user_pk}` group membership on connect
+
+---
+
+## Amendment — 2026-04-13 (Issue #57 reopen)
+
+### Context
+
+Issue #57 originally proposed a new `SchedulerRun` model for CPM audit history (SOC 2
+evidence, `ShellStats.recalculatedAt` source). Architect review determined the
+already-accepted `TaskRun` model covers ~90% of the proposed fields — adding a second
+model would duplicate `status`, `celery_task_id`, `project`, `initiated_by`,
+`result_summary`, `error_detail`, and all timing fields. VoC panel endorsed the pivot
+(Marcus 9→8/10; "I don't care what you call the table — I care that I can filter it").
+
+### Decision
+
+**Reuse `TaskRun`. Document a typed schema for `result_summary` when
+`task_name='recalculate_schedule'`.**
+
+#### `TaskRun.result_summary` schema for scheduler runs
+
+When `task_name='recalculate_schedule'`:
+
+```json
+{
+  "project_finish": "2026-06-15",
+  "critical_path_task_ids": ["<uuid>", "<uuid>"],
+  "tasks_scheduled": 342,
+  "duration_ms": 1187
+}
+```
+
+This schema is a **stable API contract** — field names and types must not change
+without a new major API version. `duration_ms` is duplicative with
+`completed_at - started_at` but materializing it in `result_summary` supports
+SQL-free audit queries and CSV export.
+
+#### New endpoint
+
+`GET /api/v1/projects/{id}/scheduler-runs/` — thin typed view over
+`TaskRun.objects.filter(task_name='recalculate_schedule', project=...)`.
+Permission: `IsProjectMember`. Cursor pagination on `created_at DESC`. See the
+api-design output for full spec (query params, error shape, serializer).
+
+#### Partial index
+
+```python
+# taskruns/migrations/0002_scheduler_run_partial_idx.py
+# CREATE INDEX CONCURRENTLY taskrun_scheduler_project_idx
+#   ON taskruns_taskrun (project_id, created_at DESC)
+#   WHERE task_name = 'recalculate_schedule';
+```
+
+Migration uses `atomic=False` and `CONCURRENTLY` — non-locking. Must pass
+`migration-check` agent before merge.
+
+#### `ShellStats` update
+
+Existing `recalculatedAt` field is replaced by a nested `scheduler` object:
+
+```json
+{
+  "scheduler": {
+    "last_run_at": "...",      // completed_at of latest successful run
+    "last_run_status": "...",  // status of the LATEST run (any status)
+    "last_run_id": "..."        // for deep-link to scheduler-runs/<id>/
+  }
+}
+```
+
+Backwards-compat: `recalculatedAt` aliased to `scheduler.last_run_at` for one
+release; removed in next minor. Documented in changelog.
+
+#### `initiated_by` exposure
+
+Returned as `{id, display_name}` to all project members. Not redacted.
+Rationale: project members are already inside the project trust boundary; redacting
+breaks Marcus's audit use case. Matches existing `Baseline.created_by` pattern. When
+`SET_NULL` fires (user deleted), client renders "System".
+
+### Migration
+
+- Scheduler-runs endpoint: no new Django app; lives in existing `taskruns` app
+- Migration `0002_scheduler_run_partial_idx` — additive, non-locking
+- No change to existing `TaskRun` model fields
+
+### No-regression surface
+
+- `TaskRunTracker` context manager behavior unchanged
+- Existing `/api/v1/task-runs/*` endpoints unchanged
+- `cpm_complete` WebSocket broadcast unchanged
+- Outbox (`ScheduleRequest`) unchanged
+- Dead-letter path unchanged
+
