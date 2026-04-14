@@ -11,9 +11,9 @@ interface Props {
   task: Task;
   level: number;
   widths: ColumnWidths['widths'];
-  hasChildren: boolean;
-  isExpanded: boolean;
-  onToggle: () => void;
+  hasChildren?: boolean;
+  isExpanded?: boolean;
+  onToggle?: () => void;
 }
 
 function formatDate(iso: string): string {
@@ -23,7 +23,7 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export function TaskListRow({ task, level, widths, hasChildren, isExpanded, onToggle }: Props) {
+export function TaskListRow({ task, level, widths, hasChildren = false, isExpanded = false, onToggle }: Props) {
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project') ?? '';
   const selectedTaskId = useGanttStore((s) => s.selectedTaskId);
@@ -96,7 +96,7 @@ export function TaskListRow({ task, level, widths, hasChildren, isExpanded, onTo
       {hasChildren ? (
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          onClick={(e) => { e.stopPropagation(); onToggle?.(); }}
           aria-expanded={isExpanded}
           aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
           className="shrink-0 w-4 h-4 flex items-center justify-center mr-0.5
