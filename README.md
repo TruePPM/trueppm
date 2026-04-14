@@ -1,5 +1,10 @@
 # TruePPM
 
+[![PyPI version](https://img.shields.io/pypi/v/trueppm-scheduler.svg)](https://pypi.org/project/trueppm-scheduler/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/trueppm-scheduler.svg)](https://pypi.org/project/trueppm-scheduler/)
+[![Pipeline status](https://gitlab.com/trueppm/trueppm/badges/main/pipeline.svg)](https://gitlab.com/trueppm/trueppm/-/pipelines)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 **Open-source project scheduling that actually computes the math.**
 
 Most project management tools are glorified to-do lists. They let you draw bars on a timeline, but they don't calculate the critical path, don't tell you which tasks have float, and don't warn you when a dependency change pushes your delivery date. TruePPM does.

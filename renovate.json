@@ -1,0 +1,134 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":prHourlyLimit2",
+    ":prConcurrentLimit5",
+    "group:monorepos",
+    "group:recommended"
+  ],
+  "timezone": "America/Los_Angeles",
+  "schedule": [
+    "before 10am on monday"
+  ],
+  "labels": [
+    "dependencies",
+    "renovate"
+  ],
+  "prBodyColumns": [
+    "Package",
+    "Type",
+    "Update",
+    "Change",
+    "Pending"
+  ],
+  "rangeStrategy": "bump",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 10am on monday"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "Group all Python dependency updates into one PR per ecosystem",
+      "matchManagers": ["pip_requirements", "pip_setup", "pep621", "poetry"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "python dependencies",
+      "groupSlug": "python-minor-patch"
+    },
+    {
+      "description": "Group all npm devDependency updates",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "npm devDependencies",
+      "groupSlug": "npm-dev-minor-patch"
+    },
+    {
+      "description": "Group all npm production dependency updates",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["dependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "npm dependencies",
+      "groupSlug": "npm-prod-minor-patch"
+    },
+    {
+      "description": "Group all Rust (Cargo) dependency updates",
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "rust dependencies",
+      "groupSlug": "rust-minor-patch"
+    },
+    {
+      "description": "Auto-merge devDependency patch bumps if CI is green",
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Auto-merge lock-file maintenance",
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "Major updates — never auto-merge; open individually for review",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "groupName": null,
+      "labels": ["dependencies", "renovate", "major-upgrade"]
+    },
+    {
+      "description": "Django and DRF: pin to LTS branches, no auto-merge on minor",
+      "matchPackageNames": [
+        "Django",
+        "django",
+        "djangorestframework",
+        "django-channels",
+        "channels"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "React: never auto-merge — major/minor UX surface",
+      "matchPackageNames": [
+        "react",
+        "react-dom",
+        "@types/react",
+        "@types/react-dom"
+      ],
+      "automerge": false
+    },
+    {
+      "description": "Security updates — short schedule, no grouping",
+      "matchUpdateTypes": ["patch"],
+      "vulnerabilityAlerts": {
+        "enabled": true,
+        "schedule": ["at any time"]
+      }
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["dependencies", "security"]
+  },
+  "docker": {
+    "enabled": true
+  },
+  "gitlabci": {
+    "enabled": true
+  },
+  "helm-values": {
+    "enabled": true
+  },
+  "helmv3": {
+    "enabled": true
+  }
+}
