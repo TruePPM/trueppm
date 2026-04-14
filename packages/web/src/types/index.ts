@@ -43,6 +43,14 @@ export interface Task {
   assignees: TaskAssignee[];
 }
 
+export interface TaskAssignment {
+  id: string;
+  resourceId: string;
+  resourceName: string;
+  /** Decimal allocation: 1.0 = 100% */
+  units: number;
+}
+
 export interface TaskLink {
   id: string;
   sourceId: string;
