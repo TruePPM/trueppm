@@ -1001,6 +1001,124 @@ class TaskOutdentView(APIView):
         )
 
 
+class TaskReparentView(APIView):
+    """Reparent a task — move it under an arbitrary summary (or to root).
+
+    POST /api/v1/projects/{pk}/tasks/{task_id}/reparent/
+
+    Body:
+        { "new_parent_id": "<uuid>" | null }  (null = root level)
+
+    Inserts the task as the last child of the target parent, rewrites
+    descendants, renumbers old siblings, and triggers CPM recalc.
+    Unlike indent/, the target is explicit rather than previous-sibling.
+
+    Returns:
+        200 { "updated": [...], "warning": null | "has_assignments" }
+        400 on cycle (target is self or descendant) or missing WBS path.
+        404 when new_parent_id does not exist in the project.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMemberWrite]
+
+    def post(self, request: Request, pk: str, task_id: str) -> Response:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+
+        new_parent_id = request.data.get("new_parent_id")
+
+        with transaction.atomic():
+            task = get_object_or_404(
+                Task.objects.select_for_update(),
+                pk=task_id,
+                project_id=pk,
+                is_deleted=False,
+            )
+            if not task.wbs_path:
+                return Response(
+                    {"detail": "Task has no WBS path."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            old_path = task.wbs_path
+            old_parent_path = _get_parent_path(old_path)
+
+            if new_parent_id is None:
+                new_parent: Task | None = None
+                new_parent_path = ""
+            else:
+                if str(new_parent_id) == str(task.pk):
+                    return Response(
+                        {"detail": "Cannot reparent a task under itself."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                try:
+                    new_parent = Task.objects.select_for_update().get(
+                        pk=new_parent_id, project_id=pk, is_deleted=False
+                    )
+                except Task.DoesNotExist:
+                    return Response(
+                        {"detail": "New parent not found."},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+                if not new_parent.wbs_path:
+                    return Response(
+                        {"detail": "New parent has no WBS path."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                # Cycle guard — new parent cannot be a descendant of the task.
+                if new_parent.wbs_path.startswith(f"{old_path}."):
+                    return Response(
+                        {"detail": "Cannot reparent under own descendant."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                new_parent_path = new_parent.wbs_path
+
+            # No-op when the task is already a child of the target parent.
+            if old_parent_path == new_parent_path:
+                return Response(
+                    {"updated": [], "warning": None},
+                    status=status.HTTP_200_OK,
+                )
+
+            descendants = _get_descendants(str(project.pk), old_path, lock=True)
+            old_siblings = _get_siblings(str(project.pk), old_parent_path, lock=True)
+            new_children = _get_siblings(str(project.pk), new_parent_path, lock=True)
+
+            new_position = len(new_children) + 1
+            new_path = _build_wbs_path(new_parent_path, new_position)
+
+            task.wbs_path = new_path
+            task.save(update_fields=["wbs_path"])
+
+            all_updated: list[dict[str, Any]] = [{"id": str(task.pk), "wbs_path": new_path}]
+            all_updated.extend(_rewrite_descendants(descendants, old_path, new_path))
+
+            remaining_old = [s for s in old_siblings if s.pk != task.pk]
+            all_updated.extend(_renumber_siblings(remaining_old, old_parent_path))
+
+            # Warning: new parent just became a summary and has resource assignments.
+            warning: str | None = None
+            if new_parent is not None and not new_children:
+                from trueppm_api.apps.resources.models import TaskResource
+
+                if TaskResource.objects.filter(task=new_parent).exists():
+                    warning = "has_assignments"
+
+            project_id = str(project.pk)
+            transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "tasks_restructured", {})
+            )
+
+        return Response(
+            {"updated": all_updated, "warning": warning},
+            status=status.HTTP_200_OK,
+        )
+
+
 class TaskBulkView(APIView):
     """Atomically create, update, and delete tasks in a single request.
 

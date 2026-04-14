@@ -1322,6 +1322,46 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/tasks/{task_id}/reparent/": {
+            "post": {
+                "operationId": "v1_projects_tasks_reparent_create",
+                "description": "Reparent a task — move it under an arbitrary summary (or to root).\n\nPOST /api/v1/projects/{pk}/tasks/{task_id}/reparent/\n\nBody:\n    { \"new_parent_id\": \"<uuid>\" | null }  (null = root level)\n\nInserts the task as the last child of the target parent, rewrites\ndescendants, renumbers old siblings, and triggers CPM recalc.\nUnlike indent/, the target is explicit rather than previous-sibling.\n\nReturns:\n    200 { \"updated\": [...], \"warning\": null | \"has_assignments\" }\n    400 on cycle (target is self or descendant) or missing WBS path.\n    404 when new_parent_id does not exist in the project.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/tasks/bulk/": {
             "post": {
                 "operationId": "v1_projects_tasks_bulk_create",

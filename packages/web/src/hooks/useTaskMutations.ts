@@ -169,6 +169,33 @@ export function useOutdentTask(projectId: string | null) {
 }
 
 // ---------------------------------------------------------------------------
+// useReparentTask — POST /api/v1/projects/{pk}/tasks/{id}/reparent/
+// ---------------------------------------------------------------------------
+
+export interface ReparentTaskPayload {
+  taskId: string;
+  /** UUID of the target parent, or null to promote to root level. */
+  newParentId: string | null;
+}
+
+export function useReparentTask(projectId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ taskId, newParentId }: ReparentTaskPayload) => {
+      const res = await apiClient.post<IndentOutdentResponse>(
+        `/projects/${projectId}/tasks/${taskId}/reparent/`,
+        { new_parent_id: newParentId },
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // useDeleteTask — DELETE /api/v1/tasks/{id}/
 // ---------------------------------------------------------------------------
 

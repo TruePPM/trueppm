@@ -295,6 +295,153 @@ class TestOutdentEndpoint:
 
 
 @pytest.mark.django_db
+class TestReparentEndpoint:
+    """POST /api/v1/projects/{pk}/tasks/{task_id}/reparent/"""
+
+    def test_reparent_under_summary(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """Task moves under an arbitrary summary (not just previous sibling)."""
+        Task.objects.create(project=project, name="Phase A", duration=0, wbs_path="1")
+        Task.objects.create(project=project, name="A child", duration=3, wbs_path="1.1")
+        phase_b = Task.objects.create(project=project, name="Phase B", duration=0, wbs_path="2")
+        t = Task.objects.create(project=project, name="Stray", duration=5, wbs_path="3")
+        r = client.post(
+            f"/api/v1/projects/{project.id}/tasks/{t.id}/reparent/",
+            {"new_parent_id": str(phase_b.id)},
+            format="json",
+        )
+        assert r.status_code == 200
+        t.refresh_from_db()
+        assert t.wbs_path == "2.1"
+
+    def test_reparent_to_root(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """null new_parent_id promotes the task to root level."""
+        Task.objects.create(project=project, name="Root A", duration=0, wbs_path="1")
+        child = Task.objects.create(project=project, name="Child", duration=5, wbs_path="1.1")
+        r = client.post(
+            f"/api/v1/projects/{project.id}/tasks/{child.id}/reparent/",
+            {"new_parent_id": None},
+            format="json",
+        )
+        assert r.status_code == 200
+        child.refresh_from_db()
+        assert child.wbs_path == "2"
+
+    def test_reparent_with_descendants(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """Descendants follow the reparented task."""
+        phase_b = Task.objects.create(project=project, name="Phase B", duration=0, wbs_path="1")
+        t = Task.objects.create(project=project, name="Moving", duration=0, wbs_path="2")
+        grand = Task.objects.create(project=project, name="Grand", duration=3, wbs_path="2.1")
+        r = client.post(
+            f"/api/v1/projects/{project.id}/tasks/{t.id}/reparent/",
+            {"new_parent_id": str(phase_b.id)},
+            format="json",
+        )
+        assert r.status_code == 200
+        t.refresh_from_db()
+        grand.refresh_from_db()
+        assert t.wbs_path == "1.1"
+        assert grand.wbs_path == "1.1.1"
+
+    def test_reparent_cycle_rejected(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """Cannot reparent a task under its own descendant."""
+        t = Task.objects.create(project=project, name="Ancestor", duration=0, wbs_path="1")
+        desc = Task.objects.create(project=project, name="Descendant", duration=3, wbs_path="1.1")
+        r = client.post(
+            f"/api/v1/projects/{project.id}/tasks/{t.id}/reparent/",
+            {"new_parent_id": str(desc.id)},
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "descendant" in r.data["detail"]
+
+    def test_reparent_self_rejected(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """Cannot reparent a task under itself."""
+        t = Task.objects.create(project=project, name="Self", duration=3, wbs_path="1")
+        r = client.post(
+            f"/api/v1/projects/{project.id}/tasks/{t.id}/reparent/",
+            {"new_parent_id": str(t.id)},
+            format="json",
+        )
+        assert r.status_code == 400
+
+    def test_reparent_unknown_parent_404(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """Unknown new_parent_id returns 404."""
+        import uuid
+
+        t = Task.objects.create(project=project, name="T", duration=3, wbs_path="1")
+        r = client.post(
+            f"/api/v1/projects/{project.id}/tasks/{t.id}/reparent/",
+            {"new_parent_id": str(uuid.uuid4())},
+            format="json",
+        )
+        assert r.status_code == 404
+
+    def test_reparent_same_parent_noop(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """Reparenting to the current parent is a no-op."""
+        parent = Task.objects.create(project=project, name="P", duration=0, wbs_path="1")
+        child = Task.objects.create(project=project, name="C", duration=3, wbs_path="1.1")
+        r = client.post(
+            f"/api/v1/projects/{project.id}/tasks/{child.id}/reparent/",
+            {"new_parent_id": str(parent.id)},
+            format="json",
+        )
+        assert r.status_code == 200
+        assert r.data["updated"] == []
+        child.refresh_from_db()
+        assert child.wbs_path == "1.1"
+
+    def test_reparent_returns_assignment_warning(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """Warning returned when reparent makes target a summary with assignments."""
+        target = Task.objects.create(project=project, name="Target", duration=5, wbs_path="1")
+        resource = Resource.objects.create(name="Dee")
+        TaskResource.objects.create(task=target, resource=resource, units=1.0)
+        t = Task.objects.create(project=project, name="Moving", duration=3, wbs_path="2")
+        r = client.post(
+            f"/api/v1/projects/{project.id}/tasks/{t.id}/reparent/",
+            {"new_parent_id": str(target.id)},
+            format="json",
+        )
+        assert r.status_code == 200
+        assert r.data["warning"] == "has_assignments"
+
+    def test_reparent_renumbers_old_siblings(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """Removing the task from its old parent closes the gap in sibling order."""
+        target = Task.objects.create(project=project, name="Target", duration=0, wbs_path="1")
+        a = Task.objects.create(project=project, name="A", duration=3, wbs_path="2")
+        t = Task.objects.create(project=project, name="Mid", duration=3, wbs_path="3")
+        c = Task.objects.create(project=project, name="C", duration=3, wbs_path="4")
+        r = client.post(
+            f"/api/v1/projects/{project.id}/tasks/{t.id}/reparent/",
+            {"new_parent_id": str(target.id)},
+            format="json",
+        )
+        assert r.status_code == 200
+        a.refresh_from_db()
+        c.refresh_from_db()
+        assert a.wbs_path == "2"
+        # C was at "4", now closes the gap to "3".
+        assert c.wbs_path == "3"
+
+
+@pytest.mark.django_db
 class TestAssignmentGuard:
     """TaskResource creation blocked for summary tasks."""
 

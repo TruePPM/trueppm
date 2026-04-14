@@ -8,6 +8,8 @@ interface WbsRowProps {
   isExpanded: boolean;
   isRenaming: boolean;
   isSelected: boolean;
+  /** This summary row is the current drop target during a reparent drag. */
+  isReparentTarget?: boolean;
   onToggle: () => void;
   onSelect: () => void;
   onStartRename: () => void;
@@ -20,6 +22,7 @@ export function WbsRow({
   isExpanded,
   isRenaming,
   isSelected,
+  isReparentTarget = false,
   onToggle,
   onSelect,
   onStartRename,
@@ -37,7 +40,11 @@ export function WbsRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: task.id, disabled: task.isSummary });
+  } = useSortable({
+    id: task.id,
+    // Summary rows are drop targets (for reparent) but not draggable.
+    disabled: { draggable: task.isSummary, droppable: false },
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -90,6 +97,7 @@ export function WbsRow({
         ${isSelected ? 'bg-white/10 !border-l-2 !border-l-brand-primary' : ''}
         ${rowBg}
         ${isDragging ? 'opacity-50' : ''}
+        ${isReparentTarget ? 'bg-brand-primary/5 !border-l-2 !border-l-brand-primary' : ''}
       `}
       onClick={onSelect}
       onDoubleClick={task.isSummary ? undefined : onStartRename}
