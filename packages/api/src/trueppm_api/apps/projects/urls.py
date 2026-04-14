@@ -8,6 +8,7 @@ from rest_framework.routers import DefaultRouter
 from trueppm_api.apps.projects.views import (
     BaselineActivateView,
     BaselineViewSet,
+    BoardColumnConfigView,
     CalendarViewSet,
     DependencyViewSet,
     ProjectViewSet,
@@ -69,6 +70,11 @@ urlpatterns = [
         "projects/<project_pk>/baselines/<baseline_pk>/activate/",
         BaselineActivateView.as_view(),
         name="project-baselines-activate",
+    ),
+    path(
+        "projects/<pk>/board-config/",
+        BoardColumnConfigView.as_view(),
+        name="project-board-config",
     ),
     # Risk endpoints — nested under /projects/<project_pk>/risks/
     path(

@@ -13,20 +13,15 @@ import {
 } from '@dnd-kit/core';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
 import { useUpdateTaskStatus } from '@/hooks/useBoardTasks';
+import { useBoardConfig } from '@/hooks/useBoardConfig';
 import type { Task, TaskStatus } from '@/types';
 import { BoardColumn } from './BoardColumn';
 import { BoardCard } from './BoardCard';
 
-const COLUMNS: { status: TaskStatus; label: string }[] = [
-  { status: 'NOT_STARTED', label: 'TO DO' },
-  { status: 'IN_PROGRESS', label: 'IN PROGRESS' },
-  { status: 'ON_HOLD', label: 'ON HOLD' },
-  { status: 'COMPLETE', label: 'DONE' },
-];
-
 export function BoardView() {
   const [searchParams] = useSearchParams();
   const projectId = searchParams.get('project') ?? '';
+  const { columns: COLUMNS } = useBoardConfig(projectId || null);
   const { tasks, isLoading } = useGanttTasks();
   const updateStatus = useUpdateTaskStatus();
 
