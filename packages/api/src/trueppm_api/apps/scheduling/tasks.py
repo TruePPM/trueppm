@@ -195,7 +195,7 @@ def _run_schedule(project_id: str, tracker: object = None) -> None:
         project_id: UUID string of the project to schedule.
         tracker: Optional TaskRunTracker for progress reporting.
     """
-    from trueppm_scheduler.engine import schedule
+    from trueppm_scheduler.engine import expand_summary_dependencies, schedule
     from trueppm_scheduler.models import Calendar as SchedCalendar
     from trueppm_scheduler.models import Dependency as SchedDependency
     from trueppm_scheduler.models import DependencyType
@@ -272,12 +272,37 @@ def _run_schedule(project_id: str, tracker: object = None) -> None:
         for d in db_deps
     ]
 
+    # Build children_map from wbs_path hierarchy for summary expansion.
+    # A task is a summary if any other task's wbs_path is a direct child of it.
+    db_task_by_id = {str(t.id): t for t in db_tasks}
+    children_map: dict[str, list[str]] = {}
+    for t in db_tasks:
+        if not t.wbs_path:
+            continue
+        parts = str(t.wbs_path).rsplit(".", 1)
+        if len(parts) < 2:
+            continue
+        parent_path = parts[0]
+        # Find the task with this parent wbs_path
+        for candidate in db_tasks:
+            if candidate.wbs_path and str(candidate.wbs_path) == parent_path:
+                parent_id = str(candidate.id)
+                children_map.setdefault(parent_id, []).append(str(t.id))
+                break
+
+    summary_ids = set(children_map.keys())
+
+    # Expand summary dependencies into leaf-level edges before CPM.
+    leaf_tasks, expanded_deps = expand_summary_dependencies(
+        sched_tasks, sched_deps, children_map
+    )
+
     sched_project = SchedProject(
         id=project_id,
         name=db_project.name,
         start_date=db_project.start_date,
-        tasks=sched_tasks,
-        dependencies=sched_deps,
+        tasks=leaf_tasks,
+        dependencies=expanded_deps,
         calendar=sched_calendar,
     )
 
@@ -291,6 +316,41 @@ def _run_schedule(project_id: str, tracker: object = None) -> None:
 
     # Build a map from task id string to computed CPM values.
     result_map = {t.id: t for t in result.tasks}
+
+    # Compute summary task dates by rolling up from their leaf descendants.
+    # Summary tasks are excluded from the CPM run, so we derive their dates
+    # from min(early_start) and max(early_finish) of all descendant leaves.
+    for sid in summary_ids:
+        from trueppm_scheduler.engine import _collect_leaves
+
+        leaves = _collect_leaves(sid, children_map)
+        leaf_results = [result_map[lid] for lid in leaves if lid in result_map]
+        if not leaf_results:
+            continue
+
+        es_dates = [t.early_start for t in leaf_results if t.early_start is not None]
+        ef_dates = [t.early_finish for t in leaf_results if t.early_finish is not None]
+        ls_dates = [t.late_start for t in leaf_results if t.late_start is not None]
+        lf_dates = [t.late_finish for t in leaf_results if t.late_finish is not None]
+        floats = [t.total_float for t in leaf_results if t.total_float is not None]
+
+        if not es_dates or not ef_dates:
+            continue
+
+        # Create a synthetic result entry for the summary task
+        summary_sched = SchedTask(
+            id=sid,
+            name=db_task_by_id[sid].name if sid in db_task_by_id else sid,
+            duration=timedelta(days=0),
+        )
+        summary_sched.early_start = min(es_dates)
+        summary_sched.early_finish = max(ef_dates)
+        summary_sched.late_start = min(ls_dates) if ls_dates else summary_sched.early_start
+        summary_sched.late_finish = max(lf_dates) if lf_dates else summary_sched.early_finish
+        summary_sched.total_float = min(floats) if floats else timedelta(days=0)
+        summary_sched.free_float = timedelta(days=0)
+        summary_sched.is_critical = any(t.is_critical for t in leaf_results)
+        result_map[sid] = summary_sched
 
     # Write CPM output back to Task rows via bulk_update (not save()).
     #

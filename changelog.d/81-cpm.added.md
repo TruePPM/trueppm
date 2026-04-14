@@ -1,0 +1,1 @@
+Summary task CPM support: `expand_summary_dependencies()` fans out summary-level dependencies to leaf tasks before the critical-path run, and the scheduling task rolls up early/late start/finish, total float, and critical status from descendant leaves onto each summary.
