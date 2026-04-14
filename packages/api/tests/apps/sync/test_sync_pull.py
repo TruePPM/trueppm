@@ -11,6 +11,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Risk, Task
+from trueppm_api.apps.sync.serializers import SyncTaskSerializer
 
 User = get_user_model()
 
@@ -227,6 +228,59 @@ def test_sync_risk_payload_includes_task_ids(
         resp = authed_client.get(_url(project), {"since": "0"})
     risk_data = next(r for r in resp.data["changes"]["risks"]["updated"] if r["id"] == str(risk.pk))
     assert str(task.pk) in risk_data["task_ids"]
+
+
+# ---------------------------------------------------------------------------
+# SyncTaskSerializer field contract
+#
+# Regression guard: #80 added actual_start/actual_finish to TaskSerializer but
+# missed SyncTaskSerializer (fixed in #90). These assertions ensure future
+# refactors cannot silently drop mobile-visible fields.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_sync_task_payload_includes_actual_and_milestone_fields(
+    authed_client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    task = Task.objects.create(
+        project=project,
+        name="Done task",
+        duration=2,
+        actual_start=date(2026, 2, 1),
+        actual_finish=date(2026, 2, 3),
+        is_milestone=False,
+    )
+    with patch.object(
+        __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
+        "_snapshot_max_version",
+        return_value=99,
+    ):
+        resp = authed_client.get(_url(project), {"since": "0"})
+    payload = next(t for t in resp.data["changes"]["tasks"]["updated"] if t["id"] == str(task.pk))
+    assert payload["actual_start"] == "2026-02-01"
+    assert payload["actual_finish"] == "2026-02-03"
+    assert payload["is_milestone"] is False
+
+
+def test_sync_task_serializer_declares_required_mobile_fields() -> None:
+    """Schema guard: if a field here is dropped, this test fails immediately
+    instead of silently breaking the mobile pull."""
+    declared = set(SyncTaskSerializer.Meta.fields)
+    required = {
+        "id",
+        "server_version",
+        "actual_start",
+        "actual_finish",
+        "is_milestone",
+        "planned_start",
+        "early_start",
+        "early_finish",
+        "status",
+        "percent_complete",
+    }
+    missing = required - declared
+    assert not missing, f"SyncTaskSerializer is missing mobile-critical fields: {missing}"
 
 
 @pytest.mark.django_db
