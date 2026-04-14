@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatToggleAnnouncement } from './GanttView';
+import { formatToggleAnnouncement } from './wbsAnnouncement';
 
 describe('formatToggleAnnouncement (#71)', () => {
   it('announces collapse with the summary name', () => {

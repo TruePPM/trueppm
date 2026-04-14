@@ -12,6 +12,7 @@ import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
 import { useDragStore } from '@/stores/dragStore';
 import { useColumnWidths } from '@/hooks/useColumnWidths';
 import { buildWbsTree, flattenVisible, collectAllIds } from '@/features/wbs/buildWbsTree';
+import { formatToggleAnnouncement } from './wbsAnnouncement';
 import { TaskListPanel } from './TaskListPanel';
 import { CanvasGanttTimeline } from './CanvasGanttTimeline';
 import { ZoomControl } from './ZoomControl';
@@ -22,21 +23,6 @@ import { AddTaskForm, type AddTaskFormHandle } from '@/features/project/AddTaskF
 import { RecalculatingBadge } from '@/features/project/RecalculatingBadge';
 import { TaskDetailDrawer } from './TaskDetailDrawer';
 import type { Task } from '@/types';
-
-/**
- * Build the aria-live announcement fired when a summary task is
- * expanded or collapsed from the WBS column (#71).
- */
-export function formatToggleAnnouncement(
-  wasExpanded: boolean,
-  name: string,
-  childCount: number,
-): string {
-  const label = name || 'Summary';
-  if (wasExpanded) return `${label} collapsed.`;
-  const noun = childCount === 1 ? 'child' : 'children';
-  return `${label} expanded, ${childCount} ${noun} visible.`;
-}
 
 // ---------------------------------------------------------------------------
 // GanttEmptyState — shown when tasks.length === 0 (rule 78)
