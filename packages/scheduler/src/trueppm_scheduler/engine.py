@@ -356,6 +356,87 @@ def _compute_floats(
 
 
 # ---------------------------------------------------------------------------
+# Summary task dependency expansion
+# ---------------------------------------------------------------------------
+
+
+def _collect_leaves(
+    task_id: str,
+    children_map: dict[str, list[str]],
+) -> list[str]:
+    """Recursively collect leaf task IDs under a summary task.
+
+    A leaf is a task that has no children in children_map.
+    """
+    children = children_map.get(task_id)
+    if not children:
+        return [task_id]
+    leaves: list[str] = []
+    for child_id in children:
+        leaves.extend(_collect_leaves(child_id, children_map))
+    return leaves
+
+
+def expand_summary_dependencies(
+    tasks: list[Task],
+    deps: list[Dependency],
+    children_map: dict[str, list[str]],
+) -> tuple[list[Task], list[Dependency]]:
+    """Expand summary task dependencies into leaf-level edges.
+
+    Summary tasks (those with entries in children_map) are removed from the
+    task list. Dependencies involving summary tasks are fanned out to all
+    their leaf descendants, producing a cross-product of edges. Self-referencing
+    edges (where predecessor == successor after expansion) are skipped.
+    Duplicate edges are deduplicated.
+
+    Args:
+        tasks: All tasks including summaries.
+        deps: Dependencies that may reference summary tasks.
+        children_map: Mapping of summary task ID to list of direct child IDs.
+
+    Returns:
+        (leaf_tasks, expanded_deps): Tasks with summaries removed, and
+        dependencies expanded to leaf-level edges.
+    """
+    if not children_map:
+        return tasks, deps
+
+    summary_ids = set(children_map.keys())
+    leaf_tasks = [t for t in tasks if t.id not in summary_ids]
+
+    seen: set[tuple[str, str]] = set()
+    expanded: list[Dependency] = []
+
+    for dep in deps:
+        pred_id = dep.predecessor_id
+        succ_id = dep.successor_id
+
+        # Resolve to leaves
+        preds = _collect_leaves(pred_id, children_map) if pred_id in summary_ids else [pred_id]
+        succs = _collect_leaves(succ_id, children_map) if succ_id in summary_ids else [succ_id]
+
+        for p in preds:
+            for s in succs:
+                if p == s:
+                    continue
+                key = (p, s)
+                if key in seen:
+                    continue
+                seen.add(key)
+                expanded.append(
+                    Dependency(
+                        predecessor_id=p,
+                        successor_id=s,
+                        dep_type=dep.dep_type,
+                        lag=dep.lag,
+                    )
+                )
+
+    return leaf_tasks, expanded
+
+
+# ---------------------------------------------------------------------------
 # Public API: schedule()
 # ---------------------------------------------------------------------------
 
