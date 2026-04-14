@@ -3581,7 +3581,7 @@
             },
             "post": {
                 "operationId": "v1_task_resources_create",
-                "description": "CRUD for task-resource assignments.",
+                "description": "Create a task-resource assignment and return warnings alongside the payload.\n\nThe warnings list is reserved for future over-allocation detection\n(see issue #97 TODO). It is always empty for now so callers can rely\non the field being present without a schema change later.",
                 "tags": [
                     "v1"
                 ],
