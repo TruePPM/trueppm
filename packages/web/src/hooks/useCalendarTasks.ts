@@ -1,100 +1,115 @@
 /**
- * useCalendarTasks — stub hook returning fixture tasks for CalendarView.
+ * useCalendarTasks — fetch tasks for a date window from the API.
  *
- * Replaced by a real TanStack Query hook in issue #55 follow-up once the
- * ?project= param is available from the router.
+ * Uses start__gte / finish__lte filters added in issue #40 to return only
+ * tasks that overlap the requested calendar window.  Mirrors the Task shape
+ * used by useGanttTasks so CalendarView and ResourceView share one type.
  */
 
-import type { Task } from '@/types';
+import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router';
+import { apiClient } from '@/api/client';
+import type { Task, TaskAssignee, TaskStatus } from '@/types';
+import type { PaginatedResponse } from '@/api/types';
 
-const FIXTURE_TASKS: Task[] = [
-  {
-    id: 'task-1',
-    wbs: '1',
-    name: 'Project Kickoff',
-    start: '2026-03-02',
-    finish: '2026-03-02',
-    duration: 1,
-    progress: 100,
-    parentId: null,
-    isCritical: true,
-    isComplete: true,
-    isSummary: false,
-    isMilestone: true,
-    status: 'COMPLETE',
-    assignees: [],
-  },
-  {
-    id: 'task-2',
-    wbs: '2',
-    name: 'Requirements Analysis',
-    start: '2026-03-03',
-    finish: '2026-03-13',
-    duration: 9,
-    progress: 60,
-    parentId: null,
-    isCritical: true,
-    isComplete: false,
-    isSummary: false,
-    isMilestone: false,
-    status: 'IN_PROGRESS',
-    assignees: [],
-  },
-  {
-    id: 'task-3',
-    wbs: '3',
-    name: 'Architecture Design',
-    start: '2026-03-10',
-    finish: '2026-03-20',
-    duration: 9,
-    progress: 20,
-    parentId: null,
-    isCritical: false,
-    isComplete: false,
-    isSummary: false,
-    isMilestone: false,
-    status: 'IN_PROGRESS',
-    assignees: [],
-  },
-  {
-    id: 'task-4',
-    wbs: '4',
-    name: 'UI Wireframes',
-    start: '2026-03-16',
-    finish: '2026-03-27',
-    duration: 10,
-    progress: 0,
-    parentId: null,
-    isCritical: false,
-    isComplete: false,
-    isSummary: false,
-    isMilestone: false,
-    status: 'NOT_STARTED',
-    assignees: [],
-  },
-  {
-    id: 'task-5',
-    wbs: '5',
-    name: 'Design Review Gate',
-    start: '2026-03-27',
-    finish: '2026-03-27',
-    duration: 0,
-    progress: 0,
-    parentId: null,
-    isCritical: true,
-    isComplete: false,
-    isSummary: false,
-    isMilestone: true,
-    status: 'NOT_STARTED',
-    assignees: [],
-  },
-];
+interface ApiTask {
+  id: string;
+  wbs_path: string | null;
+  name: string;
+  early_start: string | null;
+  early_finish: string | null;
+  planned_start: string | null;
+  duration: number;
+  percent_complete: number;
+  is_critical: boolean;
+  status: TaskStatus;
+  is_milestone: boolean;
+  is_summary: boolean;
+  parent_id: string | null;
+  actual_start: string | null;
+  actual_finish: string | null;
+  assignments?: Array<{
+    resource_id: string;
+    resource_name: string;
+    units: number;
+  }>;
+}
+
+function mapTask(t: ApiTask): Task {
+  const start = t.early_start ?? t.planned_start ?? '';
+  const assignees: TaskAssignee[] = (t.assignments ?? []).map((a) => ({
+    resourceId: a.resource_id,
+    name: a.resource_name,
+    units: a.units,
+  }));
+  return {
+    id: t.id,
+    wbs: t.wbs_path ?? '',
+    name: t.name,
+    start,
+    finish: t.early_finish ?? start,
+    duration: t.duration,
+    progress: t.percent_complete,
+    parentId: t.parent_id,
+    isCritical: t.is_critical,
+    isComplete: t.status === 'COMPLETE',
+    isSummary: t.is_summary,
+    isMilestone: t.is_milestone,
+    status: t.status,
+    assignees,
+  };
+}
+
+interface UseCalendarTasksOptions {
+  /** ISO date string — only tasks finishing on or after this date are returned. */
+  startGte?: string;
+  /** ISO date string — only tasks starting on or before this date are returned. */
+  finishLte?: string;
+}
 
 interface UseCalendarTasksReturn {
   tasks: Task[];
   isLoading: boolean;
+  error: Error | null;
 }
 
-export function useCalendarTasks(): UseCalendarTasksReturn {
-  return { tasks: FIXTURE_TASKS, isLoading: false };
+export function useCalendarTasks(options: UseCalendarTasksOptions = {}): UseCalendarTasksReturn {
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get('project') ?? undefined;
+  const { startGte, finishLte } = options;
+
+  const query = useQuery({
+    queryKey: ['calendarTasks', projectId, startGte, finishLte],
+    enabled: !!projectId,
+    queryFn: async () => {
+      const params: Record<string, string> = {};
+      if (projectId) params['project'] = projectId;
+      if (startGte) params['start__gte'] = startGte;
+      if (finishLte) params['finish__lte'] = finishLte;
+
+      // Fetch all pages (calendar windows are date-bounded so page count is small).
+      const allTasks: ApiTask[] = [];
+      let nextUrl: string | null = null;
+      const firstPage = await apiClient.get<PaginatedResponse<ApiTask>>('/tasks/', { params });
+      allTasks.push(...firstPage.data.results);
+      nextUrl = firstPage.data.next ?? null;
+
+      while (nextUrl) {
+        const parsed = new URL(nextUrl);
+        const pageRes = await apiClient.get<PaginatedResponse<ApiTask>>(
+          parsed.pathname + parsed.search,
+        );
+        allTasks.push(...pageRes.data.results);
+        nextUrl = pageRes.data.next ?? null;
+      }
+
+      return allTasks.map(mapTask);
+    },
+  });
+
+  return {
+    tasks: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+  };
 }
