@@ -75,6 +75,6 @@ export function useResourceAllocation(
 export function useInvalidateAllocation(projectId: string | undefined) {
   const queryClient = useQueryClient();
   return () => {
-    queryClient.invalidateQueries({ queryKey: ['resource-allocation', projectId] });
+    void queryClient.invalidateQueries({ queryKey: ['resource-allocation', projectId] });
   };
 }

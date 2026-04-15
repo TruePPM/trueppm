@@ -16,7 +16,7 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -49,7 +49,11 @@ def project(cal: Calendar) -> Project:
 def resource(project: Project) -> Resource:
     user = User.objects.create_user(username="ruser", password="pw")
     return Resource.objects.create(
-        project=project, name="Alice", email="alice@example.com", max_units=Decimal("1.00"), user=user
+        project=project,
+        name="Alice",
+        email="alice@example.com",
+        max_units=Decimal("1.00"),
+        user=user,
     )
 
 

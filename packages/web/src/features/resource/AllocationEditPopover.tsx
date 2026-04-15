@@ -73,7 +73,7 @@ export function AllocationEditPopover({
     },
     onSuccess: (_data, units) => {
       onSaved(assignmentId, units);
-      queryClient.invalidateQueries({ queryKey: ['resource-allocation', projectId] });
+      void queryClient.invalidateQueries({ queryKey: ['resource-allocation', projectId] });
       onClose();
     },
     onError: () => {

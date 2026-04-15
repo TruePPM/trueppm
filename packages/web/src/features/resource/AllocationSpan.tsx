@@ -80,7 +80,6 @@ export function AllocationSpan({
     <button
       ref={spanRef}
       type="button"
-      role="button"
       aria-label={ariaLabel}
       title={tooltipLabel}
       onClick={() => onEdit(task.assignment_id)}
