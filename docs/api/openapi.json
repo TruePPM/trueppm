@@ -4512,6 +4512,7 @@
             },
             "Calendar": {
                 "type": "object",
+                "description": "Read/write serializer for project calendars.\n\nNests exceptions as read-only — exceptions are managed through the\n/calendars/{pk}/exceptions/ sub-resource, not via this serializer.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -4557,6 +4558,7 @@
             },
             "CalendarException": {
                 "type": "object",
+                "description": "Read-only snapshot of a single calendar exception (holiday or non-working span).",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -4584,6 +4586,7 @@
             },
             "CalendarExceptionRequest": {
                 "type": "object",
+                "description": "Read-only snapshot of a single calendar exception (holiday or non-working span).",
                 "properties": {
                     "exc_start": {
                         "type": "string",
@@ -4605,6 +4608,7 @@
             },
             "CalendarRequest": {
                 "type": "object",
+                "description": "Read/write serializer for project calendars.\n\nNests exceptions as read-only — exceptions are managed through the\n/calendars/{pk}/exceptions/ sub-resource, not via this serializer.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -4643,6 +4647,7 @@
             },
             "Dependency": {
                 "type": "object",
+                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nCross-project edges are rejected in validate() because the CPM engine\nassumes a single-project DAG.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -4680,6 +4685,7 @@
             },
             "DependencyRequest": {
                 "type": "object",
+                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nCross-project edges are rejected in validate() because the CPM engine\nassumes a single-project DAG.",
                 "properties": {
                     "predecessor": {
                         "type": "string",
@@ -4724,6 +4730,7 @@
             },
             "FailedTask": {
                 "type": "object",
+                "description": "Read-only serializer for the failed-task dead-letter queue.\n\nExposed by the admin API so operators can inspect and requeue or discard\ntasks that exceeded their retry budget.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -5209,6 +5216,7 @@
             },
             "PatchedCalendarRequest": {
                 "type": "object",
+                "description": "Read/write serializer for project calendars.\n\nNests exceptions as read-only — exceptions are managed through the\n/calendars/{pk}/exceptions/ sub-resource, not via this serializer.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -5234,6 +5242,7 @@
             },
             "PatchedDependencyRequest": {
                 "type": "object",
+                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nCross-project edges are rejected in validate() because the CPM engine\nassumes a single-project DAG.",
                 "properties": {
                     "predecessor": {
                         "type": "string",
@@ -5279,6 +5288,7 @@
             },
             "PatchedProjectRequest": {
                 "type": "object",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -5301,6 +5311,7 @@
             },
             "PatchedResourceRequest": {
                 "type": "object",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -5440,6 +5451,7 @@
             },
             "PatchedTaskResourceRequest": {
                 "type": "object",
+                "description": "Read/write serializer for task-resource assignments.\n\nunits is a decimal fraction of full capacity (e.g. 0.5 = 50%). Validated\nto the range [0.01, 2.0] so accidental 0 or runaway values are caught early.",
                 "properties": {
                     "task": {
                         "type": "string",
@@ -5485,6 +5497,7 @@
             },
             "Project": {
                 "type": "object",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -5619,6 +5632,7 @@
             },
             "ProjectRequest": {
                 "type": "object",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -5645,6 +5659,7 @@
             },
             "Resource": {
                 "type": "object",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -5683,6 +5698,7 @@
             },
             "ResourceRequest": {
                 "type": "object",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -6256,6 +6272,7 @@
             },
             "TaskResource": {
                 "type": "object",
+                "description": "Read/write serializer for task-resource assignments.\n\nunits is a decimal fraction of full capacity (e.g. 0.5 = 50%). Validated\nto the range [0.01, 2.0] so accidental 0 or runaway values are caught early.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -6284,6 +6301,7 @@
             },
             "TaskResourceRequest": {
                 "type": "object",
+                "description": "Read/write serializer for task-resource assignments.\n\nunits is a decimal fraction of full capacity (e.g. 0.5 = 50%). Validated\nto the range [0.01, 2.0] so accidental 0 or runaway values are caught early.",
                 "properties": {
                     "task": {
                         "type": "string",
@@ -6306,6 +6324,7 @@
             },
             "TaskRun": {
                 "type": "object",
+                "description": "Read-only serializer for TaskRun progress records.\n\nExposes all fields needed to drive a progress indicator: status,\nprogress_pct, progress_msg, and timing fields for duration display.\nAll fields are read-only — TaskRun records are created and updated\nby the Celery worker, never directly via the API.",
                 "properties": {
                     "id": {
                         "type": "string",
