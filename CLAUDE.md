@@ -32,6 +32,7 @@ trueppm-suite/
 | Cache | Redis | 7+ |
 | Web UI | React + TypeScript + Vite | 19 / 5.x / 6 |
 | Gantt | SVAR React Gantt (MIT) | latest |
+| E2E tests | Playwright | latest |
 | Scheduler | Python (networkx + numpy) | — |
 | Auth | django-allauth + simplejwt | — |
 | Deploy | Helm 3 on Kubernetes | — |
@@ -59,7 +60,8 @@ trueppm-suite/
 - Strict mode enabled
 - Formatter: prettier
 - Linter: eslint with typescript-eslint
-- Tests: vitest
+- Unit tests: vitest (`packages/web/src/**/*.test.ts`)
+- E2E tests: Playwright (`packages/web/e2e/**/*.spec.ts`) — run via `web:e2e` CI job
 - Components: functional only, no class components
 - State: Zustand for client state, TanStack Query for server state
 - Styling: Tailwind CSS with Design System v1.0 tokens
@@ -72,6 +74,10 @@ trueppm-suite/
 - Scopes: `scheduler`, `api`, `web`, `helm`, `sync`, `docs`, `ci`
 - MR template: description, testing done, screenshots if UI, issue link
 - All MRs require: passing CI, no type errors, no lint errors, test coverage ≥ 80%
+- Test coverage by layer — all three apply to any feature that touches that layer:
+  - **API** (pytest): new endpoints, serializers, permission gates, edge cases
+  - **Web units** (vitest): new hooks, utility functions, client-side logic
+  - **E2E** (Playwright, `packages/web/e2e/`): golden path + one error/empty state for every new user-visible flow or API-backed component
 - MR descriptions and multi-line commit bodies use heredoc syntax — never inline `\n` literals
 
 ## Build & Run
@@ -182,6 +188,10 @@ git add docs/api/openapi.json && git commit
 3. Verify new admin-visible behavior (settings, env vars, Helm values, management commands) is reflected in `docs/administration/`
 4. Verify new or modified endpoints are reflected in `docs/api/`
 5. Update any screenshots in `docs/` invalidated by UI changes — stale screenshots block the MR
+6. Verify all three test layers are covered: pytest (API), vitest (web units), Playwright E2E (`packages/web/e2e/`)
+   - New UI flow or API-backed component → Playwright spec required in the same MR
+   - New API endpoint → pytest covering permissions, happy path, and key error cases
+   - New hook or utility function → vitest unit tests
 
 ### Every MR that adds user-visible behavior must include a docs diff in the same MR — not a follow-up issue.
 

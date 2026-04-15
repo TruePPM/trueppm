@@ -127,18 +127,33 @@ What is the chosen approach?
 - Migration required: yes/no
 - API changes: yes/no (if yes, describe)
 - OSS or Enterprise: which repo does this go in?
+
+### Durable Execution
+<!-- Required for every feature. Answer N/A with justification if a question truly does not apply. -->
+1. Broker-down behaviour: <!-- outbox pattern / direct .delay() / N/A — why -->
+2. Drain task: <!-- new drain required / reuses existing — which one and why semantics match -->
+3. Orphan window: <!-- filter threshold in minutes, or N/A -->
+4. Service layer: <!-- services.py function name, or "new function needed: <name>" -->
+5. API response on best-effort dispatch: <!-- 202 {"queued":true} / synchronous / N/A -->
+6. Outbox cleanup: <!-- purge schedule and retention, or N/A -->
+7. Idempotency: <!-- how duplicate executions are detected and handled -->
+8. Dead-letter / failure handling: <!-- DLQ, retry limit, alert threshold, or N/A -->
 ```
 
 ## Durable Execution Checklist
 
-For any enhancement that involves background work, async dispatch, or side effects
-triggered by user actions, answer these questions before proposing an approach:
+**This checklist is mandatory for every feature ADR** — not just features that "obviously"
+involve async work. Write "N/A" with a one-line justification for any question that
+genuinely does not apply. Leaving a question blank is not acceptable.
+
+The answers must appear verbatim in the ADR's `### Durable Execution` subsection above.
 
 1. **What happens if the broker is down at the moment of dispatch?**
    - Direct `.delay()` calls at the view/signal layer are a durability gap — the DB
      commits but the task is never queued. The correct pattern is the transactional
      outbox: write an outbox row atomically with the DB change, attempt `.delay()`,
      and rely on a periodic drain task to re-dispatch failures.
+   - N/A only if the feature has zero async side effects (pure read endpoints, pure UI).
 
 2. **Does this need a drain task?**
    - Any new category of async work needs its own Beat drain (every 30 s,
@@ -163,7 +178,19 @@ triggered by user actions, answer these questions before proposing an approach:
    - Completed rows should be purged on a nightly schedule (7-day retention is the
      existing convention). Add a `_do_purge` function and register it in Beat.
 
-State the answer to each in the ADR's **Implementation Notes** section.
+7. **Is the task idempotent? How are duplicate executions handled?**
+   - Every Celery task must be safe to run twice (broker retry, network blip, manual
+     re-queue). State the idempotency key (e.g. outbox row PK, project_id + date) and
+     how a duplicate is detected (unique constraint, status check, `select_for_update`).
+   - Tasks that are not idempotent by nature must wrap their body in a guard that
+     checks-and-sets a `processing` status before doing work.
+
+8. **What happens when the task fails permanently?**
+   - Define the retry limit (`max_retries`), backoff strategy, and what happens at
+     exhaustion: dead-letter table entry, alert, human-actionable status on the
+     triggering object, or silent discard (document why discard is acceptable).
+   - If using the outbox pattern: what status does the outbox row enter on permanent
+     failure? Who can re-trigger it?
 
 ## Key Architectural Constraints
 
