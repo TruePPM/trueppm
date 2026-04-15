@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import logging
 import uuid
@@ -1313,6 +1314,51 @@ class RiskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "risk_deleted", {"id": risk_id})
         )
+
+
+# ---------------------------------------------------------------------------
+# Presence endpoint — who is currently connected to this project
+# ---------------------------------------------------------------------------
+
+
+class ProjectPresenceView(APIView):
+    """Return the list of users currently connected to a project's WebSocket.
+
+    Reads from the Redis hash written by ``ProjectConsumer`` on connect/disconnect.
+    The hash key has a 60-second TTL refreshed by each heartbeat, so entries are
+    always live — no additional staleness filtering is needed.
+
+    Permissions: Member (role ≥ 1) required, matching the WebSocket auth rule.
+
+    Response: ``[{user_id: str, display_name: str}, …]``
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def get(self, request: Request, pk: str) -> Response:
+        """Return JSON list of online users for the given project."""
+        get_object_or_404(Project, pk=pk)
+
+        try:
+            import json as _json
+
+            import redis as redis_lib
+            from django.conf import settings
+
+            from trueppm_api.apps.sync.consumers import _presence_key
+
+            r = redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
+            raw: dict[str, str] = r.hgetall(_presence_key(pk))  # type: ignore[assignment]
+        except Exception:
+            logger.exception("ProjectPresenceView: failed to read presence for project %s", pk)
+            return Response([], status=status.HTTP_200_OK)
+
+        users = []
+        for _uid, entry_json in raw.items():
+            with contextlib.suppress(ValueError, KeyError):
+                users.append(_json.loads(entry_json))
+
+        return Response(users, status=status.HTTP_200_OK)
 
 
 # ---------------------------------------------------------------------------

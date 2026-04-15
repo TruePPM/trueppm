@@ -11,6 +11,7 @@ from trueppm_api.apps.projects.views import (
     BoardColumnConfigView,
     CalendarViewSet,
     DependencyViewSet,
+    ProjectPresenceView,
     ProjectViewSet,
     RiskViewSet,
     TaskBulkView,
@@ -75,6 +76,12 @@ urlpatterns = [
         "projects/<pk>/board-config/",
         BoardColumnConfigView.as_view(),
         name="project-board-config",
+    ),
+    # Presence endpoint — who is connected to this project's WebSocket
+    path(
+        "projects/<pk>/presence/",
+        ProjectPresenceView.as_view(),
+        name="project-presence",
     ),
     # Risk endpoints — nested under /projects/<project_pk>/risks/
     path(

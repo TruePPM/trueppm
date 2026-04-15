@@ -33,6 +33,9 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/v1/projects/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FIXTURE_API_PROJECTS) }),
   );
+  await page.route('**/api/v1/projects/*/presence/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
 });
 
 test('page title is TruePPM', async ({ page }) => {

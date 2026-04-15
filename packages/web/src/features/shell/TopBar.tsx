@@ -1,12 +1,14 @@
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useShellStore } from '@/stores/shellStore';
 import { useShellStats } from '@/hooks/useShellStats';
 import { useGanttStore } from '@/stores/ganttStore';
+import { useProjectPresence } from '@/hooks/useProjectPresence';
 import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
 import { Logo } from './Logo';
 import { ViewTabs } from './ViewTabs';
 import { BadgePopover } from './BadgePopover';
 import { TaskRunIndicator } from './TaskRunIndicator';
+import { PresenceAvatarStack } from './PresenceAvatarStack';
 
 interface Props {
   onHamburgerClick: () => void;
@@ -18,6 +20,9 @@ export function TopBar({ onHamburgerClick }: Props) {
   const setSelectedTaskId = useGanttStore((s) => s.setSelectedTaskId);
   const scrollToTask = useGanttStore((s) => s.scrollToTask);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get('project');
+  const onlineUsers = useProjectPresence(projectId);
 
   function handleTaskNavigate(id: string) {
     setSelectedTaskId(id);
@@ -88,6 +93,9 @@ export function TopBar({ onHamburgerClick }: Props) {
 
         {/* Background operations indicator — visible only when runs are active */}
         <TaskRunIndicator />
+
+        {/* Online collaborators — desktop only (hidden md:flex inside component) */}
+        <PresenceAvatarStack users={onlineUsers} />
 
         {/* User avatar — menu deferred to auth feature */}
         <button
