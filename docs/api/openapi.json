@@ -1271,6 +1271,47 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/resource-allocation/": {
+            "get": {
+                "operationId": "v1_projects_resource_allocation_retrieve",
+                "description": "Per-resource task spans for the allocation timeline view (issue #85).\n\nReturns each resource assigned to the project with their task spans\n(early_start / early_finish / units / status) within the requested window.\nResources with no assignments in the window are excluded.\n\nOverallocation detection is intentionally client-side: the caller receives\nall spans and computes daily unit sums against max_units. See ADR-0031.\n\nQuery parameters:\n  start    (YYYY-MM-DD, optional) — window start; defaults to earliest\n           early_start across all tasks. Returns 409 if no CPM dates exist.\n  end      (YYYY-MM-DD, optional) — window end; defaults to latest\n           early_finish across all tasks.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/schedule/": {
             "post": {
                 "operationId": "v1_projects_schedule_create",

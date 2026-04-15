@@ -1,51 +1,116 @@
 /**
- * Resource utilization view (issue #22).
+ * Resource view — Utilization grid (issue #22) + Allocation Timeline (issue #85).
  *
  * Rendered by ProjectShell when view === 'resources'.
  * Permission gate: SCHEDULER (role ≥ 2) only (rule 94).
- * Default window: rolling ±4 weeks from today (rule 93).
+ *
+ * View modes:
+ *   timeline    — per-resource task spans on a time axis (default, issue #85)
+ *   utilization — per-resource day-cell load heat-map (issue #22)
+ *
+ * The active mode is stored in localStorage so it persists per-session.
  */
 import { useState, useRef, useEffect } from 'react';
-import { ResourceToolbar } from './ResourceToolbar';
+import { ResourceToolbar, type ViewMode } from './ResourceToolbar';
 import { ResourceGrid } from './ResourceGrid';
 import { ResourceEmptyState } from './ResourceEmptyState';
 import { PermissionDeniedNotice } from './PermissionDeniedNotice';
 import { ResourceOverallocationDrawer } from './ResourceOverallocationDrawer';
-import { defaultWindow, fitToProjectWindow, addDays, formatISODate, parseUTCDate } from './resourceUtils';
+import { ResourceAllocationTimeline } from './ResourceAllocationTimeline';
+import {
+  defaultWindow,
+  fitToProjectWindow,
+  fitToAllocationWindow,
+  addDays,
+  formatISODate,
+  parseUTCDate,
+} from './resourceUtils';
 import { useResourceUtilization } from '@/hooks/useResourceUtilization';
+import { useResourceAllocation, useInvalidateAllocation } from '@/hooks/useResourceAllocation';
 import { useResolveOverallocation } from '@/hooks/useResolveOverallocation';
 
 // ---------------------------------------------------------------------------
 // Role stub — replace with real useCurrentUserRole() when auth is wired in.
-// Values mirror the Django Role enum: VIEWER=0, MEMBER=1, SCHEDULER=2, ADMIN=3.
 // ---------------------------------------------------------------------------
 const STUB_ROLE = 2; // SCHEDULER
-
 const SCHEDULER_ROLE = 2;
+
+const MODE_STORAGE_KEY = 'trueppm.resources.viewMode';
 
 interface Props {
   projectId?: string;
-  /** ISO date string — passed from Project model for "Fit to project" baseline. */
   projectStartDate?: string;
+  /** Current user's resource ID for "My allocation" shortcut. */
+  currentUserResourceId?: string;
+  /**
+   * Resource ID to pre-highlight on mount (from Overview deep-link
+   * via ?highlight=<uuid> query param, resolved by the parent shell).
+   */
+  highlightResourceId?: string;
 }
 
-export function ResourceView({ projectId, projectStartDate }: Props) {
+export function ResourceView({
+  projectId,
+  projectStartDate,
+  currentUserResourceId,
+  highlightResourceId: _highlightResourceId,
+}: Props) {
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    try {
+      const stored = localStorage.getItem(MODE_STORAGE_KEY);
+      return stored === 'utilization' ? 'utilization' : 'timeline';
+    } catch {
+      return 'timeline';
+    }
+  });
+
   const [window_, setWindow] = useState(() => defaultWindow());
   const [isFitToProject, setIsFitToProject] = useState(false);
+  const [myAllocationActive, setMyAllocationActive] = useState(false);
+  const [statusFilters, setStatusFilters] = useState<string[]>(['NOT_STARTED', 'IN_PROGRESS']);
 
-  const { data, status } = useResourceUtilization(projectId, window_.start, window_.end);
+  const resourceFilter = myAllocationActive && currentUserResourceId
+    ? [currentUserResourceId]
+    : undefined;
+
+  // --- Data hooks ---
+  const utilizationResult = useResourceUtilization(
+    viewMode === 'utilization' ? projectId : undefined,
+    window_.start,
+    window_.end,
+  );
+
+  const allocationResult = useResourceAllocation(
+    viewMode === 'timeline' ? projectId : undefined,
+    {
+      start: window_.start,
+      end: window_.end,
+      resource: resourceFilter,
+      status: statusFilters.length > 0 ? statusFilters : undefined,
+    },
+  );
+
+  // Wire this to WS assignment_* events when the WS layer is connected to ResourceView
+  useInvalidateAllocation(projectId);
   const { target, isOpen, openDrawer, closeDrawer, ariaMessage } = useResolveOverallocation();
   const ariaLiveRef = useRef<HTMLDivElement>(null);
 
-  // Write aria announcements via DOM ref rather than React state binding (rule 30) — avoids
-  // a React render cycle between the openDrawer() call and the AT announcement.
   useEffect(() => {
     if (ariaLiveRef.current) {
       ariaLiveRef.current.textContent = ariaMessage ?? '';
     }
   }, [ariaMessage]);
 
-  // --- Permission gate (rule 94) ---
+  // Persist view mode
+  useEffect(() => {
+    try {
+      localStorage.setItem(MODE_STORAGE_KEY, viewMode);
+    } catch {
+      // ignore
+    }
+  }, [viewMode]);
+
+  // --- Permission gate ---
   if (STUB_ROLE < SCHEDULER_ROLE) {
     return (
       <div className="flex flex-col h-full overflow-hidden">
@@ -54,8 +119,8 @@ export function ResourceView({ projectId, projectStartDate }: Props) {
     );
   }
 
-  // --- No project selected ---
-  if (status === 'idle') {
+  // --- No project ---
+  if (!projectId) {
     return (
       <div className="flex items-center justify-center h-full text-xs text-neutral-text-secondary">
         No project selected.
@@ -63,52 +128,55 @@ export function ResourceView({ projectId, projectStartDate }: Props) {
     );
   }
 
-  // --- 409 state (rule 95) ---
-  if (status === 'schedule-not-run') {
-    return (
-      <div className="flex flex-col h-full overflow-hidden">
-        <ResourceEmptyState onRunScheduler={() => {
-          // TODO: trigger scheduler action via API
-        }} />
-      </div>
-    );
-  }
+  const activeStatus = viewMode === 'timeline' ? allocationResult.status : utilizationResult.status;
 
-  // --- Loading ---
-  if (status === 'loading') {
+  if (activeStatus === 'idle') {
     return (
       <div className="flex items-center justify-center h-full text-xs text-neutral-text-secondary">
-        Loading utilization…
+        No project selected.
       </div>
     );
   }
 
-  // --- Error ---
-  if (status === 'error' || !data) {
+  if (activeStatus === 'schedule-not-run') {
+    return (
+      <div className="flex flex-col h-full overflow-hidden">
+        <ResourceEmptyState onRunScheduler={() => {}} />
+      </div>
+    );
+  }
+
+  if (activeStatus === 'loading') {
+    return (
+      <div className="flex items-center justify-center h-full text-xs text-neutral-text-secondary">
+        Loading…
+      </div>
+    );
+  }
+
+  if (activeStatus === 'error') {
     return (
       <div className="flex items-center justify-center h-full text-xs text-semantic-critical">
-        Failed to load resource utilization.
+        Failed to load resource data.
       </div>
     );
   }
 
-  // --- Navigation helpers ---
+  // --- Navigation ---
   function goNext() {
     setIsFitToProject(false);
-    setWindow((w) => {
-      const start = formatISODate(addDays(parseUTCDate(w.start), 28));
-      const end = formatISODate(addDays(parseUTCDate(w.end), 28));
-      return { start, end };
-    });
+    setWindow((w) => ({
+      start: formatISODate(addDays(parseUTCDate(w.start), 28)),
+      end: formatISODate(addDays(parseUTCDate(w.end), 28)),
+    }));
   }
 
   function goPrev() {
     setIsFitToProject(false);
-    setWindow((w) => {
-      const start = formatISODate(addDays(parseUTCDate(w.start), -28));
-      const end = formatISODate(addDays(parseUTCDate(w.end), -28));
-      return { start, end };
-    });
+    setWindow((w) => ({
+      start: formatISODate(addDays(parseUTCDate(w.start), -28)),
+      end: formatISODate(addDays(parseUTCDate(w.end), -28)),
+    }));
   }
 
   function goToday() {
@@ -120,45 +188,83 @@ export function ResourceView({ projectId, projectStartDate }: Props) {
     if (isFitToProject) {
       setIsFitToProject(false);
       setWindow(defaultWindow());
-    } else {
-      if (data && projectStartDate) {
-        setIsFitToProject(true);
-        setWindow(fitToProjectWindow(projectStartDate, data));
-      }
+      return;
+    }
+    if (!projectStartDate) return;
+
+    if (viewMode === 'timeline' && allocationResult.data) {
+      setIsFitToProject(true);
+      setWindow(fitToAllocationWindow(projectStartDate, allocationResult.data));
+    } else if (viewMode === 'utilization' && utilizationResult.data) {
+      setIsFitToProject(true);
+      setWindow(fitToProjectWindow(projectStartDate, utilizationResult.data));
     }
   }
+
+  function handleMyAllocationToggle() {
+    setMyAllocationActive((v) => !v);
+  }
+
+  const unassignedCount =
+    viewMode === 'utilization' ? (utilizationResult.data?.unassigned_task_count ?? 0) : 0;
 
   return (
     <>
       <div className="flex flex-col h-full overflow-hidden">
         <ResourceToolbar
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
           windowStart={window_.start}
           windowEnd={window_.end}
-          unassignedCount={data.unassigned_task_count}
+          unassignedCount={unassignedCount}
           isFitToProject={isFitToProject}
+          myAllocationActive={myAllocationActive}
           onPrev={goPrev}
           onNext={goNext}
           onToday={goToday}
           onFitToggle={handleFitToggle}
+          onMyAllocationToggle={handleMyAllocationToggle}
+          showMyAllocation={!!currentUserResourceId}
+          statusFilters={statusFilters}
+          onStatusFiltersChange={setStatusFilters}
         />
 
-        {data.resources.length === 0 ? (
-          <div className="flex items-center justify-center flex-1 text-xs text-neutral-text-secondary">
-            No resources assigned in this window.
-          </div>
-        ) : (
-          <div className="flex-1 min-h-0">
-            <ResourceGrid
-              resources={data.resources}
-              windowStart={window_.start}
-              windowEnd={window_.end}
-              onOpenDrawer={openDrawer}
-            />
-          </div>
+        {viewMode === 'timeline' && allocationResult.data && (
+          allocationResult.data.resources.length === 0 ? (
+            <div className="flex items-center justify-center flex-1 text-xs text-neutral-text-secondary">
+              No assignments in this window.
+            </div>
+          ) : (
+            <div className="flex-1 min-h-0">
+              <ResourceAllocationTimeline
+                data={allocationResult.data}
+                windowStart={window_.start}
+                windowEnd={window_.end}
+                currentUserResourceId={currentUserResourceId}
+                projectId={projectId}
+              />
+            </div>
+          )
+        )}
+
+        {viewMode === 'utilization' && utilizationResult.data && (
+          utilizationResult.data.resources.length === 0 ? (
+            <div className="flex items-center justify-center flex-1 text-xs text-neutral-text-secondary">
+              No resources assigned in this window.
+            </div>
+          ) : (
+            <div className="flex-1 min-h-0">
+              <ResourceGrid
+                resources={utilizationResult.data.resources}
+                windowStart={window_.start}
+                windowEnd={window_.end}
+                onOpenDrawer={openDrawer}
+              />
+            </div>
+          )
         )}
       </div>
 
-      {/* Aria-live region — content written via DOM ref (rule 30), not React state */}
       <div
         ref={ariaLiveRef}
         aria-live="polite"
