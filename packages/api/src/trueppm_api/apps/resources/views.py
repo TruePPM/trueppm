@@ -101,9 +101,8 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
     queryset = TaskResource.objects.select_related("task", "resource")
 
     def get_queryset(self) -> QuerySet[TaskResource]:
-        user = self.request.user
         member_project_ids = ProjectMembership.objects.filter(
-            user=user,
+            user_id=self.request.user.pk,
             is_deleted=False,
         ).values_list("project_id", flat=True)
         qs = (

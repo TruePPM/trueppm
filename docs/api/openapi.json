@@ -3628,7 +3628,7 @@
         "/api/v1/task-resources/": {
             "get": {
                 "operationId": "v1_task_resources_list",
-                "description": "CRUD for task-resource assignments.",
+                "description": "CRUD for task-resource assignments.\n\nPermission model:\n- Read (GET/HEAD/OPTIONS): any project member (Viewer+) via IsProjectMember.\n- Write (POST/PATCH/DELETE): Resource Manager (2) or above via CanAssignResource.\n  The create path additionally checks role in perform_create because has_object_permission\n  is not called before the object exists.\n\nIDOR protection:\nProjectScopedViewSet does not recognise the task→project FK path on TaskResource,\nso get_queryset explicitly scopes to the user's member projects rather than relying\non the mixin fallthrough.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -3675,7 +3675,7 @@
             },
             "post": {
                 "operationId": "v1_task_resources_create",
-                "description": "Create a task-resource assignment and return warnings alongside the payload.\n\nThe warnings list is reserved for future over-allocation detection\n(see issue #97 TODO). It is always empty for now so callers can rely\non the field being present without a schema change later.",
+                "description": "Create a task-resource assignment and return any overallocation warnings.\n\nThe assignment is always saved regardless of warnings — this is a soft\nalert, not a hard block. After commit, broadcasts ``assignment_created``\nto all clients subscribed to the project's WebSocket channel so the\nresource utilisation grid updates in real time (ADR-0028).",
                 "tags": [
                     "v1"
                 ],
@@ -3724,7 +3724,7 @@
         "/api/v1/task-resources/{id}/": {
             "get": {
                 "operationId": "v1_task_resources_retrieve",
-                "description": "CRUD for task-resource assignments.",
+                "description": "CRUD for task-resource assignments.\n\nPermission model:\n- Read (GET/HEAD/OPTIONS): any project member (Viewer+) via IsProjectMember.\n- Write (POST/PATCH/DELETE): Resource Manager (2) or above via CanAssignResource.\n  The create path additionally checks role in perform_create because has_object_permission\n  is not called before the object exists.\n\nIDOR protection:\nProjectScopedViewSet does not recognise the task→project FK path on TaskResource,\nso get_queryset explicitly scopes to the user's member projects rather than relying\non the mixin fallthrough.",
                 "parameters": [
                     {
                         "in": "path",
@@ -3763,7 +3763,7 @@
             },
             "put": {
                 "operationId": "v1_task_resources_update",
-                "description": "CRUD for task-resource assignments.",
+                "description": "CRUD for task-resource assignments.\n\nPermission model:\n- Read (GET/HEAD/OPTIONS): any project member (Viewer+) via IsProjectMember.\n- Write (POST/PATCH/DELETE): Resource Manager (2) or above via CanAssignResource.\n  The create path additionally checks role in perform_create because has_object_permission\n  is not called before the object exists.\n\nIDOR protection:\nProjectScopedViewSet does not recognise the task→project FK path on TaskResource,\nso get_queryset explicitly scopes to the user's member projects rather than relying\non the mixin fallthrough.",
                 "parameters": [
                     {
                         "in": "path",
@@ -3822,7 +3822,7 @@
             },
             "patch": {
                 "operationId": "v1_task_resources_partial_update",
-                "description": "CRUD for task-resource assignments.",
+                "description": "CRUD for task-resource assignments.\n\nPermission model:\n- Read (GET/HEAD/OPTIONS): any project member (Viewer+) via IsProjectMember.\n- Write (POST/PATCH/DELETE): Resource Manager (2) or above via CanAssignResource.\n  The create path additionally checks role in perform_create because has_object_permission\n  is not called before the object exists.\n\nIDOR protection:\nProjectScopedViewSet does not recognise the task→project FK path on TaskResource,\nso get_queryset explicitly scopes to the user's member projects rather than relying\non the mixin fallthrough.",
                 "parameters": [
                     {
                         "in": "path",
@@ -3880,7 +3880,7 @@
             },
             "delete": {
                 "operationId": "v1_task_resources_destroy",
-                "description": "CRUD for task-resource assignments.",
+                "description": "CRUD for task-resource assignments.\n\nPermission model:\n- Read (GET/HEAD/OPTIONS): any project member (Viewer+) via IsProjectMember.\n- Write (POST/PATCH/DELETE): Resource Manager (2) or above via CanAssignResource.\n  The create path additionally checks role in perform_create because has_object_permission\n  is not called before the object exists.\n\nIDOR protection:\nProjectScopedViewSet does not recognise the task→project FK path on TaskResource,\nso get_queryset explicitly scopes to the user's member projects rather than relying\non the mixin fallthrough.",
                 "parameters": [
                     {
                         "in": "path",
