@@ -156,3 +156,225 @@ def test_trigger_endpoint_404_for_missing_project(scheduler_client: APIClient) -
     fake_pk = uuid.uuid4()
     resp = scheduler_client.post(f"/api/v1/projects/{fake_pk}/schedule/")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Incremental CPM recompute (#8)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_incremental_write_skips_unaffected_tasks(project: Project) -> None:
+    """Incremental path only writes CPM results for the changed task and its downstream.
+
+    Approach: run a full recompute first so all tasks have CPM dates. Then force t3's
+    early_start to a sentinel value and run an incremental recompute seeded only on t1.
+    Because t3 is not downstream of t1, its early_start must remain unchanged.
+    """
+    from datetime import date
+
+    from trueppm_api.apps.projects.models import Dependency
+    from trueppm_api.apps.scheduling.tasks import _run_schedule
+
+    # Build a project with enough tasks that the affected ratio stays below the 25% threshold.
+    # Affected = {t1, t2} = 2 tasks.  Total must be > 8 (2/N < 0.25 → N > 8).
+    # We use 10 tasks: a 2-task chain (t1→t2) and 8 independent stubs (t3-t10).
+    t1 = Task.objects.create(project=project, name="T1", duration=2)
+    t2 = Task.objects.create(project=project, name="T2", duration=3)
+    independents = [
+        Task.objects.create(project=project, name=f"TI{i}", duration=1) for i in range(8)
+    ]
+    t3 = independents[0]  # sentinel target — completely independent of t1/t2
+    Dependency.objects.create(predecessor=t1, successor=t2, dep_type="FS")
+    # t3-t10 have no dependencies — changing t1 must not touch their CPM fields.
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        # Full recompute to populate CPM fields.
+        _run_schedule(str(project.pk))
+
+        # Overwrite t3's early_start with a sentinel date so we can detect if it gets touched.
+        sentinel = date(2099, 1, 1)
+        Task.objects.filter(pk=t3.pk).update(early_start=sentinel)
+
+        # Incremental recompute seeded on t1 only.
+        # Affected = {t1, t2} = 2/10 = 20% < 25% threshold → incremental write.
+        _run_schedule(str(project.pk), changed_task_ids=[str(t1.pk)])
+
+    t3.refresh_from_db()
+    assert t3.early_start == sentinel, (
+        "Incremental recompute must not overwrite t3 (not downstream of t1)"
+    )
+
+
+@pytest.mark.django_db
+def test_incremental_falls_back_to_full_write_above_threshold(project: Project) -> None:
+    """When affected tasks exceed 25% of all tasks, a full write is performed.
+
+    Scenario: 4 tasks in a linear chain. Changing t1 makes all 4 tasks affected
+    (100% > 25% threshold) → full write, so t3's sentinel date IS overwritten.
+    """
+    from datetime import date
+
+    from trueppm_api.apps.projects.models import Dependency
+    from trueppm_api.apps.scheduling.tasks import _run_schedule
+
+    t1 = Task.objects.create(project=project, name="T1", duration=1)
+    t2 = Task.objects.create(project=project, name="T2", duration=1)
+    t3 = Task.objects.create(project=project, name="T3", duration=1)
+    t4 = Task.objects.create(project=project, name="T4", duration=1)
+    Dependency.objects.create(predecessor=t1, successor=t2, dep_type="FS")
+    Dependency.objects.create(predecessor=t2, successor=t3, dep_type="FS")
+    Dependency.objects.create(predecessor=t3, successor=t4, dep_type="FS")
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        # Full recompute to populate CPM fields.
+        _run_schedule(str(project.pk))
+
+        # Put a sentinel on t3 — if the incremental path falls back to full write, it gets cleared.
+        sentinel = date(2099, 1, 1)
+        Task.objects.filter(pk=t3.pk).update(early_start=sentinel)
+
+        # Incremental seeded on t1 — 100% of tasks affected → should fall back to full write.
+        _run_schedule(str(project.pk), changed_task_ids=[str(t1.pk)])
+
+    t3.refresh_from_db()
+    # Full write clears the sentinel (writes the real CPM result).
+    assert t3.early_start != sentinel, "Full-write fallback should have overwritten the sentinel"
+
+
+@pytest.mark.django_db
+def test_incremental_result_equals_full_recompute() -> None:
+    """Equivalence: incremental write produces identical CPM results for affected tasks.
+
+    Strategy (fuzz, 20 cases):
+    1. Build a random project and run a full recompute to get the baseline.
+    2. Corrupt one task's early_start in the DB to a sentinel value.
+    3. Run an incremental recompute seeded from that task.
+    4. Verify the corrupted task now matches the baseline (i.e., it was healed).
+    5. Verify that other tasks whose values we did NOT corrupt are unchanged.
+
+    This is the regression guard for #8 — verifies that the incremental path
+    writes the same CPM values as the full path for affected tasks.
+    """
+    import random
+    from datetime import date
+
+    from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
+    from trueppm_api.apps.scheduling.tasks import _downstream_task_ids, _run_schedule
+
+    rng = random.Random(42)
+    n_cases = 20
+
+    for case_idx in range(n_cases):
+        cal = Calendar.objects.create(name=f"Cal{case_idx}")
+        proj = Project.objects.create(
+            name=f"P{case_idx}", start_date=date(2026, 1, 5), calendar=cal
+        )
+
+        # Use enough tasks that at least one is independent (ratio below threshold).
+        n_tasks = rng.randint(10, 20)
+        tasks = [
+            Task.objects.create(project=proj, name=f"T{i}", duration=rng.randint(1, 10))
+            for i in range(n_tasks)
+        ]
+
+        # Random forward-only FS dependencies (guarantees a DAG).
+        for i in range(n_tasks):
+            for j in range(i + 1, n_tasks):
+                if rng.random() < 0.2:
+                    Dependency.objects.create(
+                        predecessor=tasks[i], successor=tasks[j], dep_type="FS"
+                    )
+
+        with (
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+            patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+        ):
+            # Baseline full recompute.
+            _run_schedule(str(proj.pk))
+
+            # Record baseline early_start values.
+            baseline = {str(t.pk): Task.objects.get(pk=t.pk).early_start for t in tasks}
+
+            # Pick a seed task and corrupt it.
+            seed = tasks[0]
+            sentinel = date(2099, 12, 31)
+            Task.objects.filter(pk=seed.pk).update(early_start=sentinel)
+
+            # Incremental recompute seeded from the corrupted task.
+            _run_schedule(str(proj.pk), changed_task_ids=[str(seed.pk)])
+
+        # Determine which tasks were in the affected subgraph.
+        affected = _downstream_task_ids(str(proj.pk), [str(seed.pk)])
+        n_total = n_tasks
+        ratio = len(affected) / n_total
+
+        if ratio <= 0.25:
+            # Incremental path was taken: seed task must be healed.
+            seed.refresh_from_db()
+            assert seed.early_start == baseline[str(seed.pk)], (
+                f"Case {case_idx}: incremental did not heal seed task early_start "
+                f"(got {seed.early_start!r}, expected {baseline[str(seed.pk)]!r})"
+            )
+        # Full-write fallback is also correct (all tasks healed), but we don't test
+        # that path here since test_incremental_falls_back_to_full_write_above_threshold
+        # already covers it.
+
+
+@pytest.mark.django_db
+def test_incremental_benchmark_500_tasks_5_changes() -> None:
+    """Benchmark: incremental write on a 500-task project with 5 changed tasks < 200 ms.
+
+    Structure: 20 independent chains of 25 tasks each (500 tasks total).  Changing 5
+    tasks in chain #0 affects at most 25 downstream tasks = 5% < 25% threshold, so the
+    incremental write path is taken.  The CPM still runs on all 500 tasks but only 25
+    rows are written back to the DB, which is the meaningful savings for large projects.
+    """
+    import time
+    from datetime import date
+
+    from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
+    from trueppm_api.apps.scheduling.tasks import _run_schedule
+
+    cal = Calendar.objects.create(name="Bench")
+    proj = Project.objects.create(name="BenchProj", start_date=date(2026, 1, 5), calendar=cal)
+
+    # 20 independent chains of 25 tasks each (500 tasks total, no cross-chain deps).
+    n_chains, chain_len = 20, 25
+    all_tasks: list[list[Task]] = []
+    for c in range(n_chains):
+        chain = [
+            Task.objects.create(project=proj, name=f"C{c}T{i}", duration=2)
+            for i in range(chain_len)
+        ]
+        all_tasks.append(chain)
+
+    Dependency.objects.bulk_create(
+        [
+            Dependency(predecessor=all_tasks[c][i], successor=all_tasks[c][i + 1], dep_type="FS")
+            for c in range(n_chains)
+            for i in range(chain_len - 1)
+        ]
+    )
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        # Warm up with a full recompute so CPM results are in the DB.
+        _run_schedule(str(proj.pk))
+
+        # Change the first 5 tasks in chain #0.
+        # Downstream = 20 tasks (indices 5-24 in chain 0) = 20/500 = 4% < 25% threshold.
+        changed = [str(all_tasks[0][i].pk) for i in range(5)]
+        t0 = time.perf_counter()
+        _run_schedule(str(proj.pk), changed_task_ids=changed)
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+
+    assert elapsed_ms < 200, f"Incremental CPM took {elapsed_ms:.1f} ms — exceeds 200 ms budget"

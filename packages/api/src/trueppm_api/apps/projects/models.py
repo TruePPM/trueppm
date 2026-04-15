@@ -633,3 +633,39 @@ class RiskTask(models.Model):
 
     def __str__(self) -> str:
         return f"RiskTask risk={self.risk_id} task={self.task_id}"
+
+
+# ---------------------------------------------------------------------------
+# Board column configuration
+# ---------------------------------------------------------------------------
+
+
+class BoardColumnConfig(models.Model):
+    """Per-project Kanban board column configuration.
+
+    Stores an ordered list of column definitions so PMs can rename, reorder,
+    or hide the four built-in task status columns. The API returns hardcoded
+    defaults when no config row exists, so the model is created lazily.
+
+    columns JSON schema (list of objects):
+        status:  TaskStatus value — NOT_STARTED | IN_PROGRESS | ON_HOLD | COMPLETE
+        label:   display label (max 32 chars)
+        visible: boolean — hidden columns still hold tasks but don't appear on the board
+    """
+
+    project = models.OneToOneField(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="board_column_config",
+    )
+    columns = models.JSONField(
+        default=list,
+        help_text="Ordered list of {status, label, visible} objects.",
+    )
+
+    class Meta:
+        verbose_name = "board column config"
+        verbose_name_plural = "board column configs"
+
+    def __str__(self) -> str:
+        return f"BoardColumnConfig({self.project_id})"

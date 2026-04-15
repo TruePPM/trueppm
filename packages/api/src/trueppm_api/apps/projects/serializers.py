@@ -360,6 +360,46 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         return attrs
 
 
+_DEFAULT_COLUMNS = [
+    {"status": "NOT_STARTED", "label": "TO DO", "visible": True},
+    {"status": "IN_PROGRESS", "label": "IN PROGRESS", "visible": True},
+    {"status": "ON_HOLD", "label": "ON HOLD", "visible": True},
+    {"status": "COMPLETE", "label": "DONE", "visible": True},
+]
+
+
+class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
+    """Read/write serializer for BoardColumnConfig.
+
+    Validates each column entry: status must be a valid TaskStatus, label
+    ≤ 32 chars, visible is a bool. Exactly the four built-in statuses must
+    appear (no duplicates, no unknown values).
+    """
+
+    columns = serializers.ListField(child=serializers.DictField(), allow_empty=False)
+
+    def validate_columns(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        valid_statuses = {s.value for s in TaskStatus}
+        seen: set[str] = set()
+        for entry in value:
+            status = entry.get("status")
+            label = entry.get("label")
+            visible = entry.get("visible")
+            if status not in valid_statuses:
+                raise serializers.ValidationError(f"Unknown status: {status!r}")
+            if status in seen:
+                raise serializers.ValidationError(f"Duplicate status: {status!r}")
+            seen.add(status)
+            if not isinstance(label, str) or len(label) > 32:
+                raise serializers.ValidationError("label must be a string ≤ 32 chars")
+            if not isinstance(visible, bool):
+                raise serializers.ValidationError("visible must be a boolean")
+        missing = valid_statuses - seen
+        if missing:
+            raise serializers.ValidationError(f"Missing statuses: {missing}")
+        return value
+
+
 class RiskSerializer(serializers.ModelSerializer[Risk]):
     """Read/write serializer for project risks.
 

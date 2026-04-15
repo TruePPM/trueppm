@@ -24,7 +24,7 @@ from django.db.models.expressions import RawSQL
 from django.shortcuts import get_object_or_404
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -43,6 +43,7 @@ from trueppm_api.apps.access.permissions import (
 from trueppm_api.apps.projects.models import (
     Baseline,
     BaselineTask,
+    BoardColumnConfig,
     Calendar,
     Dependency,
     Project,
@@ -50,8 +51,10 @@ from trueppm_api.apps.projects.models import (
     Task,
 )
 from trueppm_api.apps.projects.serializers import (
+    _DEFAULT_COLUMNS,
     BaselineDetailSerializer,
     BaselineSerializer,
+    BoardColumnConfigSerializer,
     CalendarSerializer,
     DependencySerializer,
     ProjectSerializer,
@@ -1382,3 +1385,45 @@ def _task_webhook_payload(task: Task) -> dict:  # type: ignore[type-arg]
         "actual_start": str(task.actual_start) if task.actual_start else None,
         "actual_finish": str(task.actual_finish) if task.actual_finish else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Board column configuration
+# ---------------------------------------------------------------------------
+
+
+class BoardColumnConfigView(APIView):
+    """GET/PUT per-project board column configuration.
+
+    GET returns the saved config or the hardcoded 4-column defaults.
+    PUT validates and saves the config, creating the row if it doesn't exist.
+    Requires SCHEDULER role (≥ 2) for writes — same as schedule-affecting changes.
+    Reads are open to all project members.
+    """
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.request.method in SAFE_METHODS:
+            return [IsAuthenticated(), IsProjectMember()]
+        return [IsAuthenticated(), IsProjectScheduler()]
+
+    def get(self, request: Request, pk: str) -> Response:
+        project = get_object_or_404(Project, pk=pk)
+        self.check_object_permissions(request, project)
+        try:
+            config = BoardColumnConfig.objects.get(project_id=pk)
+            columns = config.columns or _DEFAULT_COLUMNS
+        except BoardColumnConfig.DoesNotExist:
+            columns = _DEFAULT_COLUMNS
+        return Response({"columns": columns}, status=status.HTTP_200_OK)
+
+    def put(self, request: Request, pk: str) -> Response:
+        project = get_object_or_404(Project, pk=pk)
+        self.check_object_permissions(request, project)
+        serializer = BoardColumnConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+        BoardColumnConfig.objects.update_or_create(
+            project_id=pk,
+            defaults={"columns": validated["columns"]},
+        )
+        return Response(validated, status=status.HTTP_200_OK)

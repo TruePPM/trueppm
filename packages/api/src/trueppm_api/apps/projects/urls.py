@@ -8,6 +8,7 @@ from rest_framework.routers import DefaultRouter
 from trueppm_api.apps.projects.views import (
     BaselineActivateView,
     BaselineViewSet,
+    BoardColumnConfigView,
     CalendarViewSet,
     DependencyViewSet,
     ProjectPresenceView,
@@ -70,6 +71,11 @@ urlpatterns = [
         "projects/<project_pk>/baselines/<baseline_pk>/activate/",
         BaselineActivateView.as_view(),
         name="project-baselines-activate",
+    ),
+    path(
+        "projects/<pk>/board-config/",
+        BoardColumnConfigView.as_view(),
+        name="project-board-config",
     ),
     # Presence endpoint — who is connected to this project's WebSocket
     path(
