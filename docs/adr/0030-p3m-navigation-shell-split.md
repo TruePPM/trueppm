@@ -9,7 +9,7 @@ The current OSS frontend has no project overview/dashboard page. After login, us
 redirected to `/gantt` (`router.tsx` catch-all). There is no `/projects/:id/overview` route,
 no KPI summary, and no "Needs your attention" surface.
 
-The P3M UI proposal (docs/ux/p3m-vs-oss-views.html, 2026-04-14) defines two intentionally
+The P3M UI proposal (docs/ux/p3m-vs-oss-views.md, 2026-04-14) defines two intentionally
 distinct homepages:
 
 1. **OSS Single-Program view** (`/projects/:id/overview`) — optimised for a PM running

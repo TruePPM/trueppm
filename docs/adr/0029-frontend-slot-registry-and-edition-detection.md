@@ -17,7 +17,7 @@ The existing backend extension pattern (Django signals — ADR-0010, ADR-0011, A
 provides a clean precedent: OSS defines named extension points; Enterprise registers receivers
 at startup. This ADR brings the same model to the React frontend.
 
-The VoC, UX Review, and UX Design reviews of the P3M UI proposal (docs/ux/p3m-vs-oss-views.html,
+The VoC, UX Review, and UX Design reviews of the P3M UI proposal (docs/ux/p3m-vs-oss-views.md,
 2026-04-14) identified this as a **pre-implementation blocker**: "Building enterprise widgets before
 the extension mechanism is defined guarantees a rewrite."
 
