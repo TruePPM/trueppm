@@ -47,13 +47,10 @@ def project(cal: Calendar) -> Project:
 
 @pytest.fixture
 def resource(project: Project) -> Resource:
-    user = User.objects.create_user(username="ruser", password="pw")
     return Resource.objects.create(
-        project=project,
         name="Alice",
         email="alice@example.com",
         max_units=Decimal("1.00"),
-        user=user,
     )
 
 
@@ -268,13 +265,10 @@ def test_task_partially_overlapping_window_included(project: Project, resource: 
 
 @pytest.mark.django_db
 def test_resource_filter(project: Project, resource: Resource, task_scheduled: Task) -> None:
-    other_user = User.objects.create_user(username="bob_res", password="pw")
     other = Resource.objects.create(
-        project=project,
         name="Bob",
         email="bob@example.com",
         max_units=Decimal("1.00"),
-        user=other_user,
     )
     other_task = Task.objects.create(
         project=project,
