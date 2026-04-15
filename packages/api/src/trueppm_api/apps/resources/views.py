@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from django.db import connection, transaction
-from django.db.models import QuerySet
+from django.db.models import QuerySet, Sum
 from rest_framework import filters, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -37,6 +39,46 @@ class ResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Resource]):
         return Resource.objects.select_related("calendar").order_by("name")
 
 
+def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str, str]]:
+    """Return a warnings list if the resource is overallocated on active tasks.
+
+    Sums ``units`` across all non-COMPLETE TaskResource rows for the resource
+    within the given project. If the total exceeds ``resource.max_units``, a
+    single warning entry is returned so the caller can include it in the 201
+    response without blocking the save (ADR-0028 — soft warning, not a hard error).
+
+    Args:
+        resource: The Resource being assigned.
+        project_id: The project UUID to scope the utilisation sum.
+
+    Returns:
+        A list containing at most one warning dict, or an empty list.
+    """
+    total: Decimal = (
+        TaskResource.objects.filter(
+            resource=resource,
+            task__project_id=project_id,
+            task__is_deleted=False,
+        )
+        .exclude(task__status="COMPLETE")
+        .aggregate(total=Sum("units"))["total"]
+        or Decimal("0")
+    )
+    if total > resource.max_units:
+        return [
+            {
+                "code": "resource_overallocated",
+                "resource_id": str(resource.pk),
+                "resource_name": resource.name,
+                "detail": (
+                    f"{resource.name} is allocated {total:.0%} across active tasks "
+                    f"(capacity: {resource.max_units:.0%})."
+                ),
+            }
+        ]
+    return []
+
+
 class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResource]):
     """CRUD for task-resource assignments."""
 
@@ -56,22 +98,25 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         return qs
 
     def create(self, request: Request, *args: object, **kwargs: object) -> Response:
-        """Create a task-resource assignment and return warnings alongside the payload.
+        """Create a task-resource assignment and return any overallocation warnings.
 
-        The warnings list is reserved for future over-allocation detection
-        (see issue #97 TODO). It is always empty for now so callers can rely
-        on the field being present without a schema change later.
+        The assignment is always saved regardless of warnings — this is a soft
+        alert, not a hard block. After commit, broadcasts ``assignment_created``
+        to all clients subscribed to the project's WebSocket channel so the
+        resource utilisation grid updates in real time (ADR-0028).
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
+        obj: TaskResource = serializer.instance  # type: ignore[assignment]
+        warnings = _check_overallocation(obj.resource, str(obj.task.project_id))
         data = dict(serializer.data)
-        data["warnings"] = []
+        data["warnings"] = warnings
         return Response(data, status=status.HTTP_201_CREATED, headers=headers)
 
     def perform_create(self, serializer: BaseSerializer[TaskResource]) -> None:
-        """Block assignment creation for summary tasks, then trigger CPM recalculation.
+        """Block assignment creation for summary tasks, then trigger CPM and broadcast.
 
         Summary tasks roll up from children — direct resource assignments on
         them create ambiguous scheduling semantics (ADR-0024).
@@ -95,16 +140,55 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
                     raise ValidationError({"task": "Cannot assign resources to a summary task."})
         obj = serializer.save()
         project_id = str(obj.task.project_id)
-        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+        task_id = str(obj.task.pk)
+        assignment_id = str(obj.pk)
+
+        def _on_commit() -> None:
+            from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+            _enqueue_recalculate(project_id)
+            broadcast_board_event(
+                project_id,
+                "assignment_created",
+                {"id": assignment_id, "task_id": task_id},
+            )
+
+        transaction.on_commit(_on_commit)
 
     def perform_update(self, serializer: BaseSerializer[TaskResource]) -> None:
-        """Save the updated assignment and trigger CPM recalculation."""
+        """Save the updated assignment and trigger CPM recalculation and broadcast."""
         obj = serializer.save()
         project_id = str(obj.task.project_id)
-        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+        task_id = str(obj.task.pk)
+        assignment_id = str(obj.pk)
+
+        def _on_commit() -> None:
+            from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+            _enqueue_recalculate(project_id)
+            broadcast_board_event(
+                project_id,
+                "assignment_updated",
+                {"id": assignment_id, "task_id": task_id},
+            )
+
+        transaction.on_commit(_on_commit)
 
     def perform_destroy(self, instance: TaskResource) -> None:
-        """Delete the assignment and trigger CPM recalculation."""
+        """Delete the assignment and trigger CPM recalculation and broadcast."""
         project_id = str(instance.task.project_id)
+        task_id = str(instance.task.pk)
+        assignment_id = str(instance.pk)
         instance.delete()
-        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+
+        def _on_commit() -> None:
+            from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+            _enqueue_recalculate(project_id)
+            broadcast_board_event(
+                project_id,
+                "assignment_deleted",
+                {"id": assignment_id, "task_id": task_id},
+            )
+
+        transaction.on_commit(_on_commit)

@@ -9,6 +9,19 @@ interface ApiTaskResource {
   units: number;
 }
 
+/** A single overallocation warning returned by the 201 create response (ADR-0028). */
+export interface AssignmentWarning {
+  code: 'resource_overallocated';
+  resource_id: string;
+  resource_name: string;
+  detail: string;
+}
+
+/** Shape returned by the POST /task-resources/ endpoint including optional warnings. */
+interface ApiTaskResourceWithWarnings extends ApiTaskResource {
+  warnings: AssignmentWarning[];
+}
+
 function mapAssignment(a: ApiTaskResource): TaskAssignment {
   return {
     id: a.id,
@@ -16,6 +29,12 @@ function mapAssignment(a: ApiTaskResource): TaskAssignment {
     resourceName: a.resource_name,
     units: a.units,
   };
+}
+
+/** Result returned by the useAddAssignment mutationFn — includes the new assignment and any warnings. */
+export interface AddAssignmentResult {
+  assignment: TaskAssignment;
+  warnings: AssignmentWarning[];
 }
 
 // ---------------------------------------------------------------------------
@@ -32,14 +51,17 @@ export interface AddAssignmentPayload {
 export function useAddAssignment(projectId: string) {
   const queryClient = useQueryClient();
 
-  return useMutation({
+  return useMutation<AddAssignmentResult, Error, AddAssignmentPayload>({
     mutationFn: async ({ taskId, resourceId, units }: AddAssignmentPayload) => {
-      const res = await apiClient.post<ApiTaskResource>('/task-resources/', {
+      const res = await apiClient.post<ApiTaskResourceWithWarnings>('/task-resources/', {
         task: taskId,
         resource: resourceId,
         units,
       });
-      return mapAssignment(res.data);
+      return {
+        assignment: mapAssignment(res.data),
+        warnings: res.data.warnings ?? [],
+      };
     },
     onSuccess: (_data, { taskId }) => {
       void queryClient.invalidateQueries({ queryKey: ['task-assignments', taskId] });
