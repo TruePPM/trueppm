@@ -101,8 +101,11 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
     queryset = TaskResource.objects.select_related("task", "resource")
 
     def get_queryset(self) -> QuerySet[TaskResource]:
+        # IsAuthenticated guarantees pk is set; assert narrows the type for mypy.
+        user_pk = self.request.user.pk
+        assert user_pk is not None
         member_project_ids = ProjectMembership.objects.filter(
-            user_id=self.request.user.pk,
+            user_id=user_pk,
             is_deleted=False,
         ).values_list("project_id", flat=True)
         qs = (
