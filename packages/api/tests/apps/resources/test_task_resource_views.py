@@ -39,9 +39,7 @@ def calendar(db: object) -> Calendar:
 
 @pytest.fixture
 def project(calendar: Calendar) -> Project:
-    return Project.objects.create(
-        name="Beta", start_date=date(2026, 4, 1), calendar=calendar
-    )
+    return Project.objects.create(name="Beta", start_date=date(2026, 4, 1), calendar=calendar)
 
 
 @pytest.fixture

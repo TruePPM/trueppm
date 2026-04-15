@@ -60,16 +60,11 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
     Returns:
         A list containing at most one warning dict, or an empty list.
     """
-    total: Decimal = (
-        TaskResource.objects.filter(
-            resource=resource,
-            task__project_id=project_id,
-            task__is_deleted=False,
-        )
-        .exclude(task__status="COMPLETE")
-        .aggregate(total=Sum("units"))["total"]
-        or Decimal("0")
-    )
+    total: Decimal = TaskResource.objects.filter(
+        resource=resource,
+        task__project_id=project_id,
+        task__is_deleted=False,
+    ).exclude(task__status="COMPLETE").aggregate(total=Sum("units"))["total"] or Decimal("0")
     if total > resource.max_units:
         return [
             {
