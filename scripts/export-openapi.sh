@@ -4,9 +4,10 @@
 # Usage:
 #   scripts/export-openapi.sh            # writes docs/api/openapi.json
 #   scripts/export-openapi.sh --check    # exits non-zero if the committed
-#                                        # schema has drifted from the live one
+#                                        # schema has drifted from the live one,
+#                                        # OR if it regresses paths/schemas vs main
 #
-# The --check mode is what the CI `api:schema-check` job runs.
+# The --check mode is what the CI `api:schema-drift` job runs.
 
 set -euo pipefail
 
@@ -39,6 +40,17 @@ if [[ "${CHECK}" -eq 1 ]]; then
         exit 1
     fi
     echo "docs/api/openapi.json is up to date."
+
+    # Regression guard: fail if the committed schema drops paths or schemas
+    # that exist on main. Catches branches that are behind main and would
+    # silently remove endpoints when merged.
+    MAIN_SCHEMA="$(git show origin/main:docs/api/openapi.json 2>/dev/null || true)"
+    if [[ -n "${MAIN_SCHEMA}" ]]; then
+        MAIN_TMP="$(mktemp)"
+        trap 'rm -f "${TMP}" "${MAIN_TMP}"' EXIT
+        echo "${MAIN_SCHEMA}" > "${MAIN_TMP}"
+        "${PYTHON_BIN}" "${REPO_ROOT}/scripts/check-schema-regression.py" "${OUT}" "${MAIN_TMP}"
+    fi
 else
     mkdir -p "$(dirname "${OUT}")"
     mv "${TMP}" "${OUT}"

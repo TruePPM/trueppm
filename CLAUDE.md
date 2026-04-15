@@ -158,6 +158,23 @@ Ask: "Would an individual PM or small team need this?" If yes → OSS. "Does thi
 - Multi-paragraph docstrings on trivial CRUD views
 - `// removed` / `# removed` tombstones
 
+### OpenAPI schema regeneration
+
+**Always merge `origin/main` before regenerating `docs/api/openapi.json`.**
+
+The `api:schema-drift` CI check only verifies self-consistency (committed schema
+matches current branch code). It does not protect against a branch that is behind
+main silently dropping endpoints. Without a merge first, regenerating will produce
+a schema that is missing any paths or schemas added to main after the branch was cut,
+and the CI check will still pass — the regression only surfaces at merge time.
+
+Correct sequence:
+```bash
+git merge origin/main        # bring the branch up to date first
+scripts/export-openapi.sh    # regenerate from the fully-merged codebase
+git add docs/api/openapi.json && git commit
+```
+
 ### Before marking any feature complete
 
 1. Grep changed files for new public functions/classes missing docstrings
