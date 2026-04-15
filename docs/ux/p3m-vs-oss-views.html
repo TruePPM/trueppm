@@ -1,0 +1,1968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>TruePPM — P3M (Enterprise) vs. OSS Single-Program UI Proposal v0.2</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .chip { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; font-weight: 600; }
+  .bar { height: 16px; border-radius: 3px; }
+  .dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+  .kpi { border:1px solid #E2E8F0; border-radius:.75rem; padding:.75rem 1rem; background:white; }
+  .card { border:1px solid #E2E8F0; border-radius:.75rem; background:white; }
+  .heatcell { width:18px; height:18px; border-radius:3px; }
+
+  /* View switcher tabs (matches live UI) */
+  .vtab { display:inline-flex; align-items:center; gap:.375rem; padding:.5rem .75rem; font-size:.8125rem; color:#475569; border-bottom:2px solid transparent; cursor:pointer;}
+  .vtab.active { color:#059669; border-bottom-color:#059669; font-weight:600; }
+
+  /* Project rail item */
+  .prail { display:flex; flex-direction:column; gap:2px; padding:.5rem .75rem; border-radius:.375rem; cursor:pointer; }
+  .prail.active { background:#F8FAFC; }
+  .prail .name { font-size:.875rem; font-weight:500; }
+  .prail .sub { font-size:.6875rem; color:#94A3B8; }
+
+  /* Resource pill on task rows */
+  .rpill { font-size:10px; font-weight:700; background:#3B82F6; color:white; padding:1px 4px; border-radius:3px; letter-spacing:.02em; }
+
+  /* Gantt timeline */
+  .tl-grid { background-image: linear-gradient(to right, rgba(148,163,184,.18) 1px, transparent 1px); background-size: calc(100%/13) 100%; }
+  .tl-row { position:relative; height:28px; border-bottom:1px dashed rgba(148,163,184,.15);}
+  .today-line { position:absolute; top:0; bottom:0; width:2px; background:#10B981; opacity:.6; }
+
+  /* Dark theme */
+  .dark-shell { background:#0B1220; color:#E2E8F0; }
+  .dark-shell .card, .dark-shell .kpi { background:#111827; border-color:#1F2937; color:#E2E8F0; }
+  .dark-shell table thead { background:#0F172A; color:#CBD5E1; }
+  .dark-shell .vtab { color:#94A3B8; }
+  .dark-shell .vtab.active { color:#34D399; border-bottom-color:#34D399; }
+  .dark-shell .prail.active { background:#0F172A; }
+  .dark-shell .tl-grid { background-image: linear-gradient(to right, rgba(148,163,184,.12) 1px, transparent 1px); }
+  .dark-shell .tl-row { border-color: rgba(148,163,184,.10); }
+
+  /* Dependency arrows + lag pills */
+  .dep-arrow { position:absolute; height:2px; background:#EF4444; z-index:2; }
+  .dep-arrow::after {
+    content:''; position:absolute; right:-5px; top:-4px;
+    border-left:6px solid #EF4444; border-top:5px solid transparent; border-bottom:5px solid transparent;
+  }
+  .lag-pill { position:absolute; z-index:3; font-size:9px; font-weight:700; padding:0 4px; border-radius:3px;
+    background:#FEF3C7; color:#92400E; border:1px solid #F59E0B; white-space:nowrap; }
+  .dep-chip { font-size:10px; padding:1px 4px; background:#F1F5F9; color:#475569; border-radius:3px; cursor:pointer; }
+  .dep-chip.cp { background:#FEE2E2; color:#B91C1C; }
+  .dimmed { opacity:.22; }
+
+  /* Board view */
+  .phase-lane { display:grid; grid-template-columns: 150px repeat(4, 1fr); gap:8px; padding:8px 0; border-bottom:1px solid #E2E8F0;}
+  .phase-header { display:flex; flex-direction:column; gap:2px; padding:.5rem; background:#F8FAFC; border-radius:.5rem; font-size:.75rem;}
+  .board-col { background:#F8FAFC; border-radius:.5rem; padding:.5rem; min-height:140px;}
+  .kcard { background:white; border:1px solid #E2E8F0; border-radius:.5rem; padding:.5rem; margin-bottom:.5rem; position:relative; font-size:.75rem;}
+  .kcard .entry { font-size:10px; color:#94A3B8; margin-top:.25rem;}
+  .kcard .rank { position:absolute; top:.4rem; right:.4rem; font-size:9px; color:#94A3B8;}
+
+  /* CSS progress ring */
+  .ring { --p: 60; --c: #10B981;
+    width:22px; height:22px; border-radius:50%;
+    background: conic-gradient(var(--c) calc(var(--p)*1%), #E2E8F0 0);
+    display:inline-grid; place-items:center; position:relative; flex-shrink:0;
+  }
+  .ring::before { content:''; width:14px; height:14px; border-radius:50%; background:white; position:absolute;}
+  .ring span { position:relative; font-size:8px; font-weight:700; color:#334155;}
+
+  /* Monte Carlo distribution bars */
+  .mc-hist { display:flex; align-items:flex-end; gap:2px; height:44px; }
+  .mc-hist > div { width:6px; background:#94A3B8; border-radius:1px; }
+  .mc-hist .p50 { background:#10B981; }
+  .mc-hist .p80 { background:#F59E0B; }
+  .mc-hist .p95 { background:#EF4444; }
+
+  .footer-strip {
+    display:flex; align-items:flex-end; gap:2px; height:28px;
+  }
+  .footer-strip > div { flex:1; background:#10B981; opacity:.7; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+<header class="max-w-[1400px] mx-auto px-8 pt-10 pb-6">
+  <div class="flex items-center gap-3 mb-2">
+    <div class="w-8 h-8 rounded-lg bg-emerald-600 text-white grid place-items-center font-bold">T</div>
+    <h1 class="text-2xl font-bold">TruePPM — UI/UX Proposal</h1>
+    <span class="chip bg-slate-200 text-slate-700 px-2 py-1 rounded">v0.2 · 2026-04-14</span>
+  </div>
+  <p class="text-slate-600 max-w-4xl">
+    Revised after reviewing the live Gantt build. The proposal now uses the shipping chrome conventions — <b>tabbed view-switcher</b> (Gantt / WBS / Board / Table / Calendar / Resources / Risks),
+    <b>Monte Carlo P80 chip</b> + <b>footer distribution strip</b>, inline <b>resource pills</b> on tasks, red-text critical path, and a live-collab status bar.
+    The OSS single-program view is the <i>project page</i>. The Enterprise P3M view is the <i>portfolio page</i> — same shell, new tabs and widgets registered via extension hooks.
+  </p>
+
+  <div class="mt-4 flex flex-wrap gap-2 text-xs">
+    <span class="chip bg-emerald-100 text-emerald-800 px-2 py-1 rounded">OSS · Apache 2.0 · packages/web</span>
+    <span class="chip bg-indigo-100 text-indigo-800 px-2 py-1 rounded">Enterprise · proprietary overlay · trueppm-enterprise</span>
+    <span class="chip bg-amber-100 text-amber-800 px-2 py-1 rounded">Shared tokens · light + dark</span>
+  </div>
+</header>
+
+<!-- ============================================================ -->
+<!-- A. OSS SINGLE PROGRAM — OVERVIEW                             -->
+<!-- ============================================================ -->
+<section class="max-w-[1400px] mx-auto px-8 py-6">
+  <div class="flex items-baseline gap-3 mb-3">
+    <h2 class="text-xl font-bold">① OSS Single-Program — Overview</h2>
+    <span class="chip text-emerald-700">Route: <code>/projects/:id</code> · default landing for a project · new first tab</span>
+  </div>
+  <p class="text-slate-600 mb-4 max-w-4xl">
+    The PM opens TruePPM, picks a project, and lands here. Overview answers <i>"is this project OK, what needs my attention, what's next, and when will it actually finish?"</i>
+    in a single screen. Every widget is a link into the detail view (Gantt / Board / Resources / Risks).
+    Overview is an <b>OSS-native tab</b> — no enterprise code required.
+  </p>
+
+  <div class="card overflow-hidden shadow-sm">
+    <!-- Top bar with Overview active -->
+    <div class="flex items-center justify-between px-3 pt-2 border-b">
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 pr-3 border-r">
+          <div class="w-5 h-5 rounded bg-emerald-600 text-white grid place-items-center text-[10px] font-bold">T</div>
+          <span class="font-semibold text-sm">TruePPM</span>
+        </div>
+        <nav class="flex items-center">
+          <span class="vtab active">🏠 Overview</span>
+          <span class="vtab">📊 Gantt</span>
+          <span class="vtab">🗂 WBS</span>
+          <span class="vtab">🧩 Board</span>
+          <span class="vtab">📋 Table</span>
+          <span class="vtab">📅 Calendar</span>
+          <span class="vtab">👥 Resources</span>
+          <span class="vtab">⚠ Risks</span>
+        </nav>
+      </div>
+      <div class="flex items-center gap-2 pb-1">
+        <span class="chip bg-amber-100 text-amber-800 px-2 py-1 rounded">P80: Nov 2</span>
+        <span class="chip bg-rose-50 text-rose-700 px-2 py-1 rounded">⚠ 2</span>
+        <span class="chip bg-slate-100 text-slate-700 px-2 py-1 rounded">🔔 1</span>
+        <span class="w-6 h-6 rounded-full bg-emerald-200 grid place-items-center text-emerald-800 text-[11px] font-bold">KW</span>
+      </div>
+    </div>
+
+    <div class="flex">
+      <!-- Project rail -->
+      <aside class="w-56 border-r bg-slate-50 py-2 px-2">
+        <div class="flex items-center justify-between px-2 py-1 text-[11px] uppercase tracking-wide text-slate-400">
+          <span>Projects</span><span class="cursor-pointer">+</span>
+        </div>
+        <div class="prail"><span class="flex items-center gap-2"><span class="dot bg-slate-400"></span><span class="name">adf</span></span><span class="sub">5 tasks · on track</span></div>
+        <div class="prail active"><span class="flex items-center gap-2"><span class="dot bg-amber-500"></span><span class="name">Website Redesign</span></span><span class="sub">42 tasks · P80 Nov 2</span></div>
+        <div class="prail"><span class="flex items-center gap-2"><span class="dot bg-emerald-500"></span><span class="name">test</span></span><span class="sub">12 tasks · ahead</span></div>
+        <div class="prail"><span class="flex items-center gap-2"><span class="dot bg-slate-400"></span><span class="name">whee</span></span><span class="sub">3 tasks · draft</span></div>
+      </aside>
+
+      <!-- Main Overview content -->
+      <main class="flex-1 p-5 space-y-4">
+        <!-- Project title + status summary line -->
+        <div class="flex items-start justify-between">
+          <div>
+            <div class="text-lg font-bold flex items-center gap-2">
+              Website Redesign 2026
+              <span class="chip bg-amber-100 text-amber-800 px-2 py-0.5 rounded">At risk</span>
+            </div>
+            <div class="text-xs text-slate-500 mt-0.5">Started Apr 12 · 42 tasks · 3 on critical path · Owner: Kelly W.</div>
+          </div>
+          <div class="flex gap-2">
+            <button class="text-xs px-3 py-1.5 rounded border">Export</button>
+            <button class="text-xs px-3 py-1.5 rounded bg-emerald-600 text-white">Update status</button>
+          </div>
+        </div>
+
+        <!-- KPI strip -->
+        <div class="grid grid-cols-5 gap-3">
+          <div class="kpi">
+            <div class="text-xs text-slate-500">Schedule health</div>
+            <div class="text-xl font-bold text-amber-600">At risk</div>
+            <div class="text-xs text-slate-400">SPI 0.94 · CPI 1.02</div>
+          </div>
+          <div class="kpi">
+            <div class="text-xs text-slate-500">Forecast finish (P80)</div>
+            <div class="text-xl font-bold">Nov 2</div>
+            <div class="text-xs text-slate-400">plan Oct 18 · +15d</div>
+          </div>
+          <div class="kpi">
+            <div class="text-xs text-slate-500">Tasks late</div>
+            <div class="text-xl font-bold text-rose-600">4</div>
+            <div class="text-xs text-slate-400">of 27 in-flight</div>
+          </div>
+          <div class="kpi">
+            <div class="text-xs text-slate-500">Next milestone</div>
+            <div class="text-base font-bold">Beta launch</div>
+            <div class="text-xs text-slate-400">May 27 · in 43d</div>
+          </div>
+          <div class="kpi">
+            <div class="text-xs text-slate-500">Team utilization</div>
+            <div class="text-xl font-bold">78%</div>
+            <div class="text-xs text-slate-400">1 over-allocated</div>
+          </div>
+        </div>
+
+        <!-- Row 1: Burn-up + Attention -->
+        <div class="grid grid-cols-3 gap-4">
+          <div class="col-span-2 card p-4">
+            <div class="flex items-center justify-between mb-2">
+              <div class="font-semibold">Progress — burn-up</div>
+              <div class="text-xs text-slate-500">Completed vs planned over time</div>
+            </div>
+            <!-- simple SVG burn-up -->
+            <svg viewBox="0 0 400 140" class="w-full h-36">
+              <defs>
+                <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#10B981" stop-opacity=".25"/>
+                  <stop offset="100%" stop-color="#10B981" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <!-- scope line (flat-ish) -->
+              <path d="M 10 30 L 390 30" stroke="#94A3B8" stroke-dasharray="3 3" fill="none"/>
+              <text x="394" y="33" font-size="9" fill="#94A3B8">Scope</text>
+              <!-- planned (dashed) -->
+              <path d="M 10 130 L 390 30" stroke="#6366F1" stroke-dasharray="4 3" fill="none"/>
+              <text x="320" y="55" font-size="9" fill="#6366F1">Plan</text>
+              <!-- actual (emerald) -->
+              <path d="M 10 130 L 60 118 L 110 102 L 160 88 L 210 74 L 250 66" stroke="#10B981" stroke-width="2" fill="none"/>
+              <path d="M 10 130 L 60 118 L 110 102 L 160 88 L 210 74 L 250 66 L 250 140 L 10 140 Z" fill="url(#g1)"/>
+              <!-- today marker -->
+              <line x1="250" y1="10" x2="250" y2="140" stroke="#10B981" stroke-opacity=".5"/>
+              <text x="252" y="18" font-size="9" fill="#10B981">Today</text>
+              <!-- forecast cone -->
+              <path d="M 250 66 L 340 40 L 340 50 L 250 72 Z" fill="#F59E0B" fill-opacity=".25"/>
+              <path d="M 250 66 L 360 32" stroke="#F59E0B" stroke-dasharray="2 2" fill="none"/>
+              <text x="344" y="38" font-size="9" fill="#F59E0B">Forecast</text>
+            </svg>
+          </div>
+
+          <div class="card p-4">
+            <div class="font-semibold mb-3">Needs your attention</div>
+            <ul class="space-y-2.5 text-sm">
+              <li class="flex items-start gap-2"><span class="dot bg-rose-500 mt-1.5"></span>
+                <div><b>API rewrite</b> slipped 2d — now on critical path
+                  <div class="text-xs text-slate-500">Owner: Sara · Due Apr 22</div></div></li>
+              <li class="flex items-start gap-2"><span class="dot bg-amber-500 mt-1.5"></span>
+                <div><b>Sara H.</b> over-allocated 118% next week
+                  <div class="text-xs text-slate-500">Resources tab →</div></div></li>
+              <li class="flex items-start gap-2"><span class="dot bg-indigo-500 mt-1.5"></span>
+                <div>3 tasks unassigned approaching start
+                  <div class="text-xs text-slate-500">Design sprint, Content, QA prep</div></div></li>
+              <li class="flex items-start gap-2"><span class="dot bg-slate-400 mt-1.5"></span>
+                <div>Baseline drift: +4d vs plan v2
+                  <div class="text-xs text-slate-500">Last baseline: Apr 1</div></div></li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Row 2: Milestones + Critical path + Risks -->
+        <div class="grid grid-cols-3 gap-4">
+          <div class="card p-4">
+            <div class="font-semibold mb-3">Upcoming milestones</div>
+            <div class="space-y-3">
+              <div>
+                <div class="flex items-center justify-between text-sm">
+                  <span class="flex items-center gap-1"><span class="text-amber-500">◆</span> Design sign-off</span>
+                  <span class="text-xs text-slate-500">Apr 28</span>
+                </div>
+                <div class="h-1.5 bg-slate-100 rounded mt-1 overflow-hidden"><div class="h-full bg-emerald-500" style="width:70%"></div></div>
+              </div>
+              <div>
+                <div class="flex items-center justify-between text-sm">
+                  <span class="flex items-center gap-1"><span class="text-amber-500">◆</span> Beta launch</span>
+                  <span class="text-xs text-slate-500">May 27</span>
+                </div>
+                <div class="h-1.5 bg-slate-100 rounded mt-1 overflow-hidden"><div class="h-full bg-amber-500" style="width:30%"></div></div>
+              </div>
+              <div>
+                <div class="flex items-center justify-between text-sm">
+                  <span class="flex items-center gap-1"><span class="text-amber-500">◆</span> GA release</span>
+                  <span class="text-xs text-slate-500">Oct 18 · P80 Nov 2</span>
+                </div>
+                <div class="h-1.5 bg-slate-100 rounded mt-1 overflow-hidden"><div class="h-full bg-rose-500" style="width:8%"></div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card p-4">
+            <div class="font-semibold mb-3">Critical path (3 tasks)</div>
+            <ul class="text-sm space-y-2">
+              <li class="flex items-center justify-between">
+                <span class="flex items-center gap-1 text-rose-600 font-semibold">API rewrite <span class="rpill" style="background:#EF4444">CP</span></span>
+                <span class="text-xs text-slate-500">16d</span>
+              </li>
+              <li class="flex items-center justify-between">
+                <span class="flex items-center gap-1 text-rose-600 font-semibold">Data migration</span>
+                <span class="text-xs text-slate-500">12d</span>
+              </li>
+              <li class="flex items-center justify-between">
+                <span class="flex items-center gap-1 text-rose-600 font-semibold">Integration testing</span>
+                <span class="text-xs text-slate-500">9d</span>
+              </li>
+            </ul>
+            <div class="text-[11px] text-slate-500 mt-3">Total slack: -2d · Any slip here slips GA.</div>
+          </div>
+
+          <div class="card p-4">
+            <div class="font-semibold mb-3">Top risks</div>
+            <ul class="text-sm space-y-2">
+              <li class="flex items-start gap-2"><span class="chip bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded">H</span>
+                <div>Third-party auth API unstable<div class="text-[11px] text-slate-500">Owner: Mike · open 9d</div></div></li>
+              <li class="flex items-start gap-2"><span class="chip bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">M</span>
+                <div>Content team capacity<div class="text-[11px] text-slate-500">Owner: Sara · mitigating</div></div></li>
+              <li class="flex items-start gap-2"><span class="chip bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded">L</span>
+                <div>CDN migration window<div class="text-[11px] text-slate-500">Owner: Kelly · accepted</div></div></li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Row 3: My tasks + Activity + MC forecast card -->
+        <div class="grid grid-cols-3 gap-4">
+          <div class="card p-4">
+            <div class="font-semibold mb-3">My tasks this week</div>
+            <div class="space-y-2 text-sm">
+              <div class="flex items-center justify-between border-b pb-2">
+                <span class="flex items-center gap-1">Review API design doc <span class="rpill" style="background:#6366F1">PM</span></span>
+                <span class="text-xs text-slate-400">Today</span>
+              </div>
+              <div class="flex items-center justify-between border-b pb-2">
+                <span>Approve beta launch plan</span>
+                <span class="text-xs text-slate-400">Wed</span>
+              </div>
+              <div class="flex items-center justify-between border-b pb-2">
+                <span>1:1 with Sara (blockers)</span>
+                <span class="text-xs text-slate-400">Thu</span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span>Weekly status update</span>
+                <span class="text-xs text-slate-400">Fri</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card p-4">
+            <div class="font-semibold mb-3">Recent activity</div>
+            <div class="space-y-2 text-sm text-slate-600">
+              <div>• <b>Mike</b> completed "Wireframe homepage" · 12m ago</div>
+              <div>• <b>Sara</b> pushed baseline v3 · 1h ago</div>
+              <div>• Offline sync resolved 2 conflicts · 2h ago</div>
+              <div>• <b>Kelly</b> added risk "Third-party auth" · 3h ago</div>
+              <div>• Monte Carlo recalculated · 5h ago</div>
+            </div>
+            <button class="mt-3 text-xs text-emerald-700">See all activity →</button>
+          </div>
+
+          <div class="card p-4">
+            <div class="font-semibold mb-3">Forecast (Monte Carlo)</div>
+            <div class="mc-hist mb-2">
+              <div style="height:10%"></div><div style="height:18%"></div><div style="height:28%"></div>
+              <div class="p50" style="height:50%"></div><div class="p50" style="height:75%"></div>
+              <div class="p50" style="height:92%"></div><div class="p80" style="height:72%"></div>
+              <div class="p80" style="height:58%"></div><div class="p80" style="height:42%"></div>
+              <div class="p95" style="height:30%"></div><div class="p95" style="height:18%"></div>
+              <div class="p95" style="height:8%"></div>
+            </div>
+            <div class="text-xs text-slate-600 mb-2">8 in 10 simulations finish by <b>November 2, 2026</b>.</div>
+            <div class="flex gap-1 text-[10px]">
+              <span class="chip bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">P50 Oct 18</span>
+              <span class="chip bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">P80 Nov 2</span>
+              <span class="chip bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded">P95 Nov 29</span>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- status bar (same as Gantt) -->
+    <div class="px-3 py-1.5 border-t bg-white flex items-center justify-between text-[11px] text-slate-500">
+      <div class="flex items-center gap-4">
+        <span>42 tasks</span>
+        <span>3 on critical path</span>
+        <span>Last saved: 2 min ago</span>
+        <span>Recalculated: 5 min ago</span>
+        <span class="flex items-center gap-1"><span class="dot bg-emerald-500"></span>3 users online</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="flex items-center gap-1"><span class="dot bg-emerald-500"></span>Healthy</span>
+        <span class="flex items-center gap-1"><span class="dot bg-amber-500"></span>At risk</span>
+        <span class="flex items-center gap-1"><span class="dot bg-rose-500"></span>Critical</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-4 grid grid-cols-4 gap-3 text-xs">
+    <div class="card p-3"><b>5-second scan:</b> status chip, P80, tasks late, next milestone, utilization — all above the fold.</div>
+    <div class="card p-3"><b>Burn-up chart</b> shows planned / actual / forecast cone — a single chart that tells the whole story.</div>
+    <div class="card p-3"><b>Every widget links out:</b> burn-up → Gantt; risks → Risks tab; my tasks → Table filtered by assignee.</div>
+    <div class="card p-3"><b>Mobile:</b> KPIs horizontal scroll · Attention/My tasks stack first · chart collapses to sparklines.</div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- B. OSS SINGLE PROGRAM — GANTT (light)                        -->
+<!-- ============================================================ -->
+<section class="max-w-[1400px] mx-auto px-8 py-6">
+  <div class="flex items-baseline gap-3 mb-3">
+    <h2 class="text-xl font-bold">② OSS Single-Program — Gantt (light)</h2>
+    <span class="chip text-emerald-700">Route: <code>/gantt?project=…</code> · matches current live build</span>
+  </div>
+
+  <div class="card overflow-hidden shadow-sm">
+    <!-- Top bar: view switcher + MC chip + warnings -->
+    <div class="flex items-center justify-between px-3 pt-2 border-b">
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 pr-3 border-r">
+          <div class="w-5 h-5 rounded bg-emerald-600 text-white grid place-items-center text-[10px] font-bold">T</div>
+          <span class="font-semibold text-sm">TruePPM</span>
+        </div>
+        <nav class="flex items-center">
+          <span class="vtab">🏠 Overview</span>
+          <span class="vtab active">📊 Gantt</span>
+          <span class="vtab">🗂 WBS</span>
+          <span class="vtab">🧩 Board</span>
+          <span class="vtab">📋 Table</span>
+          <span class="vtab">📅 Calendar</span>
+          <span class="vtab">👥 Resources</span>
+          <span class="vtab">⚠ Risks</span>
+        </nav>
+      </div>
+      <div class="flex items-center gap-2 pb-1">
+        <span class="chip bg-amber-100 text-amber-800 px-2 py-1 rounded cursor-pointer" title="Monte Carlo forecast">P80: Nov 2</span>
+        <span class="chip bg-rose-50 text-rose-700 px-2 py-1 rounded">⚠ 2</span>
+        <span class="chip bg-slate-100 text-slate-700 px-2 py-1 rounded">🔔 1</span>
+        <span class="w-6 h-6 rounded-full bg-emerald-200 grid place-items-center text-emerald-800 text-[11px] font-bold">KW</span>
+      </div>
+    </div>
+
+    <div class="flex">
+      <!-- Project rail -->
+      <aside class="w-56 border-r bg-slate-50 py-2 px-2">
+        <div class="flex items-center justify-between px-2 py-1 text-[11px] uppercase tracking-wide text-slate-400">
+          <span>Projects</span><span class="cursor-pointer">+</span>
+        </div>
+        <div class="prail"><span class="flex items-center gap-2"><span class="dot bg-slate-400"></span><span class="name">adf</span></span><span class="sub">5 tasks · on track</span></div>
+        <div class="prail active"><span class="flex items-center gap-2"><span class="dot bg-amber-500"></span><span class="name">Website Redesign</span></span><span class="sub">42 tasks · P80 Nov 2</span></div>
+        <div class="prail"><span class="flex items-center gap-2"><span class="dot bg-emerald-500"></span><span class="name">test</span></span><span class="sub">12 tasks · ahead</span></div>
+        <div class="prail"><span class="flex items-center gap-2"><span class="dot bg-slate-400"></span><span class="name">whee</span></span><span class="sub">3 tasks · draft</span></div>
+      </aside>
+
+      <!-- Main: Gantt area -->
+      <main class="flex-1">
+        <!-- subheader: + Task + zoom -->
+        <div class="flex items-center justify-between px-4 py-2 border-b bg-white">
+          <button class="text-sm text-emerald-700 font-medium">+ Task</button>
+          <div class="flex items-center gap-1 text-xs">
+            <button class="px-2 py-1 rounded border">Today</button>
+            <button class="px-2 py-1 rounded border">Day</button>
+            <button class="px-2 py-1 rounded border bg-emerald-600 text-white border-emerald-600">Week</button>
+            <button class="px-2 py-1 rounded border">Month</button>
+            <button class="px-2 py-1 rounded border">Quarter</button>
+          </div>
+        </div>
+
+        <div class="flex">
+          <!-- Task table -->
+          <div class="w-[340px] border-r text-sm">
+            <div class="grid grid-cols-[1fr,80px,40px] px-3 py-2 border-b text-[11px] uppercase text-slate-500">
+              <span>Task</span><span>Dur · Start</span><span class="text-right">%</span>
+            </div>
+            <div class="divide-y">
+              <div class="grid grid-cols-[1fr,80px,40px] px-3 py-1.5"><span class="flex items-center gap-1">Kickoff <span class="rpill" style="background:#6366F1">PM</span></span><span class="text-xs text-slate-500">1d · Apr 12</span><span class="text-right text-xs">100%</span></div>
+              <div class="grid grid-cols-[1fr,80px,40px] px-3 py-1.5"><span class="flex items-center gap-1">Design sprint <span class="rpill">AC</span></span><span class="text-xs text-slate-500">8d · Apr 14</span><span class="text-right text-xs">62%</span></div>
+              <div class="grid grid-cols-[1fr,80px,40px] px-3 py-1.5"><span class="flex items-center gap-1">Content migration <span class="rpill" style="background:#8B5CF6">BS</span></span><span class="text-xs text-slate-500">12d · Apr 20</span><span class="text-right text-xs">38%</span></div>
+              <div class="grid grid-cols-[1fr,80px,40px] px-3 py-1.5"><span class="flex items-center gap-1 text-rose-600 font-semibold">API rewrite <span class="rpill" style="background:#EF4444">CP</span></span><span class="text-xs text-slate-500">16d · Apr 22</span><span class="text-right text-xs">24%</span></div>
+              <div class="grid grid-cols-[1fr,80px,40px] px-3 py-1.5"><span class="flex items-center gap-1">QA pass <span class="rpill" style="background:#10B981">QA</span></span><span class="text-xs text-slate-500">9d · May 18</span><span class="text-right text-xs">0%</span></div>
+              <div class="grid grid-cols-[1fr,80px,40px] px-3 py-1.5"><span class="flex items-center gap-1 text-amber-700">Beta launch ◆</span><span class="text-xs text-slate-500">0d · May 27</span><span class="text-right text-xs">0%</span></div>
+              <div class="grid grid-cols-[1fr,80px,40px] px-3 py-1.5"><span class="flex items-center gap-1">Marketing push <span class="rpill" style="background:#F59E0B">MK</span></span><span class="text-xs text-slate-500">14d · May 28</span><span class="text-right text-xs">0%</span></div>
+            </div>
+          </div>
+
+          <!-- Timeline -->
+          <div class="flex-1 relative">
+            <div class="grid grid-cols-13 text-[10px] text-slate-500 px-2 py-1 border-b tl-grid" style="grid-template-columns:repeat(13,1fr);">
+              <div>W15</div><div>W16</div><div>W17</div><div>W18</div><div>W19</div><div>W20</div><div>W21</div><div>W22</div><div>W23</div><div>W24</div><div>W25</div><div>W26</div><div>W27</div>
+            </div>
+            <div class="relative tl-grid" style="background-size: calc(100%/13) 100%;">
+              <div class="today-line" style="left:14%"></div>
+              <!-- bars -->
+              <div class="tl-row"><div class="bar absolute bg-emerald-500" style="left:1%; width:6%; top:6px;"></div></div>
+              <div class="tl-row"><div class="bar absolute bg-indigo-500" style="left:8%; width:14%; top:6px;"></div></div>
+              <div class="tl-row"><div class="bar absolute bg-violet-500" style="left:18%; width:22%; top:6px;"></div></div>
+              <div class="tl-row"><div class="bar absolute bg-rose-500" style="left:22%; width:30%; top:6px;"></div></div>
+              <div class="tl-row"><div class="bar absolute bg-emerald-500" style="left:52%; width:16%; top:6px;"></div></div>
+              <div class="tl-row"><div class="bar absolute bg-amber-500" style="left:68%; width:1.5%; top:6px; border-radius:2px;"></div></div>
+              <div class="tl-row"><div class="bar absolute bg-amber-400" style="left:70%; width:24%; top:6px;"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Monte Carlo footer strip -->
+        <div class="px-3 py-2 border-t bg-slate-50 flex items-center gap-3">
+          <span class="text-xs font-medium text-slate-600">🎲 Monte Carlo</span>
+          <div class="footer-strip flex-1">
+            <!-- simulated histogram gradient -->
+            <div style="height:20%"></div><div style="height:30%"></div><div style="height:45%"></div>
+            <div style="height:65%; background:#10B981"></div><div style="height:90%; background:#10B981"></div>
+            <div style="height:75%; background:#10B981"></div><div style="height:60%; background:#F59E0B"></div>
+            <div style="height:50%; background:#F59E0B"></div><div style="height:40%; background:#F59E0B"></div>
+            <div style="height:30%; background:#EF4444"></div><div style="height:20%; background:#EF4444"></div>
+            <div style="height:12%; background:#EF4444"></div><div style="height:6%; background:#EF4444"></div>
+          </div>
+          <span class="chip bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">P50 Oct 18</span>
+          <span class="chip bg-amber-100 text-amber-800 px-2 py-0.5 rounded">P80 Nov 2</span>
+          <span class="chip bg-rose-100 text-rose-700 px-2 py-0.5 rounded">P95 Nov 29</span>
+        </div>
+
+        <!-- Status bar (live collab signals) -->
+        <div class="px-3 py-1.5 border-t bg-white flex items-center justify-between text-[11px] text-slate-500">
+          <div class="flex items-center gap-4">
+            <span>42 tasks</span>
+            <span>3 on critical path</span>
+            <span>Last saved: 2 min ago</span>
+            <span>Recalculated: 5 min ago</span>
+            <span class="flex items-center gap-1"><span class="dot bg-emerald-500"></span>3 users online</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="flex items-center gap-1"><span class="dot bg-emerald-500"></span>Complete</span>
+            <span class="flex items-center gap-1"><span class="dot bg-indigo-500"></span>In progress</span>
+            <span class="flex items-center gap-1"><span class="dot bg-rose-500"></span>Critical path</span>
+            <span class="flex items-center gap-1"><span class="dot bg-amber-500"></span>Milestone</span>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <div class="mt-4 grid grid-cols-4 gap-3 text-xs">
+    <div class="card p-3"><b>View switcher</b> hoisted to top bar — matches live build. Left rail is project switching only.</div>
+    <div class="card p-3"><b>MC P80 chip</b> in header is clickable, pins the distribution to the footer strip.</div>
+    <div class="card p-3"><b>Resource pills</b> inline on task names — compact, color-coded by role.</div>
+    <div class="card p-3"><b>Status bar</b> persists across all tabs for trust signals.</div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- B. OSS SINGLE PROGRAM (dark)                                 -->
+<!-- ============================================================ -->
+<section class="max-w-[1400px] mx-auto px-8 py-6">
+  <div class="flex items-baseline gap-3 mb-3">
+    <h2 class="text-xl font-bold">③ Same view — dark mode (matches live build)</h2>
+    <span class="chip text-slate-600">Tokens: <code>--surface-0</code> #0B1220 · <code>--surface-1</code> #111827 · <code>--accent</code> #10B981</span>
+  </div>
+
+  <div class="card overflow-hidden shadow-lg dark-shell">
+    <div class="flex items-center justify-between px-3 pt-2 border-b border-slate-700">
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 pr-3 border-r border-slate-700">
+          <div class="w-5 h-5 rounded bg-emerald-600 text-white grid place-items-center text-[10px] font-bold">T</div>
+          <span class="font-semibold text-sm">TruePPM</span>
+        </div>
+        <nav class="flex items-center">
+          <span class="vtab">🏠 Overview</span>
+          <span class="vtab active">📊 Gantt</span>
+          <span class="vtab">🗂 WBS</span>
+          <span class="vtab">🧩 Board</span>
+          <span class="vtab">📋 Table</span>
+          <span class="vtab">📅 Calendar</span>
+          <span class="vtab">👥 Resources</span>
+          <span class="vtab">⚠ Risks</span>
+        </nav>
+      </div>
+      <div class="flex items-center gap-2 pb-1">
+        <span class="chip bg-amber-900/60 text-amber-200 px-2 py-1 rounded">P80: Nov 2</span>
+        <span class="chip bg-rose-900/60 text-rose-300 px-2 py-1 rounded">⚠ 2</span>
+        <span class="chip bg-slate-800 text-slate-300 px-2 py-1 rounded">🔔 1</span>
+        <span class="w-6 h-6 rounded-full bg-emerald-700 grid place-items-center text-emerald-100 text-[11px] font-bold">KW</span>
+      </div>
+    </div>
+
+    <div class="flex">
+      <aside class="w-56 border-r border-slate-800 py-2 px-2">
+        <div class="flex items-center justify-between px-2 py-1 text-[11px] uppercase tracking-wide text-slate-500">
+          <span>Projects</span><span class="cursor-pointer">+</span>
+        </div>
+        <div class="prail"><span class="flex items-center gap-2"><span class="dot bg-slate-500"></span><span class="name">adf</span></span><span class="sub">5 tasks · on track</span></div>
+        <div class="prail active"><span class="flex items-center gap-2"><span class="dot bg-amber-400"></span><span class="name">Website Redesign</span></span><span class="sub">42 tasks · P80 Nov 2</span></div>
+        <div class="prail"><span class="flex items-center gap-2"><span class="dot bg-emerald-400"></span><span class="name">test</span></span><span class="sub">12 tasks · ahead</span></div>
+        <div class="prail"><span class="flex items-center gap-2"><span class="dot bg-slate-500"></span><span class="name">whee</span></span><span class="sub">3 tasks · draft</span></div>
+      </aside>
+
+      <main class="flex-1">
+        <div class="flex items-center justify-between px-4 py-2 border-b border-slate-800">
+          <button class="text-sm text-emerald-400 font-medium">+ Task</button>
+          <div class="flex items-center gap-1 text-xs">
+            <button class="px-2 py-1 rounded border border-slate-700">Today</button>
+            <button class="px-2 py-1 rounded border border-slate-700">Day</button>
+            <button class="px-2 py-1 rounded bg-emerald-600 text-white">Week</button>
+            <button class="px-2 py-1 rounded border border-slate-700">Month</button>
+            <button class="px-2 py-1 rounded border border-slate-700">Quarter</button>
+          </div>
+        </div>
+
+        <div class="flex">
+          <div class="w-[340px] border-r border-slate-800 text-sm">
+            <div class="grid grid-cols-[1fr,80px,40px] px-3 py-2 border-b border-slate-800 text-[11px] uppercase text-slate-500">
+              <span>Task</span><span>Dur · Start</span><span class="text-right">%</span>
+            </div>
+            <div class="divide-y divide-slate-800">
+              <div class="grid grid-cols-[1fr,80px,40px] px-3 py-1.5"><span class="flex items-center gap-1">Kickoff <span class="rpill" style="background:#6366F1">PM</span></span><span class="text-xs text-slate-400">1d · Apr 12</span><span class="text-right text-xs">100%</span></div>
+              <div class="grid grid-cols-[1fr,80px,40px] px-3 py-1.5"><span class="flex items-center gap-1">Design sprint <span class="rpill">AC</span></span><span class="text-xs text-slate-400">8d · Apr 14</span><span class="text-right text-xs">62%</span></div>
+              <div class="grid grid-cols-[1fr,80px,40px] px-3 py-1.5"><span class="flex items-center gap-1">Content migration <span class="rpill" style="background:#8B5CF6">BS</span></span><span class="text-xs text-slate-400">12d · Apr 20</span><span class="text-right text-xs">38%</span></div>
+              <div class="grid grid-cols-[1fr,80px,40px] px-3 py-1.5"><span class="flex items-center gap-1 text-rose-400 font-semibold">API rewrite <span class="rpill" style="background:#EF4444">CP</span></span><span class="text-xs text-slate-400">16d · Apr 22</span><span class="text-right text-xs">24%</span></div>
+              <div class="grid grid-cols-[1fr,80px,40px] px-3 py-1.5"><span class="flex items-center gap-1">QA pass <span class="rpill" style="background:#10B981">QA</span></span><span class="text-xs text-slate-400">9d · May 18</span><span class="text-right text-xs">0%</span></div>
+              <div class="grid grid-cols-[1fr,80px,40px] px-3 py-1.5"><span class="flex items-center gap-1 text-amber-400">Beta launch ◆</span><span class="text-xs text-slate-400">0d · May 27</span><span class="text-right text-xs">0%</span></div>
+              <div class="grid grid-cols-[1fr,80px,40px] px-3 py-1.5"><span class="flex items-center gap-1">Marketing push <span class="rpill" style="background:#F59E0B">MK</span></span><span class="text-xs text-slate-400">14d · May 28</span><span class="text-right text-xs">0%</span></div>
+            </div>
+          </div>
+
+          <div class="flex-1 relative">
+            <div class="grid text-[10px] text-slate-400 px-2 py-1 border-b border-slate-800 tl-grid" style="grid-template-columns:repeat(13,1fr);">
+              <div>W15</div><div>W16</div><div>W17</div><div>W18</div><div>W19</div><div>W20</div><div>W21</div><div>W22</div><div>W23</div><div>W24</div><div>W25</div><div>W26</div><div>W27</div>
+            </div>
+            <div class="relative tl-grid" style="background-size: calc(100%/13) 100%;">
+              <div class="today-line" style="left:14%"></div>
+              <div class="tl-row"><div class="bar absolute bg-emerald-500" style="left:1%; width:6%; top:6px;"></div></div>
+              <div class="tl-row"><div class="bar absolute bg-indigo-500" style="left:8%; width:14%; top:6px;"></div></div>
+              <div class="tl-row"><div class="bar absolute bg-violet-500" style="left:18%; width:22%; top:6px;"></div></div>
+              <div class="tl-row"><div class="bar absolute bg-rose-500" style="left:22%; width:30%; top:6px;"></div></div>
+              <div class="tl-row"><div class="bar absolute bg-emerald-500" style="left:52%; width:16%; top:6px;"></div></div>
+              <div class="tl-row"><div class="bar absolute bg-amber-500" style="left:68%; width:1.5%; top:6px; border-radius:2px;"></div></div>
+              <div class="tl-row"><div class="bar absolute bg-amber-400" style="left:70%; width:24%; top:6px;"></div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="px-3 py-2 border-t border-slate-800 flex items-center gap-3" style="background:#0F172A;">
+          <span class="text-xs font-medium text-slate-300">🎲 Monte Carlo</span>
+          <div class="footer-strip flex-1">
+            <div style="height:20%"></div><div style="height:30%"></div><div style="height:45%"></div>
+            <div style="height:65%; background:#10B981"></div><div style="height:90%; background:#10B981"></div>
+            <div style="height:75%; background:#10B981"></div><div style="height:60%; background:#F59E0B"></div>
+            <div style="height:50%; background:#F59E0B"></div><div style="height:40%; background:#F59E0B"></div>
+            <div style="height:30%; background:#EF4444"></div><div style="height:20%; background:#EF4444"></div>
+            <div style="height:12%; background:#EF4444"></div><div style="height:6%; background:#EF4444"></div>
+          </div>
+          <span class="chip bg-emerald-900/60 text-emerald-300 px-2 py-0.5 rounded">P50 Oct 18</span>
+          <span class="chip bg-amber-900/60 text-amber-300 px-2 py-0.5 rounded">P80 Nov 2</span>
+          <span class="chip bg-rose-900/60 text-rose-300 px-2 py-0.5 rounded">P95 Nov 29</span>
+        </div>
+
+        <div class="px-3 py-1.5 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+          <div class="flex items-center gap-4">
+            <span>42 tasks</span><span>3 on critical path</span>
+            <span>Last saved: 2 min ago</span><span>Recalculated: 5 min ago</span>
+            <span class="flex items-center gap-1"><span class="dot bg-emerald-400"></span>3 users online</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="flex items-center gap-1"><span class="dot bg-emerald-400"></span>Complete</span>
+            <span class="flex items-center gap-1"><span class="dot bg-indigo-400"></span>In progress</span>
+            <span class="flex items-center gap-1"><span class="dot bg-rose-400"></span>Critical path</span>
+            <span class="flex items-center gap-1"><span class="dot bg-amber-400"></span>Milestone</span>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- D. DEPENDENCY FOCUS MODE (Gantt detail)                      -->
+<!-- ============================================================ -->
+<section class="max-w-[1400px] mx-auto px-8 py-6">
+  <div class="flex items-baseline gap-3 mb-3">
+    <h2 class="text-xl font-bold">④ Gantt — Dependency focus mode &amp; relations panel</h2>
+    <span class="chip text-emerald-700">Click a task → chain highlights · side panel opens</span>
+  </div>
+  <p class="text-slate-600 mb-4 max-w-4xl">
+    Clicking a task (here, <b class="text-rose-600">API rewrite</b>) dims everything outside its predecessor/successor chain to ~20%.
+    Inline <b>pred / succ chips</b> appear on the task row. Arrows get <b>lag pills</b> mid-arc showing <code>FS +2d</code> etc.
+    A side panel lists each dependency with type, lag, and slack impact. A <b>CP-only toggle</b> on the toolbar hides non-critical arrows.
+  </p>
+
+  <div class="card overflow-hidden shadow-sm">
+    <!-- subheader: CP-only toggle -->
+    <div class="flex items-center justify-between px-4 py-2 border-b bg-white">
+      <div class="flex items-center gap-3 text-xs">
+        <button class="px-2 py-1 rounded border">+ Task</button>
+        <label class="flex items-center gap-1"><input type="checkbox" checked> Show critical path only</label>
+        <label class="flex items-center gap-1"><input type="checkbox" checked> Focus chain</label>
+      </div>
+      <div class="flex items-center gap-1 text-xs">
+        <button class="px-2 py-1 rounded border bg-emerald-600 text-white border-emerald-600">Week</button>
+        <button class="px-2 py-1 rounded border">Month</button>
+      </div>
+    </div>
+
+    <div class="flex">
+      <!-- Task table with chips -->
+      <div class="w-[380px] border-r text-sm">
+        <div class="grid grid-cols-[1fr,90px,36px] px-3 py-2 border-b text-[11px] uppercase text-slate-500">
+          <span>Task</span><span>Dur · Start</span><span class="text-right">%</span>
+        </div>
+        <div class="divide-y">
+          <div class="grid grid-cols-[1fr,90px,36px] px-3 py-1.5 dimmed">
+            <span class="flex items-center gap-1">Kickoff <span class="rpill" style="background:#6366F1">PM</span></span>
+            <span class="text-xs text-slate-500">1d · Apr 12</span><span class="text-right text-xs">100%</span>
+          </div>
+          <div class="grid grid-cols-[1fr,90px,36px] px-3 py-1.5">
+            <span class="flex flex-col">
+              <span class="flex items-center gap-1">Design sprint <span class="rpill">AC</span></span>
+              <span class="flex gap-1 mt-0.5"><span class="dep-chip">← 1</span><span class="dep-chip cp">→ 1</span></span>
+            </span>
+            <span class="text-xs text-slate-500">8d · Apr 14</span><span class="text-right text-xs">62%</span>
+          </div>
+          <div class="grid grid-cols-[1fr,90px,36px] px-3 py-1.5 dimmed">
+            <span class="flex items-center gap-1">Content migration <span class="rpill" style="background:#8B5CF6">BS</span></span>
+            <span class="text-xs text-slate-500">12d · Apr 20</span><span class="text-right text-xs">38%</span>
+          </div>
+          <!-- selected task -->
+          <div class="grid grid-cols-[1fr,90px,36px] px-3 py-2 bg-rose-50 border-l-4 border-rose-500">
+            <span class="flex flex-col">
+              <span class="flex items-center gap-1 text-rose-600 font-semibold">API rewrite <span class="rpill" style="background:#EF4444">CP</span></span>
+              <span class="flex gap-1 mt-0.5"><span class="dep-chip cp">← 2 preds</span><span class="dep-chip cp">→ 3 succs</span><span class="dep-chip">slack -2d</span></span>
+            </span>
+            <span class="text-xs text-slate-500">16d · Apr 22</span><span class="text-right text-xs">24%</span>
+          </div>
+          <div class="grid grid-cols-[1fr,90px,36px] px-3 py-1.5">
+            <span class="flex flex-col">
+              <span class="flex items-center gap-1">QA pass <span class="rpill" style="background:#10B981">QA</span></span>
+              <span class="flex gap-1 mt-0.5"><span class="dep-chip cp">← 2</span><span class="dep-chip">→ 1</span></span>
+            </span>
+            <span class="text-xs text-slate-500">9d · May 18</span><span class="text-right text-xs">0%</span>
+          </div>
+          <div class="grid grid-cols-[1fr,90px,36px] px-3 py-1.5">
+            <span class="flex items-center gap-1 text-amber-700">Beta launch ◆</span>
+            <span class="text-xs text-slate-500">0d · May 27</span><span class="text-right text-xs">0%</span>
+          </div>
+          <div class="grid grid-cols-[1fr,90px,36px] px-3 py-1.5 dimmed">
+            <span class="flex items-center gap-1">Marketing push <span class="rpill" style="background:#F59E0B">MK</span></span>
+            <span class="text-xs text-slate-500">14d · May 28</span><span class="text-right text-xs">0%</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timeline with arrows + lag pills -->
+      <div class="flex-1 relative">
+        <div class="grid text-[10px] text-slate-500 px-2 py-1 border-b tl-grid" style="grid-template-columns:repeat(13,1fr);">
+          <div>W15</div><div>W16</div><div>W17</div><div>W18</div><div>W19</div><div>W20</div><div>W21</div><div>W22</div><div>W23</div><div>W24</div><div>W25</div><div>W26</div><div>W27</div>
+        </div>
+        <div class="relative tl-grid" style="background-size: calc(100%/13) 100%; height:200px;">
+          <div class="today-line" style="left:14%"></div>
+
+          <!-- bars (non-chain dimmed) -->
+          <div class="tl-row"><div class="bar absolute bg-emerald-500 dimmed" style="left:1%; width:6%; top:6px;"></div></div>
+          <div class="tl-row"><div class="bar absolute bg-indigo-500" style="left:8%; width:14%; top:6px;"></div></div>
+          <div class="tl-row"><div class="bar absolute bg-violet-500 dimmed" style="left:18%; width:22%; top:6px;"></div></div>
+          <div class="tl-row" style="background:rgba(239,68,68,.06);"><div class="bar absolute bg-rose-500" style="left:22%; width:30%; top:6px; box-shadow:0 0 0 2px #EF4444;"></div></div>
+          <div class="tl-row"><div class="bar absolute bg-emerald-500" style="left:52%; width:16%; top:6px;"></div></div>
+          <div class="tl-row"><div class="bar absolute bg-amber-500" style="left:68%; width:1.5%; top:6px; border-radius:2px;"></div></div>
+          <div class="tl-row"><div class="bar absolute bg-amber-400 dimmed" style="left:70%; width:24%; top:6px;"></div></div>
+
+          <!-- Dep arrow: Design sprint (row 2) → API rewrite (row 4) -->
+          <div class="dep-arrow" style="top:52px; left:22%; width:1px; height:40px;"></div>
+          <div class="dep-arrow" style="top:92px; left:22%; width:1%;"></div>
+          <div class="lag-pill" style="top:70px; left:17%;">FS +0d</div>
+
+          <!-- Dep arrow: API rewrite (row 4) → QA pass (row 5) -->
+          <div class="dep-arrow" style="top:98px; left:52%; width:1px; height:36px;"></div>
+          <div class="dep-arrow" style="top:134px; left:52%; width:1%;"></div>
+          <div class="lag-pill" style="top:112px; left:47%;">FS +2d</div>
+
+          <!-- Dep arrow: QA (row 5) → Beta (row 6) -->
+          <div class="dep-arrow" style="top:140px; left:68%; width:1px; height:28px;"></div>
+          <div class="dep-arrow" style="top:168px; left:68%; width:0.5%;"></div>
+          <div class="lag-pill" style="top:152px; left:63%;">FS +0d</div>
+        </div>
+      </div>
+
+      <!-- Dependency side panel -->
+      <aside class="w-[300px] border-l bg-slate-50 p-3 text-sm">
+        <div class="flex items-center justify-between mb-2">
+          <div class="font-semibold">API rewrite — Dependencies</div>
+          <span class="cursor-pointer text-slate-400 text-xs">✕</span>
+        </div>
+        <div class="text-[11px] text-slate-500 mb-3">On critical path · slack -2d · 2 preds · 3 succs</div>
+
+        <div class="text-[11px] uppercase text-slate-400 mb-1">Predecessors</div>
+        <div class="space-y-1 mb-3">
+          <div class="card p-2 text-xs">
+            <div class="flex justify-between"><span>Design sprint</span><span class="chip bg-slate-200 text-slate-700 px-1 rounded">FS</span></div>
+            <div class="text-[10px] text-slate-500">Lag +0d · 62% complete</div>
+          </div>
+          <div class="card p-2 text-xs">
+            <div class="flex justify-between"><span>Auth API spec</span><span class="chip bg-slate-200 text-slate-700 px-1 rounded">FS</span></div>
+            <div class="text-[10px] text-slate-500">Lag +1d · 100% complete</div>
+          </div>
+        </div>
+
+        <div class="text-[11px] uppercase text-slate-400 mb-1">Successors</div>
+        <div class="space-y-1 mb-3">
+          <div class="card p-2 text-xs border-l-2 border-rose-500">
+            <div class="flex justify-between"><span>QA pass</span><span class="chip bg-rose-100 text-rose-700 px-1 rounded">FS +2d · CP</span></div>
+            <div class="text-[10px] text-slate-500">Any slip here pushes GA</div>
+          </div>
+          <div class="card p-2 text-xs">
+            <div class="flex justify-between"><span>Integration testing</span><span class="chip bg-slate-200 text-slate-700 px-1 rounded">SS</span></div>
+            <div class="text-[10px] text-slate-500">Lag -3d</div>
+          </div>
+          <div class="card p-2 text-xs">
+            <div class="flex justify-between"><span>Docs update</span><span class="chip bg-slate-200 text-slate-700 px-1 rounded">FS</span></div>
+            <div class="text-[10px] text-slate-500">Lag +5d</div>
+          </div>
+        </div>
+
+        <button class="w-full text-xs bg-emerald-600 text-white rounded py-1.5">+ Add dependency</button>
+      </aside>
+    </div>
+
+    <div class="px-3 py-1.5 border-t bg-white flex items-center justify-between text-[11px] text-slate-500">
+      <div class="flex items-center gap-4">
+        <span>Focus: API rewrite · chain of 5 tasks</span>
+        <span>Slack -2d</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="flex items-center gap-1"><span class="dot bg-rose-500"></span>Critical path</span>
+        <span class="flex items-center gap-1"><span class="dot bg-slate-300"></span>Dimmed (out of chain)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-4 grid grid-cols-4 gap-3 text-xs">
+    <div class="card p-3"><b>Focus mode</b> cuts visual noise — only the selected chain stays at full opacity.</div>
+    <div class="card p-3"><b>Lag pills</b> expose scheduling errors (wrong FS/SS/FF, bad lag signs) that normally hide on hover.</div>
+    <div class="card p-3"><b>Relations panel</b> lets you edit type/lag in-place. Drag-from-bar-edge still works for quick links.</div>
+    <div class="card p-3"><b>CP-only toggle</b> is a checkbox in the toolbar; state persists per-project per-user.</div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- E. BOARD VIEW — progress-aware Kanban with phase swimlanes   -->
+<!-- ============================================================ -->
+<section class="max-w-[1400px] mx-auto px-8 py-6">
+  <div class="flex items-baseline gap-3 mb-3">
+    <h2 class="text-xl font-bold">⑤ Board — progress-aware Kanban with phase swimlanes</h2>
+    <span class="chip text-emerald-700">Route: <code>/board?project=…</code> · replaces a plain Kanban</span>
+  </div>
+  <p class="text-slate-600 mb-4 max-w-4xl">
+    The Board's rows are <b>phases</b> (Discovery / Design / Build / Test / Launch) by default — same structure as the Gantt's summary tasks.
+    Columns are discrete states. Each card carries a <b>progress ring</b> sourced from the Gantt's % complete (single source of truth), an <b>entry stamp</b>
+    ("Entered Review at 72% · 3d ago") to expose stalls, a <b>priority rank</b> that drives sort, and a <b>WIP-limit badge</b> per column × lane.
+    Cards never auto-move — at 100% the card shows a quiet "Move to Done?" nudge. Lanes are collapsible with summary totals.
+  </p>
+
+  <div class="card overflow-hidden shadow-sm">
+    <!-- Top bar (consistent) -->
+    <div class="flex items-center justify-between px-3 pt-2 border-b">
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 pr-3 border-r">
+          <div class="w-5 h-5 rounded bg-emerald-600 text-white grid place-items-center text-[10px] font-bold">T</div>
+          <span class="font-semibold text-sm">TruePPM</span>
+        </div>
+        <nav class="flex items-center">
+          <span class="vtab">🏠 Overview</span>
+          <span class="vtab">📊 Gantt</span>
+          <span class="vtab">🗂 WBS</span>
+          <span class="vtab active">🧩 Board</span>
+          <span class="vtab">📋 Table</span>
+          <span class="vtab">📅 Calendar</span>
+          <span class="vtab">👥 Resources</span>
+          <span class="vtab">⚠ Risks</span>
+        </nav>
+      </div>
+      <div class="flex items-center gap-2 pb-1">
+        <span class="chip bg-amber-100 text-amber-800 px-2 py-1 rounded">P80: Nov 2</span>
+        <span class="chip bg-rose-50 text-rose-700 px-2 py-1 rounded">⚠ 2</span>
+        <span class="w-6 h-6 rounded-full bg-emerald-200 grid place-items-center text-emerald-800 text-[11px] font-bold">KW</span>
+      </div>
+    </div>
+
+    <!-- Toolbar: swimlane + sort + WIP -->
+    <div class="flex items-center justify-between px-4 py-2 border-b bg-white">
+      <div class="flex items-center gap-3 text-xs">
+        <label class="flex items-center gap-1">Lane:
+          <select class="border rounded px-1 py-0.5">
+            <option>Phase (WBS rollup)</option>
+            <option>Owner</option>
+            <option>Team</option>
+            <option>Custom</option>
+          </select>
+        </label>
+        <label class="flex items-center gap-1">Sort:
+          <select class="border rounded px-1 py-0.5">
+            <option>Priority rank</option>
+            <option>Start date</option>
+            <option>% complete</option>
+            <option>Manual</option>
+          </select>
+        </label>
+        <label class="flex items-center gap-1"><input type="checkbox" checked> Show WIP limits</label>
+        <label class="flex items-center gap-1"><input type="checkbox"> Highlight stalled (>3d no progress)</label>
+      </div>
+      <button class="text-xs text-emerald-700 font-medium">+ Task</button>
+    </div>
+
+    <!-- Column headers -->
+    <div class="phase-lane" style="border-bottom:2px solid #CBD5E1; padding:10px 16px;">
+      <div class="text-[11px] uppercase text-slate-400">Phase</div>
+      <div class="flex items-center justify-between">
+        <span class="font-semibold text-sm">To Do</span>
+        <span class="chip bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">12 · WIP ∞</span>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="font-semibold text-sm">In Progress</span>
+        <span class="chip bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">8 · WIP 6 ⚠</span>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="font-semibold text-sm">Review</span>
+        <span class="chip bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">3 · WIP 4</span>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="font-semibold text-sm">Done</span>
+        <span class="chip bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">19</span>
+      </div>
+    </div>
+
+    <div class="px-4">
+      <!-- Lane: Discovery (collapsed) -->
+      <div class="phase-lane">
+        <div class="phase-header">
+          <div class="flex items-center gap-1"><span class="text-xs">▸</span><span class="font-semibold">Discovery</span></div>
+          <div class="text-[10px] text-slate-500">4 tasks · 100% avg · done</div>
+          <div class="flex gap-1 mt-1">
+            <span class="chip bg-emerald-100 text-emerald-700 px-1 rounded">4 done</span>
+          </div>
+        </div>
+        <div class="board-col opacity-50 text-[10px] text-slate-400 grid place-items-center">—</div>
+        <div class="board-col opacity-50 text-[10px] text-slate-400 grid place-items-center">—</div>
+        <div class="board-col opacity-50 text-[10px] text-slate-400 grid place-items-center">—</div>
+        <div class="board-col text-[10px] text-slate-400 grid place-items-center">rolled up</div>
+      </div>
+
+      <!-- Lane: Design -->
+      <div class="phase-lane">
+        <div class="phase-header">
+          <div class="flex items-center gap-1"><span class="text-xs">▾</span><span class="font-semibold">Design</span></div>
+          <div class="text-[10px] text-slate-500">6 tasks · 58% avg</div>
+          <div class="flex gap-1 mt-1">
+            <span class="chip bg-amber-100 text-amber-700 px-1 rounded">1 at risk</span>
+          </div>
+        </div>
+        <div class="board-col">
+          <div class="kcard">
+            <span class="rank">#11</span>
+            <div class="flex items-center gap-1.5">
+              <div class="ring" style="--p:0; --c:#94A3B8"><span>0%</span></div>
+              <span>Icon set v2</span>
+            </div>
+            <div class="flex gap-1 mt-1"><span class="rpill">AC</span></div>
+            <div class="entry">Prio low · no start yet</div>
+          </div>
+        </div>
+        <div class="board-col">
+          <div class="kcard">
+            <span class="rank">#3</span>
+            <div class="flex items-center gap-1.5">
+              <div class="ring" style="--p:62; --c:#10B981"><span>62%</span></div>
+              <span>Homepage wireframes</span>
+            </div>
+            <div class="flex gap-1 mt-1"><span class="rpill">AC</span></div>
+            <div class="entry">Entered at 20% · 4d ago</div>
+          </div>
+          <div class="kcard">
+            <span class="rank">#5</span>
+            <div class="flex items-center gap-1.5">
+              <div class="ring" style="--p:35; --c:#F59E0B"><span>35%</span></div>
+              <span>Checkout flow</span>
+            </div>
+            <div class="flex gap-1 mt-1"><span class="rpill" style="background:#8B5CF6">BS</span></div>
+            <div class="entry text-amber-700">Entered at 30% · 5d ago — stalled</div>
+          </div>
+        </div>
+        <div class="board-col">
+          <div class="kcard">
+            <span class="rank">#2</span>
+            <div class="flex items-center gap-1.5">
+              <div class="ring" style="--p:88; --c:#10B981"><span>88%</span></div>
+              <span>Design tokens v2</span>
+            </div>
+            <div class="flex gap-1 mt-1"><span class="rpill">AC</span></div>
+            <div class="entry">Entered Review at 75% · 2d ago</div>
+          </div>
+        </div>
+        <div class="board-col">
+          <div class="kcard opacity-80">
+            <span class="rank">#1</span>
+            <div class="flex items-center gap-1.5">
+              <div class="ring" style="--p:100; --c:#10B981"><span>✓</span></div>
+              <span>Brand refresh</span>
+            </div>
+            <div class="entry">Closed at 100% · 6d ago</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lane: Build (expanded, has red card) -->
+      <div class="phase-lane">
+        <div class="phase-header">
+          <div class="flex items-center gap-1"><span class="text-xs">▾</span><span class="font-semibold">Build</span></div>
+          <div class="text-[10px] text-slate-500">14 tasks · 31% avg</div>
+          <div class="flex gap-1 mt-1">
+            <span class="chip bg-rose-100 text-rose-700 px-1 rounded">2 CP</span>
+            <span class="chip bg-amber-100 text-amber-700 px-1 rounded">WIP over</span>
+          </div>
+        </div>
+        <div class="board-col">
+          <div class="kcard">
+            <span class="rank">#9</span>
+            <div class="flex items-center gap-1.5">
+              <div class="ring" style="--p:0; --c:#94A3B8"><span>0%</span></div>
+              <span>Payment gateway</span>
+            </div>
+            <div class="flex gap-1 mt-1"><span class="rpill" style="background:#EF4444">CP</span></div>
+            <div class="entry">Blocked by "API rewrite"</div>
+          </div>
+          <div class="kcard">
+            <span class="rank">#12</span>
+            <div class="flex items-center gap-1.5">
+              <div class="ring" style="--p:0; --c:#94A3B8"><span>0%</span></div>
+              <span>Search index</span>
+            </div>
+            <div class="flex gap-1 mt-1"><span class="rpill">BE</span></div>
+            <div class="entry">Prio low</div>
+          </div>
+        </div>
+        <div class="board-col">
+          <div class="kcard" style="border-color:#EF4444; border-width:2px;">
+            <span class="rank">#1</span>
+            <div class="flex items-center gap-1.5">
+              <div class="ring" style="--p:24; --c:#EF4444"><span>24%</span></div>
+              <span class="text-rose-600 font-semibold">API rewrite</span>
+            </div>
+            <div class="flex gap-1 mt-1"><span class="rpill" style="background:#EF4444">CP</span><span class="rpill">BE</span></div>
+            <div class="entry text-rose-600">Entered at 10% · 11d ago · slack -2d</div>
+          </div>
+          <div class="kcard">
+            <span class="rank">#4</span>
+            <div class="flex items-center gap-1.5">
+              <div class="ring" style="--p:48; --c:#10B981"><span>48%</span></div>
+              <span>Content migration</span>
+            </div>
+            <div class="flex gap-1 mt-1"><span class="rpill" style="background:#8B5CF6">BS</span></div>
+            <div class="entry">Entered at 20% · 8d ago</div>
+          </div>
+          <div class="kcard">
+            <span class="rank">#6</span>
+            <div class="flex items-center gap-1.5">
+              <div class="ring" style="--p:71; --c:#10B981"><span>71%</span></div>
+              <span>Admin panel</span>
+            </div>
+            <div class="flex gap-1 mt-1"><span class="rpill">FE</span></div>
+            <div class="entry">Nudge: Move to Review?</div>
+          </div>
+          <div class="kcard opacity-70" style="background:#FFFBEB;">
+            <div class="text-[10px] text-amber-700 font-semibold">WIP limit: 6 — 4 over capacity</div>
+          </div>
+        </div>
+        <div class="board-col">
+          <div class="kcard">
+            <span class="rank">#7</span>
+            <div class="flex items-center gap-1.5">
+              <div class="ring" style="--p:92; --c:#10B981"><span>92%</span></div>
+              <span>Auth middleware</span>
+            </div>
+            <div class="flex gap-1 mt-1"><span class="rpill">BE</span></div>
+            <div class="entry">Entered at 85% · 1d ago</div>
+          </div>
+        </div>
+        <div class="board-col">
+          <div class="kcard opacity-80">
+            <span class="rank">#2</span>
+            <div class="flex items-center gap-1.5">
+              <div class="ring" style="--p:100; --c:#10B981"><span>✓</span></div>
+              <span>DB schema v4</span>
+            </div>
+            <div class="entry">Closed at 100% · 2d ago</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Lane: Test -->
+      <div class="phase-lane">
+        <div class="phase-header">
+          <div class="flex items-center gap-1"><span class="text-xs">▾</span><span class="font-semibold">Test</span></div>
+          <div class="text-[10px] text-slate-500">9 tasks · 12% avg</div>
+        </div>
+        <div class="board-col">
+          <div class="kcard">
+            <span class="rank">#8</span>
+            <div class="flex items-center gap-1.5">
+              <div class="ring" style="--p:0; --c:#94A3B8"><span>0%</span></div>
+              <span>E2E test suite</span>
+            </div>
+            <div class="flex gap-1 mt-1"><span class="rpill" style="background:#10B981">QA</span></div>
+            <div class="entry">Depends on Build phase</div>
+          </div>
+        </div>
+        <div class="board-col">
+          <div class="kcard">
+            <span class="rank">#10</span>
+            <div class="flex items-center gap-1.5">
+              <div class="ring" style="--p:28; --c:#10B981"><span>28%</span></div>
+              <span>Perf baseline</span>
+            </div>
+            <div class="flex gap-1 mt-1"><span class="rpill" style="background:#10B981">QA</span></div>
+            <div class="entry">Entered at 10% · 3d ago</div>
+          </div>
+        </div>
+        <div class="board-col text-[10px] text-slate-400 grid place-items-center">—</div>
+        <div class="board-col text-[10px] text-slate-400 grid place-items-center">—</div>
+      </div>
+
+      <!-- Lane: Launch (collapsed) -->
+      <div class="phase-lane">
+        <div class="phase-header">
+          <div class="flex items-center gap-1"><span class="text-xs">▸</span><span class="font-semibold">Launch</span></div>
+          <div class="text-[10px] text-slate-500">5 tasks · 0% avg</div>
+          <div class="flex gap-1 mt-1"><span class="chip bg-amber-100 text-amber-700 px-1 rounded">◆ Beta May 27</span></div>
+        </div>
+        <div class="board-col opacity-50 text-[10px] text-slate-400 grid place-items-center">5 pending</div>
+        <div class="board-col opacity-50 text-[10px] text-slate-400 grid place-items-center">—</div>
+        <div class="board-col opacity-50 text-[10px] text-slate-400 grid place-items-center">—</div>
+        <div class="board-col opacity-50 text-[10px] text-slate-400 grid place-items-center">—</div>
+      </div>
+    </div>
+
+    <!-- Status bar -->
+    <div class="px-3 py-1.5 border-t bg-white flex items-center justify-between text-[11px] text-slate-500">
+      <div class="flex items-center gap-4">
+        <span>42 tasks</span>
+        <span>3 on critical path</span>
+        <span>1 column over WIP (Build / In Progress)</span>
+        <span class="flex items-center gap-1"><span class="dot bg-emerald-500"></span>3 users online</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="flex items-center gap-1"><span class="dot bg-emerald-500"></span>Healthy</span>
+        <span class="flex items-center gap-1"><span class="dot bg-amber-500"></span>Stalled</span>
+        <span class="flex items-center gap-1"><span class="dot bg-rose-500"></span>CP / blocked</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-4 grid grid-cols-4 gap-3 text-xs">
+    <div class="card p-3"><b>Single source of truth:</b> the progress ring = Gantt's % complete. No dual-truth drift.</div>
+    <div class="card p-3"><b>Entry stamp</b> surfaces stalled work the moment a card sits too long at the same %.</div>
+    <div class="card p-3"><b>No auto-move:</b> at 100% the card shows a nudge — the PM clicks to move. Trust preserved.</div>
+    <div class="card p-3"><b>Phase lanes</b> = WBS rollups by default. Switch to Owner/Team/Custom via the lane picker.</div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- C. ENTERPRISE P3M — portfolio overview                       -->
+<!-- ============================================================ -->
+<section class="max-w-[1400px] mx-auto px-8 py-10">
+  <div class="flex items-baseline gap-3 mb-3">
+    <h2 class="text-xl font-bold">⑥ Enterprise P3M — Portfolio Overview</h2>
+    <span class="chip text-indigo-700">Route: <code>/portfolios/:id</code> · enterprise license detected</span>
+  </div>
+  <p class="text-slate-600 mb-4 max-w-4xl">
+    Same shell. Adds a <b>portfolio switcher</b> to the top bar and an enterprise-only tab group (Overview / Demand / Prioritization / Deps / Heat map / Scenarios / Audit)
+    that sits <i>before</i> the project-level tabs. Zoom defaults to <b>Quarter</b>. Monte Carlo chip rolls up across the portfolio (aggregated P80 across all projects).
+  </p>
+
+  <div class="card overflow-hidden shadow-sm">
+    <div class="flex items-center justify-between px-3 pt-2 border-b">
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 pr-3 border-r">
+          <div class="w-5 h-5 rounded bg-emerald-600 text-white grid place-items-center text-[10px] font-bold">T</div>
+          <span class="font-semibold text-sm">TruePPM</span>
+          <span class="chip bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded ml-1">ENT</span>
+        </div>
+        <select class="text-sm border rounded px-2 py-1 bg-white mr-2">
+          <option>Digital Transformation 2026 ▾</option>
+        </select>
+        <nav class="flex items-center">
+          <span class="vtab active">🏛 Overview</span>
+          <span class="vtab">🎯 Demand</span>
+          <span class="vtab">🧭 Prioritization</span>
+          <span class="vtab">🔗 Deps</span>
+          <span class="vtab">🌡 Heat map</span>
+          <span class="vtab">🎲 Scenarios</span>
+          <span class="vtab">🧾 Audit</span>
+        </nav>
+      </div>
+      <div class="flex items-center gap-2 pb-1">
+        <span class="chip bg-amber-100 text-amber-800 px-2 py-1 rounded" title="Portfolio Monte Carlo — aggregated P80 across 24 projects">Portfolio P80: Dec 14</span>
+        <span class="chip bg-rose-50 text-rose-700 px-2 py-1 rounded">⚠ 7</span>
+        <span class="chip bg-slate-100 text-slate-700 px-2 py-1 rounded">🔔 5</span>
+        <span class="w-6 h-6 rounded-full bg-emerald-200 grid place-items-center text-emerald-800 text-[11px] font-bold">KW</span>
+      </div>
+    </div>
+
+    <div class="flex">
+      <!-- portfolio rail -->
+      <aside class="w-56 border-r bg-slate-50 py-2 px-2">
+        <div class="flex items-center justify-between px-2 py-1 text-[11px] uppercase tracking-wide text-slate-400">
+          <span>Portfolios</span><span class="cursor-pointer">+</span>
+        </div>
+        <div class="prail active"><span class="flex items-center gap-2"><span class="dot bg-amber-500"></span><span class="name">Digital Transformation</span></span><span class="sub">24 projects · at risk</span></div>
+        <div class="prail"><span class="flex items-center gap-2"><span class="dot bg-emerald-500"></span><span class="name">Regulatory 2026</span></span><span class="sub">8 projects · healthy</span></div>
+        <div class="prail"><span class="flex items-center gap-2"><span class="dot bg-rose-500"></span><span class="name">Platform migration</span></span><span class="sub">11 projects · red</span></div>
+
+        <div class="mt-4 px-2 text-[11px] uppercase tracking-wide text-slate-400">Programs</div>
+        <div class="prail"><span class="name">▸ Commerce replatform</span></div>
+        <div class="prail"><span class="name">▸ Data platform</span></div>
+        <div class="prail"><span class="name">▸ Mobile apps</span></div>
+      </aside>
+
+      <main class="flex-1 p-4 space-y-4">
+        <!-- KPI strip -->
+        <div class="grid grid-cols-5 gap-3">
+          <div class="kpi"><div class="text-xs text-slate-500">Portfolio health</div><div class="text-xl font-bold text-amber-600">At risk</div><div class="text-xs text-slate-400">score 62 / 100</div></div>
+          <div class="kpi"><div class="text-xs text-slate-500">Projects red</div><div class="text-xl font-bold text-rose-600">3</div><div class="text-xs text-slate-400">of 24</div></div>
+          <div class="kpi"><div class="text-xs text-slate-500">Demand vs capacity</div><div class="text-xl font-bold text-rose-600">+18%</div><div class="text-xs text-slate-400">Q2 over-committed</div></div>
+          <div class="kpi"><div class="text-xs text-slate-500">Portfolio spend YTD</div><div class="text-xl font-bold">$4.2M</div><div class="text-xs text-slate-400">of $11.8M plan</div></div>
+          <div class="kpi"><div class="text-xs text-slate-500">Decisions needed</div><div class="text-xl font-bold text-indigo-600">5</div><div class="text-xs text-slate-400">awaiting PMO</div></div>
+        </div>
+
+        <!-- Quarter-level roll-up Gantt -->
+        <div class="card p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="font-semibold">Portfolio roll-up — Quarter view</div>
+            <div class="flex items-center gap-1 text-xs">
+              <button class="px-2 py-1 rounded border">Month</button>
+              <button class="px-2 py-1 rounded border bg-emerald-600 text-white border-emerald-600">Quarter</button>
+              <button class="px-2 py-1 rounded border">Year</button>
+            </div>
+          </div>
+          <div class="flex">
+            <div class="w-[220px] border-r text-sm">
+              <div class="grid grid-cols-[1fr,50px] px-3 py-1.5 border-b text-[11px] uppercase text-slate-500"><span>Project</span><span class="text-right">P80</span></div>
+              <div class="divide-y">
+                <div class="grid grid-cols-[1fr,50px] px-3 py-1.5"><span class="text-xs">Commerce replatform</span><span class="text-right text-xs text-amber-600">Dec 14</span></div>
+                <div class="grid grid-cols-[1fr,50px] px-3 py-1.5"><span class="text-xs">Data platform</span><span class="text-right text-xs text-emerald-600">Nov 4</span></div>
+                <div class="grid grid-cols-[1fr,50px] px-3 py-1.5"><span class="text-xs text-rose-600">Mobile v3</span><span class="text-right text-xs text-rose-600">Jan 22</span></div>
+                <div class="grid grid-cols-[1fr,50px] px-3 py-1.5"><span class="text-xs">Design system v2</span><span class="text-right text-xs text-emerald-600">Aug 19</span></div>
+                <div class="grid grid-cols-[1fr,50px] px-3 py-1.5"><span class="text-xs">Auth migration</span><span class="text-right text-xs text-amber-600">Oct 2</span></div>
+              </div>
+            </div>
+            <div class="flex-1 relative">
+              <div class="grid text-[10px] text-slate-500 px-2 py-1 border-b tl-grid" style="grid-template-columns:repeat(4,1fr);">
+                <div>Q2 2026</div><div>Q3 2026</div><div>Q4 2026</div><div>Q1 2027</div>
+              </div>
+              <div class="relative" style="background-image: linear-gradient(to right, rgba(148,163,184,.18) 1px, transparent 1px); background-size: 25% 100%;">
+                <div class="tl-row"><div class="bar absolute bg-amber-500" style="left:10%; width:55%; top:6px;"></div></div>
+                <div class="tl-row"><div class="bar absolute bg-emerald-500" style="left:5%; width:48%; top:6px;"></div></div>
+                <div class="tl-row"><div class="bar absolute bg-rose-500" style="left:30%; width:52%; top:6px;"></div></div>
+                <div class="tl-row"><div class="bar absolute bg-emerald-500" style="left:2%; width:30%; top:6px;"></div></div>
+                <div class="tl-row"><div class="bar absolute bg-amber-500" style="left:8%; width:35%; top:6px;"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Decisions + Heat map side by side -->
+        <div class="grid grid-cols-2 gap-4">
+          <div class="card p-4">
+            <div class="font-semibold mb-3">Decisions needed this week</div>
+            <ul class="space-y-3 text-sm">
+              <li class="border-l-4 border-rose-500 pl-2"><div class="font-medium">Defer Mobile v3 launch?</div><div class="text-xs text-slate-500">Blocks 2 downstream · due Fri</div></li>
+              <li class="border-l-4 border-amber-500 pl-2"><div class="font-medium">Reallocate 4 engineers Data → Commerce</div><div class="text-xs text-slate-500">Scenario A vs B ready</div></li>
+              <li class="border-l-4 border-indigo-500 pl-2"><div class="font-medium">Approve Q3 intake batch (11 requests)</div></li>
+              <li class="border-l-4 border-indigo-500 pl-2"><div class="font-medium">Sign off baseline v4 — Commerce</div></li>
+            </ul>
+          </div>
+          <div class="card p-4">
+            <div class="font-semibold mb-3">Resource heat map — next 8 weeks</div>
+            <div class="grid grid-cols-9 gap-1 text-[10px]">
+              <div></div>
+              <div class="text-center text-slate-400">W1</div><div class="text-center text-slate-400">W2</div>
+              <div class="text-center text-slate-400">W3</div><div class="text-center text-slate-400">W4</div>
+              <div class="text-center text-slate-400">W5</div><div class="text-center text-slate-400">W6</div>
+              <div class="text-center text-slate-400">W7</div><div class="text-center text-slate-400">W8</div>
+              <div class="text-slate-600">Backend</div>
+              <div class="heatcell bg-emerald-300"></div><div class="heatcell bg-emerald-400"></div><div class="heatcell bg-amber-400"></div><div class="heatcell bg-rose-500"></div><div class="heatcell bg-rose-500"></div><div class="heatcell bg-amber-400"></div><div class="heatcell bg-emerald-400"></div><div class="heatcell bg-emerald-300"></div>
+              <div class="text-slate-600">Frontend</div>
+              <div class="heatcell bg-emerald-200"></div><div class="heatcell bg-emerald-300"></div><div class="heatcell bg-emerald-400"></div><div class="heatcell bg-amber-400"></div><div class="heatcell bg-amber-400"></div><div class="heatcell bg-emerald-400"></div><div class="heatcell bg-emerald-300"></div><div class="heatcell bg-emerald-300"></div>
+              <div class="text-slate-600">Design</div>
+              <div class="heatcell bg-amber-400"></div><div class="heatcell bg-rose-500"></div><div class="heatcell bg-rose-500"></div><div class="heatcell bg-amber-400"></div><div class="heatcell bg-emerald-400"></div><div class="heatcell bg-emerald-300"></div><div class="heatcell bg-emerald-300"></div><div class="heatcell bg-emerald-200"></div>
+              <div class="text-slate-600">Data</div>
+              <div class="heatcell bg-emerald-300"></div><div class="heatcell bg-emerald-400"></div><div class="heatcell bg-emerald-400"></div><div class="heatcell bg-emerald-400"></div><div class="heatcell bg-amber-400"></div><div class="heatcell bg-rose-500"></div><div class="heatcell bg-rose-500"></div><div class="heatcell bg-amber-400"></div>
+              <div class="text-slate-600">QA</div>
+              <div class="heatcell bg-emerald-200"></div><div class="heatcell bg-emerald-300"></div><div class="heatcell bg-emerald-300"></div><div class="heatcell bg-emerald-400"></div><div class="heatcell bg-emerald-400"></div><div class="heatcell bg-amber-400"></div><div class="heatcell bg-amber-400"></div><div class="heatcell bg-emerald-400"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Portfolio MC footer + status -->
+        <div></div>
+      </main>
+    </div>
+
+    <!-- Portfolio Monte Carlo footer (aggregated) -->
+    <div class="px-3 py-2 border-t bg-slate-50 flex items-center gap-3">
+      <span class="text-xs font-medium text-slate-600">🎲 Portfolio Monte Carlo (aggregated across 24 projects)</span>
+      <div class="footer-strip flex-1">
+        <div style="height:10%"></div><div style="height:22%"></div><div style="height:38%"></div>
+        <div style="height:55%; background:#10B981"></div><div style="height:70%; background:#10B981"></div>
+        <div style="height:85%; background:#10B981"></div><div style="height:72%; background:#F59E0B"></div>
+        <div style="height:58%; background:#F59E0B"></div><div style="height:44%; background:#F59E0B"></div>
+        <div style="height:32%; background:#EF4444"></div><div style="height:22%; background:#EF4444"></div>
+        <div style="height:14%; background:#EF4444"></div><div style="height:8%; background:#EF4444"></div>
+      </div>
+      <span class="chip bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">P50 Nov 28</span>
+      <span class="chip bg-amber-100 text-amber-800 px-2 py-0.5 rounded">P80 Dec 14</span>
+      <span class="chip bg-rose-100 text-rose-700 px-2 py-0.5 rounded">P95 Jan 9</span>
+    </div>
+
+    <div class="px-3 py-1.5 border-t bg-white flex items-center justify-between text-[11px] text-slate-500">
+      <div class="flex items-center gap-4">
+        <span>24 projects</span><span>312 people</span>
+        <span>Last rolled up: 3 min ago</span>
+        <span class="flex items-center gap-1"><span class="dot bg-emerald-500"></span>11 users online</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="flex items-center gap-1"><span class="dot bg-emerald-500"></span>Healthy</span>
+        <span class="flex items-center gap-1"><span class="dot bg-amber-500"></span>At risk</span>
+        <span class="flex items-center gap-1"><span class="dot bg-rose-500"></span>Critical</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- F. PORTFOLIO BOARD — Stage-gate pipeline                     -->
+<!-- ============================================================ -->
+<section class="max-w-[1400px] mx-auto px-8 py-6">
+  <div class="flex items-baseline gap-3 mb-3">
+    <h2 class="text-xl font-bold">⑦ Enterprise Board — Stage-gate pipeline</h2>
+    <span class="chip text-indigo-700">Same shell as OSS Board · cards = projects · columns = funnel stages</span>
+  </div>
+  <p class="text-slate-600 mb-4 max-w-4xl">
+    The unit changes from task to <b>project</b>. Columns are funnel stages (Idea → Evaluating → Approved → In Flight → Launching → Live → Sunset). The progress ring = <b>health score</b>
+    (0–100) not % complete. <b>Entry stamps</b> track health drift since the card entered the column — e.g. "Entered In Flight 6w ago at 74 · now 62" — exposing rot early. Lanes group by program by default.
+    Moving a card right fires a <b>stage-gate approval workflow</b> (pending-approval chip while open).
+  </p>
+
+  <div class="card overflow-hidden shadow-sm">
+    <div class="flex items-center justify-between px-3 pt-2 border-b">
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 pr-3 border-r">
+          <div class="w-5 h-5 rounded bg-emerald-600 text-white grid place-items-center text-[10px] font-bold">T</div>
+          <span class="font-semibold text-sm">TruePPM</span>
+          <span class="chip bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded ml-1">ENT</span>
+        </div>
+        <select class="text-sm border rounded px-2 py-1 bg-white mr-2"><option>Digital Transformation 2026 ▾</option></select>
+        <nav class="flex items-center">
+          <span class="vtab">🏛 Overview</span>
+          <span class="vtab">🎯 Demand</span>
+          <span class="vtab active">🧩 Board</span>
+          <span class="vtab">🗺 Roadmap</span>
+          <span class="vtab">🔗 Deps</span>
+          <span class="vtab">🌡 Heat map</span>
+          <span class="vtab">🎲 Scenarios</span>
+          <span class="vtab">🧾 Audit</span>
+        </nav>
+      </div>
+      <div class="flex items-center gap-2 pb-1">
+        <span class="chip bg-amber-100 text-amber-800 px-2 py-1 rounded">Portfolio P80: Dec 14</span>
+        <span class="chip bg-rose-50 text-rose-700 px-2 py-1 rounded">⚠ 7</span>
+        <span class="w-6 h-6 rounded-full bg-emerald-200 grid place-items-center text-emerald-800 text-[11px] font-bold">KW</span>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-between px-4 py-2 border-b bg-white">
+      <div class="flex items-center gap-3 text-xs">
+        <label class="flex items-center gap-1">Lane:
+          <select class="border rounded px-1 py-0.5">
+            <option>Program</option>
+            <option>Strategic theme</option>
+            <option>Funding source</option>
+            <option>Owner</option>
+          </select>
+        </label>
+        <label class="flex items-center gap-1">Ring:
+          <select class="border rounded px-1 py-0.5">
+            <option>Health score</option>
+            <option>% complete</option>
+            <option>Budget burn</option>
+          </select>
+        </label>
+        <label class="flex items-center gap-1"><input type="checkbox" checked> Stage-gate approvals</label>
+      </div>
+      <div class="text-xs text-slate-500">24 projects · $11.8M · 312 people</div>
+    </div>
+
+    <!-- Column headers: 7 stages -->
+    <div class="grid gap-2 px-4 py-2 border-b-2 border-slate-300" style="grid-template-columns:120px repeat(7,1fr);">
+      <div class="text-[11px] uppercase text-slate-400">Program</div>
+      <div class="text-xs font-semibold flex items-center justify-between">Idea <span class="chip bg-slate-100 text-slate-600 px-1 rounded">5</span></div>
+      <div class="text-xs font-semibold flex items-center justify-between">Evaluating <span class="chip bg-slate-100 text-slate-600 px-1 rounded">3</span></div>
+      <div class="text-xs font-semibold flex items-center justify-between">Approved <span class="chip bg-slate-100 text-slate-600 px-1 rounded">2</span></div>
+      <div class="text-xs font-semibold flex items-center justify-between">In Flight <span class="chip bg-amber-100 text-amber-700 px-1 rounded">8 · WIP 6 ⚠</span></div>
+      <div class="text-xs font-semibold flex items-center justify-between">Launching <span class="chip bg-slate-100 text-slate-600 px-1 rounded">2</span></div>
+      <div class="text-xs font-semibold flex items-center justify-between">Live <span class="chip bg-emerald-100 text-emerald-700 px-1 rounded">3</span></div>
+      <div class="text-xs font-semibold flex items-center justify-between">Sunset <span class="chip bg-slate-100 text-slate-600 px-1 rounded">1</span></div>
+    </div>
+
+    <div class="px-4 py-2 space-y-2">
+      <!-- Lane: Commerce -->
+      <div class="grid gap-2" style="grid-template-columns:120px repeat(7,1fr);">
+        <div class="phase-header">
+          <div class="flex items-center gap-1"><span class="text-xs">▾</span><span class="font-semibold">Commerce</span></div>
+          <div class="text-[10px] text-slate-500">6 projects · $4.2M</div>
+          <div class="flex gap-1 mt-1"><span class="chip bg-rose-100 text-rose-700 px-1 rounded">1 red</span></div>
+        </div>
+        <div class="board-col">
+          <div class="kcard">
+            <div class="flex items-center gap-1.5"><div class="ring" style="--p:50; --c:#94A3B8"><span>—</span></div><span>Loyalty v2</span></div>
+            <div class="entry">Proposed by Marketing</div>
+          </div>
+        </div>
+        <div class="board-col">
+          <div class="kcard">
+            <div class="flex items-center gap-1.5"><div class="ring" style="--p:50; --c:#94A3B8"><span>—</span></div><span>Tax engine refactor</span></div>
+            <div class="entry">RFC open · reviewing</div>
+          </div>
+        </div>
+        <div class="board-col text-[10px] text-slate-400 grid place-items-center">—</div>
+        <div class="board-col">
+          <div class="kcard" style="border-color:#EF4444; border-width:2px;">
+            <div class="flex items-center gap-1.5"><div class="ring" style="--p:62; --c:#EF4444"><span>62</span></div><span class="text-rose-600 font-semibold">Replatform</span></div>
+            <div class="flex gap-1 mt-1"><span class="rpill" style="background:#EF4444">AT RISK</span></div>
+            <div class="entry text-rose-600">Entered 6w ago at 74 · -12</div>
+          </div>
+          <div class="kcard">
+            <div class="flex items-center gap-1.5"><div class="ring" style="--p:82; --c:#10B981"><span>82</span></div><span>Payment gateway</span></div>
+            <div class="entry">Entered 3w ago at 80 · +2</div>
+          </div>
+        </div>
+        <div class="board-col">
+          <div class="kcard">
+            <div class="flex items-center gap-1.5"><div class="ring" style="--p:78; --c:#F59E0B"><span>78</span></div><span>Checkout UX</span></div>
+            <div class="flex gap-1 mt-1"><span class="chip bg-amber-100 text-amber-700 px-1 rounded">Pending approval</span></div>
+          </div>
+        </div>
+        <div class="board-col">
+          <div class="kcard opacity-80">
+            <div class="flex items-center gap-1.5"><div class="ring" style="--p:95; --c:#10B981"><span>95</span></div><span>Search v3</span></div>
+            <div class="entry">Live 2w · stable</div>
+          </div>
+        </div>
+        <div class="board-col text-[10px] text-slate-400 grid place-items-center">—</div>
+      </div>
+
+      <!-- Lane: Data -->
+      <div class="grid gap-2" style="grid-template-columns:120px repeat(7,1fr);">
+        <div class="phase-header">
+          <div class="flex items-center gap-1"><span class="text-xs">▾</span><span class="font-semibold">Data</span></div>
+          <div class="text-[10px] text-slate-500">5 projects · $2.1M</div>
+        </div>
+        <div class="board-col">
+          <div class="kcard">
+            <div class="flex items-center gap-1.5"><div class="ring" style="--p:50; --c:#94A3B8"><span>—</span></div><span>ML platform</span></div>
+          </div>
+        </div>
+        <div class="board-col text-[10px] text-slate-400 grid place-items-center">—</div>
+        <div class="board-col">
+          <div class="kcard">
+            <div class="flex items-center gap-1.5"><div class="ring" style="--p:70; --c:#F59E0B"><span>70</span></div><span>Data lake migration</span></div>
+            <div class="entry">Approved last week</div>
+          </div>
+        </div>
+        <div class="board-col">
+          <div class="kcard">
+            <div class="flex items-center gap-1.5"><div class="ring" style="--p:85; --c:#10B981"><span>85</span></div><span>Analytics refresh</span></div>
+            <div class="entry">Entered 2w ago at 83 · +2</div>
+          </div>
+        </div>
+        <div class="board-col text-[10px] text-slate-400 grid place-items-center">—</div>
+        <div class="board-col">
+          <div class="kcard opacity-80">
+            <div class="flex items-center gap-1.5"><div class="ring" style="--p:92; --c:#10B981"><span>92</span></div><span>Warehouse v2</span></div>
+          </div>
+        </div>
+        <div class="board-col text-[10px] text-slate-400 grid place-items-center">—</div>
+      </div>
+
+      <!-- Lane: Mobile -->
+      <div class="grid gap-2" style="grid-template-columns:120px repeat(7,1fr);">
+        <div class="phase-header">
+          <div class="flex items-center gap-1"><span class="text-xs">▾</span><span class="font-semibold">Mobile</span></div>
+          <div class="text-[10px] text-slate-500">4 projects · $1.8M</div>
+          <div class="flex gap-1 mt-1"><span class="chip bg-rose-100 text-rose-700 px-1 rounded">1 red</span></div>
+        </div>
+        <div class="board-col">
+          <div class="kcard">
+            <div class="flex items-center gap-1.5"><div class="ring" style="--p:50; --c:#94A3B8"><span>—</span></div><span>Push notif v2</span></div>
+          </div>
+        </div>
+        <div class="board-col text-[10px] text-slate-400 grid place-items-center">—</div>
+        <div class="board-col text-[10px] text-slate-400 grid place-items-center">—</div>
+        <div class="board-col">
+          <div class="kcard" style="border-color:#EF4444; border-width:2px;">
+            <div class="flex items-center gap-1.5"><div class="ring" style="--p:48; --c:#EF4444"><span>48</span></div><span class="text-rose-600 font-semibold">Mobile v3</span></div>
+            <div class="entry text-rose-600">Entered 9w ago at 80 · -32 · defer?</div>
+          </div>
+        </div>
+        <div class="board-col text-[10px] text-slate-400 grid place-items-center">—</div>
+        <div class="board-col text-[10px] text-slate-400 grid place-items-center">—</div>
+        <div class="board-col">
+          <div class="kcard opacity-70">
+            <div class="flex items-center gap-1.5"><div class="ring" style="--p:0; --c:#94A3B8"><span>✕</span></div><span>AR browse</span></div>
+            <div class="entry">Sunset Q4 2025 · low ROI</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="px-3 py-1.5 border-t bg-white flex items-center justify-between text-[11px] text-slate-500">
+      <div class="flex items-center gap-4">
+        <span>24 projects</span>
+        <span>2 pending stage-gate approval</span>
+        <span>Commerce/In Flight: 3 over WIP</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="flex items-center gap-1"><span class="dot bg-emerald-500"></span>Healthy (80+)</span>
+        <span class="flex items-center gap-1"><span class="dot bg-amber-500"></span>Watch (60-79)</span>
+        <span class="flex items-center gap-1"><span class="dot bg-rose-500"></span>At risk (&lt;60)</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-4 grid grid-cols-4 gap-3 text-xs">
+    <div class="card p-3"><b>Health ring</b> replaces % complete — what PMOs actually care about.</div>
+    <div class="card p-3"><b>Entry stamp delta</b> ("74 → 62") shows health drift since the card entered the column.</div>
+    <div class="card p-3"><b>Stage-gate approval</b> fires on drag-right — card shows pending-approval chip while open.</div>
+    <div class="card p-3"><b>Sunset column</b> is first-class — forces honest accounting for killed/deferred work.</div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- G. SCENARIO MODELING                                         -->
+<!-- ============================================================ -->
+<section class="max-w-[1400px] mx-auto px-8 py-6">
+  <div class="flex items-baseline gap-3 mb-3">
+    <h2 class="text-xl font-bold">⑧ Enterprise — Scenario modeling (what-if)</h2>
+    <span class="chip text-indigo-700">The demo moment · saves named scenarios · promote one to plan</span>
+  </div>
+  <p class="text-slate-600 mb-4 max-w-4xl">
+    Split-screen. Current plan on the left, scenario draft on the right. Drag people between projects, defer a project, compress a timeline —
+    the right side recomputes live and shows deltas in the top banner. Save named scenarios ("Defer Mobile", "Hire 4 BE"), compare side-by-side,
+    <b>promote one</b> to become the plan (writes to audit trail).
+  </p>
+
+  <div class="card overflow-hidden shadow-sm">
+    <!-- top bar -->
+    <div class="flex items-center justify-between px-3 pt-2 border-b">
+      <div class="flex items-center gap-2">
+        <div class="w-5 h-5 rounded bg-emerald-600 text-white grid place-items-center text-[10px] font-bold">T</div>
+        <span class="font-semibold text-sm">TruePPM</span>
+        <span class="chip bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded ml-1">ENT</span>
+        <nav class="flex items-center ml-2">
+          <span class="vtab">🏛 Overview</span>
+          <span class="vtab">🎯 Demand</span>
+          <span class="vtab">🧩 Board</span>
+          <span class="vtab">🗺 Roadmap</span>
+          <span class="vtab active">🎲 Scenarios</span>
+          <span class="vtab">🧾 Audit</span>
+        </nav>
+      </div>
+      <div class="flex items-center gap-2 pb-1">
+        <select class="text-xs border rounded px-1 py-0.5"><option>Scenario: Defer Mobile ▾</option></select>
+        <button class="text-xs px-2 py-1 rounded border">Duplicate</button>
+        <button class="text-xs px-2 py-1 rounded bg-emerald-600 text-white">Promote to plan</button>
+      </div>
+    </div>
+
+    <!-- Delta banner -->
+    <div class="grid grid-cols-5 gap-3 px-4 py-3 bg-slate-50 border-b">
+      <div class="kpi">
+        <div class="text-[10px] text-slate-500">Portfolio P80</div>
+        <div class="text-sm font-bold">Dec 14 → <span class="text-emerald-700">Nov 28</span></div>
+        <div class="text-[10px] text-emerald-700">-16 days</div>
+      </div>
+      <div class="kpi">
+        <div class="text-[10px] text-slate-500">Demand vs capacity Q3</div>
+        <div class="text-sm font-bold">+18% → <span class="text-emerald-700">+4%</span></div>
+        <div class="text-[10px] text-emerald-700">-14pp</div>
+      </div>
+      <div class="kpi">
+        <div class="text-[10px] text-slate-500">Spend FY26</div>
+        <div class="text-sm font-bold">$11.8M → <span class="text-emerald-700">$10.4M</span></div>
+        <div class="text-[10px] text-emerald-700">-$1.4M</div>
+      </div>
+      <div class="kpi">
+        <div class="text-[10px] text-slate-500">Projects at risk</div>
+        <div class="text-sm font-bold">3 → <span class="text-emerald-700">1</span></div>
+        <div class="text-[10px] text-emerald-700">-2</div>
+      </div>
+      <div class="kpi">
+        <div class="text-[10px] text-slate-500">Strategic coverage</div>
+        <div class="text-sm font-bold">78% → <span class="text-rose-600">71%</span></div>
+        <div class="text-[10px] text-rose-600">-7pp (Mobile theme drops)</div>
+      </div>
+    </div>
+
+    <!-- Split view -->
+    <div class="grid grid-cols-2 gap-0">
+      <!-- LEFT: current plan -->
+      <div class="border-r">
+        <div class="px-4 py-2 border-b bg-slate-100 font-semibold text-sm">📍 Current plan</div>
+        <div class="p-4 space-y-3">
+          <div class="text-xs font-semibold text-slate-600">Projects (timeline rolled up)</div>
+          <div class="space-y-2">
+            <div>
+              <div class="flex justify-between text-xs"><span>Commerce replatform</span><span class="text-amber-700">P80 Dec 14</span></div>
+              <div class="h-2.5 bg-slate-100 rounded overflow-hidden relative"><div class="h-full bg-amber-400" style="width:68%"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs"><span>Data platform</span><span class="text-emerald-700">P80 Nov 4</span></div>
+              <div class="h-2.5 bg-slate-100 rounded overflow-hidden relative"><div class="h-full bg-emerald-400" style="width:55%"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs"><span class="text-rose-600">Mobile v3</span><span class="text-rose-600">P80 Jan 22</span></div>
+              <div class="h-2.5 bg-slate-100 rounded overflow-hidden relative"><div class="h-full bg-rose-500" style="width:82%"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs"><span>Auth migration</span><span class="text-amber-700">P80 Oct 2</span></div>
+              <div class="h-2.5 bg-slate-100 rounded overflow-hidden relative"><div class="h-full bg-amber-400" style="width:40%"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs"><span>Design system v2</span><span class="text-emerald-700">P80 Aug 19</span></div>
+              <div class="h-2.5 bg-slate-100 rounded overflow-hidden relative"><div class="h-full bg-emerald-400" style="width:30%"></div></div>
+            </div>
+          </div>
+
+          <div class="text-xs font-semibold text-slate-600 mt-4">Team loading Q3</div>
+          <div class="space-y-1.5">
+            <div class="flex items-center gap-2 text-xs"><span class="w-20">Backend</span>
+              <div class="h-3 bg-slate-100 rounded flex-1 overflow-hidden"><div class="h-full bg-rose-500" style="width:100%"></div></div>
+              <span class="w-10 text-right text-rose-600">128%</span></div>
+            <div class="flex items-center gap-2 text-xs"><span class="w-20">Frontend</span>
+              <div class="h-3 bg-slate-100 rounded flex-1 overflow-hidden"><div class="h-full bg-amber-500" style="width:96%"></div></div>
+              <span class="w-10 text-right text-amber-600">96%</span></div>
+            <div class="flex items-center gap-2 text-xs"><span class="w-20">Design</span>
+              <div class="h-3 bg-slate-100 rounded flex-1 overflow-hidden"><div class="h-full bg-rose-500" style="width:100%"></div></div>
+              <span class="w-10 text-right text-rose-600">112%</span></div>
+            <div class="flex items-center gap-2 text-xs"><span class="w-20">Data</span>
+              <div class="h-3 bg-slate-100 rounded flex-1 overflow-hidden"><div class="h-full bg-emerald-500" style="width:74%"></div></div>
+              <span class="w-10 text-right text-emerald-700">74%</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: scenario -->
+      <div style="background:#FDFDFB;">
+        <div class="px-4 py-2 border-b flex items-center justify-between" style="background:#FEF3C7;">
+          <span class="font-semibold text-sm">🎲 Scenario: Defer Mobile v3 + reallocate 4 BE to Commerce</span>
+          <span class="chip bg-white text-slate-600 px-2 py-0.5 rounded">Saved 2m ago</span>
+        </div>
+        <div class="p-4 space-y-3">
+          <div class="text-xs font-semibold text-slate-600">Projects (with scenario edits)</div>
+          <div class="space-y-2">
+            <div>
+              <div class="flex justify-between text-xs"><span>Commerce replatform <span class="chip bg-emerald-100 text-emerald-700 px-1 rounded">+4 BE</span></span><span class="text-emerald-700">P80 Nov 28 (-16d)</span></div>
+              <div class="h-2.5 bg-slate-100 rounded overflow-hidden relative">
+                <div class="h-full bg-emerald-400" style="width:58%"></div>
+                <div class="absolute top-0 right-[32%] bottom-0 w-[10%] bg-slate-300 opacity-60"></div>
+              </div>
+              <div class="text-[10px] text-slate-400">shadow = original plan</div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs"><span>Data platform</span><span class="text-emerald-700">P80 Nov 4</span></div>
+              <div class="h-2.5 bg-slate-100 rounded overflow-hidden"><div class="h-full bg-emerald-400" style="width:55%"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs"><span class="text-slate-400 line-through">Mobile v3</span><span class="chip bg-slate-200 text-slate-700 px-1 rounded">Deferred Q1 27</span></div>
+              <div class="h-2.5 bg-slate-100 rounded overflow-hidden opacity-40"><div class="h-full bg-slate-400" style="width:82%"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs"><span>Auth migration</span><span class="text-amber-700">P80 Oct 2</span></div>
+              <div class="h-2.5 bg-slate-100 rounded overflow-hidden"><div class="h-full bg-amber-400" style="width:40%"></div></div>
+            </div>
+            <div>
+              <div class="flex justify-between text-xs"><span>Design system v2</span><span class="text-emerald-700">P80 Aug 19</span></div>
+              <div class="h-2.5 bg-slate-100 rounded overflow-hidden"><div class="h-full bg-emerald-400" style="width:30%"></div></div>
+            </div>
+          </div>
+
+          <div class="text-xs font-semibold text-slate-600 mt-4">Team loading Q3 (after edits)</div>
+          <div class="space-y-1.5">
+            <div class="flex items-center gap-2 text-xs"><span class="w-20">Backend</span>
+              <div class="h-3 bg-slate-100 rounded flex-1 overflow-hidden"><div class="h-full bg-emerald-500" style="width:78%"></div></div>
+              <span class="w-10 text-right text-emerald-700">78%</span></div>
+            <div class="flex items-center gap-2 text-xs"><span class="w-20">Frontend</span>
+              <div class="h-3 bg-slate-100 rounded flex-1 overflow-hidden"><div class="h-full bg-emerald-500" style="width:82%"></div></div>
+              <span class="w-10 text-right text-emerald-700">82%</span></div>
+            <div class="flex items-center gap-2 text-xs"><span class="w-20">Design</span>
+              <div class="h-3 bg-slate-100 rounded flex-1 overflow-hidden"><div class="h-full bg-amber-500" style="width:94%"></div></div>
+              <span class="w-10 text-right text-amber-700">94%</span></div>
+            <div class="flex items-center gap-2 text-xs"><span class="w-20">Data</span>
+              <div class="h-3 bg-slate-100 rounded flex-1 overflow-hidden"><div class="h-full bg-emerald-500" style="width:74%"></div></div>
+              <span class="w-10 text-right text-emerald-700">74%</span></div>
+          </div>
+
+          <div class="mt-4 p-3 rounded border border-amber-300" style="background:#FFFBEB;">
+            <div class="text-xs font-semibold text-amber-800">⚠ Scenario side-effects</div>
+            <ul class="text-xs text-amber-800 mt-1 list-disc pl-5">
+              <li>Mobile theme strategic coverage drops 7pp (stakeholder: VP Mobile)</li>
+              <li>4 BE moves create 2 cross-team dependencies</li>
+              <li>Push notif v2 (Mobile / Idea) orphaned — reassign owner?</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Saved scenarios bar -->
+    <div class="px-4 py-2 border-t bg-slate-50 flex items-center gap-2 text-xs">
+      <span class="text-slate-500">Saved scenarios:</span>
+      <span class="chip bg-white border px-2 py-0.5 rounded">Current plan</span>
+      <span class="chip bg-amber-100 text-amber-800 px-2 py-0.5 rounded font-semibold">Defer Mobile ●</span>
+      <span class="chip bg-white border px-2 py-0.5 rounded">Hire 4 BE</span>
+      <span class="chip bg-white border px-2 py-0.5 rounded">Compress Commerce</span>
+      <button class="ml-auto text-emerald-700">+ New scenario</button>
+    </div>
+  </div>
+
+  <div class="mt-4 grid grid-cols-4 gap-3 text-xs">
+    <div class="card p-3"><b>Delta banner</b> is the point — convert uncertainty into an actionable number.</div>
+    <div class="card p-3"><b>Shadow bars</b> on the scenario side show where the original plan sat.</div>
+    <div class="card p-3"><b>Side-effects panel</b> surfaces second-order impacts (orphaned work, stakeholder risk).</div>
+    <div class="card p-3"><b>Promote</b> writes the delta to the audit log with the named scenario and approver.</div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- H. ROADMAP                                                   -->
+<!-- ============================================================ -->
+<section class="max-w-[1400px] mx-auto px-8 py-6">
+  <div class="flex items-baseline gap-3 mb-3">
+    <h2 class="text-xl font-bold">⑨ Enterprise — Roadmap</h2>
+    <span class="chip text-indigo-700">Quarters on X · projects on Y · milestones as diamonds</span>
+  </div>
+  <p class="text-slate-600 mb-4 max-w-4xl">
+    The exec narrative view. Each project is a bar colored by health, with a <b>terminal P80 marker</b>, <b>milestone diamonds</b> on the bar,
+    and a <b>faint shadow bar</b> showing baseline. Inter-project dependency arrows use the same focus-mode pattern as the OSS Gantt.
+    Swim zones group by program by default; zoom levels are Quarter / Half / Year.
+  </p>
+
+  <div class="card overflow-hidden shadow-sm">
+    <div class="flex items-center justify-between px-3 pt-2 border-b">
+      <div class="flex items-center gap-2">
+        <div class="w-5 h-5 rounded bg-emerald-600 text-white grid place-items-center text-[10px] font-bold">T</div>
+        <span class="font-semibold text-sm">TruePPM</span>
+        <span class="chip bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded ml-1">ENT</span>
+        <nav class="flex items-center ml-2">
+          <span class="vtab">🏛 Overview</span>
+          <span class="vtab">🎯 Demand</span>
+          <span class="vtab">🧩 Board</span>
+          <span class="vtab active">🗺 Roadmap</span>
+          <span class="vtab">🎲 Scenarios</span>
+          <span class="vtab">🧾 Audit</span>
+        </nav>
+      </div>
+      <div class="flex items-center gap-2 pb-1">
+        <span class="chip bg-amber-100 text-amber-800 px-2 py-1 rounded">Portfolio P80: Dec 14</span>
+        <span class="w-6 h-6 rounded-full bg-emerald-200 grid place-items-center text-emerald-800 text-[11px] font-bold">KW</span>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-between px-4 py-2 border-b bg-white">
+      <div class="flex items-center gap-3 text-xs">
+        <label class="flex items-center gap-1">Group:
+          <select class="border rounded px-1 py-0.5"><option>Program</option><option>Strategic theme</option><option>Owner</option></select>
+        </label>
+        <label class="flex items-center gap-1"><input type="checkbox" checked> Show baselines</label>
+        <label class="flex items-center gap-1"><input type="checkbox" checked> Show milestones</label>
+        <label class="flex items-center gap-1"><input type="checkbox"> Dependency arrows</label>
+      </div>
+      <div class="flex items-center gap-1 text-xs">
+        <button class="px-2 py-1 rounded border">Quarter</button>
+        <button class="px-2 py-1 rounded border bg-emerald-600 text-white border-emerald-600">Half</button>
+        <button class="px-2 py-1 rounded border">Year</button>
+      </div>
+    </div>
+
+    <!-- time header -->
+    <div class="grid text-[11px] text-slate-500 px-2 py-1 border-b" style="grid-template-columns:200px repeat(6,1fr);">
+      <div class="text-slate-400 uppercase text-[10px]">Project</div>
+      <div class="px-2 border-l">Q2 2026</div>
+      <div class="px-2 border-l">Q3 2026</div>
+      <div class="px-2 border-l">Q4 2026</div>
+      <div class="px-2 border-l">Q1 2027</div>
+      <div class="px-2 border-l">Q2 2027</div>
+      <div class="px-2 border-l">Q3 2027</div>
+    </div>
+
+    <!-- Swim zone: Commerce -->
+    <div class="px-2 py-1 bg-slate-50 border-b text-xs font-semibold text-slate-600">Commerce · $4.2M · 6 projects</div>
+    <div class="grid items-center px-2" style="grid-template-columns:200px repeat(6,1fr); border-bottom:1px dashed #E2E8F0;">
+      <div class="py-2 text-xs">Replatform <span class="chip bg-rose-100 text-rose-700 px-1 rounded">AT RISK</span></div>
+      <div class="relative h-9 border-l" style="grid-column:2 / span 6; background:linear-gradient(to right, rgba(148,163,184,.06), transparent 40%);">
+        <!-- baseline shadow -->
+        <div class="absolute bg-slate-300 opacity-50" style="left:5%; width:45%; height:10px; top:20px; border-radius:2px;"></div>
+        <!-- actual -->
+        <div class="absolute bg-rose-500" style="left:5%; width:55%; height:10px; top:8px; border-radius:2px;"></div>
+        <!-- P80 terminal -->
+        <div class="absolute" style="left:58%; top:6px;"><span class="chip bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded">P80 Dec 14</span></div>
+        <!-- milestones -->
+        <div class="absolute text-amber-500" style="left:20%; top:6px;">◆</div>
+        <div class="absolute text-amber-500" style="left:40%; top:6px;">◆</div>
+      </div>
+    </div>
+    <div class="grid items-center px-2" style="grid-template-columns:200px repeat(6,1fr); border-bottom:1px dashed #E2E8F0;">
+      <div class="py-2 text-xs">Checkout UX</div>
+      <div class="relative h-9 border-l">
+        <div class="absolute bg-emerald-500" style="left:8%; width:22%; height:10px; top:8px; border-radius:2px;"></div>
+        <div class="absolute" style="left:28%; top:6px;"><span class="chip bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">P80 Sep 3</span></div>
+        <div class="absolute text-amber-500" style="left:25%; top:6px;">◆</div>
+      </div>
+    </div>
+    <div class="grid items-center px-2" style="grid-template-columns:200px repeat(6,1fr); border-bottom:1px dashed #E2E8F0;">
+      <div class="py-2 text-xs">Loyalty v2 <span class="chip bg-slate-200 text-slate-700 px-1 rounded">Idea</span></div>
+      <div class="relative h-9 border-l">
+        <div class="absolute bg-slate-300" style="left:35%; width:25%; height:10px; top:8px; border-radius:2px; border:1px dashed #94A3B8;"></div>
+      </div>
+    </div>
+
+    <!-- Swim zone: Data -->
+    <div class="px-2 py-1 bg-slate-50 border-b text-xs font-semibold text-slate-600">Data · $2.1M · 5 projects</div>
+    <div class="grid items-center px-2" style="grid-template-columns:200px repeat(6,1fr); border-bottom:1px dashed #E2E8F0;">
+      <div class="py-2 text-xs">Data lake migration</div>
+      <div class="relative h-9 border-l">
+        <div class="absolute bg-slate-300 opacity-50" style="left:2%; width:48%; height:10px; top:20px; border-radius:2px;"></div>
+        <div class="absolute bg-emerald-500" style="left:2%; width:50%; height:10px; top:8px; border-radius:2px;"></div>
+        <div class="absolute" style="left:50%; top:6px;"><span class="chip bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">P80 Nov 4</span></div>
+        <div class="absolute text-amber-500" style="left:15%; top:6px;">◆</div>
+        <div class="absolute text-amber-500" style="left:35%; top:6px;">◆</div>
+      </div>
+    </div>
+    <div class="grid items-center px-2" style="grid-template-columns:200px repeat(6,1fr); border-bottom:1px dashed #E2E8F0;">
+      <div class="py-2 text-xs">ML platform</div>
+      <div class="relative h-9 border-l">
+        <div class="absolute bg-amber-400" style="left:40%; width:40%; height:10px; top:8px; border-radius:2px;"></div>
+        <div class="absolute" style="left:78%; top:6px;"><span class="chip bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">P80 Q2 27</span></div>
+      </div>
+    </div>
+
+    <!-- Swim zone: Mobile -->
+    <div class="px-2 py-1 bg-slate-50 border-b text-xs font-semibold text-slate-600">Mobile · $1.8M · 4 projects</div>
+    <div class="grid items-center px-2" style="grid-template-columns:200px repeat(6,1fr); border-bottom:1px dashed #E2E8F0;">
+      <div class="py-2 text-xs">Mobile v3 <span class="chip bg-rose-100 text-rose-700 px-1 rounded">AT RISK</span></div>
+      <div class="relative h-9 border-l">
+        <div class="absolute bg-slate-300 opacity-50" style="left:5%; width:40%; height:10px; top:20px; border-radius:2px;"></div>
+        <div class="absolute bg-rose-500" style="left:5%; width:60%; height:10px; top:8px; border-radius:2px;"></div>
+        <div class="absolute" style="left:63%; top:6px;"><span class="chip bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded">P80 Jan 22</span></div>
+      </div>
+    </div>
+
+    <!-- Swim zone: Platform -->
+    <div class="px-2 py-1 bg-slate-50 border-b text-xs font-semibold text-slate-600">Platform · $1.4M · 3 projects</div>
+    <div class="grid items-center px-2" style="grid-template-columns:200px repeat(6,1fr); border-bottom:1px dashed #E2E8F0;">
+      <div class="py-2 text-xs">Auth migration</div>
+      <div class="relative h-9 border-l">
+        <div class="absolute bg-amber-400" style="left:5%; width:30%; height:10px; top:8px; border-radius:2px;"></div>
+        <div class="absolute" style="left:33%; top:6px;"><span class="chip bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">P80 Oct 2</span></div>
+      </div>
+    </div>
+    <div class="grid items-center px-2" style="grid-template-columns:200px repeat(6,1fr); border-bottom:1px dashed #E2E8F0;">
+      <div class="py-2 text-xs">Design system v2</div>
+      <div class="relative h-9 border-l">
+        <div class="absolute bg-emerald-500" style="left:2%; width:18%; height:10px; top:8px; border-radius:2px;"></div>
+        <div class="absolute" style="left:20%; top:6px;"><span class="chip bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">P80 Aug 19</span></div>
+      </div>
+    </div>
+
+    <!-- status -->
+    <div class="px-3 py-1.5 border-t bg-white flex items-center justify-between text-[11px] text-slate-500">
+      <div class="flex items-center gap-4">
+        <span>24 projects across 6 quarters</span>
+        <span>Portfolio P80 Dec 14</span>
+        <span>Last rolled up 3 min ago</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="flex items-center gap-1"><span class="dot bg-emerald-500"></span>Healthy</span>
+        <span class="flex items-center gap-1"><span class="dot bg-amber-500"></span>At risk</span>
+        <span class="flex items-center gap-1"><span class="dot bg-rose-500"></span>Critical</span>
+        <span class="flex items-center gap-1">◆ Milestone</span>
+        <span class="flex items-center gap-1"><span class="inline-block w-4 h-1 bg-slate-300"></span>Baseline</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-4 grid grid-cols-4 gap-3 text-xs">
+    <div class="card p-3"><b>P80 terminal markers</b> on each bar tie forecast uncertainty directly to the roadmap.</div>
+    <div class="card p-3"><b>Baseline shadows</b> beneath active bars show drift vs approved plan.</div>
+    <div class="card p-3"><b>Idea projects</b> render as dashed-outline bars — still visible, clearly provisional.</div>
+    <div class="card p-3"><b>Export to .pptx</b> produces a single-slide version for steering-committee decks.</div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- I. COMPANION SPEC FOR IMPLEMENTATION                         -->
+<!-- ============================================================ -->
+<section class="max-w-[1400px] mx-auto px-8 py-6">
+  <h2 class="text-xl font-bold mb-3">⑩ Building from these mocks — how Claude Code should consume this</h2>
+  <div class="card p-4 text-sm text-slate-700 space-y-2">
+    <p>These HTML mockups are for <b>humans reviewing design intent</b>. Claude Code can read the file as text but cannot see the rendered layout. For implementation, the HTML alone is a weak spec — line numbers won't map to components, and visual hierarchy is invisible to a code agent.</p>
+    <p><b>Recommended workflow:</b></p>
+    <ol class="list-decimal pl-6 space-y-1">
+      <li>Keep this HTML as the <b>visual reference</b> for humans and for Claude Code to re-read when in doubt.</li>
+      <li>Generate a <b>companion markdown spec</b> per view (e.g. <code>docs/ux/specs/board.md</code>) with: component tree, props, states, data contracts, empty/loading/error behavior, accessibility notes, and links back to this HTML.</li>
+      <li>Generate <b>OpenAPI types</b> first (<code>packages/api → packages/web/src/api/types.ts</code>) so Claude Code has typed contracts when scaffolding components.</li>
+      <li>Write <b>one ADR per architectural decision</b> — extension hooks for enterprise, dark-mode tokens, progress-aware Kanban vs plain Kanban. Claude Code consumes ADRs readily.</li>
+      <li>Prompt Claude Code with "implement §5 Board view per <code>specs/board.md</code> and match visual reference in <code>p3m-vs-oss-views.html</code>" — the spec drives, the HTML disambiguates.</li>
+    </ol>
+    <p>Want me to generate the <b>companion spec markdown files</b> next? Those are what Claude Code actually needs.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- D. CHANGES FROM v0.1                                         -->
+<!-- ============================================================ -->
+<section class="max-w-[1400px] mx-auto px-8 py-8">
+  <h2 class="text-xl font-bold mb-3">⑪ What changed from v0.1</h2>
+  <div class="card overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-100 text-left">
+        <tr><th class="p-3">Area</th><th class="p-3">v0.1 proposal</th><th class="p-3">v0.2 (now)</th><th class="p-3">Source</th></tr>
+      </thead>
+      <tbody class="divide-y">
+        <tr><td class="p-3">Primary nav</td><td class="p-3">Left rail with views</td><td class="p-3">Top tabbed view-switcher; rail is project/portfolio switcher only</td><td class="p-3">Live build</td></tr>
+        <tr><td class="p-3">Monte Carlo</td><td class="p-3">Separate KPI card</td><td class="p-3">P80 chip in header + footer distribution strip, click to expand</td><td class="p-3">Live build</td></tr>
+        <tr><td class="p-3">Critical path</td><td class="p-3">Asterisk marker</td><td class="p-3">Red task text (matches live)</td><td class="p-3">Live build</td></tr>
+        <tr><td class="p-3">Assignees</td><td class="p-3">Separate column</td><td class="p-3">Inline color-coded resource pills (AC / BS / CP / QA …)</td><td class="p-3">Live build</td></tr>
+        <tr><td class="p-3">Trust signals</td><td class="p-3">Scattered</td><td class="p-3">Persistent status bar: tasks, CP count, last saved, recalc, users online</td><td class="p-3">Live build</td></tr>
+        <tr><td class="p-3">Zoom levels</td><td class="p-3">Weeks only</td><td class="p-3">Today / Day / Week / Month / Quarter — Quarter default in portfolio</td><td class="p-3">Live build</td></tr>
+        <tr><td class="p-3">Theme</td><td class="p-3">Light only</td><td class="p-3">Light + dark, both documented with tokens</td><td class="p-3">Live build</td></tr>
+        <tr><td class="p-3">Quick-add</td><td class="p-3">None</td><td class="p-3">+ Task inline row at top of table</td><td class="p-3">Live build</td></tr>
+        <tr><td class="p-3">Warnings / notifs</td><td class="p-3">Not shown</td><td class="p-3">⚠ and 🔔 counters in top bar, both views</td><td class="p-3">Live build</td></tr>
+        <tr><td class="p-3">Portfolio MC</td><td class="p-3">n/a</td><td class="p-3">Aggregated MC roll-up across projects (enterprise-only)</td><td class="p-3">Extrapolated</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- E. OPEN QUESTIONS                                            -->
+<!-- ============================================================ -->
+<section class="max-w-[1400px] mx-auto px-8 py-8">
+  <h2 class="text-xl font-bold mb-3">⑫ Open questions</h2>
+  <ul class="list-disc pl-6 space-y-2 text-slate-700">
+    <li>Do enterprise tabs (Overview/Demand/…) <i>replace</i> project tabs at the portfolio level, or stack above them in a two-row nav?</li>
+    <li>Projects in the current rail show "Unknown" status — is that a missing computed field or intentional? Proposal assumes it should always resolve to a real status.</li>
+    <li>Should the Monte Carlo footer strip be collapsible (pinned vs. on-demand)? Proposal makes it pinned but remember-last-state.</li>
+    <li>Density toggle (compact / comfortable) for mobile-first goal — should it live in user prefs or per-view?</li>
+    <li>Anchor the MC popover to the footer chip instead of floating over task bars — confirm?</li>
+    <li>Resource pill color mapping: role-based (AC/BS/CP) or person-based? Current live build looks role-based; proposal follows that.</li>
+  </ul>
+</section>
+
+<footer class="max-w-[1400px] mx-auto px-8 py-10 text-xs text-slate-500 border-t">
+  Draft proposal v0.2 · TruePPM Design · 2026-04-14 · Apache 2.0 core + proprietary enterprise overlay
+</footer>
+
+</body>
+</html>
