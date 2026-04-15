@@ -234,7 +234,11 @@ function drawHeaderCell(
   ctx.lineTo(Math.floor(cellX) + 0.5, cellY + cellHeight);
   ctx.stroke();
 
-  // Label text, clipped to the cell
+  // Label text, clipped to the cell.
+  // Pin the text x to Math.max(cellX + 6, 4) so the label remains visible when
+  // the cell's left boundary has scrolled off-screen (e.g. viewing mid-April
+  // when the April header cell started at canvas-origin position to the left of
+  // the current viewport). This is the standard "sticky label" Gantt pattern.
   ctx.save();
   ctx.beginPath();
   ctx.rect(cellX + 4, cellY, Math.max(0, cellWidth - 4), cellHeight);
@@ -242,7 +246,7 @@ function drawHeaderCell(
   ctx.fillStyle = COLOR.textSecondary;
   ctx.font = '11px Inter, system-ui, sans-serif';
   ctx.textBaseline = 'middle';
-  ctx.fillText(label, cellX + 6, cellY + cellHeight / 2);
+  ctx.fillText(label, Math.max(cellX + 6, 4), cellY + cellHeight / 2);
   ctx.restore();
 }
 
