@@ -43,6 +43,13 @@ class TaskResource(models.Model):
     # Units assigned as a fraction of full-time (mirrors max_units on Resource)
     units = models.DecimalField(max_digits=4, decimal_places=2, default=1.0)
 
+    class Meta:
+        db_table = "resources_task_resource"
+        unique_together = [("task", "resource")]
+
+    def __str__(self) -> str:
+        return f"{self.resource} on {self.task} ({self.units}u)"
+
     @property
     def project_id(self) -> object:
         """Expose the task's project_id so _get_project_id_from_obj can find it.
@@ -51,10 +58,3 @@ class TaskResource(models.Model):
         context from a TaskResource instance without a direct FK to Project.
         """
         return self.task.project_id
-
-    class Meta:
-        db_table = "resources_task_resource"
-        unique_together = [("task", "resource")]
-
-    def __str__(self) -> str:
-        return f"{self.resource} on {self.task} ({self.units}u)"

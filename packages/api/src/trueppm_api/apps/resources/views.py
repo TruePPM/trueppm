@@ -156,7 +156,9 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         if task:
             role = _membership_role(self.request, str(task.project_id))
             if role is None or role < Role.SCHEDULER:
-                raise PermissionDenied("You need at least Resource Manager role to assign resources.")
+                raise PermissionDenied(
+                    "You need at least Resource Manager role to assign resources."
+                )
         if task and task.wbs_path:
             with connection.cursor() as cursor:
                 cursor.execute(
