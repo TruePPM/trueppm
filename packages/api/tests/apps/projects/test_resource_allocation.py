@@ -60,7 +60,6 @@ def task_scheduled(project: Project) -> Task:
     return Task.objects.create(
         project=project,
         name="Design",
-        wbs="1",
         duration=5,
         early_start=date(2026, 3, 2),
         early_finish=date(2026, 3, 6),
@@ -74,7 +73,6 @@ def task_unscheduled(project: Project) -> Task:
     return Task.objects.create(
         project=project,
         name="Unplanned",
-        wbs="2",
         duration=3,
         status="NOT_STARTED",
     )
@@ -128,7 +126,7 @@ def test_permission_allowed_scheduler_and_above(
 @pytest.mark.django_db
 def test_409_when_no_cpm_dates(project: Project, resource: Resource) -> None:
     """If no tasks have CPM dates, the endpoint returns 409."""
-    task = Task.objects.create(project=project, name="T", wbs="1", duration=1, status="NOT_STARTED")
+    task = Task.objects.create(project=project, name="T", duration=1, status="NOT_STARTED")
     TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.00"))
     client = _auth_client(Role.SCHEDULER, project)
     # No start/end params — endpoint tries to derive window from CPM dates
@@ -218,7 +216,6 @@ def test_task_outside_window_excluded(project: Project, resource: Resource) -> N
     old_task = Task.objects.create(
         project=project,
         name="OldTask",
-        wbs="1",
         duration=3,
         early_start=date(2026, 1, 5),
         early_finish=date(2026, 1, 7),
@@ -241,7 +238,6 @@ def test_task_partially_overlapping_window_included(project: Project, resource: 
     task = Task.objects.create(
         project=project,
         name="Overlap",
-        wbs="1",
         duration=5,
         early_start=date(2026, 2, 27),
         early_finish=date(2026, 3, 3),
@@ -273,7 +269,6 @@ def test_resource_filter(project: Project, resource: Resource, task_scheduled: T
     other_task = Task.objects.create(
         project=project,
         name="BobTask",
-        wbs="2",
         duration=2,
         early_start=date(2026, 3, 4),
         early_finish=date(2026, 3, 5),
@@ -303,7 +298,6 @@ def test_status_filter(project: Project, resource: Resource) -> None:
     t1 = Task.objects.create(
         project=project,
         name="Started",
-        wbs="1",
         duration=2,
         early_start=date(2026, 3, 2),
         early_finish=date(2026, 3, 3),
@@ -312,7 +306,6 @@ def test_status_filter(project: Project, resource: Resource) -> None:
     t2 = Task.objects.create(
         project=project,
         name="Done",
-        wbs="2",
         duration=2,
         early_start=date(2026, 3, 4),
         early_finish=date(2026, 3, 5),
