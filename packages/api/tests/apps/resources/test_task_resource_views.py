@@ -1,10 +1,10 @@
-"""Tests for TaskResourceViewSet — overallocation warnings and broadcast events (#97)."""
+"""Tests for TaskResourceViewSet — overallocation warnings, RBAC, and broadcast events (#97)."""
 
 from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -248,3 +248,72 @@ class TestTaskResourceBroadcast:
         assert r.status_code == 204
         event_types = [c[0][1] for c in mock_broadcast.call_args_list]
         assert "assignment_deleted" in event_types
+
+
+# ---------------------------------------------------------------------------
+# RBAC and IDOR tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestTaskResourceRBAC:
+    """Viewer-role users may not create/update/delete assignments (role < SCHEDULER)."""
+
+    def test_viewer_cannot_create_assignment(
+        self,
+        membership: ProjectMembership,
+        task: Task,
+        resource: Resource,
+        client: APIClient,
+    ) -> None:
+        """Viewer (role=0) is blocked from creating an assignment — HTTP 403."""
+        membership.role = Role.VIEWER
+        membership.save()
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(task.pk), "resource": str(resource.pk), "units": "1.0"},
+        )
+        assert r.status_code == 403
+
+    def test_resource_manager_can_create_assignment(
+        self,
+        membership: ProjectMembership,
+        task: Task,
+        resource: Resource,
+        client: APIClient,
+    ) -> None:
+        """Resource Manager (role=2) is permitted to create an assignment — HTTP 201."""
+        membership.role = Role.SCHEDULER
+        membership.save()
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(task.pk), "resource": str(resource.pk), "units": "1.0"},
+        )
+        assert r.status_code == 201
+
+
+@pytest.mark.django_db
+class TestTaskResourceIDOR:
+    """List endpoint must not expose assignments from projects the user is not a member of."""
+
+    def test_non_member_cannot_list_foreign_assignments(
+        self,
+        user: object,
+        calendar: Calendar,
+        resource: Resource,
+    ) -> None:
+        """An assignment in a project where the user has no membership is not visible."""
+        User = get_user_model()
+        other_user = User.objects.create_user(username="other", password="pw")
+        other_project = Project.objects.create(
+            name="Other", start_date=date(2026, 4, 1), calendar=calendar
+        )
+        other_task = Task.objects.create(project=other_project, name="T", duration=3)
+        TaskResource.objects.create(task=other_task, resource=resource, units=Decimal("1.0"))
+
+        # `user` has no membership in other_project; their client must see 0 results.
+        c = APIClient()
+        c.force_authenticate(user=user)
+        r = c.get("/api/v1/task-resources/")
+        assert r.status_code == 200
+        assert r.data["count"] == 0

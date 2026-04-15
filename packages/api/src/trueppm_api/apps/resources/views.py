@@ -7,13 +7,19 @@ from decimal import Decimal
 from django.db import connection, transaction
 from django.db.models import QuerySet, Sum
 from rest_framework import filters, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from trueppm_api.apps.access.permissions import IsProjectMember, ProjectScopedViewSet
+from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.permissions import (
+    CanAssignResource,
+    IsProjectMember,
+    ProjectScopedViewSet,
+    _membership_role,
+)
 from trueppm_api.apps.resources.models import Resource, TaskResource
 from trueppm_api.apps.resources.serializers import ResourceSerializer, TaskResourceSerializer
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
@@ -80,15 +86,36 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
 
 
 class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResource]):
-    """CRUD for task-resource assignments."""
+    """CRUD for task-resource assignments.
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    Permission model:
+    - Read (GET/HEAD/OPTIONS): any project member (Viewer+) via IsProjectMember.
+    - Write (POST/PATCH/DELETE): Resource Manager (2) or above via CanAssignResource.
+      The create path additionally checks role in perform_create because has_object_permission
+      is not called before the object exists.
+
+    IDOR protection:
+    ProjectScopedViewSet does not recognise the task→project FK path on TaskResource,
+    so get_queryset explicitly scopes to the user's member projects rather than relying
+    on the mixin fallthrough.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember, CanAssignResource]
     serializer_class = TaskResourceSerializer
     filter_backends = [filters.OrderingFilter]
     queryset = TaskResource.objects.select_related("task", "resource")
 
     def get_queryset(self) -> QuerySet[TaskResource]:
-        qs = super().get_queryset()
+        user = self.request.user
+        member_project_ids = ProjectMembership.objects.filter(
+            user=user,
+            is_deleted=False,
+        ).values_list("project_id", flat=True)
+        qs = (
+            TaskResource.objects.select_related("task", "resource")
+            .filter(task__project_id__in=member_project_ids)
+            .order_by("task__project_id", "task_id", "resource__name")
+        )
         task_id = self.request.query_params.get("task")
         if task_id:
             qs = qs.filter(task_id=task_id)
@@ -118,10 +145,18 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
     def perform_create(self, serializer: BaseSerializer[TaskResource]) -> None:
         """Block assignment creation for summary tasks, then trigger CPM and broadcast.
 
+        Role check: Resource Manager (2) or above is required. has_object_permission is
+        not called for create (no object exists yet), so the role is verified here against
+        the task's project before the row is written.
+
         Summary tasks roll up from children — direct resource assignments on
         them create ambiguous scheduling semantics (ADR-0024).
         """
         task = serializer.validated_data.get("task")
+        if task:
+            role = _membership_role(self.request, str(task.project_id))
+            if role is None or role < Role.SCHEDULER:
+                raise PermissionDenied("You need at least Resource Manager role to assign resources.")
         if task and task.wbs_path:
             with connection.cursor() as cursor:
                 cursor.execute(
