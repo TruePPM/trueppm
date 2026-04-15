@@ -61,6 +61,9 @@ async function setup(page: import('@playwright/test').Page) {
       body: JSON.stringify({ count: FIXTURE_PROJECTS.length, next: null, previous: null, results: FIXTURE_PROJECTS }),
     }),
   );
+  await page.route('**/api/v1/projects/*/presence/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
   await page.route('**/api/v1/tasks/**', (route) =>
     route.fulfill({
       status: 200,
