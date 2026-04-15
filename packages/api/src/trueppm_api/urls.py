@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from django.conf import settings
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.request import Request
+from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 
@@ -13,8 +18,22 @@ def health(_request: object) -> JsonResponse:
     return JsonResponse({"status": "ok"})
 
 
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def edition(request: Request) -> Response:
+    """Return the running edition — community or enterprise.
+
+    Public endpoint (no auth required). The React shell calls this once at
+    startup to decide the post-login redirect target (ADR-0029, ADR-0030).
+    The value is controlled by the TRUEPPM_EDITION Django setting, which the
+    enterprise Helm chart sets to "enterprise".
+    """
+    return Response({"edition": settings.TRUEPPM_EDITION})
+
+
 urlpatterns = [
     path("api/v1/health/", health, name="health"),
+    path("api/v1/edition/", edition, name="edition"),
     path("admin/", admin.site.urls),
     # OpenAPI schema and interactive docs
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
