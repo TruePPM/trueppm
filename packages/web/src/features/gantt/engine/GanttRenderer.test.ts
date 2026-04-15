@@ -3,6 +3,7 @@ import {
   drawSummaryBar,
   drawActualDateBar,
   drawScheduleVarianceBadge,
+  drawTimelineHeader,
   MILESTONE_SIZE,
   GHOST_BAR_HEIGHT,
   BAR_HEIGHT,
@@ -46,6 +47,7 @@ function makeCtxSpy() {
     set lineCap(_v: string) {},
     set textBaseline(_v: string) {},
     set font(_v: string) {},
+    clip: record('clip'),
   } as unknown as CanvasRenderingContext2D;
   return { ctx, calls };
 }
@@ -242,5 +244,44 @@ describe('drawScheduleVarianceBadge (#80)', () => {
     // Pass viewport width of 1 — bar right edge will be > 1
     drawScheduleVarianceBadge(ctx, task, 0, SCALES, 0, 1);
     expect(calls.filter((c) => c.name === 'fillText').length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// drawTimelineHeader — sticky label (#96)
+// ---------------------------------------------------------------------------
+
+describe('drawTimelineHeader — sticky label (#96)', () => {
+  // Project: Apr 1–May 1. Scale at 'month' zoom adds trailing buffer well past May.
+  // Minor unit = month, major unit = year.
+  const scales = buildScaleData('month', '2026-04-01', '2026-05-01');
+  const CANVAS_W = 800;
+
+  it('renders a fillText call when scrollLeft=0 (no scroll)', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTimelineHeader(ctx, scales, 0, CANVAS_W);
+    expect(calls.filter((c) => c.name === 'fillText').length).toBeGreaterThan(0);
+  });
+
+  it('still renders fillText when scrolled past the first unit boundary (sticky label)', () => {
+    // Scroll far right so the current major unit (year) started before the viewport.
+    // Before the fix, the label x was negative → invisible.
+    const scrollLeft = scales.totalWidth - CANVAS_W;
+    const { ctx, calls } = makeCtxSpy();
+    drawTimelineHeader(ctx, scales, scrollLeft, CANVAS_W);
+    const textCalls = calls.filter((c) => c.name === 'fillText');
+    expect(textCalls.length).toBeGreaterThan(0);
+  });
+
+  it('pins label x to ≥ 4 when cell starts off-screen left', () => {
+    // Scroll to the very end so every major and minor unit has started before viewport.
+    const scrollLeft = scales.totalWidth - CANVAS_W;
+    const { ctx, calls } = makeCtxSpy();
+    drawTimelineHeader(ctx, scales, scrollLeft, CANVAS_W);
+    const textCalls = calls.filter((c) => c.name === 'fillText');
+    // Every visible label must have x ≥ 4 (pinned) — never negative.
+    for (const call of textCalls) {
+      expect(call.args[1] as number).toBeGreaterThanOrEqual(4);
+    }
   });
 });
