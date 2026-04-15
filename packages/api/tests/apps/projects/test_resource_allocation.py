@@ -114,9 +114,7 @@ def test_permission_denied_below_scheduler(role: int, project: Project) -> None:
 def test_permission_allowed_scheduler_and_above(
     role: int, project: Project, resource: Resource, task_scheduled: Task
 ) -> None:
-    TaskResource.objects.create(
-        task=task_scheduled, resource=resource, units=Decimal("1.00")
-    )
+    TaskResource.objects.create(task=task_scheduled, resource=resource, units=Decimal("1.00"))
     client = _auth_client(role, project)
     resp = client.get(
         _url(project),
@@ -133,9 +131,7 @@ def test_permission_allowed_scheduler_and_above(
 @pytest.mark.django_db
 def test_409_when_no_cpm_dates(project: Project, resource: Resource) -> None:
     """If no tasks have CPM dates, the endpoint returns 409."""
-    task = Task.objects.create(
-        project=project, name="T", wbs="1", duration=1, status="NOT_STARTED"
-    )
+    task = Task.objects.create(project=project, name="T", wbs="1", duration=1, status="NOT_STARTED")
     TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.00"))
     client = _auth_client(Role.SCHEDULER, project)
     # No start/end params — endpoint tries to derive window from CPM dates
@@ -149,9 +145,7 @@ def test_409_when_no_cpm_dates(project: Project, resource: Resource) -> None:
 
 
 @pytest.mark.django_db
-def test_response_shape(
-    project: Project, resource: Resource, task_scheduled: Task
-) -> None:
+def test_response_shape(project: Project, resource: Resource, task_scheduled: Task) -> None:
     assignment = TaskResource.objects.create(
         task=task_scheduled, resource=resource, units=Decimal("0.50")
     )
@@ -198,12 +192,8 @@ def test_unscheduled_tasks_included(
     task_scheduled: Task,
     task_unscheduled: Task,
 ) -> None:
-    TaskResource.objects.create(
-        task=task_scheduled, resource=resource, units=Decimal("1.00")
-    )
-    TaskResource.objects.create(
-        task=task_unscheduled, resource=resource, units=Decimal("0.50")
-    )
+    TaskResource.objects.create(task=task_scheduled, resource=resource, units=Decimal("1.00"))
+    TaskResource.objects.create(task=task_unscheduled, resource=resource, units=Decimal("0.50"))
     client = _auth_client(Role.SCHEDULER, project)
     resp = client.get(
         _url(project),
@@ -226,9 +216,7 @@ def test_unscheduled_tasks_included(
 
 
 @pytest.mark.django_db
-def test_task_outside_window_excluded(
-    project: Project, resource: Resource
-) -> None:
+def test_task_outside_window_excluded(project: Project, resource: Resource) -> None:
     """A task that finishes before the window start is excluded."""
     old_task = Task.objects.create(
         project=project,
@@ -251,9 +239,7 @@ def test_task_outside_window_excluded(
 
 
 @pytest.mark.django_db
-def test_task_partially_overlapping_window_included(
-    project: Project, resource: Resource
-) -> None:
+def test_task_partially_overlapping_window_included(project: Project, resource: Resource) -> None:
     """A task that starts before but overlaps the window is included."""
     task = Task.objects.create(
         project=project,
@@ -284,12 +270,19 @@ def test_task_partially_overlapping_window_included(
 def test_resource_filter(project: Project, resource: Resource, task_scheduled: Task) -> None:
     other_user = User.objects.create_user(username="bob_res", password="pw")
     other = Resource.objects.create(
-        project=project, name="Bob", email="bob@example.com",
-        max_units=Decimal("1.00"), user=other_user
+        project=project,
+        name="Bob",
+        email="bob@example.com",
+        max_units=Decimal("1.00"),
+        user=other_user,
     )
     other_task = Task.objects.create(
-        project=project, name="BobTask", wbs="2", duration=2,
-        early_start=date(2026, 3, 4), early_finish=date(2026, 3, 5),
+        project=project,
+        name="BobTask",
+        wbs="2",
+        duration=2,
+        early_start=date(2026, 3, 4),
+        early_finish=date(2026, 3, 5),
         status="NOT_STARTED",
     )
     TaskResource.objects.create(task=task_scheduled, resource=resource, units=Decimal("1.00"))
@@ -314,13 +307,21 @@ def test_resource_filter(project: Project, resource: Resource, task_scheduled: T
 @pytest.mark.django_db
 def test_status_filter(project: Project, resource: Resource) -> None:
     t1 = Task.objects.create(
-        project=project, name="Started", wbs="1", duration=2,
-        early_start=date(2026, 3, 2), early_finish=date(2026, 3, 3),
+        project=project,
+        name="Started",
+        wbs="1",
+        duration=2,
+        early_start=date(2026, 3, 2),
+        early_finish=date(2026, 3, 3),
         status="IN_PROGRESS",
     )
     t2 = Task.objects.create(
-        project=project, name="Done", wbs="2", duration=2,
-        early_start=date(2026, 3, 4), early_finish=date(2026, 3, 5),
+        project=project,
+        name="Done",
+        wbs="2",
+        duration=2,
+        early_start=date(2026, 3, 4),
+        early_finish=date(2026, 3, 5),
         status="COMPLETE",
     )
     TaskResource.objects.create(task=t1, resource=resource, units=Decimal("1.00"))

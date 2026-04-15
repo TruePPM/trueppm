@@ -254,9 +254,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             try:
                 return datetime.date.fromisoformat(s)
             except ValueError:
-                raise ValueError(
-                    f"'{param}' must be a valid ISO 8601 date (YYYY-MM-DD)."
-                ) from None
+                raise ValueError(f"'{param}' must be a valid ISO 8601 date (YYYY-MM-DD).") from None
 
         # --- Resolve window bounds ---
         start_str = request.query_params.get("start")
