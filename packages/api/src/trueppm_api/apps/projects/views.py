@@ -109,7 +109,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
     def get_permissions(self) -> list[BasePermission]:
         if self.action == "destroy":
             return [IsAuthenticated(), IsProjectOwner()]
-        if self.action == "utilization":
+        if self.action in ("utilization", "resource_allocation"):
             return [IsAuthenticated(), IsProjectScheduler()]
         return [IsAuthenticated(), IsProjectMember()]
 
@@ -226,6 +226,148 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
 
         result = compute_utilization(project, window_start, window_end)
         return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="resource-allocation")
+    def resource_allocation(self, request: Request, pk: str | None = None) -> Response:
+        """Per-resource task spans for the allocation timeline view (issue #85).
+
+        Returns each resource assigned to the project with their task spans
+        (early_start / early_finish / units / status) within the requested window.
+        Resources with no assignments in the window are excluded.
+
+        Overallocation detection is intentionally client-side: the caller receives
+        all spans and computes daily unit sums against max_units. See ADR-0031.
+
+        Query parameters:
+          start    (YYYY-MM-DD, optional) — window start; defaults to earliest
+                   early_start across all tasks. Returns 409 if no CPM dates exist.
+          end      (YYYY-MM-DD, optional) — window end; defaults to latest
+                   early_finish across all tasks.
+          resource (UUID, optional, repeatable) — filter to specific resource IDs.
+          status   (string, optional, repeatable) — filter tasks by status value.
+        """
+        from trueppm_api.apps.resources.models import TaskResource
+
+        project = self.get_object()
+
+        def _parse_date(s: str, param: str) -> datetime.date:
+            try:
+                return datetime.date.fromisoformat(s)
+            except ValueError:
+                raise ValueError(
+                    f"'{param}' must be a valid ISO 8601 date (YYYY-MM-DD)."
+                ) from None
+
+        # --- Resolve window bounds ---
+        start_str = request.query_params.get("start")
+        end_str = request.query_params.get("end")
+
+        try:
+            if start_str:
+                window_start: datetime.date = _parse_date(start_str, "start")
+            else:
+                first = (
+                    project.tasks.filter(is_deleted=False, early_start__isnull=False)
+                    .order_by("early_start")
+                    .values_list("early_start", flat=True)
+                    .first()
+                )
+                if first is None:
+                    return Response(
+                        {"detail": "Schedule has not been computed. Run the scheduler first."},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                window_start = first
+
+            if end_str:
+                window_end: datetime.date = _parse_date(end_str, "end")
+            else:
+                last = (
+                    project.tasks.filter(is_deleted=False, early_finish__isnull=False)
+                    .order_by("-early_finish")
+                    .values_list("early_finish", flat=True)
+                    .first()
+                )
+                window_end = last if last is not None else window_start
+
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        if window_start > window_end:
+            return Response(
+                {"detail": "'start' must not be after 'end'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # --- Optional filters ---
+        resource_ids = request.query_params.getlist("resource")
+        status_filters = request.query_params.getlist("status")
+
+        # --- Single query: all assignments for this project in the window ---
+        # Tasks with null early_start / early_finish are included (unscheduled);
+        # the client renders them in the "Unscheduled" section.
+        qs = (
+            TaskResource.objects.filter(
+                task__project=project,
+                task__is_deleted=False,
+            )
+            .select_related("resource", "task")
+            .order_by("resource__name", "task__early_start")
+        )
+
+        if resource_ids:
+            qs = qs.filter(resource__id__in=resource_ids)
+
+        if status_filters:
+            qs = qs.filter(task__status__in=status_filters)
+
+        # Exclude tasks that are completely outside the window (both dates not null
+        # and finish < window_start or start > window_end). Tasks with null dates
+        # are retained for the unscheduled section.
+        qs = qs.exclude(
+            task__early_finish__isnull=False,
+            task__early_start__isnull=False,
+            task__early_finish__lt=window_start,
+        ).exclude(
+            task__early_finish__isnull=False,
+            task__early_start__isnull=False,
+            task__early_start__gt=window_end,
+        )
+
+        # --- Build response grouped by resource ---
+        resources_map: dict[str, dict[str, Any]] = {}
+        for assignment in qs:
+            resource = assignment.resource
+            rid = str(resource.id)
+            if rid not in resources_map:
+                resources_map[rid] = {
+                    "id": rid,
+                    "name": resource.name,
+                    "email": resource.email,
+                    "max_units": str(resource.max_units),
+                    "tasks": [],
+                }
+            task = assignment.task
+            resources_map[rid]["tasks"].append(
+                {
+                    "assignment_id": str(assignment.id),
+                    "id": str(task.id),
+                    "name": task.name,
+                    "early_start": task.early_start.isoformat() if task.early_start else None,
+                    "early_finish": task.early_finish.isoformat() if task.early_finish else None,
+                    "units": str(assignment.units),
+                    "status": task.status,
+                }
+            )
+
+        return Response(
+            {
+                "project_id": str(project.id),
+                "window_start": window_start.isoformat(),
+                "window_end": window_end.isoformat(),
+                "resources": list(resources_map.values()),
+            }
+        )
 
 
 class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):

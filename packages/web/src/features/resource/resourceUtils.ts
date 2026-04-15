@@ -9,7 +9,40 @@
  */
 
 // ---------------------------------------------------------------------------
-// API response types (mirrors utilization.py JSON contract)
+// API response types — allocation timeline (issue #85, ADR-0031)
+// ---------------------------------------------------------------------------
+
+export interface AllocationTask {
+  /** TaskResource UUID — used for PATCH /task-resources/:id/ */
+  assignment_id: string;
+  id: string;
+  name: string;
+  /** ISO date or null when task has no CPM dates yet (unscheduled). */
+  early_start: string | null;
+  early_finish: string | null;
+  /** Decimal string, e.g. "0.50" */
+  units: string;
+  status: 'NOT_STARTED' | 'IN_PROGRESS' | 'ON_HOLD' | 'COMPLETE';
+}
+
+export interface AllocationResource {
+  id: string;
+  name: string;
+  email: string;
+  /** Decimal string, e.g. "1.00" */
+  max_units: string;
+  tasks: AllocationTask[];
+}
+
+export interface AllocationResponse {
+  project_id: string;
+  window_start: string;
+  window_end: string;
+  resources: AllocationResource[];
+}
+
+// ---------------------------------------------------------------------------
+// API response types — utilization grid (mirrors utilization.py JSON contract)
 // ---------------------------------------------------------------------------
 
 export interface UtilizationDayEntry {
@@ -191,7 +224,7 @@ export const LOAD_TEXT_CLASS: Record<LoadColor, string> = {
 // ---------------------------------------------------------------------------
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTH_ABBR = [
+export const MONTH_ABBR = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
@@ -219,4 +252,73 @@ export function todayISO(): string {
   return formatISODate(
     new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())),
   );
+}
+
+/**
+ * "Fit to project" window derived from an AllocationResponse.
+ * Expands to cover the earliest early_start and latest early_finish across
+ * all scheduled task spans, aligned to ISO week boundaries.
+ */
+export function fitToAllocationWindow(
+  projectStartDate: string,
+  data: AllocationResponse,
+): { start: string; end: string } {
+  let minStart = projectStartDate;
+  let maxEnd = projectStartDate;
+  for (const resource of data.resources) {
+    for (const task of resource.tasks) {
+      if (task.early_start && task.early_start < minStart) minStart = task.early_start;
+      if (task.early_finish && task.early_finish > maxEnd) maxEnd = task.early_finish;
+    }
+  }
+  return {
+    start: formatISODate(isoWeekMonday(parseUTCDate(minStart))),
+    end: formatISODate(isoWeekSunday(parseUTCDate(maxEnd))),
+  };
+}
+
+/**
+ * Client-side overallocation detection (ADR-0031).
+ *
+ * For a single resource, walks all scheduled spans and builds a day-by-day
+ * unit sum map. Any task whose date range overlaps a day where the sum exceeds
+ * max_units is flagged as overallocated.
+ *
+ * Returns a Set of assignment_ids that are overallocated on at least one day.
+ * Calendar-aware exclusion of non-working days is deferred to a follow-up.
+ */
+export function detectOverallocatedAssignments(
+  tasks: AllocationTask[],
+  maxUnits: number,
+): Set<string> {
+  // Build day → total units map across all scheduled tasks
+  const dayUnits: Map<string, number> = new Map();
+  for (const task of tasks) {
+    if (!task.early_start || !task.early_finish) continue;
+    const units = parseFloat(task.units);
+    let cur = parseUTCDate(task.early_start);
+    const end = parseUTCDate(task.early_finish);
+    while (cur <= end) {
+      const iso = formatISODate(cur);
+      dayUnits.set(iso, (dayUnits.get(iso) ?? 0) + units);
+      cur = addDays(cur, 1);
+    }
+  }
+
+  // Flag tasks that touch any overloaded day
+  const overloaded = new Set<string>();
+  for (const task of tasks) {
+    if (!task.early_start || !task.early_finish) continue;
+    let cur = parseUTCDate(task.early_start);
+    const end = parseUTCDate(task.early_finish);
+    while (cur <= end) {
+      const iso = formatISODate(cur);
+      if ((dayUnits.get(iso) ?? 0) > maxUnits) {
+        overloaded.add(task.assignment_id);
+        break;
+      }
+      cur = addDays(cur, 1);
+    }
+  }
+  return overloaded;
 }
