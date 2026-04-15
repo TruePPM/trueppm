@@ -11,8 +11,13 @@ import { ResourceAssignmentSection } from './ResourceAssignmentSection';
 // ---------------------------------------------------------------------------
 
 // Capture the onSuccess callback so tests can invoke it directly.
-let capturedOnSuccess: ((result: { warnings: { code: string; resource_id: string; resource_name: string; detail: string }[] }) => void) | null = null;
-const mutateMock = vi.fn().mockImplementation((_payload, callbacks) => {
+type WarningPayload = { code: string; resource_id: string; resource_name: string; detail: string };
+type MutateCallbacks = {
+  onSuccess?: (result: { warnings: WarningPayload[] }) => void;
+  onSettled?: () => void;
+};
+let capturedOnSuccess: MutateCallbacks['onSuccess'] | null = null;
+const mutateMock = vi.fn().mockImplementation((_payload: unknown, callbacks: MutateCallbacks) => {
   capturedOnSuccess = callbacks?.onSuccess ?? null;
 });
 

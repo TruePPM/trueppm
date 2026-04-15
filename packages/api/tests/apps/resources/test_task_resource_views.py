@@ -14,7 +14,6 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task
 from trueppm_api.apps.resources.models import Resource, TaskResource
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -64,7 +63,9 @@ def task(project: Project) -> Task:
 @pytest.fixture
 def resource(db: object) -> Resource:
     """Resource at 100% capacity."""
-    return Resource.objects.create(name="Alice", email="alice@example.com", max_units=Decimal("1.0"))
+    return Resource.objects.create(
+        name="Alice", email="alice@example.com", max_units=Decimal("1.0")
+    )
 
 
 @pytest.fixture
@@ -304,7 +305,7 @@ class TestTaskResourceIDOR:
     ) -> None:
         """An assignment in a project where the user has no membership is not visible."""
         User = get_user_model()
-        other_user = User.objects.create_user(username="other", password="pw")
+        User.objects.create_user(username="other", password="pw")
         other_project = Project.objects.create(
             name="Other", start_date=date(2026, 4, 1), calendar=calendar
         )
