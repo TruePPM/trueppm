@@ -51,6 +51,9 @@ test.describe('Login flow', () => {
         body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
       }),
     );
+    await page.route('**/api/v1/projects/*/presence/', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    );
 
     await page.goto('/login');
     await page.getByLabel('Username').fill('sarah');
