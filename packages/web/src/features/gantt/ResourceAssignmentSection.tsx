@@ -4,6 +4,7 @@ import {
   useAddAssignment,
   useUpdateAssignment,
   useRemoveAssignment,
+  type AssignmentWarning,
 } from '@/hooks/useAssignmentMutations';
 import { AssignmentSkeleton } from './AssignmentSkeleton';
 import { AssignmentRow } from './AssignmentRow';
@@ -16,11 +17,13 @@ export interface ResourceAssignmentSectionProps {
 
 export function ResourceAssignmentSection({ taskId, projectId }: ResourceAssignmentSectionProps) {
   const [showSearch, setShowSearch] = useState(false);
+  const [overallocationWarning, setOverallocationWarning] = useState<AssignmentWarning | null>(null);
   const addResourceButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Reset search state when task changes
+  // Reset search state and warnings when task changes
   useEffect(() => {
     setShowSearch(false);
+    setOverallocationWarning(null);
   }, [taskId]);
 
   const { data: assignments, isLoading } = useTaskAssignments(taskId);
@@ -32,6 +35,11 @@ export function ResourceAssignmentSection({ taskId, projectId }: ResourceAssignm
     addAssignment.mutate(
       { taskId, resourceId, units: 1.0 },
       {
+        onSuccess: ({ warnings }) => {
+          // Surface the first overallocation warning inline — assignment is saved regardless.
+          const overalloc = warnings.find((w) => w.code === 'resource_overallocated') ?? null;
+          setOverallocationWarning(overalloc);
+        },
         onSettled: () => {
           setShowSearch(false);
           // Restore focus to the "Add resource" button
@@ -67,7 +75,13 @@ export function ResourceAssignmentSection({ taskId, projectId }: ResourceAssignm
               onUnitsChange={(decimal) =>
                 updateAssignment.mutate({ id: assignment.id, units: decimal })
               }
-              onRemove={() => removeAssignment.mutate(assignment.id)}
+              onRemove={() => {
+                removeAssignment.mutate(assignment.id);
+                // Clear any warning for this resource when the assignment is removed.
+                if (overallocationWarning?.resource_id === assignment.resourceId) {
+                  setOverallocationWarning(null);
+                }
+              }}
               isUpdating={
                 updateAssignment.isPending &&
                 (updateAssignment.variables as { id: string } | undefined)?.id === assignment.id
@@ -78,6 +92,29 @@ export function ResourceAssignmentSection({ taskId, projectId }: ResourceAssignm
               }
             />
           ))}
+
+          {/* Overallocation warning — shown after a successful add when the resource
+              is over capacity. Assignment is saved; this is informational only. */}
+          {overallocationWarning && (
+            <div
+              role="alert"
+              className="mt-2 flex items-start gap-2 rounded border border-semantic-at-risk/40
+                bg-transparent px-3 py-2 text-xs text-semantic-at-risk"
+            >
+              <span aria-hidden="true" className="mt-0.5 shrink-0">⚠</span>
+              <p className="flex-1">{overallocationWarning.detail}</p>
+              <button
+                type="button"
+                onClick={() => setOverallocationWarning(null)}
+                aria-label="Dismiss overallocation warning"
+                className="shrink-0 text-semantic-at-risk/60 hover:text-semantic-at-risk
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-at-risk
+                  focus-visible:ring-offset-1 rounded"
+              >
+                ✕
+              </button>
+            </div>
+          )}
         </>
       )}
 

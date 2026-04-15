@@ -49,3 +49,12 @@ class TaskResource(models.Model):
 
     def __str__(self) -> str:
         return f"{self.resource} on {self.task} ({self.units}u)"
+
+    @property
+    def project_id(self) -> object:
+        """Expose the task's project_id so _get_project_id_from_obj can find it.
+
+        Required for CanAssignResource.has_object_permission to resolve the project
+        context from a TaskResource instance without a direct FK to Project.
+        """
+        return self.task.project_id
