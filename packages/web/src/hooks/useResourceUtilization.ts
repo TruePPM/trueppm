@@ -11,6 +11,14 @@ export interface UseResourceUtilizationResult {
   error: Error | null;
 }
 
+/**
+ * GET /api/v1/projects/{id}/utilization/?start=…&end=… — fetch per-resource daily load.
+ *
+ * Maps API errors to typed status codes so the component can render the correct
+ * empty state without inspecting raw HTTP codes:
+ *   - HTTP 409 → `schedule-not-run` (CPM has not been run yet)
+ *   - HTTP 403 → error (permission denied — gate via RBAC before mounting)
+ */
 export function useResourceUtilization(
   projectId: string | undefined,
   start: string,

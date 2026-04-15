@@ -10,6 +10,12 @@ export interface UseShellStatsResult {
   error: Error | null;
 }
 
+/**
+ * Fetch project shell stats (health summary, task counts, schedule variance).
+ *
+ * @stub Returns fixture data; GET /projects/{id}/shell-stats/ is not yet implemented.
+ * Replace the body with a real useQuery call when the endpoint is added.
+ */
 export function useShellStats(): UseShellStatsResult {
   return { data: FIXTURE_SHELL_STATS, isLoading: false, error: null };
 }

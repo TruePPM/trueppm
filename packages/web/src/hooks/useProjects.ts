@@ -42,6 +42,13 @@ function mapProject(p: ApiProject, index: number): Project {
   };
 }
 
+/**
+ * GET /api/v1/projects/ — fetch the current user's project list.
+ *
+ * Suppresses error state during the 401→token-refresh→retry cycle to prevent
+ * a "Failed to load" flash while the interceptor silently retries the request.
+ * colorDot is assigned client-side from a deterministic palette (no server color).
+ */
 export function useProjects(): UseProjectsResult {
   const query = useQuery({
     queryKey: ['projects'],

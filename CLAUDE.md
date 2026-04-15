@@ -134,6 +134,44 @@ Ask: "Would an individual PM or small team need this?" If yes → OSS. "Does thi
 - Extension points (settings includes, URL patterns, signal hooks) must remain stable — enterprise code registers against them; changing their shape is a breaking change for enterprise customers
 - Verify with: `grep -r "trueppm_enterprise" packages/` — must return zero results in OSS code
 
+## Documentation Discipline
+
+### Code documentation
+
+**Complex business logic must have a docstring or inline comment explaining *why*:**
+- Model methods with non-trivial invariants (e.g. `server_version` bumps, summary task rollups, WBS reparenting rules)
+- Serializer `create`/`update`/`validate_*` methods that enforce permission boundaries or transactional sequencing
+- Permission classes and RBAC checks (the *why* behind the role matrix decision)
+- Transaction sequences using `transaction.on_commit()` / outbox dispatch
+- WebSocket broadcast points (what triggers, what consumers expect)
+- Scheduling engine: CPM pass direction, Monte Carlo sampling assumptions, float calculations
+- Frontend: non-obvious Zustand store invariants, TanStack Query cache keys, optimistic update rollback logic
+
+**Public API surface must have Google-style docstrings:**
+- Every exported function/class in `packages/scheduler` (it's a pip package)
+- Every DRF ViewSet and Serializer class in `packages/api`
+- Every exported hook and utility in `packages/web/src/hooks` and `packages/web/src/lib`
+
+**Do NOT add:**
+- Comments that narrate *what* the code does when the identifiers already say it
+- References to issues, tasks, or callers ("used by X", "added for #123") — these belong in commit messages
+- Multi-paragraph docstrings on trivial CRUD views
+- `// removed` / `# removed` tombstones
+
+### Before marking any feature complete
+
+1. Grep changed files for new public functions/classes missing docstrings
+2. Verify new user-visible behavior is reflected in `docs/features/` or `docs/getting-started/`
+3. Verify new admin-visible behavior (settings, env vars, Helm values, management commands) is reflected in `docs/administration/`
+4. Verify new or modified endpoints are reflected in `docs/api/`
+5. Update any screenshots in `docs/` invalidated by UI changes — stale screenshots block the MR
+
+### Every MR that adds user-visible behavior must include a docs diff in the same MR — not a follow-up issue.
+
+### Mandatory agents for docs work
+- **`docs-writer`** for any change touching `docs/features/`, `docs/getting-started/`, `docs/architecture/`, or `docs/administration/`
+- **`api-docs`** for any endpoint, serializer field, or permission rule change
+
 ## Available Skills
 Run `/skills` to see all available skills. Key ones:
 - `/architect` — System design decisions with ADR output

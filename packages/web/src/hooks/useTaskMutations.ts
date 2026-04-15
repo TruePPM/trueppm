@@ -25,6 +25,7 @@ export interface CreateTaskPayload {
   duration: number;
 }
 
+/** POST /api/v1/tasks/ — create a new task in the given project. */
 export function useCreateTask(projectId: string | null) {
   const queryClient = useQueryClient();
 
@@ -59,6 +60,7 @@ export interface UpdateTaskPayload {
   actual_finish?: string | null;
 }
 
+/** PATCH /api/v1/tasks/{id}/ — update task fields; immediately invalidates the task cache. */
 export function useUpdateTask() {
   const queryClient = useQueryClient();
 
@@ -92,6 +94,11 @@ export interface RescheduleTaskPayload {
   optimistic: Partial<Task>;
 }
 
+/**
+ * PATCH /api/v1/tasks/{id}/ for drag/resize — applies an optimistic cache update
+ * so the Gantt reflects the new position instantly. Does not invalidate the cache on
+ * success; useGanttTasks' refetchInterval picks up CPM-computed dates once Celery finishes.
+ */
 export function useRescheduleTask() {
   const queryClient = useQueryClient();
 
@@ -132,6 +139,7 @@ export interface IndentOutdentResponse {
   warning: 'has_assignments' | null;
 }
 
+/** POST /api/v1/projects/{pk}/tasks/{id}/indent/ — make a task a child of the preceding sibling. */
 export function useIndentTask(projectId: string | null) {
   const queryClient = useQueryClient();
 
@@ -152,6 +160,7 @@ export function useIndentTask(projectId: string | null) {
 // useOutdentTask — POST /api/v1/projects/{pk}/tasks/{id}/outdent/
 // ---------------------------------------------------------------------------
 
+/** POST /api/v1/projects/{pk}/tasks/{id}/outdent/ — promote a task one level up in the WBS. */
 export function useOutdentTask(projectId: string | null) {
   const queryClient = useQueryClient();
 
@@ -178,6 +187,7 @@ export interface ReparentTaskPayload {
   newParentId: string | null;
 }
 
+/** POST /api/v1/projects/{pk}/tasks/{id}/reparent/ — move a task under a new parent (or to root). */
 export function useReparentTask(projectId: string | null) {
   const queryClient = useQueryClient();
 
@@ -199,6 +209,7 @@ export function useReparentTask(projectId: string | null) {
 // useDeleteTask — DELETE /api/v1/tasks/{id}/
 // ---------------------------------------------------------------------------
 
+/** DELETE /api/v1/tasks/{id}/ — delete a single task. */
 export function useDeleteTask(projectId: string | null) {
   const queryClient = useQueryClient();
 
@@ -216,6 +227,7 @@ export function useDeleteTask(projectId: string | null) {
 // useBulkDeleteTasks — POST /api/v1/projects/{pk}/tasks/bulk/ (delete ops)
 // ---------------------------------------------------------------------------
 
+/** POST /api/v1/projects/{pk}/tasks/bulk/ — delete multiple tasks in a single atomic request. */
 export function useBulkDeleteTasks(projectId: string | null) {
   const queryClient = useQueryClient();
 
@@ -242,6 +254,10 @@ export interface ReorderTasksPayload {
   ordered_ids: string[];
 }
 
+/**
+ * POST /api/v1/projects/{pk}/tasks/reorder/ — reorder all siblings under a WBS parent.
+ * The full sibling list must be provided; partial lists are rejected by the API.
+ */
 export function useReorderTasks(projectId: string | null) {
   const queryClient = useQueryClient();
 

@@ -8,6 +8,12 @@ from trueppm_api.apps.scheduling.models import FailedTask
 
 
 class FailedTaskSerializer(serializers.ModelSerializer[FailedTask]):
+    """Read-only serializer for the failed-task dead-letter queue.
+
+    Exposed by the admin API so operators can inspect and requeue or discard
+    tasks that exceeded their retry budget.
+    """
+
     class Meta:
         model = FailedTask
         fields = [

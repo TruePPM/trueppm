@@ -41,6 +41,12 @@ export interface ColumnWidths {
   totalWidth: number;
 }
 
+/**
+ * Persist and expose Gantt task-list column widths in localStorage.
+ *
+ * Widths are clamped to MIN_COL_WIDTHS and stored under STORAGE_KEY (v2).
+ * Returns widths, a setWidth callback, and the total width of all columns.
+ */
 export function useColumnWidths(): ColumnWidths {
   const [widths, setWidths] = useState<Record<ColumnKey, number>>(load);
 

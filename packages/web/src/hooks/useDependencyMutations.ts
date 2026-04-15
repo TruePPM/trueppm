@@ -22,6 +22,7 @@ export interface CreateDependencyPayload {
   lag?: number;
 }
 
+/** POST /api/v1/dependencies/ — create a FS/SS/FF/SF dependency link between two tasks. */
 export function useCreateDependency(projectId: string | null) {
   const queryClient = useQueryClient();
 
@@ -51,6 +52,7 @@ export interface UpdateDependencyPayload {
   lag?: number;
 }
 
+/** PATCH /api/v1/dependencies/{id}/ — update dep_type or lag on an existing dependency. */
 export function useUpdateDependency(projectId: string | null) {
   const queryClient = useQueryClient();
 
@@ -71,6 +73,7 @@ export function useUpdateDependency(projectId: string | null) {
 // useDeleteDependency — DELETE /api/v1/dependencies/{id}/
 // ---------------------------------------------------------------------------
 
+/** DELETE /api/v1/dependencies/{id}/ — remove a task dependency link. */
 export function useDeleteDependency(projectId: string | null) {
   const queryClient = useQueryClient();
 

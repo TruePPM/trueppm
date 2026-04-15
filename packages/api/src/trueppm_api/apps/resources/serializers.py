@@ -10,6 +10,12 @@ from trueppm_api.apps.resources.models import Resource, TaskResource
 
 
 class ResourceSerializer(serializers.ModelSerializer[Resource]):
+    """Read/write serializer for named resources (people, equipment, or material).
+
+    calendar is optional — when null the resource inherits the project's calendar
+    for utilization calculations.
+    """
+
     class Meta:
         model = Resource
         fields = [
@@ -24,6 +30,12 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
 
 
 class TaskResourceSerializer(serializers.ModelSerializer[TaskResource]):
+    """Read/write serializer for task-resource assignments.
+
+    units is a decimal fraction of full capacity (e.g. 0.5 = 50%). Validated
+    to the range [0.01, 2.0] so accidental 0 or runaway values are caught early.
+    """
+
     class Meta:
         model = TaskResource
         fields = ["id", "task", "resource", "units"]

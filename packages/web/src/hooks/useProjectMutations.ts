@@ -20,6 +20,7 @@ export interface CreateProjectPayload {
   description?: string;
 }
 
+/** POST /api/v1/projects/ — create a new project and invalidate the project list cache. */
 export function useCreateProject() {
   const queryClient = useQueryClient();
 
@@ -43,6 +44,7 @@ export interface ApiCalendar {
   name: string;
 }
 
+/** GET /api/v1/calendars/ — fetch available calendars for the project creation picker. */
 export function useCalendars() {
   return useQuery({
     queryKey: ['calendars'],
