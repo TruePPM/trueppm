@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { TaskStatus } from '@/types';
 
+/** PATCH /api/v1/tasks/{id}/ — update task status only (used by Kanban board drag-and-drop and keyboard move). */
 export function useUpdateTaskStatus() {
   const queryClient = useQueryClient();
 

@@ -15,6 +15,8 @@ from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Risk
 
 
 class SyncCalendarSerializer(serializers.ModelSerializer[Calendar]):
+    """Sync payload for Calendar — excludes exceptions (synced separately via SyncView)."""
+
     class Meta:
         model = Calendar
         fields = [
@@ -28,6 +30,8 @@ class SyncCalendarSerializer(serializers.ModelSerializer[Calendar]):
 
 
 class SyncProjectSerializer(serializers.ModelSerializer[Project]):
+    """Sync payload for Project — minimal shape consumed by the WatermelonDB Project table."""
+
     class Meta:
         model = Project
         fields = [
@@ -41,6 +45,8 @@ class SyncProjectSerializer(serializers.ModelSerializer[Project]):
 
 
 class SyncTaskSerializer(serializers.ModelSerializer[Task]):
+    """Sync payload for Task — full CPM and baseline fields for offline scheduling previews."""
+
     class Meta:
         model = Task
         fields = [
@@ -72,12 +78,16 @@ class SyncTaskSerializer(serializers.ModelSerializer[Task]):
 
 
 class SyncDependencySerializer(serializers.ModelSerializer[Dependency]):
+    """Sync payload for Dependency links — includes server_version for delta tracking."""
+
     class Meta:
         model = Dependency
         fields = ["id", "server_version", "predecessor", "successor", "dep_type", "lag"]
 
 
 class SyncMembershipSerializer(serializers.ModelSerializer[ProjectMembership]):
+    """Sync payload for ProjectMembership — lets mobile clients enforce offline RBAC."""
+
     class Meta:
         model = ProjectMembership
         fields = ["id", "server_version", "project", "user", "role"]

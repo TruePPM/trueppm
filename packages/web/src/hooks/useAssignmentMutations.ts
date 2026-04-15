@@ -28,6 +28,7 @@ export interface AddAssignmentPayload {
   units: number;
 }
 
+/** POST /api/v1/task-resources/ — assign a resource to a task at a given allocation percentage. */
 export function useAddAssignment(projectId: string) {
   const queryClient = useQueryClient();
 
@@ -56,6 +57,10 @@ export interface UpdateAssignmentPayload {
   units: number;
 }
 
+/**
+ * PATCH /api/v1/task-resources/{id}/ — update a resource allocation percentage.
+ * Applies an optimistic update and rolls back on error.
+ */
 export function useUpdateAssignment(taskId: string, projectId: string) {
   const queryClient = useQueryClient();
 
@@ -89,6 +94,10 @@ export function useUpdateAssignment(taskId: string, projectId: string) {
 // useRemoveAssignment — DELETE /api/v1/task-resources/{id}/
 // ---------------------------------------------------------------------------
 
+/**
+ * DELETE /api/v1/task-resources/{id}/ — remove a resource from a task.
+ * Applies an optimistic removal and rolls back on error.
+ */
 export function useRemoveAssignment(taskId: string, projectId: string) {
   const queryClient = useQueryClient();
 

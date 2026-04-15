@@ -19,6 +19,7 @@ function mapAssignment(a: ApiTaskResource): TaskAssignment {
   };
 }
 
+/** GET /api/v1/task-resources/?task={id} — fetch resource assignments for a single task. */
 export function useTaskAssignments(taskId: string) {
   return useQuery({
     queryKey: ['task-assignments', taskId],

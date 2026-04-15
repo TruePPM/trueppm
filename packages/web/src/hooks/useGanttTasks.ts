@@ -107,6 +107,13 @@ function mapDependency(d: ApiDependency): TaskLink {
   };
 }
 
+/**
+ * Fetch tasks and dependency links for the Gantt view.
+ *
+ * Reads projectId from props or from the `?project=` query param so
+ * GanttView and TaskListView can both mount the hook without passing
+ * an explicit ID when the project is already in the URL.
+ */
 export function useGanttTasks(projectId?: string): UseGanttTasksResult {
   const [searchParams] = useSearchParams();
   const resolvedId = projectId ?? searchParams.get('project') ?? undefined;

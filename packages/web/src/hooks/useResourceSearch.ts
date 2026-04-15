@@ -12,6 +12,10 @@ interface ApiResource {
   name: string;
 }
 
+/**
+ * GET /api/v1/resources/?search=… — search resources by name for the assignment picker.
+ * Results are stale for 30 s to avoid hammering the API on every keystroke.
+ */
 export function useResourceSearch(query: string) {
   return useQuery({
     queryKey: ['resources', 'search', query],

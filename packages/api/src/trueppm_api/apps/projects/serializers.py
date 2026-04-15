@@ -23,12 +23,20 @@ from trueppm_api.apps.resources.models import TaskResource
 
 
 class CalendarExceptionSerializer(serializers.ModelSerializer[CalendarException]):
+    """Read-only snapshot of a single calendar exception (holiday or non-working span)."""
+
     class Meta:
         model = CalendarException
         fields = ["id", "exc_start", "exc_end", "description"]
 
 
 class CalendarSerializer(serializers.ModelSerializer[Calendar]):
+    """Read/write serializer for project calendars.
+
+    Nests exceptions as read-only — exceptions are managed through the
+    /calendars/{pk}/exceptions/ sub-resource, not via this serializer.
+    """
+
     exceptions = CalendarExceptionSerializer(many=True, read_only=True)
 
     class Meta:
@@ -46,6 +54,12 @@ class CalendarSerializer(serializers.ModelSerializer[Calendar]):
 
 
 class ProjectSerializer(serializers.ModelSerializer[Project]):
+    """Read/write serializer for projects.
+
+    calendar is optional on create — the API will use the board's default
+    calendar when omitted.
+    """
+
     class Meta:
         model = Project
         fields = [
@@ -341,6 +355,12 @@ class BaselineDetailSerializer(BaselineSerializer):
 
 
 class DependencySerializer(serializers.ModelSerializer[Dependency]):
+    """Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).
+
+    Cross-project edges are rejected in validate() because the CPM engine
+    assumes a single-project DAG.
+    """
+
     class Meta:
         model = Dependency
         fields = ["id", "predecessor", "successor", "dep_type", "lag"]

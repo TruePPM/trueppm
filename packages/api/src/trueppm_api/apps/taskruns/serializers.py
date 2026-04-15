@@ -10,6 +10,14 @@ from trueppm_api.apps.taskruns.models import TaskRun
 
 
 class TaskRunSerializer(serializers.ModelSerializer[TaskRun]):
+    """Read-only serializer for TaskRun progress records.
+
+    Exposes all fields needed to drive a progress indicator: status,
+    progress_pct, progress_msg, and timing fields for duration display.
+    All fields are read-only — TaskRun records are created and updated
+    by the Celery worker, never directly via the API.
+    """
+
     class Meta:
         model = TaskRun
         fields = [

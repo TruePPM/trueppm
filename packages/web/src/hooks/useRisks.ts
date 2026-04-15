@@ -18,6 +18,7 @@ export interface UseRisksResult {
   error: Error | null;
 }
 
+/** GET /api/v1/projects/{id}/risks/ — fetch all risks for a project. */
 export function useRisks(projectId: string | null): UseRisksResult {
   const query = useQuery({
     queryKey: ['risks', projectId],
@@ -35,6 +36,7 @@ export function useRisks(projectId: string | null): UseRisksResult {
   };
 }
 
+/** POST /api/v1/projects/{id}/risks/ — create a new risk with optional linked tasks. */
 export function useCreateRisk() {
   const queryClient = useQueryClient();
 
@@ -60,6 +62,7 @@ export function useCreateRisk() {
   });
 }
 
+/** PATCH /api/v1/projects/{id}/risks/{id}/ — update risk fields or linked tasks. */
 export function useUpdateRisk() {
   const queryClient = useQueryClient();
 
@@ -87,6 +90,7 @@ export function useUpdateRisk() {
   });
 }
 
+/** DELETE /api/v1/projects/{id}/risks/{id}/ — delete a risk. */
 export function useDeleteRisk() {
   const queryClient = useQueryClient();
 
