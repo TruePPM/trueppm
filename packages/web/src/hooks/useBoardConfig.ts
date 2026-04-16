@@ -10,6 +10,11 @@ export interface BoardColumnDef {
   status: TaskStatus;
   label: string;
   visible: boolean;
+  /**
+   * WIP limit for this column. Undefined = no limit (displayed as ∞).
+   * Stored in the board config so PMs can set it per project.
+   */
+  wipLimit?: number;
 }
 
 interface BoardConfigResponse {

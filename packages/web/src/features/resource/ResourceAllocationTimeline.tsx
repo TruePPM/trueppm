@@ -29,6 +29,8 @@ interface Props {
   /** Current user's resource ID — used to highlight "My allocation" row */
   currentUserResourceId?: string;
   projectId: string | undefined;
+  /** Called when the user clicks "Run scheduler" in the unscheduled section. */
+  onRunScheduler?: () => void;
 }
 
 interface ActiveEdit {
@@ -110,6 +112,7 @@ export function ResourceAllocationTimeline({
   windowEnd,
   currentUserResourceId,
   projectId,
+  onRunScheduler,
 }: Props) {
   const timelineRef = useRef<HTMLDivElement>(null);
   const [activeEdit, setActiveEdit] = useState<ActiveEdit | null>(null);
@@ -354,12 +357,22 @@ export function ResourceAllocationTimeline({
         {unscheduled.length > 0 && (
           <div className="border-t-2 border-semantic-at-risk/30 bg-semantic-at-risk/5">
             <div className="flex items-center gap-2 px-4 py-2 text-xs text-semantic-at-risk border-b border-semantic-at-risk/20">
-              <span>⚠</span>
+              <span aria-hidden="true">⚠</span>
               <span className="font-medium">
                 {unscheduled.length} unscheduled assignment
                 {unscheduled.length !== 1 ? 's' : ''} — tasks with no computed dates.
               </span>
               <span className="text-neutral-text-secondary">Run the scheduler to place them on the timeline.</span>
+              {onRunScheduler && (
+                <button
+                  type="button"
+                  onClick={onRunScheduler}
+                  className="ml-auto flex-shrink-0 text-xs px-2 py-1 rounded border border-semantic-at-risk/40 bg-semantic-at-risk/10 text-semantic-at-risk font-medium
+                    hover:bg-semantic-at-risk/20 focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:outline-none"
+                >
+                  Run scheduler
+                </button>
+              )}
             </div>
             {unscheduled.map(({ resource, task }) => (
               <div

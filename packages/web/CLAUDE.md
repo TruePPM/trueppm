@@ -42,9 +42,9 @@ These rules are enforced at review time. Violations block merge.
 ## Monte Carlo Row Rules
 
 17. **MC row height is 44px** — outside the virtualizer; does not participate in scroll sync (not 28px like task rows).
-18. **MC bars use semantic tokens only** — P50 = `border-semantic-on-track` (solid), P80 = `border-semantic-at-risk` (dashed), P95 = `border-semantic-critical` (dotted). No other colors.
-19. **MC bars use stroke-pattern differentiation** (solid / dashed / dotted) in addition to color — required for WCAG 1.4.1 (use of color).
-20. **MC histogram SVG bars use `fill-neutral-text-disabled`** — distribution shape is neutral; semantic colors are reserved for the percentile rule lines only.
+18. **MC mini-histogram bars are coloured by percentile region** — green (`bg-semantic-on-track/50`) for buckets ≤ P50, amber (`bg-semantic-at-risk/50`) for P50–P80, red (`bg-semantic-critical/50`) for > P80. WCAG 1.4.1 is satisfied by the accompanying text chips, not by the bar colours alone.
+19. **MC histogram SVG bars in the tooltip use `fill-neutral-text-disabled`** — distribution shape is neutral; semantic colours are reserved for the P50/P80/P95 vertical rule lines inside the tooltip.
+20. **P50 / P80 / P95 date chips are permanently visible** in the `MonteCarloTimeline` panel — outlined style (`bg-transparent border border-{semantic}/40 text-{semantic}`). Not fill. Hover or keyboard-focus opens the detailed histogram tooltip over the strip.
 21. **P80 badge uses outlined style** — `bg-transparent border border-semantic-at-risk/40 text-semantic-at-risk`. Not `bg-semantic-at-risk/10` fill. Consistent with rule 39.
 22. **MC row (`MonteCarloRow`) is `hidden md:flex`** — suppressed below 768px. The P80 badge in `TopBar` is `hidden md:flex` (desktop only). Mobile surfaces P80 via a chip in `StatusBar` (`md:hidden`) — resolved by issue #33. `MonteCarloLabel` shows a persistent "P80: Mon D" chip at `md+` breakpoints.
 

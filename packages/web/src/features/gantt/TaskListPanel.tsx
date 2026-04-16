@@ -60,6 +60,14 @@ function PendingTaskRow({ name }: { name: string }) {
   );
 }
 
+/** Per-task dep-chip data — computed in GanttView, passed down for focus mode. */
+export interface TaskDepChips {
+  predsCount: number;
+  succsCount: number;
+  predsCritical: boolean;
+  succsCritical: boolean;
+}
+
 interface Props {
   tasks: Task[];
   /** Map of taskId → taskName for tasks pending scheduler assignment. */
@@ -74,9 +82,18 @@ interface Props {
   expandedIds: Set<string>;
   /** Toggle expand/collapse for a task. */
   onToggle: (id: string) => void;
+  /**
+   * When non-empty, tasks NOT in this set are dimmed to 22% (focus mode).
+   * An empty/undefined set means focus mode is off.
+   */
+  focusChainIds?: Set<string>;
+  /**
+   * Per-task dep-chip data — shown on the selected task row when focus mode is on.
+   */
+  depChipsById?: Map<string, TaskDepChips>;
 }
 
-export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, setWidth, totalWidth, summaryIds, expandedIds, onToggle }: Props) {
+export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, setWidth, totalWidth, summaryIds, expandedIds, onToggle, focusChainIds, depChipsById }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useGanttStore((s) => s.scrollToTaskId);
   const scrollToTask = useGanttStore((s) => s.scrollToTask);
@@ -138,6 +155,8 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, setWid
                   hasChildren={summaryIds.has(task.id)}
                   isExpanded={expandedIds.has(task.id)}
                   onToggle={() => onToggle(task.id)}
+                  dimmed={focusChainIds !== undefined && focusChainIds.size > 0 && !focusChainIds.has(task.id)}
+                  depChips={depChipsById?.get(task.id)}
                 />
               </div>
             );

@@ -13,7 +13,7 @@ import { useDragStore } from '@/stores/dragStore';
 import { useColumnWidths } from '@/hooks/useColumnWidths';
 import { buildWbsTree, flattenVisible, collectAllIds } from '@/features/wbs/buildWbsTree';
 import { formatToggleAnnouncement } from './wbsAnnouncement';
-import { TaskListPanel } from './TaskListPanel';
+import { TaskListPanel, type TaskDepChips } from './TaskListPanel';
 import { CanvasGanttTimeline } from './CanvasGanttTimeline';
 import { ZoomControl } from './ZoomControl';
 import { MonteCarloRow } from './MonteCarloRow';
@@ -137,9 +137,20 @@ function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
 
 export function GanttView() {
   const projectId = useProjectId() ?? null;
-  const { tasks: rawTasks, links, isLoading, error } = useGanttTasks();
+  const { tasks: rawTasks, links: rawLinks, isLoading, error } = useGanttTasks();
   const allTasks          = useMemo(() => rawTasks ?? [], [rawTasks]);
+  const allLinks          = useMemo(() => rawLinks ?? [], [rawLinks]);
   const { expandedIds, toggle: toggleExpandRaw, expandAll } = useWbsStore();
+
+  // Focus mode and CP-only filter (issue #131)
+  const [focusModeEnabled, setFocusModeEnabled] = useState(false);
+  const [showCpOnly, setShowCpOnly] = useState(false);
+
+  // Filter links to critical-path only when showCpOnly is active
+  const links = useMemo(
+    () => (showCpOnly ? allLinks.filter((l) => l.isCritical) : allLinks),
+    [allLinks, showCpOnly],
+  );
 
   // aria-live (polite) — drag announcements via DOM ref (rule 30)
   const ariaLiveRef = useRef<HTMLDivElement>(null);
@@ -207,6 +218,51 @@ export function GanttView() {
   const selectedTask      = selectedTaskId
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
     : null;
+
+  // Focus chain: all predecessor + successor task IDs reachable from the selected task.
+  // Used to dim rows not in the chain when focus mode is on (issue #131).
+  const { focusChainIds, depChipsById } = useMemo((): {
+    focusChainIds: Set<string> | undefined;
+    depChipsById: Map<string, TaskDepChips>;
+  } => {
+    // Build per-task dep chip data regardless of focus mode (cheap, always useful).
+    const chipsById = new Map<string, TaskDepChips>();
+    for (const link of allLinks) {
+      // source → successors
+      const srcChip = chipsById.get(link.sourceId) ?? { predsCount: 0, succsCount: 0, predsCritical: false, succsCritical: false };
+      srcChip.succsCount++;
+      if (link.isCritical) srcChip.succsCritical = true;
+      chipsById.set(link.sourceId, srcChip);
+      // target ← predecessors
+      const tgtChip = chipsById.get(link.targetId) ?? { predsCount: 0, succsCount: 0, predsCritical: false, succsCritical: false };
+      tgtChip.predsCount++;
+      if (link.isCritical) tgtChip.predsCritical = true;
+      chipsById.set(link.targetId, tgtChip);
+    }
+
+    if (!focusModeEnabled || !selectedTaskId) {
+      return { focusChainIds: undefined, depChipsById: chipsById };
+    }
+
+    // BFS through links in both directions from selectedTaskId.
+    const chain = new Set<string>([selectedTaskId]);
+    const queue = [selectedTaskId];
+    while (queue.length > 0) {
+      const id = queue.shift()!;
+      for (const link of allLinks) {
+        if (link.sourceId === id && !chain.has(link.targetId)) {
+          chain.add(link.targetId);
+          queue.push(link.targetId);
+        }
+        if (link.targetId === id && !chain.has(link.sourceId)) {
+          chain.add(link.sourceId);
+          queue.push(link.sourceId);
+        }
+      }
+    }
+    return { focusChainIds: chain, depChipsById: chipsById };
+  }, [focusModeEnabled, selectedTaskId, allLinks]);
+
   const [showAddForm, setShowAddForm] = useState(false);
   const addFormRef = useRef<AddTaskFormHandle>(null);
   const createTask = useCreateTask(projectId);
@@ -482,6 +538,29 @@ export function GanttView() {
           </button>
         )}
         <RecalculatingBadge isVisible={pendingTaskIds.size > 0} />
+
+        {/* Focus-mode controls — CP-only filter + chain-dim toggle (issue #131) */}
+        <label className="flex items-center gap-1.5 text-xs text-neutral-text-secondary cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={showCpOnly}
+            onChange={(e) => setShowCpOnly(e.target.checked)}
+            className="accent-brand-primary"
+            aria-label="Show critical path only"
+          />
+          CP only
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-neutral-text-secondary cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={focusModeEnabled}
+            onChange={(e) => setFocusModeEnabled(e.target.checked)}
+            className="accent-brand-primary"
+            aria-label="Focus chain on selected task"
+          />
+          Focus chain
+        </label>
+
         <div className="flex-1" />
         {/* "Today" button (rule 82) */}
         <button
@@ -530,6 +609,8 @@ export function GanttView() {
           summaryIds={summaryIds}
           expandedIds={expandedIds}
           onToggle={toggleExpand}
+          focusChainIds={focusChainIds}
+          depChipsById={depChipsById}
         />
         {/* Panel splitter — drag to resize task list width */}
         <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
