@@ -850,6 +850,29 @@
                 }
             }
         },
+        "/api/v1/edition/": {
+            "get": {
+                "operationId": "v1_edition_retrieve",
+                "description": "Return the running edition — community or enterprise.\n\nPublic endpoint (no auth required). The React shell calls this once at\nstartup to decide the post-login redirect target (ADR-0029, ADR-0030).\nThe value is controlled by the TRUEPPM_EDITION Django setting, which the\nenterprise Helm chart sets to \"enterprise\".",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/": {
             "get": {
                 "operationId": "v1_projects_list",

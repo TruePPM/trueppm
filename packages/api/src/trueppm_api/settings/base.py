@@ -193,6 +193,17 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # ---------------------------------------------------------------------------
+# Edition detection
+# Set TRUEPPM_EDITION=enterprise in the enterprise Helm chart to activate
+# enterprise landing logic in the frontend. The /api/v1/edition/ endpoint
+# reads this setting and returns it to unauthenticated clients so the React
+# shell can make the post-login redirect decision without importing enterprise
+# code (ADR-0029).
+# ---------------------------------------------------------------------------
+
+TRUEPPM_EDITION: str = env("TRUEPPM_EDITION", default="community")
+
+# ---------------------------------------------------------------------------
 # Monte Carlo simulation caps (OSS tier)
 # Set to None for unlimited (Team tier overrides these in enterprise settings).
 # ---------------------------------------------------------------------------
