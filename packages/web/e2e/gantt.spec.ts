@@ -56,13 +56,21 @@ async function gotoGantt(page: import('@playwright/test').Page) {
       }),
     );
   });
-  await page.route('**/api/v1/projects/**', (route) =>
+  await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: FIXTURE_API_PROJECTS.length, next: null, previous: null, results: FIXTURE_API_PROJECTS }) }),
   );
-  // Must register AFTER the projects catchall — Playwright matches routes in reverse
-  // registration order, so the specific presence handler takes precedence.
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  // Stub overview endpoints so ProjectOverviewPage doesn't error on navigation
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/overview/`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ schedule_health: 'unknown', spi: null, tasks_late_count: 0, critical_task_count: 0, total_tasks: 0, complete_tasks: 0, next_milestone: null, team_utilization_pct: null }) }),
+  );
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/attention/`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+  );
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
   );
   await page.route('**/api/v1/tasks/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: FIXTURE_API_TASKS.length, next: null, previous: null, results: FIXTURE_API_TASKS }) }),
@@ -70,7 +78,8 @@ async function gotoGantt(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
   );
-  await page.goto(`/gantt?project=${FIXTURE_PROJECT_ID}`);
+  // Path-based routing (ADR-0030): /projects/:projectId/gantt
+  await page.goto(`/projects/${FIXTURE_PROJECT_ID}/gantt`);
 }
 
 test.describe('GanttView toolbar', () => {
@@ -105,14 +114,14 @@ test.describe('GanttView toolbar', () => {
   test('switching to WBS view shows the treegrid', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
     await nav.getByRole('link', { name: 'WBS' }).click();
-    await expect(page).toHaveURL(/[?&]view=wbs/);
+    await expect(page).toHaveURL(/\/wbs$/);
     await expect(page.getByRole('treegrid', { name: 'WBS task tree' })).toBeVisible();
   });
 
   test('switching to Table view shows the task grid', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
     await nav.getByRole('link', { name: 'Table' }).click();
-    await expect(page).toHaveURL(/[?&]view=list/);
+    await expect(page).toHaveURL(/\/list$/);
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
   });
 

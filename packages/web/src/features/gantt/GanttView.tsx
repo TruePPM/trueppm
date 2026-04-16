@@ -1,5 +1,5 @@
 import { useRef, useCallback, useState, useEffect, useMemo, type PointerEvent } from 'react';
-import { useSearchParams } from 'react-router';
+import { useProjectId } from '@/hooks/useProjectId';
 import type { GanttEngine } from './engine';
 import { dateToLeft, leftToDate } from './engine';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './ganttConstants';
@@ -136,8 +136,7 @@ function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
 // ---------------------------------------------------------------------------
 
 export function GanttView() {
-  const [searchParams] = useSearchParams();
-  const projectId = searchParams.get('project');
+  const projectId = useProjectId() ?? null;
   const { tasks: rawTasks, links, isLoading, error } = useGanttTasks();
   const allTasks          = useMemo(() => rawTasks ?? [], [rawTasks]);
   const { expandedIds, toggle: toggleExpandRaw, expandAll } = useWbsStore();

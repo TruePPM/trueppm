@@ -49,6 +49,7 @@ from trueppm_api.apps.projects.models import (
     Project,
     Risk,
     Task,
+    TaskStatus,
 )
 from trueppm_api.apps.projects.serializers import (
     _DEFAULT_COLUMNS,
@@ -1567,3 +1568,287 @@ class BoardColumnConfigView(APIView):
             defaults={"columns": validated["columns"]},
         )
         return Response(validated, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Project overview endpoints (ADR-0030)
+# ---------------------------------------------------------------------------
+
+
+class ProjectOverviewView(APIView):
+    """Aggregated KPI snapshot for the single-project overview dashboard.
+
+    Returns schedule health, late task count, critical task count, the next
+    upcoming milestone, and team utilisation.  All values are computed from
+    the current CPM output stored on Task rows — no additional DB schema is
+    needed.
+
+    Performance target: ≤ 200 ms at p95 for 500 tasks.  Implemented using
+    a single annotated queryset per metric; no N+1 queries.
+
+    Permission: Member (any role ≥ Viewer).
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def get(self, request: Request, pk: str) -> Response:
+        """Return KPI data for the project overview page."""
+        project = get_object_or_404(Project, pk=pk)
+        self.check_object_permissions(request, project)
+
+        today = datetime.date.today()
+        active_statuses = [TaskStatus.NOT_STARTED, TaskStatus.IN_PROGRESS, TaskStatus.ON_HOLD]
+
+        # ── Task counts (single query) ──────────────────────────────────────
+        counts = Task.objects.filter(project=project, is_deleted=False).aggregate(
+            total=Count("id"),
+            complete=Count("id", filter=db_models.Q(status=TaskStatus.COMPLETE)),
+            critical=Count("id", filter=db_models.Q(is_critical=True)),
+            # Late: CPM says it should be done but status is not complete
+            late=Count(
+                "id",
+                filter=db_models.Q(early_finish__lt=today, status__in=active_statuses),
+            ),
+        )
+
+        total: int = counts["total"] or 0
+        complete: int = counts["complete"] or 0
+        critical_count: int = counts["critical"] or 0
+        tasks_late: int = counts["late"] or 0
+
+        # ── Schedule health: SPI proxy ─────────────────────────────────────
+        # SPI = (tasks actually complete) / (tasks planned to be complete by today)
+        # "Planned to be complete" = tasks whose CPM early_finish is ≤ today.
+        planned_done = (
+            Task.objects.filter(project=project, is_deleted=False, early_finish__lte=today)
+            .exclude(status=TaskStatus.COMPLETE)
+            .count()
+        )
+        # planned_count: tasks whose scheduled finish is today or earlier
+        planned_count: int = Task.objects.filter(
+            project=project, is_deleted=False, early_finish__lte=today
+        ).count()
+
+        if planned_count > 0:
+            planned_complete = planned_count - planned_done
+            spi = round(planned_complete / planned_count, 3)
+            if spi >= 0.95:
+                health = "on_track"
+            elif spi >= 0.85:
+                health = "at_risk"
+            else:
+                health = "critical"
+        else:
+            spi = None
+            health = "unknown"
+
+        # ── Next milestone ─────────────────────────────────────────────────
+        next_milestone_qs = (
+            Task.objects.filter(
+                project=project,
+                is_deleted=False,
+                is_milestone=True,
+                early_finish__gte=today,
+            )
+            .order_by("early_finish")
+            .values("id", "name", "early_finish", "percent_complete")
+            .first()
+        )
+        next_milestone = None
+        if next_milestone_qs:
+            early_finish: datetime.date | None = next_milestone_qs["early_finish"]
+            next_milestone = {
+                "id": str(next_milestone_qs["id"]),
+                "name": next_milestone_qs["name"],
+                "date": early_finish.isoformat() if early_finish else None,
+                "percent_complete": next_milestone_qs["percent_complete"],
+            }
+
+        return Response(
+            {
+                "schedule_health": health,
+                "spi": spi,
+                "tasks_late_count": tasks_late,
+                "critical_task_count": critical_count,
+                "total_tasks": total,
+                "complete_tasks": complete,
+                "next_milestone": next_milestone,
+                # Populated by the resource utilisation module when it extends this endpoint.
+                "team_utilization_pct": None,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ProjectAttentionView(APIView):
+    """Prioritised attention list for the project overview dashboard.
+
+    Returns up to 10 items, ordered by severity (critical > warning > info).
+    Items cover: critical-path tasks that are late, unassigned tasks starting
+    within 7 days, and baseline drift (if an active baseline exists).
+
+    Permission: Member (any role ≥ Viewer).
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    # Maximum items returned per severity bucket — keeps the panel scannable.
+    _MAX_PER_BUCKET = 3
+
+    def get(self, request: Request, pk: str) -> Response:
+        """Return attention items for the project overview page."""
+        project = get_object_or_404(Project, pk=pk)
+        self.check_object_permissions(request, project)
+
+        today = datetime.date.today()
+        items: list[dict[str, Any]] = []
+
+        # ── Critical-path tasks that are already late ──────────────────────
+        critical_late = (
+            Task.objects.filter(
+                project=project,
+                is_deleted=False,
+                is_critical=True,
+                early_finish__lt=today,
+                status__in=[TaskStatus.NOT_STARTED, TaskStatus.IN_PROGRESS, TaskStatus.ON_HOLD],
+            )
+            .select_related("assignee")
+            .order_by("early_finish")[: self._MAX_PER_BUCKET]
+        )
+        for task in critical_late:
+            items.append(
+                {
+                    "severity": "critical",
+                    "type": "critical_task_late",
+                    "task_id": str(task.id),
+                    "task_name": task.name,
+                    "assignee_name": (
+                        task.assignee.get_full_name() or task.assignee.username
+                        if task.assignee
+                        else None
+                    ),
+                    "date": task.early_finish.isoformat() if task.early_finish else None,
+                    "detail": "On critical path",
+                }
+            )
+
+        # ── Unassigned tasks starting within 7 days ────────────────────────
+        soon = today + datetime.timedelta(days=7)
+        unassigned_soon = Task.objects.filter(
+            project=project,
+            is_deleted=False,
+            assignee__isnull=True,
+            early_start__range=(today, soon),
+            status=TaskStatus.NOT_STARTED,
+        ).order_by("early_start")[: self._MAX_PER_BUCKET]
+        for task in unassigned_soon:
+            items.append(
+                {
+                    "severity": "warning",
+                    "type": "unassigned_approaching",
+                    "task_id": str(task.id),
+                    "task_name": task.name,
+                    "assignee_name": None,
+                    "date": task.early_start.isoformat() if task.early_start else None,
+                    "detail": "Unassigned — starts soon",
+                }
+            )
+
+        # ── Baseline drift: tasks that have slipped vs the active baseline ─
+        try:
+            active_baseline = project.baselines.filter(is_deleted=False).get(is_active=True)
+        except Exception:
+            active_baseline = None
+
+        if active_baseline:
+            # Tasks where CPM early_finish is later than the baseline snapshot finish.
+            # BaselineTask.finish mirrors Task.early_finish at snapshot time (field is
+            # named "finish", not "early_finish" — see BaselineTask model).
+            drift_items = (
+                Task.objects.filter(
+                    project=project,
+                    is_deleted=False,
+                    is_critical=True,
+                    early_finish__isnull=False,
+                )
+                .annotate(
+                    baseline_finish=Subquery(
+                        active_baseline.tasks.filter(task_id=OuterRef("pk")).values("finish")[:1]
+                    )
+                )
+                .filter(
+                    baseline_finish__isnull=False,
+                    early_finish__gt=db_models.F("baseline_finish"),
+                )
+                .order_by(db_models.F("early_finish") - db_models.F("baseline_finish"))[
+                    : self._MAX_PER_BUCKET
+                ]
+            )
+            for task in drift_items:
+                baseline_finish = getattr(task, "baseline_finish", None)
+                if baseline_finish and task.early_finish:
+                    drift_days = (task.early_finish - baseline_finish).days
+                    items.append(
+                        {
+                            "severity": "info",
+                            "type": "baseline_drift",
+                            "task_id": str(task.id),
+                            "task_name": task.name,
+                            "assignee_name": None,
+                            "date": task.early_finish.isoformat(),
+                            "detail": f"Slipped +{drift_days}d vs baseline",
+                        }
+                    )
+
+        return Response({"items": items}, status=status.HTTP_200_OK)
+
+
+class ProjectMyTasksView(APIView):
+    """Tasks assigned to the requesting user that are due in the current calendar week.
+
+    "Current week" is Monday–Sunday of the week containing today (UTC).  Only
+    non-complete tasks are returned; tasks are ordered by ``early_finish`` ascending
+    so the most urgent appears first.
+
+    Permission: Member (any role ≥ Viewer) — a user can only see their own tasks.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def get(self, request: Request, pk: str) -> Response:
+        """Return this week's tasks for the requesting user."""
+        project = get_object_or_404(Project, pk=pk)
+        self.check_object_permissions(request, project)
+
+        today = datetime.date.today()
+        # ISO week: Monday = 0
+        week_start = today - datetime.timedelta(days=today.weekday())
+        week_end = week_start + datetime.timedelta(days=6)
+
+        tasks = (
+            Task.objects.filter(
+                project=project,
+                is_deleted=False,
+                assignee_id=request.user.pk,
+                early_finish__range=(week_start, week_end),
+            )
+            .exclude(status=TaskStatus.COMPLETE)
+            .order_by("early_finish")
+        )
+
+        return Response(
+            {
+                "tasks": [
+                    {
+                        "id": str(t.id),
+                        "name": t.name,
+                        "due": t.early_finish.isoformat() if t.early_finish else None,
+                        "status": t.status,
+                        "percent_complete": t.percent_complete,
+                        "is_critical": t.is_critical,
+                    }
+                    for t in tasks
+                ]
+            },
+            status=status.HTTP_200_OK,
+        )

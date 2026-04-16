@@ -7,7 +7,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router';
+import { useProjectId } from '@/hooks/useProjectId';
 import { apiClient } from '@/api/client';
 import type { Task, TaskAssignee, TaskStatus } from '@/types';
 import type { PaginatedResponse } from '@/api/types';
@@ -74,8 +74,7 @@ interface UseCalendarTasksReturn {
 }
 
 export function useCalendarTasks(options: UseCalendarTasksOptions = {}): UseCalendarTasksReturn {
-  const [searchParams] = useSearchParams();
-  const projectId = searchParams.get('project') ?? undefined;
+  const projectId = useProjectId();
   const { startGte, finishLte } = options;
 
   const query = useQuery({

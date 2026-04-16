@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router';
+import { useProjectId } from '@/hooks/useProjectId';
 import { apiClient } from '@/api/client';
 import type { Task, TaskAssignee, TaskLink, TaskStatus, LinkType } from '@/types';
 import type { PaginatedResponse } from '@/api/types';
@@ -110,13 +110,13 @@ function mapDependency(d: ApiDependency): TaskLink {
 /**
  * Fetch tasks and dependency links for the Gantt view.
  *
- * Reads projectId from props or from the `?project=` query param so
- * GanttView and TaskListView can both mount the hook without passing
- * an explicit ID when the project is already in the URL.
+ * Reads projectId from the `:projectId` path param (ADR-0030).
+ * An explicit `projectId` argument overrides the URL param for cases
+ * where the hook is used outside the project route (e.g. tests).
  */
 export function useGanttTasks(projectId?: string): UseGanttTasksResult {
-  const [searchParams] = useSearchParams();
-  const resolvedId = projectId ?? searchParams.get('project') ?? undefined;
+  const paramId = useProjectId();
+  const resolvedId = projectId ?? paramId;
 
   const tasksQuery = useQuery({
     queryKey: ['tasks', resolvedId],

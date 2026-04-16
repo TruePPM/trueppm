@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Risk } from '@/api/types';
 import { useRisks } from '@/hooks/useRisks';
+import { useProjectId } from '@/hooks/useProjectId';
 import { RiskChip } from './RiskChip';
 import { RiskMatrix } from './RiskMatrix';
 import { RiskDrawer } from './RiskDrawer';
@@ -22,11 +23,8 @@ const STATUS_LABELS: Record<Risk['status'], string> = {
   CLOSED:     'Closed',
 };
 
-interface RiskRegisterViewProps {
-  projectId: string;
-}
-
-export function RiskRegisterView({ projectId }: RiskRegisterViewProps) {
+export function RiskRegisterView() {
+  const projectId = useProjectId() ?? '';
   const { risks, isLoading, error } = useRisks(projectId || null);
 
   // null   = drawer closed

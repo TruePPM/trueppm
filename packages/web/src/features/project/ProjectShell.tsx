@@ -1,25 +1,18 @@
-import { useSearchParams } from 'react-router';
-import { GanttView } from '@/features/gantt/GanttView';
-import { WbsView } from '@/features/wbs/WbsView';
-import { TaskListView } from '@/features/tasklist/TaskListView';
-import { CalendarView } from '@/features/calendar/CalendarView';
-import { ResourceView } from '@/features/resource/ResourceView';
-import { RiskRegisterView } from '@/features/risk/RiskRegisterView';
-import { BoardView } from '@/features/board/BoardView';
-import { RecalculatingBadge } from './RecalculatingBadge';
+import { Outlet } from 'react-router';
+import { useProjectId } from '@/hooks/useProjectId';
 import { useProjectWebSocket } from '@/hooks/useProjectWebSocket';
 import { useSchedulerStore } from '@/stores/schedulerStore';
+import { RecalculatingBadge } from './RecalculatingBadge';
 
-// Active view is tracked in ?view= search param so URLs are shareable
-// and the TanStack Query cache key (['tasks', projectId]) stays stable
-// across view switches. ViewTabs in TopBar is the navigation control;
-// ProjectShell reads the param and renders the matching view.
-type ViewMode = 'gantt' | 'wbs' | 'list' | 'board' | 'calendar' | 'resources' | 'risk';
-
+/**
+ * Layout shell for all project-scoped views.
+ *
+ * Reads the active projectId from the URL path param `:projectId` (ADR-0030)
+ * and opens the project WebSocket. Each view (Overview, Gantt, WBS, Board …)
+ * is rendered as a child route via <Outlet />.
+ */
 export function ProjectShell() {
-  const [searchParams] = useSearchParams();
-  const view = (searchParams.get('view') ?? 'gantt') as ViewMode;
-  const projectId = searchParams.get('project');
+  const projectId = useProjectId() ?? null;
 
   useProjectWebSocket(projectId);
 
@@ -34,15 +27,9 @@ export function ProjectShell() {
         </div>
       )}
 
-      {/* Active view */}
+      {/* Active view — rendered by the matched child route */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {view === 'gantt' && <GanttView />}
-        {view === 'wbs' && <WbsView />}
-        {view === 'list' && <TaskListView />}
-        {view === 'board' && <BoardView />}
-        {view === 'calendar' && <CalendarView />}
-        {view === 'resources' && <ResourceView projectId={projectId ?? undefined} />}
-        {view === 'risk' && <RiskRegisterView projectId={projectId ?? ''} />}
+        <Outlet />
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ import { test, expect } from '@playwright/test';
  */
 
 const FIXTURE_PROJECT_ID = 'e2e-view-00000000-0000-0000-0000-000000000002';
+const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}`;
 
 const FIXTURE_PROJECTS = [
   {
@@ -54,12 +55,26 @@ async function setup(page: import('@playwright/test').Page) {
       }),
     );
   });
-  await page.route('**/api/v1/projects/**', (route) =>
+  await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ count: FIXTURE_PROJECTS.length, next: null, previous: null, results: FIXTURE_PROJECTS }),
     }),
+  );
+  // Overview endpoints — stub with minimal data so ProjectOverviewPage doesn't error
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/overview/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ schedule_health: 'unknown', spi: null, tasks_late_count: 0, critical_task_count: 0, total_tasks: 0, complete_tasks: 0, next_milestone: null, team_utilization_pct: null }),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/attention/`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+  );
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
   );
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
@@ -83,7 +98,8 @@ async function setup(page: import('@playwright/test').Page) {
 test.describe('View switching', () => {
   test.beforeEach(async ({ page }) => {
     await setup(page);
-    await page.goto(`/gantt?project=${FIXTURE_PROJECT_ID}`);
+    // Start on Gantt — path-based routing (ADR-0030)
+    await page.goto(`${BASE_URL}/gantt`);
     // Wait for the Gantt to be ready before switching views.
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
@@ -91,21 +107,20 @@ test.describe('View switching', () => {
   test('Gantt view is active by default and URL reflects it', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
     await expect(nav.getByRole('link', { name: 'Gantt' })).toHaveAttribute('aria-current', 'page');
-    // URL should not include view=wbs/list/board when on Gantt.
-    expect(page.url()).not.toMatch(/view=(wbs|list|board)/);
+    expect(page.url()).toMatch(/\/gantt$/);
   });
 
   test('navigate to WBS — treegrid renders and URL updates', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
     await nav.getByRole('link', { name: 'WBS' }).click();
-    await expect(page).toHaveURL(/[?&]view=wbs/);
+    await expect(page).toHaveURL(/\/wbs$/);
     await expect(page.getByRole('treegrid', { name: 'WBS task tree' })).toBeVisible();
   });
 
   test('navigate to Board — columns render and URL updates', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
     await nav.getByRole('link', { name: 'Board' }).click();
-    await expect(page).toHaveURL(/[?&]view=board/);
+    await expect(page).toHaveURL(/\/board$/);
     // Board renders columns; at least TO DO column should be visible.
     await expect(page.locator('[aria-label*="TO DO"]').first()).toBeVisible({ timeout: 5_000 });
   });
@@ -113,7 +128,7 @@ test.describe('View switching', () => {
   test('navigate to Table — task grid renders and URL updates', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
     await nav.getByRole('link', { name: 'Table' }).click();
-    await expect(page).toHaveURL(/[?&]view=list/);
+    await expect(page).toHaveURL(/\/list$/);
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
   });
 
@@ -130,13 +145,13 @@ test.describe('View switching', () => {
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
 
     await nav.getByRole('link', { name: 'Gantt' }).click();
-    await expect(page).not.toHaveURL(/view=(wbs|list|board)/);
+    await expect(page).toHaveURL(/\/gantt$/);
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
   });
 
   test('deep-link to WBS view renders without visiting Gantt first', async ({ page }) => {
-    // Navigate directly to ?view=wbs — must render without round-tripping through Gantt.
-    await page.goto(`/gantt?project=${FIXTURE_PROJECT_ID}&view=wbs`);
+    // Navigate directly to /wbs path — must render without round-tripping through Gantt.
+    await page.goto(`${BASE_URL}/wbs`);
     await expect(page.getByRole('treegrid', { name: 'WBS task tree' })).toBeVisible({ timeout: 10_000 });
   });
 });
