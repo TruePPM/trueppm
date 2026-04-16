@@ -82,9 +82,9 @@ describe('ProjectOverviewPage', () => {
     expect(screen.getByRole('region', { name: /my tasks this week/i })).toBeInTheDocument();
   });
 
-  it('renders all KPI card labels', () => {
+  it('renders all KPI card labels', async () => {
     renderPage();
-    expect(screen.getByText(/schedule health/i)).toBeInTheDocument();
+    expect(await screen.findByText(/schedule health/i)).toBeInTheDocument();
     expect(screen.getByText(/^spi$/i)).toBeInTheDocument();
     expect(screen.getByText(/late tasks/i)).toBeInTheDocument();
     expect(screen.getByText(/critical tasks/i)).toBeInTheDocument();

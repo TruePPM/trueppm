@@ -48,8 +48,10 @@ function useProjectAttention(projectId: string | undefined) {
   return useQuery<AttentionItem[]>({
     queryKey: ['project-attention', projectId],
     queryFn: async () => {
-      const res = await apiClient.get<AttentionItem[]>(`/projects/${projectId}/attention/`);
-      return res.data;
+      const res = await apiClient.get<{ items: AttentionItem[] }>(
+        `/projects/${projectId}/attention/`,
+      );
+      return res.data.items;
     },
     enabled: !!projectId,
   });
@@ -59,8 +61,10 @@ function useMyTasks(projectId: string | undefined) {
   return useQuery<MyTask[]>({
     queryKey: ['project-my-tasks', projectId],
     queryFn: async () => {
-      const res = await apiClient.get<MyTask[]>(`/projects/${projectId}/my-tasks/`);
-      return res.data;
+      const res = await apiClient.get<{ tasks: MyTask[] }>(
+        `/projects/${projectId}/my-tasks/`,
+      );
+      return res.data.tasks;
     },
     enabled: !!projectId,
   });
