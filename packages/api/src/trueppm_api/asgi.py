@@ -6,8 +6,8 @@ import os
 
 from channels.generic.websocket import WebsocketConsumer
 from channels.routing import ProtocolTypeRouter, URLRouter
-from django.urls import re_path
 from django.core.asgi import get_asgi_application
+from django.urls import re_path
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "trueppm_api.settings.dev")
 
@@ -28,8 +28,7 @@ application = ProtocolTypeRouter(
     {
         "http": django_asgi_app,
         "websocket": URLRouter(
-            websocket_urlpatterns
-            + [re_path(r".*", _CloseConsumer.as_asgi())]
+            [*websocket_urlpatterns, re_path(r".*", _CloseConsumer.as_asgi())]
         ),
     }
 )
