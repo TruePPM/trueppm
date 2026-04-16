@@ -1756,9 +1756,7 @@ class ProjectAttentionView(APIView):
 
         # ── Baseline drift: tasks that have slipped vs the active baseline ─
         try:
-            active_baseline = project.baselines.filter(
-                is_deleted=False
-            ).get(is_active=True)
+            active_baseline = project.baselines.filter(is_deleted=False).get(is_active=True)
         except Exception:
             active_baseline = None
 
@@ -1775,9 +1773,7 @@ class ProjectAttentionView(APIView):
                 )
                 .annotate(
                     baseline_finish=Subquery(
-                        active_baseline.tasks.filter(
-                            task_id=OuterRef("pk")
-                        ).values("finish")[:1]
+                        active_baseline.tasks.filter(task_id=OuterRef("pk")).values("finish")[:1]
                     )
                 )
                 .filter(
