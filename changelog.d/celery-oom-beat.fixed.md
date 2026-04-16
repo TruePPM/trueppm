@@ -1,0 +1,1 @@
+Add `celery-beat` service and cap worker concurrency at 2 to prevent OOM kills in the dev Docker Compose stack. Without Beat, the `drain_schedule_queue` outbox fallback never ran, leaving tasks unscheduled when the worker was down. Without a concurrency cap, 10 prefork workers consumed ~460 MB and triggered the kernel OOM killer.
