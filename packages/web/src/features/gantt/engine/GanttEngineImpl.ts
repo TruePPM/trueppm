@@ -374,7 +374,13 @@ export class GanttEngineImpl implements GanttEngine {
   }
 
   private _rebuildScales(): void {
-    this._scales = buildScaleData(this._zoomLevel, this._projectStart, this._projectEnd);
+    // Pass 3× the viewport width as the minimum canvas width so the scroll
+    // container always extends well past the last task bar at coarse zoom levels
+    // (month/quarter/year). Without this, a short project on month zoom produces
+    // a canvas only slightly wider than the viewport, making the timeline appear
+    // to terminate at the last bar (issue #96).
+    const minWidthPx = this._viewportWidth * 3;
+    this._scales = buildScaleData(this._zoomLevel, this._projectStart, this._projectEnd, minWidthPx);
   }
 
   private _rebuildHitIndex(): void {
@@ -444,6 +450,12 @@ export class GanttEngineImpl implements GanttEngine {
         this._viewportWidth = width;
         this._viewportHeight = height;
         this._applyDpr();
+        // Rebuild scales so the minimum canvas width floor (3× viewport) is
+        // recalculated after a resize. Without this, shrinking the window and
+        // then re-enlarging it could leave the scroll container too narrow.
+        this._rebuildScales();
+        this._emit('scales-change', { scales: this._scales! });
+        this._fullRepaintPending = true;
       }
     }
   };

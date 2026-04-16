@@ -226,14 +226,21 @@ export function leftToDate(canvasX: number, scales: GanttScaleData): Date {
  * Called by GanttEngineImpl when zoom changes or task data changes the
  * project extent. Also used directly in tests.
  *
- * @param zoomLevel  Current zoom level
- * @param startIso   Project start (earliest task start), "YYYY-MM-DD"
- * @param endIso     Project end (latest task finish), "YYYY-MM-DD"
+ * @param zoomLevel       Current zoom level
+ * @param startIso        Project start (earliest task start), "YYYY-MM-DD"
+ * @param endIso          Project end (latest task finish), "YYYY-MM-DD"
+ * @param minTotalWidthPx Minimum canvas width in logical px. When provided the
+ *                        engine passes `viewportWidth * 3` so that coarse zoom
+ *                        levels (month/quarter/year) always have enough room to
+ *                        scroll right past the last bar (issue #96). At fine
+ *                        zoom levels (day) the project extent dominates and this
+ *                        floor has no effect.
  */
 export function buildScaleData(
   zoomLevel: ZoomLevel,
   startIso: string,
   endIso: string,
+  minTotalWidthPx = 0,
 ): GanttScaleData {
   const cfg = ZOOM_CONFIGS[zoomLevel];
   const pxPerMs = cfg.pxPerDay / 86_400_000;
@@ -245,13 +252,26 @@ export function buildScaleData(
   const TRAILING_BUFFER_MS = 28 * 86_400_000; // 4 weeks
   const padMs = padMsForZoom(zoomLevel);
   const start = new Date(parseUTCDate(startIso).getTime() - padMs);
-  const end = new Date(parseUTCDate(endIso).getTime() + padMs + TRAILING_BUFFER_MS);
+  let end = new Date(parseUTCDate(endIso).getTime() + padMs + TRAILING_BUFFER_MS);
 
   // Snap start to UTC midnight
   start.setUTCHours(0, 0, 0, 0);
   end.setUTCHours(0, 0, 0, 0);
 
-  const totalWidth = (end.getTime() - start.getTime()) * pxPerMs;
+  let totalWidth = (end.getTime() - start.getTime()) * pxPerMs;
+
+  // Enforce the minimum canvas width. At coarse zoom levels the time-based
+  // calculation can yield a canvas narrower than the viewport, making the
+  // timeline appear to terminate immediately after the last bar. Extending
+  // end until totalWidth ≥ minTotalWidthPx guarantees the scroll container is
+  // always wide enough that there is visible whitespace to the right (rule 56,
+  // issue #96).
+  if (minTotalWidthPx > 0 && totalWidth < minTotalWidthPx) {
+    const extraMs = (minTotalWidthPx - totalWidth) / pxPerMs;
+    end = new Date(end.getTime() + extraMs);
+    end.setUTCHours(0, 0, 0, 0);
+    totalWidth = (end.getTime() - start.getTime()) * pxPerMs;
+  }
 
   return { start, end, totalWidth, zoomLevel, pxPerMs };
 }
