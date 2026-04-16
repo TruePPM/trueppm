@@ -61,6 +61,11 @@ build: ## Build the web bundle
 up: ## Start the full development stack (Docker Compose)
 	docker compose up -d
 
+admin: ## Create or update the dev admin user (reads DJANGO_SUPERUSER_* env vars, defaults: admin@trueppm.dev / admin)
+	DJANGO_SUPERUSER_EMAIL=$${DJANGO_SUPERUSER_EMAIL:-admin@trueppm.dev} \
+	DJANGO_SUPERUSER_PASSWORD=$${DJANGO_SUPERUSER_PASSWORD:-admin} \
+	docker compose run --rm api python manage.py create_admin
+
 down: ## Stop the development stack
 	docker compose down
 
