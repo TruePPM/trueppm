@@ -42,7 +42,12 @@ def trigger_schedule(request: Request, pk: str) -> Response:
     if not IsProjectScheduler().has_object_permission(request, None, project):  # type: ignore[arg-type]
         return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
 
-    enqueue_recalculate(str(project.pk))
+    # Defer until any outer transaction commits so the ScheduleRequest row is
+    # never visible to the drain before its parent write lands.
+    project_id = str(project.pk)
+    from django.db import transaction
+
+    transaction.on_commit(lambda: enqueue_recalculate(project_id))
     return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
 
 

@@ -30,10 +30,18 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
             event_type=event_type,
             payload=payload,
         )
-        deliver_webhook.delay(str(delivery.pk))
-        logger.debug(
-            "dispatch_webhooks: enqueued delivery %s for webhook %s (%s)",
-            delivery.pk,
-            webhook.pk,
-            event_type,
-        )
+        try:
+            deliver_webhook.delay(str(delivery.pk))
+            logger.debug(
+                "dispatch_webhooks: enqueued delivery %s for webhook %s (%s)",
+                delivery.pk,
+                webhook.pk,
+                event_type,
+            )
+        except Exception:
+            # Broker unavailable — delivery row stays PENDING with attempt_count=0
+            # so drain_webhook_queue picks it up within _DRAIN_ORPHAN_MINUTES.
+            logger.warning(
+                "dispatch_webhooks: broker unavailable — delivery %s will be drained",
+                delivery.pk,
+            )

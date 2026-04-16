@@ -37,6 +37,7 @@ _BACKOFF_BASE = 30
     soft_time_limit=30,
     time_limit=60,
     acks_late=True,
+    reject_on_worker_lost=True,
 )
 def deliver_webhook(self: object, delivery_id: str) -> None:
     """POST a webhook payload to the registered URL with HMAC-SHA256 signature.

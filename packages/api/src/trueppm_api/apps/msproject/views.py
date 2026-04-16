@@ -89,14 +89,25 @@ class MsProjectImportView(APIView):
         file_content = uploaded_file.read()
         file_content_b64 = base64.b64encode(file_content).decode("ascii")
 
+        import logging
+
         from trueppm_api.apps.msproject.tasks import import_msproject
 
-        result = import_msproject.delay(
-            project_id=project_pk,
-            file_content_b64=file_content_b64,
-            filename=filename,
-            initiated_by_id=request.user.pk,
-        )
+        logger = logging.getLogger(__name__)
+
+        try:
+            result = import_msproject.delay(
+                project_id=project_pk,
+                file_content_b64=file_content_b64,
+                filename=filename,
+                initiated_by_id=request.user.pk,
+            )
+        except Exception:
+            logger.exception("msproject import: broker unavailable for project %s", project_pk)
+            return Response(
+                {"detail": "Import could not be queued — task broker unavailable. Please retry."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         return Response(
             {
