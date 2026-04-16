@@ -4,7 +4,6 @@ import { render } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { ProjectOverviewPage } from './ProjectOverviewPage';
-import { apiClient } from '@/api/client';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -14,11 +13,11 @@ vi.mock('@/hooks/useProjectId', () => ({
   useProjectId: () => 'proj-1',
 }));
 
-vi.mock('@/api/client', () => ({
-  apiClient: { get: vi.fn() },
-}));
+const mockedGet = vi.fn();
 
-const mockedGet = vi.mocked(apiClient.get);
+vi.mock('@/api/client', () => ({
+  apiClient: { get: (...args: unknown[]) => mockedGet(...args) as unknown },
+}));
 
 // ---------------------------------------------------------------------------
 // Render helper
@@ -51,9 +50,9 @@ const MY_TASKS_RESPONSE = { tasks: [] };
 
 beforeEach(() => {
   mockedGet.mockImplementation((url: string) => {
-    if ((url as string).endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
-    if ((url as string).endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
-    if ((url as string).endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+    if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+    if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+    if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
     return Promise.reject(new Error(`Unexpected URL: ${url}`));
   });
 });
@@ -119,8 +118,8 @@ describe('ProjectOverviewPage', () => {
 
   it('renders attention items when present', async () => {
     mockedGet.mockImplementation((url: string) => {
-      if ((url as string).endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
-      if ((url as string).endsWith('/attention/'))
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/attention/'))
         return Promise.resolve({
           data: {
             items: [
@@ -137,7 +136,7 @@ describe('ProjectOverviewPage', () => {
             ],
           },
         });
-      if ((url as string).endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
       return Promise.reject(new Error(`Unexpected URL: ${url}`));
     });
     renderPage();
@@ -148,9 +147,9 @@ describe('ProjectOverviewPage', () => {
 
   it('renders my tasks when present', async () => {
     mockedGet.mockImplementation((url: string) => {
-      if ((url as string).endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
-      if ((url as string).endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
-      if ((url as string).endsWith('/my-tasks/'))
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/'))
         return Promise.resolve({
           data: {
             tasks: [

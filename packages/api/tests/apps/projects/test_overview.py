@@ -63,9 +63,7 @@ def project(calendar: Calendar) -> Project:
 
 @pytest.fixture
 def membership(user: object, project: Project) -> ProjectMembership:
-    return ProjectMembership.objects.create(
-        project=project, user=user, role=Role.OWNER
-    )
+    return ProjectMembership.objects.create(project=project, user=user, role=Role.OWNER)
 
 
 # ---------------------------------------------------------------------------
@@ -93,11 +91,15 @@ class TestProjectOverview:
     def url(self, pk: object) -> str:
         return f"/api/v1/projects/{pk}/overview/"
 
-    def test_unauthenticated_returns_401(self, anon_client: APIClient, project: Project, membership: object) -> None:
+    def test_unauthenticated_returns_401(
+        self, anon_client: APIClient, project: Project, membership: object
+    ) -> None:
         res = anon_client.get(self.url(project.pk))
         assert res.status_code == 401
 
-    def test_non_member_returns_403(self, other_user: object, project: Project, membership: object) -> None:
+    def test_non_member_returns_403(
+        self, other_user: object, project: Project, membership: object
+    ) -> None:
         c = APIClient()
         c.force_authenticate(user=other_user)
         res = c.get(self.url(project.pk))
@@ -105,10 +107,13 @@ class TestProjectOverview:
 
     def test_unknown_project_returns_404(self, client: APIClient, membership: object) -> None:
         import uuid
+
         res = client.get(self.url(uuid.uuid4()))
         assert res.status_code == 404
 
-    def test_empty_project_returns_unknown_health(self, client: APIClient, project: Project, membership: object) -> None:
+    def test_empty_project_returns_unknown_health(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
         res = client.get(self.url(project.pk))
         assert res.status_code == 200
         data = res.json()
@@ -140,7 +145,9 @@ class TestProjectOverview:
         yesterday = datetime.date.today() - datetime.timedelta(days=1)
         # 3 overdue, 0 complete => spi = 0
         for i in range(3):
-            make_task(project, name=f"Late {i}", early_finish=yesterday, status=TaskStatus.NOT_STARTED)
+            make_task(
+                project, name=f"Late {i}", early_finish=yesterday, status=TaskStatus.NOT_STARTED
+            )
         res = client.get(self.url(project.pk))
         assert res.status_code == 200
         assert res.json()["schedule_health"] == "critical"
@@ -188,7 +195,9 @@ class TestProjectOverview:
         res = client.get(self.url(project.pk))
         assert res.json()["tasks_late_count"] == 0
 
-    def test_method_not_allowed_post(self, client: APIClient, project: Project, membership: object) -> None:
+    def test_method_not_allowed_post(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
         res = client.post(self.url(project.pk), {})
         assert res.status_code == 405
 
@@ -203,11 +212,15 @@ class TestProjectAttention:
     def url(self, pk: object) -> str:
         return f"/api/v1/projects/{pk}/attention/"
 
-    def test_unauthenticated_returns_401(self, anon_client: APIClient, project: Project, membership: object) -> None:
+    def test_unauthenticated_returns_401(
+        self, anon_client: APIClient, project: Project, membership: object
+    ) -> None:
         res = anon_client.get(self.url(project.pk))
         assert res.status_code == 401
 
-    def test_non_member_returns_403(self, other_user: object, project: Project, membership: object) -> None:
+    def test_non_member_returns_403(
+        self, other_user: object, project: Project, membership: object
+    ) -> None:
         c = APIClient()
         c.force_authenticate(user=other_user)
         res = c.get(self.url(project.pk))
@@ -295,11 +308,15 @@ class TestProjectMyTasks:
     def url(self, pk: object) -> str:
         return f"/api/v1/projects/{pk}/my-tasks/"
 
-    def test_unauthenticated_returns_401(self, anon_client: APIClient, project: Project, membership: object) -> None:
+    def test_unauthenticated_returns_401(
+        self, anon_client: APIClient, project: Project, membership: object
+    ) -> None:
         res = anon_client.get(self.url(project.pk))
         assert res.status_code == 401
 
-    def test_non_member_returns_403(self, other_user: object, project: Project, membership: object) -> None:
+    def test_non_member_returns_403(
+        self, other_user: object, project: Project, membership: object
+    ) -> None:
         c = APIClient()
         c.force_authenticate(user=other_user)
         res = c.get(self.url(project.pk))
@@ -383,8 +400,18 @@ class TestProjectMyTasks:
     ) -> None:
         today = datetime.date.today()
         week_start = today - datetime.timedelta(days=today.weekday())
-        make_task(project, name="Later", assignee=user, early_finish=week_start + datetime.timedelta(days=4))
-        make_task(project, name="Earlier", assignee=user, early_finish=week_start + datetime.timedelta(days=1))
+        make_task(
+            project,
+            name="Later",
+            assignee=user,
+            early_finish=week_start + datetime.timedelta(days=4),
+        )
+        make_task(
+            project,
+            name="Earlier",
+            assignee=user,
+            early_finish=week_start + datetime.timedelta(days=1),
+        )
         res = client.get(self.url(project.pk))
         names = [t["name"] for t in res.json()["tasks"]]
         assert names == ["Earlier", "Later"]
