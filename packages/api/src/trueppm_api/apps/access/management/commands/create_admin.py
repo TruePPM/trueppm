@@ -1,75 +1,129 @@
-"""Management command to create or update an admin (superuser) account.
+"""Management command to bootstrap a TruePPM admin (superuser) account.
 
-Reads credentials from environment variables so it can be used non-interactively
-in Docker Compose dev bootstrapping, Kubernetes post-install hooks, and CI pipelines.
+Runs automatically on container startup (both Docker Compose and Kubernetes).
+Idempotent: if a superuser already exists the command exits immediately — it
+will NOT reset a production password on re-deploy.
 
-Required env vars:
-    DJANGO_SUPERUSER_EMAIL     — the admin's email (used as username if
-                                 DJANGO_SUPERUSER_USERNAME is not set)
-    DJANGO_SUPERUSER_PASSWORD  — the admin's password
+Credential delivery
+-------------------
+The password is written to a file (default ``/tmp/trueppm_admin_password``)
+with atomic 0o600 permissions so it never appears in container log aggregators
+(CloudWatch, Datadog, etc.).  Override the path via the
+``TRUEPPM_ADMIN_PASSWORD_FILE`` environment variable.  If the file write fails
+the password falls back to management-command stdout *only* — it is never
+passed to ``logger.*`` which would forward it to log aggregators.
 
-Optional env vars:
-    DJANGO_SUPERUSER_USERNAME  — explicit username; defaults to the local part of
-                                 the email address (everything before the @)
-
-Idempotent: if a user with the given email already exists the password and staff/
-superuser flags are updated rather than creating a duplicate.
+Environment variables
+---------------------
+``DJANGO_SUPERUSER_EMAIL``
+    Admin email address (default: ``admin@trueppm.dev``).
+``DJANGO_SUPERUSER_USERNAME``
+    Admin username; defaults to the local part of the email.
+``DJANGO_SUPERUSER_PASSWORD``
+    Explicit password.  When omitted a secure random password is generated
+    via :func:`secrets.token_urlsafe`.
+``TRUEPPM_ADMIN_PASSWORD_FILE``
+    Path where the one-time password is written (default:
+    ``/tmp/trueppm_admin_password``).  Override in production to a
+    non-world-writable location (e.g. an emptyDir volume mount).
 """
 
 from __future__ import annotations
 
+import logging
 import os
+import secrets
 
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
+
+logger = logging.getLogger(__name__)
+
+# Default intentionally uses /tmp for dev convenience; production deployments
+# must set TRUEPPM_ADMIN_PASSWORD_FILE to a non-world-writable path.
+_PASSWORD_FILE = os.environ.get(  # nosec B108
+    "TRUEPPM_ADMIN_PASSWORD_FILE", "/tmp/trueppm_admin_password"
+)
 
 
 class Command(BaseCommand):
-    """Create or update a Django superuser from environment variables."""
+    """Bootstrap a TruePPM superuser on first run; no-op if one already exists."""
 
-    help = "Create or update a superuser from DJANGO_SUPERUSER_* env vars."
+    help = (
+        "Bootstrap a superuser on first run. "
+        "Writes the one-time password to a file rather than stdout "
+        "so it is not visible in container log aggregators."
+    )
 
     def handle(self, *args: object, **options: object) -> None:
         """Execute the command.
 
-        Raises:
-            CommandError: when a required environment variable is missing.
+        Exits immediately when a superuser already exists so that re-deploying
+        a Kubernetes pod or restarting the compose stack does not overwrite a
+        production password.
         """
-        email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "").strip()
-        password = os.environ.get("DJANGO_SUPERUSER_PASSWORD", "").strip()
+        User = get_user_model()
 
-        if not email:
-            raise CommandError(
-                "DJANGO_SUPERUSER_EMAIL environment variable is required."
-            )
-        if not password:
-            raise CommandError(
-                "DJANGO_SUPERUSER_PASSWORD environment variable is required."
-            )
+        if User.objects.filter(is_superuser=True).exists():
+            self.stdout.write("Admin user already exists — skipping bootstrap.")
+            return
 
-        # Default username to the local part of the email so callers do not need
-        # to provide a separate DJANGO_SUPERUSER_USERNAME unless they want one.
+        email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "admin@trueppm.dev").strip()
         username = (
             os.environ.get("DJANGO_SUPERUSER_USERNAME", "").strip()
             or email.split("@")[0]
         )
-
-        User = get_user_model()
+        password = os.environ.get("DJANGO_SUPERUSER_PASSWORD", "").strip() or secrets.token_urlsafe(16)
 
         user, created = User.objects.get_or_create(
             email=email,
             defaults={"username": username},
         )
-
         user.set_password(password)
+        user.username = username
         user.is_staff = True
         user.is_superuser = True
-        # Ensure the username stays in sync if the user already existed.
-        if not created:
-            user.username = username
         user.save()
 
-        verb = "Created" if created else "Updated"
-        self.stdout.write(
-            self.style.SUCCESS(f"{verb} admin user: {email} (username={username})")
-        )
+        action = "Created" if created else "Promoted existing user to"
+
+        # Write to file rather than stdout — credentials in stdout end up in
+        # every log aggregator that ships container output.
+        pw_to_stdout = False
+        try:
+            flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+            # O_NOFOLLOW prevents a symlink attack on the world-writable /tmp
+            # directory (Linux and macOS only; ignored on platforms that lack it).
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            # Mode 0o600 is applied atomically at file creation — avoids the
+            # TOCTOU window that a two-step open()+chmod() would leave.
+            fd = os.open(_PASSWORD_FILE, flags, 0o600)
+            with os.fdopen(fd, "w") as fh:
+                fh.write(password + "\n")
+            password_info = f"[REDACTED — written to {_PASSWORD_FILE}]"
+        except OSError as exc:
+            # File write failed.  Fall back to management-command stdout only;
+            # do NOT use logger.* (log aggregators capture WARNING+ lines).
+            logger.warning(
+                "create_admin: could not write password file (%s). "
+                "Credential printed to command stdout only.",
+                exc,
+            )
+            pw_to_stdout = True
+            password_info = password
+
+        self.stdout.write("")
+        self.stdout.write(self.style.WARNING("=" * 60))
+        self.stdout.write(self.style.WARNING("  TRUEPPM INITIAL ADMIN CREDENTIALS"))
+        self.stdout.write(self.style.WARNING("=" * 60))
+        self.stdout.write(f"  {action} admin: {email} (username={username})")
+        self.stdout.write(f"  Password: {password_info}")
+        if not pw_to_stdout:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"  Retrieve the password from {_PASSWORD_FILE}, then delete the file."
+                )
+            )
+        self.stdout.write(self.style.WARNING("=" * 60))
+        self.stdout.write("")

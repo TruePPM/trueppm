@@ -61,10 +61,9 @@ build: ## Build the web bundle
 up: ## Start the full development stack (Docker Compose)
 	docker compose up -d
 
-admin: ## Create or update the dev admin user (reads DJANGO_SUPERUSER_* env vars, defaults: admin@trueppm.dev / admin)
-	DJANGO_SUPERUSER_EMAIL=$${DJANGO_SUPERUSER_EMAIL:-admin@trueppm.dev} \
-	DJANGO_SUPERUSER_PASSWORD=$${DJANGO_SUPERUSER_PASSWORD:-admin} \
-	docker compose run --rm api python manage.py create_admin
+admin: ## Print the bootstrapped admin password (written to /tmp/trueppm_admin_password on first `make up`)
+	@docker compose exec api cat /tmp/trueppm_admin_password 2>/dev/null \
+	  || echo "Password file not found. Run 'make up' first, then retry."
 
 down: ## Stop the development stack
 	docker compose down

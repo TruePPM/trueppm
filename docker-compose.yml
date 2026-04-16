@@ -28,11 +28,18 @@ services:
       context: .
       dockerfile: packages/api/Dockerfile
     image: trueppm-api:local
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py create_admin &&
+             uvicorn trueppm_api.asgi:application --host 0.0.0.0 --port 8000"
     environment:
       DATABASE_URL: postgres://trueppm:trueppm@db:5432/trueppm
       REDIS_URL: redis://redis:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
       SECRET_KEY: dev-secret-key-change-in-prod
+      # Override to a bind-mounted path to read the password from the host.
+      # Default /tmp/trueppm_admin_password lives inside the container.
+      TRUEPPM_ADMIN_PASSWORD_FILE: /tmp/trueppm_admin_password
     ports:
       - "8000:8000"
     depends_on:
