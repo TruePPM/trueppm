@@ -27,8 +27,6 @@ class _CloseConsumer(WebsocketConsumer):
 application = ProtocolTypeRouter(
     {
         "http": django_asgi_app,
-        "websocket": URLRouter(
-            [*websocket_urlpatterns, re_path(r".*", _CloseConsumer.as_asgi())]
-        ),
+        "websocket": URLRouter([*websocket_urlpatterns, re_path(r".*", _CloseConsumer.as_asgi())]),
     }
 )
