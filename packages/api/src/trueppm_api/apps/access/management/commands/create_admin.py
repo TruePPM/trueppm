@@ -69,11 +69,10 @@ class Command(BaseCommand):
             return
 
         email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "admin@trueppm.dev").strip()
-        username = (
-            os.environ.get("DJANGO_SUPERUSER_USERNAME", "").strip()
-            or email.split("@")[0]
+        username = os.environ.get("DJANGO_SUPERUSER_USERNAME", "").strip() or email.split("@")[0]
+        password = os.environ.get("DJANGO_SUPERUSER_PASSWORD", "").strip() or secrets.token_urlsafe(
+            16
         )
-        password = os.environ.get("DJANGO_SUPERUSER_PASSWORD", "").strip() or secrets.token_urlsafe(16)
 
         user, created = User.objects.get_or_create(
             email=email,
