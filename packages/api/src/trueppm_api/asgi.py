@@ -17,7 +17,7 @@ django_asgi_app = get_asgi_application()
 from trueppm_api.routing import websocket_urlpatterns  # noqa: E402
 
 
-class _CloseConsumer(WebsocketConsumer):
+class _CloseConsumer(WebsocketConsumer):  # type: ignore[misc]
     """Catch-all consumer that immediately closes unmatched WebSocket paths."""
 
     def connect(self) -> None:
