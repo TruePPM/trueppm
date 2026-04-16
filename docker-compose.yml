@@ -35,10 +35,14 @@ services:
       dockerfile: packages/api/Dockerfile
     image: trueppm-api:local
     command: >
-      sh -c "python manage.py migrate --noinput &&
-             python manage.py collectstatic --noinput &&
-             python manage.py create_admin &&
-             uvicorn trueppm_api.asgi:application --host 0.0.0.0 --port 8000 --reload"
+      sh -c "
+        until python manage.py migrate --noinput; do
+          echo 'DB not ready yet (DNS or connection), retrying in 2s...';
+          sleep 2;
+        done &&
+        python manage.py collectstatic --noinput &&
+        python manage.py create_admin &&
+        uvicorn trueppm_api.asgi:application --host 0.0.0.0 --port 8000 --reload"
     environment:
       DATABASE_URL: postgres://trueppm:trueppm@db:5432/trueppm
       REDIS_URL: redis://redis:6379
