@@ -76,6 +76,19 @@ describe('buildScaleData', () => {
     const scales = buildScaleData('day', '2026-04-01', '2026-05-01');
     expect(scales.end.getTime()).toBeGreaterThan(projectEnd.getTime());
   });
+
+  it('enforces minTotalWidthPx when canvas would be narrower than the viewport (#96)', () => {
+    // month zoom at 3px/day: a 1-month project + buffers ≈ ~500px — well under 3000px
+    const scales = buildScaleData('month', '2026-04-01', '2026-05-01', 3000);
+    expect(scales.totalWidth).toBeGreaterThanOrEqual(3000);
+  });
+
+  it('minTotalWidthPx has no effect when canvas already exceeds it', () => {
+    // day zoom at 40px/day: 1-year project is >> 3000px, floor should not shrink it
+    const scalesWithFloor = buildScaleData('day', '2026-01-01', '2027-01-01', 3000);
+    const scalesBaseline  = buildScaleData('day', '2026-01-01', '2027-01-01');
+    expect(scalesWithFloor.totalWidth).toBeCloseTo(scalesBaseline.totalWidth, 0);
+  });
 });
 
 // ---------------------------------------------------------------------------
