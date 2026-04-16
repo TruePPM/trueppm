@@ -16,16 +16,21 @@ interface OverviewData {
 }
 
 interface AttentionItem {
+  severity: 'critical' | 'warning' | 'info';
   type: 'critical_task_late' | 'unassigned_approaching' | 'baseline_drift';
-  message: string;
   task_id: string | null;
+  task_name: string;
+  assignee_name: string | null;
+  date: string | null;
+  detail: string;
 }
 
 interface MyTask {
   id: string;
   name: string;
-  due_date: string;
+  due: string | null;
   status: string;
+  percent_complete: number;
   is_critical: boolean;
 }
 
@@ -140,7 +145,10 @@ function AttentionPanel({ items }: AttentionPanelProps) {
           <span aria-hidden="true" className="flex-shrink-0 mt-0.5">
             {ATTENTION_ICONS[item.type]}
           </span>
-          <span className="text-neutral-text-primary">{item.message}</span>
+          <span className="flex flex-col min-w-0">
+            <span className="text-neutral-text-primary truncate">{item.task_name}</span>
+            <span className="text-xs text-neutral-text-secondary">{item.detail}</span>
+          </span>
         </li>
       ))}
     </ul>
@@ -183,7 +191,9 @@ function MyTasksPanel({ tasks }: MyTasksPanelProps) {
             </span>
           )}
           <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{task.name}</span>
-          <span className="flex-shrink-0 text-xs text-neutral-text-secondary">{task.due_date}</span>
+          {task.due && (
+            <span className="flex-shrink-0 text-xs text-neutral-text-secondary">{task.due}</span>
+          )}
         </li>
       ))}
     </ul>

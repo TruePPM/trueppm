@@ -3,6 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { TopBar } from './TopBar';
 
+// ViewTabs hides itself when there is no :projectId in the URL path (ADR-0030).
+// Provide one so the nav renders; individual tests render under the default `*`
+// route where useParams() is empty.
+vi.mock('@/hooks/useProjectId', () => ({
+  useProjectId: () => 'test-project-id',
+}));
+
 describe('TopBar', () => {
   it('renders the logo', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
