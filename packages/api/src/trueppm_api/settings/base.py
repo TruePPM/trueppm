@@ -188,7 +188,10 @@ USE_TZ = True
 # ---------------------------------------------------------------------------
 
 STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
+# Allow an explicit env override so the app can write static files to a
+# writable path when installed as a pip package (where BASE_DIR resolves
+# inside the read-only venv).
+STATIC_ROOT = Path(env("STATIC_ROOT", default=str(BASE_DIR / "staticfiles")))
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

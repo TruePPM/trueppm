@@ -45,6 +45,7 @@ services:
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
       SECRET_KEY: dev-secret-key-change-in-prod
       TRUEPPM_ADMIN_PASSWORD_FILE: /tmp/trueppm_admin_password
+      STATIC_ROOT: /app/staticfiles
     volumes:
       - ./packages/api/src:/app/src
     ports:

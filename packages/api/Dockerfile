@@ -31,8 +31,15 @@ RUN apt-get update -qq && \
 
 COPY --from=builder /venv /venv
 
-# Create a non-root user (uid=1000) to run the application.
-RUN useradd --uid 1000 --no-create-home --shell /sbin/nologin trueppm
+# manage.py is not installed by pip — copy it explicitly so management
+# commands (migrate, collectstatic, create_admin) are available at runtime.
+COPY --from=builder /build/api/manage.py /app/manage.py
+
+# Create a non-root user (uid=1000) to run the application and pre-create
+# the staticfiles directory so collectstatic can write there at startup.
+RUN useradd --uid 1000 --no-create-home --shell /sbin/nologin trueppm && \
+    mkdir -p /app/staticfiles && \
+    chown trueppm /app/staticfiles
 
 ENV PATH="/venv/bin:$PATH"
 
