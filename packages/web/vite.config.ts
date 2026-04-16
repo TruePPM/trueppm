@@ -2,11 +2,15 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 
-// VITE_API_URL is set to http://api:8000 when running inside Docker Compose
-// so the Vite dev proxy reaches the api container by name.  When running
-// npm run dev directly on the host the variable is unset and the proxy falls
-// back to http://localhost:8000.
-const apiUrl = process.env.VITE_API_URL ?? 'http://localhost:8000';
+// API_URL (no VITE_ prefix) is the server-side proxy target used only by
+// the Vite dev server — it is never exposed to the browser bundle.
+// Set to http://api:8000 in Docker Compose so the proxy reaches the api
+// container by name.  Unset on the host falls back to http://localhost:8000.
+// API_URL (no VITE_ prefix) is server-side only — used by the Vite dev proxy,
+// never exposed to the browser bundle.  Set to http://api:8000 in Docker Compose
+// so the proxy reaches the api container by name; unset on the host falls back
+// to http://localhost:8000.
+const apiUrl = process.env['API_URL'] ?? 'http://localhost:8000';
 const wsUrl = apiUrl.replace(/^http/, 'ws');
 
 export default defineConfig({
