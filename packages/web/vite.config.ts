@@ -26,7 +26,9 @@ export default defineConfig({
         target: apiUrl,
         changeOrigin: true,
       },
-      '/ws': {
+      // Narrow to /ws/v1/ so only API WebSocket paths are forwarded.
+      // Other /ws/* connections (browser extensions, HMR noise) are not proxied.
+      '/ws/v1': {
         target: wsUrl,
         ws: true,
       },

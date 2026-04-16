@@ -50,6 +50,9 @@ services:
       SECRET_KEY: dev-secret-key-change-in-prod
       TRUEPPM_ADMIN_PASSWORD_FILE: /tmp/trueppm_admin_password
       STATIC_ROOT: /app/staticfiles
+      # Prepend the bind-mounted source so uvicorn --reload picks up changes
+      # to Python files without requiring a container rebuild.
+      PYTHONPATH: /app/src
     volumes:
       - ./packages/api/src:/app/src
     ports:
@@ -90,6 +93,7 @@ services:
       REDIS_URL: redis://redis:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
       SECRET_KEY: dev-secret-key-change-in-prod
+      PYTHONPATH: /app/src
     volumes:
       - ./packages/api/src:/app/src
     depends_on:
