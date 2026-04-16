@@ -1,3 +1,7 @@
+# Development stack — source bind-mounted, Vite HMR on :5173, API on :8000.
+# Run: make up
+# Admin password (written on first startup): make admin
+
 services:
   db:
     image: postgres:16-alpine
@@ -7,6 +11,8 @@ services:
       POSTGRES_PASSWORD: trueppm
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U trueppm"]
       interval: 5s
@@ -28,11 +34,27 @@ services:
       context: .
       dockerfile: packages/api/Dockerfile
     image: trueppm-api:local
+    command: >
+      sh -c "
+        until python manage.py migrate --noinput; do
+          echo 'DB not ready yet (DNS or connection), retrying in 2s...';
+          sleep 2;
+        done &&
+        python manage.py collectstatic --noinput &&
+        python manage.py create_admin &&
+        uvicorn trueppm_api.asgi:application --host 0.0.0.0 --port 8000 --reload"
     environment:
       DATABASE_URL: postgres://trueppm:trueppm@db:5432/trueppm
       REDIS_URL: redis://redis:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
       SECRET_KEY: dev-secret-key-change-in-prod
+      TRUEPPM_ADMIN_PASSWORD_FILE: /tmp/trueppm_admin_password
+      STATIC_ROOT: /app/staticfiles
+      # Prepend the bind-mounted source so uvicorn --reload picks up changes
+      # to Python files without requiring a container rebuild.
+      PYTHONPATH: /app/src
+    volumes:
+      - ./packages/api/src:/app/src
     ports:
       - "8000:8000"
     depends_on:
@@ -45,17 +67,23 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 15s
+      start_period: 20s
 
   web:
     build:
       context: packages/web
       dockerfile: Dockerfile
+      target: dev
+    command: sh -c "rm -rf /app/node_modules/.vite && npm run dev -- --host 0.0.0.0"
+    environment:
+      API_URL: http://api:8000
+    volumes:
+      - ./packages/web:/app
+      - web_node_modules:/app/node_modules
     ports:
-      - "5173:80"
+      - "5173:5173"
     depends_on:
-      api:
-        condition: service_healthy
+      - api
 
   celery:
     image: trueppm-api:local
@@ -65,6 +93,9 @@ services:
       REDIS_URL: redis://redis:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
       SECRET_KEY: dev-secret-key-change-in-prod
+      PYTHONPATH: /app/src
+    volumes:
+      - ./packages/api/src:/app/src
     depends_on:
       db:
         condition: service_healthy
@@ -74,3 +105,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  web_node_modules:

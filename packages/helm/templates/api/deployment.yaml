@@ -20,6 +20,36 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
+      # admin-password is an emptyDir volume shared between the bootstrap init
+      # container and the main api container.  The init container writes the
+      # one-time admin password to /run/trueppm/admin_password (0o600) and the
+      # volume keeps it accessible to the running pod so operators can retrieve
+      # it with: kubectl exec <pod> -- cat /run/trueppm/admin_password
+      volumes:
+        - name: admin-password
+          emptyDir: {}
+      initContainers:
+        - name: migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "manage.py", "migrate", "--noinput"]
+          env:
+            {{- include "trueppm.envVars" . | nindent 12 }}
+        - name: bootstrap
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "manage.py", "create_admin"]
+          env:
+            {{- include "trueppm.envVars" . | nindent 12 }}
+            - name: TRUEPPM_ADMIN_PASSWORD_FILE
+              value: {{ .Values.admin.passwordFile | quote }}
+            {{- if .Values.admin.email }}
+            - name: DJANGO_SUPERUSER_EMAIL
+              value: {{ .Values.admin.email | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: admin-password
+              mountPath: /run/trueppm
       containers:
         - name: api
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -30,6 +60,11 @@ spec:
               protocol: TCP
           env:
             {{- include "trueppm.envVars" . | nindent 12 }}
+            - name: TRUEPPM_ADMIN_PASSWORD_FILE
+              value: {{ .Values.admin.passwordFile | quote }}
+          volumeMounts:
+            - name: admin-password
+              mountPath: /run/trueppm
           readinessProbe:
             httpGet:
               path: /healthz/

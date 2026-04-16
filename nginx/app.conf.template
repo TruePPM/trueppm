@@ -1,0 +1,108 @@
+# TruePPM production nginx config — HTTPS (TLS_MODE=letsencrypt or selfsigned).
+# Rendered by envsubst at nginx container startup; $DOMAIN is substituted.
+# Selected by init-prod.sh when TLS_MODE != none.
+
+# Upgrade WebSocket connections; pass Connection: close for normal HTTP.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+# Rate-limit zone for the Django admin login — defence-in-depth even though
+# /admin/ is already restricted to loopback at the Nginx layer.
+# 5 requests/min per IP; burst of 2.
+limit_req_zone $binary_remote_addr zone=admin_login:1m rate=5r/m;
+
+# HTTP — serve the ACME challenge and redirect everything else to HTTPS.
+server {
+    listen 80;
+    server_name ${DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# HTTPS
+server {
+    listen 443 ssl;
+    server_name ${DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+
+    ssl_protocols             TLSv1.2 TLSv1.3;
+    ssl_ciphers               ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache         shared:SSL:10m;
+    ssl_session_timeout       1d;
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header X-Frame-Options           "DENY" always;
+    add_header X-Content-Type-Options    "nosniff" always;
+    add_header Content-Security-Policy   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'none'" always;
+
+    client_max_body_size 20M;
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
+
+    # SPA — serve the React bundle; fall back to index.html for client-side routes.
+    root  /usr/share/nginx/html;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # REST API
+    location /api/ {
+        proxy_pass         http://api:8000;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 90s;
+    }
+
+    # WebSocket (Django Channels)
+    location /ws/ {
+        proxy_pass             http://api:8000;
+        proxy_http_version     1.1;
+        proxy_set_header       Upgrade           $http_upgrade;
+        proxy_set_header       Connection        $connection_upgrade;
+        proxy_set_header       Host              $host;
+        proxy_set_header       X-Real-IP         $remote_addr;
+        proxy_set_header       X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header       X-Forwarded-Proto $scheme;
+        proxy_read_timeout     86400s;
+    }
+
+    # Django admin — restricted to loopback only at the Nginx layer.
+    # To access admin from outside the server, SSH-tunnel:
+    #   ssh -L 8443:127.0.0.1:443 user@yourserver
+    #   then visit https://localhost:8443/admin/
+    location /admin/ {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+
+        limit_req zone=admin_login burst=2 nodelay;
+
+        proxy_pass       http://api:8000;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Django static files (admin CSS/JS, collectstatic output)
+    location /static/ {
+        proxy_pass http://api:8000;
+        proxy_set_header Host $host;
+    }
+}

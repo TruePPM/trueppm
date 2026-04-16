@@ -1,7 +1,7 @@
 # TruePPM — universal command interface
 # Run `make help` for a list of targets.
 
-.PHONY: help setup doctor lint typecheck test build clean
+.PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod
 
 # ─── Help ──────────────────────────────────────────────────────────────────────
 help:
@@ -58,14 +58,22 @@ build: ## Build the web bundle
 	cd packages/web && npm run build
 
 # ─── Dev ──────────────────────────────────────────────────────────────────────
-up: ## Start the full development stack (Docker Compose)
+up: ## Start the dev stack — web HMR :5173, API :8000, DB :5432
 	docker compose up -d
 
-down: ## Stop the development stack
+down: ## Stop the dev stack
 	docker compose down
 
-logs: ## Tail all service logs
+logs: ## Tail dev stack logs
 	docker compose logs -f
+
+admin: ## Print the bootstrapped admin password (created on first `make up`)
+	@docker compose exec api cat /tmp/trueppm_admin_password 2>/dev/null \
+	  || echo "Password file not found — run 'make up' first, then retry."
+
+# ─── Production ───────────────────────────────────────────────────────────────
+up-prod: ## Start the production stack (requires .env — run init-prod.sh first)
+	docker compose -f docker-compose.prod.yml up -d
 
 # ─── Clean ────────────────────────────────────────────────────────────────────
 clean: ## Remove generated files and caches

@@ -28,3 +28,14 @@ env:
   DJANGO_SETTINGS_MODULE: trueppm_api.settings.production
   DATABASE_URL: postgres://trueppm:trueppm@trueppm-postgresql:5432/trueppm
   REDIS_URL: redis://trueppm-redis-master:6379
+
+# Admin bootstrap settings.
+# The bootstrap init container runs `create_admin` once on first deploy and
+# writes the one-time password to passwordFile (emptyDir, 0o600).
+# Retrieve it with: kubectl exec <api-pod> -- cat /run/trueppm/admin_password
+admin:
+  # Path inside the container where the one-time password is written.
+  # Must match the emptyDir mountPath in the deployment template.
+  passwordFile: /run/trueppm/admin_password
+  # Admin email address (defaults to admin@trueppm.dev if not set).
+  email: ""
