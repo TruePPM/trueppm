@@ -9,11 +9,6 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
     },
   },
-  build: {
-    rollupOptions: {
-      external: ['@trueppm/enterprise-web'],
-    },
-  },
   server: {
     proxy: {
       '/api': {
