@@ -145,7 +145,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           onCreated={(projectId) => {
             setShowNewProject(false);
             if (isDrawer) onClose?.();
-            void navigate(`/gantt?project=${projectId}`);
+            void navigate(`/projects/${projectId}/overview`);
           }}
         />
       )}

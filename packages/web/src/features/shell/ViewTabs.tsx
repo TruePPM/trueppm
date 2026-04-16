@@ -1,5 +1,7 @@
-import { Link, useLocation } from 'react-router';
+import { NavLink, useLocation } from 'react-router';
 import { GanttIcon, WbsIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon } from '@/components/Icons';
+import { OverviewIcon } from '@/components/Icons';
+import { useProjectId } from '@/hooks/useProjectId';
 import type { ComponentType } from 'react';
 
 interface Tab {
@@ -9,34 +11,41 @@ interface Tab {
 }
 
 const TABS: Tab[] = [
-  { view: 'gantt',     label: 'Gantt',     Icon: GanttIcon },
-  { view: 'wbs',       label: 'WBS',       Icon: WbsIcon },
-  { view: 'board',     label: 'Board',     Icon: BoardIcon },
-  { view: 'list',      label: 'Table',     Icon: ListIcon },
-  { view: 'calendar',  label: 'Calendar',  Icon: CalendarIcon },
-  { view: 'resources', label: 'Resources', Icon: ResourcesIcon },
-  { view: 'risk',      label: 'Risks',     Icon: RiskIcon },
+  { view: 'overview',   label: 'Overview',   Icon: OverviewIcon },
+  { view: 'gantt',      label: 'Gantt',      Icon: GanttIcon },
+  { view: 'wbs',        label: 'WBS',        Icon: WbsIcon },
+  { view: 'board',      label: 'Board',      Icon: BoardIcon },
+  { view: 'list',       label: 'Table',      Icon: ListIcon },
+  { view: 'calendar',   label: 'Calendar',   Icon: CalendarIcon },
+  { view: 'resources',  label: 'Resources',  Icon: ResourcesIcon },
+  { view: 'risk',       label: 'Risks',      Icon: RiskIcon },
 ];
 
+/**
+ * Top-bar tab strip for switching between project views (ADR-0030).
+ *
+ * Links are path-based (`/projects/:projectId/:view`) so each view has a
+ * shareable URL.  Hidden when no project is selected (no projectId in params).
+ */
 export function ViewTabs() {
   const location = useLocation();
-  const params = new URLSearchParams(location.search);
-  // Derive active view from ?view= param; default to 'gantt' when absent
-  const currentView = params.get('view') ?? 'gantt';
-  // Preserve ?project= when switching views so the active project context is not lost
-  const projectId = params.get('project');
+  const projectId = useProjectId();
+
+  if (!projectId) return null;
+
+  // Derive active view from the last path segment.
+  // e.g. /projects/abc/gantt → 'gantt'
+  const pathSegments = location.pathname.split('/');
+  const currentView = pathSegments[pathSegments.length - 1] ?? 'overview';
 
   return (
     <nav aria-label="View" className="hidden md:flex items-stretch h-full gap-0.5">
       {TABS.map(({ view, label, Icon }) => {
         const isActive = currentView === view;
-        const href = projectId
-          ? `/gantt?view=${view}&project=${encodeURIComponent(projectId)}`
-          : `/gantt?view=${view}`;
         return (
-          <Link
+          <NavLink
             key={view}
-            to={href}
+            to={`/projects/${projectId}/${view}`}
             replace
             className={[
               'flex items-center gap-1.5 px-3 text-sm font-medium border-b-2 transition-colors',
@@ -52,7 +61,7 @@ export function ViewTabs() {
               aria-hidden="true"
             />
             {label}
-          </Link>
+          </NavLink>
         );
       })}
     </nav>

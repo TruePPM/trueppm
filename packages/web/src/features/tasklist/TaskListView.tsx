@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect, type RefObject, type KeyboardEvent, type FocusEvent } from 'react';
-import { useSearchParams } from 'react-router';
+import { useProjectId } from '@/hooks/useProjectId';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
 import { useUpdateTask, useBulkDeleteTasks } from '@/hooks/useTaskMutations';
@@ -338,8 +338,7 @@ function TaskRow({
 type DeletePhase = 'idle' | 'confirming' | 'deleting';
 
 export function TaskListView() {
-  const [searchParams] = useSearchParams();
-  const projectId = searchParams.get('project');
+  const projectId = useProjectId() ?? null;
   const { tasks, isLoading, error } = useGanttTasks();
   const { selectedIds, toggle, selectAll, clearSelection } = useTaskSelectionStore();
   const updateTask = useUpdateTask();

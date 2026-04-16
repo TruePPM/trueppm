@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { useSearchParams } from 'react-router';
+import { useProjectId } from '@/hooks/useProjectId';
 import {
   DndContext,
   closestCenter,
@@ -60,8 +60,7 @@ function WbsEmptyState() {
 // ---------------------------------------------------------------------------
 
 export function WbsView() {
-  const [searchParams] = useSearchParams();
-  const projectId = searchParams.get('project');
+  const projectId = useProjectId() ?? null;
   const { tasks, isLoading, error } = useGanttTasks();
   const { expandedIds, toggle, expandAll, collapseAll, selectedTaskId, setSelectedTaskId } = useWbsStore();
   const [renamingId, setRenamingId] = useState<string | null>(null);

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { useSearchParams } from 'react-router';
+import { useProjectId } from '@/hooks/useProjectId';
 import type { Task } from '@/types';
 import { ROW_HEIGHT, WBS_INDENT } from './ganttConstants';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
@@ -24,8 +24,7 @@ function formatDate(iso: string): string {
 }
 
 export function TaskListRow({ task, level, widths, hasChildren = false, isExpanded = false, onToggle }: Props) {
-  const [searchParams] = useSearchParams();
-  const projectId = searchParams.get('project') ?? '';
+  const projectId = useProjectId() ?? '';
   const selectedTaskId = useGanttStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useGanttStore((s) => s.setSelectedTaskId);
   const isSelected = selectedTaskId === task.id;

@@ -11,6 +11,9 @@ from trueppm_api.apps.projects.views import (
     BoardColumnConfigView,
     CalendarViewSet,
     DependencyViewSet,
+    ProjectAttentionView,
+    ProjectMyTasksView,
+    ProjectOverviewView,
     ProjectPresenceView,
     ProjectViewSet,
     RiskViewSet,
@@ -82,6 +85,22 @@ urlpatterns = [
         "projects/<pk>/presence/",
         ProjectPresenceView.as_view(),
         name="project-presence",
+    ),
+    # Overview dashboard endpoints (ADR-0030)
+    path(
+        "projects/<pk>/overview/",
+        ProjectOverviewView.as_view(),
+        name="project-overview",
+    ),
+    path(
+        "projects/<pk>/attention/",
+        ProjectAttentionView.as_view(),
+        name="project-attention",
+    ),
+    path(
+        "projects/<pk>/my-tasks/",
+        ProjectMyTasksView.as_view(),
+        name="project-my-tasks",
     ),
     # Risk endpoints — nested under /projects/<project_pk>/risks/
     path(

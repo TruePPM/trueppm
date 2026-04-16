@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo } from 'react';
-import { useSearchParams } from 'react-router';
+import { useProjectId } from '@/hooks/useProjectId';
 import {
   DndContext,
   PointerSensor,
@@ -19,8 +19,7 @@ import { BoardColumn } from './BoardColumn';
 import { BoardCard } from './BoardCard';
 
 export function BoardView() {
-  const [searchParams] = useSearchParams();
-  const projectId = searchParams.get('project') ?? '';
+  const projectId = useProjectId() ?? '';
   const { columns: COLUMNS } = useBoardConfig(projectId || null);
   const { tasks, isLoading } = useGanttTasks();
   const updateStatus = useUpdateTaskStatus();

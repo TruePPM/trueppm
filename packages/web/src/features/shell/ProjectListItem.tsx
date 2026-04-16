@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router';
+import { NavLink, useParams } from 'react-router';
 import type { Project, HealthState } from '@/types';
 
 const HEALTH_LABELS: Record<HealthState, string> = {
@@ -23,16 +23,14 @@ interface Props {
 }
 
 export function ProjectListItem({ project, collapsed }: Props) {
-  const location = useLocation();
-  // NavLink.isActive only checks pathname, not search params — all projects would
-  // appear active since they all link to /gantt. Check ?project= explicitly.
-  const currentProjectId = new URLSearchParams(location.search).get('project');
+  // Determine active project from URL path param (ADR-0030).
+  const { projectId: currentProjectId } = useParams<{ projectId: string }>();
   const isThisProject = currentProjectId === project.id;
 
   return (
     <li>
       <NavLink
-        to={`/gantt?project=${project.id}`}
+        to={`/projects/${project.id}/overview`}
         title={collapsed ? project.name : undefined}
         className={() =>
           [

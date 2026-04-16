@@ -63,7 +63,7 @@ async function gotoGantt(page: import('@playwright/test').Page) {
     );
   });
 
-  await page.route('**/api/v1/projects/**', (route) =>
+  await page.route('**/api/v1/projects/', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -77,6 +77,16 @@ async function gotoGantt(page: import('@playwright/test').Page) {
   );
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  // Stub overview endpoints
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/overview/`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ schedule_health: 'unknown', spi: null, tasks_late_count: 0, critical_task_count: 0, total_tasks: 0, complete_tasks: 0, next_milestone: null, team_utilization_pct: null }) }),
+  );
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/attention/`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
+  );
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
   );
   await page.route('**/api/v1/tasks/**', (route) =>
     route.fulfill({
@@ -122,7 +132,7 @@ async function gotoGantt(page: import('@playwright/test').Page) {
     }),
   );
 
-  await page.goto(`/gantt?project=${FIXTURE_PROJECT_ID}`);
+  await page.goto(`/projects/${FIXTURE_PROJECT_ID}/gantt`);
 }
 
 /** Click a task row by name and wait for the detail drawer to appear. */

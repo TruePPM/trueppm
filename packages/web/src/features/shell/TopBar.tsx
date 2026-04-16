@@ -1,8 +1,9 @@
-import { useNavigate, useSearchParams } from 'react-router';
+import { useNavigate } from 'react-router';
 import { useShellStore } from '@/stores/shellStore';
 import { useShellStats } from '@/hooks/useShellStats';
 import { useGanttStore } from '@/stores/ganttStore';
 import { useProjectPresence } from '@/hooks/useProjectPresence';
+import { useProjectId } from '@/hooks/useProjectId';
 import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
 import { Logo } from './Logo';
 import { ViewTabs } from './ViewTabs';
@@ -20,8 +21,7 @@ export function TopBar({ onHamburgerClick }: Props) {
   const setSelectedTaskId = useGanttStore((s) => s.setSelectedTaskId);
   const scrollToTask = useGanttStore((s) => s.scrollToTask);
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const projectId = searchParams.get('project');
+  const projectId = useProjectId() ?? null;
   const onlineUsers = useProjectPresence(projectId);
 
   function handleTaskNavigate(id: string) {
