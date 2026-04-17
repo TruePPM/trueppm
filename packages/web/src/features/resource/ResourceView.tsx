@@ -31,7 +31,11 @@ import { useResourceAllocation, useInvalidateAllocation } from '@/hooks/useResou
 import { useResolveOverallocation } from '@/hooks/useResolveOverallocation';
 
 // ---------------------------------------------------------------------------
-// Role stub — replace with real useCurrentUserRole() when auth is wired in.
+// Role stub — replace with real useCurrentUserRole() once the API exposes the
+// per-project membership role on the auth/user endpoint. Server-side 403 is
+// the authoritative guard today (rule 94); this stub keeps the gate function
+// structurally intact so wiring it in later is a one-line change. Currently
+// equals SCHEDULER so the gate is a no-op for every user.
 // ---------------------------------------------------------------------------
 const STUB_ROLE = 2; // SCHEDULER
 const SCHEDULER_ROLE = 2;

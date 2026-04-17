@@ -225,38 +225,45 @@ export function GanttView() {
     focusChainIds: Set<string> | undefined;
     depChipsById: Map<string, TaskDepChips>;
   } => {
-    // Build per-task dep chip data regardless of focus mode (cheap, always useful).
+    // Build per-task dep chip data and adjacency lists in a single pass over
+    // allLinks — reused by the BFS below so traversal is O(V + E), not O(V · E).
     const chipsById = new Map<string, TaskDepChips>();
+    const succs = new Map<string, string[]>();
+    const preds = new Map<string, string[]>();
     for (const link of allLinks) {
-      // source → successors
       const srcChip = chipsById.get(link.sourceId) ?? { predsCount: 0, succsCount: 0, predsCritical: false, succsCritical: false };
       srcChip.succsCount++;
       if (link.isCritical) srcChip.succsCritical = true;
       chipsById.set(link.sourceId, srcChip);
-      // target ← predecessors
+
       const tgtChip = chipsById.get(link.targetId) ?? { predsCount: 0, succsCount: 0, predsCritical: false, succsCritical: false };
       tgtChip.predsCount++;
       if (link.isCritical) tgtChip.predsCritical = true;
       chipsById.set(link.targetId, tgtChip);
+
+      (succs.get(link.sourceId) ?? succs.set(link.sourceId, []).get(link.sourceId)!).push(link.targetId);
+      (preds.get(link.targetId) ?? preds.set(link.targetId, []).get(link.targetId)!).push(link.sourceId);
     }
 
     if (!focusModeEnabled || !selectedTaskId) {
       return { focusChainIds: undefined, depChipsById: chipsById };
     }
 
-    // BFS through links in both directions from selectedTaskId.
+    // BFS via adjacency maps — visits each node once, each edge twice.
     const chain = new Set<string>([selectedTaskId]);
     const queue = [selectedTaskId];
     while (queue.length > 0) {
       const id = queue.shift()!;
-      for (const link of allLinks) {
-        if (link.sourceId === id && !chain.has(link.targetId)) {
-          chain.add(link.targetId);
-          queue.push(link.targetId);
+      for (const next of succs.get(id) ?? []) {
+        if (!chain.has(next)) {
+          chain.add(next);
+          queue.push(next);
         }
-        if (link.targetId === id && !chain.has(link.sourceId)) {
-          chain.add(link.sourceId);
-          queue.push(link.sourceId);
+      }
+      for (const prev of preds.get(id) ?? []) {
+        if (!chain.has(prev)) {
+          chain.add(prev);
+          queue.push(prev);
         }
       }
     }

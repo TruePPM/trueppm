@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import type { Task, TaskStatus } from '@/types';
 import { BoardProgressRing } from './BoardProgressRing';
@@ -55,6 +55,25 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
   const [moveOpen, setMoveOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  // Remember the real card's rendered height so the drag placeholder matches
+  // it (rule 102: placeholder of equal height).  Updated on every non-drag
+  // render so varying card content — CP pill, assignees, entry stamp, nudge —
+  // produces an equal-height slot.
+  const cardElRef = useRef<HTMLDivElement | null>(null);
+  const lastHeightRef = useRef<number>(0);
+  const measureCardRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      cardElRef.current = node;
+      setNodeRef(node);
+    },
+    [setNodeRef],
+  );
+  useLayoutEffect(() => {
+    if (isDragging) return;
+    const h = cardElRef.current?.offsetHeight;
+    if (h && h > 0) lastHeightRef.current = h;
+  });
+
   // Close menu on outside click
   useEffect(() => {
     if (!menuOpen) return;
@@ -90,10 +109,14 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
     );
   }
 
-  // Placeholder slot when this card is being dragged (rule 102)
+  // Placeholder slot when this card is being dragged (rule 102) — height
+  // matches the source card so surrounding cards don't jump during drag.
   if (isDragging) {
     return (
-      <div className="border-2 border-dashed border-neutral-border rounded-md p-3 h-[76px]" />
+      <div
+        className="border-2 border-dashed border-neutral-border rounded-md"
+        style={{ height: lastHeightRef.current || 76 }}
+      />
     );
   }
 
@@ -102,7 +125,7 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
 
   return (
     <div
-      ref={setNodeRef}
+      ref={measureCardRef}
       {...listeners}
       {...attributes}
       className={[
@@ -119,8 +142,7 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
       {/* Priority rank — top-right, below the ··· menu */}
       {task.priorityRank !== undefined && (
         <span
-          className="absolute top-2 right-8 text-neutral-text-disabled"
-          style={{ fontSize: 9 }}
+          className="absolute top-2 right-8 text-xs text-neutral-text-disabled"
           aria-hidden="true"
         >
           #{task.priorityRank}
@@ -152,8 +174,7 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
         <div className="flex items-center gap-1 mt-1.5 flex-wrap">
           {task.isCritical && (
             <span
-              className="inline-block px-1 py-px rounded text-white bg-semantic-critical font-bold"
-              style={{ fontSize: 10 }}
+              className="inline-block px-1 py-px rounded text-xs text-white bg-semantic-critical font-bold"
               aria-hidden="true"
             >
               CP
@@ -162,8 +183,7 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
           {task.assignees.slice(0, 3).map((a) => (
             <span
               key={a.resourceId}
-              className="inline-block px-1 py-px rounded text-white bg-brand-primary font-bold"
-              style={{ fontSize: 10 }}
+              className="inline-block px-1 py-px rounded text-xs text-white bg-brand-primary font-bold"
               title={`${a.name} (${Math.round(a.units * 100)}%)`}
               aria-hidden="true"
             >
@@ -172,8 +192,7 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
           ))}
           {task.assignees.length > 3 && (
             <span
-              className="inline-block px-1 py-px rounded text-white bg-brand-primary font-bold"
-              style={{ fontSize: 10 }}
+              className="inline-block px-1 py-px rounded text-xs text-white bg-brand-primary font-bold"
               aria-hidden="true"
             >
               +{task.assignees.length - 3}

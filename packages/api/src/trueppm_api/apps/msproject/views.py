@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import base64
+import logging
 
+import redis as redis_lib
+from kombu.exceptions import (  # type: ignore[import-untyped]
+    OperationalError as KombuOperationalError,
+)
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import MultiPartParser
@@ -13,6 +18,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+
+logger = logging.getLogger(__name__)
+
+# Broker/connection errors that should return 503 — other exceptions bubble
+# so programming bugs (serialization, argument mismatch) surface as 500.
+_BROKER_ERRORS = (KombuOperationalError, ConnectionError, redis_lib.ConnectionError)
 
 # Maximum upload size: 10 MB.
 _MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -89,11 +100,7 @@ class MsProjectImportView(APIView):
         file_content = uploaded_file.read()
         file_content_b64 = base64.b64encode(file_content).decode("ascii")
 
-        import logging
-
         from trueppm_api.apps.msproject.tasks import import_msproject
-
-        logger = logging.getLogger(__name__)
 
         try:
             result = import_msproject.delay(
@@ -102,7 +109,7 @@ class MsProjectImportView(APIView):
                 filename=filename,
                 initiated_by_id=request.user.pk,
             )
-        except Exception:
+        except _BROKER_ERRORS:
             logger.exception("msproject import: broker unavailable for project %s", project_pk)
             return Response(
                 {"detail": "Import could not be queued — task broker unavailable. Please retry."},

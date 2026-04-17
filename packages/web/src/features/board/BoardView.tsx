@@ -170,7 +170,6 @@ interface BoardCellProps {
   showWip: boolean;
   wipLimit?: number;
   isDragActive: boolean;
-  overColumn: string | null;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
   columns: { status: TaskStatus; label: string }[];
 }
@@ -203,7 +202,7 @@ function BoardCell({
     >
       {wip && (
         <div className="text-xs text-semantic-at-risk font-semibold px-1">
-          WIP limit: {wipLimit} — {tasks.length - wipLimit!} over
+          WIP limit: {wipLimit} — {tasks.length - wipLimit} over
         </div>
       )}
       {tasks.map((task) => (
@@ -299,7 +298,6 @@ function PhaseLane({
               isDragActive={isDragActive}
               showWip={showWip}
               wipLimit={col.wipLimit}
-              overColumn={overCell}
               onMenuMove={onMenuMove}
               columns={columns}
             />

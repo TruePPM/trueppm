@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, type KeyboardEvent, type MouseEvent } from 'react';
 import type { MonteCarloResult } from '@/types';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
 
 // Height of each mini-histogram bar in the permanent strip.
@@ -42,9 +43,7 @@ export function MonteCarloTimeline({ result }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
-  const prefersReducedMotion =
-    typeof window !== 'undefined' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const { buckets, p50, p80, p95 } = result;
   const maxCount = Math.max(...buckets.map((b) => b.count));

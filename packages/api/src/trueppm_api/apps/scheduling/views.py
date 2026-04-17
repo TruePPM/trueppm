@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from celery import current_app
 from django.conf import settings
+from django.db import transaction
 from rest_framework import status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
@@ -45,8 +46,6 @@ def trigger_schedule(request: Request, pk: str) -> Response:
     # Defer until any outer transaction commits so the ScheduleRequest row is
     # never visible to the drain before its parent write lands.
     project_id = str(project.pk)
-    from django.db import transaction
-
     transaction.on_commit(lambda: enqueue_recalculate(project_id))
     return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
 

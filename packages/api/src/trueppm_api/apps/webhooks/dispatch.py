@@ -5,7 +5,17 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import redis as redis_lib
+from kombu.exceptions import (  # type: ignore[import-untyped]
+    OperationalError as KombuOperationalError,
+)
+
 logger = logging.getLogger(__name__)
+
+# Transient broker/connection errors that must not bubble out of dispatch —
+# the delivery row stays PENDING and drain_webhook_queue retries it.  Narrow
+# on purpose so serialization or programming bugs are not silently swallowed.
+_BROKER_ERRORS = (KombuOperationalError, ConnectionError, redis_lib.ConnectionError)
 
 
 def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any]) -> None:
@@ -38,7 +48,7 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
                 webhook.pk,
                 event_type,
             )
-        except Exception:
+        except _BROKER_ERRORS:
             # Broker unavailable — delivery row stays PENDING with attempt_count=0
             # so drain_webhook_queue picks it up within _DRAIN_ORPHAN_MINUTES.
             logger.warning(
