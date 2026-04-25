@@ -8,7 +8,7 @@ import type { Task } from '@/types';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 
 const defaultWidths: ColumnWidths['widths'] = {
-  task: 180, durStart: 100, progress: 52,
+  task: 180, dur: 52, start: 74, finish: 74, progress: 52,
 };
 
 const base: Task = {
@@ -37,7 +37,7 @@ describe('TaskListRow', () => {
 
   it('renders duration and progress', () => {
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} {...defaultTreeProps} />);
-    expect(screen.getByLabelText(/10 days/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('10 days')).toBeInTheDocument();
     expect(screen.getByLabelText(/50% complete/i)).toBeInTheDocument();
   });
 
@@ -45,7 +45,8 @@ describe('TaskListRow', () => {
     renderWithRouter(
       <TaskListRow task={{ ...base, start: '' }} level={1} widths={defaultWidths} />,
     );
-    expect(screen.getByLabelText(/10 days, unscheduled/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('10 days')).toBeInTheDocument();
+    expect(screen.getByLabelText('unscheduled')).toBeInTheDocument();
   });
 
   it('critical task has aria-label mentioning critical path', () => {

@@ -33,11 +33,12 @@ function ResizeHandle({ colKey, setWidth, currentWidth }: ResizeHandleProps) {
       role="separator"
       aria-orientation="vertical"
       aria-label={`Resize ${colKey} column`}
-      className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-center group"
+      className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-end group"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
+      {/* Indicator at right-0 of the hit zone — aligns with border-r on data rows */}
       <div className="w-px h-full bg-white/30 group-hover:bg-brand-primary/80 transition-colors" aria-hidden="true" />
     </div>
   );
@@ -56,9 +57,7 @@ export function TaskListHeader({ widths, setWidth }: Props) {
       role="row"
       aria-label="Task list columns"
     >
-      {/* Task column — pl-2 here instead of px-2 on the row so column widths don't
-          overflow the panel (header columns sum to totalWidth; adding symmetric padding
-          would push the last column 8px outside the panel and clip it). */}
+      {/* Task column — pl-2 keeps text inset from the left edge */}
       <span
         className="relative pl-2 truncate shrink-0"
         style={{ width: widths.task }}
@@ -68,19 +67,38 @@ export function TaskListHeader({ widths, setWidth }: Props) {
         <ResizeHandle colKey="task" setWidth={setWidth} currentWidth={widths.task} />
       </span>
 
-      {/* Combined duration · start column (rule 43) */}
       <span
-        className="relative text-right shrink-0"
-        style={{ width: widths.durStart }}
+        className="relative text-right shrink-0 pr-2"
+        style={{ width: widths.dur }}
         role="columnheader"
-        aria-label="Duration and start date"
+        aria-label="Duration"
       >
-        Dur · Start
-        <ResizeHandle colKey="durStart" setWidth={setWidth} currentWidth={widths.durStart} />
+        Dur
+        <ResizeHandle colKey="dur" setWidth={setWidth} currentWidth={widths.dur} />
       </span>
 
       <span
-        className="text-right shrink-0"
+        className="relative text-right shrink-0 pr-2"
+        style={{ width: widths.start }}
+        role="columnheader"
+        aria-label="Start date"
+      >
+        Start
+        <ResizeHandle colKey="start" setWidth={setWidth} currentWidth={widths.start} />
+      </span>
+
+      <span
+        className="relative text-right shrink-0 pr-2"
+        style={{ width: widths.finish }}
+        role="columnheader"
+        aria-label="Finish date"
+      >
+        Finish
+        <ResizeHandle colKey="finish" setWidth={setWidth} currentWidth={widths.finish} />
+      </span>
+
+      <span
+        className="text-right shrink-0 pr-2"
         style={{ width: widths.progress }}
         role="columnheader"
         aria-label="Progress"

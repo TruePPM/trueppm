@@ -1,20 +1,24 @@
 import { useState, useCallback } from 'react';
 
-// v3: wider defaults so task names and dates aren't truncated out of the box
-const STORAGE_KEY = 'trueppm.gantt.columnWidths.v3';
+// v4: split Dur·Start into Dur + Start, added Finish column
+const STORAGE_KEY = 'trueppm.gantt.columnWidths.v4';
 
 export const MIN_COL_WIDTHS = {
   task: 120,
-  durStart: 90,
-  progress: 44,
+  dur: 40,
+  start: 60,
+  finish: 60,
+  progress: 40,
 } as const;
 
 export type ColumnKey = keyof typeof MIN_COL_WIDTHS;
 
 const DEFAULTS: Record<ColumnKey, number> = {
   task: 220,
-  durStart: 120,
-  progress: 50,
+  dur: 52,
+  start: 74,
+  finish: 74,
+  progress: 44,
 };
 
 function load(): Record<ColumnKey, number> {
@@ -44,7 +48,7 @@ export interface ColumnWidths {
 /**
  * Persist and expose Gantt task-list column widths in localStorage.
  *
- * Widths are clamped to MIN_COL_WIDTHS and stored under STORAGE_KEY (v3).
+ * Widths are clamped to MIN_COL_WIDTHS and stored under STORAGE_KEY (v4).
  * Returns widths, a setWidth callback, and the total width of all columns.
  */
 export function useColumnWidths(): ColumnWidths {
@@ -63,7 +67,8 @@ export function useColumnWidths(): ColumnWidths {
     });
   }, []);
 
-  const totalWidth = widths.task + widths.durStart + widths.progress;
+  const totalWidth =
+    widths.task + widths.dur + widths.start + widths.finish + widths.progress;
 
   return { widths, setWidth, totalWidth };
 }

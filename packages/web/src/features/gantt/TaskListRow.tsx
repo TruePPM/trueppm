@@ -230,16 +230,42 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
         </button>
       </div>
 
-      {/* ── Dur · Start column ──────────────────────────────────────────────── */}
+      {/* ── Dur column ──────────────────────────────────────────────────────── */}
       {!isEditing && (
         <div
           className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
             text-right text-gantt-text-secondary tabular-nums pr-2"
-          style={{ width: widths.durStart }}
+          style={{ width: widths.dur }}
           role="gridcell"
-          aria-label={task.isMilestone ? 'milestone' : task.start ? `${task.duration} days, starts ${formatDate(task.start)}` : `${task.duration} days, unscheduled`}
+          aria-label={task.isMilestone ? 'milestone' : `${task.duration} days`}
         >
-          {task.isMilestone ? '—' : task.start ? `${task.duration}d · ${formatDate(task.start)}` : `${task.duration}d`}
+          {task.isMilestone ? '—' : `${task.duration}d`}
+        </div>
+      )}
+
+      {/* ── Start column ────────────────────────────────────────────────────── */}
+      {!isEditing && (
+        <div
+          className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
+            text-right text-gantt-text-secondary tabular-nums pr-2"
+          style={{ width: widths.start }}
+          role="gridcell"
+          aria-label={task.start ? `starts ${formatDate(task.start)}` : 'unscheduled'}
+        >
+          {task.isMilestone ? formatDate(task.start) : (task.start ? formatDate(task.start) : '—')}
+        </div>
+      )}
+
+      {/* ── Finish column ───────────────────────────────────────────────────── */}
+      {!isEditing && (
+        <div
+          className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
+            text-right text-gantt-text-secondary tabular-nums pr-2"
+          style={{ width: widths.finish }}
+          role="gridcell"
+          aria-label={task.finish ? `finishes ${formatDate(task.finish)}` : 'unscheduled'}
+        >
+          {task.finish ? formatDate(task.finish) : '—'}
         </div>
       )}
 
