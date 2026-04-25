@@ -358,8 +358,6 @@ class TestXmlParser:
 # Fixture-file round-trip tests (CI fixture registration)
 # ---------------------------------------------------------------------------
 
-import pathlib  # noqa: E402 — placed after test classes intentionally
-
 _FIXTURES_DIR = pathlib.Path(__file__).parent / "fixtures"
 
 
