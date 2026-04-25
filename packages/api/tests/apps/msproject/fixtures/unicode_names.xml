@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <!-- Unicode-names fixture: task and resource names with CJK, RTL, emoji,
+       and XML-significant characters.
+       Purpose: UTF-8 round-trip correctness and XML escaping. -->
+  <Name>Unicode 多言語 مشروع 🌍</Name>
+  <StartDate>2026-03-01T08:00:00</StartDate>
+
+  <Tasks>
+    <Task>
+      <UID>0</UID>
+      <Name>Unicode 多言語 مشروع 🌍</Name>
+      <Duration>PT40H0M0S</Duration>
+      <OutlineLevel>0</OutlineLevel>
+    </Task>
+
+    <!-- CJK: Chinese simplified -->
+    <Task>
+      <UID>1</UID>
+      <Name>项目规划任务</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-03-01T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>1</OutlineNumber>
+    </Task>
+
+    <!-- RTL: Arabic -->
+    <Task>
+      <UID>2</UID>
+      <Name>مهمة التصميم والتطوير</Name>
+      <Duration>PT16H0M0S</Duration>
+      <Start>2026-03-02T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>2</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>1</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <!-- Japanese (Katakana + Kanji) -->
+    <Task>
+      <UID>3</UID>
+      <Name>システム開発タスク</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-03-01T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>3</OutlineNumber>
+    </Task>
+
+    <!-- Emoji in task name -->
+    <Task>
+      <UID>4</UID>
+      <Name>🚀 Launch &amp; Deploy</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-03-04T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>4</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>2</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <!-- Special XML chars: ampersand, angle brackets (entity-encoded) -->
+    <Task>
+      <UID>5</UID>
+      <Name>Ärger &amp; Überwachung &lt;v2&gt;</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-03-05T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>5</OutlineNumber>
+    </Task>
+  </Tasks>
+
+  <Resources>
+    <!-- Resource with CJK name -->
+    <Resource>
+      <UID>1</UID>
+      <Name>张伟 (Zhang Wei)</Name>
+      <MaxUnits>1.0</MaxUnits>
+    </Resource>
+  </Resources>
+
+  <Assignments>
+    <Assignment>
+      <UID>1</UID>
+      <TaskUID>1</TaskUID>
+      <ResourceUID>1</ResourceUID>
+      <Units>1.0</Units>
+    </Assignment>
+  </Assignments>
+</Project>

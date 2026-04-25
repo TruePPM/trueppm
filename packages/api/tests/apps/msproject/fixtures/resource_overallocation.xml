@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <!-- Resource-overallocation fixture: resources assigned > 100% on overlapping tasks.
+       Purpose: MaxUnits < 1.0, over-allocation flag import. -->
+  <Name>Resource Overallocation Test</Name>
+  <StartDate>2026-03-01T08:00:00</StartDate>
+
+  <Tasks>
+    <Task>
+      <UID>0</UID>
+      <Name>Resource Overallocation Test</Name>
+      <Duration>PT24H0M0S</Duration>
+      <OutlineLevel>0</OutlineLevel>
+    </Task>
+
+    <!-- Task A: starts on day 1 -->
+    <Task>
+      <UID>1</UID>
+      <Name>Concurrent Task A</Name>
+      <Duration>PT16H0M0S</Duration>
+      <Start>2026-03-01T08:00:00</Start>
+      <Finish>2026-03-02T17:00:00</Finish>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>1</OutlineNumber>
+    </Task>
+
+    <!-- Task B: overlaps with A (also starts on day 1) -->
+    <Task>
+      <UID>2</UID>
+      <Name>Concurrent Task B</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-03-01T08:00:00</Start>
+      <Finish>2026-03-01T17:00:00</Finish>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>2</OutlineNumber>
+    </Task>
+
+    <!-- Task C: sequential, follows A -->
+    <Task>
+      <UID>3</UID>
+      <Name>Sequential Task C</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-03-03T08:00:00</Start>
+      <Finish>2026-03-03T17:00:00</Finish>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>3</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>1</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+  </Tasks>
+
+  <Resources>
+    <!-- Alice: full-time capacity (MaxUnits=1.0) -->
+    <Resource>
+      <UID>1</UID>
+      <Name>Alice Overloaded</Name>
+      <MaxUnits>1.0</MaxUnits>
+    </Resource>
+    <!-- Bob: part-time (MaxUnits=0.5) -->
+    <Resource>
+      <UID>2</UID>
+      <Name>Bob Part-Time</Name>
+      <MaxUnits>0.5</MaxUnits>
+    </Resource>
+  </Resources>
+
+  <Assignments>
+    <!-- Alice assigned 80% to Task A AND 50% to Task B = 130% total on day 1 (overallocated) -->
+    <Assignment>
+      <UID>1</UID>
+      <TaskUID>1</TaskUID>
+      <ResourceUID>1</ResourceUID>
+      <Units>0.8</Units>
+    </Assignment>
+    <Assignment>
+      <UID>2</UID>
+      <TaskUID>2</TaskUID>
+      <ResourceUID>1</ResourceUID>
+      <Units>0.5</Units>
+    </Assignment>
+    <!-- Bob assigned 50% to Task C (within his capacity) -->
+    <Assignment>
+      <UID>3</UID>
+      <TaskUID>3</TaskUID>
+      <ResourceUID>2</ResourceUID>
+      <Units>0.5</Units>
+    </Assignment>
+  </Assignments>
+</Project>

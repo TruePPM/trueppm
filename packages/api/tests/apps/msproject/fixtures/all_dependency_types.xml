@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <!-- All-dependency-types fixture: all four link types plus positive and negative lag.
+       Purpose: FS / SS / FF / SF mapping and lag sign handling. -->
+  <Name>All Dependency Types</Name>
+  <StartDate>2026-03-01T08:00:00</StartDate>
+
+  <Tasks>
+    <Task>
+      <UID>0</UID>
+      <Name>All Dependency Types</Name>
+      <Duration>PT72H0M0S</Duration>
+      <OutlineLevel>0</OutlineLevel>
+    </Task>
+
+    <!-- Task A — no predecessors; everything else chains off this -->
+    <Task>
+      <UID>1</UID>
+      <Name>Task A — Start</Name>
+      <Duration>PT16H0M0S</Duration>
+      <Start>2026-03-01T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>1</OutlineNumber>
+    </Task>
+
+    <!-- Task B — Finish-to-Start (Type=1) with 2-day positive lag -->
+    <Task>
+      <UID>2</UID>
+      <Name>Task B — FS +2d lag</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-03-05T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>2</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>1</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>9600</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <!-- Task C — Start-to-Start (Type=3) with 0 lag -->
+    <Task>
+      <UID>3</UID>
+      <Name>Task C — SS 0 lag</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-03-01T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>3</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>1</PredecessorUID>
+        <Type>3</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <!-- Task D — Finish-to-Finish (Type=0) with 1-day lag -->
+    <Task>
+      <UID>4</UID>
+      <Name>Task D — FF +1d lag</Name>
+      <Duration>PT16H0M0S</Duration>
+      <Start>2026-03-03T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>4</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>1</PredecessorUID>
+        <Type>0</Type>
+        <LinkLag>4800</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <!-- Task E — Start-to-Finish (Type=2) with 0 lag (rare but valid) -->
+    <Task>
+      <UID>5</UID>
+      <Name>Task E — SF 0 lag</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-03-01T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>5</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>1</PredecessorUID>
+        <Type>2</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <!-- Task F — Two predecessors: FS from A + SS from C -->
+    <Task>
+      <UID>6</UID>
+      <Name>Task F — multi-predecessor</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-03-08T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>6</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>2</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+      <PredecessorLink>
+        <PredecessorUID>3</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+  </Tasks>
+
+  <Resources />
+  <Assignments />
+</Project>

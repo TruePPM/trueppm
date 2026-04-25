@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <!-- Deep WBS fixture: 4+ levels of summary-task nesting.
+       Purpose: outline level parsing and parent/child roll-up at depth. -->
+  <Name>Deep WBS Project</Name>
+  <StartDate>2026-02-01T08:00:00</StartDate>
+
+  <Tasks>
+    <Task>
+      <UID>0</UID>
+      <Name>Deep WBS Project</Name>
+      <Duration>PT80H0M0S</Duration>
+      <OutlineLevel>0</OutlineLevel>
+    </Task>
+
+    <!-- Level 1: Phase A -->
+    <Task>
+      <UID>1</UID>
+      <Name>Phase A</Name>
+      <Duration>PT80H0M0S</Duration>
+      <Start>2026-02-01T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>1</OutlineNumber>
+      <Summary>1</Summary>
+    </Task>
+
+    <!-- Level 2: Sub-phase A.1 -->
+    <Task>
+      <UID>2</UID>
+      <Name>Sub-phase A.1</Name>
+      <Duration>PT40H0M0S</Duration>
+      <Start>2026-02-01T08:00:00</Start>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>1.1</OutlineNumber>
+      <Summary>1</Summary>
+    </Task>
+
+    <!-- Level 3: Group A.1.1 -->
+    <Task>
+      <UID>3</UID>
+      <Name>Group A.1.1</Name>
+      <Duration>PT16H0M0S</Duration>
+      <Start>2026-02-01T08:00:00</Start>
+      <OutlineLevel>3</OutlineLevel>
+      <OutlineNumber>1.1.1</OutlineNumber>
+      <Summary>1</Summary>
+    </Task>
+
+    <!-- Level 4: Leaf tasks at maximum depth -->
+    <Task>
+      <UID>4</UID>
+      <Name>Deep Leaf A.1.1.1</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-02-01T08:00:00</Start>
+      <OutlineLevel>4</OutlineLevel>
+      <OutlineNumber>1.1.1.1</OutlineNumber>
+    </Task>
+
+    <Task>
+      <UID>5</UID>
+      <Name>Deep Leaf A.1.1.2</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-02-02T08:00:00</Start>
+      <OutlineLevel>4</OutlineLevel>
+      <OutlineNumber>1.1.1.2</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>4</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <!-- Level 3: Group A.1.2 (sibling) -->
+    <Task>
+      <UID>6</UID>
+      <Name>Group A.1.2</Name>
+      <Duration>PT24H0M0S</Duration>
+      <Start>2026-02-03T08:00:00</Start>
+      <OutlineLevel>3</OutlineLevel>
+      <OutlineNumber>1.1.2</OutlineNumber>
+      <Summary>1</Summary>
+    </Task>
+
+    <Task>
+      <UID>7</UID>
+      <Name>Deep Leaf A.1.2.1</Name>
+      <Duration>PT16H0M0S</Duration>
+      <Start>2026-02-03T08:00:00</Start>
+      <OutlineLevel>4</OutlineLevel>
+      <OutlineNumber>1.1.2.1</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>5</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <Task>
+      <UID>8</UID>
+      <Name>Deep Leaf A.1.2.2</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-02-05T08:00:00</Start>
+      <OutlineLevel>4</OutlineLevel>
+      <OutlineNumber>1.1.2.2</OutlineNumber>
+    </Task>
+
+    <!-- Level 2: Sub-phase A.2 -->
+    <Task>
+      <UID>9</UID>
+      <Name>Sub-phase A.2</Name>
+      <Duration>PT40H0M0S</Duration>
+      <Start>2026-02-06T08:00:00</Start>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>1.2</OutlineNumber>
+      <Summary>1</Summary>
+    </Task>
+
+    <Task>
+      <UID>10</UID>
+      <Name>Leaf A.2.1</Name>
+      <Duration>PT16H0M0S</Duration>
+      <Start>2026-02-06T08:00:00</Start>
+      <OutlineLevel>3</OutlineLevel>
+      <OutlineNumber>1.2.1</OutlineNumber>
+    </Task>
+
+    <!-- Level 1: Phase B (sibling of Phase A) -->
+    <Task>
+      <UID>11</UID>
+      <Name>Phase B</Name>
+      <Duration>PT16H0M0S</Duration>
+      <Start>2026-02-10T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>2</OutlineNumber>
+      <Summary>1</Summary>
+    </Task>
+
+    <Task>
+      <UID>12</UID>
+      <Name>Leaf B.1</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-02-10T08:00:00</Start>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>2.1</OutlineNumber>
+    </Task>
+
+    <Task>
+      <UID>13</UID>
+      <Name>Leaf B.2</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-02-11T08:00:00</Start>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>2.2</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>12</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+  </Tasks>
+
+  <Resources />
+  <Assignments />
+</Project>

@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <!-- Calendar-exceptions fixture: non-standard working hours and holiday exceptions.
+       Purpose: verify that the Calendars section and CalendarUID references are
+       silently ignored while tasks/deps/resources still parse correctly. -->
+  <Name>Custom Calendar Project</Name>
+  <StartDate>2026-03-01T08:00:00</StartDate>
+
+  <!-- Full calendar block with non-standard hours and exceptions — all ignored by parser -->
+  <Calendars>
+    <Calendar>
+      <UID>1</UID>
+      <Name>Company Calendar</Name>
+      <IsBaseCalendar>1</IsBaseCalendar>
+      <BaseCalendarUID>-1</BaseCalendarUID>
+      <WeekDays>
+        <!-- Monday: 07:30–17:00 (7.5h working day) -->
+        <WeekDay>
+          <DayType>2</DayType>
+          <DayWorking>1</DayWorking>
+          <WorkingTimes>
+            <WorkingTime>
+              <FromTime>07:30:00</FromTime>
+              <ToTime>12:00:00</ToTime>
+            </WorkingTime>
+            <WorkingTime>
+              <FromTime>13:00:00</FromTime>
+              <ToTime>17:00:00</ToTime>
+            </WorkingTime>
+          </WorkingTimes>
+        </WeekDay>
+        <!-- Saturday: non-working -->
+        <WeekDay>
+          <DayType>7</DayType>
+          <DayWorking>0</DayWorking>
+        </WeekDay>
+        <!-- Sunday: non-working -->
+        <WeekDay>
+          <DayType>1</DayType>
+          <DayWorking>0</DayWorking>
+        </WeekDay>
+      </WeekDays>
+      <Exceptions>
+        <!-- Good Friday 2026 — company holiday -->
+        <Exception>
+          <EnteredStartDate>2026-04-03T00:00:00</EnteredStartDate>
+          <EnteredFinishDate>2026-04-03T23:59:00</EnteredFinishDate>
+          <ExceptionType>3</ExceptionType>
+          <DayWorking>0</DayWorking>
+          <Name>Good Friday</Name>
+        </Exception>
+        <!-- Easter Monday 2026 -->
+        <Exception>
+          <EnteredStartDate>2026-04-06T00:00:00</EnteredStartDate>
+          <EnteredFinishDate>2026-04-06T23:59:00</EnteredFinishDate>
+          <ExceptionType>3</ExceptionType>
+          <DayWorking>0</DayWorking>
+          <Name>Easter Monday</Name>
+        </Exception>
+      </Exceptions>
+    </Calendar>
+  </Calendars>
+
+  <Tasks>
+    <Task>
+      <UID>0</UID>
+      <Name>Custom Calendar Project</Name>
+      <Duration>PT24H0M0S</Duration>
+      <OutlineLevel>0</OutlineLevel>
+      <!-- Tasks reference the custom calendar — ignored by parser -->
+      <CalendarUID>1</CalendarUID>
+    </Task>
+
+    <Task>
+      <UID>1</UID>
+      <Name>Pre-Easter Task</Name>
+      <Duration>PT16H0M0S</Duration>
+      <Start>2026-03-30T07:30:00</Start>
+      <Finish>2026-04-01T17:00:00</Finish>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>1</OutlineNumber>
+      <CalendarUID>1</CalendarUID>
+    </Task>
+
+    <Task>
+      <UID>2</UID>
+      <Name>Post-Easter Task</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-04-07T07:30:00</Start>
+      <Finish>2026-04-07T17:00:00</Finish>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>2</OutlineNumber>
+      <CalendarUID>1</CalendarUID>
+      <PredecessorLink>
+        <PredecessorUID>1</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <Task>
+      <UID>3</UID>
+      <Name>Follow-up Task</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-04-08T07:30:00</Start>
+      <Finish>2026-04-08T17:00:00</Finish>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>3</OutlineNumber>
+      <CalendarUID>1</CalendarUID>
+    </Task>
+  </Tasks>
+
+  <Resources>
+    <Resource>
+      <UID>1</UID>
+      <Name>Calendar-Aware Resource</Name>
+      <MaxUnits>1.0</MaxUnits>
+      <CalendarUID>1</CalendarUID>
+    </Resource>
+  </Resources>
+
+  <Assignments>
+    <Assignment>
+      <UID>1</UID>
+      <TaskUID>1</TaskUID>
+      <ResourceUID>1</ResourceUID>
+      <Units>1.0</Units>
+    </Assignment>
+  </Assignments>
+</Project>

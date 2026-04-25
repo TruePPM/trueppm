@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <!-- Minimal fixture: one task, no dependencies, no resources.
+       Purpose: regression baseline — the smallest valid import. -->
+  <Name>Minimal Project</Name>
+  <StartDate>2026-03-01T08:00:00</StartDate>
+
+  <Tasks>
+    <Task>
+      <UID>0</UID>
+      <Name>Minimal Project</Name>
+      <Duration>PT8H0M0S</Duration>
+      <OutlineLevel>0</OutlineLevel>
+      <OutlineNumber></OutlineNumber>
+    </Task>
+    <Task>
+      <UID>1</UID>
+      <Name>Single Task</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-03-01T08:00:00</Start>
+      <Finish>2026-03-01T17:00:00</Finish>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>1</OutlineNumber>
+      <PercentComplete>0</PercentComplete>
+    </Task>
+  </Tasks>
+
+  <Resources />
+  <Assignments />
+</Project>
