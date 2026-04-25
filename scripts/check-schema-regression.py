@@ -26,7 +26,9 @@ def main() -> int:
     candidate = load(sys.argv[1])
     baseline = load(sys.argv[2])
 
-    removed_paths = sorted(set(baseline.get("paths", {})) - set(candidate.get("paths", {})))
+    removed_paths = sorted(
+        set(baseline.get("paths", {})) - set(candidate.get("paths", {}))
+    )
     removed_schemas = sorted(
         set(baseline.get("components", {}).get("schemas", {}))
         - set(candidate.get("components", {}).get("schemas", {}))

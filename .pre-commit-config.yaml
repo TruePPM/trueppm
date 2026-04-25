@@ -13,6 +13,7 @@ repos:
       - id: mypy
         additional_dependencies: [networkx-stubs, numpy]
         args: [--config-file=packages/scheduler/pyproject.toml]
+        files: ^packages/scheduler/
   # Pre-push gate — runs the same checks that gate the CI pipeline so we catch
   # missing migrations, stale openapi.json, and ruff-format drift before they
   # reach GitLab. Requires `make up` (the migration check needs a live DB).
