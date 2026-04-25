@@ -14,6 +14,8 @@ from trueppm_api.apps.projects.models import (
     Calendar,
     CalendarException,
     Dependency,
+    EstimateStatus,
+    EstimationMode,
     Project,
     Risk,
     Task,
@@ -58,6 +60,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
     calendar is optional on create — the API will use the board's default
     calendar when omitted.
+
+    estimation_mode controls who may write three-point estimates on tasks.
+    Defaults to 'open'; writable by IsProjectScheduler+ only (enforced in
+    ProjectViewSet.update via permission check on the field).
     """
 
     class Meta:
@@ -69,6 +75,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "description",
             "start_date",
             "calendar",
+            "estimation_mode",
         ]
         read_only_fields = ["id", "server_version"]
 
@@ -137,6 +144,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "optimistic_duration",
             "most_likely_duration",
             "pessimistic_duration",
+            "estimate_status",
             "baseline_start",
             "baseline_finish",
             "schedule_variance_days",
@@ -189,9 +197,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         return data
 
     def update(self, instance: Task, validated_data: dict[str, Any]) -> Task:
-        """Auto-set actual dates on status transitions.
+        """Auto-set actual dates on status transitions and enforce estimate governance.
 
-        Rules:
+        Status transition rules:
         - Any → IN_PROGRESS: set actual_start = today if currently null
         - Any → COMPLETE: set actual_finish = today; also set actual_start if null
         - COMPLETE → reopened (any non-COMPLETE status): clear actual_finish
@@ -201,6 +209,14 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         max(planned_start, early_start) logic doesn't snap the Gantt bar back
         to the pre-drag CPM value before the next CPM run completes.
         CPM will re-compute early_start correctly once it runs.
+
+        Estimate governance:
+        - If any PERT field is being written and the project is in SUGGEST_APPROVE
+          mode, set estimate_status=pending (unless the caller is Scheduler+ — that
+          is enforced upstream in the view by calling approve_estimates() instead).
+        - In OPEN or PM_ONLY modes estimate_status is left null (not tracked).
+        - estimate_status is never set by this method to 'accepted' — that path goes
+          through the dedicated approve-estimates action on TaskViewSet.
         """
         if (
             "planned_start" in validated_data
@@ -229,6 +245,18 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     validated_data["actual_finish"] = today
                 if "actual_start" not in validated_data and not instance.actual_start:
                     validated_data["actual_start"] = today
+
+        # Estimate governance: mark as pending when PERT fields are written in
+        # suggest_approve mode. Caller must not pass estimate_status directly;
+        # the approve-estimates action is the only path to 'accepted'.
+        _pert_fields = {"optimistic_duration", "most_likely_duration", "pessimistic_duration"}
+        if _pert_fields & set(validated_data):
+            project = instance.project
+            if project.estimation_mode == EstimationMode.SUGGEST_APPROVE:
+                validated_data["estimate_status"] = EstimateStatus.PENDING
+            else:
+                # OPEN or PM_ONLY: clear status tracking — not applicable.
+                validated_data["estimate_status"] = None
 
         return super().update(instance, validated_data)
 

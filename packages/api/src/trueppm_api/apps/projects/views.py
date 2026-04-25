@@ -46,6 +46,8 @@ from trueppm_api.apps.projects.models import (
     BoardColumnConfig,
     Calendar,
     Dependency,
+    EstimateStatus,
+    EstimationMode,
     Project,
     Risk,
     Task,
@@ -389,6 +391,8 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             return [IsAuthenticated(), IsProjectMemberWriteOrOwn()]
         if self.action == "create":
             return [IsAuthenticated(), IsProjectMemberWrite()]
+        if self.action == "approve_estimates":
+            return [IsAuthenticated(), IsProjectScheduler()]
         return [IsAuthenticated(), IsProjectMember()]
 
     serializer_class = TaskSerializer
@@ -540,6 +544,49 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 project_id, "task.deleted", {"id": task_id, "project": project_id}
             )
         )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="approve-estimates",
+        permission_classes=[IsAuthenticated, IsProjectScheduler],
+    )
+    def approve_estimates(self, request: Request, **kwargs: Any) -> Response:
+        """Accept pending three-point estimates on a task.
+
+        Only meaningful when the project's estimation_mode is SUGGEST_APPROVE.
+        Returns 400 for other modes. Idempotent — calling on an already-accepted
+        task is a no-op (200, no DB write, no broadcast).
+
+        Permission: IsProjectScheduler+ (Resource Manager and above).
+        """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        task: Task = self.get_object()
+        project: Project = task.project
+
+        if project.estimation_mode != EstimationMode.SUGGEST_APPROVE:
+            return Response(
+                {"detail": "approve-estimates is only available when estimation_mode is suggest_approve."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Idempotent: already accepted — no write, no broadcast.
+        if task.estimate_status == EstimateStatus.ACCEPTED:
+            serializer = self.get_serializer(task)
+            return Response(serializer.data)
+
+        task.estimate_status = EstimateStatus.ACCEPTED
+        task.save(update_fields=["estimate_status"])
+
+        project_id = str(task.project_id)
+        task_id = str(task.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
+        )
+
+        serializer = self.get_serializer(task)
+        return Response(serializer.data)
 
 
 class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
@@ -1851,4 +1898,158 @@ class ProjectMyTasksView(APIView):
                 ]
             },
             status=status.HTTP_200_OK,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Task detail drawer — history and baseline endpoints (ADR-0032)
+# ---------------------------------------------------------------------------
+
+# Fields exposed in the history diff — CPM outputs and sync internals excluded.
+_HISTORY_DIFF_FIELDS = [
+    "name",
+    "duration",
+    "status",
+    "percent_complete",
+    "planned_start",
+    "actual_start",
+    "actual_finish",
+    "optimistic_duration",
+    "most_likely_duration",
+    "pessimistic_duration",
+    "estimate_status",
+]
+
+
+class TaskHistoryView(APIView):
+    """Paginated field-level diff history for a single task.
+
+    Returns HistoricalTask records in descending date order, each with a diff
+    list comparing it to the immediately preceding version.  The first record
+    (task creation) always has an empty diff — no previous version to compare.
+
+    Accessible to all project members (Viewer+).  history_user is the username
+    of the user who made the change; null for programmatic writes.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def get(self, request: Request, project_pk: str, task_pk: str) -> Response:
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        if not IsProjectMember().has_object_permission(request, self, project):  # type: ignore[arg-type]
+            return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+
+        task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
+
+        records = list(
+            task.history.order_by("-history_date").select_related("history_user")
+        )
+
+        result = []
+        for i, record in enumerate(records):
+            older = records[i + 1] if i + 1 < len(records) else None
+            diff = []
+            if older is not None:
+                for field in _HISTORY_DIFF_FIELDS:
+                    new_val = getattr(record, field, None)
+                    old_val = getattr(older, field, None)
+                    if new_val != old_val:
+                        diff.append(
+                            {
+                                "field": field,
+                                "old": str(old_val) if old_val is not None else None,
+                                "new": str(new_val) if new_val is not None else None,
+                            }
+                        )
+
+            result.append(
+                {
+                    "id": record.history_id,
+                    "history_date": record.history_date.isoformat(),
+                    "history_type": record.history_type,
+                    "history_user": (
+                        record.history_user.username if record.history_user else None
+                    ),
+                    "diff": diff,
+                }
+            )
+
+        from rest_framework.pagination import PageNumberPagination
+
+        paginator = PageNumberPagination()
+        paginator.page_size = 20
+        page = paginator.paginate_queryset(result, request)
+        return paginator.get_paginated_response(page)
+
+
+class TaskBaselineDetailView(APIView):
+    """Active-baseline comparison for a single task.
+
+    Returns the task's current schedule dates alongside the baseline snapshot,
+    plus signed delta values (positive = slipping behind plan).
+
+    Response flags:
+      has_baseline=False — the project has no active baseline yet
+      in_baseline=False  — the task was added after the baseline was taken
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def get(self, request: Request, project_pk: str, task_pk: str) -> Response:
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        if not IsProjectMember().has_object_permission(request, self, project):  # type: ignore[arg-type]
+            return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
+
+        task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
+
+        try:
+            baseline = Baseline.objects.get(project_id=project_pk, is_active=True, is_deleted=False)
+        except Baseline.DoesNotExist:
+            return Response({"has_baseline": False})
+
+        try:
+            bt = BaselineTask.objects.get(baseline=baseline, task_id=task.pk)
+        except BaselineTask.DoesNotExist:
+            return Response(
+                {
+                    "has_baseline": True,
+                    "in_baseline": False,
+                    "baseline_name": baseline.name,
+                    "baseline_taken_at": baseline.created_at.isoformat(),
+                }
+            )
+
+        def _day_delta(
+            current: datetime.date | None,
+            planned: datetime.date | None,
+        ) -> int | None:
+            if current is None or planned is None:
+                return None
+            return (current - planned).days
+
+        return Response(
+            {
+                "has_baseline": True,
+                "in_baseline": True,
+                "baseline_name": baseline.name,
+                "baseline_taken_at": baseline.created_at.isoformat(),
+                "has_cpm_dates": baseline.has_cpm_dates,
+                "planned_start": bt.start.isoformat() if bt.start else None,
+                "planned_finish": bt.finish.isoformat() if bt.finish else None,
+                "planned_duration": bt.duration,
+                "planned_actual_start": bt.actual_start.isoformat() if bt.actual_start else None,
+                "planned_actual_finish": bt.actual_finish.isoformat() if bt.actual_finish else None,
+                "current_start": task.early_start.isoformat() if task.early_start else None,
+                "current_finish": task.early_finish.isoformat() if task.early_finish else None,
+                "current_duration": task.duration,
+                "current_actual_start": (
+                    task.actual_start.isoformat() if task.actual_start else None
+                ),
+                "current_actual_finish": (
+                    task.actual_finish.isoformat() if task.actual_finish else None
+                ),
+                "start_delta_days": _day_delta(task.early_start, bt.start),
+                "finish_delta_days": _day_delta(task.early_finish, bt.finish),
+                "duration_delta": task.duration - bt.duration,
+            }
         )

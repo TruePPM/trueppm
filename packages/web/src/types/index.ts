@@ -52,7 +52,16 @@ export interface Task {
    * the board. Lower number = higher priority. Absent until API is wired (issue #130).
    */
   priorityRank?: number;
+  /** Three-point PERT estimate fields (issue #141). All three must be set for MC. */
+  optimisticDuration?: number | null;
+  mostLikelyDuration?: number | null;
+  pessimisticDuration?: number | null;
+  /** Approval state in suggest_approve mode; null in open/pm_only modes. */
+  estimateStatus?: 'pending' | 'accepted' | null;
 }
+
+/** Estimation governance mode on Project (issue #141 / ADR-0032). */
+export type EstimationMode = 'open' | 'suggest_approve' | 'pm_only';
 
 export interface TaskAssignment {
   id: string;

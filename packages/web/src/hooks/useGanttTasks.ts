@@ -30,6 +30,10 @@ interface ApiTask {
   schedule_variance_days: number | null;
   baseline_start: string | null;
   baseline_finish: string | null;
+  optimistic_duration: number | null;
+  most_likely_duration: number | null;
+  pessimistic_duration: number | null;
+  estimate_status: 'pending' | 'accepted' | null;
   assignments?: Array<{
     resource_id: string;
     resource_name: string;
@@ -93,6 +97,10 @@ function mapTask(t: ApiTask): Task {
         units: a.units,
       }),
     ),
+    optimisticDuration: t.optimistic_duration,
+    mostLikelyDuration: t.most_likely_duration,
+    pessimisticDuration: t.pessimistic_duration,
+    estimateStatus: t.estimate_status,
   };
 }
 

@@ -170,6 +170,24 @@ class CalendarException(models.Model):
 # ---------------------------------------------------------------------------
 
 
+class EstimationMode(models.TextChoices):
+    """Controls who may write three-point estimates on tasks within a project.
+
+    OPEN (default): any Contributor or above may edit estimate fields directly.
+    SUGGEST_APPROVE: Contributors submit suggestions (estimate_status=pending);
+        a Scheduler-role user must approve before estimates feed Monte Carlo.
+    PM_ONLY: only Scheduler-role users may write estimate fields; Contributors
+        see read-only values.
+
+    Program/portfolio-level policy defaults for this setting are an Enterprise
+    concern; the project-level field is the authoritative OSS control.
+    """
+
+    OPEN = "open", "Open"
+    SUGGEST_APPROVE = "suggest_approve", "Suggest & Approve"
+    PM_ONLY = "pm_only", "PM Only"
+
+
 class Project(VersionedModel):
     """A project — the top-level container for tasks and scheduling."""
 
@@ -188,6 +206,12 @@ class Project(VersionedModel):
     # Tasks and Risks share the same counter so that short_id is unique across
     # entity types within a project (no "task #3 vs risk #3" ambiguity).
     object_sequence = models.BigIntegerField(default=0, editable=False)
+    # Governance mode for three-point estimates — see EstimationMode docstring.
+    estimation_mode = models.CharField(
+        max_length=16,
+        choices=EstimationMode.choices,
+        default=EstimationMode.OPEN,
+    )
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
 
@@ -209,6 +233,21 @@ DEPENDENCY_TYPE_CHOICES = [
     ("FF", "Finish-to-Finish"),
     ("SF", "Start-to-Finish"),
 ]
+
+
+class EstimateStatus(models.TextChoices):
+    """Approval state for three-point estimates on a task.
+
+    Only meaningful when the project's estimation_mode is SUGGEST_APPROVE.
+    PENDING: a Contributor has submitted values; awaiting Scheduler approval.
+    ACCEPTED: estimates are approved and eligible for Monte Carlo sampling.
+
+    In OPEN mode this field is always null (not tracked).
+    In PM_ONLY mode writes come from Scheduler+ directly and are always ACCEPTED.
+    """
+
+    PENDING = "pending", "Pending Approval"
+    ACCEPTED = "accepted", "Accepted"
 
 
 class TaskStatus(models.TextChoices):
@@ -303,10 +342,20 @@ class Task(VersionedModel):
     actual_start = models.DateField(null=True, blank=True, db_index=True)
     actual_finish = models.DateField(null=True, blank=True, db_index=True)
 
-    # Three-point PERT estimates (optional; used by Monte Carlo if present)
+    # Three-point PERT estimates (optional; used by Monte Carlo if present).
+    # All three must be set for the scheduler to use them (all-or-none rule).
+    # estimate_status governs approval when project.estimation_mode=SUGGEST_APPROVE.
     optimistic_duration = models.IntegerField(null=True, blank=True)
     most_likely_duration = models.IntegerField(null=True, blank=True)
     pessimistic_duration = models.IntegerField(null=True, blank=True)
+    estimate_status = models.CharField(
+        max_length=12,
+        choices=EstimateStatus.choices,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Approval state for three-point estimates (suggest_approve mode only).",
+    )
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_TASK)
 

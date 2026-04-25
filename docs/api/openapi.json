@@ -2999,10 +2999,50 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/baseline/": {
+            "get": {
+                "operationId": "v1_projects_tasks_baseline_retrieve",
+                "description": "Active-baseline comparison for a single task.\n\nReturns the task's current schedule dates alongside the baseline snapshot,\nplus signed delta values (positive = slipping behind plan).\n\nResponse flags:\n  has_baseline=False — the project has no active baseline yet\n  in_baseline=False  — the task was added after the baseline was taken",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/history/": {
             "get": {
                 "operationId": "v1_projects_tasks_history_retrieve",
-                "description": "Paginated change history for a single task.\n\nGET /api/v1/projects/{project_pk}/tasks/{task_pk}/history/\n\nPermissions: any project member (Viewer+) may read. history_user details\nare visible only to Owner/Admin (role >= 3); lower-privilege callers\nreceive null for that field.",
+                "description": "Paginated field-level diff history for a single task.\n\nReturns HistoricalTask records in descending date order, each with a diff\nlist comparing it to the immediately preceding version.  The first record\n(task creation) always has an empty diff — no previous version to compare.\n\nAccessible to all project members (Viewer+).  history_user is the username\nof the user who made the change; null for programmatic writes.",
                 "parameters": [
                     {
                         "in": "path",
@@ -4493,6 +4533,67 @@
                     }
                 }
             }
+        },
+        "/api/v1/tasks/{id}/approve-estimates/": {
+            "post": {
+                "operationId": "v1_tasks_approve_estimates_create",
+                "description": "Accept pending three-point estimates on a task.\n\nOnly meaningful when the project's estimation_mode is SUGGEST_APPROVE.\nReturns 400 for other modes. Idempotent — calling on an already-accepted\ntask is a no-op (200, no DB write, no broadcast).\n\nPermission: IsProjectScheduler+ (Resource Manager and above).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
         }
     },
     "components": {
@@ -4668,6 +4769,11 @@
                     "start",
                     "task_id",
                     "task_name"
+                ]
+            },
+            "BlankEnum": {
+                "enum": [
+                    ""
                 ]
             },
             "Calendar": {
@@ -4875,6 +4981,23 @@
                     "successor"
                 ]
             },
+            "EstimateStatusEnum": {
+                "enum": [
+                    "pending",
+                    "accepted"
+                ],
+                "type": "string",
+                "description": "* `pending` - Pending Approval\n* `accepted` - Accepted"
+            },
+            "EstimationModeEnum": {
+                "enum": [
+                    "open",
+                    "suggest_approve",
+                    "pm_only"
+                ],
+                "type": "string",
+                "description": "* `open` - Open\n* `suggest_approve` - Suggest & Approve\n* `pm_only` - PM Only"
+            },
             "EventsEnum": {
                 "enum": [
                     "task.created",
@@ -4970,6 +5093,11 @@
                 ],
                 "type": "string",
                 "description": "* `pending_retry` - Pending Retry\n* `dead` - Dead\n* `dismissed` - Dismissed\n* `retried` - Retried"
+            },
+            "NullEnum": {
+                "enum": [
+                    null
+                ]
             },
             "PaginatedBaselineList": {
                 "type": "object",
@@ -5448,7 +5576,7 @@
             },
             "PatchedProjectRequest": {
                 "type": "object",
-                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -5466,6 +5594,9 @@
                         "type": "string",
                         "format": "uuid",
                         "nullable": true
+                    },
+                    "estimation_mode": {
+                        "$ref": "#/components/schemas/EstimationModeEnum"
                     }
                 }
             },
@@ -5606,6 +5737,21 @@
                         "maximum": 2147483647,
                         "minimum": -2147483648,
                         "nullable": true
+                    },
+                    "estimate_status": {
+                        "nullable": true,
+                        "description": "Approval state for three-point estimates (suggest_approve mode only).\n\n* `pending` - Pending Approval\n* `accepted` - Accepted",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimateStatusEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     }
                 }
             },
@@ -5657,7 +5803,7 @@
             },
             "Project": {
                 "type": "object",
-                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -5683,6 +5829,9 @@
                         "type": "string",
                         "format": "uuid",
                         "nullable": true
+                    },
+                    "estimation_mode": {
+                        "$ref": "#/components/schemas/EstimationModeEnum"
                     }
                 },
                 "required": [
@@ -5792,7 +5941,7 @@
             },
             "ProjectRequest": {
                 "type": "object",
-                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -5810,6 +5959,9 @@
                         "type": "string",
                         "format": "uuid",
                         "nullable": true
+                    },
+                    "estimation_mode": {
+                        "$ref": "#/components/schemas/EstimationModeEnum"
                     }
                 },
                 "required": [
@@ -6266,6 +6418,21 @@
                         "minimum": -2147483648,
                         "nullable": true
                     },
+                    "estimate_status": {
+                        "nullable": true,
+                        "description": "Approval state for three-point estimates (suggest_approve mode only).\n\n* `pending` - Pending Approval\n* `accepted` - Accepted",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimateStatusEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
                     "baseline_start": {
                         "type": "string",
                         "format": "date",
@@ -6423,6 +6590,21 @@
                         "maximum": 2147483647,
                         "minimum": -2147483648,
                         "nullable": true
+                    },
+                    "estimate_status": {
+                        "nullable": true,
+                        "description": "Approval state for three-point estimates (suggest_approve mode only).\n\n* `pending` - Pending Approval\n* `accepted` - Accepted",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/EstimateStatusEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     }
                 },
                 "required": [

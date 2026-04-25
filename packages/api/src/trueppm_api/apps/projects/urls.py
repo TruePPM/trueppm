@@ -17,7 +17,9 @@ from trueppm_api.apps.projects.views import (
     ProjectPresenceView,
     ProjectViewSet,
     RiskViewSet,
+    TaskBaselineDetailView,
     TaskBulkView,
+    TaskHistoryView,
     TaskIndentView,
     TaskOutdentView,
     TaskReorderView,
@@ -101,6 +103,17 @@ urlpatterns = [
         "projects/<pk>/my-tasks/",
         ProjectMyTasksView.as_view(),
         name="project-my-tasks",
+    ),
+    # Task drawer — history and baseline (ADR-0032)
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/history/",
+        TaskHistoryView.as_view(),
+        name="project-task-history",
+    ),
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/baseline/",
+        TaskBaselineDetailView.as_view(),
+        name="project-task-baseline",
     ),
     # Risk endpoints — nested under /projects/<project_pk>/risks/
     path(
