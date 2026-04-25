@@ -2,7 +2,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
-import { createElement, act } from 'react';
+import { createElement } from 'react';
 import { useApproveEstimates } from './useApproveEstimates';
 
 const postMock = vi.hoisted(() =>
@@ -32,9 +32,7 @@ describe('useApproveEstimates', () => {
       { wrapper: makeWrapper(qc) },
     );
 
-    await act(async () => {
-      result.current.mutate('task-abc');
-    });
+    result.current.mutate('task-abc');
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
@@ -49,9 +47,7 @@ describe('useApproveEstimates', () => {
       { wrapper: makeWrapper(qc) },
     );
 
-    await act(async () => {
-      result.current.mutate('task-abc');
-    });
+    result.current.mutate('task-abc');
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });

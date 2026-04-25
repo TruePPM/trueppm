@@ -566,10 +566,10 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         project: Project = task.project
 
         if project.estimation_mode != EstimationMode.SUGGEST_APPROVE:
-            return Response(
-                {"detail": "approve-estimates is only available when estimation_mode is suggest_approve."},
-                status=status.HTTP_400_BAD_REQUEST,
+            detail = (
+                "approve-estimates is only available when estimation_mode is suggest_approve."
             )
+            return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
 
         # Idempotent: already accepted — no write, no broadcast.
         if task.estimate_status == EstimateStatus.ACCEPTED:

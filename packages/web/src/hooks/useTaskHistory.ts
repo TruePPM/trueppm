@@ -35,6 +35,6 @@ export function useTaskHistory(projectId: string, taskId: string) {
     },
     initialPageParam: 1,
     getNextPageParam: (lastPage, _pages, lastPageParam) =>
-      lastPage.next ? (lastPageParam as number) + 1 : undefined,
+      lastPage.next ? lastPageParam + 1 : undefined,
   });
 }

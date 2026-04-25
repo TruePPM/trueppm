@@ -71,7 +71,7 @@ export function EstimatesTab({
   const p = task.pessimisticDuration;
   const allThreeSet = o != null && m != null && p != null;
   const pertExpected = allThreeSet ? (o + 4 * m + p) / 6 : null;
-  const pertStdDev = allThreeSet ? (p! - o!) / 6 : null;
+  const pertStdDev = allThreeSet ? (p - o) / 6 : null;
 
   // In suggest_approve, accepted estimates are shown in the PERT panel.
   // Pending estimates show the pending banner instead.

@@ -13,21 +13,51 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='historicalproject',
             name='estimation_mode',
-            field=models.CharField(choices=[('open', 'Open'), ('suggest_approve', 'Suggest & Approve'), ('pm_only', 'PM Only')], default='open', max_length=16),
+            field=models.CharField(
+                choices=[
+                    ('open', 'Open'),
+                    ('suggest_approve', 'Suggest & Approve'),
+                    ('pm_only', 'PM Only'),
+                ],
+                default='open',
+                max_length=16,
+            ),
         ),
         migrations.AddField(
             model_name='historicaltask',
             name='estimate_status',
-            field=models.CharField(blank=True, choices=[('pending', 'Pending Approval'), ('accepted', 'Accepted')], db_index=True, help_text='Approval state for three-point estimates (suggest_approve mode only).', max_length=12, null=True),
+            field=models.CharField(
+                blank=True,
+                choices=[('pending', 'Pending Approval'), ('accepted', 'Accepted')],
+                db_index=True,
+                help_text='Approval state for three-point estimates (suggest_approve mode only).',
+                max_length=12,
+                null=True,
+            ),
         ),
         migrations.AddField(
             model_name='project',
             name='estimation_mode',
-            field=models.CharField(choices=[('open', 'Open'), ('suggest_approve', 'Suggest & Approve'), ('pm_only', 'PM Only')], default='open', max_length=16),
+            field=models.CharField(
+                choices=[
+                    ('open', 'Open'),
+                    ('suggest_approve', 'Suggest & Approve'),
+                    ('pm_only', 'PM Only'),
+                ],
+                default='open',
+                max_length=16,
+            ),
         ),
         migrations.AddField(
             model_name='task',
             name='estimate_status',
-            field=models.CharField(blank=True, choices=[('pending', 'Pending Approval'), ('accepted', 'Accepted')], db_index=True, help_text='Approval state for three-point estimates (suggest_approve mode only).', max_length=12, null=True),
+            field=models.CharField(
+                blank=True,
+                choices=[('pending', 'Pending Approval'), ('accepted', 'Accepted')],
+                db_index=True,
+                help_text='Approval state for three-point estimates (suggest_approve mode only).',
+                max_length=12,
+                null=True,
+            ),
         ),
     ]

@@ -348,7 +348,7 @@ class Task(VersionedModel):
     optimistic_duration = models.IntegerField(null=True, blank=True)
     most_likely_duration = models.IntegerField(null=True, blank=True)
     pessimistic_duration = models.IntegerField(null=True, blank=True)
-    estimate_status = models.CharField(
+    estimate_status = models.CharField(  # noqa: DJ001 — null distinguishes "unset" from ""
         max_length=12,
         choices=EstimateStatus.choices,
         null=True,

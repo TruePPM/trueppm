@@ -325,7 +325,7 @@ def test_mc_gate_pending_estimates_treated_as_none(
     suggest_project: Project, sa_scheduler: object
 ) -> None:
     """Pending estimates must not reach the Monte Carlo engine."""
-    task = Task.objects.create(
+    Task.objects.create(
         project=suggest_project,
         name="T",
         duration=5,
@@ -346,7 +346,7 @@ def test_mc_gate_pending_estimates_treated_as_none(
 def test_mc_gate_accepted_estimates_pass_through(
     suggest_project: Project, sa_scheduler: object
 ) -> None:
-    task = Task.objects.create(
+    Task.objects.create(
         project=suggest_project,
         name="T",
         duration=5,
