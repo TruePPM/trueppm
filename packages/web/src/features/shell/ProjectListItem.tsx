@@ -1,4 +1,4 @@
-import { NavLink, useParams } from 'react-router';
+import { NavLink, useLocation, useParams } from 'react-router';
 import type { Project, HealthState } from '@/types';
 
 const HEALTH_LABELS: Record<HealthState, string> = {
@@ -26,11 +26,19 @@ export function ProjectListItem({ project, collapsed }: Props) {
   // Determine active project from URL path param (ADR-0030).
   const { projectId: currentProjectId } = useParams<{ projectId: string }>();
   const isThisProject = currentProjectId === project.id;
+  const location = useLocation();
+
+  // Preserve the active tab when switching projects (#160).
+  // Extract the path suffix after the current project segment (e.g. "/gantt", "/resources/roster").
+  // Fall back to "/overview" when not currently inside a project route.
+  const viewSuffix = currentProjectId
+    ? (location.pathname.replace(`/projects/${currentProjectId}`, '') || '/overview')
+    : '/overview';
 
   return (
     <li>
       <NavLink
-        to={`/projects/${project.id}/overview`}
+        to={`/projects/${project.id}${viewSuffix}`}
         title={collapsed ? project.name : undefined}
         className={() =>
           [
