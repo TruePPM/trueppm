@@ -204,9 +204,9 @@ def test_incremental_write_skips_unaffected_tasks(project: Project) -> None:
         _run_schedule(str(project.pk), changed_task_ids=[str(t1.pk)])
 
     t3.refresh_from_db()
-    assert (
-        t3.early_start == sentinel
-    ), "Incremental recompute must not overwrite t3 (not downstream of t1)"
+    assert t3.early_start == sentinel, (
+        "Incremental recompute must not overwrite t3 (not downstream of t1)"
+    )
 
 
 @pytest.mark.django_db
@@ -382,6 +382,6 @@ def test_incremental_benchmark_500_tasks_5_changes() -> None:
 
     # Shared CI runners are slower than dev machines; allow 3× headroom there.
     budget_ms = 600 if os.getenv("CI") else 200
-    assert (
-        elapsed_ms < budget_ms
-    ), f"Incremental CPM took {elapsed_ms:.1f} ms — exceeds {budget_ms} ms budget"
+    assert elapsed_ms < budget_ms, (
+        f"Incremental CPM took {elapsed_ms:.1f} ms — exceeds {budget_ms} ms budget"
+    )

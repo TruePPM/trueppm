@@ -143,9 +143,9 @@ class TestModelHistory:
             "free_float",
             "is_critical",
         }
-        assert (
-            not excluded & field_names
-        ), f"Excluded fields found in HistoricalTask: {excluded & field_names}"
+        assert not excluded & field_names, (
+            f"Excluded fields found in HistoricalTask: {excluded & field_names}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -311,9 +311,9 @@ class TestTaskHistoryAPI:
         }
         for record in results:
             diff_fields = {d["field"] for d in record["diff"]}
-            assert (
-                not cpm_fields & diff_fields
-            ), f"CPM field(s) {cpm_fields & diff_fields} appeared in diff"
+            assert not cpm_fields & diff_fields, (
+                f"CPM field(s) {cpm_fields & diff_fields} appeared in diff"
+            )
 
 
 # ---------------------------------------------------------------------------
