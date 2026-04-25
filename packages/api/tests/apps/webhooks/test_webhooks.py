@@ -398,9 +398,7 @@ def test_test_ping_broker_unavailable_delivery_stays_pending(
 
 
 @pytest.mark.django_db
-def test_dispatch_webhooks_broker_unavailable_swallowed(
-    project: Project, webhook: Webhook
-) -> None:
+def test_dispatch_webhooks_broker_unavailable_swallowed(project: Project, webhook: Webhook) -> None:
     """Broker failure in dispatch_webhooks is swallowed; delivery row stays PENDING."""
     from trueppm_api.apps.webhooks import tasks as wh_tasks
     from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
