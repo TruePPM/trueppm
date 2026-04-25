@@ -249,8 +249,7 @@ class IsOrgAdmin(BasePermission):
     """
 
     message = (
-        "You need Project Manager role on at least one project to manage "
-        "the resource catalog."
+        "You need Project Manager role on at least one project to manage the resource catalog."
     )
 
     def has_permission(self, request: Request, view: APIView) -> bool:

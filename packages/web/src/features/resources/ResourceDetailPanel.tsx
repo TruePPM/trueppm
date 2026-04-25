@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import type { ReactNode } from 'react';
 import type { OrgResource } from '@/hooks/useResources';
 import {
   useUpdateResource,
@@ -156,7 +157,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
           {skills.length === 0 ? (
             <p className="text-xs text-neutral-text-disabled">No skills tagged.</p>
           ) : (
-            <ul role="list" className="flex flex-wrap gap-1.5">
+            <ul className="flex flex-wrap gap-1.5">
               {skills.map((rs) => (
                 <li key={rs.id} className="flex items-center gap-0.5">
                   <SkillChip name={rs.skill.name} proficiency={rs.proficiency} />
@@ -264,6 +265,11 @@ function CreatePanel({ onCreated, onCancel }: Omit<CreateProps, 'mode'>) {
   const [maxUnits, setMaxUnits] = useState(1.0);
   const [error, setError] = useState<string | null>(null);
   const createMutation = useCreateResource();
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    nameRef.current?.focus();
+  }, []);
 
   function handleCreate() {
     if (!name.trim()) return;
@@ -293,13 +299,13 @@ function CreatePanel({ onCreated, onCancel }: Omit<CreateProps, 'mode'>) {
 
         <Field label="Name" required>
           <input
+            ref={nameRef}
             id="create-resource-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Maria Chen"
             className="w-full h-8 px-2.5 rounded border border-neutral-border text-xs text-neutral-text-primary bg-neutral-surface focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
-            autoFocus
           />
         </Field>
 
@@ -378,7 +384,7 @@ export function ResourceDetailPanel(props: Props) {
 interface FieldProps {
   label: string;
   required?: boolean;
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 function Field({ label, required, children }: FieldProps) {

@@ -48,16 +48,12 @@ def member_user(db: object) -> object:
 
 @pytest.fixture
 def admin_membership(admin_user: object, project: Project) -> ProjectMembership:
-    return ProjectMembership.objects.create(
-        user=admin_user, project=project, role=Role.ADMIN
-    )
+    return ProjectMembership.objects.create(user=admin_user, project=project, role=Role.ADMIN)
 
 
 @pytest.fixture
 def member_membership(member_user: object, project: Project) -> ProjectMembership:
-    return ProjectMembership.objects.create(
-        user=member_user, project=project, role=Role.MEMBER
-    )
+    return ProjectMembership.objects.create(user=member_user, project=project, role=Role.MEMBER)
 
 
 @pytest.fixture
@@ -68,9 +64,7 @@ def admin_client(admin_user: object, admin_membership: ProjectMembership) -> API
 
 
 @pytest.fixture
-def member_client(
-    member_user: object, member_membership: ProjectMembership
-) -> APIClient:
+def member_client(member_user: object, member_membership: ProjectMembership) -> APIClient:
     c = APIClient()
     c.force_authenticate(user=member_user)
     return c
@@ -100,9 +94,7 @@ class TestResourceRead:
         ids = [r["id"] for r in res.data["results"]]
         assert str(resource.pk) in ids
 
-    def test_member_can_list(
-        self, member_client: APIClient, resource: Resource
-    ) -> None:
+    def test_member_can_list(self, member_client: APIClient, resource: Resource) -> None:
         """Team members may read the catalog (for roster combobox + self-view)."""
         res = member_client.get("/api/v1/resources/")
         assert res.status_code == 200
@@ -111,9 +103,7 @@ class TestResourceRead:
         res = anon_client.get("/api/v1/resources/")
         assert res.status_code == 401
 
-    def test_member_can_retrieve(
-        self, member_client: APIClient, resource: Resource
-    ) -> None:
+    def test_member_can_retrieve(self, member_client: APIClient, resource: Resource) -> None:
         res = member_client.get(f"/api/v1/resources/{resource.pk}/")
         assert res.status_code == 200
         assert res.data["name"] == "Alice"
@@ -150,9 +140,7 @@ class TestResourceWrite:
         )
         assert res.status_code == 401
 
-    def test_admin_can_patch(
-        self, admin_client: APIClient, resource: Resource
-    ) -> None:
+    def test_admin_can_patch(self, admin_client: APIClient, resource: Resource) -> None:
         res = admin_client.patch(
             f"/api/v1/resources/{resource.pk}/",
             {"job_role": "Engineer"},
@@ -162,9 +150,7 @@ class TestResourceWrite:
         resource.refresh_from_db()
         assert resource.job_role == "Engineer"
 
-    def test_member_cannot_patch(
-        self, member_client: APIClient, resource: Resource
-    ) -> None:
+    def test_member_cannot_patch(self, member_client: APIClient, resource: Resource) -> None:
         res = member_client.patch(
             f"/api/v1/resources/{resource.pk}/",
             {"job_role": "Designer"},
@@ -179,9 +165,7 @@ class TestResourceWrite:
 
 
 class TestResourceSoftDelete:
-    def test_delete_soft_deletes(
-        self, admin_client: APIClient, resource: Resource
-    ) -> None:
+    def test_delete_soft_deletes(self, admin_client: APIClient, resource: Resource) -> None:
         res = admin_client.delete(f"/api/v1/resources/{resource.pk}/")
         assert res.status_code == 204
         # Row still exists in the database
@@ -204,9 +188,7 @@ class TestResourceSoftDelete:
         ids = [r["id"] for r in res.data["results"]]
         assert str(resource.pk) in ids
 
-    def test_member_cannot_delete(
-        self, member_client: APIClient, resource: Resource
-    ) -> None:
+    def test_member_cannot_delete(self, member_client: APIClient, resource: Resource) -> None:
         res = member_client.delete(f"/api/v1/resources/{resource.pk}/")
         assert res.status_code == 403
         resource.refresh_from_db()
@@ -243,9 +225,7 @@ class TestResourceSoftDelete:
 
 
 class TestResourceRestore:
-    def test_admin_can_restore(
-        self, admin_client: APIClient, resource: Resource
-    ) -> None:
+    def test_admin_can_restore(self, admin_client: APIClient, resource: Resource) -> None:
         admin_client.delete(f"/api/v1/resources/{resource.pk}/")
         res = admin_client.post(f"/api/v1/resources/{resource.pk}/restore/")
         assert res.status_code == 200
@@ -258,9 +238,7 @@ class TestResourceRestore:
         res = admin_client.post(f"/api/v1/resources/{resource.pk}/restore/")
         assert res.status_code == 400
 
-    def test_member_cannot_restore(
-        self, member_client: APIClient, resource: Resource
-    ) -> None:
+    def test_member_cannot_restore(self, member_client: APIClient, resource: Resource) -> None:
         resource.is_deleted = True
         resource.save(update_fields=["is_deleted"])
         res = member_client.post(f"/api/v1/resources/{resource.pk}/restore/")
@@ -273,9 +251,7 @@ class TestResourceRestore:
 
 
 class TestOrgAdminSuperuser:
-    def test_superuser_can_create_without_project_membership(
-        self, db: object
-    ) -> None:
+    def test_superuser_can_create_without_project_membership(self, db: object) -> None:
         superuser = User.objects.create_superuser(
             username="su", password="pw", email="su@example.com"
         )

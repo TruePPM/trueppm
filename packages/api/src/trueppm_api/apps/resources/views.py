@@ -380,9 +380,7 @@ class ResourceViewSet(viewsets.ModelViewSet[Resource]):
 
         # Deactivated resources are hidden by default. Org admins may opt-in
         # via ?include_deleted=true to manage the deactivated pool.
-        include_deleted = (
-            self.request.query_params.get("include_deleted", "").lower() == "true"
-        )
+        include_deleted = self.request.query_params.get("include_deleted", "").lower() == "true"
         if not include_deleted:
             qs = qs.filter(is_deleted=False)
 
@@ -405,9 +403,7 @@ class ResourceViewSet(viewsets.ModelViewSet[Resource]):
         instance.is_deleted = True
         instance.server_version = (instance.server_version or 0) + 1
         instance.deleted_version = instance.server_version
-        instance.save(
-            update_fields=["is_deleted", "server_version", "deleted_version"]
-        )
+        instance.save(update_fields=["is_deleted", "server_version", "deleted_version"])
 
         # Fan out a schedule recalculation to every project with open
         # task assignments for this resource. Uses the transactional outbox
@@ -421,19 +417,19 @@ class ResourceViewSet(viewsets.ModelViewSet[Resource]):
             _enqueue_recalculate(str(project_id))
 
     @action(detail=True, methods=["post"], url_path="restore")
-    def restore(self, request: Request, pk: object = None) -> Response:
+    def restore(self, request: Request, pk: str | None = None) -> Response:
         """Restore a soft-deleted resource back to active status.
 
         Requires IsOrgAdmin (checked in get_permissions since this is a write
         action). Fetches from the unfiltered queryset so soft-deleted records
         are reachable; the standard get_object() path excludes them.
         """
+        if pk is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         try:
             resource = Resource.objects.get(pk=pk)
         except Resource.DoesNotExist:
-            return Response(
-                {"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         if not resource.is_deleted:
             return Response(
                 {"detail": "Resource is not deactivated."},
@@ -442,9 +438,7 @@ class ResourceViewSet(viewsets.ModelViewSet[Resource]):
         resource.is_deleted = False
         resource.deleted_version = None
         resource.server_version = (resource.server_version or 0) + 1
-        resource.save(
-            update_fields=["is_deleted", "deleted_version", "server_version"]
-        )
+        resource.save(update_fields=["is_deleted", "deleted_version", "server_version"])
         serializer = self.get_serializer(resource)
         return Response(serializer.data)
 

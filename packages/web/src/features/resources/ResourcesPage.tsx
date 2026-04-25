@@ -113,7 +113,7 @@ export function ResourcesPage() {
             <ResourceListSkeleton />
           ) : error ? (
             <div role="alert" className="px-4 py-3 text-xs text-semantic-critical">
-              Couldn't load resources.{' '}
+              Couldn&apos;t load resources.{' '}
               <button
                 type="button"
                 className="underline"

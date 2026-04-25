@@ -14,7 +14,7 @@ export function ResourceList({ resources, selectedId, onSelect }: Props) {
   }
 
   return (
-    <ul role="list" className="divide-y divide-neutral-border">
+    <ul className="divide-y divide-neutral-border">
       {resources.map((r) => (
         <ResourceRow
           key={r.id}
@@ -93,7 +93,7 @@ function ResourceRow({ resource, isSelected, onSelect }: RowProps) {
 
 export function ResourceListSkeleton() {
   return (
-    <ul role="list" aria-label="Loading resources" className="divide-y divide-neutral-border">
+    <ul aria-label="Loading resources" className="divide-y divide-neutral-border">
       {Array.from({ length: 8 }).map((_, i) => (
         <li key={i} className="px-3 py-2.5 flex items-start gap-3">
           <div className="w-7 h-7 rounded-full bg-neutral-border animate-pulse shrink-0" aria-hidden="true" />
