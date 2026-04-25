@@ -566,9 +566,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         project: Project = task.project
 
         if project.estimation_mode != EstimationMode.SUGGEST_APPROVE:
-            detail = (
-                "approve-estimates is only available when estimation_mode is suggest_approve."
-            )
+            detail = "approve-estimates is only available when estimation_mode is suggest_approve."
             return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
 
         # Idempotent: already accepted — no write, no broadcast.
@@ -1941,9 +1939,7 @@ class TaskHistoryView(APIView):
 
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
 
-        records = list(
-            task.history.order_by("-history_date").select_related("history_user")
-        )
+        records = list(task.history.order_by("-history_date").select_related("history_user"))
 
         result = []
         for i, record in enumerate(records):
@@ -1967,9 +1963,7 @@ class TaskHistoryView(APIView):
                     "id": record.history_id,
                     "history_date": record.history_date.isoformat(),
                     "history_type": record.history_type,
-                    "history_user": (
-                        record.history_user.username if record.history_user else None
-                    ),
+                    "history_user": (record.history_user.username if record.history_user else None),
                     "diff": diff,
                 }
             )

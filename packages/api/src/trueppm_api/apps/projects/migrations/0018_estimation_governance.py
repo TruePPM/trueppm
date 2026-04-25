@@ -4,58 +4,57 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('projects', '0017_boardcolumnconfig'),
+        ("projects", "0017_boardcolumnconfig"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='historicalproject',
-            name='estimation_mode',
+            model_name="historicalproject",
+            name="estimation_mode",
             field=models.CharField(
                 choices=[
-                    ('open', 'Open'),
-                    ('suggest_approve', 'Suggest & Approve'),
-                    ('pm_only', 'PM Only'),
+                    ("open", "Open"),
+                    ("suggest_approve", "Suggest & Approve"),
+                    ("pm_only", "PM Only"),
                 ],
-                default='open',
+                default="open",
                 max_length=16,
             ),
         ),
         migrations.AddField(
-            model_name='historicaltask',
-            name='estimate_status',
+            model_name="historicaltask",
+            name="estimate_status",
             field=models.CharField(
                 blank=True,
-                choices=[('pending', 'Pending Approval'), ('accepted', 'Accepted')],
+                choices=[("pending", "Pending Approval"), ("accepted", "Accepted")],
                 db_index=True,
-                help_text='Approval state for three-point estimates (suggest_approve mode only).',
+                help_text="Approval state for three-point estimates (suggest_approve mode only).",
                 max_length=12,
                 null=True,
             ),
         ),
         migrations.AddField(
-            model_name='project',
-            name='estimation_mode',
+            model_name="project",
+            name="estimation_mode",
             field=models.CharField(
                 choices=[
-                    ('open', 'Open'),
-                    ('suggest_approve', 'Suggest & Approve'),
-                    ('pm_only', 'PM Only'),
+                    ("open", "Open"),
+                    ("suggest_approve", "Suggest & Approve"),
+                    ("pm_only", "PM Only"),
                 ],
-                default='open',
+                default="open",
                 max_length=16,
             ),
         ),
         migrations.AddField(
-            model_name='task',
-            name='estimate_status',
+            model_name="task",
+            name="estimate_status",
             field=models.CharField(
                 blank=True,
-                choices=[('pending', 'Pending Approval'), ('accepted', 'Accepted')],
+                choices=[("pending", "Pending Approval"), ("accepted", "Accepted")],
                 db_index=True,
-                help_text='Approval state for three-point estimates (suggest_approve mode only).',
+                help_text="Approval state for three-point estimates (suggest_approve mode only).",
                 max_length=12,
                 null=True,
             ),

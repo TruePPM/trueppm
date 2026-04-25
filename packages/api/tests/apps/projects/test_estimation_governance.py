@@ -134,6 +134,7 @@ def test_open_mode_contributor_writes_estimates(
 ) -> None:
     # MEMBER can edit their own assigned tasks (IsProjectMemberWriteOrOwn).
     from django.contrib.auth import get_user_model as _get_user_model
+
     _User = _get_user_model()
     _u = _User.objects.get(username="contributor")
     task.assignee = _u
@@ -210,6 +211,7 @@ def test_suggest_approve_contributor_sets_pending(
     suggest_project: Project, suggest_task: Task, sa_contributor: object
 ) -> None:
     from django.contrib.auth import get_user_model as _get_user_model
+
     _u = _get_user_model().objects.get(username="sa_contributor")
     suggest_task.assignee = _u
     suggest_task.save(update_fields=["assignee"])
@@ -238,9 +240,7 @@ def test_suggest_approve_scheduler_writes_accepted(
     )
     # Scheduler writes still go through the PATCH path (pending), but then
     # approve-estimates sets accepted atomically.
-    resp = c.post(
-        f"/api/v1/tasks/{suggest_task.pk}/approve-estimates/"
-    )
+    resp = c.post(f"/api/v1/tasks/{suggest_task.pk}/approve-estimates/")
     assert resp.status_code == 200
     suggest_task.refresh_from_db()
     assert suggest_task.estimate_status == EstimateStatus.ACCEPTED
@@ -254,9 +254,7 @@ def test_approve_estimates_idempotent(
     suggest_task.save(update_fields=["estimate_status"])
 
     c = _client(sa_scheduler)
-    resp = c.post(
-        f"/api/v1/tasks/{suggest_task.pk}/approve-estimates/"
-    )
+    resp = c.post(f"/api/v1/tasks/{suggest_task.pk}/approve-estimates/")
     assert resp.status_code == 200
     # No additional DB write — still accepted.
     suggest_task.refresh_from_db()
@@ -268,9 +266,7 @@ def test_approve_estimates_returns_400_for_open_mode(
     project: Project, task: Task, scheduler: object
 ) -> None:
     c = _client(scheduler)
-    resp = c.post(
-        f"/api/v1/tasks/{task.pk}/approve-estimates/"
-    )
+    resp = c.post(f"/api/v1/tasks/{task.pk}/approve-estimates/")
     assert resp.status_code == 400
 
 
@@ -284,9 +280,7 @@ def test_approve_estimates_forbidden_for_contributor(
     suggest_project: Project, suggest_task: Task, sa_contributor: object
 ) -> None:
     c = _client(sa_contributor)
-    resp = c.post(
-        f"/api/v1/tasks/{suggest_task.pk}/approve-estimates/"
-    )
+    resp = c.post(f"/api/v1/tasks/{suggest_task.pk}/approve-estimates/")
     assert resp.status_code == 403
 
 
@@ -298,9 +292,7 @@ def test_approve_estimates_forbidden_for_viewer(
     _make_membership(suggest_project, u, Role.VIEWER)
     task = Task.objects.create(project=suggest_project, name="T2", duration=3)
     c = _client(u)
-    resp = c.post(
-        f"/api/v1/tasks/{task.pk}/approve-estimates/"
-    )
+    resp = c.post(f"/api/v1/tasks/{task.pk}/approve-estimates/")
     assert resp.status_code == 403
 
 
@@ -309,9 +301,7 @@ def test_approve_estimates_forbidden_for_unauthenticated(
     suggest_project: Project, suggest_task: Task
 ) -> None:
     c = APIClient()
-    resp = c.post(
-        f"/api/v1/tasks/{suggest_task.pk}/approve-estimates/"
-    )
+    resp = c.post(f"/api/v1/tasks/{suggest_task.pk}/approve-estimates/")
     assert resp.status_code == 401
 
 
@@ -366,9 +356,7 @@ def test_mc_gate_accepted_estimates_pass_through(
 
 
 @pytest.mark.django_db
-def test_estimate_change_recorded_in_history(
-    project: Project, task: Task
-) -> None:
+def test_estimate_change_recorded_in_history(project: Project, task: Task) -> None:
     pm = _make_user("pm_hist")
     _make_membership(project, pm, Role.ADMIN)
     c = _client(pm)
@@ -387,6 +375,7 @@ def test_approve_records_status_change_in_history(
     suggest_project: Project, suggest_task: Task, sa_scheduler: object, sa_contributor: object
 ) -> None:
     from django.contrib.auth import get_user_model as _get_user_model
+
     _u = _get_user_model().objects.get(username="sa_contributor")
     suggest_task.assignee = _u
     suggest_task.save(update_fields=["assignee"])
@@ -398,9 +387,7 @@ def test_approve_records_status_change_in_history(
         format="json",
     )
     # Scheduler approves.
-    _client(sa_scheduler).post(
-        f"/api/v1/tasks/{suggest_task.pk}/approve-estimates/"
-    )
+    _client(sa_scheduler).post(f"/api/v1/tasks/{suggest_task.pk}/approve-estimates/")
     statuses = list(
         suggest_task.history.order_by("-history_date").values_list("estimate_status", flat=True)
     )
