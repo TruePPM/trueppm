@@ -1,0 +1,1 @@
+- **Pre-commit ruff version**: bumped `ruff-pre-commit` from `v0.8.6` to `v0.15.8` to match the API venv; the mismatch caused a circular reformat loop on every commit touching API test files. Also restricted the `mypy` pre-commit hook to `packages/scheduler/` to prevent spurious `import-not-found` errors on API files.
