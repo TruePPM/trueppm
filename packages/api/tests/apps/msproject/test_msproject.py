@@ -132,7 +132,7 @@ class TestDurationParsing:
         assert _parse_duration_to_days("P1DT8H0M0S") == 2
 
     def test_zero_duration(self) -> None:
-        assert _parse_duration_to_days("PT0H0M0S") == 1
+        assert _parse_duration_to_days("PT0H0M0S") == 0
 
     def test_empty_string(self) -> None:
         assert _parse_duration_to_days("") == 1
@@ -208,6 +208,7 @@ class TestXmlParser:
         )
         data = parse_xml(xml)
         assert data.tasks[0].is_milestone is True
+        assert data.tasks[0].duration_days == 0
 
     def test_parse_predecessor_links(self) -> None:
         xml = _build_sample_xml(
@@ -342,6 +343,67 @@ class TestXmlParser:
         )
         data = parse_xml(xml)
         assert data.tasks[0].start == "2026-03-15"
+
+    def test_zero_duration_non_milestone_is_zero(self) -> None:
+        xml = _build_sample_xml(
+            tasks=[{"UID": "1", "Name": "Gate", "Milestone": "0", "Duration": "PT0H0M0S"}]
+        )
+        data = parse_xml(xml)
+        assert data.tasks[0].is_milestone is False
+        assert data.tasks[0].duration_days == 0
+
+
+# ---------------------------------------------------------------------------
+# Fixture-file round-trip tests (CI fixture registration)
+# ---------------------------------------------------------------------------
+
+import pathlib  # noqa: E402 — placed after test classes intentionally
+
+_FIXTURES_DIR = pathlib.Path(__file__).parent / "fixtures"
+
+
+@pytest.mark.parametrize(
+    "filename,expected_tasks,expected_deps,expected_resources",
+    [
+        ("sample.xml", 15, 11, 3),
+        ("sample_legacy.xml", 13, 8, 2),
+        ("sample_2019.xml", 19, 14, 4),
+    ],
+)
+class TestFixtureFiles:
+    def test_parse_counts(
+        self,
+        filename: str,
+        expected_tasks: int,
+        expected_deps: int,
+        expected_resources: int,
+    ) -> None:
+        """Fixture file parses with expected task/dependency/resource counts."""
+        content = (_FIXTURES_DIR / filename).read_bytes()
+        data = parse_xml(content)
+        actual_deps = sum(len(t.predecessor_links) for t in data.tasks)
+        assert len(data.tasks) == expected_tasks, f"{filename}: task count"
+        assert actual_deps == expected_deps, f"{filename}: dependency count"
+        assert len(data.resources) == expected_resources, f"{filename}: resource count"
+        assert len(data.warnings) == 0, f"{filename}: unexpected warnings: {data.warnings}"
+
+    def test_milestone_flag(
+        self,
+        filename: str,
+        expected_tasks: int,
+        expected_deps: int,
+        expected_resources: int,
+    ) -> None:
+        """Milestone tasks import with is_milestone=True and duration_days=0."""
+        content = (_FIXTURES_DIR / filename).read_bytes()
+        data = parse_xml(content)
+        milestones = [t for t in data.tasks if t.is_milestone]
+        assert len(milestones) > 0, f"{filename}: expected at least one milestone"
+        for ms in milestones:
+            assert ms.duration_days == 0, (
+                f"{filename}: milestone '{ms.name}' should have duration_days=0, "
+                f"got {ms.duration_days}"
+            )
 
 
 # ---------------------------------------------------------------------------
