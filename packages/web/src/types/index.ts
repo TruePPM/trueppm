@@ -114,6 +114,78 @@ export interface MonteCarloResult {
 }
 
 // ---------------------------------------------------------------------------
+// Resource pool and skills types (issues #149, #150)
+// ---------------------------------------------------------------------------
+
+export type Proficiency = 1 | 2 | 3;
+export const PROFICIENCY_LABEL: Record<Proficiency, string> = {
+  1: 'Beginner',
+  2: 'Intermediate',
+  3: 'Expert',
+};
+
+export interface Skill {
+  id: string;
+  name: string;
+  normalizedName: string;
+  category: string;
+}
+
+export interface ResourceSkill {
+  id: string;
+  resourceId: string;
+  skillId: string;
+  skill: Skill;
+  proficiency: Proficiency;
+}
+
+export interface ResourceDetail {
+  id: string;
+  name: string;
+  email: string;
+  jobRole: string;
+  maxUnits: number;
+  calendarId: string | null;
+  skills: ResourceSkill[];
+}
+
+export interface ProjectResource {
+  id: string;
+  projectId: string;
+  resourceId: string;
+  resource: ResourceDetail;
+  roleTitle: string;
+  unitsOverride: number | null;
+  effectiveMaxUnits: number;
+  notes: string;
+}
+
+export interface TaskSkillRequirement {
+  id: string;
+  taskId: string;
+  skillId: string;
+  skill: Skill;
+  minProficiency: Proficiency;
+}
+
+/** Skill fit annotation returned when ?task= is passed to /resources/ */
+export type SkillFit = 'exact' | 'partial' | 'missing';
+
+export interface MissingSkill {
+  skillId: string;
+  skillName: string;
+  required: Proficiency;
+  requiredLabel: string;
+  actual: number;
+  actualLabel: string;
+}
+
+export interface ResourceWithSkillFit extends ResourceDetail {
+  skillFit: SkillFit;
+  missingSkills: MissingSkill[];
+}
+
+// ---------------------------------------------------------------------------
 // Drag CPM preview types (issue #19)
 // ---------------------------------------------------------------------------
 

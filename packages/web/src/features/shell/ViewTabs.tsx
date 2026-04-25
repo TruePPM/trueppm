@@ -17,7 +17,7 @@ const TABS: Tab[] = [
   { view: 'board',      label: 'Board',      Icon: BoardIcon },
   { view: 'list',       label: 'Table',      Icon: ListIcon },
   { view: 'calendar',   label: 'Calendar',   Icon: CalendarIcon },
-  { view: 'resources',  label: 'Resources',  Icon: ResourcesIcon },
+  { view: 'resources',  label: 'Team',       Icon: ResourcesIcon },
   { view: 'risk',       label: 'Risks',      Icon: RiskIcon },
 ];
 
