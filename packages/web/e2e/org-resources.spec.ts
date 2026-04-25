@@ -79,16 +79,21 @@ async function mockResourceRoutes(
     results,
   });
 
+  // Stateful set so DELETE → re-fetch correctly excludes deleted resources.
+  const deletedIds = new Set<string>();
+
   await page.route('**/api/v1/projects/**', (route) =>
     route.fulfill({ json: paginated(FIXTURE_PROJECTS) }),
   );
   await page.route('**/api/v1/resources/**', async (route) => {
     const url = new URL(route.request().url());
     if (route.request().method() === 'GET') {
-      // ?include_deleted=true returns the full list
       const includeDeleted = url.searchParams.get('include_deleted') === 'true';
-      const list = includeDeleted ? FIXTURE_RESOURCES_WITH_DEACTIVATED : resources;
-      return route.fulfill({ json: paginated(list) });
+      if (includeDeleted) {
+        return route.fulfill({ json: paginated(FIXTURE_RESOURCES_WITH_DEACTIVATED) });
+      }
+      const active = resources.filter((r) => !deletedIds.has(r.id));
+      return route.fulfill({ json: paginated(active) });
     }
     if (route.request().method() === 'POST' && url.pathname.endsWith('/restore/')) {
       return route.fulfill({
@@ -107,6 +112,8 @@ async function mockResourceRoutes(
       return route.fulfill({ status: 200, json: resources[0] });
     }
     if (route.request().method() === 'DELETE') {
+      const id = url.pathname.replace(/\/$/, '').split('/').pop() ?? '';
+      deletedIds.add(id);
       return route.fulfill({ status: 204, body: '' });
     }
     return route.continue();
@@ -186,7 +193,7 @@ test('show deactivated toggle surfaces deactivated resources', async ({ page }) 
 
   await expect(page.getByRole('button', { name: /charlie lee/i })).not.toBeVisible();
 
-  await page.getByRole('checkbox', { name: /show deactivated/i }).check();
+  await page.getByRole('switch', { name: /show deactivated/i }).click();
 
   await expect(page.getByRole('button', { name: /charlie lee/i })).toBeVisible();
   await expect(page.getByText('Deactivated')).toBeVisible();

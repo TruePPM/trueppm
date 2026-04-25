@@ -108,7 +108,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
           </div>
         )}
 
-        <Field label="Name">
+        <Field label="Name" htmlFor="resource-name">
           <input
             id="resource-name"
             type="text"
@@ -119,7 +119,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
           />
         </Field>
 
-        <Field label="Email">
+        <Field label="Email" htmlFor="resource-email">
           <input
             id="resource-email"
             type="email"
@@ -130,7 +130,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
           />
         </Field>
 
-        <Field label="Job role">
+        <Field label="Job role" htmlFor="resource-job-role">
           <input
             id="resource-job-role"
             type="text"
@@ -297,7 +297,7 @@ function CreatePanel({ onCreated, onCancel }: Omit<CreateProps, 'mode'>) {
           </div>
         )}
 
-        <Field label="Name" required>
+        <Field label="Name" htmlFor="create-resource-name" required>
           <input
             ref={nameRef}
             id="create-resource-name"
@@ -309,7 +309,7 @@ function CreatePanel({ onCreated, onCancel }: Omit<CreateProps, 'mode'>) {
           />
         </Field>
 
-        <Field label="Email">
+        <Field label="Email" htmlFor="create-resource-email">
           <input
             id="create-resource-email"
             type="email"
@@ -320,7 +320,7 @@ function CreatePanel({ onCreated, onCancel }: Omit<CreateProps, 'mode'>) {
           />
         </Field>
 
-        <Field label="Job role">
+        <Field label="Job role" htmlFor="create-resource-job-role">
           <input
             id="create-resource-job-role"
             type="text"
@@ -383,14 +383,15 @@ export function ResourceDetailPanel(props: Props) {
 
 interface FieldProps {
   label: string;
+  htmlFor?: string;
   required?: boolean;
   children: ReactNode;
 }
 
-function Field({ label, required, children }: FieldProps) {
+function Field({ label, htmlFor, required, children }: FieldProps) {
   return (
     <div>
-      <label className="block text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-1">
+      <label htmlFor={htmlFor} className="block text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-1">
         {label}
         {required && <span aria-hidden="true" className="text-semantic-critical ml-0.5">*</span>}
       </label>
