@@ -72,7 +72,7 @@ def _parse_duration_to_days(duration_str: str) -> int:
                 hours = int(time_part[:h_idx])
 
     total_days = days + (hours // 8)
-    return max(total_days, 0) if (days > 0 or hours > 0) else 1
+    return max(total_days, 0)
 
 
 def _parse_lag_to_days(lag_tenths_of_minutes: str) -> int:
