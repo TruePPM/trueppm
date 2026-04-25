@@ -1,6 +1,6 @@
 import { useRef, useCallback, useState, useEffect, useMemo, type PointerEvent } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
-import type { GanttEngine } from './engine';
+import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate } from './engine';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './ganttConstants';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
@@ -293,6 +293,9 @@ export function GanttView() {
 
   const taskListScrollRef = useRef<HTMLDivElement>(null);
   const [engine, setEngine] = useState<GanttEngine | null>(null);
+  // Reactive scales — updated via scales-change so totalCanvasWidth stays in sync
+  // when setTasks rebuilds the scale after a project switch or task edit (issue #96).
+  const [ganttScales, setGanttScales] = useState<GanttScaleData | null>(null);
   const { widths, setWidth, totalWidth } = useColumnWidths();
 
   // Ref to the split-pane container for MilestoneDeltaTooltip positioning (rule 31)
@@ -451,6 +454,13 @@ export function GanttView() {
     setDatePopoverTask(null);
   }, []);
 
+  // Subscribe to scales-change so totalCanvasWidth stays current when tasks update (issue #96)
+  useEffect(() => {
+    if (!engine) return;
+    setGanttScales(engine.scales);
+    return engine.on('scales-change', ({ scales }) => setGanttScales(scales));
+  }, [engine]);
+
   // "Today" button handler (rule 82)
   const handleScrollToToday = useCallback(() => {
     if (!engine) return;
@@ -522,9 +532,7 @@ export function GanttView() {
     );
   }
 
-  // Compute scrollable content width from scales
-  const scales = engine?.scales;
-  const totalCanvasWidth = scales ? scales.totalWidth : 0;
+  const totalCanvasWidth = ganttScales?.totalWidth ?? 0;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -641,14 +649,19 @@ export function GanttView() {
                 position: 'relative',
               }}
             >
-              {/* Canvas layers fill the viewport (sticky via absolute+inset in container) */}
+              {/* Canvas layers fill the viewport.
+                  width/height driven by --gantt-vw/vh CSS vars set by the engine
+                  on _applyDpr(). Using 100% here would resolve to totalCanvasWidth
+                  (the scroll spacer's width), making position:sticky left:0 impossible
+                  to satisfy — the element is as wide as its containing block and cannot
+                  move left to "stick" (issue #96). */}
               <div
                 style={{
                   position: 'sticky',
                   top: 0,
                   left: 0,
-                  width: '100%',
-                  height: '100%',
+                  width: 'var(--gantt-vw, 100%)',
+                  height: 'var(--gantt-vh, 100%)',
                   pointerEvents: 'none',
                 }}
               >

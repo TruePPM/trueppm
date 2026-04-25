@@ -1,20 +1,20 @@
 import { useState, useCallback } from 'react';
 
-// v2: merged duration+start into durStart per rule 43
-const STORAGE_KEY = 'trueppm.gantt.columnWidths.v2';
+// v3: wider defaults so task names and dates aren't truncated out of the box
+const STORAGE_KEY = 'trueppm.gantt.columnWidths.v3';
 
 export const MIN_COL_WIDTHS = {
   task: 120,
-  durStart: 80,
-  progress: 40,
+  durStart: 90,
+  progress: 44,
 } as const;
 
 export type ColumnKey = keyof typeof MIN_COL_WIDTHS;
 
 const DEFAULTS: Record<ColumnKey, number> = {
-  task: 180,
-  durStart: 100,
-  progress: 48,
+  task: 220,
+  durStart: 120,
+  progress: 50,
 };
 
 function load(): Record<ColumnKey, number> {
@@ -44,7 +44,7 @@ export interface ColumnWidths {
 /**
  * Persist and expose Gantt task-list column widths in localStorage.
  *
- * Widths are clamped to MIN_COL_WIDTHS and stored under STORAGE_KEY (v2).
+ * Widths are clamped to MIN_COL_WIDTHS and stored under STORAGE_KEY (v3).
  * Returns widths, a setWidth callback, and the total width of all columns.
  */
 export function useColumnWidths(): ColumnWidths {
