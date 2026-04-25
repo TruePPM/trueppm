@@ -87,7 +87,7 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
       tabIndex={isEditing ? -1 : 0}
       style={{ height: ROW_HEIGHT, paddingLeft: (level - 1) * WBS_INDENT + 8 }}
       className={[
-        'relative group flex items-center pr-1 text-xs border-b border-neutral-border/20',
+        'relative group flex items-center text-xs border-b border-neutral-border/20',
         isEditing ? 'cursor-text' : 'cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white',
         isSelected && !isEditing ? 'bg-white/10 border-l-2 border-brand-primary' : 'hover:bg-white/5',
@@ -153,7 +153,7 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
       ) : (
         <div
           className="flex shrink-0 min-w-0 items-center gap-1 overflow-hidden"
-          style={{ width: widths.task - (level - 1) * WBS_INDENT - 18 }}
+          style={{ width: Math.max(0, widths.task - (level - 1) * WBS_INDENT - 26) }}
         >
           <span
             className={`min-w-0 shrink truncate ${isCriticalStyle} ${isSummaryStyle}`}
