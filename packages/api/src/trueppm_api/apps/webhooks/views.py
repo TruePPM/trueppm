@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+
+import redis as redis_lib
 from django.db import transaction
 from django.db.models import QuerySet
+from kombu.exceptions import (  # type: ignore[import-untyped]
+    OperationalError as KombuOperationalError,
+)
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.mixins import (
@@ -27,6 +33,10 @@ from trueppm_api.apps.webhooks.serializers import (
     WebhookSerializer,
 )
 from trueppm_api.apps.webhooks.tasks import deliver_webhook
+
+logger = logging.getLogger(__name__)
+
+_BROKER_ERRORS = (KombuOperationalError, ConnectionError, redis_lib.ConnectionError)
 
 
 class WebhookViewSet(
@@ -87,10 +97,21 @@ class WebhookViewSet(
             payload={"event": "ping", "webhook_id": str(webhook.pk)},
         )
         # Defer dispatch until the delivery row is committed so the task never
-        # races against an uncommitted row.  If the broker is down the drain
-        # task picks it up within _DRAIN_ORPHAN_MINUTES.
+        # races against an uncommitted row.  If the broker is down the delay()
+        # call is a no-op — the delivery row stays PENDING and drain_webhook_queue
+        # picks it up within _DRAIN_ORPHAN_MINUTES.
         delivery_id = str(delivery.pk)
-        transaction.on_commit(lambda: deliver_webhook.delay(delivery_id))
+
+        def _enqueue_ping() -> None:
+            try:
+                deliver_webhook.delay(delivery_id)
+            except _BROKER_ERRORS:
+                logger.warning(
+                    "test_ping: broker unavailable — delivery %s will be drained",
+                    delivery_id,
+                )
+
+        transaction.on_commit(_enqueue_ping)
         return Response(
             {"delivery_id": delivery_id},
             status=status.HTTP_202_ACCEPTED,
