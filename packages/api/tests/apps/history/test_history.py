@@ -253,7 +253,7 @@ class TestTaskHistoryAPI:
         results = r.data.get("results", r.data)
         # Most recent record should contain the duration change.
         assert any(
-            d["field"] == "duration" and d["new"] == 99
+            d["field"] == "duration" and d["new"] == "99"
             for record in results
             for d in record["diff"]
         )
