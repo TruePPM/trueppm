@@ -141,10 +141,13 @@ test.describe('GanttView task list', () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test('task list header shows Dur · Start column', async ({ page }) => {
+  test('task list header shows Dur, Start, Finish, and % columns', async ({ page }) => {
     const header = page.getByRole('row', { name: 'Task list columns' });
     await expect(header).toBeVisible();
-    await expect(header.getByRole('columnheader', { name: 'Duration and start date' })).toBeVisible();
+    await expect(header.getByRole('columnheader', { name: 'Duration' })).toBeVisible();
+    await expect(header.getByRole('columnheader', { name: 'Start date' })).toBeVisible();
+    await expect(header.getByRole('columnheader', { name: 'Finish date' })).toBeVisible();
+    await expect(header.getByRole('columnheader', { name: 'Progress' })).toBeVisible();
   });
 
   test('critical path tasks are announced accessibly', async ({ page }) => {

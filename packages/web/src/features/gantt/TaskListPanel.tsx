@@ -74,6 +74,7 @@ interface Props {
   pendingTaskIds?: Map<string, string>;
   scrollRef: RefObject<HTMLDivElement | null>;
   widths: ColumnWidths['widths'];
+  visible: ColumnWidths['visible'];
   setWidth: ColumnWidths['setWidth'];
   totalWidth: number;
   /** Set of task IDs that have children (are summary tasks). */
@@ -93,7 +94,7 @@ interface Props {
   depChipsById?: Map<string, TaskDepChips>;
 }
 
-export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, setWidth, totalWidth, summaryIds, expandedIds, onToggle, focusChainIds, depChipsById }: Props) {
+export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visible, setWidth, totalWidth, summaryIds, expandedIds, onToggle, focusChainIds, depChipsById }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useGanttStore((s) => s.scrollToTaskId);
   const scrollToTask = useGanttStore((s) => s.scrollToTask);
@@ -123,7 +124,7 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, setWid
       aria-label="Task list"
       aria-rowcount={tasks.length}
     >
-      <TaskListHeader widths={widths} setWidth={setWidth} />
+      <TaskListHeader widths={widths} visible={visible} setWidth={setWidth} />
 
       {/* Scrollable virtualized rows */}
       <div
@@ -152,6 +153,7 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, setWid
                   task={task}
                   level={wbsLevel(task.wbs)}
                   widths={widths}
+                  visible={visible}
                   hasChildren={summaryIds.has(task.id)}
                   isExpanded={expandedIds.has(task.id)}
                   onToggle={() => onToggle(task.id)}

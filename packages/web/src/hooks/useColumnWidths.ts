@@ -1,25 +1,39 @@
 import { useState, useCallback } from 'react';
 
-// v2: merged duration+start into durStart per rule 43
-const STORAGE_KEY = 'trueppm.gantt.columnWidths.v2';
+// v4: split Dur·Start into Dur / Start / Finish columns
+const WIDTHS_KEY = 'trueppm.gantt.columnWidths.v4';
+// v1: per-column visibility (task is always locked visible)
+const VISIBILITY_KEY = 'trueppm.gantt.columnVisibility.v1';
 
 export const MIN_COL_WIDTHS = {
   task: 120,
-  durStart: 80,
+  dur: 40,
+  start: 60,
+  finish: 60,
   progress: 40,
 } as const;
 
 export type ColumnKey = keyof typeof MIN_COL_WIDTHS;
 
 const DEFAULTS: Record<ColumnKey, number> = {
-  task: 180,
-  durStart: 100,
-  progress: 48,
+  task: 220,
+  dur: 52,
+  start: 74,
+  finish: 74,
+  progress: 44,
 };
 
-function load(): Record<ColumnKey, number> {
+const DEFAULT_VISIBILITY: Record<ColumnKey, boolean> = {
+  task: true,
+  dur: true,
+  start: true,
+  finish: true,
+  progress: true,
+};
+
+function loadWidths(): Record<ColumnKey, number> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(WIDTHS_KEY);
     if (!raw) return { ...DEFAULTS };
     const parsed = JSON.parse(raw) as Partial<Record<ColumnKey, number>>;
     return (Object.keys(DEFAULTS) as ColumnKey[]).reduce(
@@ -35,27 +49,48 @@ function load(): Record<ColumnKey, number> {
   }
 }
 
+function loadVisibility(): Record<ColumnKey, boolean> {
+  try {
+    const raw = localStorage.getItem(VISIBILITY_KEY);
+    if (!raw) return { ...DEFAULT_VISIBILITY };
+    const parsed = JSON.parse(raw) as Partial<Record<ColumnKey, boolean>>;
+    return (Object.keys(DEFAULT_VISIBILITY) as ColumnKey[]).reduce(
+      (acc, k) => {
+        acc[k] = k === 'task' ? true : (parsed[k] ?? DEFAULT_VISIBILITY[k]);
+        return acc;
+      },
+      {} as Record<ColumnKey, boolean>,
+    );
+  } catch {
+    return { ...DEFAULT_VISIBILITY };
+  }
+}
+
 export interface ColumnWidths {
   widths: Record<ColumnKey, number>;
+  visible: Record<ColumnKey, boolean>;
   setWidth: (col: ColumnKey, width: number) => void;
+  toggleColumn: (col: ColumnKey) => void;
   totalWidth: number;
 }
 
 /**
- * Persist and expose Gantt task-list column widths in localStorage.
+ * Persist and expose Gantt task-list column widths and visibility in localStorage.
  *
- * Widths are clamped to MIN_COL_WIDTHS and stored under STORAGE_KEY (v2).
- * Returns widths, a setWidth callback, and the total width of all columns.
+ * Widths are clamped to MIN_COL_WIDTHS (WIDTHS_KEY v4).
+ * Visibility is stored separately (VISIBILITY_KEY v1); the task column is always visible.
+ * totalWidth sums only the visible columns.
  */
 export function useColumnWidths(): ColumnWidths {
-  const [widths, setWidths] = useState<Record<ColumnKey, number>>(load);
+  const [widths, setWidths] = useState<Record<ColumnKey, number>>(loadWidths);
+  const [visible, setVisible] = useState<Record<ColumnKey, boolean>>(loadVisibility);
 
   const setWidth = useCallback((col: ColumnKey, width: number) => {
     const clamped = Math.max(width, MIN_COL_WIDTHS[col]);
     setWidths((prev) => {
       const next = { ...prev, [col]: clamped };
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        localStorage.setItem(WIDTHS_KEY, JSON.stringify(next));
       } catch {
         // quota exceeded or private mode — silently ignore
       }
@@ -63,7 +98,23 @@ export function useColumnWidths(): ColumnWidths {
     });
   }, []);
 
-  const totalWidth = widths.task + widths.durStart + widths.progress;
+  const toggleColumn = useCallback((col: ColumnKey) => {
+    if (col === 'task') return; // task column is always visible
+    setVisible((prev) => {
+      const next = { ...prev, [col]: !prev[col] };
+      try {
+        localStorage.setItem(VISIBILITY_KEY, JSON.stringify(next));
+      } catch {
+        // silently ignore
+      }
+      return next;
+    });
+  }, []);
 
-  return { widths, setWidth, totalWidth };
+  const totalWidth = (Object.keys(widths) as ColumnKey[]).reduce(
+    (sum, k) => sum + (visible[k] ? widths[k] : 0),
+    0,
+  );
+
+  return { widths, visible, setWidth, toggleColumn, totalWidth };
 }

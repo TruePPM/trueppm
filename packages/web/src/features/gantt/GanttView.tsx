@@ -1,6 +1,6 @@
 import { useRef, useCallback, useState, useEffect, useMemo, type PointerEvent } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
-import type { GanttEngine } from './engine';
+import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate } from './engine';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './ganttConstants';
 import { useGanttTasks } from '@/hooks/useGanttTasks';
@@ -272,6 +272,8 @@ export function GanttView() {
 
   const [showAddForm, setShowAddForm] = useState(false);
   const addFormRef = useRef<AddTaskFormHandle>(null);
+  const [showColMenu, setShowColMenu] = useState(false);
+  const colMenuRef = useRef<HTMLDivElement>(null);
   const createTask = useCreateTask(projectId);
 
   // Tracks tasks created but not yet scheduled (null dates filtered from Gantt).
@@ -293,7 +295,10 @@ export function GanttView() {
 
   const taskListScrollRef = useRef<HTMLDivElement>(null);
   const [engine, setEngine] = useState<GanttEngine | null>(null);
-  const { widths, setWidth, totalWidth } = useColumnWidths();
+  // Reactive scales — updated via scales-change so totalCanvasWidth stays in sync
+  // when setTasks rebuilds the scale after a project switch or task edit (issue #96).
+  const [ganttScales, setGanttScales] = useState<GanttScaleData | null>(null);
+  const { widths, visible, setWidth, toggleColumn, totalWidth } = useColumnWidths();
 
   // Ref to the split-pane container for MilestoneDeltaTooltip positioning (rule 31)
   const timelineContainerRef = useRef<HTMLDivElement>(null);
@@ -451,7 +456,26 @@ export function GanttView() {
     setDatePopoverTask(null);
   }, []);
 
+  // Subscribe to scales-change so totalCanvasWidth stays current when tasks update (issue #96)
+  useEffect(() => {
+    if (!engine) return;
+    setGanttScales(engine.scales);
+    return engine.on('scales-change', ({ scales }) => setGanttScales(scales));
+  }, [engine]);
+
   // "Today" button handler (rule 82)
+  // Close column-visibility menu when clicking outside it
+  useEffect(() => {
+    if (!showColMenu) return;
+    function handleOutsideClick(e: MouseEvent) {
+      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) {
+        setShowColMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showColMenu]);
+
   const handleScrollToToday = useCallback(() => {
     if (!engine) return;
     const reducedMotion =
@@ -510,6 +534,7 @@ export function GanttView() {
             tasks={visibleTasks}
             scrollRef={taskListScrollRef}
             widths={widths}
+            visible={visible}
             setWidth={setWidth}
             totalWidth={totalWidth}
             summaryIds={summaryIds}
@@ -522,9 +547,7 @@ export function GanttView() {
     );
   }
 
-  // Compute scrollable content width from scales
-  const scales = engine?.scales;
-  const totalCanvasWidth = scales ? scales.totalWidth : 0;
+  const totalCanvasWidth = ganttScales?.totalWidth ?? 0;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -569,6 +592,45 @@ export function GanttView() {
         </label>
 
         <div className="flex-1" />
+
+        {/* Column visibility toggle */}
+        <div className="relative" ref={colMenuRef}>
+          <button
+            type="button"
+            onClick={() => setShowColMenu((v) => !v)}
+            aria-expanded={showColMenu}
+            aria-haspopup="menu"
+            className="border border-neutral-border rounded h-7 px-3 text-xs font-medium
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
+              hover:border-brand-primary hover:text-brand-primary"
+          >
+            Columns
+          </button>
+          {showColMenu && (
+            <div
+              className="absolute right-0 top-8 z-30 bg-neutral-surface border border-neutral-border
+                rounded py-1 min-w-[120px]"
+              aria-label="Toggle column visibility"
+            >
+              {(['dur', 'start', 'finish', 'progress'] as const).map((col) => (
+                <label
+                  key={col}
+                  className="flex items-center gap-2 px-3 py-1.5 text-xs text-neutral-text-primary
+                    cursor-pointer hover:bg-neutral-surface-raised select-none"
+                >
+                  <input
+                    type="checkbox"
+                    checked={visible[col]}
+                    onChange={() => toggleColumn(col)}
+                    className="accent-brand-primary"
+                  />
+                  {col === 'dur' ? 'Dur' : col === 'start' ? 'Start' : col === 'finish' ? 'Finish' : '%'}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* "Today" button (rule 82) */}
         <button
           type="button"
@@ -611,6 +673,7 @@ export function GanttView() {
           pendingTaskIds={pendingTaskIds}
           scrollRef={taskListScrollRef}
           widths={widths}
+          visible={visible}
           setWidth={setWidth}
           totalWidth={totalWidth}
           summaryIds={summaryIds}
@@ -641,14 +704,19 @@ export function GanttView() {
                 position: 'relative',
               }}
             >
-              {/* Canvas layers fill the viewport (sticky via absolute+inset in container) */}
+              {/* Canvas layers fill the viewport.
+                  width/height driven by --gantt-vw/vh CSS vars set by the engine
+                  on _applyDpr(). Using 100% here would resolve to totalCanvasWidth
+                  (the scroll spacer's width), making position:sticky left:0 impossible
+                  to satisfy — the element is as wide as its containing block and cannot
+                  move left to "stick" (issue #96). */}
               <div
                 style={{
                   position: 'sticky',
                   top: 0,
                   left: 0,
-                  width: '100%',
-                  height: '100%',
+                  width: 'var(--gantt-vw, 100%)',
+                  height: 'var(--gantt-vh, 100%)',
                   pointerEvents: 'none',
                 }}
               >

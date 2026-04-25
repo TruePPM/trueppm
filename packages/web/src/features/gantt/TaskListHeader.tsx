@@ -33,32 +33,34 @@ function ResizeHandle({ colKey, setWidth, currentWidth }: ResizeHandleProps) {
       role="separator"
       aria-orientation="vertical"
       aria-label={`Resize ${colKey} column`}
-      className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-center group"
+      className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize z-10 flex items-center justify-end group"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
-      <div className="w-px h-3.5 bg-white/20 group-hover:bg-brand-primary transition-colors" aria-hidden="true" />
+      {/* Indicator at right-0 of the hit zone — aligns with border-r on data rows */}
+      <div className="w-px h-full bg-white/30 group-hover:bg-brand-primary/80 transition-colors" aria-hidden="true" />
     </div>
   );
 }
 
 interface Props {
   widths: ColumnWidths['widths'];
+  visible: ColumnWidths['visible'];
   setWidth: ColumnWidths['setWidth'];
 }
 
-export function TaskListHeader({ widths, setWidth }: Props) {
+export function TaskListHeader({ widths, visible, setWidth }: Props) {
   return (
     <div
-      className="flex items-center h-7 px-2 bg-gantt-surface border-b border-neutral-border/30
+      className="flex items-center h-7 bg-gantt-surface border-b border-neutral-border/30
         text-xs font-medium text-gantt-text-secondary select-none sticky top-0 z-10"
       role="row"
       aria-label="Task list columns"
     >
-      {/* Task column */}
+      {/* Task column — always visible; pl-2 keeps text inset from the left edge */}
       <span
-        className="relative truncate shrink-0"
+        className="relative pl-2 truncate shrink-0"
         style={{ width: widths.task }}
         role="columnheader"
       >
@@ -66,25 +68,52 @@ export function TaskListHeader({ widths, setWidth }: Props) {
         <ResizeHandle colKey="task" setWidth={setWidth} currentWidth={widths.task} />
       </span>
 
-      {/* Combined duration · start column (rule 43) */}
-      <span
-        className="relative text-right shrink-0"
-        style={{ width: widths.durStart }}
-        role="columnheader"
-        aria-label="Duration and start date"
-      >
-        Dur · Start
-        <ResizeHandle colKey="durStart" setWidth={setWidth} currentWidth={widths.durStart} />
-      </span>
+      {visible.dur && (
+        <span
+          className="relative text-right shrink-0 pr-2"
+          style={{ width: widths.dur }}
+          role="columnheader"
+          aria-label="Duration"
+        >
+          Dur
+          <ResizeHandle colKey="dur" setWidth={setWidth} currentWidth={widths.dur} />
+        </span>
+      )}
 
-      <span
-        className="text-right shrink-0"
-        style={{ width: widths.progress }}
-        role="columnheader"
-        aria-label="Progress"
-      >
-        %
-      </span>
+      {visible.start && (
+        <span
+          className="relative text-right shrink-0 pr-2"
+          style={{ width: widths.start }}
+          role="columnheader"
+          aria-label="Start date"
+        >
+          Start
+          <ResizeHandle colKey="start" setWidth={setWidth} currentWidth={widths.start} />
+        </span>
+      )}
+
+      {visible.finish && (
+        <span
+          className="relative text-right shrink-0 pr-2"
+          style={{ width: widths.finish }}
+          role="columnheader"
+          aria-label="Finish date"
+        >
+          Finish
+          <ResizeHandle colKey="finish" setWidth={setWidth} currentWidth={widths.finish} />
+        </span>
+      )}
+
+      {visible.progress && (
+        <span
+          className="text-right shrink-0 pr-2"
+          style={{ width: widths.progress }}
+          role="columnheader"
+          aria-label="Progress"
+        >
+          %
+        </span>
+      )}
     </div>
   );
 }

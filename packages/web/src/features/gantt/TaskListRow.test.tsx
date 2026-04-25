@@ -8,7 +8,11 @@ import type { Task } from '@/types';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 
 const defaultWidths: ColumnWidths['widths'] = {
-  task: 180, durStart: 100, progress: 52,
+  task: 180, dur: 52, start: 74, finish: 74, progress: 52,
+};
+
+const defaultVisible: ColumnWidths['visible'] = {
+  task: true, dur: true, start: true, finish: true, progress: true,
 };
 
 const base: Task = {
@@ -31,55 +35,56 @@ describe('TaskListRow', () => {
   });
 
   it('renders task name', () => {
-    renderWithRouter(<TaskListRow task={base} level={2} widths={defaultWidths} {...defaultTreeProps} />);
+    renderWithRouter(<TaskListRow task={base} level={2} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />);
     expect(screen.getByText('Design Phase')).toBeInTheDocument();
   });
 
   it('renders duration and progress', () => {
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} {...defaultTreeProps} />);
-    expect(screen.getByLabelText(/10 days/i)).toBeInTheDocument();
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />);
+    expect(screen.getByLabelText('10 days')).toBeInTheDocument();
     expect(screen.getByLabelText(/50% complete/i)).toBeInTheDocument();
   });
 
   it('renders duration without start date when unscheduled', () => {
     renderWithRouter(
-      <TaskListRow task={{ ...base, start: '' }} level={1} widths={defaultWidths} />,
+      <TaskListRow task={{ ...base, start: '' }} level={1} widths={defaultWidths} visible={defaultVisible} />,
     );
-    expect(screen.getByLabelText(/10 days, unscheduled/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('10 days')).toBeInTheDocument();
+    expect(screen.getByLabelText('unscheduled')).toBeInTheDocument();
   });
 
   it('critical task has aria-label mentioning critical path', () => {
-    renderWithRouter(<TaskListRow task={{ ...base, isCritical: true }} level={1} widths={defaultWidths} {...defaultTreeProps} />);
+    renderWithRouter(<TaskListRow task={{ ...base, isCritical: true }} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />);
     expect(screen.getByLabelText(/critical path/i)).toBeInTheDocument();
   });
 
   it('summary task applies font-medium style', () => {
-    renderWithRouter(<TaskListRow task={{ ...base, isSummary: true }} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={{ ...base, isSummary: true }} level={1} widths={defaultWidths} visible={defaultVisible} />);
     const nameEl = screen.getByText('Design Phase');
     expect(nameEl.className).toContain('font-medium');
   });
 
   it('milestone shows diamond and hides duration/progress', () => {
-    renderWithRouter(<TaskListRow task={{ ...base, isMilestone: true, duration: 0, progress: 0 }} level={1} widths={defaultWidths} {...defaultTreeProps} />);
+    renderWithRouter(<TaskListRow task={{ ...base, isMilestone: true, duration: 0, progress: 0 }} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />);
     expect(screen.getByText('◆')).toBeInTheDocument();
     expect(screen.getByLabelText('milestone')).toBeInTheDocument();
   });
 
   it('clicking row selects it in the store', async () => {
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} {...defaultTreeProps} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />);
     await userEvent.click(screen.getByRole('row'));
     expect(useGanttStore.getState().selectedTaskId).toBe('t1');
   });
 
   it('clicking selected row deselects it', async () => {
     useGanttStore.setState({ selectedTaskId: 't1' });
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} {...defaultTreeProps} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />);
     await userEvent.click(screen.getByRole('row'));
     expect(useGanttStore.getState().selectedTaskId).toBeNull();
   });
 
   it('Enter key toggles selection', async () => {
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     const row = screen.getByRole('row');
     row.focus();
     await userEvent.keyboard('{Enter}');
@@ -87,7 +92,7 @@ describe('TaskListRow', () => {
   });
 
   it('Space key toggles selection', async () => {
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     const row = screen.getByRole('row');
     row.focus();
     await userEvent.keyboard(' ');
@@ -95,7 +100,7 @@ describe('TaskListRow', () => {
   });
 
   it('F2 key enters edit mode', async () => {
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     const row = screen.getByRole('row');
     row.focus();
     await userEvent.keyboard('{F2}');
@@ -103,13 +108,13 @@ describe('TaskListRow', () => {
   });
 
   it('double-click enters edit mode', async () => {
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     await userEvent.dblClick(screen.getByRole('row'));
     expect(screen.getByLabelText(/Rename task/i)).toBeInTheDocument();
   });
 
   it('Escape cancels edit', async () => {
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     await userEvent.dblClick(screen.getByRole('row'));
     const input = screen.getByLabelText(/Rename task/i);
     await userEvent.type(input, 'New Name');
@@ -120,7 +125,7 @@ describe('TaskListRow', () => {
   });
 
   it('Enter in edit mode commits the change', async () => {
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     await userEvent.dblClick(screen.getByRole('row'));
     const input = screen.getByLabelText(/Rename task/i);
     await userEvent.clear(input);
@@ -133,7 +138,7 @@ describe('TaskListRow', () => {
   it('blur commits edit', async () => {
     renderWithRouter(
       <div>
-        <TaskListRow task={base} level={1} widths={defaultWidths} />
+        <TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />
         <button type="button">Other</button>
       </div>,
     );
@@ -146,7 +151,7 @@ describe('TaskListRow', () => {
   });
 
   it('properties button selects the task', async () => {
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     const propBtn = screen.getByLabelText(/Open properties/i);
     await userEvent.click(propBtn);
     expect(useGanttStore.getState().selectedTaskId).toBe('t1');
@@ -160,7 +165,7 @@ describe('TaskListRow', () => {
         { resourceId: 'r2', name: 'Bob', units: 50 },
       ],
     };
-    renderWithRouter(<TaskListRow task={taskWithAssignees} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={taskWithAssignees} level={1} widths={defaultWidths} visible={defaultVisible} />);
     expect(screen.getByLabelText(/assigned to Alice, Bob/i)).toBeInTheDocument();
   });
 
@@ -170,20 +175,20 @@ describe('TaskListRow', () => {
       isSummary: true,
       assignees: [{ resourceId: 'r1', name: 'Alice', units: 100 }],
     };
-    renderWithRouter(<TaskListRow task={summaryTask} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={summaryTask} level={1} widths={defaultWidths} visible={defaultVisible} />);
     // AssigneeChips should not render for summary tasks
     expect(screen.queryByText('A')).not.toBeInTheDocument();
   });
 
   it('clicking row during edit mode does not toggle selection', async () => {
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     await userEvent.dblClick(screen.getByRole('row'));
     // Now in edit mode — click should not toggle selection
     expect(useGanttStore.getState().selectedTaskId).toBeNull();
   });
 
   it('keyboard events are ignored during edit mode', async () => {
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     await userEvent.dblClick(screen.getByRole('row'));
     const input = screen.getByLabelText(/Rename task/i);
     // Enter in input commits, Space types a space
@@ -197,7 +202,7 @@ describe('TaskListRow', () => {
       <TaskListRow
         task={{ ...base, isSummary: true }}
         level={1}
-        widths={defaultWidths}
+        widths={defaultWidths} visible={defaultVisible}
         hasChildren={true}
         isExpanded={false}
         onToggle={toggleFn}
@@ -211,7 +216,7 @@ describe('TaskListRow', () => {
       <TaskListRow
         task={{ ...base, isSummary: true }}
         level={1}
-        widths={defaultWidths}
+        widths={defaultWidths} visible={defaultVisible}
         hasChildren={true}
         isExpanded={true}
         onToggle={vi.fn()}
@@ -228,7 +233,7 @@ describe('TaskListRow', () => {
       <TaskListRow
         task={{ ...base, isSummary: true }}
         level={1}
-        widths={defaultWidths}
+        widths={defaultWidths} visible={defaultVisible}
         hasChildren={true}
         isExpanded={false}
         onToggle={toggleFn}
@@ -241,7 +246,7 @@ describe('TaskListRow', () => {
   });
 
   it('leaf tasks show spacer instead of chevron', () => {
-    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} {...defaultTreeProps} />);
+    renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />);
     expect(screen.queryByLabelText(/Expand/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Collapse/i)).not.toBeInTheDocument();
   });
