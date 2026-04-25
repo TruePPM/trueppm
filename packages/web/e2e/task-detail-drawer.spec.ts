@@ -210,7 +210,7 @@ test.describe('TaskDetailDrawer — tab bar', () => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     await drawer.getByRole('tab', { name: 'Estimates' }).click();
     await expect(drawer.getByRole('tab', { name: 'Estimates' })).toHaveAttribute('aria-selected', 'true');
-    await expect(drawer.getByLabelText(/Optimistic/i)).toBeVisible();
+    await expect(drawer.getByLabel(/Optimistic/i)).toBeVisible();
   });
 
   test('clicking History tab switches panel', async ({ page }) => {
