@@ -80,14 +80,18 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
 
   const isSummaryStyle = task.isSummary ? 'font-medium' : '';
 
+  // Width available for task name content: full task column minus indent, chevron, and base left padding.
+  // (paddingLeft = (level-1)*WBS_INDENT + 8; chevron = 18px; base = 8px)
+  const taskNameWidth = Math.max(0, widths.task - (level - 1) * WBS_INDENT - 26);
+
   return (
     <div
       role="row"
       aria-selected={isSelected}
       tabIndex={isEditing ? -1 : 0}
-      style={{ height: ROW_HEIGHT, paddingLeft: (level - 1) * WBS_INDENT + 8 }}
+      style={{ height: ROW_HEIGHT }}
       className={[
-        'relative group flex items-center text-xs border-b border-neutral-border/20',
+        'group flex items-stretch text-xs border-b border-neutral-border/20',
         isEditing ? 'cursor-text' : 'cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white',
         isSelected && !isEditing ? 'bg-white/10 border-l-2 border-brand-primary' : 'hover:bg-white/5',
@@ -107,138 +111,149 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
         }
       }}
     >
-      {/* Collapse/expand chevron for summary tasks */}
-      {hasChildren ? (
+      {/* ── Task column ─────────────────────────────────────────────────────── */}
+      {/* Positioned wrapper carries the WBS indent. Properties button lives here
+          so it never overlaps the Dur·Start or % columns. */}
+      <div
+        className="relative flex items-center shrink-0 border-r border-neutral-border/20"
+        style={{ width: widths.task, paddingLeft: (level - 1) * WBS_INDENT + 8 }}
+      >
+        {/* Collapse/expand chevron for summary tasks */}
+        {hasChildren ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onToggle?.(); }}
+            aria-expanded={isExpanded}
+            aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
+            className="shrink-0 w-4 h-4 flex items-center justify-center mr-0.5
+              text-gantt-text-secondary hover:text-gantt-text-primary
+              focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white rounded"
+          >
+            <svg
+              width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true"
+              className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
+            >
+              <path d="M2 1l4 3-4 3z" />
+            </svg>
+          </button>
+        ) : (
+          <span className="shrink-0 w-4 mr-0.5" aria-hidden="true" />
+        )}
+
+        {/* Milestone diamond indicator */}
+        {task.isMilestone && (
+          <span className="mr-1 text-brand-accent" aria-hidden="true">◆</span>
+        )}
+
+        {/* Task name — inline input when editing */}
+        {isEditing ? (
+          <input
+            ref={inputRef}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
+              if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+            }}
+            className="flex-1 min-w-0 bg-white/10 text-gantt-text-primary text-xs px-1 rounded
+              outline-none ring-1 ring-brand-primary truncate"
+            style={{ height: 20 }}
+            aria-label={`Rename task ${task.name}`}
+          />
+        ) : (
+          <div
+            className="flex shrink-0 min-w-0 items-center gap-1 overflow-hidden"
+            style={{ width: taskNameWidth }}
+          >
+            <span
+              className={`min-w-0 shrink truncate ${isCriticalStyle} ${isSummaryStyle}`}
+              title={`${task.name} — double-click to rename`}
+              aria-label={`${task.wbs} ${task.name}${task.isCritical ? ' (critical path)' : ''}${task.assignees.length > 0 ? ` — assigned to ${task.assignees.map((a) => a.name).join(', ')}` : ''}`}
+            >
+              {task.name}
+            </span>
+            {/* Dep chips — shown when task is selected in focus mode; replaces assignee chips */}
+            {isSelected && depChips ? (
+              <span className="flex items-center gap-0.5 flex-shrink-0" aria-label={`${depChips.predsCount} predecessors, ${depChips.succsCount} successors`}>
+                {depChips.predsCount > 0 && (
+                  <span
+                    className={`inline-flex items-center px-1 py-px rounded text-xs font-medium cursor-pointer ${depChips.predsCritical ? 'bg-semantic-critical/10 text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
+                    title={`${depChips.predsCount} predecessor${depChips.predsCount !== 1 ? 's' : ''}`}
+                  >
+                    ←{depChips.predsCount}
+                  </span>
+                )}
+                {depChips.succsCount > 0 && (
+                  <span
+                    className={`inline-flex items-center px-1 py-px rounded text-xs font-medium cursor-pointer ${depChips.succsCritical ? 'bg-semantic-critical/10 text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
+                    title={`${depChips.succsCount} successor${depChips.succsCount !== 1 ? 's' : ''}`}
+                  >
+                    →{depChips.succsCount}
+                  </span>
+                )}
+              </span>
+            ) : (
+              !task.isSummary && !task.isMilestone && (
+                <AssigneeChips assignees={task.assignees} />
+              )
+            )}
+          </div>
+        )}
+
+        {/* Properties button — absolute within the task column so it never overlaps
+            the Dur·Start or % columns. Visible on hover/focus or when selected. */}
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); onToggle?.(); }}
-          aria-expanded={isExpanded}
-          aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
-          className="shrink-0 w-4 h-4 flex items-center justify-center mr-0.5
-            text-gantt-text-secondary hover:text-gantt-text-primary
-            focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white rounded"
+          aria-label={`Open properties for ${task.name}`}
+          title="Task properties"
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedTaskId(task.id);
+          }}
+          className={[
+            'absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded',
+            'text-gantt-text-secondary hover:text-gantt-text-primary',
+            'transition-opacity duration-100',
+            isSelected
+              ? 'opacity-100'
+              : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white',
+          ].join(' ')}
         >
-          <svg
-            width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true"
-            className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
-          >
-            <path d="M2 1l4 3-4 3z" />
+          {/* Horizontal ellipsis */}
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+            <circle cx="2" cy="6" r="1.2" />
+            <circle cx="6" cy="6" r="1.2" />
+            <circle cx="10" cy="6" r="1.2" />
           </svg>
         </button>
-      ) : (
-        <span className="shrink-0 w-4 mr-0.5" aria-hidden="true" />
-      )}
+      </div>
 
-      {/* Milestone diamond indicator */}
-      {task.isMilestone && (
-        <span className="mr-1 text-brand-accent" aria-hidden="true">◆</span>
-      )}
-
-      {/* Task name — inline input when editing */}
-      {isEditing ? (
-        <input
-          ref={inputRef}
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onBlur={commitEdit}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
-            if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
-          }}
-          className="flex-1 min-w-0 bg-white/10 text-gantt-text-primary text-xs px-1 rounded
-            outline-none ring-1 ring-brand-primary truncate"
-          style={{ height: 20 }}
-          aria-label={`Rename task ${task.name}`}
-        />
-      ) : (
+      {/* ── Dur · Start column ──────────────────────────────────────────────── */}
+      {!isEditing && (
         <div
-          className="flex shrink-0 min-w-0 items-center gap-1 overflow-hidden"
-          style={{ width: Math.max(0, widths.task - (level - 1) * WBS_INDENT - 26) }}
+          className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
+            text-right text-gantt-text-secondary tabular-nums pr-2"
+          style={{ width: widths.durStart }}
+          role="gridcell"
+          aria-label={task.isMilestone ? 'milestone' : task.start ? `${task.duration} days, starts ${formatDate(task.start)}` : `${task.duration} days, unscheduled`}
         >
-          <span
-            className={`min-w-0 shrink truncate ${isCriticalStyle} ${isSummaryStyle}`}
-            title={`${task.name} — double-click to rename`}
-            aria-label={`${task.wbs} ${task.name}${task.isCritical ? ' (critical path)' : ''}${task.assignees.length > 0 ? ` — assigned to ${task.assignees.map((a) => a.name).join(', ')}` : ''}`}
-          >
-            {task.name}
-          </span>
-          {/* Dep chips — shown when task is selected in focus mode; replaces assignee chips */}
-          {isSelected && depChips ? (
-            <span className="flex items-center gap-0.5 flex-shrink-0" aria-label={`${depChips.predsCount} predecessors, ${depChips.succsCount} successors`}>
-              {depChips.predsCount > 0 && (
-                <span
-                  className={`inline-flex items-center px-1 py-px rounded text-xs font-medium cursor-pointer ${depChips.predsCritical ? 'bg-semantic-critical/10 text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
-                  title={`${depChips.predsCount} predecessor${depChips.predsCount !== 1 ? 's' : ''}`}
-                >
-                  ←{depChips.predsCount}
-                </span>
-              )}
-              {depChips.succsCount > 0 && (
-                <span
-                  className={`inline-flex items-center px-1 py-px rounded text-xs font-medium cursor-pointer ${depChips.succsCritical ? 'bg-semantic-critical/10 text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
-                  title={`${depChips.succsCount} successor${depChips.succsCount !== 1 ? 's' : ''}`}
-                >
-                  →{depChips.succsCount}
-                </span>
-              )}
-            </span>
-          ) : (
-            !task.isSummary && !task.isMilestone && (
-              <AssigneeChips assignees={task.assignees} />
-            )
-          )}
+          {task.isMilestone ? '—' : task.start ? `${task.duration}d · ${formatDate(task.start)}` : `${task.duration}d`}
         </div>
       )}
 
-      {/* Combined duration · start column (rule 43) */}
+      {/* ── % complete column ───────────────────────────────────────────────── */}
       {!isEditing && (
-        <>
-          <span
-            className="shrink-0 text-right text-gantt-text-secondary tabular-nums"
-            style={{ width: widths.durStart }}
-            aria-label={task.isMilestone ? 'milestone' : task.start ? `${task.duration} days, starts ${formatDate(task.start)}` : `${task.duration} days, unscheduled`}
-          >
-            {task.isMilestone ? '—' : task.start ? `${task.duration}d · ${formatDate(task.start)}` : `${task.duration}d`}
-          </span>
-
-          {/* Progress — text only; no mini bar (rule 43) */}
-          <span
-            className="shrink-0 text-right text-gantt-text-secondary tabular-nums"
-            style={{ width: widths.progress }}
-            aria-label={`${task.progress}% complete`}
-          >
-            {!task.isMilestone && `${task.progress}%`}
-          </span>
-
-          {/* Properties button — absolutely positioned so it does not affect column
-              layout. Right-aligned within the row; visible on hover/focus or when
-              selected. (#92: button was in the flex flow and shifted durStart/% columns.) */}
-          <button
-            type="button"
-            aria-label={`Open properties for ${task.name}`}
-            title="Task properties"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedTaskId(task.id);
-            }}
-            className={[
-              'absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded',
-              'text-gantt-text-secondary hover:text-gantt-text-primary',
-              'transition-opacity duration-100',
-              isSelected
-                ? 'opacity-100'
-                : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-              'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white',
-            ].join(' ')}
-          >
-            {/* Horizontal ellipsis */}
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-              <circle cx="2" cy="6" r="1.2" />
-              <circle cx="6" cy="6" r="1.2" />
-              <circle cx="10" cy="6" r="1.2" />
-            </svg>
-          </button>
-        </>
+        <div
+          className="flex items-center justify-end shrink-0
+            text-right text-gantt-text-secondary tabular-nums pr-2"
+          style={{ width: widths.progress }}
+          role="gridcell"
+          aria-label={`${task.progress}% complete`}
+        >
+          {!task.isMilestone && `${task.progress}%`}
+        </div>
       )}
     </div>
   );
