@@ -92,7 +92,7 @@ export function AddToRosterCombobox({ projectId, onSelect, onDismiss }: AddToRos
         aria-expanded={visible.length > 0}
         aria-controls={listboxId}
         aria-activedescendant={activeOptionId}
-        aria-label="Search people to add"
+        aria-label="Search by name…"
         placeholder="Search by name…"
         value={query}
         onChange={(e) => setQuery(e.target.value)}

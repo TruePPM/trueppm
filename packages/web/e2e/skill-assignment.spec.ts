@@ -98,7 +98,7 @@ test('Skill-fit groups appear in the assignment picker when task has requirement
   await expect(page.getByRole('dialog')).toBeVisible();
 
   // Click "Add assignee" to open the resource combobox
-  await page.getByRole('button', { name: /add assignee/i }).click();
+  await page.getByRole('button', { name: /add resource/i }).click();
 
   // Should show grouped headings
   await expect(page.getByText('Best fit')).toBeVisible();
@@ -114,7 +114,7 @@ test('Missing skill badge shown for no-match resources', async ({ page }) => {
 
   await page.getByRole('grid', { name: 'Task list' }).getByRole('row', { name: /Build API/i }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
-  await page.getByRole('button', { name: /add assignee/i }).click();
+  await page.getByRole('button', { name: /add resource/i }).click();
 
   // Bob should have a "Missing: Django" chip
   await expect(page.getByText('Missing: Django')).toBeVisible();
