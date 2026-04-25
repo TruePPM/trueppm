@@ -171,8 +171,7 @@ async function gotoGantt(page: import('@playwright/test').Page) {
     }),
   );
 
-  await page.goto(`/?project=${FIXTURE_PROJECT_ID}`);
-  await page.getByRole('tab', { name: 'Gantt' }).click();
+  await page.goto(`/projects/${FIXTURE_PROJECT_ID}/gantt`);
 }
 
 async function openDrawer(page: import('@playwright/test').Page, taskName: string) {
