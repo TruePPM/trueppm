@@ -38,7 +38,7 @@ function ResizeHandle({ colKey, setWidth, currentWidth }: ResizeHandleProps) {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
-      <div className="w-px h-3.5 bg-white/20 group-hover:bg-brand-primary transition-colors" aria-hidden="true" />
+      <div className="w-px h-full bg-white/30 group-hover:bg-brand-primary/80 transition-colors" aria-hidden="true" />
     </div>
   );
 }
@@ -51,14 +51,16 @@ interface Props {
 export function TaskListHeader({ widths, setWidth }: Props) {
   return (
     <div
-      className="flex items-center h-7 px-2 bg-gantt-surface border-b border-neutral-border/30
+      className="flex items-center h-7 bg-gantt-surface border-b border-neutral-border/30
         text-xs font-medium text-gantt-text-secondary select-none sticky top-0 z-10"
       role="row"
       aria-label="Task list columns"
     >
-      {/* Task column */}
+      {/* Task column — pl-2 here instead of px-2 on the row so column widths don't
+          overflow the panel (header columns sum to totalWidth; adding symmetric padding
+          would push the last column 8px outside the panel and clip it). */}
       <span
-        className="relative truncate shrink-0"
+        className="relative pl-2 truncate shrink-0"
         style={{ width: widths.task }}
         role="columnheader"
       >
