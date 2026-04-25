@@ -506,7 +506,41 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         if project is not None:
             self.check_object_permissions(self.request, project)
 
-        instance = serializer.save()
+        # Auto-assign wbs_path when the client doesn't supply one.  Optional
+        # parent_id in the request body places the task as the last child of that
+        # parent (e.g. "1.3" if parent "1" already has two children).  Without a
+        # parent_id the task is appended at root level.
+        #
+        # The count + save share one atomic block so the SELECT FOR UPDATE lock
+        # covers the INSERT and prevents concurrent creates racing to the same path.
+        with transaction.atomic():
+            if not serializer.validated_data.get("wbs_path") and project is not None:
+                from rest_framework.exceptions import ValidationError as DRFValidationError
+
+                parent_id = self.request.data.get("parent_id")
+                if parent_id:
+                    try:
+                        parent = Task.objects.select_for_update().get(
+                            pk=parent_id, project=project, is_deleted=False
+                        )
+                    except Task.DoesNotExist as exc:
+                        raise DRFValidationError(
+                            {"parent_id": "Parent task not found in this project."}
+                        ) from exc
+                    if not parent.wbs_path:
+                        raise DRFValidationError({"parent_id": "Parent task has no WBS path."})
+                    children = _get_siblings(str(project.pk), str(parent.wbs_path), lock=True)
+                    wbs_path = _build_wbs_path(str(parent.wbs_path), len(children) + 1)
+                else:
+                    root_count = (
+                        Task.objects.select_for_update()
+                        .filter(project=project, is_deleted=False, wbs_path__regex=r"^\d+$")
+                        .count()
+                    )
+                    wbs_path = str(root_count + 1)
+                instance = serializer.save(wbs_path=wbs_path)
+            else:
+                instance = serializer.save()
         project_id = str(instance.project_id)
         task_id = str(instance.pk)
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
