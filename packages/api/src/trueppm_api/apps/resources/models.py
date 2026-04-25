@@ -6,7 +6,7 @@ import uuid
 
 from django.db import models
 
-from trueppm_api.apps.projects.models import Calendar, Task, VersionedModel
+from trueppm_api.apps.projects.models import Calendar, Project, Task, VersionedModel
 
 
 class Resource(VersionedModel):
@@ -14,6 +14,7 @@ class Resource(VersionedModel):
 
     name = models.CharField(max_length=255)
     email = models.EmailField(blank=True)
+    job_role = models.CharField(max_length=120, blank=True)
     calendar = models.ForeignKey(
         Calendar,
         on_delete=models.PROTECT,
@@ -30,6 +31,101 @@ class Resource(VersionedModel):
 
     def __str__(self) -> str:
         return self.name
+
+
+class Skill(VersionedModel):
+    """A capability tag in the global org-level catalog.
+
+    normalized_name is the de-dup key (casefolded + stripped). All reads
+    should use name; writes normalise to normalized_name to prevent "React" /
+    "react" / "REACT" from producing separate rows.
+    """
+
+    name = models.CharField(max_length=120)
+    normalized_name = models.CharField(max_length=120, unique=True)
+    category = models.CharField(max_length=60, blank=True)
+
+    class Meta:
+        db_table = "resources_skill"
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Proficiency(models.IntegerChoices):
+    BEGINNER = 1, "Beginner"
+    INTERMEDIATE = 2, "Intermediate"
+    EXPERT = 3, "Expert"
+
+
+class ResourceSkill(VersionedModel):
+    """A skill tag on a resource with a proficiency level."""
+
+    resource = models.ForeignKey(Resource, on_delete=models.CASCADE, related_name="skills")
+    skill = models.ForeignKey(Skill, on_delete=models.PROTECT, related_name="resources")
+    proficiency = models.IntegerField(choices=Proficiency.choices, default=Proficiency.INTERMEDIATE)
+
+    class Meta:
+        db_table = "resources_resource_skill"
+        unique_together = [("resource", "skill")]
+        indexes = [models.Index(fields=["skill", "proficiency"], name="res_skill_prof_idx")]
+        ordering = ["skill__name"]
+
+    def __str__(self) -> str:
+        return f"{self.resource} — {self.skill} ({self.get_proficiency_display()})"
+
+
+class ProjectResource(VersionedModel):
+    """A resource's explicit membership in a project's roster.
+
+    Distinct from TaskResource (task assignment) and ProjectMembership (user
+    access role). A resource can be on the roster without yet being assigned
+    to any task. Per-project overrides for role title and capacity are stored
+    here; if null they fall back to Resource.job_role / Resource.max_units.
+    """
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="resource_pool")
+    resource = models.ForeignKey(
+        Resource, on_delete=models.CASCADE, related_name="project_memberships"
+    )
+    role_title = models.CharField(max_length=120, blank=True)
+    units_override = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
+    notes = models.CharField(max_length=500, blank=True)
+
+    class Meta:
+        db_table = "resources_project_resource"
+        unique_together = [("project", "resource")]
+        indexes = [models.Index(fields=["project", "is_deleted"], name="proj_res_proj_del_idx")]
+
+    def __str__(self) -> str:
+        return f"{self.resource} on {self.project}"
+
+    @property
+    def effective_max_units(self) -> object:
+        """Return the project-specific override if set, otherwise the resource default."""
+        return self.units_override if self.units_override is not None else self.resource.max_units
+
+
+class TaskSkillRequirement(VersionedModel):
+    """A skill required to work on a task, with a minimum proficiency level.
+
+    Optional — tasks without requirements behave as they do today.
+    When present, the assignment picker uses these to annotate resources
+    with skill_fit and surface skill_mismatch warnings on assignment.
+    """
+
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="skill_requirements")
+    skill = models.ForeignKey(Skill, on_delete=models.PROTECT, related_name="task_requirements")
+    min_proficiency = models.IntegerField(choices=Proficiency.choices, default=Proficiency.BEGINNER)
+
+    class Meta:
+        db_table = "resources_task_skill_requirement"
+        unique_together = [("task", "skill")]
+        ordering = ["skill__name"]
+
+    def __str__(self) -> str:
+        return f"{self.task} requires {self.skill} ({self.get_min_proficiency_display()}+)"
 
 
 class TaskResource(models.Model):

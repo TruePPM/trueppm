@@ -9,9 +9,9 @@ interface ApiTaskResource {
   units: number;
 }
 
-/** A single overallocation warning returned by the 201 create response (ADR-0028). */
+/** A warning returned by the POST /task-resources/ 201 response (ADR-0028, issue #150). */
 export interface AssignmentWarning {
-  code: 'resource_overallocated';
+  code: 'resource_overallocated' | 'skill_mismatch';
   resource_id: string;
   resource_name: string;
   detail: string;

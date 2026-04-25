@@ -12,6 +12,8 @@ import { TaskListView } from '@/features/tasklist/TaskListView';
 import { BoardView } from '@/features/board/BoardView';
 import { CalendarView } from '@/features/calendar/CalendarView';
 import { ResourceView } from '@/features/resource/ResourceView';
+import { TeamView } from '@/features/roster/TeamView';
+import { RosterPage } from '@/features/roster/RosterPage';
 import { RiskRegisterView } from '@/features/risk/RiskRegisterView';
 
 /**
@@ -64,7 +66,15 @@ export const router = createBrowserRouter([
               { path: 'board', element: <BoardView /> },
               { path: 'list', element: <TaskListView /> },
               { path: 'calendar', element: <CalendarView /> },
-              { path: 'resources', element: <ResourceView /> },
+              {
+                path: 'resources',
+                element: <TeamView />,
+                children: [
+                  { index: true, element: <Navigate to="roster" replace /> },
+                  { path: 'roster', element: <RosterPage /> },
+                  { path: 'allocation', element: <ResourceView /> },
+                ],
+              },
               { path: 'risk', element: <RiskRegisterView /> },
             ],
           },

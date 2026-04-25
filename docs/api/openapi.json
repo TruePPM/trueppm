@@ -873,6 +873,292 @@
                 }
             }
         },
+        "/api/v1/project-resources/": {
+            "get": {
+                "operationId": "v1_project_resources_list",
+                "description": "CRUD for a project's resource roster.\n\nRead: any project member (VIEWER+).\nWrite: SCHEDULER+ on the project.\nDelete: SCHEDULER+; with ?force=true cascades to TaskResource rows and\ntriggers CPM recalculation (ADR-0027). Without force=true returns 409 if\nlive task assignments exist.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedProjectResourceList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_project_resources_create",
+                "description": "CRUD for a project's resource roster.\n\nRead: any project member (VIEWER+).\nWrite: SCHEDULER+ on the project.\nDelete: SCHEDULER+; with ?force=true cascades to TaskResource rows and\ntriggers CPM recalculation (ADR-0027). Without force=true returns 409 if\nlive task assignments exist.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectResourceRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectResourceRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectResourceRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectResource"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/project-resources/{id}/": {
+            "get": {
+                "operationId": "v1_project_resources_retrieve",
+                "description": "CRUD for a project's resource roster.\n\nRead: any project member (VIEWER+).\nWrite: SCHEDULER+ on the project.\nDelete: SCHEDULER+; with ?force=true cascades to TaskResource rows and\ntriggers CPM recalculation (ADR-0027). Without force=true returns 409 if\nlive task assignments exist.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project resource.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectResource"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_project_resources_update",
+                "description": "CRUD for a project's resource roster.\n\nRead: any project member (VIEWER+).\nWrite: SCHEDULER+ on the project.\nDelete: SCHEDULER+; with ?force=true cascades to TaskResource rows and\ntriggers CPM recalculation (ADR-0027). Without force=true returns 409 if\nlive task assignments exist.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project resource.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectResourceRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectResourceRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectResourceRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectResource"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_project_resources_partial_update",
+                "description": "CRUD for a project's resource roster.\n\nRead: any project member (VIEWER+).\nWrite: SCHEDULER+ on the project.\nDelete: SCHEDULER+; with ?force=true cascades to TaskResource rows and\ntriggers CPM recalculation (ADR-0027). Without force=true returns 409 if\nlive task assignments exist.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project resource.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProjectResourceRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProjectResourceRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProjectResourceRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectResource"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_project_resources_destroy",
+                "description": "Remove a resource from the roster.\n\nIf the resource has live TaskResource rows on this project and\nforce=true is not passed, returns 409. With force=true, cascades the\ndeletion and triggers CPM recalculation for affected tasks.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project resource.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/": {
             "get": {
                 "operationId": "v1_projects_list",
@@ -3530,10 +3816,296 @@
                 }
             }
         },
+        "/api/v1/resource-skills/": {
+            "get": {
+                "operationId": "v1_resource_skills_list",
+                "description": "CRUD for skill tags on resources.\n\nRead: authenticated user, or the resource owner via email match (self-service).\nWrite: SCHEDULER+ on at least one project shared with the resource.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedResourceSkillList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_resource_skills_create",
+                "description": "CRUD for skill tags on resources.\n\nRead: authenticated user, or the resource owner via email match (self-service).\nWrite: SCHEDULER+ on at least one project shared with the resource.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResourceSkillRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResourceSkillRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResourceSkillRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ResourceSkill"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/resource-skills/{id}/": {
+            "get": {
+                "operationId": "v1_resource_skills_retrieve",
+                "description": "CRUD for skill tags on resources.\n\nRead: authenticated user, or the resource owner via email match (self-service).\nWrite: SCHEDULER+ on at least one project shared with the resource.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this resource skill.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ResourceSkill"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_resource_skills_update",
+                "description": "CRUD for skill tags on resources.\n\nRead: authenticated user, or the resource owner via email match (self-service).\nWrite: SCHEDULER+ on at least one project shared with the resource.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this resource skill.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResourceSkillRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResourceSkillRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResourceSkillRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ResourceSkill"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_resource_skills_partial_update",
+                "description": "CRUD for skill tags on resources.\n\nRead: authenticated user, or the resource owner via email match (self-service).\nWrite: SCHEDULER+ on at least one project shared with the resource.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this resource skill.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedResourceSkillRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedResourceSkillRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedResourceSkillRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ResourceSkill"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_resource_skills_destroy",
+                "description": "CRUD for skill tags on resources.\n\nRead: authenticated user, or the resource owner via email match (self-service).\nWrite: SCHEDULER+ on at least one project shared with the resource.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this resource skill.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/resources/": {
             "get": {
                 "operationId": "v1_resources_list",
-                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources. The ProjectScopedViewSet\nmixin's fallthrough path handles this correctly.",
+                "description": "List resources, optionally annotated with skill_fit for a task.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -3589,7 +4161,7 @@
             },
             "post": {
                 "operationId": "v1_resources_create",
-                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources. The ProjectScopedViewSet\nmixin's fallthrough path handles this correctly.",
+                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources.\n\nQuery params:\n  ?search=           — filter by name/email\n  ?exclude_project=  — exclude resources already in a project's roster\n  ?task=             — annotate with skill_fit against the task's requirements",
                 "tags": [
                     "v1"
                 ],
@@ -3638,7 +4210,7 @@
         "/api/v1/resources/{id}/": {
             "get": {
                 "operationId": "v1_resources_retrieve",
-                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources. The ProjectScopedViewSet\nmixin's fallthrough path handles this correctly.",
+                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources.\n\nQuery params:\n  ?search=           — filter by name/email\n  ?exclude_project=  — exclude resources already in a project's roster\n  ?task=             — annotate with skill_fit against the task's requirements",
                 "parameters": [
                     {
                         "in": "path",
@@ -3677,7 +4249,7 @@
             },
             "put": {
                 "operationId": "v1_resources_update",
-                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources. The ProjectScopedViewSet\nmixin's fallthrough path handles this correctly.",
+                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources.\n\nQuery params:\n  ?search=           — filter by name/email\n  ?exclude_project=  — exclude resources already in a project's roster\n  ?task=             — annotate with skill_fit against the task's requirements",
                 "parameters": [
                     {
                         "in": "path",
@@ -3736,7 +4308,7 @@
             },
             "patch": {
                 "operationId": "v1_resources_partial_update",
-                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources. The ProjectScopedViewSet\nmixin's fallthrough path handles this correctly.",
+                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources.\n\nQuery params:\n  ?search=           — filter by name/email\n  ?exclude_project=  — exclude resources already in a project's roster\n  ?task=             — annotate with skill_fit against the task's requirements",
                 "parameters": [
                     {
                         "in": "path",
@@ -3794,7 +4366,7 @@
             },
             "delete": {
                 "operationId": "v1_resources_destroy",
-                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources. The ProjectScopedViewSet\nmixin's fallthrough path handles this correctly.",
+                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources.\n\nQuery params:\n  ?search=           — filter by name/email\n  ?exclude_project=  — exclude resources already in a project's roster\n  ?task=             — annotate with skill_fit against the task's requirements",
                 "parameters": [
                     {
                         "in": "path",
@@ -3804,6 +4376,301 @@
                             "format": "uuid"
                         },
                         "description": "A UUID string identifying this resource.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/skills/": {
+            "get": {
+                "operationId": "v1_skills_list",
+                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. SCHEDULER+ may create/update.\nSkill creation normalises the name and returns the existing row if the\nnormalised name already exists (de-dup by normalized_name unique constraint).",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedSkillList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_skills_create",
+                "description": "Create or return existing skill — de-dup by normalized_name.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SkillRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SkillRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SkillRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Skill"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/skills/{id}/": {
+            "get": {
+                "operationId": "v1_skills_retrieve",
+                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. SCHEDULER+ may create/update.\nSkill creation normalises the name and returns the existing row if the\nnormalised name already exists (de-dup by normalized_name unique constraint).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this skill.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Skill"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_skills_update",
+                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. SCHEDULER+ may create/update.\nSkill creation normalises the name and returns the existing row if the\nnormalised name already exists (de-dup by normalized_name unique constraint).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this skill.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SkillRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SkillRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SkillRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Skill"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_skills_partial_update",
+                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. SCHEDULER+ may create/update.\nSkill creation normalises the name and returns the existing row if the\nnormalised name already exists (de-dup by normalized_name unique constraint).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this skill.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSkillRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSkillRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSkillRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Skill"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_skills_destroy",
+                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. SCHEDULER+ may create/update.\nSkill creation normalises the name and returns the existing row if the\nnormalised name already exists (de-dup by normalized_name unique constraint).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this skill.",
                         "required": true
                     }
                 ],
@@ -3875,7 +4742,7 @@
             },
             "post": {
                 "operationId": "v1_task_resources_create",
-                "description": "Create a task-resource assignment and return any overallocation warnings.\n\nThe assignment is always saved regardless of warnings — this is a soft\nalert, not a hard block. After commit, broadcasts ``assignment_created``\nto all clients subscribed to the project's WebSocket channel so the\nresource utilisation grid updates in real time (ADR-0028).",
+                "description": "Create a task-resource assignment and return any warnings.\n\nReturns overallocation and skill_mismatch warnings in the 201 response.\nThe assignment is always saved regardless of warnings — these are soft\nalerts, not hard blocks (ADR-0028, ADR-0033).",
                 "tags": [
                     "v1"
                 ],
@@ -4235,6 +5102,292 @@
                             }
                         },
                         "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/task-skill-requirements/": {
+            "get": {
+                "operationId": "v1_task_skill_requirements_list",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: any project member. Write: SCHEDULER+.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedTaskSkillRequirementList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_task_skill_requirements_create",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: any project member. Write: SCHEDULER+.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskSkillRequirementRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskSkillRequirementRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskSkillRequirementRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskSkillRequirement"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/task-skill-requirements/{id}/": {
+            "get": {
+                "operationId": "v1_task_skill_requirements_retrieve",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: any project member. Write: SCHEDULER+.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task skill requirement.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskSkillRequirement"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_task_skill_requirements_update",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: any project member. Write: SCHEDULER+.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task skill requirement.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskSkillRequirementRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskSkillRequirementRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskSkillRequirementRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskSkillRequirement"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_task_skill_requirements_partial_update",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: any project member. Write: SCHEDULER+.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task skill requirement.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskSkillRequirementRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskSkillRequirementRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskSkillRequirementRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskSkillRequirement"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_task_skill_requirements_destroy",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: any project member. Write: SCHEDULER+.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task skill requirement.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
                     }
                 }
             }
@@ -5094,6 +6247,15 @@
                 "type": "string",
                 "description": "* `pending_retry` - Pending Retry\n* `dead` - Dead\n* `dismissed` - Dismissed\n* `retried` - Retried"
             },
+            "MinProficiencyEnum": {
+                "enum": [
+                    1,
+                    2,
+                    3
+                ],
+                "type": "integer",
+                "description": "* `1` - Beginner\n* `2` - Intermediate\n* `3` - Expert"
+            },
             "NullEnum": {
                 "enum": [
                     null
@@ -5285,6 +6447,37 @@
                     }
                 }
             },
+            "PaginatedProjectResourceList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectResource"
+                        }
+                    }
+                }
+            },
             "PaginatedResourceList": {
                 "type": "object",
                 "required": [
@@ -5312,6 +6505,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Resource"
+                        }
+                    }
+                }
+            },
+            "PaginatedResourceSkillList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ResourceSkill"
                         }
                     }
                 }
@@ -5374,6 +6598,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/SchedulerRun"
+                        }
+                    }
+                }
+            },
+            "PaginatedSkillList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Skill"
                         }
                     }
                 }
@@ -5467,6 +6722,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/TaskRun"
+                        }
+                    }
+                }
+            },
+            "PaginatedTaskSkillRequirementList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskSkillRequirement"
                         }
                     }
                 }
@@ -5600,9 +6886,37 @@
                     }
                 }
             },
+            "PatchedProjectResourceRequest": {
+                "type": "object",
+                "description": "Read/write serializer for project roster membership.\n\nresource_detail is read-only expanded; writes use the resource UUID FK.\neffective_max_units is computed: units_override if set, else resource.max_units.",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "resource": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "role_title": {
+                        "type": "string",
+                        "maxLength": 120
+                    },
+                    "units_override": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,2}(?:\\.\\d{0,2})?$",
+                        "nullable": true
+                    },
+                    "notes": {
+                        "type": "string",
+                        "maxLength": 500
+                    }
+                }
+            },
             "PatchedResourceRequest": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -5614,6 +6928,10 @@
                         "format": "email",
                         "maxLength": 254
                     },
+                    "job_role": {
+                        "type": "string",
+                        "maxLength": 120
+                    },
                     "calendar": {
                         "type": "string",
                         "format": "uuid",
@@ -5623,6 +6941,29 @@
                         "type": "string",
                         "format": "decimal",
                         "pattern": "^-?\\d{0,2}(?:\\.\\d{0,2})?$"
+                    }
+                }
+            },
+            "PatchedResourceSkillRequest": {
+                "type": "object",
+                "description": "Read/write serializer for skill tags on a resource.",
+                "properties": {
+                    "resource": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "skill": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "proficiency": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProficiencyEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
                     }
                 }
             },
@@ -5661,6 +7002,21 @@
                             "type": "string",
                             "format": "uuid"
                         }
+                    }
+                }
+            },
+            "PatchedSkillRequest": {
+                "type": "object",
+                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers should handle 200 vs 201.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                    },
+                    "category": {
+                        "type": "string",
+                        "maxLength": 60
                     }
                 }
             },
@@ -5774,6 +7130,29 @@
                     }
                 }
             },
+            "PatchedTaskSkillRequirementRequest": {
+                "type": "object",
+                "description": "Read/write serializer for skill requirements on a task.",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "skill": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "min_proficiency": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MinProficiencyEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                    }
+                }
+            },
             "PatchedWebhookRequest": {
                 "type": "object",
                 "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET responses.\nThe ``events`` field is validated against the known event type choices.",
@@ -5800,6 +7179,15 @@
                         "type": "boolean"
                     }
                 }
+            },
+            "ProficiencyEnum": {
+                "enum": [
+                    1,
+                    2,
+                    3
+                ],
+                "type": "integer",
+                "description": "* `1` - Beginner\n* `2` - Intermediate\n* `3` - Expert"
             },
             "Project": {
                 "type": "object",
@@ -5969,9 +7357,98 @@
                     "start_date"
                 ]
             },
+            "ProjectResource": {
+                "type": "object",
+                "description": "Read/write serializer for project roster membership.\n\nresource_detail is read-only expanded; writes use the resource UUID FK.\neffective_max_units is computed: units_override if set, else resource.max_units.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "resource": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "resource_detail": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Resource"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "role_title": {
+                        "type": "string",
+                        "maxLength": 120
+                    },
+                    "units_override": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,2}(?:\\.\\d{0,2})?$",
+                        "nullable": true
+                    },
+                    "effective_max_units": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "notes": {
+                        "type": "string",
+                        "maxLength": 500
+                    }
+                },
+                "required": [
+                    "effective_max_units",
+                    "id",
+                    "project",
+                    "resource",
+                    "resource_detail",
+                    "server_version"
+                ]
+            },
+            "ProjectResourceRequest": {
+                "type": "object",
+                "description": "Read/write serializer for project roster membership.\n\nresource_detail is read-only expanded; writes use the resource UUID FK.\neffective_max_units is computed: units_override if set, else resource.max_units.",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "resource": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "role_title": {
+                        "type": "string",
+                        "maxLength": 120
+                    },
+                    "units_override": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,2}(?:\\.\\d{0,2})?$",
+                        "nullable": true
+                    },
+                    "notes": {
+                        "type": "string",
+                        "maxLength": 500
+                    }
+                },
+                "required": [
+                    "project",
+                    "resource"
+                ]
+            },
             "Resource": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -5991,6 +7468,10 @@
                         "format": "email",
                         "maxLength": 254
                     },
+                    "job_role": {
+                        "type": "string",
+                        "maxLength": 120
+                    },
                     "calendar": {
                         "type": "string",
                         "format": "uuid",
@@ -6000,17 +7481,25 @@
                         "type": "string",
                         "format": "decimal",
                         "pattern": "^-?\\d{0,2}(?:\\.\\d{0,2})?$"
+                    },
+                    "skills": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ResourceSkill"
+                        },
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "id",
                     "name",
-                    "server_version"
+                    "server_version",
+                    "skills"
                 ]
             },
             "ResourceRequest": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -6021,6 +7510,10 @@
                         "type": "string",
                         "format": "email",
                         "maxLength": 254
+                    },
+                    "job_role": {
+                        "type": "string",
+                        "maxLength": 120
                     },
                     "calendar": {
                         "type": "string",
@@ -6035,6 +7528,76 @@
                 },
                 "required": [
                     "name"
+                ]
+            },
+            "ResourceSkill": {
+                "type": "object",
+                "description": "Read/write serializer for skill tags on a resource.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "resource": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "skill": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "skill_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "proficiency": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProficiencyEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                    }
+                },
+                "required": [
+                    "id",
+                    "resource",
+                    "server_version",
+                    "skill",
+                    "skill_name"
+                ]
+            },
+            "ResourceSkillRequest": {
+                "type": "object",
+                "description": "Read/write serializer for skill tags on a resource.",
+                "properties": {
+                    "resource": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "skill": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "proficiency": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProficiencyEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                    }
+                },
+                "required": [
+                    "resource",
+                    "skill"
                 ]
             },
             "Risk": {
@@ -6279,6 +7842,57 @@
                         "nullable": true
                     }
                 }
+            },
+            "Skill": {
+                "type": "object",
+                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers should handle 200 vs 201.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 120
+                    },
+                    "normalized_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "category": {
+                        "type": "string",
+                        "maxLength": 60
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "normalized_name",
+                    "server_version"
+                ]
+            },
+            "SkillRequest": {
+                "type": "object",
+                "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers should handle 200 vs 201.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                    },
+                    "category": {
+                        "type": "string",
+                        "maxLength": 60
+                    }
+                },
+                "required": [
+                    "name"
+                ]
             },
             "Status9bdEnum": {
                 "enum": [
@@ -6749,6 +8363,76 @@
                     "started_at",
                     "status",
                     "task_name"
+                ]
+            },
+            "TaskSkillRequirement": {
+                "type": "object",
+                "description": "Read/write serializer for skill requirements on a task.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "skill": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "skill_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "min_proficiency": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MinProficiencyEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                    }
+                },
+                "required": [
+                    "id",
+                    "server_version",
+                    "skill",
+                    "skill_name",
+                    "task"
+                ]
+            },
+            "TaskSkillRequirementRequest": {
+                "type": "object",
+                "description": "Read/write serializer for skill requirements on a task.",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "skill": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "min_proficiency": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MinProficiencyEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                    }
+                },
+                "required": [
+                    "skill",
+                    "task"
                 ]
             },
             "TaskStatusEnum": {

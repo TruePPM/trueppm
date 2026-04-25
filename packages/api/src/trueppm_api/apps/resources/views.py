@@ -20,29 +20,275 @@ from trueppm_api.apps.access.permissions import (
     ProjectScopedViewSet,
     _membership_role,
 )
-from trueppm_api.apps.resources.models import Resource, TaskResource
-from trueppm_api.apps.resources.serializers import ResourceSerializer, TaskResourceSerializer
+from trueppm_api.apps.resources.models import (
+    Proficiency,
+    ProjectResource,
+    Resource,
+    ResourceSkill,
+    Skill,
+    TaskResource,
+    TaskSkillRequirement,
+)
+from trueppm_api.apps.resources.serializers import (
+    ProjectResourceSerializer,
+    ResourceSerializer,
+    ResourceSkillSerializer,
+    SkillSerializer,
+    TaskResourceSerializer,
+    TaskSkillRequirementSerializer,
+)
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
 
+# ---------------------------------------------------------------------------
+# Skill catalog
+# ---------------------------------------------------------------------------
 
-class ResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Resource]):
-    """CRUD for resources (people, teams, materials).
 
-    Resources are org-level objects and are not filtered by project membership —
-    any authenticated user can read and create resources. The ProjectScopedViewSet
-    mixin's fallthrough path handles this correctly.
+class SkillViewSet(viewsets.ModelViewSet[Skill]):
+    """CRUD for the org-level skill catalog.
+
+    Any authenticated user may read. SCHEDULER+ may create/update.
+    Skill creation normalises the name and returns the existing row if the
+    normalised name already exists (de-dup by normalized_name unique constraint).
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember]
-    queryset = Resource.objects.select_related("calendar").order_by("name")
-    serializer_class = ResourceSerializer
+    queryset = Skill.objects.filter(is_deleted=False).order_by("name")
+    serializer_class = SkillSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ["name", "email"]
+    search_fields = ["name", "category"]
     ordering_fields = ["name"]
 
-    def get_queryset(self) -> QuerySet[Resource]:
-        # Resources are org-level, not project-scoped; return full set.
-        return Resource.objects.select_related("calendar").order_by("name")
+    def create(self, request: Request, *args: object, **kwargs: object) -> Response:
+        """Create or return existing skill — de-dup by normalized_name."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        skill = serializer.save()
+        # Return 200 if skill already existed, 201 if newly created.
+        created = not Skill.objects.filter(pk=skill.pk, server_version=0).exists()
+        http_status = status.HTTP_201_CREATED if not created else status.HTTP_200_OK
+        return Response(
+            self.get_serializer(skill).data,
+            status=http_status,
+            headers=self.get_success_headers(serializer.data),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Resource skills
+# ---------------------------------------------------------------------------
+
+
+class ResourceSkillViewSet(viewsets.ModelViewSet[ResourceSkill]):
+    """CRUD for skill tags on resources.
+
+    Read: authenticated user, or the resource owner via email match (self-service).
+    Write: SCHEDULER+ on at least one project shared with the resource.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+    serializer_class = ResourceSkillSerializer
+    filter_backends = [filters.OrderingFilter]
+    queryset = ResourceSkill.objects.select_related("skill").filter(is_deleted=False)
+
+    def get_queryset(self) -> QuerySet[ResourceSkill]:
+        qs = ResourceSkill.objects.select_related("skill").filter(is_deleted=False)
+        resource_id = self.request.query_params.get("resource")
+        if resource_id:
+            qs = qs.filter(resource_id=resource_id)
+        return qs
+
+
+# ---------------------------------------------------------------------------
+# Project roster
+# ---------------------------------------------------------------------------
+
+
+class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[ProjectResource]):
+    """CRUD for a project's resource roster.
+
+    Read: any project member (VIEWER+).
+    Write: SCHEDULER+ on the project.
+    Delete: SCHEDULER+; with ?force=true cascades to TaskResource rows and
+    triggers CPM recalculation (ADR-0027). Without force=true returns 409 if
+    live task assignments exist.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember, CanAssignResource]
+    serializer_class = ProjectResourceSerializer
+    filter_backends = [filters.OrderingFilter]
+    queryset = (
+        ProjectResource.objects.select_related("resource", "resource__calendar")
+        .prefetch_related("resource__skills__skill")
+        .filter(is_deleted=False)
+    )
+
+    def get_queryset(self) -> QuerySet[ProjectResource]:
+        user_pk = self.request.user.pk
+        assert user_pk is not None
+        member_project_ids = ProjectMembership.objects.filter(
+            user_id=user_pk, is_deleted=False
+        ).values_list("project_id", flat=True)
+        qs = (
+            ProjectResource.objects.select_related("resource", "resource__calendar")
+            .prefetch_related("resource__skills__skill")
+            .filter(project_id__in=member_project_ids, is_deleted=False)
+            .order_by("resource__name")
+        )
+        project_id = self.request.query_params.get("project")
+        if project_id:
+            qs = qs.filter(project_id=project_id)
+        return qs
+
+    def perform_create(self, serializer: BaseSerializer[ProjectResource]) -> None:
+        """Verify SCHEDULER+ role on the project before adding to roster."""
+        project = serializer.validated_data.get("project")
+        if project:
+            role = _membership_role(self.request, str(project.pk))
+            if role is None or role < Role.SCHEDULER:
+                raise PermissionDenied(
+                    "You need at least Resource Manager role to manage the roster."
+                )
+        serializer.save()
+
+    def destroy(self, request: Request, *args: object, **kwargs: object) -> Response:
+        """Remove a resource from the roster.
+
+        If the resource has live TaskResource rows on this project and
+        force=true is not passed, returns 409. With force=true, cascades the
+        deletion and triggers CPM recalculation for affected tasks.
+        """
+        instance: ProjectResource = self.get_object()
+        project_id = str(instance.project_id)
+        resource_id = instance.resource_id
+
+        live_assignments = list(
+            TaskResource.objects.filter(
+                resource_id=resource_id,
+                task__project_id=project_id,
+                task__is_deleted=False,
+            ).select_related("task")
+        )
+
+        if live_assignments and request.query_params.get("force") != "true":
+            task_names = [a.task.name for a in live_assignments[:5]]
+            return Response(
+                {
+                    "code": "has_assignments",
+                    "detail": (
+                        f"{instance.resource.name} is assigned to "
+                        f"{len(live_assignments)} task(s) in this project. "
+                        f"Pass ?force=true to remove and unassign."
+                    ),
+                    "affected_tasks": [
+                        {"id": str(a.task_id), "name": a.task.name} for a in live_assignments[:10]
+                    ],
+                    "task_names": task_names,
+                    "assignment_count": len(live_assignments),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        affected_task_ids = [str(a.task_id) for a in live_assignments]
+
+        # Cascade: delete TaskResource rows, then the ProjectResource row.
+        TaskResource.objects.filter(
+            resource_id=resource_id,
+            task__project_id=project_id,
+        ).delete()
+        instance.delete()
+
+        if affected_task_ids:
+
+            def _on_commit() -> None:
+                from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+                _enqueue_recalculate(project_id)
+                broadcast_board_event(
+                    project_id,
+                    "roster_changed",
+                    {"resource_id": str(resource_id)},
+                )
+
+            transaction.on_commit(_on_commit)
+
+        return Response(
+            {
+                "detail": "Resource removed from project.",
+                "cascaded_assignment_count": len(live_assignments),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Task skill requirements
+# ---------------------------------------------------------------------------
+
+
+class TaskSkillRequirementViewSet(viewsets.ModelViewSet[TaskSkillRequirement]):
+    """CRUD for skill requirements on tasks.
+
+    Read: any project member. Write: SCHEDULER+.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember, CanAssignResource]
+    serializer_class = TaskSkillRequirementSerializer
+    filter_backends = [filters.OrderingFilter]
+    queryset = TaskSkillRequirement.objects.select_related("skill").filter(is_deleted=False)
+
+    def get_queryset(self) -> QuerySet[TaskSkillRequirement]:
+        qs = TaskSkillRequirement.objects.select_related("skill").filter(is_deleted=False)
+        task_id = self.request.query_params.get("task")
+        if task_id:
+            qs = qs.filter(task_id=task_id)
+        return qs
+
+
+# ---------------------------------------------------------------------------
+# Resource with skill-fit annotation
+# ---------------------------------------------------------------------------
+
+
+def _compute_skill_fit(
+    resource: Resource, requirements: list[TaskSkillRequirement]
+) -> tuple[str, list[dict[str, object]]]:
+    """Return (skill_fit, missing_skills) for a resource against task requirements.
+
+    skill_fit is 'exact' | 'partial' | 'missing'.
+    missing_skills is a list of dicts with skill_id, skill_name, required, actual.
+    """
+    if not requirements:
+        return "exact", []
+
+    resource_skills: dict[str, int] = {
+        str(rs.skill_id): rs.proficiency for rs in resource.skills.all()
+    }
+
+    matched = 0
+    missing = []
+    for req in requirements:
+        sid = str(req.skill_id)
+        actual = resource_skills.get(sid, 0)
+        if actual >= req.min_proficiency:
+            matched += 1
+        else:
+            missing.append(
+                {
+                    "skill_id": sid,
+                    "skill_name": req.skill.name,
+                    "required": req.min_proficiency,
+                    "required_label": req.get_min_proficiency_display(),
+                    "actual": actual,
+                    "actual_label": Proficiency(actual).label if actual else "not tagged",
+                }
+            )
+
+    if not missing:
+        return "exact", []
+    if matched > 0:
+        return "partial", missing
+    return "missing", missing
 
 
 def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str, str]]:
@@ -78,6 +324,89 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
             }
         ]
     return []
+
+
+class ResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Resource]):
+    """CRUD for resources (people, teams, materials).
+
+    Resources are org-level objects and are not filtered by project membership —
+    any authenticated user can read and create resources.
+
+    Query params:
+      ?search=           — filter by name/email
+      ?exclude_project=  — exclude resources already in a project's roster
+      ?task=             — annotate with skill_fit against the task's requirements
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+    queryset = (
+        Resource.objects.select_related("calendar")
+        .prefetch_related("skills__skill")
+        .order_by("name")
+    )
+    serializer_class = ResourceSerializer
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["name", "email"]
+    ordering_fields = ["name"]
+
+    def get_queryset(self) -> QuerySet[Resource]:
+        qs = (
+            Resource.objects.select_related("calendar")
+            .prefetch_related("skills__skill")
+            .filter(is_deleted=False)
+            .order_by("name")
+        )
+
+        exclude_project = self.request.query_params.get("exclude_project")
+        if exclude_project:
+            already_in = ProjectResource.objects.filter(
+                project_id=exclude_project, is_deleted=False
+            ).values_list("resource_id", flat=True)
+            qs = qs.exclude(pk__in=already_in)
+
+        return qs
+
+    def list(self, request: Request, *args: object, **kwargs: object) -> Response:
+        """List resources, optionally annotated with skill_fit for a task."""
+        task_id = request.query_params.get("task")
+        requirements: list[TaskSkillRequirement] = []
+        if task_id:
+            requirements = list(
+                TaskSkillRequirement.objects.filter(
+                    task_id=task_id, is_deleted=False
+                ).select_related("skill")
+            )
+
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        resources = page if page is not None else queryset
+
+        serializer = self.get_serializer(resources, many=True)
+        data = serializer.data
+
+        if requirements:
+            resource_map = {str(r.pk): r for r in resources}
+            fit_order = {"exact": 0, "partial": 1, "missing": 2}
+            annotated = []
+            for item in data:
+                resource = resource_map.get(item["id"])
+                if resource is not None:
+                    fit, missing = _compute_skill_fit(resource, requirements)
+                    item = dict(item)
+                    item["skill_fit"] = fit
+                    item["missing_skills"] = missing
+                annotated.append(item)
+            annotated.sort(key=lambda x: fit_order.get(x.get("skill_fit", "missing"), 2))
+            data = annotated
+
+        if page is not None:
+            return self.get_paginated_response(data)
+        return Response(data)
+
+
+# ---------------------------------------------------------------------------
+# Task-resource assignments (extended with skill_mismatch warning)
+# ---------------------------------------------------------------------------
 
 
 class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResource]):
@@ -122,19 +451,44 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         return qs
 
     def create(self, request: Request, *args: object, **kwargs: object) -> Response:
-        """Create a task-resource assignment and return any overallocation warnings.
+        """Create a task-resource assignment and return any warnings.
 
-        The assignment is always saved regardless of warnings — this is a soft
-        alert, not a hard block. After commit, broadcasts ``assignment_created``
-        to all clients subscribed to the project's WebSocket channel so the
-        resource utilisation grid updates in real time (ADR-0028).
+        Returns overallocation and skill_mismatch warnings in the 201 response.
+        The assignment is always saved regardless of warnings — these are soft
+        alerts, not hard blocks (ADR-0028, ADR-0033).
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
         obj: TaskResource = serializer.instance  # type: ignore[assignment]
-        warnings = _check_overallocation(obj.resource, str(obj.task.project_id))
+        project_id = str(obj.task.project_id)
+        warnings: list[dict[str, object]] = [
+            dict(w) for w in _check_overallocation(obj.resource, project_id)
+        ]
+
+        # Skill mismatch check — only when the task has requirements.
+        requirements = list(
+            TaskSkillRequirement.objects.filter(
+                task_id=obj.task_id, is_deleted=False
+            ).select_related("skill")
+        )
+        resource_with_skills = Resource.objects.prefetch_related("skills__skill").get(
+            pk=obj.resource_id
+        )
+        _fit, missing = _compute_skill_fit(resource_with_skills, requirements)
+        if missing:
+            missing_labels = ", ".join(
+                f"{m['skill_name']} ({m['required_label']})" for m in missing[:3]
+            )
+            warnings.append(
+                {
+                    "code": "skill_mismatch",
+                    "detail": f"Task requires: {missing_labels}.",
+                    "missing_skills": missing,
+                }
+            )
+
         data = dict(serializer.data)
         data["warnings"] = warnings
         return Response(data, status=status.HTTP_201_CREATED, headers=headers)
