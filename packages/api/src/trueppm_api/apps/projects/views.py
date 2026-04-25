@@ -1934,7 +1934,7 @@ class TaskHistoryView(APIView):
 
     def get(self, request: Request, project_pk: str, task_pk: str) -> Response:
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
-        if not IsProjectMember().has_object_permission(request, self, project):  # type: ignore[arg-type]
+        if not IsProjectMember().has_object_permission(request, self, project):
             return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
 
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
@@ -1972,7 +1972,7 @@ class TaskHistoryView(APIView):
 
         paginator = PageNumberPagination()
         paginator.page_size = 20
-        page = paginator.paginate_queryset(result, request)
+        page: list[Any] | None = paginator.paginate_queryset(result, request)  # type: ignore[arg-type]
         return paginator.get_paginated_response(page)
 
 
@@ -1991,7 +1991,7 @@ class TaskBaselineDetailView(APIView):
 
     def get(self, request: Request, project_pk: str, task_pk: str) -> Response:
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
-        if not IsProjectMember().has_object_permission(request, self, project):  # type: ignore[arg-type]
+        if not IsProjectMember().has_object_permission(request, self, project):
             return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
 
         task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
