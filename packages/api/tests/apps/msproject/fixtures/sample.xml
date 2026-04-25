@@ -1,0 +1,368 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <!-- Sample MS Project XML — TruePPM import fixture -->
+  <!-- Covers: summary task, leaf tasks, FS/SS/FF dependencies, resource assignments, milestones -->
+  <Name>Office Relocation</Name>
+  <Title>Office Relocation</Title>
+  <CreationDate>2026-01-05T09:00:00</CreationDate>
+  <StartDate>2026-01-05T08:00:00</StartDate>
+  <FinishDate>2026-03-13T17:00:00</FinishDate>
+  <DefaultStartTime>08:00:00</DefaultStartTime>
+  <DefaultFinishTime>17:00:00</DefaultFinishTime>
+  <MinutesPerDay>480</MinutesPerDay>
+  <MinutesPerWeek>2400</MinutesPerWeek>
+  <DaysPerMonth>20</DaysPerMonth>
+
+  <Tasks>
+
+    <!-- UID=0 is the project summary task (always present, never imported as a task) -->
+    <Task>
+      <UID>0</UID>
+      <ID>0</ID>
+      <Name>Office Relocation</Name>
+      <Duration>PT480H0M0S</Duration>
+      <Start>2026-01-05T08:00:00</Start>
+      <Finish>2026-03-13T17:00:00</Finish>
+      <Summary>1</Summary>
+      <OutlineLevel>0</OutlineLevel>
+      <OutlineNumber></OutlineNumber>
+    </Task>
+
+    <!-- Summary task: Phase 1 — Planning -->
+    <Task>
+      <UID>1</UID>
+      <ID>1</ID>
+      <Name>Phase 1 — Planning</Name>
+      <Duration>PT80H0M0S</Duration>
+      <Start>2026-01-05T08:00:00</Start>
+      <Finish>2026-01-16T17:00:00</Finish>
+      <Summary>1</Summary>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>1</OutlineNumber>
+    </Task>
+
+    <Task>
+      <UID>2</UID>
+      <ID>2</ID>
+      <Name>Define relocation scope</Name>
+      <Duration>PT16H0M0S</Duration>
+      <Start>2026-01-05T08:00:00</Start>
+      <Finish>2026-01-06T17:00:00</Finish>
+      <PercentComplete>100</PercentComplete>
+      <Notes>Confirm headcount, floor plan requirements, and timeline with leadership.</Notes>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>1.1</OutlineNumber>
+    </Task>
+
+    <Task>
+      <UID>3</UID>
+      <ID>3</ID>
+      <Name>Shortlist candidate offices</Name>
+      <Duration>PT40H0M0S</Duration>
+      <Start>2026-01-07T08:00:00</Start>
+      <Finish>2026-01-13T17:00:00</Finish>
+      <PercentComplete>50</PercentComplete>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>1.2</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>2</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <Task>
+      <UID>4</UID>
+      <ID>4</ID>
+      <Name>Sign lease agreement</Name>
+      <Duration>PT16H0M0S</Duration>
+      <Start>2026-01-14T08:00:00</Start>
+      <Finish>2026-01-15T17:00:00</Finish>
+      <PercentComplete>0</PercentComplete>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>1.3</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>3</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <!-- Milestone: Planning complete -->
+    <Task>
+      <UID>5</UID>
+      <ID>5</ID>
+      <Name>Planning complete</Name>
+      <Duration>PT0H0M0S</Duration>
+      <Start>2026-01-16T17:00:00</Start>
+      <Finish>2026-01-16T17:00:00</Finish>
+      <Milestone>1</Milestone>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>1.4</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>4</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <!-- Summary task: Phase 2 — Fit-out -->
+    <Task>
+      <UID>6</UID>
+      <ID>6</ID>
+      <Name>Phase 2 — Fit-out</Name>
+      <Duration>PT240H0M0S</Duration>
+      <Start>2026-01-19T08:00:00</Start>
+      <Finish>2026-02-13T17:00:00</Finish>
+      <Summary>1</Summary>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>2</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>5</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <Task>
+      <UID>7</UID>
+      <ID>7</ID>
+      <Name>Demolition and strip-out</Name>
+      <Duration>PT40H0M0S</Duration>
+      <Start>2026-01-19T08:00:00</Start>
+      <Finish>2026-01-23T17:00:00</Finish>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>2.1</OutlineNumber>
+    </Task>
+
+    <Task>
+      <UID>8</UID>
+      <ID>8</ID>
+      <Name>Electrical and data cabling</Name>
+      <Duration>PT80H0M0S</Duration>
+      <Start>2026-01-26T08:00:00</Start>
+      <Finish>2026-02-06T17:00:00</Finish>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>2.2</OutlineNumber>
+      <!-- SS dependency on task 7: cabling starts when demo starts -->
+      <PredecessorLink>
+        <PredecessorUID>7</PredecessorUID>
+        <Type>3</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <Task>
+      <UID>9</UID>
+      <ID>9</ID>
+      <Name>Flooring and painting</Name>
+      <Duration>PT80H0M0S</Duration>
+      <Start>2026-01-26T08:00:00</Start>
+      <Finish>2026-02-06T17:00:00</Finish>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>2.3</OutlineNumber>
+      <!-- FS with 2-day lag after demo -->
+      <PredecessorLink>
+        <PredecessorUID>7</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>2880</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <Task>
+      <UID>10</UID>
+      <ID>10</ID>
+      <Name>Furniture installation</Name>
+      <Duration>PT40H0M0S</Duration>
+      <Start>2026-02-09T08:00:00</Start>
+      <Finish>2026-02-13T17:00:00</Finish>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>2.4</OutlineNumber>
+      <!-- FF: furniture finishes when flooring finishes -->
+      <PredecessorLink>
+        <PredecessorUID>9</PredecessorUID>
+        <Type>0</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <!-- Summary task: Phase 3 — Move -->
+    <Task>
+      <UID>11</UID>
+      <ID>11</ID>
+      <Name>Phase 3 — Move</Name>
+      <Duration>PT80H0M0S</Duration>
+      <Start>2026-02-16T08:00:00</Start>
+      <Finish>2026-02-27T17:00:00</Finish>
+      <Summary>1</Summary>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>3</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>10</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <Task>
+      <UID>12</UID>
+      <ID>12</ID>
+      <Name>Pack and label equipment</Name>
+      <Duration>PT40H0M0S</Duration>
+      <Start>2026-02-16T08:00:00</Start>
+      <Finish>2026-02-20T17:00:00</Finish>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>3.1</OutlineNumber>
+    </Task>
+
+    <Task>
+      <UID>13</UID>
+      <ID>13</ID>
+      <Name>Physical move day</Name>
+      <Duration>PT16H0M0S</Duration>
+      <Start>2026-02-23T08:00:00</Start>
+      <Finish>2026-02-24T17:00:00</Finish>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>3.2</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>12</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <Task>
+      <UID>14</UID>
+      <ID>14</ID>
+      <Name>IT reconnect and test</Name>
+      <Duration>PT24H0M0S</Duration>
+      <Start>2026-02-25T08:00:00</Start>
+      <Finish>2026-02-27T17:00:00</Finish>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>3.3</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>13</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+    <!-- Milestone: Move complete -->
+    <Task>
+      <UID>15</UID>
+      <ID>15</ID>
+      <Name>Move complete</Name>
+      <Duration>PT0H0M0S</Duration>
+      <Start>2026-02-27T17:00:00</Start>
+      <Finish>2026-02-27T17:00:00</Finish>
+      <Milestone>1</Milestone>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>3.4</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>14</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+
+  </Tasks>
+
+  <Resources>
+
+    <Resource>
+      <UID>0</UID>
+      <ID>0</ID>
+      <Name></Name>
+      <Type>0</Type>
+    </Resource>
+
+    <Resource>
+      <UID>1</UID>
+      <ID>1</ID>
+      <Name>Alice Nguyen</Name>
+      <Type>1</Type>
+      <MaxUnits>1.0</MaxUnits>
+      <StandardRate>0</StandardRate>
+    </Resource>
+
+    <Resource>
+      <UID>2</UID>
+      <ID>2</ID>
+      <Name>Bob Okafor</Name>
+      <Type>1</Type>
+      <MaxUnits>1.0</MaxUnits>
+      <StandardRate>0</StandardRate>
+    </Resource>
+
+    <Resource>
+      <UID>3</UID>
+      <ID>3</ID>
+      <Name>Carol Davies</Name>
+      <Type>1</Type>
+      <MaxUnits>0.5</MaxUnits>
+      <StandardRate>0</StandardRate>
+    </Resource>
+
+  </Resources>
+
+  <Assignments>
+
+    <Assignment>
+      <UID>1</UID>
+      <TaskUID>2</TaskUID>
+      <ResourceUID>1</ResourceUID>
+      <Units>1.0</Units>
+    </Assignment>
+
+    <Assignment>
+      <UID>2</UID>
+      <TaskUID>3</TaskUID>
+      <ResourceUID>1</ResourceUID>
+      <Units>1.0</Units>
+    </Assignment>
+
+    <Assignment>
+      <UID>3</UID>
+      <TaskUID>3</TaskUID>
+      <ResourceUID>2</ResourceUID>
+      <Units>0.5</Units>
+    </Assignment>
+
+    <Assignment>
+      <UID>4</UID>
+      <TaskUID>4</TaskUID>
+      <ResourceUID>2</ResourceUID>
+      <Units>1.0</Units>
+    </Assignment>
+
+    <Assignment>
+      <UID>5</UID>
+      <TaskUID>8</TaskUID>
+      <ResourceUID>3</ResourceUID>
+      <Units>0.5</Units>
+    </Assignment>
+
+    <Assignment>
+      <UID>6</UID>
+      <TaskUID>12</TaskUID>
+      <ResourceUID>1</ResourceUID>
+      <Units>1.0</Units>
+    </Assignment>
+
+    <Assignment>
+      <UID>7</UID>
+      <TaskUID>13</TaskUID>
+      <ResourceUID>2</ResourceUID>
+      <Units>1.0</Units>
+    </Assignment>
+
+    <Assignment>
+      <UID>8</UID>
+      <TaskUID>14</TaskUID>
+      <ResourceUID>3</ResourceUID>
+      <Units>0.5</Units>
+    </Assignment>
+
+  </Assignments>
+
+</Project>
