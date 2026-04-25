@@ -7,7 +7,16 @@ interface Props {
   onCreated: (projectId: string) => void;
 }
 
-// Returns all keyboard-focusable elements inside a container.
+type Step = 1 | 2 | 3;
+const TOTAL_STEPS: Step = 3;
+
+const TEMPLATES = [
+  { id: 'blank', label: 'Blank', description: 'Start from scratch', available: true },
+  { id: 'software', label: 'Software Delivery', description: 'Sprints, releases, and QA phases', available: false },
+  { id: 'construction', label: 'Construction', description: 'Site prep, build, and inspection phases', available: false },
+  { id: 'general', label: 'General', description: 'Initiate, plan, execute, close', available: false },
+] as const;
+
 function getFocusable(container: HTMLElement): HTMLElement[] {
   return Array.from(
     container.querySelectorAll<HTMLElement>(
@@ -17,176 +26,274 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
 }
 
 /**
- * Modal dialog for creating a new project.
+ * Multi-step modal for creating a new project.
+ * Step 1: Name + description. Step 2: Schedule dates. Step 3: Template.
  * Focus is trapped within the dialog and restored to the trigger element on close.
  */
 export function NewProjectModal({ onClose, onCreated }: Props) {
-  const nameRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const [step, setStep] = useState<Step>(1);
   const [name, setName] = useState('');
-  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [description, setDescription] = useState('');
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [template, setTemplate] = useState('blank');
+
+  const nameRef = useRef<HTMLInputElement>(null);
+  const startRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<Element | null>(null);
+
   const createProject = useCreateProject();
 
-  // Capture trigger element before the modal opens so we can restore focus on close.
-  const triggerRef = useRef<Element | null>(null);
+  // Capture trigger before modal opens; restore focus on unmount.
   useEffect(() => {
     triggerRef.current = document.activeElement;
     nameRef.current?.focus();
     return () => {
-      if (triggerRef.current instanceof HTMLElement) {
-        triggerRef.current.focus();
-      }
+      if (triggerRef.current instanceof HTMLElement) triggerRef.current.focus();
     };
   }, []);
+
+  // Move focus to the primary input when the step changes.
+  useEffect(() => {
+    if (step === 1) nameRef.current?.focus();
+    if (step === 2) startRef.current?.focus();
+  }, [step]);
 
   // Escape closes; Tab/Shift+Tab cycles within the dialog.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-        return;
-      }
+      if (e.key === 'Escape') { onClose(); return; }
       if (e.key !== 'Tab' || !dialogRef.current) return;
       const focusable = getFocusable(dialogRef.current);
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (e.shiftKey) {
-        if (document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        }
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
       } else {
-        if (document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
+        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
       }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
+  const canAdvanceStep1 = name.trim().length > 0;
+  const canAdvanceStep2 = startDate.length > 0;
+
+  function advance() {
+    if (step === 1 && canAdvanceStep1) setStep(2);
+    else if (step === 2 && canAdvanceStep2) setStep(3);
+  }
+
+  function back() {
+    if (step === 2) setStep(1);
+    else if (step === 3) setStep(2);
+  }
+
+  // Form submit handles both Enter-to-advance (steps 1–2) and final create (step 3).
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed || createProject.isPending) return;
+    if (step < TOTAL_STEPS) { advance(); return; }
+    if (!name.trim() || !startDate || createProject.isPending) return;
     createProject.mutate(
-      { name: trimmed, start_date: startDate, description: description.trim() || undefined },
+      { name: name.trim(), start_date: startDate, description: description.trim() || undefined },
       { onSuccess: (data) => onCreated(data.id) },
     );
   }
 
   return (
     <>
-      {/* Backdrop — <button> so the click handler satisfies a11y lint rules */}
+      {/* Backdrop */}
       <button
         type="button"
         aria-label="Close dialog"
         className="fixed inset-0 z-50 bg-black/40 cursor-default"
         onClick={onClose}
       />
-      {/* Dialog — higher z-index so it sits above the backdrop button */}
       <div className="fixed inset-0 z-[51] flex items-center justify-center p-4 pointer-events-none">
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
-          aria-label="New project"
-          className="w-full max-w-md rounded-lg border border-neutral-border bg-neutral-surface p-6 pointer-events-auto"
+          aria-label={`New project — step ${step} of ${TOTAL_STEPS}`}
+          className="w-full max-w-lg rounded-lg border border-neutral-border bg-neutral-surface p-6 pointer-events-auto"
         >
-          <h2 className="text-base font-semibold text-neutral-text-primary mb-4">
-            New project
-          </h2>
+          {/* Step indicator */}
+          <div className="flex items-center gap-2 mb-5" aria-hidden="true">
+            {([1, 2, 3] as Step[]).map((n, i) => (
+              <div key={n} className="flex items-center gap-2">
+                <div
+                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold
+                    ${n === step
+                      ? 'bg-brand-primary text-white'
+                      : n < step
+                        ? 'bg-brand-primary/20 text-brand-primary'
+                        : 'bg-neutral-surface-raised text-neutral-text-disabled'}`}
+                >
+                  {n}
+                </div>
+                {i < TOTAL_STEPS - 1 && (
+                  <div className={`h-px w-8 ${n < step ? 'bg-brand-primary/40' : 'bg-neutral-border'}`} />
+                )}
+              </div>
+            ))}
+          </div>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-            {/* Project name */}
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-neutral-text-secondary">
-                Name <span aria-hidden="true">*</span>
-              </span>
-              <input
-                ref={nameRef}
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                maxLength={255}
-                required
-                aria-required="true"
-                disabled={createProject.isPending}
-                placeholder="My Project"
-                className="h-9 px-3 rounded border border-neutral-border bg-neutral-surface
-                  text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-              />
-            </label>
+            {/* Step 1: Name + Description */}
+            {step === 1 && (
+              <>
+                <h2 className="text-base font-semibold text-neutral-text-primary">Project details</h2>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-medium text-neutral-text-secondary">
+                    Name <span aria-hidden="true">*</span>
+                  </span>
+                  <input
+                    ref={nameRef}
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    maxLength={255}
+                    required
+                    aria-required="true"
+                    placeholder="My Project"
+                    className="h-9 px-3 rounded border border-neutral-border bg-neutral-surface
+                      text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-medium text-neutral-text-secondary">Description</span>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    rows={3}
+                    maxLength={1000}
+                    placeholder="Optional"
+                    className="px-3 py-2 rounded border border-neutral-border bg-neutral-surface
+                      text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled resize-none
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  />
+                </label>
+              </>
+            )}
 
-            {/* Start date */}
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-neutral-text-secondary">
-                Start date <span aria-hidden="true">*</span>
-              </span>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                required
-                aria-required="true"
-                disabled={createProject.isPending}
-                className="h-9 px-3 rounded border border-neutral-border bg-neutral-surface
-                  text-sm text-neutral-text-primary
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-              />
-            </label>
+            {/* Step 2: Schedule */}
+            {step === 2 && (
+              <>
+                <h2 className="text-base font-semibold text-neutral-text-primary">Schedule</h2>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-medium text-neutral-text-secondary">
+                    Start date <span aria-hidden="true">*</span>
+                  </span>
+                  <input
+                    ref={startRef}
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    required
+                    aria-required="true"
+                    className="h-9 px-3 rounded border border-neutral-border bg-neutral-surface
+                      text-sm text-neutral-text-primary
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  />
+                </label>
+              </>
+            )}
 
-            {/* Description (optional) */}
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-neutral-text-secondary">
-                Description
-              </span>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                disabled={createProject.isPending}
-                rows={2}
-                maxLength={1000}
-                placeholder="Optional"
-                className="px-3 py-2 rounded border border-neutral-border bg-neutral-surface
-                  text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled resize-none
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-              />
-            </label>
-
-            {/* Error message */}
-            {createProject.isError && (
-              <p role="alert" className="text-xs text-semantic-critical">
-                Failed to create project. Please try again.
-              </p>
+            {/* Step 3: Template */}
+            {step === 3 && (
+              <>
+                <h2 className="text-base font-semibold text-neutral-text-primary">Choose a template</h2>
+                <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Project template">
+                  {TEMPLATES.map((t) => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={template === t.id}
+                      disabled={!t.available}
+                      onClick={() => { if (t.available) setTemplate(t.id); }}
+                      className={`flex flex-col gap-1 rounded border p-3 text-left
+                        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                        ${t.available
+                          ? template === t.id
+                            ? 'border-brand-primary bg-brand-primary/5'
+                            : 'border-neutral-border hover:border-brand-primary/40'
+                          : 'border-neutral-border opacity-50 cursor-not-allowed'}`}
+                    >
+                      <span className="text-sm font-medium text-neutral-text-primary">{t.label}</span>
+                      <span className="text-xs text-neutral-text-secondary">{t.description}</span>
+                      {!t.available && (
+                        <span className="text-xs text-neutral-text-disabled mt-0.5">Coming soon</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                {createProject.isError && (
+                  <p role="alert" className="text-xs text-semantic-critical">
+                    Failed to create project. Please try again.
+                  </p>
+                )}
+              </>
             )}
 
             {/* Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={createProject.isPending}
-                className="h-9 px-4 rounded text-sm font-medium border border-neutral-border
-                  text-neutral-text-secondary hover:text-neutral-text-primary
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={!name.trim() || createProject.isPending}
-                className="h-9 px-4 rounded text-sm font-medium bg-brand-primary text-white
-                  disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
-                  focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
-              >
-                {createProject.isPending ? 'Creating…' : 'Create project'}
-              </button>
+            <div className="flex items-center justify-between pt-2">
+              <div>
+                {step > 1 && (
+                  <button
+                    type="button"
+                    onClick={back}
+                    disabled={createProject.isPending}
+                    className="h-9 px-4 rounded text-sm font-medium border border-neutral-border
+                      text-neutral-text-secondary hover:text-neutral-text-primary
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  >
+                    Back
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  disabled={createProject.isPending}
+                  className="h-9 px-4 rounded text-sm font-medium border border-neutral-border
+                    text-neutral-text-secondary hover:text-neutral-text-primary
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                >
+                  Cancel
+                </button>
+                {step < TOTAL_STEPS ? (
+                  <button
+                    type="button"
+                    onClick={advance}
+                    disabled={
+                      (step === 1 && !canAdvanceStep1) ||
+                      (step === 2 && !canAdvanceStep2)
+                    }
+                    className="h-9 px-4 rounded text-sm font-medium bg-brand-primary text-white
+                      disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
+                      focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
+                  >
+                    Next
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={createProject.isPending}
+                    className="h-9 px-4 rounded text-sm font-medium bg-brand-primary text-white
+                      disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
+                      focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
+                  >
+                    {createProject.isPending ? 'Creating…' : 'Create project'}
+                  </button>
+                )}
+              </div>
             </div>
           </form>
         </div>
