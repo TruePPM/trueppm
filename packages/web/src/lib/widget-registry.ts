@@ -14,12 +14,16 @@
 import type { ComponentType } from 'react';
 
 export type SlotId =
-  | 'project_overview.kpi_row'    // additional KPI cards right of the 4 OSS cards
-  | 'project_overview.hero_right' // replaces/extends the "Needs attention" panel
-  | 'project_overview.below_hero' // rows injected below the hero row
-  | 'nav.portfolio_section'       // nav rail section above the project switcher
-  | 'top_bar.context'             // items to the right of the project name chip
-  | 'routes';                     // additional React Router routes (path + element)
+  | 'project_overview.kpi_row'       // additional KPI cards right of the 4 OSS cards
+  | 'project_overview.hero_right'    // replaces/extends the "Needs attention" panel
+  | 'project_overview.below_hero'    // rows injected below the hero row
+  | 'nav.portfolio_section'          // nav rail section above the project switcher
+  | 'top_bar.context'                // items to the right of the project name chip
+  | 'routes'                         // additional React Router routes (path + element)
+  // --- Resource catalog slots (issue #155, ADR-0034) ---
+  | 'resources_page.toolbar_end'        // Enterprise: "Sync from LDAP" button + last-synced timestamp
+  | 'resources_page.detail_managed_by'  // Enterprise: "Managed by Active Directory" badge in detail pane
+  | 'resources_page.create_form_extension'; // Enterprise: extra fields in the create/edit form
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface SlotRegistration<T = ComponentType<any>> {

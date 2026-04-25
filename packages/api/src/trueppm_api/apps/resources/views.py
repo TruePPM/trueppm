@@ -7,8 +7,9 @@ from decimal import Decimal
 from django.db import connection, transaction
 from django.db.models import QuerySet, Sum
 from rest_framework import filters, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -16,6 +17,7 @@ from rest_framework.serializers import BaseSerializer
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
     CanAssignResource,
+    IsOrgAdmin,
     IsProjectMember,
     ProjectScopedViewSet,
     _membership_role,
@@ -326,19 +328,28 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
     return []
 
 
-class ResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Resource]):
-    """CRUD for resources (people, teams, materials).
+class ResourceViewSet(viewsets.ModelViewSet[Resource]):
+    """CRUD for the org-level resource catalog (issue #155).
 
-    Resources are org-level objects and are not filtered by project membership —
-    any authenticated user can read and create resources.
+    Permission model (ADR-0034):
+      Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view
+        for team members and the AddToRosterCombobox picker.
+      Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)
+        or Owner role on at least one project.
+
+    DELETE is a soft-delete: sets is_deleted=True and enqueues a schedule
+    recalculation for every project that has open TaskResource rows for the
+    deactivated resource. The resource record is never hard-deleted.
 
     Query params:
-      ?search=           — filter by name/email
-      ?exclude_project=  — exclude resources already in a project's roster
-      ?task=             — annotate with skill_fit against the task's requirements
+      ?search=             — filter by name/email (DRF SearchFilter)
+      ?exclude_project=    — exclude resources already in a project's roster
+      ?task=               — annotate with skill_fit against the task's skill
+                             requirements; groups results into exact/partial/missing
+      ?include_deleted=true — include soft-deleted (deactivated) resources;
+                             only honoured for org admin users
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
     queryset = (
         Resource.objects.select_related("calendar")
         .prefetch_related("skills__skill")
@@ -349,13 +360,31 @@ class ResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Resource]):
     search_fields = ["name", "email"]
     ordering_fields = ["name"]
 
+    def get_permissions(self) -> list[BasePermission]:
+        """Split read vs write permissions.
+
+        Safe HTTP methods open to any authenticated user; writes restricted
+        to org admins (PM or Owner role on any project). The restore custom
+        action uses POST so it correctly receives the IsOrgAdmin gate.
+        """
+        if self.request.method in ("GET", "HEAD", "OPTIONS"):
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsOrgAdmin()]
+
     def get_queryset(self) -> QuerySet[Resource]:
         qs = (
             Resource.objects.select_related("calendar")
             .prefetch_related("skills__skill")
-            .filter(is_deleted=False)
             .order_by("name")
         )
+
+        # Deactivated resources are hidden by default. Org admins may opt-in
+        # via ?include_deleted=true to manage the deactivated pool.
+        include_deleted = (
+            self.request.query_params.get("include_deleted", "").lower() == "true"
+        )
+        if not include_deleted:
+            qs = qs.filter(is_deleted=False)
 
         exclude_project = self.request.query_params.get("exclude_project")
         if exclude_project:
@@ -365,6 +394,59 @@ class ResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Resource]):
             qs = qs.exclude(pk__in=already_in)
 
         return qs
+
+    def perform_destroy(self, instance: Resource) -> None:
+        """Soft-delete: set is_deleted=True and recalc affected project schedules.
+
+        Hard delete is intentionally unavailable from this endpoint. Historical
+        task assignments and capacity data reference this resource and must
+        remain intact for audit trails and utilization reports.
+        """
+        instance.is_deleted = True
+        instance.server_version = (instance.server_version or 0) + 1
+        instance.deleted_version = instance.server_version
+        instance.save(
+            update_fields=["is_deleted", "server_version", "deleted_version"]
+        )
+
+        # Fan out a schedule recalculation to every project with open
+        # task assignments for this resource. Uses the transactional outbox
+        # pattern (ADR-0027) so a broker-down event doesn't lose the request.
+        affected_project_ids = list(
+            TaskResource.objects.filter(resource_id=instance.pk)
+            .values_list("task__project_id", flat=True)
+            .distinct()
+        )
+        for project_id in affected_project_ids:
+            _enqueue_recalculate(str(project_id))
+
+    @action(detail=True, methods=["post"], url_path="restore")
+    def restore(self, request: Request, pk: object = None) -> Response:
+        """Restore a soft-deleted resource back to active status.
+
+        Requires IsOrgAdmin (checked in get_permissions since this is a write
+        action). Fetches from the unfiltered queryset so soft-deleted records
+        are reachable; the standard get_object() path excludes them.
+        """
+        try:
+            resource = Resource.objects.get(pk=pk)
+        except Resource.DoesNotExist:
+            return Response(
+                {"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND
+            )
+        if not resource.is_deleted:
+            return Response(
+                {"detail": "Resource is not deactivated."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        resource.is_deleted = False
+        resource.deleted_version = None
+        resource.server_version = (resource.server_version or 0) + 1
+        resource.save(
+            update_fields=["is_deleted", "deleted_version", "server_version"]
+        )
+        serializer = self.get_serializer(resource)
+        return Response(serializer.data)
 
     def list(self, request: Request, *args: object, **kwargs: object) -> Response:
         """List resources, optionally annotated with skill_fit for a task."""

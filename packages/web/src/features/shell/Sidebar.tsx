@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { NavLink, useNavigate } from 'react-router';
 import { useShellStore, selectSidebarWidth } from '@/stores/shellStore';
 import { useProjects } from '@/hooks/useProjects';
 import { ProjectListItem } from './ProjectListItem';
@@ -136,6 +136,60 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           </ul>
         )}
       </nav>
+
+      {/* Org-level section — Resources catalog link */}
+      {!sidebarCollapsed && !isDrawer && (
+        <div className="shrink-0 border-t border-white/10 px-2 py-2">
+          <h2
+            className="px-1 pb-1 text-xs font-semibold tracking-widest uppercase text-gantt-text-secondary"
+            aria-label="Organization"
+          >
+            Org
+          </h2>
+          <NavLink
+            to="/resources"
+            aria-label="Resources catalog"
+            className={({ isActive }) =>
+              [
+                'flex items-center gap-2 w-full px-2 py-2 rounded text-sm transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface',
+                isActive
+                  ? 'bg-white/10 border-l-2 border-brand-primary text-gantt-text-primary font-medium'
+                  : 'border-l-2 border-transparent text-gantt-text-secondary hover:bg-white/5 hover:text-gantt-text-primary',
+              ].join(' ')
+            }
+          >
+            {/* People / users icon */}
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true" className="shrink-0">
+              <path d="M5 6.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-3 4.5a3 3 0 0 1 6 0H2Zm7-4.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm1 1.5c.7.3 1.3.8 1.7 1.4A3 3 0 0 0 9 11h-.5A4 4 0 0 0 9 9a3 3 0 0 0-.3-1.3c.4-.1.8-.2 1.3-.2Z"/>
+            </svg>
+            Resources
+          </NavLink>
+        </div>
+      )}
+
+      {/* Collapsed sidebar: icon-only Resources link */}
+      {sidebarCollapsed && !isDrawer && (
+        <div className="shrink-0 border-t border-white/10 px-2 py-2">
+          <NavLink
+            to="/resources"
+            aria-label="Resources catalog"
+            className={({ isActive }) =>
+              [
+                'flex items-center justify-center w-11 h-11 rounded transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface',
+                isActive
+                  ? 'bg-white/10 text-gantt-text-primary'
+                  : 'text-gantt-text-secondary hover:bg-white/5 hover:text-gantt-text-primary',
+              ].join(' ')
+            }
+          >
+            <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+              <path d="M5 6.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-3 4.5a3 3 0 0 1 6 0H2Zm7-4.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm1 1.5c.7.3 1.3.8 1.7 1.4A3 3 0 0 0 9 11h-.5A4 4 0 0 0 9 9a3 3 0 0 0-.3-1.3c.4-.1.8-.2 1.3-.2Z"/>
+            </svg>
+          </NavLink>
+        </div>
+      )}
     </aside>
 
       {/* New project modal — fixed overlay; rendered outside <aside> so it isn't clipped */}

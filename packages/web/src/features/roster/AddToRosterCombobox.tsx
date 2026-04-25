@@ -1,9 +1,14 @@
 /**
  * Search combobox for adding a resource to the project roster.
  * Passes ?exclude_project= so already-rostered resources are hidden.
+ *
+ * When the search returns no results and the user has typed a name, a
+ * "+ Create '{query}' as a new resource" option is shown at the bottom of
+ * the dropdown (issue #155, Sarah's VoC ask). Selecting it creates the
+ * Resource org-record and immediately adds it to the project roster.
  */
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { PaginatedResponse } from '@/api/types';
 
@@ -26,6 +31,36 @@ function useRosterCandidates(query: string, excludeProjectId: string) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Inline-create hook — creates a Resource then adds it to the project roster
+// ---------------------------------------------------------------------------
+
+function useInlineCreateResource(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) => {
+      // 1. Create the org-level Resource record
+      const createRes = await apiClient.post<{ id: string }>('/resources/', {
+        name,
+        email: '',
+        job_role: '',
+        max_units: 1.0,
+      });
+      const resourceId = createRes.data.id;
+      // 2. Add to project roster
+      await apiClient.post('/project-resources/', {
+        project: projectId,
+        resource: resourceId,
+      });
+      return resourceId;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['org-resources'] });
+      void queryClient.invalidateQueries({ queryKey: ['project-resource-pool', projectId] });
+    },
+  });
+}
+
 export interface AddToRosterComboboxProps {
   projectId: string;
   onSelect: (resourceId: string) => void;
@@ -38,6 +73,7 @@ export function AddToRosterCombobox({ projectId, onSelect, onDismiss }: AddToRos
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(-1);
+  const inlineCreate = useInlineCreateResource(projectId);
 
   useEffect(() => {
     const id = setTimeout(() => setDebouncedQuery(query), 200);
@@ -47,6 +83,13 @@ export function AddToRosterCombobox({ projectId, onSelect, onDismiss }: AddToRos
   const { data: results = [] } = useRosterCandidates(debouncedQuery, projectId);
   const visible = results.slice(0, 20);
 
+  // Show inline-create option when there are no matches and the user has typed something
+  const trimmedQuery = query.trim();
+  const showCreateOption = trimmedQuery.length > 0 && visible.length === 0;
+  // Total navigable items: existing results + optional create option
+  const totalOptions = visible.length + (showCreateOption ? 1 : 0);
+  const createOptionIndex = visible.length; // always last
+
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
@@ -55,11 +98,17 @@ export function AddToRosterCombobox({ projectId, onSelect, onDismiss }: AddToRos
     setActiveIndex(-1);
   }, [debouncedQuery]);
 
+  function handleCreateNew() {
+    inlineCreate.mutate(trimmedQuery, {
+      onSuccess: (resourceId) => onSelect(resourceId),
+    });
+  }
+
   function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setActiveIndex((prev) => Math.min(prev + 1, visible.length - 1));
+        setActiveIndex((prev) => Math.min(prev + 1, totalOptions - 1));
         break;
       case 'ArrowUp':
         e.preventDefault();
@@ -67,7 +116,9 @@ export function AddToRosterCombobox({ projectId, onSelect, onDismiss }: AddToRos
         break;
       case 'Enter':
         e.preventDefault();
-        if (activeIndex >= 0 && activeIndex < visible.length) {
+        if (showCreateOption && activeIndex === createOptionIndex) {
+          handleCreateNew();
+        } else if (activeIndex >= 0 && activeIndex < visible.length) {
           onSelect(visible[activeIndex].id);
         }
         break;
@@ -79,9 +130,11 @@ export function AddToRosterCombobox({ projectId, onSelect, onDismiss }: AddToRos
   }
 
   const activeOptionId =
-    activeIndex >= 0 && activeIndex < visible.length
+    activeIndex >= 0 && activeIndex < totalOptions
       ? `${listboxId}-option-${activeIndex}`
       : undefined;
+
+  const dropdownOpen = visible.length > 0 || showCreateOption;
 
   return (
     <div className="relative">
@@ -89,7 +142,7 @@ export function AddToRosterCombobox({ projectId, onSelect, onDismiss }: AddToRos
         ref={inputRef}
         type="text"
         role="combobox"
-        aria-expanded={visible.length > 0}
+        aria-expanded={dropdownOpen}
         aria-controls={listboxId}
         aria-activedescendant={activeOptionId}
         aria-label="Search by name…"
@@ -97,12 +150,14 @@ export function AddToRosterCombobox({ projectId, onSelect, onDismiss }: AddToRos
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
+        disabled={inlineCreate.isPending}
         className="w-full text-sm border border-neutral-border rounded-md px-3 py-2
           bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-disabled
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+          disabled:opacity-50"
       />
 
-      {visible.length > 0 && (
+      {dropdownOpen && (
         <ul
           id={listboxId}
           role="listbox"
@@ -135,6 +190,28 @@ export function AddToRosterCombobox({ projectId, onSelect, onDismiss }: AddToRos
               )}
             </li>
           ))}
+
+          {showCreateOption && (
+            <li
+              id={`${listboxId}-option-${createOptionIndex}`}
+              role="option"
+              aria-selected={activeIndex === createOptionIndex}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                handleCreateNew();
+              }}
+              className={[
+                'px-3 py-2 text-sm cursor-pointer border-t border-neutral-border',
+                activeIndex === createOptionIndex
+                  ? 'bg-brand-primary/10 text-brand-primary'
+                  : 'text-neutral-text-secondary hover:bg-neutral-surface-raised',
+              ].join(' ')}
+            >
+              {inlineCreate.isPending
+                ? 'Creating…'
+                : `+ Create "${trimmedQuery}" as a new resource`}
+            </li>
+          )}
         </ul>
       )}
     </div>
