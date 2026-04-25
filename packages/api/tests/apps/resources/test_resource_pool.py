@@ -77,7 +77,9 @@ def viewer_membership(viewer_user: object, project: Project) -> ProjectMembershi
 
 @pytest.fixture
 def resource(db: object) -> Resource:
-    return Resource.objects.create(name="Alice", email="alice@example.com", max_units=Decimal("1.0"))
+    return Resource.objects.create(
+        name="Alice", email="alice@example.com", max_units=Decimal("1.0")
+    )
 
 
 @pytest.fixture
@@ -113,25 +115,45 @@ class TestSkillViewSet:
         res = c.get("/api/v1/skills/")
         assert res.status_code == 401
 
-    def test_list_authenticated(self, scheduler_client: APIClient, react_skill: Skill, scheduler_membership: ProjectMembership) -> None:
+    def test_list_authenticated(
+        self,
+        scheduler_client: APIClient,
+        react_skill: Skill,
+        scheduler_membership: ProjectMembership,
+    ) -> None:
         res = scheduler_client.get("/api/v1/skills/")
         assert res.status_code == 200
         ids = [s["id"] for s in res.data["results"]]
         assert str(react_skill.pk) in ids
 
-    def test_create_normalises_name(self, scheduler_client: APIClient, scheduler_membership: ProjectMembership) -> None:
+    def test_create_normalises_name(
+        self,
+        scheduler_client: APIClient,
+        scheduler_membership: ProjectMembership,
+    ) -> None:
         res = scheduler_client.post("/api/v1/skills/", {"name": "  TypeScript  "})
         assert res.status_code in (200, 201)
         assert res.data["normalized_name"] == "typescript"
         assert res.data["name"] == "TypeScript"
 
-    def test_create_dedup_returns_existing(self, scheduler_client: APIClient, react_skill: Skill, scheduler_membership: ProjectMembership) -> None:
+    def test_create_dedup_returns_existing(
+        self,
+        scheduler_client: APIClient,
+        react_skill: Skill,
+        scheduler_membership: ProjectMembership,
+    ) -> None:
         """Creating a skill with same normalised name returns the existing row."""
         res = scheduler_client.post("/api/v1/skills/", {"name": "REACT"})
         assert res.status_code in (200, 201)
         assert res.data["id"] == str(react_skill.pk)
 
-    def test_search(self, scheduler_client: APIClient, react_skill: Skill, aws_skill: Skill, scheduler_membership: ProjectMembership) -> None:
+    def test_search(
+        self,
+        scheduler_client: APIClient,
+        react_skill: Skill,
+        aws_skill: Skill,
+        scheduler_membership: ProjectMembership,
+    ) -> None:
         res = scheduler_client.get("/api/v1/skills/?search=react")
         assert res.status_code == 200
         assert len(res.data["results"]) == 1
@@ -461,7 +483,7 @@ class TestSkillFitAnnotation:
         react_skill: Skill,
         scheduler_membership: ProjectMembership,
     ) -> None:
-        no_skill_resource = Resource.objects.create(name="Zara", max_units=Decimal("1.0"))
+        Resource.objects.create(name="Zara", max_units=Decimal("1.0"))
         ResourceSkill.objects.create(resource=resource, skill=react_skill, proficiency=2)
         TaskSkillRequirement.objects.create(task=task, skill=react_skill, min_proficiency=1)
         res = scheduler_client.get(f"/api/v1/resources/?task={task.pk}")
@@ -571,7 +593,9 @@ class TestSelfServiceProfile:
         react_skill: Skill,
     ) -> None:
         """Any authenticated user can read their own resource's skills list."""
-        own_user = User.objects.create_user(username="self_alice", email="alice@example.com", password="pw")
+        own_user = User.objects.create_user(
+            username="self_alice", email="alice@example.com", password="pw"
+        )
         own_resource = Resource.objects.create(
             name="Alice", email="alice@example.com", max_units=Decimal("1.0")
         )

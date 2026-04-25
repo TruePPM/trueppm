@@ -68,7 +68,7 @@ export function AddToRosterCombobox({ projectId, onSelect, onDismiss }: AddToRos
       case 'Enter':
         e.preventDefault();
         if (activeIndex >= 0 && activeIndex < visible.length) {
-          onSelect(visible[activeIndex]!.id);
+          onSelect(visible[activeIndex].id);
         }
         break;
       case 'Escape':
