@@ -272,6 +272,8 @@ export function GanttView() {
 
   const [showAddForm, setShowAddForm] = useState(false);
   const addFormRef = useRef<AddTaskFormHandle>(null);
+  const [showColMenu, setShowColMenu] = useState(false);
+  const colMenuRef = useRef<HTMLDivElement>(null);
   const createTask = useCreateTask(projectId);
 
   // Tracks tasks created but not yet scheduled (null dates filtered from Gantt).
@@ -296,7 +298,7 @@ export function GanttView() {
   // Reactive scales — updated via scales-change so totalCanvasWidth stays in sync
   // when setTasks rebuilds the scale after a project switch or task edit (issue #96).
   const [ganttScales, setGanttScales] = useState<GanttScaleData | null>(null);
-  const { widths, setWidth, totalWidth } = useColumnWidths();
+  const { widths, visible, setWidth, toggleColumn, totalWidth } = useColumnWidths();
 
   // Ref to the split-pane container for MilestoneDeltaTooltip positioning (rule 31)
   const timelineContainerRef = useRef<HTMLDivElement>(null);
@@ -462,6 +464,18 @@ export function GanttView() {
   }, [engine]);
 
   // "Today" button handler (rule 82)
+  // Close column-visibility menu when clicking outside it
+  useEffect(() => {
+    if (!showColMenu) return;
+    function handleOutsideClick(e: MouseEvent) {
+      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) {
+        setShowColMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showColMenu]);
+
   const handleScrollToToday = useCallback(() => {
     if (!engine) return;
     const reducedMotion =
@@ -520,6 +534,7 @@ export function GanttView() {
             tasks={visibleTasks}
             scrollRef={taskListScrollRef}
             widths={widths}
+            visible={visible}
             setWidth={setWidth}
             totalWidth={totalWidth}
             summaryIds={summaryIds}
@@ -577,6 +592,47 @@ export function GanttView() {
         </label>
 
         <div className="flex-1" />
+
+        {/* Column visibility toggle */}
+        <div className="relative" ref={colMenuRef}>
+          <button
+            type="button"
+            onClick={() => setShowColMenu((v) => !v)}
+            aria-expanded={showColMenu}
+            aria-haspopup="menu"
+            className="border border-neutral-border rounded h-7 px-3 text-xs font-medium
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
+              hover:border-brand-primary hover:text-brand-primary"
+          >
+            Columns
+          </button>
+          {showColMenu && (
+            <div
+              role="menu"
+              className="absolute right-0 top-8 z-30 bg-neutral-surface border border-neutral-border
+                rounded py-1 min-w-[120px]"
+            >
+              {(['dur', 'start', 'finish', 'progress'] as const).map((col) => (
+                <label
+                  key={col}
+                  role="menuitem"
+                  className="flex items-center gap-2 px-3 py-1.5 text-xs text-neutral-text-primary
+                    cursor-pointer hover:bg-neutral-surface-raised select-none"
+                >
+                  <input
+                    type="checkbox"
+                    checked={visible[col]}
+                    onChange={() => toggleColumn(col)}
+                    className="accent-brand-primary"
+                    aria-label={`Show ${col === 'progress' ? '%' : col} column`}
+                  />
+                  {col === 'dur' ? 'Dur' : col === 'start' ? 'Start' : col === 'finish' ? 'Finish' : '%'}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* "Today" button (rule 82) */}
         <button
           type="button"
@@ -619,6 +675,7 @@ export function GanttView() {
           pendingTaskIds={pendingTaskIds}
           scrollRef={taskListScrollRef}
           widths={widths}
+          visible={visible}
           setWidth={setWidth}
           totalWidth={totalWidth}
           summaryIds={summaryIds}

@@ -11,6 +11,7 @@ interface Props {
   task: Task;
   level: number;
   widths: ColumnWidths['widths'];
+  visible: ColumnWidths['visible'];
   hasChildren?: boolean;
   isExpanded?: boolean;
   onToggle?: () => void;
@@ -38,7 +39,7 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export function TaskListRow({ task, level, widths, hasChildren = false, isExpanded = false, onToggle, dimmed = false, depChips }: Props) {
+export function TaskListRow({ task, level, widths, visible, hasChildren = false, isExpanded = false, onToggle, dimmed = false, depChips }: Props) {
   const projectId = useProjectId() ?? '';
   const selectedTaskId = useGanttStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useGanttStore((s) => s.setSelectedTaskId);
@@ -231,7 +232,7 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
       </div>
 
       {/* ── Dur column ──────────────────────────────────────────────────────── */}
-      {!isEditing && (
+      {!isEditing && visible.dur && (
         <div
           className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
             text-right text-gantt-text-secondary tabular-nums pr-2"
@@ -244,7 +245,7 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
       )}
 
       {/* ── Start column ────────────────────────────────────────────────────── */}
-      {!isEditing && (
+      {!isEditing && visible.start && (
         <div
           className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
             text-right text-gantt-text-secondary tabular-nums pr-2"
@@ -257,7 +258,7 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
       )}
 
       {/* ── Finish column ───────────────────────────────────────────────────── */}
-      {!isEditing && (
+      {!isEditing && visible.finish && (
         <div
           className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
             text-right text-gantt-text-secondary tabular-nums pr-2"
@@ -270,7 +271,7 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
       )}
 
       {/* ── % complete column ───────────────────────────────────────────────── */}
-      {!isEditing && (
+      {!isEditing && visible.progress && (
         <div
           className="flex items-center justify-end shrink-0
             text-right text-gantt-text-secondary tabular-nums pr-2"
