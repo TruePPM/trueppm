@@ -637,7 +637,11 @@ security:pip-audit:
     # No fix version exists as of 2026-03-25 — pygments 2.19.2 is the latest release.
     # Ignored explicitly so any new HIGH/CRITICAL CVE still blocks the pipeline.
     # Remove this ignore once a patched pygments version is released.
-    - pip-audit --progress-spinner=off --desc on --ignore-vuln CVE-2026-4539
+    #
+    # CVE-2026-3219: pip 26.0.1 mishandles concatenated tar+ZIP archives as ZIP.
+    # CVSS low — only affects install-time artifact parsing, not runtime behavior.
+    # No fix version available as of 2026-04-25. Remove once pip ships a patched release.
+    - pip-audit --progress-spinner=off --desc on --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
 
 web:security:
   # CVE scan for npm dependencies. Equivalent of pip-audit for the web package.

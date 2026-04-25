@@ -290,14 +290,22 @@ class TestTriggerScheduleView:
         ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
         return project
 
-    def test_trigger_creates_outbox_row(self, project_with_member, user) -> None:
+    def test_trigger_creates_outbox_row(
+        self, project_with_member, user, django_capture_on_commit_callbacks
+    ) -> None:
         from rest_framework.test import APIClient
 
         client = APIClient()
         client.force_authenticate(user=user)
-        with patch(
-            "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
-            return_value=MagicMock(id="trigger-task-id"),
+        # The view defers enqueue_recalculate via transaction.on_commit so the
+        # ScheduleRequest row is only written after the request transaction
+        # commits.  pytest-django's capture fixture executes callbacks on exit.
+        with (
+            patch(
+                "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+                return_value=MagicMock(id="trigger-task-id"),
+            ),
+            django_capture_on_commit_callbacks(execute=True),
         ):
             resp = client.post(f"/api/v1/projects/{project_with_member.pk}/schedule/")
 
@@ -306,14 +314,19 @@ class TestTriggerScheduleView:
         req = ScheduleRequest.objects.get(project=project_with_member)
         assert req.status == ScheduleRequestStatus.DISPATCHED
 
-    def test_trigger_broker_down_leaves_row_pending(self, project_with_member, user) -> None:
+    def test_trigger_broker_down_leaves_row_pending(
+        self, project_with_member, user, django_capture_on_commit_callbacks
+    ) -> None:
         from rest_framework.test import APIClient
 
         client = APIClient()
         client.force_authenticate(user=user)
-        with patch(
-            "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
-            side_effect=ConnectionError("broker down"),
+        with (
+            patch(
+                "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+                side_effect=ConnectionError("broker down"),
+            ),
+            django_capture_on_commit_callbacks(execute=True),
         ):
             resp = client.post(f"/api/v1/projects/{project_with_member.pk}/schedule/")
 

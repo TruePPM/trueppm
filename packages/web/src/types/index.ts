@@ -41,6 +41,17 @@ export interface Task {
   baselineFinish?: string;
   /** Resource assignments from TaskResource */
   assignees: TaskAssignee[];
+  /**
+   * ISO date-time when the task entered its current status column.
+   * Used to compute entry stamps ("Entered at 72% · 3d ago") on board cards.
+   * Absent until the API backfills the field (issue #130).
+   */
+  statusEnteredAt?: string;
+  /**
+   * Integer priority rank within the project — drives default sort order on
+   * the board. Lower number = higher priority. Absent until API is wired (issue #130).
+   */
+  priorityRank?: number;
 }
 
 export interface TaskAssignment {

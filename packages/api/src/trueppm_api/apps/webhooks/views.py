@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from django.db import transaction
 from django.db.models import QuerySet
 from rest_framework import status
 from rest_framework.decorators import action
@@ -25,6 +26,7 @@ from trueppm_api.apps.webhooks.serializers import (
     WebhookDeliverySerializer,
     WebhookSerializer,
 )
+from trueppm_api.apps.webhooks.tasks import deliver_webhook
 
 
 class WebhookViewSet(
@@ -79,17 +81,18 @@ class WebhookViewSet(
     def test_ping(self, request: Request, **kwargs: object) -> Response:
         """Send a test ping event to the webhook URL."""
         webhook = self.get_object()
-        from trueppm_api.apps.webhooks.models import WebhookDelivery
-        from trueppm_api.apps.webhooks.tasks import deliver_webhook
-
         delivery = WebhookDelivery.objects.create(
             webhook=webhook,
             event_type="ping",
             payload={"event": "ping", "webhook_id": str(webhook.pk)},
         )
-        deliver_webhook.delay(str(delivery.pk))
+        # Defer dispatch until the delivery row is committed so the task never
+        # races against an uncommitted row.  If the broker is down the drain
+        # task picks it up within _DRAIN_ORPHAN_MINUTES.
+        delivery_id = str(delivery.pk)
+        transaction.on_commit(lambda: deliver_webhook.delay(delivery_id))
         return Response(
-            {"delivery_id": str(delivery.pk)},
+            {"delivery_id": delivery_id},
             status=status.HTTP_202_ACCEPTED,
         )
 

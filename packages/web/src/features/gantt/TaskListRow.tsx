@@ -14,6 +14,21 @@ interface Props {
   hasChildren?: boolean;
   isExpanded?: boolean;
   onToggle?: () => void;
+  /**
+   * When focus mode is active and this task is NOT in the focused chain,
+   * the row is dimmed to ~22% opacity (spec: focus mode § ④).
+   */
+  dimmed?: boolean;
+  /**
+   * Predecessor/successor dep-chip data — shown inline when this task is selected
+   * and focus mode is on (spec § ④). Chips appear to the right of the task name.
+   */
+  depChips?: {
+    predsCount: number;
+    succsCount: number;
+    predsCritical: boolean;
+    succsCritical: boolean;
+  };
 }
 
 function formatDate(iso: string): string {
@@ -23,7 +38,7 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export function TaskListRow({ task, level, widths, hasChildren = false, isExpanded = false, onToggle }: Props) {
+export function TaskListRow({ task, level, widths, hasChildren = false, isExpanded = false, onToggle, dimmed = false, depChips }: Props) {
   const projectId = useProjectId() ?? '';
   const selectedTaskId = useGanttStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useGanttStore((s) => s.setSelectedTaskId);
@@ -76,6 +91,7 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
         isEditing ? 'cursor-text' : 'cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white',
         isSelected && !isEditing ? 'bg-white/10 border-l-2 border-brand-primary' : 'hover:bg-white/5',
+        dimmed ? 'opacity-[0.22] pointer-events-none' : '',
       ].join(' ')}
       onClick={() => { if (!isEditing) setSelectedTaskId(isSelected ? null : task.id); }}
       onDoubleClick={startEdit}
@@ -146,8 +162,30 @@ export function TaskListRow({ task, level, widths, hasChildren = false, isExpand
           >
             {task.name}
           </span>
-          {!task.isSummary && !task.isMilestone && (
-            <AssigneeChips assignees={task.assignees} />
+          {/* Dep chips — shown when task is selected in focus mode; replaces assignee chips */}
+          {isSelected && depChips ? (
+            <span className="flex items-center gap-0.5 flex-shrink-0" aria-label={`${depChips.predsCount} predecessors, ${depChips.succsCount} successors`}>
+              {depChips.predsCount > 0 && (
+                <span
+                  className={`inline-flex items-center px-1 py-px rounded text-xs font-medium cursor-pointer ${depChips.predsCritical ? 'bg-semantic-critical/10 text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
+                  title={`${depChips.predsCount} predecessor${depChips.predsCount !== 1 ? 's' : ''}`}
+                >
+                  ←{depChips.predsCount}
+                </span>
+              )}
+              {depChips.succsCount > 0 && (
+                <span
+                  className={`inline-flex items-center px-1 py-px rounded text-xs font-medium cursor-pointer ${depChips.succsCritical ? 'bg-semantic-critical/10 text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
+                  title={`${depChips.succsCount} successor${depChips.succsCount !== 1 ? 's' : ''}`}
+                >
+                  →{depChips.succsCount}
+                </span>
+              )}
+            </span>
+          ) : (
+            !task.isSummary && !task.isMilestone && (
+              <AssigneeChips assignees={task.assignees} />
+            )
           )}
         </div>
       )}

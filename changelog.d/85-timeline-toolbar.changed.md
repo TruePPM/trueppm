@@ -1,0 +1,1 @@
+- **Resources › Allocation Timeline toolbar**: overallocation count badge now appears in the toolbar primary row when one or more resources are over-allocated in the current window. A "Filter resources…" search input in the secondary toolbar row filters the timeline rows by name client-side. The unscheduled-assignments warning strip now includes a "Run scheduler" button.

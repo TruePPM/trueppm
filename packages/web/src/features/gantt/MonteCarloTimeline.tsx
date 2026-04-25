@@ -1,124 +1,59 @@
 import { useState, useRef, useCallback, type KeyboardEvent, type MouseEvent } from 'react';
-import type { GanttScaleData } from './engine';
 import type { MonteCarloResult } from '@/types';
+import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
-import { dateToLeft } from './engine';
 
-// Bar render order: P95 first (bottom), P80, P50 on top.
-// This ensures the shorter, solid P50 bar is always fully visible.
-interface BarSpec {
-  key: keyof Pick<MonteCarloResult, 'p50' | 'p80' | 'p95'>;
-  label: string;
-  colorClass: string;
-  /** Tailwind background-image class to simulate dashed/dotted via repeating-gradient */
-  pattern: 'solid' | 'dashed' | 'dotted';
-}
-
-const BARS: BarSpec[] = [
-  { key: 'p95', label: 'P95', colorClass: 'bg-semantic-critical', pattern: 'dotted' },
-  { key: 'p80', label: 'P80', colorClass: 'bg-semantic-at-risk',  pattern: 'dashed' },
-  { key: 'p50', label: 'P50', colorClass: 'bg-semantic-on-track', pattern: 'solid'  },
-];
-
-const BAR_H = 8;
-
-interface ConfidenceBarProps {
-  startLeft: number;
-  endLeft: number;
-  spec: BarSpec;
-  isoDate: string;
-  /** Stacking order within the 44px row — 0 = bottom, 2 = top */
-  zIndex: number;
-}
+// Height of each mini-histogram bar in the permanent strip.
+const BAR_MAX_H = 24;
+const BAR_W = 4;
 
 /**
- * Single horizontal confidence bar spanning from the timeline origin (project
- * start) to the percentile date end. A rotated diamond end-cap provides a
- * shape differentiator in addition to color and stroke pattern (WCAG 1.4.1).
+ * Clamp a date string to the bucket index that contains it.
+ * Used to colour histogram bars by their percentile region.
  */
-function ConfidenceBar({ startLeft, endLeft, spec, isoDate, zIndex }: ConfidenceBarProps) {
-  const formatted = new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-  }).format(new Date(isoDate));
-
-  const width = Math.max(0, endLeft - startLeft);
-
-  // Vertical position: all bars share the same vertical centre in the 44px row
-  // (top: 50% - 2px = 20px from top). Slight y-offset per bar so labels don't overlap.
-  // Evenly distribute 3 bars across the 44px row: bands at 10, 19, 28px from top
-  const topOffset = zIndex === 2 ? 10 : zIndex === 1 ? 19 : 28;
-
-  // Dashed/dotted overlay: we render the bar as a solid div, then apply a
-  // repeating-gradient mask for non-solid patterns using inline style.
-  const patternStyle =
-    spec.pattern === 'dashed'
-      ? {
-          backgroundImage:
-            'repeating-linear-gradient(90deg, transparent 0, transparent 4px, rgba(255,255,255,0.6) 4px, rgba(255,255,255,0.6) 8px)',
-        }
-      : spec.pattern === 'dotted'
-        ? {
-            backgroundImage:
-              'repeating-linear-gradient(90deg, transparent 0, transparent 2px, rgba(255,255,255,0.6) 2px, rgba(255,255,255,0.6) 5px)',
-          }
-        : {};
-
-  return (
-    <div
-      className="absolute"
-      style={{ left: startLeft, top: topOffset, width, height: BAR_H, zIndex }}
-      role="presentation"
-      aria-hidden="true"
-    >
-      {/* Bar fill */}
-      <div
-        className={`absolute inset-0 rounded-sm ${spec.colorClass}`}
-        style={patternStyle}
-      />
-
-      {/* Diamond end-cap at the bar's right terminus */}
-      <div
-        className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2.5 h-2.5 rotate-45 border border-neutral-border ${spec.colorClass}`}
-        style={{ left: width }}
-      />
-
-      {/* Date label above the end-cap */}
-      <span
-        className={`absolute -top-4 whitespace-nowrap text-xs font-medium ${spec.colorClass.replace('bg-', 'text-')}`}
-        style={{ left: Math.max(0, width - 20) }}
-      >
-        {spec.label}: {formatted}
-      </span>
-    </div>
-  );
+function findBucketIdx(
+  buckets: MonteCarloResult['buckets'],
+  isoDate: string,
+): number {
+  const target = new Date(isoDate).getTime();
+  let best = 0;
+  for (let i = 0; i < buckets.length; i++) {
+    if (new Date(buckets[i].weekStart).getTime() <= target) best = i;
+    else break;
+  }
+  return best;
 }
 
 interface Props {
   result: MonteCarloResult;
-  scrollLeft: number;
-  scales: GanttScaleData | null;
 }
 
 /**
- * Timeline side of the Monte Carlo row. Renders three horizontal confidence
- * bars spanning from the project start date to P50/P80/P95 completion dates,
- * positioned using SVAR's scale geometry via useSvarScale().
+ * Timeline side of the Monte Carlo row.
  *
- * P95 renders first (bottom), P80 above, P50 on top so the solid green bar
- * is always fully visible. Diamond end-caps provide shape differentiation
- * (WCAG 1.4.1) in addition to color and stroke pattern.
+ * Renders a permanently-visible mini histogram strip coloured by percentile
+ * region (green ≤ P50, amber P50–P80, red > P80) followed by outlined
+ * P50 / P80 / P95 date chips.
  *
- * role="button" + aria-haspopup="dialog" + aria-expanded makes the row
- * keyboard-accessible for the histogram tooltip.
+ * Hover or keyboard-focus opens a detailed histogram tooltip (rule 20).
+ * The chips satisfy WCAG 1.4.1 — percentile boundaries are expressed as
+ * labelled text, not colour alone.
  */
-export function MonteCarloTimeline({ result, scrollLeft, scales }: Props) {
+export function MonteCarloTimeline({ result }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
-  const prefersReducedMotion =
-    typeof window !== 'undefined' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const prefersReducedMotion = usePrefersReducedMotion();
+
+  const { buckets, p50, p80, p95 } = result;
+  const maxCount = Math.max(...buckets.map((b) => b.count));
+  const p50Idx = findBucketIdx(buckets, p50);
+  const p80Idx = findBucketIdx(buckets, p80);
+
+  const fmt = (iso: string) =>
+    new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
+      new Date(iso),
+    );
 
   const openTooltip = useCallback((x: number, y: number) => {
     setTooltipPos({ x, y });
@@ -154,23 +89,22 @@ export function MonteCarloTimeline({ result, scrollLeft, scales }: Props) {
     (e: KeyboardEvent<HTMLDivElement>) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
-        if (isOpen) { closeTooltip(); } else { showAtCenter(); }
+        if (isOpen) {
+          closeTooltip();
+        } else {
+          showAtCenter();
+        }
       }
       if (e.key === 'Escape') closeTooltip();
     },
     [isOpen, closeTooltip, showAtCenter],
   );
 
-  // Bars start at the timeline canvas origin (project start ≈ scales.start).
-  // dateToLeft returns canvas-origin coords (rule 57); subtract scrollLeft to get viewport-relative.
-  const originLeft = scales ? -scrollLeft : null;
-  const p50Left = scales ? dateToLeft(result.p50, scales) - scrollLeft : null;
-  const p80Left = scales ? dateToLeft(result.p80, scales) - scrollLeft : null;
-  const p95Left = scales ? dateToLeft(result.p95, scales) - scrollLeft : null;
-  const barsReady =
-    originLeft !== null && p50Left !== null && p80Left !== null && p95Left !== null;
-  // Narrowed values, safe to use after barsReady guard
-  const endLeftByBar = [p95Left ?? 0, p80Left ?? 0, p50Left ?? 0];
+  const chips = [
+    { label: 'P50', iso: p50, border: 'border-semantic-on-track/40', text: 'text-semantic-on-track' },
+    { label: 'P80', iso: p80, border: 'border-semantic-at-risk/40',  text: 'text-semantic-at-risk'  },
+    { label: 'P95', iso: p95, border: 'border-semantic-critical/40', text: 'text-semantic-critical' },
+  ] as const;
 
   return (
     <>
@@ -180,10 +114,9 @@ export function MonteCarloTimeline({ result, scrollLeft, scales }: Props) {
         tabIndex={0}
         aria-haspopup="dialog"
         aria-expanded={isOpen}
-        aria-label={`Monte Carlo: P50 ${result.p50}, P80 ${result.p80}, P95 ${result.p95}. Press Enter for distribution.`}
-        className="flex-1 min-w-0 relative overflow-hidden border-t border-neutral-border bg-neutral-surface
-          cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset
-          focus-visible:ring-brand-primary"
+        aria-label={`Monte Carlo: P50 ${fmt(p50)}, P80 ${fmt(p80)}, P95 ${fmt(p95)}. Press Enter for distribution.`}
+        className="flex-1 min-w-0 flex items-center gap-3 px-3 overflow-hidden border-t border-neutral-border bg-neutral-surface
+          cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
         onMouseEnter={handleMouseEnter}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
@@ -191,29 +124,44 @@ export function MonteCarloTimeline({ result, scrollLeft, scales }: Props) {
         onBlur={handleBlur}
         onKeyDown={handleKeyDown}
       >
-        {barsReady && (
-          <>
-            {BARS.map((spec, i) => (
-              <ConfidenceBar
-                key={spec.key}
-                startLeft={originLeft ?? 0}
-                endLeft={endLeftByBar[i] ?? 0}
-                spec={spec}
-                isoDate={result[spec.key]}
-                zIndex={i}
+        {/* Mini histogram strip — coloured by percentile region, aria-hidden (chips carry the a11y meaning) */}
+        <div
+          className="flex-1 min-w-0 flex items-end gap-px overflow-hidden"
+          style={{ height: BAR_MAX_H }}
+          aria-hidden="true"
+        >
+          {buckets.map((b, i) => {
+            const h = maxCount > 0 ? Math.max(2, Math.round((b.count / maxCount) * BAR_MAX_H)) : 2;
+            const colorClass =
+              i <= p50Idx
+                ? 'bg-semantic-on-track/50'
+                : i <= p80Idx
+                  ? 'bg-semantic-at-risk/50'
+                  : 'bg-semantic-critical/50';
+            return (
+              <div
+                key={b.weekStart}
+                className={`flex-shrink-0 rounded-t-sm ${colorClass}`}
+                style={{ width: BAR_W, height: h }}
               />
-            ))}
-          </>
-        )}
+            );
+          })}
+        </div>
 
-        {!barsReady && scales === null && (
-          <div className="flex items-center h-full px-3">
-            <span className="text-xs text-neutral-text-disabled">Loading…</span>
-          </div>
-        )}
+        {/* P50 / P80 / P95 chips — always visible; outlined style per rule 21/39 */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {chips.map(({ label, iso, border, text }) => (
+            <span
+              key={label}
+              className={`text-xs font-medium px-1.5 py-0.5 rounded border ${border} ${text} bg-transparent whitespace-nowrap`}
+            >
+              {label} {fmt(iso)}
+            </span>
+          ))}
+        </div>
       </div>
 
-      {/* Histogram tooltip — fixed-position to escape overflow:hidden ancestors */}
+      {/* Detailed histogram tooltip — fixed-position to escape overflow:hidden ancestors */}
       {isOpen && tooltipPos && (
         <div
           role="dialog"
@@ -227,11 +175,14 @@ export function MonteCarloTimeline({ result, scrollLeft, scales }: Props) {
             top: tooltipPos.y - 168 < 8 ? tooltipPos.y + 24 : tooltipPos.y - 168,
           }}
         >
-          {/* Plain-language summary — P80 as the planning anchor (WCAG 1.4.3: text-sm on neutral-surface passes 4.5:1) */}
           <p className="text-sm font-medium text-neutral-text-primary mb-2">
             8 in 10 simulations finish by{' '}
             <strong>
-              {new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(result.p80))}
+              {new Intl.DateTimeFormat('en-US', {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
+              }).format(new Date(p80))}
             </strong>
             .
           </p>
@@ -241,15 +192,18 @@ export function MonteCarloTimeline({ result, scrollLeft, scales }: Props) {
           <MonteCarloHistogram result={result} />
           <div className="mt-2 flex items-center gap-4 text-xs text-neutral-text-secondary">
             {[
-              { label: 'P50', iso: result.p50, cls: 'bg-semantic-on-track' },
-              { label: 'P80', iso: result.p80, cls: 'bg-semantic-at-risk' },
-              { label: 'P95', iso: result.p95, cls: 'bg-semantic-critical' },
+              { label: 'P50', iso: p50, cls: 'bg-semantic-on-track' },
+              { label: 'P80', iso: p80, cls: 'bg-semantic-at-risk' },
+              { label: 'P95', iso: p95, cls: 'bg-semantic-critical' },
             ].map(({ label, iso, cls }) => (
               <span key={label} className="flex items-center gap-1">
                 <span className={`inline-block w-2.5 h-1 ${cls} rounded-sm`} aria-hidden="true" />
                 <span className="font-medium">{label}</span>
                 <span>
-                  {new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  {new Date(iso).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                  })}
                 </span>
               </span>
             ))}

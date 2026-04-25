@@ -27,11 +27,16 @@ interface Props {
   windowStart: string;
   windowEnd: string;
   unassignedCount: number;
+  /** Number of resources with at least one overallocated day in the current window. */
+  overallocationCount: number;
   isFitToProject: boolean;
   myAllocationActive: boolean;
   showMyAllocation: boolean;
   statusFilters: string[];
   onStatusFiltersChange: (filters: string[]) => void;
+  /** Free-text filter applied to resource names (timeline mode only). */
+  resourceSearch: string;
+  onResourceSearchChange: (value: string) => void;
   onPrev: () => void;
   onNext: () => void;
   onToday: () => void;
@@ -45,11 +50,14 @@ export function ResourceToolbar({
   windowStart,
   windowEnd,
   unassignedCount,
+  overallocationCount,
   isFitToProject,
   myAllocationActive,
   showMyAllocation,
   statusFilters,
   onStatusFiltersChange,
+  resourceSearch,
+  onResourceSearchChange,
   onPrev,
   onNext,
   onToday,
@@ -169,6 +177,17 @@ export function ResourceToolbar({
 
         <div className="flex-1" />
 
+        {/* Overallocation count (timeline mode) */}
+        {overallocationCount > 0 && viewMode === 'timeline' && (
+          <span
+            className="text-xs font-medium px-2 py-0.5 rounded border border-semantic-critical/40 text-semantic-critical bg-semantic-critical/5"
+            aria-live="polite"
+            aria-label={`${overallocationCount} over-allocated resource${overallocationCount !== 1 ? 's' : ''}`}
+          >
+            {overallocationCount} over-allocated
+          </span>
+        )}
+
         {/* Unassigned count (utilization mode) */}
         {unassignedCount > 0 && viewMode === 'utilization' && (
           <span className="text-xs text-semantic-at-risk" aria-live="polite">
@@ -177,10 +196,10 @@ export function ResourceToolbar({
         )}
       </div>
 
-      {/* Secondary row: status filters (timeline mode only) */}
+      {/* Secondary row: status filters + resource search (timeline mode only) */}
       {viewMode === 'timeline' && (
         <div className="flex items-center gap-3 px-4 py-1 bg-neutral-surface border-t border-neutral-border/50 text-xs text-neutral-text-secondary">
-          <span className="text-[10px] uppercase tracking-wide text-neutral-text-secondary/70 flex-shrink-0">
+          <span className="text-xs uppercase tracking-wide text-neutral-text-secondary/70 flex-shrink-0">
             Status
           </span>
           {ALL_STATUSES.map((s) => (
@@ -195,6 +214,20 @@ export function ResourceToolbar({
               <span>{STATUS_LABELS[s]}</span>
             </label>
           ))}
+          <div className="ml-4 flex items-center gap-1.5 border border-neutral-border rounded h-6 px-2 bg-neutral-surface min-w-[140px]">
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true" className="text-neutral-text-secondary flex-shrink-0">
+              <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1.2"/>
+              <path d="M7.5 7.5l2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+            <input
+              type="search"
+              value={resourceSearch}
+              onChange={(e) => onResourceSearchChange(e.target.value)}
+              placeholder="Filter resources…"
+              aria-label="Filter resources by name"
+              className="flex-1 min-w-0 bg-transparent outline-none text-xs text-neutral-text-primary placeholder:text-neutral-text-secondary"
+            />
+          </div>
         </div>
       )}
     </div>

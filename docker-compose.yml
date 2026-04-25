@@ -87,7 +87,9 @@ services:
 
   celery:
     image: trueppm-api:local
-    command: ["celery", "-A", "trueppm_api.celery", "worker", "--loglevel=info"]
+    # --concurrency=2 keeps dev memory under ~150 MB (default=10 caused OOM kills)
+    command: ["celery", "-A", "trueppm_api.celery", "worker", "--loglevel=info", "--concurrency=2"]
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgres://trueppm:trueppm@db:5432/trueppm
       REDIS_URL: redis://redis:6379
@@ -101,6 +103,27 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  celery-beat:
+    image: trueppm-api:local
+    # Runs CELERY_BEAT_SCHEDULE periodic tasks (drain_schedule_queue every 30 s, etc.)
+    command: ["celery", "-A", "trueppm_api.celery", "beat", "--loglevel=info"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://trueppm:trueppm@db:5432/trueppm
+      REDIS_URL: redis://redis:6379
+      DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
+      SECRET_KEY: dev-secret-key-change-in-prod
+      PYTHONPATH: /app/src
+    volumes:
+      - ./packages/api/src:/app/src
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      celery:
+        condition: service_started
 
 volumes:
   postgres_data:

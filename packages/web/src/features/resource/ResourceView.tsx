@@ -24,13 +24,18 @@ import {
   addDays,
   formatISODate,
   parseUTCDate,
+  detectOverallocatedAssignments,
 } from './resourceUtils';
 import { useResourceUtilization } from '@/hooks/useResourceUtilization';
 import { useResourceAllocation, useInvalidateAllocation } from '@/hooks/useResourceAllocation';
 import { useResolveOverallocation } from '@/hooks/useResolveOverallocation';
 
 // ---------------------------------------------------------------------------
-// Role stub — replace with real useCurrentUserRole() when auth is wired in.
+// Role stub — replace with real useCurrentUserRole() once the API exposes the
+// per-project membership role on the auth/user endpoint. Server-side 403 is
+// the authoritative guard today (rule 94); this stub keeps the gate function
+// structurally intact so wiring it in later is a one-line change. Currently
+// equals SCHEDULER so the gate is a no-op for every user.
 // ---------------------------------------------------------------------------
 const STUB_ROLE = 2; // SCHEDULER
 const SCHEDULER_ROLE = 2;
@@ -68,6 +73,7 @@ export function ResourceView({
   const [isFitToProject, setIsFitToProject] = useState(false);
   const [myAllocationActive, setMyAllocationActive] = useState(false);
   const [statusFilters, setStatusFilters] = useState<string[]>(['NOT_STARTED', 'IN_PROGRESS']);
+  const [resourceSearch, setResourceSearch] = useState('');
 
   const resourceFilter = myAllocationActive && currentUserResourceId
     ? [currentUserResourceId]
@@ -208,6 +214,26 @@ export function ResourceView({
   const unassignedCount =
     viewMode === 'utilization' ? (utilizationResult.data?.unassigned_task_count ?? 0) : 0;
 
+  // Count resources with at least one overallocated day in the current window.
+  const overallocationCount =
+    viewMode === 'timeline' && allocationResult.data
+      ? allocationResult.data.resources.filter((r) => {
+          const over = detectOverallocatedAssignments(r.tasks, parseFloat(r.max_units));
+          return over.size > 0;
+        }).length
+      : 0;
+
+  // Filter resource rows by the search query (client-side, case-insensitive).
+  const filteredAllocationData =
+    resourceSearch.trim() && allocationResult.data
+      ? {
+          ...allocationResult.data,
+          resources: allocationResult.data.resources.filter((r) =>
+            r.name.toLowerCase().includes(resourceSearch.trim().toLowerCase()),
+          ),
+        }
+      : allocationResult.data;
+
   return (
     <>
       <div className="flex flex-col h-full overflow-hidden">
@@ -217,6 +243,7 @@ export function ResourceView({
           windowStart={window_.start}
           windowEnd={window_.end}
           unassignedCount={unassignedCount}
+          overallocationCount={overallocationCount}
           isFitToProject={isFitToProject}
           myAllocationActive={myAllocationActive}
           onPrev={goPrev}
@@ -227,21 +254,24 @@ export function ResourceView({
           showMyAllocation={!!currentUserResourceId}
           statusFilters={statusFilters}
           onStatusFiltersChange={setStatusFilters}
+          resourceSearch={resourceSearch}
+          onResourceSearchChange={setResourceSearch}
         />
 
-        {viewMode === 'timeline' && allocationResult.data && (
-          allocationResult.data.resources.length === 0 ? (
+        {viewMode === 'timeline' && filteredAllocationData && (
+          filteredAllocationData.resources.length === 0 ? (
             <div className="flex items-center justify-center flex-1 text-xs text-neutral-text-secondary">
-              No assignments in this window.
+              {resourceSearch.trim() ? 'No resources match the filter.' : 'No assignments in this window.'}
             </div>
           ) : (
             <div className="flex-1 min-h-0">
               <ResourceAllocationTimeline
-                data={allocationResult.data}
+                data={filteredAllocationData}
                 windowStart={window_.start}
                 windowEnd={window_.end}
                 currentUserResourceId={currentUserResourceId}
                 projectId={projectId}
+                onRunScheduler={() => {}}
               />
             </div>
           )

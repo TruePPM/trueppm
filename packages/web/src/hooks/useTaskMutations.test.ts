@@ -1,22 +1,34 @@
 /**
- * Tests for useRescheduleTask — covers optimistic update branches in onMutate
- * and rollback branch in onError.
+ * Tests for useTaskMutations — covers every exported hook so onSuccess
+ * invalidation, mutationFn endpoint shape, and the `projectId ?? undefined`
+ * branch are all exercised for branch coverage.
  */
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
-import { useRescheduleTask, useReparentTask } from './useTaskMutations';
+import {
+  useRescheduleTask,
+  useReparentTask,
+  useCreateTask,
+  useUpdateTask,
+  useIndentTask,
+  useOutdentTask,
+  useDeleteTask,
+  useBulkDeleteTasks,
+  useReorderTasks,
+} from './useTaskMutations';
 import type { Task } from '@/types';
 
-const { patchMock, postMock } = vi.hoisted(() => ({
+const { patchMock, postMock, deleteMock } = vi.hoisted(() => ({
   patchMock: vi.fn().mockResolvedValue({ data: {} }),
   postMock: vi.fn().mockResolvedValue({ data: { updated: [], warning: null } }),
+  deleteMock: vi.fn().mockResolvedValue({ data: {} }),
 }));
 
 vi.mock('@/api/client', () => ({
-  apiClient: { patch: patchMock, post: postMock },
+  apiClient: { patch: patchMock, post: postMock, delete: deleteMock },
 }));
 
 const baseTask: Task = {
@@ -150,6 +162,225 @@ describe('useReparentTask', () => {
         '/projects/proj1/tasks/t1/reparent/',
         { new_parent_id: null },
       ),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Coverage tests for the remaining hooks. Each hook has the same skeleton:
+//   1. mutationFn issues an HTTP call to a project-scoped endpoint
+//   2. onSuccess invalidates ['tasks', projectId ?? undefined]
+// We exercise both projectId branches (string and null) and verify the call
+// shape — that is enough to lift branch coverage above the 80% floor.
+// ---------------------------------------------------------------------------
+
+describe('useCreateTask', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    postMock.mockResolvedValue({ data: { id: 'new', name: 'X', project: 'p1', wbs_path: null, duration: 1, status: 'NOT_STARTED', percent_complete: 0 } });
+  });
+
+  it('POSTs the project id and payload, then invalidates the tasks cache', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useCreateTask('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ name: 'New', duration: 5 });
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/tasks/', { project: 'p1', name: 'New', duration: 5 }),
+    );
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }),
+    );
+  });
+
+  it('falls back to undefined query key when projectId is null', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useCreateTask(null), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ name: 'New', duration: 5 });
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] }),
+    );
+  });
+});
+
+describe('useUpdateTask', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    patchMock.mockResolvedValue({ data: {} });
+  });
+
+  it('PATCHes the task without project/projectId fields', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useUpdateTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ id: 't1', projectId: 'p1', name: 'Renamed', percent_complete: 50 });
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { name: 'Renamed', percent_complete: 50 }),
+    );
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }),
+    );
+  });
+});
+
+describe('useIndentTask / useOutdentTask', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    postMock.mockResolvedValue({ data: { updated: [], warning: null } });
+  });
+
+  it('useIndentTask POSTs to /indent/ and invalidates with the projectId', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useIndentTask('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate('t1');
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/projects/p1/tasks/t1/indent/'),
+    );
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }),
+    );
+  });
+
+  it('useIndentTask falls back to undefined query key when projectId is null', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useIndentTask(null), { wrapper: makeWrapper(qc) });
+    result.current.mutate('t1');
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] }),
+    );
+  });
+
+  it('useOutdentTask POSTs to /outdent/ for the given projectId', async () => {
+    const { result } = renderHook(() => useOutdentTask('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate('t1');
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/projects/p1/tasks/t1/outdent/'),
+    );
+  });
+
+  it('useOutdentTask falls back to undefined query key when projectId is null', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useOutdentTask(null), { wrapper: makeWrapper(qc) });
+    result.current.mutate('t1');
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] }),
+    );
+  });
+});
+
+describe('useReparentTask null projectId branch', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+  });
+
+  it('falls back to undefined query key when projectId is null', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useReparentTask(null), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ taskId: 't1', newParentId: null });
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] }),
+    );
+  });
+});
+
+describe('useDeleteTask', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+  });
+
+  it('issues DELETE for the task and invalidates the project cache', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useDeleteTask('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate('t1');
+    await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/tasks/t1/'));
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'p1'] }),
+    );
+  });
+
+  it('falls back to undefined query key when projectId is null', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useDeleteTask(null), { wrapper: makeWrapper(qc) });
+    result.current.mutate('t1');
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] }),
+    );
+  });
+});
+
+describe('useBulkDeleteTasks', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    postMock.mockResolvedValue({ data: {} });
+  });
+
+  it('POSTs delete operations to the bulk endpoint', async () => {
+    const { result } = renderHook(() => useBulkDeleteTasks('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate(['t1', 't2']);
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/projects/p1/tasks/bulk/', {
+        operations: [{ op: 'delete', id: 't1' }, { op: 'delete', id: 't2' }],
+      }),
+    );
+  });
+
+  it('falls back to undefined query key when projectId is null', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useBulkDeleteTasks(null), { wrapper: makeWrapper(qc) });
+    result.current.mutate(['t1']);
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] }),
+    );
+  });
+});
+
+describe('useReorderTasks', () => {
+  let qc: QueryClient;
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    postMock.mockResolvedValue({ data: {} });
+  });
+
+  it('POSTs the parent_path and ordered_ids payload', async () => {
+    const { result } = renderHook(() => useReorderTasks('p1'), { wrapper: makeWrapper(qc) });
+    const payload = { parent_path: '1', ordered_ids: ['t2', 't1'] };
+    result.current.mutate(payload);
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/projects/p1/tasks/reorder/', payload),
+    );
+  });
+
+  it('falls back to undefined query key when projectId is null', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useReorderTasks(null), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ parent_path: '', ordered_ids: ['t1'] });
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] }),
     );
   });
 });
