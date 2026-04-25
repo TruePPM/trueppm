@@ -79,8 +79,9 @@ async function mockResourceRoutes(
     results,
   });
 
-  // Stateful set so DELETE → re-fetch correctly excludes deleted resources.
+  // Stateful lists so mutations are reflected in subsequent GET re-fetches.
   const deletedIds = new Set<string>();
+  const created: typeof resources = [];
 
   await page.route('**/api/v1/projects/**', (route) =>
     route.fulfill({ json: paginated(FIXTURE_PROJECTS) }),
@@ -92,7 +93,7 @@ async function mockResourceRoutes(
       if (includeDeleted) {
         return route.fulfill({ json: paginated(FIXTURE_RESOURCES_WITH_DEACTIVATED) });
       }
-      const active = resources.filter((r) => !deletedIds.has(r.id));
+      const active = [...resources, ...created].filter((r) => !deletedIds.has(r.id));
       return route.fulfill({ json: paginated(active) });
     }
     if (route.request().method() === 'POST' && url.pathname.endsWith('/restore/')) {
@@ -103,10 +104,9 @@ async function mockResourceRoutes(
     }
     if (route.request().method() === 'POST') {
       const body = JSON.parse(route.request().postData() ?? '{}') as { name: string };
-      return route.fulfill({
-        status: 201,
-        json: { id: 'res-new', server_version: 1, name: body.name, email: '', job_role: '', max_units: '1.00', is_deleted: false, skills: [] },
-      });
+      const newResource = { id: 'res-new', server_version: 1, name: body.name, email: '', job_role: '', max_units: '1.00', is_deleted: false, skills: [] };
+      created.push(newResource);
+      return route.fulfill({ status: 201, json: newResource });
     }
     if (route.request().method() === 'PATCH') {
       return route.fulfill({ status: 200, json: resources[0] });
@@ -196,7 +196,7 @@ test('show deactivated toggle surfaces deactivated resources', async ({ page }) 
   await page.getByRole('switch', { name: /show deactivated/i }).click();
 
   await expect(page.getByRole('button', { name: /charlie lee/i })).toBeVisible();
-  await expect(page.getByText('Deactivated')).toBeVisible();
+  await expect(page.getByText('Deactivated', { exact: true })).toBeVisible();
 });
 
 // ---------------------------------------------------------------------------
@@ -207,7 +207,7 @@ test('restore deactivated resource', async ({ page }) => {
   await mockResourceRoutes(page);
   await seedAuthAndNavigate(page);
 
-  await page.getByRole('checkbox', { name: /show deactivated/i }).check();
+  await page.getByRole('switch', { name: /show deactivated/i }).click();
   await page.getByRole('button', { name: /charlie lee/i }).click();
 
   await page.getByRole('button', { name: /restore resource/i }).click();
