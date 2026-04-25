@@ -151,7 +151,7 @@ describe('BoardView', () => {
   it('replaces the WIP badge with a plain count when "Show WIP limits" is off', async () => {
     const user = userEvent.setup();
     render(<BoardView />);
-    const toggle = screen.getByLabelText('Show WIP limits') as HTMLInputElement;
+    const toggle = screen.getByLabelText<HTMLInputElement>('Show WIP limits');
     expect(toggle.checked).toBe(true);
     await user.click(toggle);
     expect(toggle.checked).toBe(false);
@@ -204,9 +204,9 @@ describe('BoardView', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Move to…' }));
     fireEvent.click(screen.getAllByRole('menuitem', { name: 'DONE' })[0]);
     expect(updateMutate).toHaveBeenCalledTimes(1);
-    const call = updateMutate.mock.calls[0][0];
-    expect(call.projectId).toBe('project-1');
-    expect(call.status).toBe('COMPLETE');
+    expect(updateMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 'project-1', status: 'COMPLETE' }),
+    );
   });
 
 });

@@ -6,7 +6,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { DndContext } from '@dnd-kit/core';
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import { BoardCard } from './BoardCard';
 import type { Task, TaskStatus } from '@/types';
 
@@ -34,7 +34,7 @@ const baseTask: Task = {
   assignees: [],
 };
 
-function renderCard(props: Partial<React.ComponentProps<typeof BoardCard>>) {
+function renderCard(props: Partial<ComponentProps<typeof BoardCard>>) {
   function Wrapper({ children }: { children: ReactNode }) {
     return <DndContext>{children}</DndContext>;
   }
