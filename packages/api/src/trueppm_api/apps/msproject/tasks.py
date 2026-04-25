@@ -6,11 +6,19 @@ import base64
 import logging
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import timedelta
 from typing import Any
 
 from celery import shared_task
 
+from trueppm_api.core.idempotent import idempotent_task
+
 logger = logging.getLogger(__name__)
+
+# An import task running longer than this is considered orphaned by the drain.
+# Slightly longer than soft_time_limit (540 s = 9 min) to let the task time
+# out and record its own failure before drain resets the row.
+_IMPORT_ORPHAN_MINUTES = 15
 
 
 class _NoOpTracker:
@@ -46,20 +54,31 @@ def _get_tracker(
         yield _NoOpTracker()
 
 
-@shared_task(bind=True, name="msproject.import_file")  # type: ignore[untyped-decorator]
+@shared_task(  # type: ignore[untyped-decorator]
+    bind=True,
+    name="msproject.import_file",
+    soft_time_limit=540,
+    time_limit=600,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def import_msproject(
     self: Any,
     project_id: str,
     file_content_b64: str,
     filename: str,
     initiated_by_id: int | None = None,
+    import_request_id: str | None = None,
 ) -> dict[str, Any]:
     """Import an MS Project file (.mpp or .xml) into an existing project.
 
     The file content is passed as base64-encoded string to avoid binary
     issues with the Celery/Redis message broker.
 
-    After import, triggers a CPM recalculation.
+    When dispatched via the ImportRequest outbox, import_request_id is set
+    so the row can be marked DONE on successful completion.
+
+    After import, triggers a CPM recalculation via the scheduling outbox.
     """
     with _get_tracker(self, project_id, initiated_by_id) as tracker:
         file_content = base64.b64decode(file_content_b64)
@@ -92,4 +111,111 @@ def import_msproject(
 
             enqueue_recalculate(project_id)
 
+    if import_request_id:
+        _mark_import_done(import_request_id)
+
     return summary
+
+
+def _mark_import_done(import_request_id: str) -> None:
+    """Flip the ImportRequest row to DONE after successful completion."""
+    from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+    ImportRequest.objects.filter(
+        id=import_request_id, status=ImportRequestStatus.DISPATCHED
+    ).update(status=ImportRequestStatus.DONE)
+
+
+@idempotent_task(
+    lock_key_template="drain_import_queue",
+    lock_ttl=60,
+    on_contention="skip",
+    soft_time_limit=25,
+    time_limit=30,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def drain_import_queue(self: object) -> None:
+    """Dispatch any pending ImportRequest outbox rows.
+
+    Runs every 30 seconds via Celery Beat.  Also recovers orphaned dispatched
+    rows older than _IMPORT_ORPHAN_MINUTES (import soft_time_limit is 9 min,
+    so 15 min ensures the prior task has either completed or timed out).
+    """
+    _do_import_drain()
+
+
+@idempotent_task(
+    lock_key_template="purge_old_import_requests",
+    lock_ttl=120,
+    on_contention="skip",
+    soft_time_limit=55,
+    time_limit=90,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def purge_old_import_requests(self: object) -> None:
+    """Delete done/dead ImportRequest rows older than 7 days.
+
+    Runs nightly via Celery Beat.  Keeps file_content_b64 blobs from
+    accumulating in the database indefinitely.
+    """
+    _do_import_purge()
+
+
+def _do_import_drain() -> None:
+    """Business logic for drain_import_queue — extracted for testability."""
+    from django.utils import timezone
+
+    from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+    now = timezone.now()
+    orphan_cutoff = now - timedelta(minutes=_IMPORT_ORPHAN_MINUTES)
+
+    recovered = ImportRequest.objects.filter(
+        status=ImportRequestStatus.DISPATCHED,
+        dispatched_at__lt=orphan_cutoff,
+    ).update(status=ImportRequestStatus.PENDING, celery_task_id="")
+    if recovered:
+        logger.warning("drain_import_queue: recovered %d orphaned row(s)", recovered)
+
+    pending = list(ImportRequest.objects.filter(status=ImportRequestStatus.PENDING))
+    dispatched = 0
+    for req in pending:
+        try:
+            result = import_msproject.delay(
+                project_id=str(req.project_id),
+                file_content_b64=req.file_content_b64,
+                filename=req.filename,
+                initiated_by_id=req.initiated_by_id,
+                import_request_id=str(req.id),
+            )
+        except Exception:
+            logger.warning(
+                "drain_import_queue: broker unavailable — ImportRequest %s stays pending",
+                req.id,
+            )
+            continue
+        ImportRequest.objects.filter(id=req.id, status=ImportRequestStatus.PENDING).update(
+            status=ImportRequestStatus.DISPATCHED,
+            celery_task_id=result.id,
+            dispatched_at=now,
+        )
+        dispatched += 1
+
+    if dispatched or recovered:
+        logger.info("drain_import_queue: dispatched=%d recovered=%d", dispatched, recovered)
+
+
+def _do_import_purge() -> None:
+    """Business logic for purge_old_import_requests — extracted for testability."""
+    from django.utils import timezone
+
+    from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+    cutoff = timezone.now() - timedelta(days=7)
+    deleted, _ = ImportRequest.objects.filter(
+        status__in=[ImportRequestStatus.DONE, ImportRequestStatus.DEAD],
+        requested_at__lt=cutoff,
+    ).delete()
+    logger.info("purge_old_import_requests: deleted %d row(s)", deleted)

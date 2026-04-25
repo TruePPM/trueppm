@@ -1,0 +1,77 @@
+import uuid
+
+import django.db.models.deletion
+from django.conf import settings
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ("projects", "0017_boardcolumnconfig"),
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+    ]
+
+    operations = [
+        migrations.CreateModel(
+            name="ImportRequest",
+            fields=[
+                (
+                    "id",
+                    models.UUIDField(
+                        default=uuid.uuid4,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("pending", "Pending"),
+                            ("dispatched", "Dispatched"),
+                            ("done", "Done"),
+                            ("dead", "Dead"),
+                        ],
+                        default="pending",
+                        max_length=16,
+                    ),
+                ),
+                ("filename", models.CharField(max_length=255)),
+                ("file_content_b64", models.TextField()),
+                ("requested_at", models.DateTimeField(auto_now_add=True)),
+                ("dispatched_at", models.DateTimeField(blank=True, null=True)),
+                (
+                    "celery_task_id",
+                    models.CharField(blank=True, default="", max_length=255),
+                ),
+                (
+                    "initiated_by",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="+",
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                (
+                    "project",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="import_requests",
+                        to="projects.project",
+                    ),
+                ),
+            ],
+            options={
+                "ordering": ["requested_at"],
+                "indexes": [
+                    models.Index(
+                        fields=["status", "requested_at"],
+                        name="import_request_status_idx",
+                    )
+                ],
+            },
+        ),
+    ]

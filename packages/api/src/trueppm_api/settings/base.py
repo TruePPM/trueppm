@@ -161,6 +161,19 @@ CELERY_BEAT_SCHEDULE = {
         "task": "webhooks.drain_webhook_queue",
         "schedule": 30.0,
     },
+    # MS Project import drain: dispatches pending ImportRequest rows every 30 s.
+    # Also recovers orphaned dispatched rows (worker died mid-import).
+    "drain-import-queue": {
+        "task": "msproject.drain_import_queue",
+        "schedule": 30.0,
+    },
+    # Nightly cleanup: deletes done/dead ImportRequest rows older than 7 days,
+    # reclaiming storage for accumulated file_content_b64 blobs.
+    "import-requests-purge-nightly": {
+        "task": "msproject.purge_old_import_requests",
+        # 02:45 UTC — after other nightly purge jobs.
+        "schedule": crontab(hour=2, minute=45),
+    },
 }
 
 # ---------------------------------------------------------------------------

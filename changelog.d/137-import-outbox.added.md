@@ -1,0 +1,1 @@
+MS Project imports now use a transactional outbox (`ImportRequest` model) instead of direct `.delay()` dispatch. If the task broker is unavailable at upload time, the import row stays `PENDING` and `drain_import_queue` (Beat, every 30 s) picks it up automatically — callers no longer receive HTTP 503. Response includes `import_request_id` for progress tracking.

@@ -5,10 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 
-import redis as redis_lib
-from kombu.exceptions import (  # type: ignore[import-untyped]
-    OperationalError as KombuOperationalError,
-)
+from django.db import transaction
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import MultiPartParser
@@ -20,10 +17,6 @@ from rest_framework.views import APIView
 from trueppm_api.apps.access.models import ProjectMembership, Role
 
 logger = logging.getLogger(__name__)
-
-# Broker/connection errors that should return 503 — other exceptions bubble
-# so programming bugs (serialization, argument mismatch) surface as 500.
-_BROKER_ERRORS = (KombuOperationalError, ConnectionError, redis_lib.ConnectionError)
 
 # Maximum upload size: 10 MB.
 _MAX_UPLOAD_BYTES = 10 * 1024 * 1024
@@ -100,26 +93,28 @@ class MsProjectImportView(APIView):
         file_content = uploaded_file.read()
         file_content_b64 = base64.b64encode(file_content).decode("ascii")
 
-        from trueppm_api.apps.msproject.tasks import import_msproject
+        from trueppm_api.apps.msproject.models import ImportRequest
+        from trueppm_api.apps.msproject.services import enqueue_import
 
-        try:
-            result = import_msproject.delay(
+        # Write the outbox row inside an atomic block so the file content is
+        # durably committed before any dispatch attempt.  If the broker is
+        # down, the row stays PENDING and drain_import_queue picks it up
+        # within 30 seconds — the caller never sees a 503.
+        with transaction.atomic():
+            req = ImportRequest.objects.create(
                 project_id=project_pk,
-                file_content_b64=file_content_b64,
                 filename=filename,
+                file_content_b64=file_content_b64,
                 initiated_by_id=request.user.pk,
             )
-        except _BROKER_ERRORS:
-            logger.exception("msproject import: broker unavailable for project %s", project_pk)
-            return Response(
-                {"detail": "Import could not be queued — task broker unavailable. Please retry."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+
+        req_id = str(req.pk)
+        transaction.on_commit(lambda: enqueue_import(req_id))
 
         return Response(
             {
-                "detail": "Import started.",
-                "celery_task_id": result.id,
+                "detail": "Import queued.",
+                "import_request_id": req_id,
             },
             status=status.HTTP_202_ACCEPTED,
         )

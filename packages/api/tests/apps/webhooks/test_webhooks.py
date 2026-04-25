@@ -334,3 +334,94 @@ def test_test_ping(admin_client: APIClient, project: Project, webhook: Webhook) 
         resp = admin_client.post(f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/test/")
     assert resp.status_code == 202
     assert "delivery_id" in resp.data
+
+
+@pytest.mark.django_db
+def test_test_ping_deferred_via_on_commit(
+    admin_client: APIClient,
+    project: Project,
+    webhook: Webhook,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """deliver_webhook.delay is called inside transaction.on_commit, not immediately."""
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    calls: list[str] = []
+
+    def record_delay(delivery_id: str) -> None:
+        calls.append(delivery_id)
+
+    with (
+        patch.object(wh_tasks.deliver_webhook, "delay", side_effect=record_delay),
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        resp = admin_client.post(f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/test/")
+
+    assert resp.status_code == 202
+    delivery_id = resp.data["delivery_id"]
+    assert len(calls) == 1
+    assert calls[0] == delivery_id
+    delivery = WebhookDelivery.objects.get(pk=delivery_id)
+    assert delivery.event_type == "ping"
+
+
+@pytest.mark.django_db
+def test_test_ping_broker_unavailable_delivery_stays_pending(
+    admin_client: APIClient,
+    project: Project,
+    webhook: Webhook,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """Broker down: delivery row committed but not enqueued; drain can recover it."""
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    with (
+        patch.object(
+            wh_tasks.deliver_webhook,
+            "delay",
+            side_effect=ConnectionError("broker down"),
+        ),
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        resp = admin_client.post(f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/test/")
+
+    assert resp.status_code == 202
+    delivery_id = resp.data["delivery_id"]
+    delivery = WebhookDelivery.objects.get(pk=delivery_id)
+    # Row was committed; attempt_count stays 0 so drain can re-enqueue it.
+    assert delivery.attempt_count == 0
+
+
+# ---------------------------------------------------------------------------
+# dispatch_webhooks — broker failure coverage
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_dispatch_webhooks_broker_unavailable_swallowed(project: Project, webhook: Webhook) -> None:
+    """Broker failure in dispatch_webhooks is swallowed; delivery row stays PENDING."""
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+    from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
+
+    with patch.object(
+        wh_tasks.deliver_webhook, "delay", side_effect=ConnectionError("broker down")
+    ):
+        dispatch_webhooks(str(project.pk), "task.created", {"id": "t1"})  # must not raise
+
+    assert WebhookDelivery.objects.count() == 1
+    delivery = WebhookDelivery.objects.first()
+    # attempt_count 0 means the drain can pick it up.
+    assert delivery.attempt_count == 0
+    assert delivery.status == DeliveryStatus.PENDING
+
+
+# ---------------------------------------------------------------------------
+# deliver_webhook task attributes
+# ---------------------------------------------------------------------------
+
+
+def test_deliver_webhook_reject_on_worker_lost() -> None:
+    """deliver_webhook must have reject_on_worker_lost=True for at-least-once delivery."""
+    from trueppm_api.apps.webhooks.tasks import deliver_webhook
+
+    assert getattr(deliver_webhook, "reject_on_worker_lost", False) is True

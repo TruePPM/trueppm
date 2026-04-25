@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from datetime import date
+from datetime import date, timedelta
 from io import BytesIO
 from unittest.mock import MagicMock, patch
 
@@ -674,28 +674,69 @@ class TestImportAPI:
         assert resp.status_code == 400
         assert "Unsupported" in resp.data["detail"]
 
-    @patch("trueppm_api.apps.msproject.tasks.import_msproject")
-    def test_import_enqueues_task(
+    def test_import_creates_outbox_row(
         self,
-        mock_task: MagicMock,
         admin_client: APIClient,
         project: Project,
+        django_capture_on_commit_callbacks: object,
     ) -> None:
-        mock_result = MagicMock()
-        mock_result.id = "test-celery-id"
-        mock_task.delay.return_value = mock_result
+        """Upload creates an ImportRequest row and returns import_request_id."""
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
 
         xml = _build_sample_xml(tasks=[{"UID": "1", "Name": "Task A"}])
         buf = BytesIO(xml)
         buf.name = "schedule.xml"
-        resp = admin_client.post(
-            f"/api/v1/projects/{project.pk}/import/msproject/",
-            {"file": buf},
-            format="multipart",
-        )
+
+        mock_result = MagicMock()
+        mock_result.id = "celery-task-123"
+        with (
+            patch(
+                "trueppm_api.apps.msproject.tasks.import_msproject.delay",
+                return_value=mock_result,
+            ),
+            django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+        ):
+            resp = admin_client.post(
+                f"/api/v1/projects/{project.pk}/import/msproject/",
+                {"file": buf},
+                format="multipart",
+            )
+
         assert resp.status_code == 202
-        assert resp.data["celery_task_id"] == "test-celery-id"
-        mock_task.delay.assert_called_once()
+        assert "import_request_id" in resp.data
+        req = ImportRequest.objects.get(pk=resp.data["import_request_id"])
+        assert req.project_id == project.pk
+        assert req.status == ImportRequestStatus.DISPATCHED
+
+    def test_import_broker_down_row_stays_pending(
+        self,
+        admin_client: APIClient,
+        project: Project,
+        django_capture_on_commit_callbacks: object,
+    ) -> None:
+        """Broker unavailable: ImportRequest row committed but stays PENDING."""
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+        xml = _build_sample_xml(tasks=[{"UID": "1", "Name": "Task A"}])
+        buf = BytesIO(xml)
+        buf.name = "schedule.xml"
+
+        with (
+            patch(
+                "trueppm_api.apps.msproject.tasks.import_msproject.delay",
+                side_effect=ConnectionError("broker down"),
+            ),
+            django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+        ):
+            resp = admin_client.post(
+                f"/api/v1/projects/{project.pk}/import/msproject/",
+                {"file": buf},
+                format="multipart",
+            )
+
+        assert resp.status_code == 202
+        req = ImportRequest.objects.get(pk=resp.data["import_request_id"])
+        assert req.status == ImportRequestStatus.PENDING
 
 
 @pytest.mark.django_db
@@ -715,3 +756,208 @@ class TestExportAPI:
         fake_pk = "00000000-0000-0000-0000-000000000000"
         resp = admin_client.get(f"/api/v1/projects/{fake_pk}/export/msproject.xml")
         assert resp.status_code in (403, 404)
+
+
+# ---------------------------------------------------------------------------
+# ImportRequest outbox drain + task tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestImportDrain:
+    def _drain(self) -> None:
+        from trueppm_api.apps.msproject.tasks import _do_import_drain
+
+        _do_import_drain()
+
+    def test_drain_dispatches_pending_row(self, project: Project) -> None:
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+        req = ImportRequest.objects.create(
+            project=project, filename="p.xml", file_content_b64="dGVzdA=="
+        )
+        mock_result = MagicMock()
+        mock_result.id = "drain-task-id"
+        with patch(
+            "trueppm_api.apps.msproject.tasks.import_msproject.delay",
+            return_value=mock_result,
+        ):
+            self._drain()
+
+        req.refresh_from_db()
+        assert req.status == ImportRequestStatus.DISPATCHED
+        assert req.celery_task_id == "drain-task-id"
+        assert req.dispatched_at is not None
+
+    def test_drain_broker_failure_leaves_row_pending(self, project: Project) -> None:
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+        req = ImportRequest.objects.create(
+            project=project, filename="p.xml", file_content_b64="dGVzdA=="
+        )
+        with patch(
+            "trueppm_api.apps.msproject.tasks.import_msproject.delay",
+            side_effect=ConnectionError("broker down"),
+        ):
+            self._drain()  # must not raise
+
+        req.refresh_from_db()
+        assert req.status == ImportRequestStatus.PENDING
+
+    def test_drain_recovers_orphaned_dispatched_row(self, project: Project) -> None:
+        from django.utils import timezone
+
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+        req = ImportRequest.objects.create(
+            project=project, filename="p.xml", file_content_b64="dGVzdA=="
+        )
+        stale_time = timezone.now() - timedelta(minutes=16)
+        ImportRequest.objects.filter(pk=req.pk).update(
+            status=ImportRequestStatus.DISPATCHED,
+            dispatched_at=stale_time,
+            celery_task_id="old-id",
+        )
+
+        mock_result = MagicMock()
+        mock_result.id = "new-drain-id"
+        with patch(
+            "trueppm_api.apps.msproject.tasks.import_msproject.delay",
+            return_value=mock_result,
+        ):
+            self._drain()
+
+        req.refresh_from_db()
+        assert req.status == ImportRequestStatus.DISPATCHED
+        assert req.celery_task_id == "new-drain-id"
+
+    def test_drain_leaves_recent_dispatched_row_alone(self, project: Project) -> None:
+        from django.utils import timezone
+
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+        req = ImportRequest.objects.create(
+            project=project, filename="p.xml", file_content_b64="dGVzdA=="
+        )
+        ImportRequest.objects.filter(pk=req.pk).update(
+            status=ImportRequestStatus.DISPATCHED,
+            dispatched_at=timezone.now() - timedelta(minutes=5),
+            celery_task_id="live-id",
+        )
+        with patch(
+            "trueppm_api.apps.msproject.tasks.import_msproject.delay",
+        ) as mock_delay:
+            self._drain()
+
+        mock_delay.assert_not_called()
+        req.refresh_from_db()
+        assert req.status == ImportRequestStatus.DISPATCHED
+
+    def test_drain_no_rows_does_nothing(self, db: object) -> None:
+        with patch(
+            "trueppm_api.apps.msproject.tasks.import_msproject.delay",
+        ) as mock_delay:
+            self._drain()
+
+        mock_delay.assert_not_called()
+
+
+@pytest.mark.django_db
+class TestImportTaskMarksRowDone:
+    def test_task_marks_import_request_done(self, project: Project) -> None:
+        from contextlib import contextmanager
+
+        from django.utils import timezone
+
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+        from trueppm_api.apps.msproject.tasks import _NoOpTracker
+
+        req = ImportRequest.objects.create(
+            project=project, filename="p.xml", file_content_b64="dGVzdA=="
+        )
+        ImportRequest.objects.filter(pk=req.pk).update(
+            status=ImportRequestStatus.DISPATCHED,
+            dispatched_at=timezone.now(),
+            celery_task_id="celery-123",
+        )
+
+        @contextmanager
+        def _noop_tracker(*args: object, **kwargs: object):  # type: ignore[misc]
+            yield _NoOpTracker()
+
+        mock_summary = {"tasks_created": 1, "tasks_updated": 0, "dependencies_created": 0}
+        with (
+            patch("trueppm_api.apps.msproject.tasks._get_tracker", _noop_tracker),
+            patch("trueppm_api.apps.msproject.parser.parse_xml", return_value=MagicMock()),
+            patch(
+                "trueppm_api.apps.msproject.importer.import_project",
+                return_value=mock_summary,
+            ),
+            patch(
+                "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+                return_value=MagicMock(id="sched-task-id"),
+            ),
+        ):
+            from trueppm_api.apps.msproject.tasks import import_msproject
+
+            import_msproject(
+                str(project.pk),
+                "PHhtbC8+",
+                "p.xml",
+                import_request_id=str(req.pk),
+            )
+
+        req.refresh_from_db()
+        assert req.status == ImportRequestStatus.DONE
+
+    def test_task_reject_on_worker_lost(self) -> None:
+        from trueppm_api.apps.msproject.tasks import import_msproject
+
+        assert getattr(import_msproject, "reject_on_worker_lost", False) is True
+
+
+@pytest.mark.django_db
+class TestImportPurge:
+    def _purge(self) -> None:
+        from trueppm_api.apps.msproject.tasks import _do_import_purge
+
+        _do_import_purge()
+
+    def test_purge_deletes_old_done_rows(self, project: Project) -> None:
+        from django.utils import timezone
+
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+        req = ImportRequest.objects.create(
+            project=project, filename="p.xml", file_content_b64="dGVzdA=="
+        )
+        ImportRequest.objects.filter(pk=req.pk).update(
+            status=ImportRequestStatus.DONE,
+            requested_at=timezone.now() - timedelta(days=8),
+        )
+        self._purge()
+        assert not ImportRequest.objects.filter(pk=req.pk).exists()
+
+    def test_purge_preserves_recent_rows(self, project: Project) -> None:
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+        req = ImportRequest.objects.create(
+            project=project, filename="p.xml", file_content_b64="dGVzdA=="
+        )
+        ImportRequest.objects.filter(pk=req.pk).update(status=ImportRequestStatus.DONE)
+        self._purge()
+        assert ImportRequest.objects.filter(pk=req.pk).exists()
+
+    def test_purge_preserves_pending_rows(self, project: Project) -> None:
+        from django.utils import timezone
+
+        from trueppm_api.apps.msproject.models import ImportRequest
+
+        req = ImportRequest.objects.create(
+            project=project, filename="p.xml", file_content_b64="dGVzdA=="
+        )
+        ImportRequest.objects.filter(pk=req.pk).update(
+            requested_at=timezone.now() - timedelta(days=30),
+        )
+        self._purge()
+        assert ImportRequest.objects.filter(pk=req.pk).exists()
