@@ -41,11 +41,24 @@ function mapTask(t: ApiTask) {
   const e = t.early_start;
   const start = (p && e) ? (p >= e ? p : e) : (p ?? e ?? '');
 
-  const finish = (start && t.duration > 0)
-    ? new Date(
-        new Date(start + 'T00:00:00Z').getTime() + t.duration * 86_400_000,
-      ).toISOString().slice(0, 10)
-    : (t.early_finish ?? '');
+  const finish = t.is_summary
+    ? (t.early_finish ?? '')
+    : (start && t.duration > 0)
+      ? new Date(
+          new Date(start + 'T00:00:00Z').getTime() + t.duration * 86_400_000,
+        ).toISOString().slice(0, 10)
+      : (t.early_finish ?? '');
+
+  const displayDuration =
+    t.is_summary && t.early_start && t.early_finish
+      ? Math.max(
+          1,
+          Math.round(
+            (new Date(t.early_finish).getTime() - new Date(t.early_start).getTime()) /
+              86_400_000,
+          ),
+        )
+      : t.duration;
 
   return {
     id: t.id,
@@ -53,7 +66,7 @@ function mapTask(t: ApiTask) {
     name: t.name,
     start,
     finish,
-    duration: t.duration,
+    duration: displayDuration,
     progress: t.percent_complete,
     parentId: t.parent_id,
     isCritical: t.is_critical,
@@ -186,5 +199,69 @@ describe('useGanttTasks mapper', () => {
     expect(task.actualStart).toBeUndefined();
     expect(task.actualFinish).toBeUndefined();
     expect(task.scheduleVarianceDays).toBeNull();
+  });
+
+  // ---- summary task rollup ----
+
+  it('summary: finish uses early_finish directly (ignores duration)', () => {
+    const task = mapTask({
+      ...base,
+      is_summary: true,
+      early_start: '2026-01-06',
+      early_finish: '2026-02-06',
+      duration: 1, // stale stored value — must be ignored for bar width
+    });
+    expect(task.finish).toBe('2026-02-06');
+  });
+
+  it('summary: finish is empty string when CPM has not run yet', () => {
+    const task = mapTask({
+      ...base,
+      is_summary: true,
+      early_start: null,
+      early_finish: null,
+      planned_start: '2026-01-06',
+      duration: 5,
+    });
+    expect(task.finish).toBe('');
+  });
+
+  it('summary: duration is computed as calendar-day span from CPM dates', () => {
+    const task = mapTask({
+      ...base,
+      is_summary: true,
+      early_start: '2026-01-06',
+      early_finish: '2026-02-06', // 31 calendar days
+      duration: 1,
+    });
+    expect(task.duration).toBe(31);
+  });
+
+  it('summary: duration falls back to stored value when CPM has not run', () => {
+    const task = mapTask({
+      ...base,
+      is_summary: true,
+      early_start: null,
+      early_finish: null,
+      duration: 5,
+    });
+    expect(task.duration).toBe(5);
+  });
+
+  it('summary: isSummary is propagated', () => {
+    const task = mapTask({ ...base, is_summary: true });
+    expect(task.isSummary).toBe(true);
+  });
+
+  it('leaf task: finish still computed from start + duration', () => {
+    const task = mapTask({
+      ...base,
+      is_summary: false,
+      early_start: '2026-10-05',
+      early_finish: '2026-10-20', // would give 15 days if used directly
+      duration: 10,
+    });
+    // 2026-10-05 + 10 days = 2026-10-15 (uses duration, not early_finish)
+    expect(task.finish).toBe('2026-10-15');
   });
 });
