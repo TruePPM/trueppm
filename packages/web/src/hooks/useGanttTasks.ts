@@ -3,6 +3,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { apiClient } from '@/api/client';
 import type { Task, TaskAssignee, TaskLink, TaskStatus, LinkType } from '@/types';
 import type { PaginatedResponse } from '@/api/types';
+import { computeWbsCodes } from '@/utils/computeWbsCodes';
 
 export interface UseGanttTasksResult {
   tasks: Task[] | undefined;
@@ -139,7 +140,13 @@ export function useGanttTasks(projectId?: string): UseGanttTasksResult {
       // tasks (empty start/finish), and _updateProjectRange defaults to today
       // ±30 days when no task has dates yet. Filtering here caused the task list
       // to show "No tasks yet" even when the project had unscheduled tasks.
-      return res.data.results.map(mapTask);
+      const rawTasks = res.data.results.map(mapTask);
+      // Compute WBS display codes from tree position (parentId + sibling order)
+      // rather than passing through wbs_path directly. This ensures codes are
+      // always sequential and correct — including for tasks created in the UI
+      // before wbs_path is assigned, or after indent/outdent operations.
+      const wbsCodes = computeWbsCodes(rawTasks);
+      return rawTasks.map((t) => ({ ...t, wbs: wbsCodes.get(t.id) ?? t.wbs }));
     },
     enabled: !!resolvedId,
     // Poll every 2 s so CPM-computed dates (early_start/early_finish) propagate
