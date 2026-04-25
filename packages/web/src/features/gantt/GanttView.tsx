@@ -608,14 +608,13 @@ export function GanttView() {
           </button>
           {showColMenu && (
             <div
-              role="menu"
               className="absolute right-0 top-8 z-30 bg-neutral-surface border border-neutral-border
                 rounded py-1 min-w-[120px]"
+              aria-label="Toggle column visibility"
             >
               {(['dur', 'start', 'finish', 'progress'] as const).map((col) => (
                 <label
                   key={col}
-                  role="menuitem"
                   className="flex items-center gap-2 px-3 py-1.5 text-xs text-neutral-text-primary
                     cursor-pointer hover:bg-neutral-surface-raised select-none"
                 >
@@ -624,7 +623,6 @@ export function GanttView() {
                     checked={visible[col]}
                     onChange={() => toggleColumn(col)}
                     className="accent-brand-primary"
-                    aria-label={`Show ${col === 'progress' ? '%' : col} column`}
                   />
                   {col === 'dur' ? 'Dur' : col === 'start' ? 'Start' : col === 'finish' ? 'Finish' : '%'}
                 </label>
