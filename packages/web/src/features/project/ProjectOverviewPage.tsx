@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { apiClient } from '@/api/client';
+import type { PaginatedResponse } from '@/api/types';
 
 // ---------------------------------------------------------------------------
 // API response types
@@ -35,8 +37,39 @@ interface MyTask {
 }
 
 // ---------------------------------------------------------------------------
+// Critical path types
+// ---------------------------------------------------------------------------
+
+interface CpTask {
+  id: string;
+  name: string;
+  duration: number;
+  total_float: number | null;
+}
+
+// ---------------------------------------------------------------------------
 // Hooks
 // ---------------------------------------------------------------------------
+
+export function useCriticalPathTasks(projectId: string | undefined) {
+  return useQuery<CpTask[]>({
+    queryKey: ['cp-tasks', projectId],
+    queryFn: async () => {
+      const res = await apiClient.get<PaginatedResponse<CpTask>>('/tasks/', {
+        params: { project: projectId, is_critical: 'true' },
+      });
+      // Sort by total_float ascending (most negative = longest delay → top of list).
+      // Null float tasks are placed after tasks with known float.
+      return [...res.data.results].sort((a, b) => {
+        if (a.total_float === null && b.total_float === null) return 0;
+        if (a.total_float === null) return 1;
+        if (b.total_float === null) return -1;
+        return a.total_float - b.total_float;
+      });
+    },
+    enabled: !!projectId,
+  });
+}
 
 function useProjectOverview(projectId: string | undefined) {
   return useQuery<OverviewData>({
@@ -73,6 +106,82 @@ function useMyTasks(projectId: string | undefined) {
     },
     enabled: !!projectId,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Critical path panel
+// ---------------------------------------------------------------------------
+
+const MAX_CP_TASKS = 5;
+
+interface CriticalPathPanelProps {
+  tasks: CpTask[];
+  projectId: string;
+}
+
+export function CriticalPathPanel({ tasks, projectId }: CriticalPathPanelProps) {
+  const visible = tasks.slice(0, MAX_CP_TASKS);
+  const remaining = tasks.length - visible.length;
+
+  if (tasks.length === 0) {
+    return (
+      <p className="text-sm text-neutral-text-secondary px-1">
+        No critical path tasks found. Run the scheduler to compute the critical path.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <ul className="flex flex-col gap-1" aria-label="Critical path tasks">
+        {visible.map((task) => (
+          <li
+            key={task.id}
+            className="flex flex-col gap-0.5 px-3 py-2 rounded border border-neutral-border
+              bg-neutral-surface-raised text-sm"
+            title="This task is on the critical path — a delay here delays the project end date"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span
+                aria-label="Critical path"
+                className="flex-shrink-0 text-xs font-bold text-semantic-critical
+                  border border-semantic-critical/50 rounded px-1 leading-4"
+              >
+                CP
+              </span>
+              <span className="flex-1 min-w-0 truncate text-neutral-text-primary font-medium">
+                {task.name}
+              </span>
+              <span className="flex-shrink-0 text-xs text-neutral-text-secondary">
+                {task.duration}d
+              </span>
+            </div>
+            <p className="text-xs text-neutral-text-secondary pl-8">
+              {task.total_float !== null
+                ? `Total slack: ${task.total_float}d · Any slip here slips the project end date.`
+                : 'Total slack: — · Any slip here slips the project end date.'}
+            </p>
+          </li>
+        ))}
+      </ul>
+
+      <div className="flex items-center justify-between mt-1">
+        {remaining > 0 && (
+          <span className="text-xs text-neutral-text-disabled">
+            +{remaining} more critical task{remaining === 1 ? '' : 's'}
+          </span>
+        )}
+        <Link
+          to={`/projects/${projectId}/gantt`}
+          className="ml-auto text-xs text-brand-primary underline-offset-2 hover:underline
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+            focus-visible:outline-none rounded"
+        >
+          Show full critical path
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -229,6 +338,7 @@ export function ProjectOverviewPage() {
   const { data: overview, isLoading: overviewLoading } = useProjectOverview(projectId);
   const { data: attention, isLoading: attentionLoading } = useProjectAttention(projectId);
   const { data: myTasks, isLoading: myTasksLoading } = useMyTasks(projectId);
+  const { data: cpTasks, isLoading: cpTasksLoading } = useCriticalPathTasks(projectId);
 
   // Derive health variant for SPI card
   const spiVariant = (() => {
@@ -353,6 +463,20 @@ export function ProjectOverviewPage() {
           )}
         </section>
       </div>
+
+      {/* Critical path panel */}
+      {projectId && (
+        <section aria-label="Critical path">
+          <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
+            Critical path
+          </h2>
+          {cpTasksLoading ? (
+            <div className="h-24 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised" />
+          ) : (
+            <CriticalPathPanel tasks={cpTasks ?? []} projectId={projectId} />
+          )}
+        </section>
+      )}
     </div>
   );
 }

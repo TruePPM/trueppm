@@ -58,6 +58,8 @@ export interface Task {
   pessimisticDuration?: number | null;
   /** Approval state in suggest_approve mode; null in open/pm_only modes. */
   estimateStatus?: 'pending' | 'accepted' | null;
+  /** Total float in working days from CPM; negative = already late. Absent until CPM runs. */
+  totalFloat?: number | null;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */
