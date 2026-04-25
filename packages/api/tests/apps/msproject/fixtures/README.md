@@ -86,3 +86,23 @@ java -jar /opt/mpxj/mpxj-cli.jar \
 ```
 
 Track the need for a committed MPP fixture in GitLab issue #118.
+
+---
+
+## Edge-case fixtures (issue #153)
+
+The following ten fixtures cover edge cases not represented in the core samples.
+Each has a corresponding `@pytest.mark.parametrize` case in `test_msproject.py::TestEdgeCaseFixtureFiles`.
+
+| File | Tasks | Deps | Resources | Primary edge case |
+|------|-------|------|-----------|-------------------|
+| `minimal.xml` | 1 | 0 | 0 | Minimum valid import; regression baseline |
+| `milestones_only.xml` | 5 | 0 | 0 | All tasks are milestones (`duration=0`, `Milestone=1`) |
+| `deep_wbs.xml` | 13 | 3 | 0 | 4 outline levels; parent/child roll-up at depth |
+| `all_dependency_types.xml` | 6 | 6 | 0 | FS + SS + FF + SF links; multi-predecessor; 2-day positive lag |
+| `large_flat.xml` | 200 | 0 | 0 | Performance baseline; UID 1–200 continuity |
+| `resource_overallocation.xml` | 3 | 1 | 2 | Resource assigned >100 % across concurrent tasks |
+| `recurring_task.xml` | 6 | 1 | 0 | `<Recurring>1</Recurring>` container + 3 occurrences (flattened) |
+| `cross_project_link.xml` | 3 | 2 | 0 | External `PredecessorUID` not in local task list |
+| `unicode_names.xml` | 5 | 2 | 1 | CJK, RTL Arabic, emoji, XML-significant chars |
+| `calendar_exceptions.xml` | 3 | 1 | 1 | Full `<Calendars>` block with exceptions (silently ignored) |

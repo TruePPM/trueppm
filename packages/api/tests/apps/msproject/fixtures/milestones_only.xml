@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <!-- Milestones-only fixture: 5 milestones, no leaf tasks, no resources.
+       Purpose: zero-duration task handling; verifies Milestone flag import. -->
+  <Name>Key Dates Only</Name>
+  <StartDate>2026-04-01T08:00:00</StartDate>
+
+  <Tasks>
+    <Task>
+      <UID>0</UID>
+      <Name>Key Dates Only</Name>
+      <Duration>PT0H0M0S</Duration>
+      <Milestone>1</Milestone>
+      <OutlineLevel>0</OutlineLevel>
+    </Task>
+
+    <Task>
+      <UID>1</UID>
+      <Name>Project Kickoff</Name>
+      <Duration>PT0H0M0S</Duration>
+      <Start>2026-04-01T08:00:00</Start>
+      <Finish>2026-04-01T08:00:00</Finish>
+      <Milestone>1</Milestone>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>1</OutlineNumber>
+    </Task>
+
+    <Task>
+      <UID>2</UID>
+      <Name>Design Sign-off</Name>
+      <Duration>PT0H0M0S</Duration>
+      <Start>2026-04-15T08:00:00</Start>
+      <Finish>2026-04-15T08:00:00</Finish>
+      <Milestone>1</Milestone>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>2</OutlineNumber>
+    </Task>
+
+    <Task>
+      <UID>3</UID>
+      <Name>Build Complete</Name>
+      <Duration>PT0H0M0S</Duration>
+      <Start>2026-05-01T08:00:00</Start>
+      <Finish>2026-05-01T08:00:00</Finish>
+      <Milestone>1</Milestone>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>3</OutlineNumber>
+    </Task>
+
+    <Task>
+      <UID>4</UID>
+      <Name>UAT Approval</Name>
+      <Duration>PT0H0M0S</Duration>
+      <Start>2026-05-15T08:00:00</Start>
+      <Finish>2026-05-15T08:00:00</Finish>
+      <Milestone>1</Milestone>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>4</OutlineNumber>
+    </Task>
+
+    <Task>
+      <UID>5</UID>
+      <Name>Go Live</Name>
+      <Duration>PT0H0M0S</Duration>
+      <Start>2026-06-01T08:00:00</Start>
+      <Finish>2026-06-01T08:00:00</Finish>
+      <Milestone>1</Milestone>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>5</OutlineNumber>
+    </Task>
+  </Tasks>
+
+  <Resources />
+  <Assignments />
+</Project>

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <!-- Cross-project-link fixture: external predecessor reference.
+       Purpose: verify the parser imports without error; external links are
+       recorded as PredecessorLinkData but result in a warning during import
+       (import_project skips dependencies whose predecessor UID is not found). -->
+  <Name>Cross Project Link Test</Name>
+  <StartDate>2026-03-01T08:00:00</StartDate>
+
+  <Tasks>
+    <Task>
+      <UID>0</UID>
+      <Name>Cross Project Link Test</Name>
+      <Duration>PT40H0M0S</Duration>
+      <OutlineLevel>0</OutlineLevel>
+    </Task>
+
+    <!-- Task A: local task with no predecessors -->
+    <Task>
+      <UID>1</UID>
+      <Name>Local Task A</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-03-01T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>1</OutlineNumber>
+    </Task>
+
+    <!-- Task B: depends on an external task (UID 999, from another project file).
+         The parser records PredecessorUID=999; import_project will skip it with
+         a warning "Predecessor UID 999 not found". -->
+    <Task>
+      <UID>2</UID>
+      <Name>Local Task B (external predecessor)</Name>
+      <Duration>PT16H0M0S</Duration>
+      <Start>2026-03-02T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>2</OutlineNumber>
+      <PredecessorLink>
+        <!-- Cross-project reference: UID 999 does not exist in this file -->
+        <PredecessorUID>999</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+        <!-- Some MS Project versions emit CrossProjectUID for external links -->
+        <CrossProjectUID>999</CrossProjectUID>
+        <CrossProjectName>external-project.mpp</CrossProjectName>
+      </PredecessorLink>
+    </Task>
+
+    <!-- Task C: local FS dependency on Task A -->
+    <Task>
+      <UID>3</UID>
+      <Name>Local Task C</Name>
+      <Duration>PT16H0M0S</Duration>
+      <Start>2026-03-03T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>3</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>1</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+  </Tasks>
+
+  <Resources />
+  <Assignments />
+</Project>

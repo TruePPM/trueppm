@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Project xmlns="http://schemas.microsoft.com/project">
+  <!-- Recurring-task fixture: a recurring task container with occurrences.
+       Purpose: verify the parser handles the Recurring flag and does not crash.
+       Current behavior: recurring tasks and their occurrences are imported as
+       regular tasks (flatten behavior). The Recurring element is silently ignored. -->
+  <Name>Weekly Status Review</Name>
+  <StartDate>2026-03-01T08:00:00</StartDate>
+
+  <Tasks>
+    <Task>
+      <UID>0</UID>
+      <Name>Weekly Status Review</Name>
+      <Duration>PT72H0M0S</Duration>
+      <OutlineLevel>0</OutlineLevel>
+    </Task>
+
+    <!-- Recurring task container: Weekly Status Meeting -->
+    <Task>
+      <UID>1</UID>
+      <Name>Weekly Status Meeting</Name>
+      <Duration>PT2H0M0S</Duration>
+      <Start>2026-03-02T09:00:00</Start>
+      <Finish>2026-03-02T11:00:00</Finish>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>1</OutlineNumber>
+      <!-- Recurring=1 signals this is a recurring task container.
+           TruePPM currently imports it as a regular task (flatten). -->
+      <Recurring>1</Recurring>
+    </Task>
+
+    <!-- Occurrence 1 of 3 -->
+    <Task>
+      <UID>2</UID>
+      <Name>Weekly Status Meeting (1 of 3)</Name>
+      <Duration>PT2H0M0S</Duration>
+      <Start>2026-03-02T09:00:00</Start>
+      <Finish>2026-03-02T11:00:00</Finish>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>1.1</OutlineNumber>
+      <RecurrenceData>1 of 3</RecurrenceData>
+    </Task>
+
+    <!-- Occurrence 2 of 3 -->
+    <Task>
+      <UID>3</UID>
+      <Name>Weekly Status Meeting (2 of 3)</Name>
+      <Duration>PT2H0M0S</Duration>
+      <Start>2026-03-09T09:00:00</Start>
+      <Finish>2026-03-09T11:00:00</Finish>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>1.2</OutlineNumber>
+    </Task>
+
+    <!-- Occurrence 3 of 3 -->
+    <Task>
+      <UID>4</UID>
+      <Name>Weekly Status Meeting (3 of 3)</Name>
+      <Duration>PT2H0M0S</Duration>
+      <Start>2026-03-16T09:00:00</Start>
+      <Finish>2026-03-16T11:00:00</Finish>
+      <OutlineLevel>2</OutlineLevel>
+      <OutlineNumber>1.3</OutlineNumber>
+    </Task>
+
+    <!-- Normal tasks following the recurring block -->
+    <Task>
+      <UID>5</UID>
+      <Name>Prepare Final Report</Name>
+      <Duration>PT8H0M0S</Duration>
+      <Start>2026-03-17T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>2</OutlineNumber>
+    </Task>
+
+    <Task>
+      <UID>6</UID>
+      <Name>Distribute Report</Name>
+      <Duration>PT4H0M0S</Duration>
+      <Start>2026-03-18T08:00:00</Start>
+      <OutlineLevel>1</OutlineLevel>
+      <OutlineNumber>3</OutlineNumber>
+      <PredecessorLink>
+        <PredecessorUID>5</PredecessorUID>
+        <Type>1</Type>
+        <LinkLag>0</LinkLag>
+      </PredecessorLink>
+    </Task>
+  </Tasks>
+
+  <Resources />
+  <Assignments />
+</Project>

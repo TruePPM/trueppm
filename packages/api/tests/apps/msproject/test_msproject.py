@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pathlib
 import xml.etree.ElementTree as ET
 from datetime import date, timedelta
 from io import BytesIO
@@ -404,6 +405,67 @@ class TestFixtureFiles:
                 f"{filename}: milestone '{ms.name}' should have duration_days=0, "
                 f"got {ms.duration_days}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Edge-case fixture-file tests (#153)
+# ---------------------------------------------------------------------------
+
+_FIXTURES_DIR = pathlib.Path(__file__).parent / "fixtures"
+
+
+@pytest.mark.parametrize(
+    "filename,expected_tasks,expected_deps,expected_resources",
+    [
+        # Baseline regression: minimum valid import
+        ("minimal.xml", 1, 0, 0),
+        # All 5 tasks are milestones with duration=0
+        ("milestones_only.xml", 5, 0, 0),
+        # 4 outline levels: tasks 1–13, deps 3
+        ("deep_wbs.xml", 13, 3, 0),
+        # 6 tasks, 6 deps covering FS/SS/FF/SF + multi-predecessor
+        ("all_dependency_types.xml", 6, 6, 0),
+        # Performance baseline: 200 leaf tasks, UID continuity
+        ("large_flat.xml", 200, 0, 0),
+        # 3 tasks, 2 resources (one full-time, one part-time), 1 dep
+        ("resource_overallocation.xml", 3, 1, 2),
+        # 6 tasks (1 container + 3 occurrences + 2 normal), 1 dep
+        ("recurring_task.xml", 6, 1, 0),
+        # 3 tasks, 2 deps (1 local FS + 1 external cross-project link)
+        ("cross_project_link.xml", 3, 2, 0),
+        # 5 tasks with CJK/RTL/emoji names + 1 resource, 2 deps
+        ("unicode_names.xml", 5, 2, 1),
+        # 3 tasks, 1 dep, 1 resource; full Calendars block silently ignored
+        ("calendar_exceptions.xml", 3, 1, 1),
+    ],
+)
+class TestEdgeCaseFixtureFiles:
+    def test_parse_counts(
+        self,
+        filename: str,
+        expected_tasks: int,
+        expected_deps: int,
+        expected_resources: int,
+    ) -> None:
+        """Edge-case fixture parses with expected task/dependency/resource counts."""
+        content = (_FIXTURES_DIR / filename).read_bytes()
+        data = parse_xml(content)
+        actual_deps = sum(len(t.predecessor_links) for t in data.tasks)
+        assert len(data.tasks) == expected_tasks, f"{filename}: task count"
+        assert actual_deps == expected_deps, f"{filename}: dependency count"
+        assert len(data.resources) == expected_resources, f"{filename}: resource count"
+
+    def test_no_crash(
+        self,
+        filename: str,
+        expected_tasks: int,
+        expected_deps: int,
+        expected_resources: int,
+    ) -> None:
+        """Edge-case fixture loads without raising an exception."""
+        content = (_FIXTURES_DIR / filename).read_bytes()
+        data = parse_xml(content)
+        assert data is not None
 
 
 # ---------------------------------------------------------------------------
