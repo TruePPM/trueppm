@@ -23,6 +23,8 @@ interface ApiTaskResponse {
 export interface CreateTaskPayload {
   name: string;
   duration: number;
+  /** UUID of the parent task. Omit or pass null to create at root level. */
+  parent_id?: string | null;
 }
 
 /** POST /api/v1/tasks/ — create a new task in the given project. */
@@ -35,6 +37,7 @@ export function useCreateTask(projectId: string | null) {
         project: projectId,
         name: payload.name,
         duration: payload.duration,
+        ...(payload.parent_id != null ? { parent_id: payload.parent_id } : {}),
       });
       return res.data;
     },

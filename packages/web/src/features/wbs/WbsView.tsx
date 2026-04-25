@@ -65,6 +65,8 @@ export function WbsView() {
   const { expandedIds, toggle, expandAll, collapseAll, selectedTaskId, setSelectedTaskId } = useWbsStore();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  // When set, the add-form creates a child under this task id rather than at root.
+  const [addFormParentId, setAddFormParentId] = useState<string | null>(null);
   const [liveAnnouncement, setLiveAnnouncement] = useState('');
   const createTask = useCreateTask(projectId);
   const updateTask = useUpdateTask();
@@ -347,15 +349,28 @@ export function WbsView() {
       {/* Toolbar row */}
       <div className="flex items-center gap-2 px-3 h-9 border-b border-neutral-800 flex-shrink-0">
         {projectId && (
-          <button
-            type="button"
-            onClick={() => setShowAddForm(true)}
-            aria-label="Add task"
-            className="text-xs text-gantt-text-secondary hover:text-gantt-text-primary
-              focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none px-1"
-          >
-            + Task
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => { setAddFormParentId(null); setShowAddForm(true); }}
+              aria-label="Add root-level task"
+              className="text-xs text-gantt-text-secondary hover:text-gantt-text-primary
+                focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none px-1"
+            >
+              + Task
+            </button>
+            {selectedTaskId && (
+              <button
+                type="button"
+                onClick={() => { setAddFormParentId(selectedTaskId); setShowAddForm(true); }}
+                aria-label="Add child task under selected"
+                className="text-xs text-gantt-text-secondary hover:text-gantt-text-primary
+                  focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none px-1"
+              >
+                + Child
+              </button>
+            )}
+          </>
         )}
         <div className="flex-1" />
         <button
@@ -383,9 +398,12 @@ export function WbsView() {
         <AddTaskForm
           isPending={createTask.isPending}
           onSubmit={(name, duration) => {
-            createTask.mutate({ name, duration }, { onSuccess: () => setShowAddForm(false) });
+            createTask.mutate(
+              { name, duration, parent_id: addFormParentId ?? undefined },
+              { onSuccess: () => { setShowAddForm(false); setAddFormParentId(null); } },
+            );
           }}
-          onCancel={() => setShowAddForm(false)}
+          onCancel={() => { setShowAddForm(false); setAddFormParentId(null); }}
         />
       )}
 
