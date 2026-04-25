@@ -95,10 +95,16 @@ make up       # docker compose up -d
 # Redis:      localhost:6379
 
 # Common tasks (Makefile wraps per-package commands)
-make lint         # ruff + eslint across all packages
+make lint         # ruff + eslint across all packages (incl. ruff format --check)
 make typecheck    # mypy + tsc across all packages
 make test         # pytest + vitest across all packages
 make build        # web bundle
+
+# Pre-push gate — run before every `git push`. Mirrors the CI jobs that
+# block MR pipelines (lint, typecheck, makemigrations --check, openapi
+# schema drift). Catches the failures CI catches, but locally and in
+# seconds rather than minutes.
+make pre-push     # lint + typecheck + migrations-check + schema-check
 
 # Or run per-package directly:
 cd packages/scheduler && pytest     # scheduler
@@ -110,6 +116,7 @@ cd packages/web && npm test         # web (vitest)
 
 - **Never commit or push directly to `main`** — all changes go through a feature branch and MR, no exceptions (including docs, chores, and hotfixes)
 - **Never merge an MR with a failing pipeline** — GitLab enforces `only_allow_merge_if_pipeline_succeeds = true`; do not attempt to work around it. Fix the root cause on the branch and let CI re-run.
+- **Always run `make pre-push` before `git push`** — this runs the exact gates the CI pipeline runs (lint with `ruff format --check`, typecheck, `makemigrations --check`, openapi schema drift). Pre-commit installs a pre-push hook that runs this automatically; if you have not run `make setup`, run `make pre-push` manually. Pushing without it leaks lint/migration/schema failures into CI and burns review cycles.
 - Workflow for every change:
   1. `git checkout main && git pull origin main`
   2. `git checkout -b <prefix>/<short-description>`

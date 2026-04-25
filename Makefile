@@ -1,7 +1,8 @@
 # TruePPM — universal command interface
 # Run `make help` for a list of targets.
 
-.PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod
+.PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
+        migrations-check schema-check pre-push
 
 # ─── Help ──────────────────────────────────────────────────────────────────────
 help:
@@ -52,6 +53,20 @@ test-api: ## Run packages/api tests (pytest — requires running DB + Redis)
 
 test-web: ## Run packages/web tests (vitest)
 	cd packages/web && npm test
+
+# ─── CI gate replicas ─────────────────────────────────────────────────────────
+# These targets mirror the CI jobs that gate every MR. Run `make pre-push`
+# before `git push` to catch failures locally instead of in CI.
+
+migrations-check: ## Verify no missing Django migrations (requires `make up`)
+	docker compose exec -T api python manage.py makemigrations --check --dry-run
+
+schema-check: ## Verify docs/api/openapi.json matches the live DRF schema
+	bash scripts/export-openapi.sh --check
+
+pre-push: lint typecheck migrations-check schema-check ## Run every CI gate locally — use before `git push`
+	@echo ""
+	@echo "✅ All pre-push checks passed. Safe to git push."
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 build: ## Build the web bundle
