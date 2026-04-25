@@ -15,6 +15,7 @@ import { ResourceView } from '@/features/resource/ResourceView';
 import { TeamView } from '@/features/roster/TeamView';
 import { RosterPage } from '@/features/roster/RosterPage';
 import { RiskRegisterView } from '@/features/risk/RiskRegisterView';
+import { ResourcesPage } from '@/features/resources/ResourcesPage';
 
 /**
  * Redirects to the first project's overview when landing on `/` with no project
@@ -78,6 +79,8 @@ export const router = createBrowserRouter([
               { path: 'risk', element: <RiskRegisterView /> },
             ],
           },
+          // Org-level resource catalog
+          { path: 'resources', element: <ResourcesPage /> },
           // Root: redirect to first project overview, or prompt to select one.
           { index: true, element: <RootRedirect /> },
         ],

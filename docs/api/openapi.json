@@ -4161,7 +4161,7 @@
             },
             "post": {
                 "operationId": "v1_resources_create",
-                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources.\n\nQuery params:\n  ?search=           — filter by name/email\n  ?exclude_project=  — exclude resources already in a project's roster\n  ?task=             — annotate with skill_fit against the task's requirements",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
                 "tags": [
                     "v1"
                 ],
@@ -4210,7 +4210,7 @@
         "/api/v1/resources/{id}/": {
             "get": {
                 "operationId": "v1_resources_retrieve",
-                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources.\n\nQuery params:\n  ?search=           — filter by name/email\n  ?exclude_project=  — exclude resources already in a project's roster\n  ?task=             — annotate with skill_fit against the task's requirements",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
                 "parameters": [
                     {
                         "in": "path",
@@ -4249,7 +4249,7 @@
             },
             "put": {
                 "operationId": "v1_resources_update",
-                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources.\n\nQuery params:\n  ?search=           — filter by name/email\n  ?exclude_project=  — exclude resources already in a project's roster\n  ?task=             — annotate with skill_fit against the task's requirements",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
                 "parameters": [
                     {
                         "in": "path",
@@ -4308,7 +4308,7 @@
             },
             "patch": {
                 "operationId": "v1_resources_partial_update",
-                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources.\n\nQuery params:\n  ?search=           — filter by name/email\n  ?exclude_project=  — exclude resources already in a project's roster\n  ?task=             — annotate with skill_fit against the task's requirements",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
                 "parameters": [
                     {
                         "in": "path",
@@ -4366,7 +4366,7 @@
             },
             "delete": {
                 "operationId": "v1_resources_destroy",
-                "description": "CRUD for resources (people, teams, materials).\n\nResources are org-level objects and are not filtered by project membership —\nany authenticated user can read and create resources.\n\nQuery params:\n  ?search=           — filter by name/email\n  ?exclude_project=  — exclude resources already in a project's roster\n  ?task=             — annotate with skill_fit against the task's requirements",
+                "description": "CRUD for the org-level resource catalog (issue #155).\n\nPermission model (ADR-0034):\n  Read (GET/HEAD/OPTIONS): any authenticated user — supports self-view\n    for team members and the AddToRosterCombobox picker.\n  Write (POST/PATCH/PUT/DELETE): IsOrgAdmin — any user with PM (ADMIN)\n    or Owner role on at least one project.\n\nDELETE is a soft-delete: sets is_deleted=True and enqueues a schedule\nrecalculation for every project that has open TaskResource rows for the\ndeactivated resource. The resource record is never hard-deleted.\n\nQuery params:\n  ?search=             — filter by name/email (DRF SearchFilter)\n  ?exclude_project=    — exclude resources already in a project's roster\n  ?task=               — annotate with skill_fit against the task's skill\n                         requirements; groups results into exact/partial/missing\n  ?include_deleted=true — include soft-deleted (deactivated) resources;\n                         only honoured for org admin users",
                 "parameters": [
                     {
                         "in": "path",
@@ -4393,6 +4393,67 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/resources/{id}/restore/": {
+            "post": {
+                "operationId": "v1_resources_restore_create",
+                "description": "Restore a soft-deleted resource back to active status.\n\nRequires IsOrgAdmin (checked in get_permissions since this is a write\naction). Fetches from the unfiltered queryset so soft-deleted records\nare reachable; the standard get_object() path excludes them.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this resource.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResourceRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResourceRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResourceRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Resource"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }

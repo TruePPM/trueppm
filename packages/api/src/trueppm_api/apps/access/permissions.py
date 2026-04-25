@@ -233,6 +233,37 @@ class IsProjectOwner(BasePermission):
         return role == Role.OWNER
 
 
+class IsOrgAdmin(BasePermission):
+    """Org-level admin gate for the global resource catalog (issue #155).
+
+    OSS has no separate org-admin entity. Admin authority is derived from
+    project membership: any user with Project Manager (ADMIN, 3) or Owner
+    (4) role on at least one project may manage the resource catalog.
+
+    Django superusers bypass the membership check.
+
+    Enterprise installs satisfy this check implicitly — their admins always
+    have at least one project with ADMIN role. Enterprise-specific overrides
+    (LDAP group claims, SAML attributes) are injected via signals/middleware
+    before this check runs, so the OSS check remains correct as a baseline.
+    """
+
+    message = (
+        "You need Project Manager role on at least one project to manage the resource catalog."
+    )
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.user.is_superuser:
+            return True
+        return ProjectMembership.objects.filter(
+            user=request.user,
+            role__gte=Role.ADMIN,
+            is_deleted=False,
+        ).exists()
+
+
 class CanAssignResource(BasePermission):
     """Allow Resource Manager (2) or above to assign resources to tasks.
 
