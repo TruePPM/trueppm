@@ -106,10 +106,10 @@ test('Selecting a roster item shows the detail panel', async ({ page }) => {
 test('Detail panel shows full skill list', async ({ page }) => {
   await seedAuthAndNavigate(page);
   await page.getByRole('option', { name: /Alice Nguyen/i }).click();
-  await expect(page.getByText('React')).toBeVisible();
-  await expect(page.getByText('Expert')).toBeVisible();
-  await expect(page.getByText('TypeScript')).toBeVisible();
-  await expect(page.getByText('Intermediate')).toBeVisible();
+  // SkillChips have title="Name — Proficiency"; use title to avoid strict-mode
+  // collision with any plain-text "React" label elsewhere in the panel.
+  await expect(page.getByTitle('React — Expert')).toBeVisible();
+  await expect(page.getByTitle('TypeScript — Intermediate')).toBeVisible();
 });
 
 test('Add to project opens combobox with candidates', async ({ page }) => {

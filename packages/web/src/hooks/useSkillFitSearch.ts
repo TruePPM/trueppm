@@ -41,7 +41,7 @@ function mapResource(r: ApiResourceSkillFit): ResourceWithSkillFit {
     jobRole: r.job_role,
     maxUnits: parseFloat(r.max_units),
     calendarId: r.calendar,
-    skills: r.skills.map((s) => ({
+    skills: (r.skills ?? []).map((s) => ({
       id: s.id,
       resourceId: s.resource,
       skillId: s.skill,

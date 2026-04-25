@@ -92,8 +92,9 @@ async function seedAndNavigate(page: import('@playwright/test').Page) {
 test('Skill-fit groups appear in the assignment picker when task has requirements', async ({ page }) => {
   await seedAndNavigate(page);
 
-  // Open task detail drawer by clicking the task row
-  await page.getByRole('row', { name: /Build API/i }).click();
+  // Open task detail drawer by clicking the task row (scoped to grid to avoid
+  // matching the canvas aria-overlay row which resolves to a second element)
+  await page.getByRole('grid', { name: 'Task list' }).getByRole('row', { name: /Build API/i }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
 
   // Click "Add assignee" to open the resource combobox
@@ -111,7 +112,7 @@ test('Skill-fit groups appear in the assignment picker when task has requirement
 test('Missing skill badge shown for no-match resources', async ({ page }) => {
   await seedAndNavigate(page);
 
-  await page.getByRole('row', { name: /Build API/i }).click();
+  await page.getByRole('grid', { name: 'Task list' }).getByRole('row', { name: /Build API/i }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('button', { name: /add assignee/i }).click();
 

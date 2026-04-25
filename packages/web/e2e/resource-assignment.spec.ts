@@ -115,7 +115,7 @@ async function gotoGantt(page: import('@playwright/test').Page) {
       body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
     }),
   );
-  // Default: resource search returns two resources
+  // Default: resource search returns two resources (full shape for skill-fit hook)
   await page.route('**/api/v1/resources/**', (route) =>
     route.fulfill({
       status: 200,
@@ -125,8 +125,8 @@ async function gotoGantt(page: import('@playwright/test').Page) {
         next: null,
         previous: null,
         results: [
-          { id: 'res-1', name: 'Alice Nguyen' },
-          { id: 'res-2', name: 'Bob Carter' },
+          { id: 'res-1', name: 'Alice Nguyen', email: '', job_role: '', max_units: '1.00', calendar: null, skills: [], skill_fit: 'missing', missing_skills: [] },
+          { id: 'res-2', name: 'Bob Carter', email: '', job_role: '', max_units: '1.00', calendar: null, skills: [], skill_fit: 'missing', missing_skills: [] },
         ],
       }),
     }),
