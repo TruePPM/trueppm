@@ -70,9 +70,7 @@ def scheduler_membership(scheduler_user: object, project: Project) -> ProjectMem
 
 @pytest.fixture
 def viewer_membership(viewer_user: object, project: Project) -> ProjectMembership:
-    return ProjectMembership.objects.create(
-        project=project, user=viewer_user, role=Role.VIEWER
-    )
+    return ProjectMembership.objects.create(project=project, user=viewer_user, role=Role.VIEWER)
 
 
 @pytest.fixture
