@@ -69,7 +69,7 @@ class ResourceSkill(VersionedModel):
     class Meta:
         db_table = "resources_resource_skill"
         unique_together = [("resource", "skill")]
-        indexes = [models.Index(fields=["skill", "proficiency"])]
+        indexes = [models.Index(fields=["skill", "proficiency"], name="res_skill_prof_idx")]
         ordering = ["skill__name"]
 
     def __str__(self) -> str:
@@ -96,7 +96,7 @@ class ProjectResource(VersionedModel):
     class Meta:
         db_table = "resources_project_resource"
         unique_together = [("project", "resource")]
-        indexes = [models.Index(fields=["project", "is_deleted"])]
+        indexes = [models.Index(fields=["project", "is_deleted"], name="proj_res_proj_del_idx")]
 
     def __str__(self) -> str:
         return f"{self.resource} on {self.project}"
