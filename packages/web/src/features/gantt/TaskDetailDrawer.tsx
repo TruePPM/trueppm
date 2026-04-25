@@ -1,41 +1,44 @@
 import { type RefObject, useEffect, useRef, useState } from 'react';
-import type { Task, TaskLink, LinkType } from '@/types';
-import {
-  useCreateDependency,
-  useUpdateDependency,
-  useDeleteDependency,
-} from '@/hooks/useDependencyMutations';
-import { ResourceAssignmentSection } from './ResourceAssignmentSection';
+import type { EstimationMode, Task, TaskLink } from '@/types';
+import { DependenciesTab } from './DependenciesTab';
+import { EstimatesTab } from './EstimatesTab';
+import { HistoryTab } from './HistoryTab';
+import { BaselineTab } from './BaselineTab';
+
+type TabId = 'dependencies' | 'estimates' | 'history' | 'baseline';
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'dependencies', label: 'Dependencies' },
+  { id: 'estimates', label: 'Estimates' },
+  { id: 'history', label: 'History' },
+  { id: 'baseline', label: 'Baseline' },
+];
 
 export interface TaskDetailDrawerProps {
   task: Task | null;
   tasks: Task[];
   links: TaskLink[];
   projectId: string;
+  estimationMode?: EstimationMode;
+  userIsScheduler?: boolean;
   onClose: () => void;
 }
-
-const DEP_TYPES: { value: LinkType; label: string }[] = [
-  { value: 'FS', label: 'FS — Finish to Start' },
-  { value: 'SS', label: 'SS — Start to Start' },
-  { value: 'FF', label: 'FF — Finish to Finish' },
-  { value: 'SF', label: 'SF — Start to Finish' },
-];
 
 export function TaskDetailDrawer({
   task,
   tasks,
   links,
   projectId,
+  estimationMode = 'open',
+  userIsScheduler = false,
   onClose,
 }: TaskDetailDrawerProps) {
   const isOpen = task !== null;
   const drawerTitle = task ? `${task.wbs ? task.wbs + ' — ' : ''}${task.name}` : '';
 
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const drawerRef      = useRef<HTMLDivElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
 
-  // Focus close button when drawer opens
   useEffect(() => {
     if (isOpen) {
       const id = setTimeout(() => closeButtonRef.current?.focus(), 50);
@@ -44,7 +47,6 @@ export function TaskDetailDrawer({
     return undefined;
   }, [isOpen, task?.id]);
 
-  // Close on Escape
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape' && isOpen) {
@@ -56,21 +58,19 @@ export function TaskDetailDrawer({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Focus trap
   useEffect(() => {
     if (!isOpen) return undefined;
-
     function trapFocus(e: KeyboardEvent) {
       if (e.key !== 'Tab' || !drawerRef.current) return;
       const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
         'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
       );
       const first = focusable[0];
-      const last  = focusable[focusable.length - 1];
+      const last = focusable[focusable.length - 1];
       if (e.shiftKey) {
         if (document.activeElement === first) { e.preventDefault(); last?.focus(); }
       } else {
-        if (document.activeElement === last)  { e.preventDefault(); first?.focus(); }
+        if (document.activeElement === last) { e.preventDefault(); first?.focus(); }
       }
     }
     document.addEventListener('keydown', trapFocus);
@@ -83,6 +83,8 @@ export function TaskDetailDrawer({
       tasks={tasks}
       links={links}
       projectId={projectId}
+      estimationMode={estimationMode}
+      userIsScheduler={userIsScheduler}
       closeButtonRef={closeButtonRef}
       drawerTitle={drawerTitle}
       onClose={onClose}
@@ -91,7 +93,6 @@ export function TaskDetailDrawer({
 
   return (
     <>
-      {/* Backdrop — mobile only (rule 89) */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/30 md:hidden z-30"
@@ -100,7 +101,7 @@ export function TaskDetailDrawer({
         />
       )}
 
-      {/* Desktop drawer — 480px right-side slide-in (rule 89) */}
+      {/* Desktop: 480px right-side slide-in */}
       <div
         ref={drawerRef}
         role="dialog"
@@ -116,7 +117,7 @@ export function TaskDetailDrawer({
         {drawerContent}
       </div>
 
-      {/* Mobile bottom sheet — 85vh (rule 89) */}
+      {/* Mobile: 85vh bottom sheet */}
       <div
         role="dialog"
         aria-modal="true"
@@ -145,6 +146,8 @@ interface DrawerBodyProps {
   tasks: Task[];
   links: TaskLink[];
   projectId: string;
+  estimationMode: EstimationMode;
+  userIsScheduler: boolean;
   closeButtonRef: RefObject<HTMLButtonElement | null>;
   drawerTitle: string;
   onClose: () => void;
@@ -155,64 +158,31 @@ function DrawerBody({
   tasks,
   links,
   projectId,
+  estimationMode,
+  userIsScheduler,
   closeButtonRef,
   drawerTitle,
   onClose,
 }: DrawerBodyProps) {
-  const createDep = useCreateDependency(projectId);
-  const updateDep = useUpdateDependency(projectId);
-  const deleteDep = useDeleteDependency(projectId);
+  const [activeTab, setActiveTab] = useState<TabId>('dependencies');
 
-  // Local state for the two "add" forms
-  const [addPredId,   setAddPredId]   = useState('');
-  const [addPredType, setAddPredType] = useState<LinkType>('FS');
-  const [addSuccId,   setAddSuccId]   = useState('');
-  const [addSuccType, setAddSuccType] = useState<LinkType>('FS');
-
-  // Reset add-form state when the selected task changes
   useEffect(() => {
-    setAddPredId('');
-    setAddPredType('FS');
-    setAddSuccId('');
-    setAddSuccType('FS');
+    setActiveTab('dependencies');
   }, [task?.id]);
 
   if (!task) return null;
 
-  // Build predecessor/successor lists from the global links array
-  const predecessorLinks = links.filter((l) => l.targetId === task.id);
-  const successorLinks   = links.filter((l) => l.sourceId === task.id);
-
-  const linkedPredIds = new Set(predecessorLinks.map((l) => l.sourceId));
-  const linkedSuccIds = new Set(successorLinks.map((l) => l.targetId));
-
-  // Tasks eligible to add as predecessor/successor (exclude self + already linked)
-  const availableAsPred = tasks.filter(
-    (t) => t.id !== task.id && !linkedPredIds.has(t.id),
-  );
-  const availableAsSucc = tasks.filter(
-    (t) => t.id !== task.id && !linkedSuccIds.has(t.id),
-  );
-
-  const taskById = new Map(tasks.map((t) => [t.id, t]));
-  // Capture the non-null task.id so closures don't widen back to Task | null
-  const taskId = task.id;
-
-  function handleAddPred() {
-    if (!addPredId) return;
-    createDep.mutate(
-      { predecessor: addPredId, successor: taskId, dep_type: addPredType },
-      { onSuccess: () => { setAddPredId(''); setAddPredType('FS'); } },
+  const hasPendingEstimate = task.estimateStatus === 'pending';
+  const hasPartialEstimate =
+    (task.optimisticDuration != null ||
+      task.mostLikelyDuration != null ||
+      task.pessimisticDuration != null) &&
+    !(
+      task.optimisticDuration != null &&
+      task.mostLikelyDuration != null &&
+      task.pessimisticDuration != null
     );
-  }
-
-  function handleAddSucc() {
-    if (!addSuccId) return;
-    createDep.mutate(
-      { predecessor: taskId, successor: addSuccId, dep_type: addSuccType },
-      { onSuccess: () => { setAddSuccId(''); setAddSuccType('FS'); } },
-    );
-  }
+  const showEstimateBadge = hasPendingEstimate || hasPartialEstimate;
 
   return (
     <>
@@ -237,242 +207,100 @@ function DrawerBody({
         </button>
       </div>
 
-      {/* Body */}
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-6">
+      {/* Tab bar — 48px tall, horizontally scrollable on mobile */}
+      <div
+        role="tablist"
+        aria-label="Task detail sections"
+        className="flex overflow-x-auto shrink-0 border-b border-neutral-border h-12 px-1"
+      >
+        {TABS.map((tab) => {
+          const isActive = tab.id === activeTab;
+          return (
+            <button
+              key={tab.id}
+              role="tab"
+              id={`tab-${tab.id}`}
+              aria-selected={isActive}
+              aria-controls={`tabpanel-${tab.id}`}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={[
+                'relative flex items-center gap-1.5 h-full shrink-0 px-3 text-sm',
+                'whitespace-nowrap border-b-2 transition-colors duration-100',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:rounded-sm',
+                isActive
+                  ? 'border-brand-primary font-semibold text-neutral-text-primary'
+                  : 'border-transparent font-normal text-neutral-text-secondary hover:text-neutral-text-primary',
+              ].join(' ')}
+            >
+              {tab.label}
+              {tab.id === 'estimates' && showEstimateBadge && (
+                <span
+                  className="w-1.5 h-1.5 rounded-full bg-brand-accent shrink-0"
+                  aria-label="Estimates incomplete or pending approval"
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-        {/* Resource Assignments */}
-        <ResourceAssignmentSection taskId={taskId} projectId={projectId} />
-
-        {/* Predecessors */}
-        <section aria-label="Predecessors">
-          <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
-            Predecessors
-          </h3>
-
-          {predecessorLinks.length === 0 && (
-            <p className="text-xs text-neutral-text-disabled mb-2">None</p>
+      {/* Tab panels */}
+      <div className="flex-1 overflow-y-auto p-4">
+        <div
+          role="tabpanel"
+          id="tabpanel-dependencies"
+          aria-labelledby="tab-dependencies"
+          hidden={activeTab !== 'dependencies'}
+        >
+          {activeTab === 'dependencies' && (
+            <DependenciesTab
+              task={task}
+              tasks={tasks}
+              links={links}
+              projectId={projectId}
+            />
           )}
+        </div>
 
-          {predecessorLinks.map((link) => {
-            const srcTask = taskById.get(link.sourceId);
-            if (!srcTask) return null;
-            return (
-              <DepRow
-                key={link.id}
-                link={link}
-                relatedTask={srcTask}
-                onUpdate={(patch) => updateDep.mutate({ id: link.id, ...patch })}
-                onDelete={() => deleteDep.mutate(link.id)}
-              />
-            );
-          })}
-
-          {/* Add predecessor */}
-          <AddDepRow
-            availableTasks={availableAsPred}
-            selectedTaskId={addPredId}
-            selectedType={addPredType}
-            isPending={createDep.isPending}
-            onTaskChange={setAddPredId}
-            onTypeChange={setAddPredType}
-            onAdd={handleAddPred}
-            addLabel="Add predecessor"
-          />
-        </section>
-
-        {/* Successors */}
-        <section aria-label="Successors">
-          <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
-            Successors
-          </h3>
-
-          {successorLinks.length === 0 && (
-            <p className="text-xs text-neutral-text-disabled mb-2">None</p>
+        <div
+          role="tabpanel"
+          id="tabpanel-estimates"
+          aria-labelledby="tab-estimates"
+          hidden={activeTab !== 'estimates'}
+        >
+          {activeTab === 'estimates' && (
+            <EstimatesTab
+              task={task}
+              projectId={projectId}
+              estimationMode={estimationMode}
+              userIsScheduler={userIsScheduler}
+            />
           )}
+        </div>
 
-          {successorLinks.map((link) => {
-            const tgtTask = taskById.get(link.targetId);
-            if (!tgtTask) return null;
-            return (
-              <DepRow
-                key={link.id}
-                link={link}
-                relatedTask={tgtTask}
-                onUpdate={(patch) => updateDep.mutate({ id: link.id, ...patch })}
-                onDelete={() => deleteDep.mutate(link.id)}
-              />
-            );
-          })}
+        <div
+          role="tabpanel"
+          id="tabpanel-history"
+          aria-labelledby="tab-history"
+          hidden={activeTab !== 'history'}
+        >
+          {activeTab === 'history' && (
+            <HistoryTab projectId={projectId} taskId={task.id} />
+          )}
+        </div>
 
-          {/* Add successor */}
-          <AddDepRow
-            availableTasks={availableAsSucc}
-            selectedTaskId={addSuccId}
-            selectedType={addSuccType}
-            isPending={createDep.isPending}
-            onTaskChange={setAddSuccId}
-            onTypeChange={setAddSuccType}
-            onAdd={handleAddSucc}
-            addLabel="Add successor"
-          />
-        </section>
-
-        {/* Scheduling note */}
-        <p className="text-xs text-neutral-text-disabled border-t border-neutral-border pt-4">
-          Successors are automatically rescheduled by the CPM engine after dependency changes.
-        </p>
+        <div
+          role="tabpanel"
+          id="tabpanel-baseline"
+          aria-labelledby="tab-baseline"
+          hidden={activeTab !== 'baseline'}
+        >
+          {activeTab === 'baseline' && (
+            <BaselineTab projectId={projectId} taskId={task.id} />
+          )}
+        </div>
       </div>
     </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// DepRow — one existing dependency
-// ---------------------------------------------------------------------------
-
-interface DepRowProps {
-  link: TaskLink;
-  relatedTask: Task;
-  onUpdate: (patch: { dep_type?: LinkType; lag?: number }) => void;
-  onDelete: () => void;
-}
-
-function DepRow({ link, relatedTask, onUpdate, onDelete }: DepRowProps) {
-  const label = relatedTask.wbs
-    ? `${relatedTask.wbs} — ${relatedTask.name}`
-    : relatedTask.name;
-
-  return (
-    <div className="flex items-center gap-2 py-1.5 border-b border-neutral-border/40 last:border-b-0">
-      {/* Task name */}
-      <span
-        className="flex-1 text-sm text-neutral-text-primary truncate"
-        title={label}
-      >
-        {label}
-      </span>
-
-      {/* Dependency type */}
-      <select
-        value={link.type}
-        onChange={(e) => onUpdate({ dep_type: e.target.value as LinkType })}
-        aria-label="Dependency type"
-        className="text-xs border border-neutral-border rounded px-1.5 py-1
-          bg-neutral-surface text-neutral-text-primary
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-      >
-        {DEP_TYPES.map((dt) => (
-          <option key={dt.value} value={dt.value}>{dt.value}</option>
-        ))}
-      </select>
-
-      {/* Lag (uncontrolled; key resets the input when server data changes) */}
-      <input
-        key={`${link.id}-lag-${link.lag}`}
-        type="number"
-        defaultValue={link.lag}
-        min={-365}
-        max={365}
-        aria-label="Lag days"
-        title="Lag in days (negative = lead)"
-        onBlur={(e) => {
-          const newLag = parseInt(e.target.value, 10);
-          if (!isNaN(newLag) && newLag !== link.lag) {
-            onUpdate({ lag: newLag });
-          }
-        }}
-        className="w-14 text-xs border border-neutral-border rounded px-1.5 py-1 text-center
-          bg-neutral-surface text-neutral-text-primary
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-      />
-      <span className="text-xs text-neutral-text-disabled shrink-0">d lag</span>
-
-      {/* Delete */}
-      <button
-        type="button"
-        onClick={onDelete}
-        aria-label={`Remove dependency on ${relatedTask.name}`}
-        className="w-6 h-6 flex items-center justify-center rounded text-neutral-text-disabled
-          hover:text-semantic-critical
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-      >
-        ×
-      </button>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// AddDepRow — add a new predecessor or successor
-// ---------------------------------------------------------------------------
-
-interface AddDepRowProps {
-  availableTasks: Task[];
-  selectedTaskId: string;
-  selectedType: LinkType;
-  isPending: boolean;
-  onTaskChange: (id: string) => void;
-  onTypeChange: (type: LinkType) => void;
-  onAdd: () => void;
-  addLabel: string;
-}
-
-function AddDepRow({
-  availableTasks,
-  selectedTaskId,
-  selectedType,
-  isPending,
-  onTaskChange,
-  onTypeChange,
-  onAdd,
-  addLabel,
-}: AddDepRowProps) {
-  return (
-    <div className="flex items-center gap-2 mt-2">
-      {/* Task picker */}
-      <select
-        value={selectedTaskId}
-        onChange={(e) => onTaskChange(e.target.value)}
-        aria-label={addLabel}
-        className="flex-1 min-w-0 text-xs border border-neutral-border rounded px-2 py-1
-          bg-neutral-surface text-neutral-text-primary
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-      >
-        <option value="">— {addLabel} —</option>
-        {availableTasks.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.wbs ? `${t.wbs} — ${t.name}` : t.name}
-          </option>
-        ))}
-      </select>
-
-      {/* Type */}
-      <select
-        value={selectedType}
-        onChange={(e) => onTypeChange(e.target.value as LinkType)}
-        aria-label="Link type"
-        className="text-xs border border-neutral-border rounded px-1.5 py-1
-          bg-neutral-surface text-neutral-text-primary
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-      >
-        {DEP_TYPES.map((dt) => (
-          <option key={dt.value} value={dt.value}>{dt.value}</option>
-        ))}
-      </select>
-
-      {/* Add button */}
-      <button
-        type="button"
-        onClick={onAdd}
-        disabled={!selectedTaskId || isPending}
-        aria-label={addLabel}
-        className="h-7 px-3 rounded text-xs font-medium border border-neutral-border
-          text-neutral-text-secondary hover:text-neutral-text-primary hover:border-brand-primary
-          disabled:opacity-40 disabled:cursor-not-allowed
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-      >
-        Add
-      </button>
-    </div>
   );
 }

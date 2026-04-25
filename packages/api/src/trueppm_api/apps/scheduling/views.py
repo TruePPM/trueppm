@@ -16,7 +16,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from trueppm_api.apps.access.permissions import IsProjectMember, IsProjectScheduler
-from trueppm_api.apps.projects.models import Dependency, Project
+from trueppm_api.apps.projects.models import Dependency, EstimateStatus, EstimationMode, Project
 from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
 from trueppm_api.apps.scheduling.serializers import FailedTaskSerializer
 from trueppm_api.apps.scheduling.services import enqueue_recalculate
@@ -96,21 +96,28 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     )
 
     db_tasks = list(project.tasks.filter(is_deleted=False))
+
+    # Gate: in suggest_approve mode, pending estimates are excluded from MC.
+    # The scheduler's all-or-none rule means passing None for any field is
+    # sufficient — the engine falls back to deterministic duration automatically.
+    _suggest_approve = project.estimation_mode == EstimationMode.SUGGEST_APPROVE
+
+    def _pert_field(value: int | None, task_estimate_status: str | None) -> timedelta | None:
+        if value is None:
+            return None
+        if _suggest_approve and task_estimate_status != EstimateStatus.ACCEPTED:
+            return None
+        return timedelta(days=value)
+
     sched_tasks = [
         SchedTask(
             id=str(t.id),
             name=t.name,
             duration=timedelta(days=t.duration),
             percent_complete=t.percent_complete,
-            optimistic_duration=timedelta(days=t.optimistic_duration)
-            if t.optimistic_duration is not None
-            else None,
-            most_likely_duration=timedelta(days=t.most_likely_duration)
-            if t.most_likely_duration is not None
-            else None,
-            pessimistic_duration=timedelta(days=t.pessimistic_duration)
-            if t.pessimistic_duration is not None
-            else None,
+            optimistic_duration=_pert_field(t.optimistic_duration, t.estimate_status),
+            most_likely_duration=_pert_field(t.most_likely_duration, t.estimate_status),
+            pessimistic_duration=_pert_field(t.pessimistic_duration, t.estimate_status),
         )
         for t in db_tasks
     ]
