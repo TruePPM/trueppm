@@ -97,7 +97,7 @@ test.describe('GanttView toolbar', () => {
     const nav = page.getByRole('navigation', { name: 'View' });
     await expect(nav).toBeVisible();
 
-    const ganttLink = nav.getByRole('link', { name: 'Gantt' });
+    const ganttLink = nav.getByRole('link', { name: 'Schedule' });
     const wbsLink = nav.getByRole('link', { name: 'WBS' });
     const tableLink = nav.getByRole('link', { name: 'Table' });
 

@@ -168,9 +168,9 @@ test.describe('Project overview page', () => {
     );
 
     const nav = page.getByRole('navigation', { name: 'View' });
-    await nav.getByRole('link', { name: 'Gantt' }).click();
+    await nav.getByRole('link', { name: 'Schedule' }).click();
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/gantt`));
-    await expect(nav.getByRole('link', { name: 'Gantt' })).toHaveAttribute('aria-current', 'page');
+    await expect(nav.getByRole('link', { name: 'Schedule' })).toHaveAttribute('aria-current', 'page');
   });
 
   test('error state — overview API 500 does not crash the page', async ({ page }) => {
