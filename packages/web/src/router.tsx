@@ -59,8 +59,8 @@ export const router = createBrowserRouter([
             path: 'projects/:projectId',
             element: <ProjectShell />,
             children: [
-              // /projects/:projectId → redirect to overview
-              { index: true, element: <Navigate to="overview" replace /> },
+              // /projects/:projectId → redirect to board (canonical planning surface)
+              { index: true, element: <Navigate to="board" replace /> },
               { path: 'overview', element: <ProjectOverviewPage /> },
               { path: 'gantt', element: <GanttView /> },
               { path: 'wbs', element: <WbsView /> },

@@ -10,13 +10,16 @@ interface Tab {
   Icon: ComponentType<{ className?: string; 'aria-hidden'?: 'true' }>;
 }
 
+// Board is first — it is the canonical planning surface (card = task, swimlane = phase).
+// Schedule (Gantt) is second — a derived projection of the Board. Tab order encodes
+// the order of planning: plan the work, then schedule it. See issues #177/#178.
 const TABS: Tab[] = [
-  { view: 'overview',   label: 'Overview',   Icon: OverviewIcon },
-  { view: 'gantt',      label: 'Gantt',      Icon: GanttIcon },
-  { view: 'wbs',        label: 'WBS',        Icon: WbsIcon },
   { view: 'board',      label: 'Board',      Icon: BoardIcon },
+  { view: 'gantt',      label: 'Schedule',   Icon: GanttIcon },
+  { view: 'wbs',        label: 'WBS',        Icon: WbsIcon },
   { view: 'list',       label: 'Table',      Icon: ListIcon },
   { view: 'calendar',   label: 'Calendar',   Icon: CalendarIcon },
+  { view: 'overview',   label: 'Overview',   Icon: OverviewIcon },
   { view: 'resources',  label: 'Team',       Icon: ResourcesIcon },
   { view: 'risk',       label: 'Risks',      Icon: RiskIcon },
 ];

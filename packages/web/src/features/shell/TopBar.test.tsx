@@ -19,7 +19,8 @@ describe('TopBar', () => {
   it('renders view tabs navigation with all views including WBS', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     expect(screen.getByRole('navigation', { name: /view/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Gantt' })).toBeInTheDocument();
+    // "Gantt" renamed to "Schedule" per design handoff (issue #177)
+    expect(screen.getByRole('link', { name: 'Schedule' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'WBS' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Table' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Board' })).toBeInTheDocument();

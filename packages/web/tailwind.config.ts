@@ -41,6 +41,17 @@ const config: Config = {
           'on-track': '#166534',
           'at-risk': '#92400E',
         },
+        // Chrome tokens — sidebar and Gantt panel surfaces (issue #180).
+        // Light mode: warm off-white chrome that reads as shell, not content.
+        // Dark mode: deep navy matching legacy gantt-surface.
+        // Values are keyed to CSS custom properties in globals.css so a .dark class
+        // on <html> swaps both modes without JavaScript re-renders.
+        chrome: {
+          surface:          'rgb(var(--chrome-surface) / <alpha-value>)',
+          'surface-raised': 'rgb(var(--chrome-surface-raised) / <alpha-value>)',
+          'text-primary':   'rgb(var(--chrome-text-primary) / <alpha-value>)',
+          'text-secondary': 'rgb(var(--chrome-text-secondary) / <alpha-value>)',
+        },
         // Dark Gantt surface tokens (rule 40/41). These must be defined here before any
         // component references bg-gantt-surface or gantt-text-* — Tailwind silently
         // emits no CSS for undefined tokens.

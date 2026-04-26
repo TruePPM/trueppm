@@ -51,7 +51,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
       aria-label="Projects"
       style={isDrawer ? undefined : { width: sidebarWidth, transition: 'width 200ms ease-out' }}
       className={[
-        'flex flex-col h-full bg-gantt-surface overflow-hidden flex-shrink-0',
+        'flex flex-col h-full bg-chrome-surface overflow-hidden flex-shrink-0',
         isDrawer ? widthClass : '',
       ].join(' ')}
     >
@@ -63,8 +63,8 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             onClick={toggleSidebar}
             aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             aria-expanded={!sidebarCollapsed}
-            className="flex items-center justify-center w-11 h-11 rounded text-gantt-text-secondary hover:text-gantt-text-primary hover:bg-white/10
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface"
+            className="flex items-center justify-center w-11 h-11 rounded text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
           >
             <svg
               width="16"
@@ -86,7 +86,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
         {!sidebarCollapsed && !isDrawer && (
           <div className="flex items-center justify-between px-3 pb-1 pt-1">
             <h2
-              className="text-xs font-semibold tracking-widest uppercase text-gantt-text-secondary"
+              className="text-xs font-semibold tracking-widest uppercase text-chrome-text-secondary"
               aria-label="Projects"
             >
               PROJECTS
@@ -97,9 +97,9 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               onClick={() => setShowNewProject(true)}
               aria-label="New project"
               className="flex items-center justify-center w-11 h-11 -mr-2 rounded
-                text-gantt-text-secondary hover:text-gantt-text-primary hover:bg-white/10
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
-                focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface"
+                text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
                 <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -117,7 +117,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
         ) : error ? (
           <p
             role="alert"
-            className="px-3 py-2 text-xs text-gantt-semantic-critical"
+            className="px-3 py-2 text-xs text-semantic-critical"
           >
             Failed to load projects
           </p>
@@ -131,7 +131,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
               />
             ))}
             {projects?.length === 0 && (
-              <li className="px-3 py-2 text-xs text-gantt-text-secondary">No projects yet</li>
+              <li className="px-3 py-2 text-xs text-chrome-text-secondary">No projects yet</li>
             )}
           </ul>
         )}
@@ -139,9 +139,9 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
 
       {/* Org-level section — Resources catalog link */}
       {!sidebarCollapsed && !isDrawer && (
-        <div className="shrink-0 border-t border-white/10 px-2 py-2">
+        <div className="shrink-0 border-t border-chrome-surface-raised px-2 py-2">
           <h2
-            className="px-1 pb-1 text-xs font-semibold tracking-widest uppercase text-gantt-text-secondary"
+            className="px-1 pb-1 text-xs font-semibold tracking-widest uppercase text-chrome-text-secondary"
             aria-label="Organization"
           >
             Org
@@ -152,10 +152,10 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             className={({ isActive }) =>
               [
                 'flex items-center gap-2 w-full px-2 py-2 rounded text-sm transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
                 isActive
-                  ? 'bg-white/10 border-l-2 border-brand-primary text-gantt-text-primary font-medium'
-                  : 'border-l-2 border-transparent text-gantt-text-secondary hover:bg-white/5 hover:text-gantt-text-primary',
+                  ? 'bg-brand-primary/10 border-l-2 border-brand-primary text-chrome-text-primary font-medium'
+                  : 'border-l-2 border-transparent text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
               ].join(' ')
             }
           >
@@ -170,17 +170,17 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
 
       {/* Collapsed sidebar: icon-only Resources link */}
       {sidebarCollapsed && !isDrawer && (
-        <div className="shrink-0 border-t border-white/10 px-2 py-2">
+        <div className="shrink-0 border-t border-chrome-surface-raised px-2 py-2">
           <NavLink
             to="/resources"
             aria-label="Resources catalog"
             className={({ isActive }) =>
               [
                 'flex items-center justify-center w-11 h-11 rounded transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
                 isActive
-                  ? 'bg-white/10 text-gantt-text-primary'
-                  : 'text-gantt-text-secondary hover:bg-white/5 hover:text-gantt-text-primary',
+                  ? 'bg-brand-primary/10 text-chrome-text-primary'
+                  : 'text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
               ].join(' ')
             }
           >

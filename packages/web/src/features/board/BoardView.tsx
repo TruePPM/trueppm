@@ -247,7 +247,7 @@ function PhaseLane({
       {/* Phase grid row */}
       <div
         className="grid gap-2 p-2"
-        style={{ gridTemplateColumns: '144px repeat(4, 1fr)' }}
+        style={{ gridTemplateColumns: '144px repeat(5, 1fr)' }}
       >
         {/* Phase header */}
         <div className="bg-neutral-surface-raised rounded-lg p-2 flex flex-col gap-0.5 min-w-0">
@@ -341,8 +341,10 @@ export function BoardView() {
     const result = new Map<string, Record<TaskStatus, Task[]>>();
     for (const phase of phases) {
       const byStatus: Record<TaskStatus, Task[]> = {
+        BACKLOG: [],
         NOT_STARTED: [],
         IN_PROGRESS: [],
+        REVIEW: [],
         ON_HOLD: [],
         COMPLETE: [],
       };
@@ -410,7 +412,7 @@ export function BoardView() {
   // Total per-column counts across all phases (for column header WIP badges)
   const totalByStatus = useMemo(() => {
     const counts: Record<TaskStatus, number> = {
-      NOT_STARTED: 0, IN_PROGRESS: 0, ON_HOLD: 0, COMPLETE: 0,
+      BACKLOG: 0, NOT_STARTED: 0, IN_PROGRESS: 0, REVIEW: 0, ON_HOLD: 0, COMPLETE: 0,
     };
     for (const phase of phases) {
       for (const task of phase.tasks) {
@@ -483,7 +485,7 @@ export function BoardView() {
             {/* Sticky column headers */}
             <div
               className="grid gap-2 px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10"
-              style={{ gridTemplateColumns: '144px repeat(4, 1fr)' }}
+              style={{ gridTemplateColumns: '144px repeat(5, 1fr)' }}
             >
               <div className="text-xs uppercase tracking-wide text-neutral-text-disabled px-2">
                 Phase
@@ -514,7 +516,7 @@ export function BoardView() {
                 phase={phase}
                 columns={COLUMNS}
                 tasksByStatus={phaseTaskMap.get(phase.id) ?? {
-                  NOT_STARTED: [], IN_PROGRESS: [], ON_HOLD: [], COMPLETE: [],
+                  BACKLOG: [], NOT_STARTED: [], IN_PROGRESS: [], REVIEW: [], ON_HOLD: [], COMPLETE: [],
                 }}
                 overCell={overCell}
                 isDragActive={activeId !== null}

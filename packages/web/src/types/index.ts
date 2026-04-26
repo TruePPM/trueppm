@@ -5,7 +5,9 @@ export type HealthState = 'on-track' | 'at-risk' | 'critical' | 'unknown';
 
 export type BarType = 'normal' | 'critical' | 'complete' | 'summary' | 'milestone' | 'baseline';
 export type LinkType = 'FS' | 'SS' | 'FF' | 'SF';
-export type TaskStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'ON_HOLD' | 'COMPLETE';
+// 5-column board model (issues #177/#178). BACKLOG and REVIEW are new values;
+// ON_HOLD is kept for migration compatibility and maps to BACKLOG in the default config.
+export type TaskStatus = 'BACKLOG' | 'NOT_STARTED' | 'IN_PROGRESS' | 'REVIEW' | 'ON_HOLD' | 'COMPLETE';
 export type ZoomLevel = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
 export interface TaskAssignee {
