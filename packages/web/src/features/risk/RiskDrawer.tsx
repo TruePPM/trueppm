@@ -97,19 +97,13 @@ export function RiskDrawer({ projectId, risk, isOpen, onClose }: RiskDrawerProps
         />
       )}
 
-      {/* Desktop drawer (rule 89: right-side, 480px, slide-in from right) */}
+      {/* Desktop inline panel — rendered as a flex sibling by RiskRegisterView */}
       <div
         ref={drawerRef}
         role="dialog"
         aria-modal="true"
         aria-label={drawerTitle}
-        className={[
-          // Desktop: right-side drawer
-          'hidden md:flex fixed inset-y-0 right-0 w-[480px] flex-col',
-          'bg-neutral-surface border-l border-neutral-border z-40',
-          'transition-transform duration-200',
-          isOpen ? 'translate-x-0' : 'translate-x-full',
-        ].join(' ')}
+        className="hidden md:flex w-[480px] shrink-0 flex-col bg-neutral-surface border-l border-neutral-border overflow-y-auto"
       >
         <DrawerContent
           projectId={projectId}

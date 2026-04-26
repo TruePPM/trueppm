@@ -3,9 +3,38 @@
 @tailwind utilities;
 
 @layer base {
-  body {
+  html, body {
     font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
     color: theme('colors.neutral.text-primary');
-    background-color: theme('colors.neutral.surface');
+    background-color: rgb(var(--chrome-surface));
+  }
+
+  /* Chrome tokens — sidebar and Gantt panel surfaces.
+     Light mode uses a warm off-white that reads as chrome (not content). Dark mode
+     preserves the legacy gantt-surface deep navy. Both modes satisfy WCAG 4.5:1 on
+     their respective primary text tokens.
+     Overrides the always-dark rule 35 from packages/web/CLAUDE.md (issue #180). */
+  :root {
+    --chrome-surface:         248 247 243;   /* rgb(248 247 243) — warm off-white */
+    --chrome-surface-raised:  238 236 230;
+    --chrome-border:          0 0 0;         /* used as rgba(0 0 0 / 0.08) */
+    --chrome-border-opacity:  0.08;
+    --chrome-text-primary:    26 25 23;      /* #1A1917 — 16.1:1 on chrome-surface */
+    --chrome-text-secondary:  107 105 101;   /* #6B6965 — 4.63:1 on chrome-surface */
+    --chrome-row-hover-opacity:   0.04;
+    --chrome-row-active-opacity:  0.10;
+    --chrome-row-active-color:    28 107 58; /* brand-primary rgb */
+  }
+
+  .dark {
+    --chrome-surface:         15 17 23;      /* #0F1117 — legacy gantt-surface */
+    --chrome-surface-raised:  22 25 36;
+    --chrome-border:          255 255 255;
+    --chrome-border-opacity:  0.08;
+    --chrome-text-primary:    232 232 232;   /* #E8E8E8 — 15.3:1 on chrome-surface */
+    --chrome-text-secondary:  148 163 184;   /* Slate-400 — 7.45:1 on #0F1117 */
+    --chrome-row-hover-opacity:   0.05;
+    --chrome-row-active-opacity:  0.08;
+    --chrome-row-active-color:    255 255 255;
   }
 }

@@ -8,14 +8,15 @@ interface NavItem {
   Icon: ComponentType<{ className?: string; 'aria-hidden'?: 'true' }>;
 }
 
-// Bottom navigation rail — shown at < md (768px) in place of view tabs in the top bar
+// Bottom navigation rail — shown at < md (768px) in place of view tabs in the top bar.
+// Order mirrors ViewTabs: Board first (planning surface), Schedule second (derived view).
 const NAV_ITEMS: NavItem[] = [
-  { view: 'gantt',     label: 'Gantt',     Icon: GanttIcon },
-  { view: 'board',     label: 'Board',     Icon: BoardIcon },
-  { view: 'list',      label: 'List',      Icon: ListIcon },
-  { view: 'calendar',  label: 'Calendar',  Icon: CalendarIcon },
-  { view: 'resources', label: 'Resources', Icon: ResourcesIcon },
-  { view: 'risk',      label: 'Risks',     Icon: RiskIcon },
+  { view: 'board',     label: 'Board',    Icon: BoardIcon },
+  { view: 'gantt',     label: 'Schedule', Icon: GanttIcon },
+  { view: 'list',      label: 'Table',    Icon: ListIcon },
+  { view: 'calendar',  label: 'Calendar', Icon: CalendarIcon },
+  { view: 'resources', label: 'Team',     Icon: ResourcesIcon },
+  { view: 'risk',      label: 'Risks',    Icon: RiskIcon },
 ];
 
 export function BottomNav() {

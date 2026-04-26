@@ -106,7 +106,7 @@ test.describe('View switching', () => {
 
   test('Gantt view is active by default and URL reflects it', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
-    await expect(nav.getByRole('link', { name: 'Gantt' })).toHaveAttribute('aria-current', 'page');
+    await expect(nav.getByRole('link', { name: 'Schedule' })).toHaveAttribute('aria-current', 'page');
     expect(page.url()).toMatch(/\/gantt$/);
   });
 
@@ -121,8 +121,8 @@ test.describe('View switching', () => {
     const nav = page.getByRole('navigation', { name: 'View' });
     await nav.getByRole('link', { name: 'Board' }).click();
     await expect(page).toHaveURL(/\/board$/);
-    // Board renders columns; at least TO DO column should be visible.
-    await expect(page.locator('[aria-label*="TO DO"]').first()).toBeVisible({ timeout: 5_000 });
+    // Board renders columns; at least the "To Do" column should be visible.
+    await expect(page.locator('[aria-label*="To Do"]').first()).toBeVisible({ timeout: 5_000 });
   });
 
   test('navigate to Table — task grid renders and URL updates', async ({ page }) => {
@@ -139,12 +139,12 @@ test.describe('View switching', () => {
     await expect(page.getByRole('treegrid', { name: 'WBS task tree' })).toBeVisible();
 
     await nav.getByRole('link', { name: 'Board' }).click();
-    await expect(page.locator('[aria-label*="TO DO"]').first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('[aria-label*="To Do"]').first()).toBeVisible({ timeout: 5_000 });
 
     await nav.getByRole('link', { name: 'Table' }).click();
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
 
-    await nav.getByRole('link', { name: 'Gantt' }).click();
+    await nav.getByRole('link', { name: 'Schedule' }).click();
     await expect(page).toHaveURL(/\/gantt$/);
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
   });

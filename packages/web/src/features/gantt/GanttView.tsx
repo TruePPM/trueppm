@@ -33,9 +33,9 @@ function GanttEmptyState() {
   return (
     <div
       role="status"
-      className="flex flex-1 h-full items-center justify-center bg-gantt-surface"
+      className="flex flex-1 h-full items-center justify-center bg-neutral-surface"
     >
-      <p className="text-sm text-gantt-text-secondary">No tasks yet. Add a task to get started.</p>
+      <p className="text-sm text-neutral-text-secondary">No tasks yet. Add a task to get started.</p>
     </div>
   );
 }
@@ -123,7 +123,7 @@ function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
       role="separator"
       aria-orientation="vertical"
       aria-label="Resize task list panel"
-      className="w-1 flex-shrink-0 cursor-col-resize bg-white/10 hover:bg-brand-primary/60 transition-colors z-10"
+      className="w-1 flex-shrink-0 cursor-col-resize bg-brand-primary/10 hover:bg-brand-primary/60 transition-colors z-10"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -494,8 +494,8 @@ export function GanttView() {
 
   if (error) {
     return (
-      <div className="flex h-full items-center justify-center bg-gantt-surface">
-        <p className="text-sm text-gantt-semantic-critical">
+      <div className="flex h-full items-center justify-center bg-neutral-surface">
+        <p className="text-sm text-semantic-critical">
           Couldn&apos;t load tasks.{' '}
           <button
             type="button"
@@ -511,13 +511,13 @@ export function GanttView() {
 
   if (isLoading || !rawTasks) {
     return (
-      <div className="flex h-full bg-gantt-surface" aria-busy="true" aria-label="Loading Gantt">
+      <div className="flex h-full bg-neutral-surface" aria-busy="true" aria-label="Loading Gantt">
         <div className="w-[280px] flex-shrink-0 border-r border-white/10 p-2 space-y-1">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-7 rounded animate-pulse bg-white/10" />
+            <div key={i} className="h-7 rounded animate-pulse bg-brand-primary/10" />
           ))}
         </div>
-        <div className="flex-1 bg-gantt-surface" />
+        <div className="flex-1 bg-neutral-surface" />
       </div>
     );
   }
@@ -690,7 +690,7 @@ export function GanttView() {
         ) : (
           <div
             ref={canvasScrollRef}
-            className="flex-1 min-w-0 overflow-auto relative"
+            className="flex-1 min-w-0 overflow-auto relative z-0"
             onScroll={handleCanvasScroll}
           >
             {/* Scrollable content area sized to the full canvas width.

@@ -21,11 +21,16 @@ interface BoardConfigResponse {
   columns: BoardColumnDef[];
 }
 
+// 5-column model per Claude Design handoff (issue #178).
+// Backlog = in project, unassigned/unestimated (idea state).
+// ON_HOLD is hidden but kept in the type union for migration compatibility — tasks
+// that are ON_HOLD in the API will not appear on the board until they are migrated.
 const DEFAULT_COLUMNS: BoardColumnDef[] = [
-  { status: 'NOT_STARTED', label: 'TO DO', visible: true },
-  { status: 'IN_PROGRESS', label: 'IN PROGRESS', visible: true },
-  { status: 'ON_HOLD', label: 'ON HOLD', visible: true },
-  { status: 'COMPLETE', label: 'DONE', visible: true },
+  { status: 'BACKLOG',     label: 'Backlog',     visible: true },
+  { status: 'NOT_STARTED', label: 'To Do',       visible: true },
+  { status: 'IN_PROGRESS', label: 'In Progress', visible: true, wipLimit: 3 },
+  { status: 'REVIEW',      label: 'Review',      visible: true, wipLimit: 2 },
+  { status: 'COMPLETE',    label: 'Done',        visible: true },
 ];
 
 async function fetchBoardConfig(projectId: string): Promise<BoardConfigResponse> {

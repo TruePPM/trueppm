@@ -37,7 +37,7 @@ export function LoadTooltip({ iso, hours, taskIds, hoursPerDay, maxUnits, onClos
       role="tooltip"
       className="
         absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2
-        bg-neutral-text-primary text-neutral-surface rounded shadow-lg
+        bg-neutral-text-primary text-neutral-surface rounded border border-neutral-text-primary
         text-xs px-3 py-2 min-w-[160px] whitespace-nowrap
         pointer-events-none
       "

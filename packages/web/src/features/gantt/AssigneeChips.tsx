@@ -28,7 +28,7 @@ export function AssigneeChips({ assignees }: AssigneeChipsProps) {
       {visible.map((a) => (
         <span
           key={a.resourceId}
-          className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand-primary/20 text-xs font-medium text-gantt-text-primary"
+          className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand-primary/20 text-xs font-medium text-neutral-text-primary"
           title={chipTitle(a)}
           aria-hidden="true"
         >
@@ -37,7 +37,7 @@ export function AssigneeChips({ assignees }: AssigneeChipsProps) {
       ))}
       {overflow > 0 && (
         <span
-          className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand-primary/20 text-xs font-medium text-gantt-text-primary"
+          className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand-primary/20 text-xs font-medium text-neutral-text-primary"
           title={assignees
             .slice(MAX_VISIBLE)
             .map((a) => a.name)

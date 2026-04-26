@@ -98,7 +98,7 @@ export function AllocationEditPopover({
       role="dialog"
       aria-modal="false"
       aria-label={`Edit allocation for ${task.name}`}
-      className="absolute z-20 bg-neutral-surface border border-neutral-border rounded-lg shadow-xl p-3 w-52"
+      className="absolute z-20 bg-neutral-surface border border-neutral-border rounded-lg p-3 w-52"
       // Position anchored just above the span — parent sets top/left
       style={{ bottom: 'calc(100% + 6px)', left: 0 }}
     >
