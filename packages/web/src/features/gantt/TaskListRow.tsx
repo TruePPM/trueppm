@@ -76,8 +76,8 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
   }, []);
 
   const isCriticalStyle = task.isCritical
-    ? 'font-semibold text-gantt-semantic-critical'
-    : 'text-gantt-text-primary';
+    ? 'font-semibold text-semantic-critical'
+    : 'text-neutral-text-primary';
 
   const isSummaryStyle = task.isSummary ? 'font-medium' : '';
 
@@ -95,7 +95,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
         'group flex items-stretch text-xs border-b border-neutral-border/20',
         isEditing ? 'cursor-text' : 'cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white',
-        isSelected && !isEditing ? 'bg-white/10 border-l-2 border-brand-primary' : 'hover:bg-white/5',
+        isSelected && !isEditing ? 'bg-brand-primary/10 border-l-2 border-brand-primary' : 'hover:bg-white/5',
         dimmed ? 'opacity-[0.22] pointer-events-none' : '',
       ].join(' ')}
       onClick={() => { if (!isEditing) setSelectedTaskId(isSelected ? null : task.id); }}
@@ -127,7 +127,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
             aria-expanded={isExpanded}
             aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
             className="shrink-0 w-4 h-4 flex items-center justify-center mr-0.5
-              text-gantt-text-secondary hover:text-gantt-text-primary
+              text-neutral-text-secondary hover:text-neutral-text-primary
               focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white rounded"
           >
             <svg
@@ -157,7 +157,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
               if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
               if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
             }}
-            className="flex-1 min-w-0 bg-white/10 text-gantt-text-primary text-xs px-1 rounded
+            className="flex-1 min-w-0 bg-brand-primary/10 text-neutral-text-primary text-xs px-1 rounded
               outline-none ring-1 ring-brand-primary truncate"
             style={{ height: 20 }}
             aria-label={`Rename task ${task.name}`}
@@ -214,7 +214,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
           }}
           className={[
             'absolute right-1 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded',
-            'text-gantt-text-secondary hover:text-gantt-text-primary',
+            'text-neutral-text-secondary hover:text-neutral-text-primary',
             'transition-opacity duration-100',
             isSelected
               ? 'opacity-100'
@@ -235,7 +235,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
       {!isEditing && visible.dur && (
         <div
           className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
-            text-right text-gantt-text-secondary tabular-nums pr-2"
+            text-right text-neutral-text-secondary tabular-nums pr-2"
           style={{ width: widths.dur }}
           role="gridcell"
           aria-label={task.isMilestone ? 'milestone' : `${task.duration} days`}
@@ -248,7 +248,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
       {!isEditing && visible.start && (
         <div
           className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
-            text-right text-gantt-text-secondary tabular-nums pr-2"
+            text-right text-neutral-text-secondary tabular-nums pr-2"
           style={{ width: widths.start }}
           role="gridcell"
           aria-label={task.start ? `starts ${formatDate(task.start)}` : 'unscheduled'}
@@ -261,7 +261,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
       {!isEditing && visible.finish && (
         <div
           className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
-            text-right text-gantt-text-secondary tabular-nums pr-2"
+            text-right text-neutral-text-secondary tabular-nums pr-2"
           style={{ width: widths.finish }}
           role="gridcell"
           aria-label={task.finish ? `finishes ${formatDate(task.finish)}` : 'unscheduled'}
@@ -274,7 +274,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
       {!isEditing && visible.progress && (
         <div
           className="flex items-center justify-end shrink-0
-            text-right text-gantt-text-secondary tabular-nums pr-2"
+            text-right text-neutral-text-secondary tabular-nums pr-2"
           style={{ width: widths.progress }}
           role="gridcell"
           aria-label={`${task.progress}% complete`}

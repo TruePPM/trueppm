@@ -9,8 +9,8 @@
  * - Rule 61: virtualisation — callers must pass firstRow/lastRow
  * - Rule 62: devicePixelRatio scaling applied once at canvas init; logical px here
  * - Rule 71: canvas font set once at engine init, not per draw call
- * - Rule 72: bar label text uses gantt-text-primary (#E8E8E8)
- * - Rule 73: critical path bars use gantt-semantic-critical (#F87171)
+ * - Bar label text uses neutral-text-primary (#1A1917) on light surface
+ * - Critical path bars use semantic-critical (#B91C1C) on light surface
  * - Rule 74: weekend shading = rgba(255,255,255,0.03)
  * - Rule 75: dependency arrows are cubic Bézier, 40px control offsets, 1.5px
  */
@@ -47,25 +47,25 @@ const HEADER_MAJOR_HEIGHT = 14;
 const HEADER_MINOR_HEIGHT = 14;
 
 // ---------------------------------------------------------------------------
-// Color palette (rule 72/73: dark-surface tokens only — no Tailwind classes)
+// Color palette — light surface (neutral-surface #FFFFFF / neutral-surface-raised #F5F5F0)
 // ---------------------------------------------------------------------------
 
 export const COLOR = {
-  surface:        '#0F1117',
-  rowBandAlt:     'rgba(255,255,255,0.02)',
-  weekend:        'rgba(255,255,255,0.03)',
-  gridLine:       'rgba(255,255,255,0.06)',
+  surface:        '#FFFFFF',
+  rowBandAlt:     'rgba(0,0,0,0.02)',
+  weekend:        'rgba(0,0,0,0.03)',
+  gridLine:       'rgba(0,0,0,0.08)',
   todayLine:      '#1C6B3A',
-  text:           '#E8E8E8',
-  textSecondary:  'rgba(148,163,184,1.0)',
+  text:           '#1A1917',   // neutral-text-primary — dark text on light surface
+  textSecondary:  '#6B6965',   // neutral-text-secondary
   barNormal:      '#3B82F6',   // blue-500 — non-CP task
-  barCritical:    '#F87171',   // red-400 — gantt-semantic-critical (rule 73)
-  barComplete:    '#4ADE80',   // green-400 — gantt-semantic-on-track
-  barSummary:     '#6B7280',   // gray-500
+  barCritical:    '#B91C1C',   // semantic-critical — dark red, WCAG on light surface
+  barComplete:    '#166534',   // semantic-on-track — dark green
+  barSummary:     '#374151',   // gray-700 — visible on white
   milestone:      '#E8A020',   // brand-accent
-  arrowNormal:    'rgba(148,163,184,0.6)',
-  arrowCritical:  '#F87171',
-  selectionRing:  '#FFFFFF',
+  arrowNormal:    'rgba(107,105,101,0.6)',   // neutral-text-secondary based
+  arrowCritical:  '#B91C1C',
+  selectionRing:  '#1C6B3A',   // brand-primary
   ghostFill:      'rgba(100,116,139,0.12)',
   ghostBorder:    'rgba(100,116,139,0.55)',
 } as const;
@@ -160,7 +160,7 @@ export function drawGridLines(
 
 /**
  * Draw the "today" vertical line on canvas-bg.
- * Uses the gantt-semantic-on-track green (#1C6B3A) at full height.
+ * Uses brand-primary green (#1C6B3A) at full height.
  */
 export function drawTodayLine(
   ctx: CanvasRenderingContext2D,
@@ -434,8 +434,8 @@ export function drawTaskBar(
  *
  * Renders a 6px dashed bar at the bottom of the row (GHOST_BAR_HEIGHT, rule 14)
  * positioned below the planned bar.  Color:
- *   - Finished late (scheduleVarianceDays > 0) → gantt-semantic-critical (#F87171)
- *   - Finished early (scheduleVarianceDays < 0) → gantt-semantic-on-track (#4ADE80)
+ *   - Finished late (scheduleVarianceDays > 0) → semantic-critical (#B91C1C)
+ *   - Finished early (scheduleVarianceDays < 0) → semantic-on-track (#166534)
  *   - In progress or no variance info        → ghostBorder (slate-500 @55%)
  *
  * Drawn on canvas-bars (rule 59) after the main bar so it appears on top.
@@ -464,9 +464,9 @@ export function drawActualDateBar(
   const variance = task.scheduleVarianceDays ?? null;
   let color: string;
   if (variance !== null && variance > 0) {
-    color = COLOR.barCritical;   // late — gantt-semantic-critical
+    color = COLOR.barCritical;   // late — semantic-critical
   } else if (variance !== null && variance < 0) {
-    color = COLOR.barComplete;   // early — gantt-semantic-on-track
+    color = COLOR.barComplete;   // early — semantic-on-track
   } else {
     color = COLOR.ghostBorder;   // in-progress or no variance info
   }

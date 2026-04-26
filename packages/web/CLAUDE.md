@@ -34,7 +34,7 @@ These rules are enforced at review time. Violations block merge.
 
 ## Gantt-Specific Rules
 
-13. **Gantt bar label color on light surface**: `#1A1917` — all 400-stop bar colors fail WCAG 4.5:1 contrast with white at 10–11px. **On `gantt-surface` (dark)**: use `gantt-text-primary` (`#E8E8E8`). The bar label token is surface-dependent; check the rendering context before assigning. See rule 40.
+13. **Gantt bar label text is `#1A1917`** (`neutral-text-primary`) — the Schedule view uses a light surface. Canvas bar label: `ctx.fillStyle = COLOR.text` from `GanttRenderer.ts`. SVAR CSS var: `--wx-gantt-task-color: #1a1917`.
 14. **Gantt bar heights**: normal/critical/complete = 18px; summary = 8px; milestone diamond = 12px; baseline ghost = 6px.
 15. **Task list row height**: 28px fixed — required for scroll sync with SVAR's internal row height.
 16. **`readonly={true}` on `<Gantt>`** until WASM CPM drag (issue #19) is implemented — prevents partial drag UX.
@@ -65,23 +65,17 @@ These rules are enforced at review time. Violations block merge.
 
 ## UI Harmonization Rules (Issue #44)
 
-35. **Sidebar background is `bg-gantt-surface`** — not `bg-brand-primary`. The sidebar and Gantt task-list panel share the same dark surface token. `bg-brand-primary` is reserved for interactive elements (buttons, focus rings, active accents) — never large-area backgrounds.
+35. **Sidebar background is `bg-chrome-surface`** — the adaptive chrome token (warm off-white in light mode, deep navy in dark mode via CSS custom properties). `bg-brand-primary` is reserved for interactive elements (buttons, focus rings, active accents) — never large-area backgrounds.
 
-36. **Sidebar section headers** (`PORTFOLIO`, `PROJECTS`, `VIEWS`) use `text-xs font-semibold tracking-widest uppercase text-gantt-text-secondary`. Minimum size is `text-xs` (12px) — `text-[10px]` is prohibited; fails design system floor and WCAG 1.4.3 at 2.38:1 on the dark surface. They are `<h2>` elements with `aria-label` matching the visible text. Hidden when sidebar is collapsed.
+36. **Sidebar section headers** (`PROJECTS`, `ORG`) use `text-xs font-semibold tracking-widest uppercase text-chrome-text-secondary`. Minimum size is `text-xs` (12px) — `text-[10px]` is prohibited; fails WCAG 1.4.3. They are `<h2>` elements with `aria-label` matching the visible text. Hidden when sidebar is collapsed.
 
-37. **Sidebar active-row indicator** is a 2px left border (`border-l-2 border-brand-primary`) in addition to `bg-white/10`. The border is the primary non-color visual signal; background fill is secondary. Never use border alone without the fill.
+37. **Sidebar active-row indicator** is a 2px left border (`border-l-2 border-brand-primary`) in addition to `bg-brand-primary/10`. The border is the primary non-color visual signal; background fill is secondary. Never use border alone without the fill.
 
 38. **ViewTabs active state uses underline** — `border-b-2 border-brand-primary` — not pill/outlined. Pill style is reserved for the secondary Gantt toolbar (rule 42) to maintain a clear visual hierarchy between top-level navigation and sub-view options. If a pill border is ever used for tabs, it must meet WCAG 1.4.11 3:1 against `bg-neutral-surface`; `border-neutral-border` (#D4D2CE) fails at ~1.51:1.
 
 39. **TopBar status badges use outlined style** — `bg-transparent border border-{semantic-color}/40 rounded px-2 py-0.5 text-xs`. Badge labels include the full semantic word: `{n} at risk`, `{n} critical`, `P80: {date}`. Labels must also specify scope (tasks vs. projects) — ambiguous counts are a PMO compliance risk. `aria-label="{n} at risk tasks"` or `"{n} critical tasks"`. At-risk and critical badges are `<button aria-haspopup="menu">` elements — NOT `listbox` (listbox implies selection, not navigation). They open a `role="menu"` popover with `role="menuitem"` task entries.
 
-40. **Gantt dark surface** — the task-list panel and SVAR timeline use `bg-gantt-surface` (`#0F1117`). All text inside those panels uses `gantt-text-*` tokens or `gantt-semantic-*` tokens (see rule 41). No `neutral-surface*` or `neutral-text-*` tokens inside the Gantt split pane. SVAR overrides live exclusively in `gantt.css` — no inline styles on SVAR host elements.
-
-41. **Dark-surface semantic tokens are required on `gantt-surface`** — the standard `semantic-*` tokens were designed for light backgrounds and fail WCAG 1.4.3 on `#0F1117` (critical: 2.93:1; at-risk: 2.72:1; on-track: 2.65:1). Use the dark-surface variants defined in `tailwind.config.ts`:
-    - `gantt-semantic-critical` → Red 400 `#F87171` (4.87:1 on `#0F1117`)
-    - `gantt-semantic-at-risk` → Orange 400 `#FB923C` (5.96:1 on `#0F1117`)
-    - `gantt-semantic-on-track` → Green 400 `#4ADE80` (5.28:1 on `#0F1117`)
-    Never use `semantic-critical` / `semantic-at-risk` / `semantic-on-track` tokens directly on `gantt-surface`.
+40. **Schedule view uses light surface** — the task-list panel and canvas timeline use `bg-neutral-surface`. All text uses `neutral-text-*` and `semantic-*` tokens. SVAR CSS overrides live exclusively in `gantt.css` — no inline styles on SVAR host elements. The canvas COLOR palette in `GanttRenderer.ts` is the canonical source; no hex literals in component files.
 
 42. **GanttToolbar view-switcher** (Gantt · WBS · Table) uses `role="group" aria-label="View mode"` with `aria-pressed` on the active item. Action buttons (+ Task · Baseline · Monte Carlo) are plain `type="button"` elements. All toolbar buttons: `border border-neutral-border rounded h-7 px-3 text-xs font-medium`. WBS and Table render as `disabled aria-disabled="true"` until their panels are implemented.
 
@@ -91,11 +85,11 @@ These rules are enforced at review time. Violations block merge.
 
 45. **StatusBar copy**: last-saved format is `Last saved: {N} min ago` / `Last saved: just now` (spell out "min", not "m"; omit "s" — US English convention). Online users: `{n} users online` with a `w-1.5 h-1.5 bg-semantic-on-track rounded-full aria-hidden="true"` dot. Online count is visible from `lg` (1024px) using `hidden lg:flex` — not `2xl:contents`. The StatusBar must distinguish data-entry save from CPM engine recalculation: "Last saved" refers to the most recent task edit; a separate "Recalculated: {time}" indicator covers the scheduling engine.
 
-46. **Focus rings on `gantt-surface`** — any interactive element on `bg-gantt-surface` must use `focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface`. `brand-primary` focus rings fail WCAG 1.4.11 on the dark surface (2.89:1 vs. 3:1 required). Pattern follows rule 4's `bg-brand-primary` override.
+46. **Focus rings in the Schedule view** use `focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface` — same as the global rule 4 pattern. No special dark-surface override needed.
 
 47. **Monte Carlo row is role-gated** — hidden for the Contributor RBAC role; visible for PM, Resource Manager, PMO Director, and Executive roles. Use a role-check hook (`useCurrentUserRole()`) to gate the `MonteCarloRow` render, not CSS visibility. Contributor-role users must not see P50/P80/P95 terminology without context.
 
-48. **Export / print mode renders on white** — any PDF or PNG export of the Gantt must apply a `print-light` CSS class that overrides `gantt-surface` with `#FFFFFF` and `gantt-text-*` with `neutral-text-*` equivalents. Dark theme is incompatible with standard corporate report templates. This override is mandatory before any export feature ships.
+48. **Export / print mode** — the Schedule view already uses a light surface; no theme override is needed for PDF/PNG export. Ensure `@media print` does not introduce dark backgrounds from browser defaults.
 
 49. **Critical-path red requires a plain-English tooltip** — `title="This task is on the critical path — a delay here delays the project end date"` on every red task row. Color alone (WCAG 1.4.1) and a legend entry are insufficient for first-time users; the tooltip is the accessible fallback.
 
@@ -238,23 +232,17 @@ These rules are enforced at review time. Violations block merge.
     labels are visually identical to the task list text. `ctx.font` is a global
     state — reset it after any draw call that changes it.
 
-72. **Bar label text uses `gantt-text-primary` (`#E8E8E8`) on `gantt-surface`.**
-    `ctx.fillStyle = '#E8E8E8'` for all label text on the dark canvas surface.
-    Never use neutral-text tokens inside the canvas render path (rule 40 / 41).
+72. **Bar label text uses `COLOR.text` (`#1A1917`)** — `neutral-text-primary` on the light canvas surface. Set via `ctx.fillStyle = COLOR.text`. All color values live in the `COLOR` constant in `GanttRenderer.ts`; never use hex literals in draw functions.
 
-73. **Critical path bars use `gantt-semantic-critical` (`#F87171`) — not `semantic-critical`.**
-    Same applies to at-risk and on-track: use the dark-surface `gantt-semantic-*`
-    variants. Standard semantic tokens fail WCAG 1.4.3 on `#0F1117` (rule 41).
+73. **Critical path bars use `COLOR.barCritical` (`#B91C1C`)** — `semantic-critical` on light surface. Complete bars use `COLOR.barComplete` (`#166534`) — `semantic-on-track`. Both values are defined once in `GanttRenderer.ts`; update there only.
 
-74. **Non-working day shading uses `rgba(255,255,255,0.03)`** — a very subtle
-    white overlay on weekend columns. Visible but not distracting. Applied on
-    `canvas-bg`, not recalculated during drag.
+74. **Non-working day shading uses `rgba(0,0,0,0.03)`** — a very subtle dark overlay on weekend columns on the light canvas. Applied on `canvas-bg`, not recalculated during drag.
 
 75. **Dependency arrows are cubic Bézier curves** with control points offset 40px
     horizontally from the source and target bar endpoints. FS arrows emerge from
     the bar right edge and enter the next bar left edge. Critical-path arrows use
-    `gantt-semantic-critical` stroke; non-critical use `gantt-text-secondary`
-    (`rgba(148,163,184,0.6)`). Arrow line width: 1.5px logical px.
+    `COLOR.arrowCritical` (`#B91C1C`); non-critical use `COLOR.arrowNormal`
+    (`rgba(107,105,101,0.6)`). Arrow line width: 1.5px logical px.
 
 ### Performance
 
@@ -271,7 +259,7 @@ These rules are enforced at review time. Violations block merge.
     below 10k tasks.
 
 78. **Empty state on zero tasks** — `GanttEmptyState` component renders when
-    `tasks.length === 0`. Uses `bg-gantt-surface` surface color and `role="status"`
+    `tasks.length === 0`. Uses `bg-neutral-surface` and `role="status"`
     so screen readers are informed. Never render the canvas stack with no tasks.
 
 79. **Engine init failure fallback** — `GanttFallbackTable` renders a plain `<table>`
@@ -295,11 +283,7 @@ These rules are enforced at review time. Violations block merge.
     `'instant'` when `prefers-reduced-motion` is active, rule 70). Placed to the
     left of the ZoomControl in the toolbar.
 
-83. **Selection visual** — in the canvas bars layer: a 2px white inset stroke ring
-    is drawn after the bar fill using `ctx.save()/restore()` (rule 59, canvas-bars
-    layer only). In the task list row: `bg-white/10 border-l-2 border-brand-primary`
-    class on the selected row. Selection state is read from `engine.selectedTaskIds`
-    (immutable Set) — never duplicated in local component state.
+83. **Selection visual** — in the canvas bars layer: a 2px `COLOR.selectionRing` (`#1C6B3A`) inset stroke ring is drawn after the bar fill using `ctx.save()/restore()` (rule 59, canvas-bars layer only). In the task list row: `bg-brand-primary/10 border-l-2 border-brand-primary` on the selected row. Selection state is read from `engine.selectedTaskIds` (immutable Set) — never duplicated in local component state.
 
 84. **Cursor states on canvas-interaction** — `ixCanvas.style.cursor` is set by
     `GanttEngineImpl._updateCursor()` based on FSM state and hit zone type:
@@ -310,8 +294,7 @@ These rules are enforced at review time. Violations block merge.
 85. **Resize handle indicator** — when hovering over a resize handle hit zone, a 1px
     vertical line is drawn on canvas-interaction at `barRight - 4` px, spanning the
     full bar height (`BAR_TOP_OFFSET` to `BAR_TOP_OFFSET + BAR_HEIGHT`). Color:
-    `rgba(148,163,184,1.0)` (textSecondary token). This meets WCAG 1.4.11 (3:1
-    against the dark surface). Drawn by `drawResizeIndicator()` in GanttRenderer.ts.
+    `COLOR.textSecondary` (`#6B6965`). This meets WCAG 1.4.11 (3:1 against `neutral-surface`). Drawn by `drawResizeIndicator()` in GanttRenderer.ts.
 
 ## Risk Register Rules
 

@@ -36,15 +36,15 @@ function PendingTaskRow({ name }: { name: string }) {
       {/* Empty checkbox column */}
       <span className="w-6 flex-shrink-0" />
       {/* WBS placeholder */}
-      <span className="w-8 flex-shrink-0 text-xs font-mono text-gantt-text-disabled text-right pr-1">—</span>
+      <span className="w-8 flex-shrink-0 text-xs font-mono text-neutral-text-disabled text-right pr-1">—</span>
       {/* Name */}
-      <span className="flex-1 min-w-0 text-xs text-gantt-text-secondary italic truncate pr-2">
+      <span className="flex-1 min-w-0 text-xs text-neutral-text-secondary italic truncate pr-2">
         {name}
       </span>
       {/* Scheduling indicator */}
-      <span className="flex items-center gap-1 flex-shrink-0 text-xs text-gantt-text-secondary pr-1">
+      <span className="flex items-center gap-1 flex-shrink-0 text-xs text-neutral-text-secondary pr-1">
         {timedOut ? (
-          <span className="text-gantt-semantic-at-risk">Pending schedule</span>
+          <span className="text-semantic-at-risk">Pending schedule</span>
         ) : (
           <>
             <span
@@ -119,7 +119,7 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visibl
   return (
     <div
       style={{ width: totalWidth }}
-      className="flex flex-col flex-shrink-0 border-r border-neutral-border/30 h-full bg-gantt-surface"
+      className="flex flex-col flex-shrink-0 border-r border-neutral-border h-full bg-neutral-surface"
       role="grid"
       aria-label="Task list"
       aria-rowcount={tasks.length}

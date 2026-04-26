@@ -53,8 +53,8 @@ interface Props {
 export function TaskListHeader({ widths, visible, setWidth }: Props) {
   return (
     <div
-      className="flex items-center h-7 bg-gantt-surface border-b border-neutral-border/30
-        text-xs font-medium text-gantt-text-secondary select-none sticky top-0 z-10"
+      className="flex items-center h-7 bg-neutral-surface border-b border-neutral-border
+        text-xs font-medium text-neutral-text-secondary select-none sticky top-0 z-10"
       role="row"
       aria-label="Task list columns"
     >
