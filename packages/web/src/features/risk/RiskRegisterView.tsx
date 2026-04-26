@@ -55,7 +55,9 @@ export function RiskRegisterView() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-auto bg-neutral-surface p-4">
+    <div className="flex h-full overflow-hidden bg-neutral-surface">
+      {/* Content column — scrollable */}
+      <div className="flex-1 min-w-0 overflow-auto p-4">
       {/* Toolbar */}
       <div className="flex items-center gap-3 mb-4">
         <h2 className="text-base font-semibold text-neutral-text-primary">Risks</h2>
@@ -224,13 +226,17 @@ export function RiskRegisterView() {
         </span>
       </button>
 
-      {/* Drawer / bottom sheet */}
-      <RiskDrawer
-        projectId={projectId}
-        risk={selectedRisk ?? null}
-        isOpen={isDrawerOpen}
-        onClose={closeDrawer}
-      />
+      </div>{/* end content column */}
+
+      {/* Desktop inline drawer panel — sits alongside content, no fixed overlay */}
+      {isDrawerOpen && (
+        <RiskDrawer
+          projectId={projectId}
+          risk={selectedRisk ?? null}
+          isOpen={isDrawerOpen}
+          onClose={closeDrawer}
+        />
+      )}
     </div>
   );
 }

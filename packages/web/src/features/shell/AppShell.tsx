@@ -55,7 +55,7 @@ export function AppShell() {
           </div>
 
           {/* Main content area */}
-          <main className="flex-1 min-w-0 overflow-auto bg-neutral-surface">
+          <main className="flex-1 min-w-0 overflow-auto bg-chrome-surface">
             <Outlet />
           </main>
         </div>

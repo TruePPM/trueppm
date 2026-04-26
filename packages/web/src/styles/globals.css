@@ -3,10 +3,10 @@
 @tailwind utilities;
 
 @layer base {
-  body {
+  html, body {
     font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
     color: theme('colors.neutral.text-primary');
-    background-color: theme('colors.neutral.surface');
+    background-color: rgb(var(--chrome-surface));
   }
 
   /* Chrome tokens — sidebar and Gantt panel surfaces.
