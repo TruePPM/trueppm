@@ -53,8 +53,8 @@ export const AddTaskForm = forwardRef<AddTaskFormHandle, Props>(function AddTask
   return (
     <form
       onSubmit={handleSubmit}
-      className="flex items-center gap-2 px-4 min-h-[44px] border-b border-white/10
-        bg-gantt-surface flex-shrink-0"
+      className="flex items-center gap-2 px-4 min-h-[44px] border-b border-neutral-border
+        bg-neutral-surface-raised flex-shrink-0"
       aria-label="Add task"
     >
       <input
@@ -67,13 +67,13 @@ export const AddTaskForm = forwardRef<AddTaskFormHandle, Props>(function AddTask
         maxLength={512}
         required
         disabled={isPending}
-        className="flex-1 min-w-0 h-9 px-2 rounded border border-white/20 bg-white/5
-          text-sm text-gantt-text-primary placeholder:text-gantt-text-secondary
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
-          focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface"
+        className="flex-1 min-w-0 h-9 px-2 rounded border border-neutral-border bg-neutral-surface
+          text-sm text-neutral-text-primary placeholder:text-neutral-text-disabled
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+          focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface-raised"
         aria-label="Task name"
       />
-      <label className="flex items-center gap-1 flex-shrink-0 text-sm text-gantt-text-secondary">
+      <label className="flex items-center gap-1 flex-shrink-0 text-sm text-neutral-text-secondary">
         <input
           type="number"
           min={1}
@@ -81,10 +81,10 @@ export const AddTaskForm = forwardRef<AddTaskFormHandle, Props>(function AddTask
           value={duration}
           onChange={(e) => setDuration(Math.max(1, Number(e.target.value)))}
           disabled={isPending}
-          className="w-14 h-9 px-2 rounded border border-white/20 bg-white/5
-            text-sm text-gantt-text-primary text-right
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
-            focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface"
+          className="w-14 h-9 px-2 rounded border border-neutral-border bg-neutral-surface
+            text-sm text-neutral-text-primary text-right
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+            focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface-raised"
           aria-label="Duration in days"
         />
         <span className="text-xs">days</span>
@@ -103,10 +103,10 @@ export const AddTaskForm = forwardRef<AddTaskFormHandle, Props>(function AddTask
         type="button"
         onClick={onCancel}
         disabled={isPending}
-        className="h-9 px-3 rounded text-xs font-medium border border-white/20
-          text-gantt-text-secondary hover:text-gantt-text-primary
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
-          focus-visible:ring-offset-1 focus-visible:ring-offset-gantt-surface"
+        className="h-9 px-3 rounded text-xs font-medium border border-neutral-border
+          text-neutral-text-secondary hover:text-neutral-text-primary
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+          focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface-raised"
       >
         Cancel
       </button>
