@@ -33,6 +33,7 @@ interface ApiTask {
   schedule_variance_days: number | null;
   baseline_start: string | null;
   baseline_finish: string | null;
+  total_float: number | null;
 }
 
 /** Inline mapper mirror — must stay in sync with useGanttTasks.ts mapTask(). */
@@ -79,6 +80,7 @@ function mapTask(t: ApiTask) {
     scheduleVarianceDays: t.schedule_variance_days,
     baselineStart: t.baseline_start ?? undefined,
     baselineFinish: t.baseline_finish ?? undefined,
+    totalFloat: t.total_float,
   };
 }
 
@@ -102,6 +104,7 @@ describe('useGanttTasks mapper', () => {
     schedule_variance_days: null,
     baseline_start: null,
     baseline_finish: null,
+    total_float: null,
   };
 
   it('maps a normal API task to Task shape', () => {

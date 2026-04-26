@@ -35,6 +35,7 @@ interface ApiTask {
   most_likely_duration: number | null;
   pessimistic_duration: number | null;
   estimate_status: 'pending' | 'accepted' | null;
+  total_float: number | null;
   assignments?: Array<{
     resource_id: string;
     resource_name: string;
@@ -123,6 +124,7 @@ function mapTask(t: ApiTask): Task {
     mostLikelyDuration: t.most_likely_duration,
     pessimisticDuration: t.pessimistic_duration,
     estimateStatus: t.estimate_status,
+    totalFloat: t.total_float,
   };
 }
 
