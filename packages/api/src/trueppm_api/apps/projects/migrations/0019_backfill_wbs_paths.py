@@ -2,7 +2,7 @@
 
 Tasks with null wbs_path have no hierarchy information (parent_id is derived
 from wbs_path, not stored separately), so they are assigned sequential root-level
-paths within their project, ordered by primary key (insertion order).
+paths within their project, ordered by short_id (project-scoped insertion order).
 """
 
 from __future__ import annotations
@@ -15,10 +15,14 @@ from django.db import migrations
 def _backfill_wbs_paths(apps: Any, schema_editor: object) -> None:
     Task = apps.get_model("projects", "Task")
 
-    # Collect null-path tasks per project, ordered by pk (insertion order).
+    # Order by short_id, not pk: Task.id is a UUID (random), so pk ordering is
+    # non-deterministic. short_id is allocated from Project.object_sequence on
+    # INSERT and zero-padded to 8 hex digits, so its lexicographic order matches
+    # creation order within a project. Backfill from migration 0015 ensures
+    # every pre-existing Task has a short_id assigned.
     null_tasks = (
         Task.objects.filter(wbs_path__isnull=True, is_deleted=False)
-        .order_by("project_id", "pk")
+        .order_by("project_id", "short_id")
         .values_list("id", "project_id")
     )
 
