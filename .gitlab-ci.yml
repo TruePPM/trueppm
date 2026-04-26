@@ -28,11 +28,20 @@ variables:
 # Prevent duplicate pipelines.
 # MR pipeline runs when an MR exists for the branch; branch pipeline runs
 # for pushes without an open MR. Both run on main after merge.
+#
+# auto_cancel: feature branches and MRs cancel older pipelines when a new
+# commit lands (saves runner minutes during iteration). main is exempt —
+# every merge into main must run to completion so each commit on the
+# protected branch has its own green/red signal.
 # ---------------------------------------------------------------------------
 workflow:
+  auto_cancel:
+    on_new_commit: interruptible
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == "main"'
+      auto_cancel:
+        on_new_commit: none
     - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
       when: never
     - if: '$CI_COMMIT_BRANCH'
