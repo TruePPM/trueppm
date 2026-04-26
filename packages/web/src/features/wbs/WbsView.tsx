@@ -31,7 +31,7 @@ function WbsEmptyState() {
   return (
     <div
       role="status"
-      className="flex h-full flex-col items-center justify-center gap-3 bg-gantt-surface"
+      className="flex h-full flex-col items-center justify-center gap-3 bg-neutral-surface"
     >
       <svg
         aria-hidden="true"
@@ -47,8 +47,8 @@ function WbsEmptyState() {
           d="M3 7h4m0 0V5m0 2v2m4-2h10M3 12h4m0 0v-2m0 2v2m4-2h10M3 17h4m0 0v-2m0 2v2m4-2h10"
         />
       </svg>
-      <p className="text-sm text-gantt-text-primary font-medium">No tasks yet</p>
-      <p className="text-xs text-gantt-text-secondary text-center max-w-xs">
+      <p className="text-sm text-neutral-text-primary font-medium">No tasks yet</p>
+      <p className="text-xs text-neutral-text-secondary text-center max-w-xs">
         Add your first task to build your work breakdown structure.
       </p>
     </div>
@@ -308,8 +308,8 @@ export function WbsView() {
 
   if (error) {
     return (
-      <div className="flex h-full items-center justify-center bg-gantt-surface">
-        <p className="text-sm text-gantt-semantic-critical">
+      <div className="flex h-full items-center justify-center bg-neutral-surface">
+        <p className="text-sm text-semantic-critical">
           Couldn&apos;t load tasks.{' '}
           <button
             type="button"
@@ -325,11 +325,11 @@ export function WbsView() {
 
   if (isLoading || !tasks) {
     return (
-      <div className="flex h-full flex-col bg-gantt-surface p-3 gap-1" aria-busy="true">
+      <div className="flex h-full flex-col bg-neutral-surface p-3 gap-1" aria-busy="true">
         {Array.from({ length: 8 }).map((_, i) => (
           <div
             key={i}
-            className="h-11 rounded animate-pulse bg-neutral-800/60"
+            className="h-11 rounded animate-pulse bg-neutral-surface-sunken"
             style={{ marginLeft: `${(i % 3) * 16}px` }}
           />
         ))}
@@ -345,16 +345,16 @@ export function WbsView() {
   const sortableIds = visible.map((n) => n.task.id);
 
   return (
-    <div className="flex flex-col h-full bg-gantt-surface overflow-hidden">
+    <div className="flex flex-col h-full bg-neutral-surface overflow-hidden">
       {/* Toolbar row */}
-      <div className="flex items-center gap-2 px-3 h-9 border-b border-neutral-800 flex-shrink-0">
+      <div className="flex items-center gap-2 px-3 h-9 border-b border-neutral-border flex-shrink-0">
         {projectId && (
           <>
             <button
               type="button"
               onClick={() => { setAddFormParentId(null); setShowAddForm(true); }}
               aria-label="Add root-level task"
-              className="text-xs text-gantt-text-secondary hover:text-gantt-text-primary
+              className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
                 focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none px-1"
             >
               + Task
@@ -364,7 +364,7 @@ export function WbsView() {
                 type="button"
                 onClick={() => { setAddFormParentId(selectedTaskId); setShowAddForm(true); }}
                 aria-label="Add child task under selected"
-                className="text-xs text-gantt-text-secondary hover:text-gantt-text-primary
+                className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
                   focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none px-1"
               >
                 + Child
@@ -376,7 +376,7 @@ export function WbsView() {
         <button
           type="button"
           onClick={handleExpandAll}
-          className="text-xs text-gantt-text-secondary hover:text-gantt-text-primary
+          className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
             focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none px-1"
           aria-label="Expand all"
         >
@@ -385,7 +385,7 @@ export function WbsView() {
         <button
           type="button"
           onClick={collapseAll}
-          className="text-xs text-gantt-text-secondary hover:text-gantt-text-primary
+          className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
             focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none px-1"
           aria-label="Collapse all"
         >
@@ -409,8 +409,8 @@ export function WbsView() {
 
       {/* Column headers */}
       <div
-        className="flex items-center h-8 border-b border-neutral-800 px-2 flex-shrink-0
-          text-xs font-semibold tracking-wide uppercase text-gantt-text-secondary"
+        className="flex items-center h-8 border-b border-neutral-border px-2 flex-shrink-0
+          text-xs font-semibold tracking-wide uppercase text-neutral-text-secondary"
         aria-hidden="true"
       >
         <span className="w-5 flex-shrink-0" /> {/* drag handle col */}

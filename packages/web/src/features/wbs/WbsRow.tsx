@@ -75,7 +75,7 @@ export function WbsRow({
 
   // Row background: critical path gets subtle red tint
   const rowBg = task.isCritical
-    ? 'bg-red-950/30 border-l-2 border-gantt-semantic-critical'
+    ? 'bg-semantic-critical/5 border-l-2 border-semantic-critical'
     : 'border-l-2 border-transparent';
 
   const indent = depth * 20; // 20px per level
@@ -91,10 +91,10 @@ export function WbsRow({
       aria-selected={isSelected}
       className={`
         flex items-center h-11 px-2 gap-1
-        border-b border-neutral-800/50
-        hover:bg-neutral-800/40 group
-        focus-within:bg-neutral-800/30
-        ${isSelected ? 'bg-white/10 !border-l-2 !border-l-brand-primary' : ''}
+        border-b border-neutral-border
+        hover:bg-neutral-text-primary/5 group
+        focus-within:bg-neutral-text-primary/5
+        ${isSelected ? 'bg-brand-primary/10 !border-l-2 !border-l-brand-primary' : ''}
         ${rowBg}
         ${isDragging ? 'opacity-50' : ''}
         ${isReparentTarget ? 'bg-brand-primary/5 !border-l-2 !border-l-brand-primary' : ''}
@@ -111,7 +111,7 @@ export function WbsRow({
         aria-hidden="true"
         className={`
           w-5 h-5 flex items-center justify-center flex-shrink-0
-          cursor-grab active:cursor-grabbing text-gantt-text-secondary
+          cursor-grab active:cursor-grabbing text-neutral-text-secondary
           opacity-0 group-hover:opacity-100 transition-opacity
           ${task.isSummary ? 'invisible' : ''}
         `}
@@ -132,8 +132,8 @@ export function WbsRow({
           aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
           className="
             w-5 h-5 flex items-center justify-center flex-shrink-0
-            text-xs font-bold text-gantt-text-secondary
-            hover:text-gantt-text-primary rounded
+            text-xs font-bold text-neutral-text-secondary
+            hover:text-neutral-text-primary rounded
             focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none
           "
         >
@@ -143,7 +143,7 @@ export function WbsRow({
         <span
           aria-hidden="true"
           className="w-5 h-5 flex items-center justify-center flex-shrink-0
-            text-xs text-neutral-700"
+            text-xs text-neutral-text-disabled"
         >
           □
         </span>
@@ -152,7 +152,7 @@ export function WbsRow({
       {/* WBS path */}
       <span
         role="gridcell"
-        className="w-14 flex-shrink-0 text-right pr-3 text-xs font-mono text-gantt-text-secondary"
+        className="w-14 flex-shrink-0 text-right pr-3 text-xs font-mono text-neutral-text-secondary"
       >
         {task.wbs}
       </span>
@@ -169,14 +169,14 @@ export function WbsRow({
             aria-label="Rename task"
             className="
               w-full bg-transparent border-b border-brand-primary
-              text-sm text-gantt-text-primary outline-none caret-white px-0
+              text-sm text-neutral-text-primary outline-none caret-neutral-text-primary px-0
             "
           />
         ) : (
           <span
             className={`
               text-sm truncate block
-              ${task.isSummary ? 'font-semibold text-gantt-text-primary' : 'text-gantt-text-primary'}
+              ${task.isSummary ? 'font-semibold text-neutral-text-primary' : 'text-neutral-text-primary'}
             `}
             title={task.isSummary ? undefined : 'Double-click to rename'}
           >
@@ -188,18 +188,18 @@ export function WbsRow({
       {/* Progress bar + percent */}
       <span role="gridcell" className="w-20 flex-shrink-0 flex items-center gap-1.5 pr-2">
         <span
-          className="flex-1 h-1.5 rounded-full bg-neutral-700"
+          className="flex-1 h-1.5 rounded-full bg-neutral-border"
           aria-hidden="true"
         >
           <span
             className={`
               block h-full rounded-full
-              ${task.isCritical ? 'bg-gantt-semantic-critical' : 'bg-brand-primary'}
+              ${task.isCritical ? 'bg-semantic-critical' : 'bg-brand-primary'}
             `}
             style={{ width: `${task.progress}%` }}
           />
         </span>
-        <span className="text-xs text-gantt-text-secondary w-7 text-right">
+        <span className="text-xs text-neutral-text-secondary w-7 text-right">
           {task.progress}%
         </span>
       </span>
@@ -207,7 +207,7 @@ export function WbsRow({
       {/* Duration */}
       <span
         role="gridcell"
-        className="w-10 flex-shrink-0 text-right text-xs text-gantt-text-secondary"
+        className="w-10 flex-shrink-0 text-right text-xs text-neutral-text-secondary"
       >
         {task.duration}d
       </span>
@@ -219,7 +219,7 @@ export function WbsRow({
           title="This task is on the critical path — a delay here delays the project end date"
           className="
             ml-1 flex-shrink-0 text-xs font-bold
-            text-gantt-semantic-critical border border-gantt-semantic-critical/50
+            text-semantic-critical border border-semantic-critical/50
             rounded px-1 leading-4
           "
         >
