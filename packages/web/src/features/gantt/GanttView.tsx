@@ -690,7 +690,7 @@ export function GanttView() {
         ) : (
           <div
             ref={canvasScrollRef}
-            className="flex-1 min-w-0 overflow-auto relative"
+            className="flex-1 min-w-0 overflow-auto relative z-0"
             onScroll={handleCanvasScroll}
           >
             {/* Scrollable content area sized to the full canvas width.

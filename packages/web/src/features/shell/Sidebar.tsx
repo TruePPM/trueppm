@@ -52,6 +52,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
       style={isDrawer ? undefined : { width: sidebarWidth, transition: 'width 200ms ease-out' }}
       className={[
         'flex flex-col h-full bg-chrome-surface overflow-hidden flex-shrink-0',
+        'border-r border-chrome-border/8',
         isDrawer ? widthClass : '',
       ].join(' ')}
     >
@@ -139,7 +140,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
 
       {/* Org-level section — Resources catalog link */}
       {!sidebarCollapsed && !isDrawer && (
-        <div className="shrink-0 border-t border-chrome-surface-raised px-2 py-2">
+        <div className="shrink-0 border-t border-chrome-border/8 px-2 py-2">
           <h2
             className="px-1 pb-1 text-xs font-semibold tracking-widest uppercase text-chrome-text-secondary"
             aria-label="Organization"
@@ -170,7 +171,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
 
       {/* Collapsed sidebar: icon-only Resources link */}
       {sidebarCollapsed && !isDrawer && (
-        <div className="shrink-0 border-t border-chrome-surface-raised px-2 py-2">
+        <div className="shrink-0 border-t border-chrome-border/8 px-2 py-2">
           <NavLink
             to="/resources"
             aria-label="Resources catalog"

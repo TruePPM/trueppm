@@ -23,7 +23,7 @@ export function StatusBar() {
       role="contentinfo"
       aria-label="Project status"
       className="flex items-center h-7 px-4 gap-4 text-xs text-neutral-text-secondary
-        bg-neutral-surface-raised border-t border-neutral-border overflow-hidden"
+        bg-neutral-surface-sunken border-t border-neutral-border overflow-hidden"
     >
       {stats ? (
         <>

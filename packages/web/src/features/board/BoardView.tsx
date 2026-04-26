@@ -481,7 +481,7 @@ export function BoardView() {
           </div>
 
           {/* Board grid — scrollable */}
-          <div className="flex-1 overflow-auto min-h-0">
+          <div className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken">
             {/* Sticky column headers */}
             <div
               className="grid gap-2 px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10"

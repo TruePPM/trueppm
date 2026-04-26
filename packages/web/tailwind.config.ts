@@ -51,6 +51,8 @@ const config: Config = {
           'surface-raised': 'rgb(var(--chrome-surface-raised) / <alpha-value>)',
           'text-primary':   'rgb(var(--chrome-text-primary) / <alpha-value>)',
           'text-secondary': 'rgb(var(--chrome-text-secondary) / <alpha-value>)',
+          // Subtle chrome divider: rgba(0,0,0,0.08) in light, rgba(255,255,255,0.08) in dark
+          border:           'rgb(var(--chrome-border) / <alpha-value>)',
         },
         // Dark Gantt surface tokens (rule 40/41). These must be defined here before any
         // component references bg-gantt-surface or gantt-text-* — Tailwind silently
