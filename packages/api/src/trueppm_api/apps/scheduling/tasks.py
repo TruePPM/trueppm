@@ -460,6 +460,12 @@ def _run_schedule(
         db_task.total_float = sched.total_float.days if sched.total_float else None
         db_task.free_float = sched.free_float.days if sched.free_float else None
         db_task.is_critical = sched.is_critical
+        # For summary tasks, overwrite duration with the calendar-day span so the
+        # API returns a meaningful value for the Gantt duration column. The CPM
+        # engine never reads duration on summary tasks (they are excluded from the
+        # leaf pass), so updating this field has no effect on schedule correctness.
+        if str(db_task.id) in summary_ids and db_task.early_start and db_task.early_finish:
+            db_task.duration = max(1, (db_task.early_finish - db_task.early_start).days)
         tasks_to_update.append(db_task)
 
     Task.objects.bulk_update(
@@ -472,6 +478,7 @@ def _run_schedule(
             "total_float",
             "free_float",
             "is_critical",
+            "duration",
         ],
     )
 

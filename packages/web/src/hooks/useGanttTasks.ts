@@ -63,14 +63,35 @@ function mapTask(t: ApiTask): Task {
   const e = t.early_start;
   const start = (p && e) ? (p >= e ? p : e) : (p ?? e ?? '');
 
-  // Derive finish from start + duration rather than early_finish directly.
+  // Summary tasks: start/finish always come from CPM rollup (early_start / early_finish).
+  // Duration is also CPM-derived (calendar-day span written back by the scheduler).
+  // We must not compute finish from duration here — the stored duration may be stale
+  // before the first CPM run, or the span may not match the stored working-day count.
+  //
+  // Leaf tasks: derive finish from start + duration rather than early_finish directly.
   // early_finish is only updated after CPM runs; using start + duration means
   // the bar width is always consistent with the duration the user just set.
-  const finish = (start && t.duration > 0)
-    ? new Date(
-        new Date(start + 'T00:00:00Z').getTime() + t.duration * 86_400_000,
-      ).toISOString().slice(0, 10)
-    : (t.early_finish ?? '');
+  const finish = t.is_summary
+    ? (t.early_finish ?? '')
+    : (start && t.duration > 0)
+      ? new Date(
+          new Date(start + 'T00:00:00Z').getTime() + t.duration * 86_400_000,
+        ).toISOString().slice(0, 10)
+      : (t.early_finish ?? '');
+
+  // For summary tasks that have CPM dates, compute a display duration as the
+  // calendar-day span. This matches what the backend writes back during CPM so
+  // both representations stay consistent.
+  const displayDuration =
+    t.is_summary && t.early_start && t.early_finish
+      ? Math.max(
+          1,
+          Math.round(
+            (new Date(t.early_finish).getTime() - new Date(t.early_start).getTime()) /
+              86_400_000,
+          ),
+        )
+      : t.duration;
 
   return {
     id: t.id,
@@ -78,7 +99,7 @@ function mapTask(t: ApiTask): Task {
     name: t.name,
     start,
     finish,
-    duration: t.duration,
+    duration: displayDuration,
     progress: t.percent_complete,
     parentId: t.parent_id,
     isCritical: t.is_critical,
