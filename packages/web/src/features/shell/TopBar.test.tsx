@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { useThemeStore } from '@/stores/themeStore';
+import { FIXTURE_SHELL_STATS } from '@/fixtures/shellStats';
 import { TopBar } from './TopBar';
 
 // ViewTabs hides itself when there is no :projectId in the URL path (ADR-0030).
@@ -10,6 +11,16 @@ import { TopBar } from './TopBar';
 // route where useParams() is empty.
 vi.mock('@/hooks/useProjectId', () => ({
   useProjectId: () => 'test-project-id',
+}));
+
+// useShellStats now calls the real API — stub with fixture data for unit tests.
+vi.mock('@/hooks/useShellStats', () => ({
+  useShellStats: () => ({ data: FIXTURE_SHELL_STATS, isLoading: false, error: null }),
+}));
+
+// useProjectPresence calls the presence API — stub with empty list for unit tests.
+vi.mock('@/hooks/useProjectPresence', () => ({
+  useProjectPresence: () => [],
 }));
 
 beforeEach(() => {

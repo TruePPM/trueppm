@@ -1,6 +1,15 @@
+import { execSync } from 'child_process';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
+
+const buildSha = (() => {
+  try {
+    return execSync('git rev-parse --short HEAD').toString().trim();
+  } catch {
+    return 'dev';
+  }
+})();
 
 // API_URL (no VITE_ prefix) is the server-side proxy target used only by
 // the Vite dev server — it is never exposed to the browser bundle.
@@ -15,6 +24,9 @@ const wsUrl = apiUrl.replace(/^http/, 'ws');
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __BUILD_SHA__: JSON.stringify(buildSha),
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),

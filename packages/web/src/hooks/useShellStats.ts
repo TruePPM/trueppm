@@ -1,7 +1,6 @@
-// TODO: The GET /projects/{id}/shell-stats/ endpoint does not exist in the API yet.
-// Keeping the stub until the endpoint is implemented. See issue tracker for the
-// backend task to add this endpoint to the ProjectViewSet.
-import { FIXTURE_SHELL_STATS } from '@/fixtures/shellStats';
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/api/client';
+import { useProjectId } from '@/hooks/useProjectId';
 import type { ShellStats } from '@/types';
 
 export interface UseShellStatsResult {
@@ -10,12 +9,54 @@ export interface UseShellStatsResult {
   error: Error | null;
 }
 
+interface StatusSummaryResponse {
+  task_count: number;
+  critical_path_count: number;
+  monte_carlo_p80: string | null;
+  at_risk_count: number;
+  critical_count: number;
+  at_risk_tasks: { id: string; name: string; wbs: string }[];
+  critical_tasks: { id: string; name: string; wbs: string }[];
+  last_saved: string | null;
+  recalculated_at: string | null;
+}
+
+function toShellStats(r: StatusSummaryResponse): ShellStats {
+  return {
+    taskCount: r.task_count,
+    criticalPathCount: r.critical_path_count,
+    monteCarlop80: r.monte_carlo_p80,
+    atRiskCount: r.at_risk_count,
+    criticalCount: r.critical_count,
+    atRiskTasks: r.at_risk_tasks,
+    criticalTasks: r.critical_tasks,
+    onlineUsers: 0,
+    lastSaved: r.last_saved,
+    recalculatedAt: r.recalculated_at,
+  };
+}
+
 /**
- * Fetch project shell stats (health summary, task counts, schedule variance).
+ * Fetch project health summary from GET /projects/{id}/status-summary/.
  *
- * @stub Returns fixture data; GET /projects/{id}/shell-stats/ is not yet implemented.
- * Replace the body with a real useQuery call when the endpoint is added.
+ * Returns task counts, at-risk/critical signals, and schedule recency data
+ * in a single request so the TopBar avoids waterfall fetches.
  */
 export function useShellStats(): UseShellStatsResult {
-  return { data: FIXTURE_SHELL_STATS, isLoading: false, error: null };
+  const projectId = useProjectId();
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['shellStats', projectId],
+    queryFn: async () => {
+      const resp = await apiClient.get<StatusSummaryResponse>(
+        `/projects/${projectId}/status-summary/`,
+      );
+      return toShellStats(resp.data);
+    },
+    enabled: Boolean(projectId),
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+
+  return { data, isLoading, error: error as Error | null };
 }

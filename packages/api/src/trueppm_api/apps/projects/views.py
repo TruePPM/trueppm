@@ -371,6 +371,81 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             }
         )
 
+    @action(detail=True, methods=["get"], url_path="status-summary")
+    def status_summary(self, request: Request, pk: str | None = None) -> Response:
+        """Project health summary for the TopBar and StatusBar shell components.
+
+        Returns task counts, health signals, and recency metadata in a single
+        request so the shell avoids waterfall fetches on every project view.
+
+        At-risk: incomplete tasks with total_float <= 5 working days (or
+        negative float, which means already late).
+        Critical: incomplete tasks where is_critical=True.
+
+        P80 is omitted (null) until a Monte Carlo result store is added — the
+        front-end falls back to "P80: —" when the field is null.
+        """
+        project = self.get_object()
+        incomplete_tasks = project.tasks.filter(  # type: ignore[union-attr]
+            is_deleted=False,
+        ).exclude(status=TaskStatus.COMPLETE)
+
+        task_count = project.tasks.filter(is_deleted=False).count()  # type: ignore[union-attr]
+
+        at_risk_qs = (
+            incomplete_tasks.filter(
+                total_float__isnull=False,
+                total_float__lte=5,
+            )
+            .order_by("total_float", "wbs_path")
+            .values("id", "name", "wbs_path")[:5]
+        )
+        at_risk_tasks = [
+            {"id": str(t["id"]), "name": t["name"], "wbs": t["wbs_path"]} for t in at_risk_qs
+        ]
+        at_risk_count = incomplete_tasks.filter(
+            total_float__isnull=False,
+            total_float__lte=5,
+        ).count()
+
+        critical_qs = (
+            incomplete_tasks.filter(is_critical=True)
+            .order_by("wbs_path")
+            .values("id", "name", "wbs_path")[:5]
+        )
+        critical_tasks = [
+            {"id": str(t["id"]), "name": t["name"], "wbs": t["wbs_path"]} for t in critical_qs
+        ]
+        critical_count = incomplete_tasks.filter(is_critical=True).count()
+
+        last_saved = (
+            project.tasks.filter(is_deleted=False)  # type: ignore[union-attr]
+            .order_by("-updated_at")
+            .values_list("updated_at", flat=True)
+            .first()
+        )
+        recalculated_at = (
+            project.tasks.filter(is_deleted=False, early_start__isnull=False)  # type: ignore[union-attr]
+            .order_by("-updated_at")
+            .values_list("updated_at", flat=True)
+            .first()
+        )
+
+        return Response(
+            {
+                "task_count": task_count,
+                "critical_path_count": critical_count,
+                "monte_carlo_p80": None,
+                "at_risk_count": at_risk_count,
+                "critical_count": critical_count,
+                "at_risk_tasks": at_risk_tasks,
+                "critical_tasks": critical_tasks,
+                "last_saved": last_saved.isoformat() if last_saved else None,
+                "recalculated_at": recalculated_at.isoformat() if recalculated_at else None,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     """CRUD for tasks within a project.

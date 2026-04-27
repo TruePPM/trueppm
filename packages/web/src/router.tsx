@@ -18,8 +18,8 @@ import { RiskRegisterView } from '@/features/risk/RiskRegisterView';
 import { ResourcesPage } from '@/features/resources/ResourcesPage';
 
 /**
- * Redirects to the first project's overview when landing on `/` with no project
- * selected. Shows a neutral message while the project list loads.
+ * Redirects to the first project's board when landing on `/` with no project
+ * selected. Board is the canonical planning surface — first tab, default view.
  */
 function RootRedirect() {
   const { data: projects, isLoading } = useProjects();
@@ -29,7 +29,7 @@ function RootRedirect() {
     if (isLoading || !projects) return;
     const first = projects[0];
     if (first) {
-      void navigate(`/projects/${first.id}/overview`, { replace: true });
+      void navigate(`/projects/${first.id}/board`, { replace: true });
     }
   }, [projects, isLoading, navigate]);
 

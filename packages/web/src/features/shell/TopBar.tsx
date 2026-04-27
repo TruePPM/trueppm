@@ -97,10 +97,11 @@ export function TopBar({ onHamburgerClick }: Props) {
 
       {/* Badges — pushed to the right */}
       <div className="ml-auto flex items-center gap-2">
-        {/* P80 badge — desktop only; mobile sees it in StatusBar (issue #33) */}
+        {/* P80 badge — desktop only (issue #33 / #205). Outlined pill with
+            at-risk semantic fill so the metric reads as a soft warning.     */}
         {stats?.monteCarlop80 && (
           <span
-            className="hidden md:flex items-center gap-1 px-2 py-0.5 rounded border border-semantic-at-risk/80 bg-transparent text-xs font-medium text-semantic-at-risk"
+            className="hidden md:flex items-center gap-1 h-6 px-2 rounded border border-semantic-at-risk/80 bg-semantic-at-risk-bg text-[12px] font-medium text-semantic-at-risk"
             aria-label={`Monte Carlo P80 completion: ${stats.monteCarlop80}`}
           >
             P80:{' '}

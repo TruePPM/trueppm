@@ -26,6 +26,12 @@ These rules are enforced at review time. Violations block merge.
    - Unknown → `text-neutral-text-disabled`
 8. **No custom hex colors in components** — always use Design System tokens from `tailwind.config.ts`
 
+8a. **`--chrome-*` tokens are for fixed UI furniture** (sidebar, Schedule task-list panel, TopBar) that follows the active theme. `--neutral-*` tokens are for page content surfaces. Use `bg-chrome-surface` on shell chrome, `bg-neutral-surface` on content areas. Both adapt with the `.dark` class on `<html>`. In dark mode `--chrome-surface` equals the legacy `gantt-surface` deep navy (#0F1117). Chrome tokens: `surface`, `surface-raised`, `border`, `text-primary`, `text-secondary`, `row-hover`, `row-active`, `grid`.
+
+8b. **`--sem-*-bg` tokens are for badge pill fills and status cards** — `bg-semantic-critical-bg`, `bg-semantic-at-risk-bg`, `bg-semantic-on-track-bg`, `bg-semantic-warning-bg`. These are pre-computed RGBA values so they cannot be combined with Tailwind's opacity modifier. Always pair with the matching full semantic token for text/border (e.g. `border-semantic-at-risk/80 bg-semantic-at-risk-bg text-semantic-at-risk`).
+
+8c. **`.tppm-mono` applies JetBrains Mono with tabular numerals** — use it on every numeric value: KPIs, percentages, dates, durations, counts, build hashes. It is defined as a Tailwind utility in `globals.css` and maps to `font-family: 'JetBrains Mono'; font-feature-settings: "tnum"`.
+
 ## Code Conventions
 
 9. **No default exports** — all components use named exports
@@ -82,9 +88,9 @@ These rules are enforced at review time. Violations block merge.
 
 43. **Gantt column layout** — the task list has five resizable columns: **Task** (name + WBS indent), **Dur** (duration in days, e.g. `14d`), **Start** (early start, e.g. `Apr 9`), **Finish** (early finish, e.g. `Apr 21`), **%** (progress, text only — no mini bar). Column widths are persisted in localStorage under `trueppm.gantt.columnWidths.v4`. Default widths: task=220, dur=52, start=74, finish=74, progress=44. Full-height `border-r border-neutral-border/20` dividers appear on Task, Dur, Start, and Finish columns; the header resize-handle indicator is right-aligned within its hit zone to align with the row borders. Dur/Start/Finish/% visibility is persisted in localStorage under `trueppm.gantt.columnVisibility.v1` and toggled via the Columns popover in the toolbar.
 
-44. **StatusBar legend has exactly four items** in this order: ● Complete (`semantic-on-track`) · ● In progress (`brand-primary`) · ● Critical path (`semantic-critical`) · ◆ Milestone (`brand-accent`). All four items must include a visible text label — shape or color alone fails WCAG 1.4.1. The ◆ character must be `aria-hidden="true"`; the text label carries the meaning for screen readers. Legend item order and copy are frozen; changes require a design rule update.
+44. **StatusBar layout** (issue #201 — overrides the old Gantt-legend footer design): 24px height, `bg-neutral-surface-sunken border-t border-neutral-border`, `hidden md:flex`. Three regions left-to-right: (1) live dot (`bg-semantic-on-track`) + `Live · {N} online` count from `useProjectPresence`; (2) `build {sha}` in `.tppm-mono` from the `__BUILD_SHA__` compile-time constant; (3) spacer + status note `{project.name} · {activeView}` in `.tppm-mono`. Hidden on Login (not inside AppShell) and on viewports < 768px.
 
-45. **StatusBar copy**: last-saved format is `Last saved: {N} min ago` / `Last saved: just now` (spell out "min", not "m"; omit "s" — US English convention). Online users: `{n} users online` with a `w-1.5 h-1.5 bg-semantic-on-track rounded-full aria-hidden="true"` dot. Online count is visible from `lg` (1024px) using `hidden lg:flex` — not `2xl:contents`. The StatusBar must distinguish data-entry save from CPM engine recalculation: "Last saved" refers to the most recent task edit; a separate "Recalculated: {time}" indicator covers the scheduling engine.
+45. **StatusBar text size is `text-[11px]`** — this is a deliberate override of the 12px floor (rule 50) for the status bar only. 11px matches the design spec for this single component; do not apply `text-[11px]` elsewhere. The exception is documented here because the design system floor is 12px everywhere else.
 
 46. **Focus rings in the Schedule view** use `focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface` — same as the global rule 4 pattern. No special dark-surface override needed.
 
@@ -94,7 +100,7 @@ These rules are enforced at review time. Violations block merge.
 
 49. **Critical-path red requires a plain-English tooltip** — `title="This task is on the critical path — a delay here delays the project end date"` on every red task row. Color alone (WCAG 1.4.1) and a legend entry are insufficient for first-time users; the tooltip is the accessible fallback.
 
-50. **`text-[10px]` is prohibited** — the design system floor is `text-xs` (12px). Arbitrary size values below 12px bypass the token ladder and introduce WCAG 1.4.3 failures on any surface.
+50. **`text-[10px]` is prohibited** — the design system floor is `text-xs` (12px). Arbitrary size values below 12px bypass the token ladder and introduce WCAG 1.4.3 failures on any surface. Exception: `text-[11px]` is permitted in the global StatusBar only (rule 45 documents the rationale).
 
 ## Keyboard Reschedule Rules (Issue #34)
 

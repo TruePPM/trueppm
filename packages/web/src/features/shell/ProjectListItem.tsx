@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { NavLink, useLocation, useParams } from 'react-router';
 import type { Project, HealthState } from '@/types';
 
@@ -8,14 +9,32 @@ const HEALTH_LABELS: Record<HealthState, string> = {
   unknown: 'Unknown',
 };
 
-// Chrome surface health colors — use semantic-* tokens which satisfy WCAG 4.5:1
-// on the light chrome surface (#F8F7F3). In dark mode the CSS variables flip and
-// these tokens remain valid. See issue #180.
 const HEALTH_COLORS: Record<HealthState, string> = {
   'on-track': 'text-semantic-on-track',
   'at-risk': 'text-semantic-at-risk',
   critical: 'text-semantic-critical',
   unknown: 'text-neutral-text-disabled',
+};
+
+// 7px health dot with 2px halo at 20% alpha — design spec (#200).
+// CSS custom properties in boxShadow resolve at paint time, so dark-mode
+// semantic color flips are picked up automatically.
+const HEALTH_DOT_STYLE: Record<HealthState, CSSProperties> = {
+  'on-track': {
+    backgroundColor: 'rgb(var(--semantic-on-track))',
+    boxShadow: '0 0 0 2px rgb(var(--semantic-on-track) / 0.20)',
+  },
+  'at-risk': {
+    backgroundColor: 'rgb(var(--semantic-at-risk))',
+    boxShadow: '0 0 0 2px rgb(var(--semantic-at-risk) / 0.20)',
+  },
+  critical: {
+    backgroundColor: 'rgb(var(--semantic-critical))',
+    boxShadow: '0 0 0 2px rgb(var(--semantic-critical) / 0.20)',
+  },
+  unknown: {
+    backgroundColor: 'rgb(var(--neutral-text-disabled))',
+  },
 };
 
 interface Props {
@@ -54,10 +73,11 @@ export function ProjectListItem({ project, collapsed }: Props) {
         aria-label={collapsed ? `${project.name} — ${HEALTH_LABELS[project.healthState]}` : undefined}
         aria-current={isThisProject ? 'page' : undefined}
       >
-        {/* 8px color dot — aria-hidden; health conveyed via label or text below */}
+        {/* 7px health dot with 2px halo — color encodes health state (#200).
+            aria-hidden; state is conveyed by label text below or aria-label. */}
         <span
-          className="w-2 h-2 rounded-full flex-shrink-0"
-          style={{ backgroundColor: project.colorDot }}
+          className="rounded-full flex-shrink-0"
+          style={{ width: '7px', height: '7px', ...HEALTH_DOT_STYLE[project.healthState] }}
           aria-hidden="true"
         />
         {!collapsed && (

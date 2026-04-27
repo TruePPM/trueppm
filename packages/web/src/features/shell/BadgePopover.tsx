@@ -33,12 +33,12 @@ export function BadgePopover({ label, count, items, colorVariant, icon, onItemCl
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  // /40 opacity yields 1.92:1 and 2.04:1 — fails WCAG 1.4.11 (need ≥3:1).
-  // /80 yields ~4.25:1+ against white, passing 3:1 threshold. (rule 39)
+  // /80 border yields ~4.25:1+ against white, passing WCAG 3:1 (rule 39, #205).
+  // bg-semantic-*-bg provides the spec tint fill; text uses the full semantic token.
   const colorClasses =
     colorVariant === 'at-risk'
-      ? 'border-semantic-at-risk/80 text-semantic-at-risk'
-      : 'border-semantic-critical/80 text-semantic-critical';
+      ? 'border-semantic-at-risk/80 bg-semantic-at-risk-bg text-semantic-at-risk'
+      : 'border-semantic-critical/80 bg-semantic-critical-bg text-semantic-critical';
 
   // Outside-click dismiss
   useEffect(() => {
@@ -77,7 +77,7 @@ export function BadgePopover({ label, count, items, colorVariant, icon, onItemCl
         aria-label={label}
         onClick={() => setIsOpen((o) => !o)}
         onKeyDown={handleKeyDown}
-        className={`flex items-center gap-1 px-2 py-0.5 rounded border bg-transparent text-xs font-medium
+        className={`flex items-center gap-1 h-6 px-2 rounded border text-[12px] font-medium
           min-h-[44px] min-w-[44px] justify-center
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
           ${colorClasses}`}
