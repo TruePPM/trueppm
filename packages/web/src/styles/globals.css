@@ -14,7 +14,7 @@
   html, body {
     font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
     color: theme('colors.neutral.text-primary');
-    background-color: rgb(var(--chrome-surface));
+    background-color: rgb(var(--neutral-surface));
   }
 
   /* ── Neutral content surface tokens ───────────────────────────────────────

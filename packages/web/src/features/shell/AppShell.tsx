@@ -54,8 +54,10 @@ export function AppShell() {
             <Sidebar />
           </div>
 
-          {/* Main content area */}
-          <main className="flex-1 min-w-0 overflow-auto bg-chrome-surface">
+          {/* Main content area — neutral-surface, not chrome-surface.
+              Chrome surface is reserved for navigation shell (sidebar, topbar).
+              Content views render on the lighter neutral-surface background. */}
+          <main className="flex-1 min-w-0 overflow-auto bg-neutral-surface">
             <Outlet />
           </main>
         </div>
