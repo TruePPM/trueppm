@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test';
  *
  * Extends the view-mode switching covered in gantt.spec.ts with:
  * - Board view navigation and column rendering
- * - Round-trip switching (Gantt → WBS → Board → Table → Gantt)
+ * - Round-trip switching (Schedule → WBS → Board → Table → Schedule)
  * - URL reflects the active view so deep links work
  *
  * These run against the production build with intercepted API routes.
@@ -131,16 +131,16 @@ async function setup(page: import('@playwright/test').Page) {
 test.describe('View switching', () => {
   test.beforeEach(async ({ page }) => {
     await setup(page);
-    // Start on Gantt — path-based routing (ADR-0030)
-    await page.goto(`${BASE_URL}/gantt`);
-    // Wait for the Gantt to be ready before switching views.
+    // Start on Schedule — path-based routing (ADR-0030)
+    await page.goto(`${BASE_URL}/schedule`);
+    // Wait for the Schedule view to be ready before switching views.
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
-  test('Schedule tab is active when on /gantt URL and URL reflects it', async ({ page }) => {
+  test('Schedule tab is active when on /schedule URL and URL reflects it', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
     await expect(nav.getByRole('link', { name: 'Schedule' })).toHaveAttribute('aria-current', 'page');
-    expect(page.url()).toMatch(/\/gantt$/);
+    expect(page.url()).toMatch(/\/schedule$/);
   });
 
   test('navigate to WBS — treegrid renders and URL updates', async ({ page }) => {
@@ -165,7 +165,7 @@ test.describe('View switching', () => {
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
   });
 
-  test('round-trip Gantt → WBS → Board → Table → Gantt', async ({ page }) => {
+  test('round-trip Schedule → WBS → Board → Table → Schedule', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
 
     await nav.getByRole('link', { name: 'WBS' }).click();
@@ -178,7 +178,7 @@ test.describe('View switching', () => {
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
 
     await nav.getByRole('link', { name: 'Schedule' }).click();
-    await expect(page).toHaveURL(/\/gantt$/);
+    await expect(page).toHaveURL(/\/schedule$/);
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
   });
 

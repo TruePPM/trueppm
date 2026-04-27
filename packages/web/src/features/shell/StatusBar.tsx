@@ -7,7 +7,7 @@ declare const __BUILD_SHA__: string;
 
 const VIEW_LABELS: Record<string, string> = {
   board:     'Board',
-  gantt:     'Schedule',
+  schedule:  'Schedule',
   wbs:       'WBS',
   list:      'Table',
   calendar:  'Calendar',
