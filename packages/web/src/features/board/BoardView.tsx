@@ -13,7 +13,7 @@
  * WIP limits, progress rings, entry stamps, and CP badges are spec-defined
  * features from the design doc (p3m-vs-oss-views-original.html § ⑤).
  */
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useRef, useCallback, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import {
   DndContext,
@@ -275,8 +275,7 @@ function PhaseLane({
 
   // Keyboard [ / ] shortcuts collapse/expand the focused lane (issue #190).
   // Skip when focus is inside a form element to avoid capturing text input.
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
+  const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLButtonElement>) => {
     if (e.key === '[' && !collapsed) { e.preventDefault(); onToggleCollapse(); }
     if (e.key === ']' && collapsed) { e.preventDefault(); onToggleCollapse(); }
   }, [collapsed, onToggleCollapse]);
@@ -285,6 +284,7 @@ function PhaseLane({
     <button
       type="button"
       onClick={onToggleCollapse}
+      onKeyDown={handleKeyDown}
       className="flex-shrink-0 text-neutral-text-secondary text-xs select-none
         focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
       aria-expanded={!collapsed}
@@ -297,8 +297,9 @@ function PhaseLane({
 
   return (
     <div
+      role="group"
+      aria-label={`${phase.name} swimlane`}
       className="border-b border-neutral-border/60 last:border-b-0"
-      onKeyDown={handleKeyDown}
     >
       <div
         id={`phase-${phase.id}-content`}
