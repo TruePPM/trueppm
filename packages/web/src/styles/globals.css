@@ -9,30 +9,74 @@
     background-color: rgb(var(--chrome-surface));
   }
 
-  /* Chrome tokens — sidebar and Gantt panel surfaces.
-     Light mode uses a warm off-white that reads as chrome (not content). Dark mode
-     preserves the legacy gantt-surface deep navy. Both modes satisfy WCAG 4.5:1 on
-     their respective primary text tokens.
-     Overrides the always-dark rule 35 from packages/web/CLAUDE.md (issue #180). */
+  /* ── Neutral content surface tokens ───────────────────────────────────────
+     CSS custom properties let a single .dark class on <html> swap all
+     neutral.* Tailwind tokens without touching any component class lists.
+     Light values match the hex literals previously in tailwind.config.ts.
+     Dark values from the high-res mockup design (mockups.html, issue #163).   */
   :root {
-    --chrome-surface:         248 247 243;   /* rgb(248 247 243) — warm off-white */
-    --chrome-surface-raised:  238 236 230;
-    --chrome-border:          0 0 0;         /* used as rgba(0 0 0 / 0.08) */
-    --chrome-border-opacity:  0.08;
-    --chrome-text-primary:    26 25 23;      /* #1A1917 — 16.1:1 on chrome-surface */
-    --chrome-text-secondary:  107 105 101;   /* #6B6965 — 4.63:1 on chrome-surface */
-    --chrome-row-hover-opacity:   0.04;
-    --chrome-row-active-opacity:  0.10;
-    --chrome-row-active-color:    28 107 58; /* brand-primary rgb */
+    --neutral-surface:         255 255 255;   /* #FFFFFF */
+    --neutral-surface-raised:  245 245 240;   /* #F5F5F0 */
+    --neutral-surface-sunken:  235 235 235;   /* #EBEBEB */
+    --neutral-border:          212 210 206;   /* #D4D2CE */
+    --neutral-text-primary:    26 25 23;      /* #1A1917 */
+    --neutral-text-secondary:  107 105 101;   /* #6B6965 — 4.63:1 on white */
+    --neutral-text-disabled:   160 157 153;   /* #A09D99 */
+    --neutral-text-inverse:    255 255 255;   /* #FFFFFF */
   }
 
   .dark {
-    --chrome-surface:         15 17 23;      /* #0F1117 — legacy gantt-surface */
-    --chrome-surface-raised:  22 25 36;
-    --chrome-border:          255 255 255;
-    --chrome-border-opacity:  0.08;
-    --chrome-text-primary:    232 232 232;   /* #E8E8E8 — 15.3:1 on chrome-surface */
-    --chrome-text-secondary:  148 163 184;   /* Slate-400 — 7.45:1 on #0F1117 */
+    --neutral-surface:         18 20 30;      /* #12141E */
+    --neutral-surface-raised:  26 29 42;      /* #1A1D2A */
+    --neutral-surface-sunken:  12 14 22;      /* #0C0E16 */
+    --neutral-border:          50 55 80;      /* #323750 */
+    --neutral-text-primary:    232 232 232;   /* #E8E8E8 — 15.3:1 on surface */
+    --neutral-text-secondary:  148 163 184;   /* #94A3B8 — 7.45:1 on surface */
+    --neutral-text-disabled:   100 116 139;   /* #64748B */
+    --neutral-text-inverse:    26 25 23;      /* #1A1917 */
+  }
+
+  /* ── Semantic status tokens ───────────────────────────────────────────────
+     Light values are WCAG AA on white. Dark values use the lighter palette
+     (matching gantt-semantic-*) required for WCAG AA on the dark surface.   */
+  :root {
+    --semantic-critical:  185 28 28;    /* #B91C1C */
+    --semantic-warning:   217 119 6;    /* #D97706 */
+    --semantic-on-track:  22 101 52;    /* #166534 */
+    --semantic-at-risk:   146 64 14;    /* #92400E */
+  }
+
+  .dark {
+    --semantic-critical:  248 113 113;  /* #F87171 — Red-400, 4.87:1 on dark surface */
+    --semantic-warning:   251 146 60;   /* #FB923C — Orange-400 */
+    --semantic-on-track:  74 222 128;   /* #4ADE80 — Green-400, 5.28:1 on dark surface */
+    --semantic-at-risk:   251 146 60;   /* #FB923C — Orange-400 */
+  }
+
+  /* ── Chrome tokens — sidebar and Gantt panel surfaces ────────────────────
+     Light mode uses a warm off-white that reads as chrome (not content). Dark
+     mode preserves the legacy gantt-surface deep navy. Both modes satisfy
+     WCAG 4.5:1 on their respective primary text tokens.
+     Overrides the always-dark rule 35 from packages/web/CLAUDE.md (#180).   */
+  :root {
+    --chrome-surface:             248 247 243;   /* rgb(248 247 243) — warm off-white */
+    --chrome-surface-raised:      238 236 230;
+    --chrome-border:              0 0 0;         /* used as rgba(0 0 0 / 0.08) */
+    --chrome-border-opacity:      0.08;
+    --chrome-text-primary:        26 25 23;      /* #1A1917 — 16.1:1 on chrome-surface */
+    --chrome-text-secondary:      107 105 101;   /* #6B6965 — 4.63:1 on chrome-surface */
+    --chrome-row-hover-opacity:   0.04;
+    --chrome-row-active-opacity:  0.10;
+    --chrome-row-active-color:    28 107 58;     /* brand-primary rgb */
+  }
+
+  .dark {
+    --chrome-surface:             15 17 23;      /* #0F1117 — legacy gantt-surface */
+    --chrome-surface-raised:      22 25 36;
+    --chrome-border:              255 255 255;
+    --chrome-border-opacity:      0.08;
+    --chrome-text-primary:        232 232 232;   /* #E8E8E8 — 15.3:1 on chrome-surface */
+    --chrome-text-secondary:      148 163 184;   /* Slate-400 — 7.45:1 on #0F1117 */
     --chrome-row-hover-opacity:   0.05;
     --chrome-row-active-opacity:  0.08;
     --chrome-row-active-color:    255 255 255;

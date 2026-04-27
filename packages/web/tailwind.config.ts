@@ -2,6 +2,7 @@ import type { Config } from 'tailwindcss';
 
 const config: Config = {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
+  darkMode: 'class',
   theme: {
     // Custom breakpoints matching Design System v1.0 §7.
     // NOTE: sm overrides Tailwind's default 640px — intentional for mobile-first design.
@@ -24,22 +25,24 @@ const config: Config = {
           'accent-dark': '#C17A10',
           'accent-light': '#FFF3CD',
         },
+        // Neutral content surface tokens — driven by CSS custom properties in
+        // globals.css so a single .dark class on <html> swaps all values.
         neutral: {
-          surface: '#FFFFFF',
-          'surface-raised': '#F5F5F0',
-          'surface-sunken': '#EBEBEB',
-          border: '#D4D2CE',
-          'text-primary': '#1A1917',
-          // WCAG AA: 4.63:1 contrast on white (corrected from #888780 which failed AA)
-          'text-secondary': '#6B6965',
-          'text-disabled': '#A09D99',
-          'text-inverse': '#FFFFFF',
+          surface:          'rgb(var(--neutral-surface) / <alpha-value>)',
+          'surface-raised': 'rgb(var(--neutral-surface-raised) / <alpha-value>)',
+          'surface-sunken': 'rgb(var(--neutral-surface-sunken) / <alpha-value>)',
+          border:           'rgb(var(--neutral-border) / <alpha-value>)',
+          'text-primary':   'rgb(var(--neutral-text-primary) / <alpha-value>)',
+          'text-secondary': 'rgb(var(--neutral-text-secondary) / <alpha-value>)',
+          'text-disabled':  'rgb(var(--neutral-text-disabled) / <alpha-value>)',
+          'text-inverse':   'rgb(var(--neutral-text-inverse) / <alpha-value>)',
         },
+        // Semantic status tokens — lighter variants in dark mode (see globals.css).
         semantic: {
-          critical: '#B91C1C',
-          warning: '#D97706',
-          'on-track': '#166534',
-          'at-risk': '#92400E',
+          critical:   'rgb(var(--semantic-critical) / <alpha-value>)',
+          warning:    'rgb(var(--semantic-warning) / <alpha-value>)',
+          'on-track': 'rgb(var(--semantic-on-track) / <alpha-value>)',
+          'at-risk':  'rgb(var(--semantic-at-risk) / <alpha-value>)',
         },
         // Chrome tokens — sidebar and Gantt panel surfaces (issue #180).
         // Light mode: warm off-white chrome that reads as shell, not content.
