@@ -57,8 +57,9 @@ export function RiskRegisterView() {
   return (
     <div className="flex h-full overflow-hidden bg-neutral-surface p-4 gap-4">
 
-      {/* Left card — risk matrix (desktop only) */}
-      <div className="hidden md:flex flex-col shrink-0 w-72 border border-neutral-border rounded-lg overflow-auto p-4 bg-neutral-surface-raised">
+      {/* Left card — risk matrix (desktop only). No fixed width: let the matrix
+          content dictate the card width (~324px) to avoid clipping the rightmost column. */}
+      <div className="hidden md:flex flex-col shrink-0 border border-neutral-border rounded-lg overflow-visible p-4 bg-neutral-surface-raised">
         {!isLoading && !error && <RiskMatrix risks={risks} />}
       </div>
 
