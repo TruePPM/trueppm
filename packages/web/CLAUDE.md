@@ -12,6 +12,7 @@ These rules are enforced at review time. Violations block merge.
 
 4. **Focus rings on all interactive elements**: `focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1`
    - On `bg-brand-primary` surfaces (sidebar): use `focus-visible:ring-white focus-visible:ring-offset-brand-primary`
+   - In dark mode on neutral surfaces: add `dark:focus-visible:ring-semantic-on-track` — `brand-primary` (#1C6B3A) is only 2.81:1 on dark surface (#12141E), failing WCAG 1.4.11. `semantic-on-track` (#4ADE80) achieves 5.28:1.
    - Never use `outline-none` without a visible replacement
 5. **Touch targets** — minimum 44×44px at all breakpoints
 6. **Color dots** (8px project color indicators) are always `aria-hidden="true"` — health state must also be conveyed via text or `aria-label`
@@ -299,12 +300,14 @@ These rules are enforced at review time. Violations block merge.
 ## Risk Register Rules
 
 86. **Risk severity color mapping** — always use these token pairs for severity labels and chips.
-    Never use ad-hoc colors. All combinations achieve WCAG 4.5:1 on `neutral-surface` (#FFFFFF):
-    - CRITICAL (20–25): `text-semantic-critical` on `bg-semantic-critical/10`
-    - HIGH (12–19): `text-brand-accent-dark` (#C17A10) on `bg-brand-accent-light` (#FFF3CD)
-    - MEDIUM (6–11): `text-neutral-text-primary` on `bg-brand-accent-light/50`
-    - LOW (2–5): `text-neutral-text-secondary` on `bg-neutral-surface-raised`
-    - MINIMAL (1): `text-neutral-text-secondary` on `bg-neutral-surface-sunken`
+    Never use ad-hoc colors. All combinations achieve WCAG 4.5:1 on `neutral-surface` (#FFFFFF).
+    Dark mode alternates are required — `bg-brand-accent-light` (#FFF3CD) is white and flashes in dark mode.
+    Light → Dark overrides:
+    - CRITICAL (20–25): `text-semantic-critical bg-semantic-critical/10` (semantic tokens adapt automatically via CSS vars)
+    - HIGH (12–19): `text-brand-accent-dark dark:text-brand-accent bg-brand-accent-light dark:bg-brand-accent/20`
+    - MEDIUM (6–11): `text-neutral-text-primary bg-brand-accent-light/50` (neutral tokens adapt via CSS vars)
+    - LOW (2–5): `text-neutral-text-secondary bg-neutral-surface-raised` (neutral tokens adapt via CSS vars)
+    - MINIMAL (1): `text-neutral-text-secondary bg-neutral-surface-sunken` (neutral tokens adapt via CSS vars)
     The severity chip is read-only in the UI — always computed from `probability × impact`.
 
 87. **`text-neutral-text-disabled` on `bg-neutral-surface-sunken` is prohibited** — this
@@ -313,13 +316,15 @@ These rules are enforced at review time. Violations block merge.
     This prohibition applies everywhere in the app, not only to risk register.
 
 88. **Risk matrix zone tokens live in `tailwind.config.ts` under `colors.risk`** — no hex
-    literals inside `RiskMatrix.tsx` or `RiskMatrixCell.tsx`. Required tokens:
+    literals inside `RiskMatrix.tsx` or `RiskMatrixCell.tsx`. Tokens reference CSS custom
+    properties defined in `globals.css` so dark mode automatically swaps to higher-opacity
+    values that remain legible on dark surfaces. Light / dark values:
     ```
-    risk.zone-critical: rgba(185, 28, 28, 0.08)
-    risk.zone-high:     rgba(232, 160, 32, 0.12)
-    risk.zone-medium:   rgba(232, 160, 32, 0.06)
-    risk.zone-low:      #F5F5F0  (neutral-surface-raised)
-    risk.zone-minimal:  #FFFFFF  (neutral-surface)
+    risk.zone-critical: rgba(185,28,28,0.08)   /  rgba(248,113,113,0.28)
+    risk.zone-high:     rgba(232,160,32,0.12)  /  rgba(251,146,60,0.22)
+    risk.zone-medium:   rgba(232,160,32,0.06)  /  rgba(251,191,36,0.16)
+    risk.zone-low:      rgb(245,245,240)        /  rgba(74,222,128,0.22)
+    risk.zone-minimal:  rgb(255,255,255)        /  rgba(74,222,128,0.08)
     ```
 
 89. **Risk detail opens as a drawer (desktop) / bottom sheet (mobile) — not a modal** —

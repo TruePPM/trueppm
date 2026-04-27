@@ -11,7 +11,7 @@ function getSeverityLevel(severity: number): SeverityLevel {
     return { label: 'CRITICAL', classes: 'text-semantic-critical bg-semantic-critical/10' };
   }
   if (severity >= 12) {
-    return { label: 'HIGH', classes: 'text-brand-accent-dark bg-brand-accent-light' };
+    return { label: 'HIGH', classes: 'text-brand-accent-dark dark:text-brand-accent bg-brand-accent-light dark:bg-brand-accent/20' };
   }
   if (severity >= 6) {
     return { label: 'MEDIUM', classes: 'text-neutral-text-primary bg-brand-accent-light/50' };

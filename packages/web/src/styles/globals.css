@@ -61,6 +61,27 @@
     --semantic-at-risk:   251 146 60;   /* #FB923C — Orange-400 */
   }
 
+  /* ── Risk matrix zone tokens ────────────────────────────────────────────
+     Light mode: subtle tints per severity band (rule 88).
+     Dark mode: higher-opacity variants against the dark surface so the zones
+     remain legible (low-alpha tints wash out on #12141E). Values chosen by
+     UX review to achieve visible differentiation while staying accessible.   */
+  :root {
+    --risk-zone-critical: rgba(185, 28, 28, 0.08);
+    --risk-zone-high:     rgba(232, 160, 32, 0.12);
+    --risk-zone-medium:   rgba(232, 160, 32, 0.06);
+    --risk-zone-low:      rgb(245, 245, 240);
+    --risk-zone-minimal:  rgb(255, 255, 255);
+  }
+
+  .dark {
+    --risk-zone-critical: rgba(248, 113, 113, 0.28);
+    --risk-zone-high:     rgba(251, 146, 60, 0.22);
+    --risk-zone-medium:   rgba(251, 191, 36, 0.16);
+    --risk-zone-low:      rgba(74, 222, 128, 0.22);
+    --risk-zone-minimal:  rgba(74, 222, 128, 0.08);
+  }
+
   /* ── Chrome tokens — sidebar and Gantt panel surfaces ────────────────────
      Light mode uses a warm off-white that reads as chrome (not content). Dark
      mode preserves the legacy gantt-surface deep navy. Both modes satisfy
@@ -89,4 +110,20 @@
     --chrome-row-active-opacity:  0.08;
     --chrome-row-active-color:    255 255 255;
   }
+}
+
+/* ── Gantt / Schedule view — always light surface (rule 40) ─────────────────
+   The canvas renderer uses hardcoded light-palette colors. This class resets
+   all neutral tokens to their light values regardless of the .dark class on
+   <html>, ensuring the task-list panel and canvas surface remain on white.   */
+.gantt-light-surface {
+  color-scheme: light;
+  --neutral-surface:         255 255 255;
+  --neutral-surface-raised:  245 245 240;
+  --neutral-surface-sunken:  235 235 235;
+  --neutral-border:          212 210 206;
+  --neutral-text-primary:    26 25 23;
+  --neutral-text-secondary:  107 105 101;
+  --neutral-text-disabled:   160 157 153;
+  --neutral-text-inverse:    255 255 255;
 }

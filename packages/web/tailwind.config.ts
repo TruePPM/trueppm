@@ -77,13 +77,14 @@ const config: Config = {
           fill:   'rgba(100, 116, 139, 0.12)',
           border: 'rgba(100, 116, 139, 0.55)',
         },
-        // Risk matrix zone tokens (rule 88). No hex literals inside RiskMatrix.tsx.
+        // Risk matrix zone tokens (rule 88). Values driven by CSS custom properties in
+        // globals.css so .dark on <html> swaps to higher-opacity dark-mode variants.
         risk: {
-          'zone-critical': 'rgba(185, 28, 28, 0.08)',
-          'zone-high':     'rgba(232, 160, 32, 0.12)',
-          'zone-medium':   'rgba(232, 160, 32, 0.06)',
-          'zone-low':      '#F5F5F0',
-          'zone-minimal':  '#FFFFFF',
+          'zone-critical': 'var(--risk-zone-critical)',
+          'zone-high':     'var(--risk-zone-high)',
+          'zone-medium':   'var(--risk-zone-medium)',
+          'zone-low':      'var(--risk-zone-low)',
+          'zone-minimal':  'var(--risk-zone-minimal)',
         },
       },
       fontFamily: {
