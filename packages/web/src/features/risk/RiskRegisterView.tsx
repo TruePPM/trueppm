@@ -2,18 +2,10 @@ import { useState } from 'react';
 import type { Risk } from '@/api/types';
 import { useRisks } from '@/hooks/useRisks';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProjects } from '@/hooks/useProjects';
 import { RiskChip } from './RiskChip';
 import { RiskMatrix } from './RiskMatrix';
 import { RiskDrawer } from './RiskDrawer';
-
-// Status badge styling — outlined pill (rule 39)
-const STATUS_CLASSES: Record<Risk['status'], string> = {
-  OPEN:       'border-neutral-border text-neutral-text-secondary',
-  MITIGATING: 'border-brand-primary/40 text-brand-primary',
-  RESOLVED:   'border-semantic-on-track/40 text-semantic-on-track',
-  ACCEPTED:   'border-semantic-at-risk/40 text-semantic-at-risk',
-  CLOSED:     'border-neutral-text-disabled/40 text-neutral-text-disabled',
-};
 
 const STATUS_LABELS: Record<Risk['status'], string> = {
   OPEN:       'Open',
@@ -23,14 +15,25 @@ const STATUS_LABELS: Record<Risk['status'], string> = {
   CLOSED:     'Closed',
 };
 
+/** Format a Risk's short_id for display: "00000007" → "R-007", "a3f1" → "R-A3F1". */
+function formatRiskId(shortId: string): string {
+  if (!shortId) return 'R-???';
+  if (/^\d+$/.test(shortId)) {
+    return `R-${String(parseInt(shortId, 10)).padStart(3, '0')}`;
+  }
+  return `R-${shortId.slice(0, 4).toUpperCase()}`;
+}
+
 export function RiskRegisterView() {
   const projectId = useProjectId() ?? '';
   const { risks, isLoading, error } = useRisks(projectId || null);
+  const { data: projects } = useProjects();
+  const [showHeatmap, setShowHeatmap] = useState(true);
 
-  // null   = drawer closed
-  // undefined = create mode (drawer open, no risk)
-  // Risk  = view/edit mode
+  // null = drawer closed, undefined = create mode, Risk = edit mode
   const [selectedRisk, setSelectedRisk] = useState<Risk | null | undefined>(null);
+
+  const projectName = projects?.find((p) => p.id === projectId)?.name ?? null;
 
   if (!projectId) {
     return (
@@ -41,142 +44,176 @@ export function RiskRegisterView() {
   }
 
   const isDrawerOpen = selectedRisk !== null;
+  const criticalCount = risks.filter((r) => r.severity >= 20).length;
+  const highCount     = risks.filter((r) => r.severity >= 12 && r.severity < 20).length;
 
-  function openCreate() {
-    setSelectedRisk(undefined);
-  }
-
-  function openRisk(risk: Risk) {
-    setSelectedRisk(risk);
-  }
-
-  function closeDrawer() {
-    setSelectedRisk(null);
-  }
+  function openCreate() { setSelectedRisk(undefined); }
+  function openRisk(risk: Risk) { setSelectedRisk(risk); }
+  function closeDrawer() { setSelectedRisk(null); }
 
   return (
-    <div className="flex h-full overflow-hidden bg-neutral-surface p-4 gap-4">
+    <div className="flex flex-col h-full overflow-hidden bg-neutral-surface">
 
-      {/* Left card — risk matrix (desktop only). No fixed width: let the matrix
-          content dictate the card width (~324px) to avoid clipping the rightmost column. */}
-      <div className="hidden md:flex flex-col shrink-0 border border-neutral-border rounded-lg overflow-visible p-4 bg-neutral-surface-raised">
-        {!isLoading && !error && <RiskMatrix risks={risks} />}
-      </div>
+      {/* ── Page header ──────────────────────────────────────────────────── */}
+      <header className="flex items-start justify-between gap-4 px-6 pt-5 pb-4 shrink-0">
+        {/* Breadcrumb + heading */}
+        <div className="min-w-0 flex flex-col gap-1">
+          <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
+            <span className="truncate">{projectName ?? 'Project'}</span>
+            <span aria-hidden="true" className="text-neutral-text-disabled">/</span>
+            <span>Risks</span>
+          </nav>
+          <h1 className="text-2xl font-semibold text-neutral-text-primary leading-tight">
+            Risk register
+          </h1>
+        </div>
 
-      {/* Right panel — toolbar + table */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        {/* Toolbar */}
-        <div className="flex items-center gap-3 px-4 pt-4 pb-3 shrink-0">
-          <h2 className="text-base font-semibold text-neutral-text-primary">Risks</h2>
-          {!isLoading && !error && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-              bg-neutral-surface-raised text-neutral-text-secondary border border-neutral-border">
-              {risks.length}
+        {/* Desktop toolbar — count chips + heatmap toggle + new risk */}
+        <div className="hidden md:flex items-center gap-2 shrink-0 pt-1">
+          {!isLoading && !error && criticalCount > 0 && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                bg-transparent border border-semantic-critical/40 text-semantic-critical"
+              aria-label={`${criticalCount} critical risk${criticalCount !== 1 ? 's' : ''}`}
+            >
+              {criticalCount} critical
             </span>
           )}
-          <div className="flex-1" />
-          {/* Add Risk button — desktop only (rule 90: mobile uses FAB) */}
+          {!isLoading && !error && highCount > 0 && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                bg-transparent border border-brand-accent-dark/40 dark:border-brand-accent/40
+                text-brand-accent-dark dark:text-brand-accent"
+              aria-label={`${highCount} high risk${highCount !== 1 ? 's' : ''}`}
+            >
+              {highCount} high
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={() => setShowHeatmap((v) => !v)}
+            aria-pressed={showHeatmap}
+            className="inline-flex items-center gap-1 h-8 px-3 rounded text-xs font-medium
+              border border-neutral-border text-neutral-text-primary bg-neutral-surface
+              hover:bg-neutral-surface-raised
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+              dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1"
+          >
+            Heatmap
+            <span aria-hidden="true" className="text-neutral-text-disabled text-[10px] leading-none mt-px">▾</span>
+          </button>
+
           <button
             type="button"
             onClick={openCreate}
-            className="hidden md:flex items-center gap-1.5 h-8 px-3 rounded text-sm font-medium
+            className="inline-flex items-center gap-1 h-8 px-3 rounded text-sm font-medium
               text-neutral-text-inverse bg-brand-primary border border-brand-primary-dark
               hover:bg-brand-primary-dark
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
               dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1"
           >
-            + Add Risk
+            + New risk
           </button>
         </div>
+      </header>
 
-        {/* Loading state — 3 skeleton rows */}
-        {isLoading && (
-          <div className="flex flex-col gap-1 px-4 pb-4" aria-label="Loading risks" aria-busy="true">
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className="h-11 rounded bg-neutral-surface-raised animate-pulse border border-neutral-border"
-                aria-hidden="true"
-              />
-            ))}
-          </div>
-        )}
+      {/* ── Two-column content ───────────────────────────────────────────── */}
+      <div className="flex-1 min-h-0 flex gap-4 px-6 pb-6 overflow-hidden">
 
-        {/* Error state */}
-        {!isLoading && error && (
-          <div
-            role="alert"
-            className="flex flex-col items-center justify-center gap-3 py-12 text-center px-4"
+        {/* Left — heatmap card (lg+, togglable) */}
+        {showHeatmap && (
+          <aside
+            className="hidden lg:flex flex-col shrink-0 w-[420px]
+              border border-neutral-border rounded-lg p-5
+              bg-neutral-surface-raised overflow-auto"
+            aria-label="Risk heatmap"
           >
-            <p className="text-sm text-semantic-critical">Failed to load risks.</p>
-            <button
-              type="button"
-              onClick={() => window.location.reload()}
-              className="h-8 px-3 rounded text-sm font-medium border border-neutral-border
-                text-neutral-text-secondary hover:text-neutral-text-primary
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1"
+            {isLoading && (
+              <div className="flex-1 rounded animate-pulse bg-neutral-border/30" aria-hidden="true" />
+            )}
+            {!isLoading && !error && <RiskMatrix risks={risks} />}
+          </aside>
+        )}
+
+        {/* Right — risk table */}
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+
+          {/* Loading */}
+          {isLoading && (
+            <div className="flex flex-col gap-1" aria-label="Loading risks" aria-busy="true">
+              {[0, 1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="h-14 rounded bg-neutral-surface-raised animate-pulse border border-neutral-border"
+                  aria-hidden="true"
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Error */}
+          {!isLoading && error && (
+            <div
+              role="alert"
+              className="flex flex-col items-center justify-center gap-3 py-16 text-center"
             >
-              Retry
-            </button>
-          </div>
-        )}
+              <p className="text-sm text-semantic-critical">Failed to load risks.</p>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="h-8 px-3 rounded text-sm font-medium border border-neutral-border
+                  text-neutral-text-secondary hover:text-neutral-text-primary
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                  dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1"
+              >
+                Retry
+              </button>
+            </div>
+          )}
 
-        {/* Empty state */}
-        {!isLoading && !error && risks.length === 0 && (
-          <div className="flex items-center justify-center py-16 px-4">
-            <p className="text-sm text-neutral-text-secondary">No risks recorded</p>
-          </div>
-        )}
+          {/* Empty */}
+          {!isLoading && !error && risks.length === 0 && (
+            <div className="flex flex-col items-center justify-center gap-3 py-16">
+              <p className="text-sm text-neutral-text-secondary">No risks recorded yet.</p>
+              <button
+                type="button"
+                onClick={openCreate}
+                className="text-sm text-brand-primary hover:underline
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                  dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1 rounded"
+              >
+                + Add your first risk
+              </button>
+            </div>
+          )}
 
-        {/* Risk table */}
-        {!isLoading && !error && risks.length > 0 && (
-          <div className="flex-1 overflow-auto px-4 pb-4">
-            <div className="border border-neutral-border rounded overflow-x-auto">
+          {/* Table */}
+          {!isLoading && !error && risks.length > 0 && (
+            <div className="flex-1 overflow-auto rounded-lg border border-neutral-border">
               <table className="w-full text-sm border-collapse">
-                <thead>
+                <thead className="sticky top-0 z-10">
                   <tr className="bg-neutral-surface-raised border-b border-neutral-border">
-                    <th
-                      scope="col"
-                      className="text-left px-3 py-2 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-16"
-                    >
-                      #
+                    <th scope="col" className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[88px]">
+                      ID
                     </th>
-                    <th
-                      scope="col"
-                      className="text-left px-3 py-2 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide"
-                    >
+                    <th scope="col" className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide">
                       Risk
                     </th>
-                    <th
-                      scope="col"
-                      className="text-left px-3 py-2 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10"
-                    >
+                    <th scope="col" className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10">
                       P
                     </th>
-                    <th
-                      scope="col"
-                      className="text-left px-3 py-2 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10"
-                    >
+                    <th scope="col" className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10">
                       I
                     </th>
-                    <th
-                      scope="col"
-                      className="text-left px-3 py-2 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide"
-                    >
+                    <th scope="col" className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[148px]">
                       Severity
                     </th>
-                    <th
-                      scope="col"
-                      className="text-left px-3 py-2 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide hidden lg:table-cell"
-                    >
-                      Status
+                    <th scope="col" className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[72px]">
+                      Trend
                     </th>
-                    <th
-                      scope="col"
-                      className="text-left px-3 py-2 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide hidden xl:table-cell"
-                    >
-                      Updated
+                    <th scope="col" className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[80px]">
+                      Owner
                     </th>
                   </tr>
                 </thead>
@@ -185,7 +222,7 @@ export function RiskRegisterView() {
                     <tr
                       key={risk.id}
                       onClick={() => openRisk(risk)}
-                      className="h-11 border-b border-neutral-border last:border-b-0
+                      className="h-14 border-b border-neutral-border last:border-b-0
                         hover:bg-neutral-surface-raised cursor-pointer
                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
                         dark:focus-visible:ring-semantic-on-track focus-visible:ring-inset"
@@ -199,44 +236,68 @@ export function RiskRegisterView() {
                         }
                       }}
                     >
-                      <td className="px-3 font-mono text-xs text-neutral-text-disabled">
-                        {risk.short_id}
+                      {/* ID */}
+                      <td className="px-4 font-mono text-xs text-neutral-text-secondary tabular-nums">
+                        {formatRiskId(risk.short_id)}
                       </td>
-                      <td className="px-3 text-neutral-text-primary font-medium truncate max-w-[240px]">
-                        {risk.title}
+
+                      {/* Risk — title + status sub-label */}
+                      <td className="px-4">
+                        <div className="flex flex-col gap-0.5 min-w-0">
+                          <span className="text-sm font-medium text-neutral-text-primary leading-snug truncate">
+                            {risk.title}
+                          </span>
+                          <span className="text-xs text-neutral-text-secondary leading-none">
+                            {STATUS_LABELS[risk.status]}
+                          </span>
+                        </div>
                       </td>
-                      <td className="px-3 text-center text-neutral-text-secondary text-xs">
+
+                      {/* P */}
+                      <td className="px-3 text-center text-xs text-neutral-text-secondary tabular-nums">
                         {risk.probability}
                       </td>
-                      <td className="px-3 text-center text-neutral-text-secondary text-xs">
+
+                      {/* I */}
+                      <td className="px-3 text-center text-xs text-neutral-text-secondary tabular-nums">
                         {risk.impact}
                       </td>
-                      <td className="px-3">
+
+                      {/* Severity chip */}
+                      <td className="px-4">
                         <RiskChip severity={risk.severity} showScore />
                       </td>
-                      <td className="px-3 hidden lg:table-cell">
-                        <span
-                          className={[
-                            'inline-flex items-center border rounded px-2 py-0.5 text-xs',
-                            STATUS_CLASSES[risk.status],
-                          ].join(' ')}
-                        >
-                          {STATUS_LABELS[risk.status]}
-                        </span>
+
+                      {/* Trend — placeholder arrow (no trend data in API) */}
+                      <td className="px-3 text-center" aria-label="No trend data available">
+                        <span className="text-base text-neutral-text-disabled" aria-hidden="true">→</span>
                       </td>
-                      <td className="px-3 text-neutral-text-secondary text-xs hidden xl:table-cell">
-                        {new Date(risk.updated_at).toLocaleDateString()}
+
+                      {/* Owner */}
+                      <td className="px-4">
+                        {risk.owner ? (
+                          <span
+                            className="inline-flex items-center justify-center w-7 h-7 rounded-full
+                              bg-neutral-surface-sunken border border-neutral-border
+                              text-xs font-semibold text-neutral-text-secondary"
+                            aria-label="Owner assigned"
+                          >
+                            ?
+                          </span>
+                        ) : (
+                          <span className="text-xs text-neutral-text-disabled" aria-label="Unassigned">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      {/* Mobile FAB — opens create drawer (rule 90) */}
+      {/* Mobile FAB (rule 90) */}
       <button
         type="button"
         onClick={openCreate}
@@ -248,12 +309,10 @@ export function RiskRegisterView() {
           z-20"
         aria-label="Add risk"
       >
-        <span className="text-neutral-text-inverse text-2xl leading-none" aria-hidden="true">
-          +
-        </span>
+        <span className="text-neutral-text-inverse text-2xl leading-none" aria-hidden="true">+</span>
       </button>
 
-      {/* Desktop inline drawer panel — sits alongside content, no fixed overlay */}
+      {/* Drawer */}
       {isDrawerOpen && (
         <RiskDrawer
           projectId={projectId}

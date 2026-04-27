@@ -19,49 +19,61 @@ function badgeBgClass(severity: number): string {
   return 'bg-neutral-border text-neutral-text-secondary';
 }
 
+// Abbreviate short_id to 3 display chars for the matrix badge.
+function badgeLabel(shortId: string): string {
+  if (!shortId) return '?';
+  if (/^\d+$/.test(shortId)) {
+    const n = parseInt(shortId, 10);
+    return String(n).padStart(3, '0').slice(-3);
+  }
+  return shortId.slice(0, 3).toUpperCase();
+}
+
 interface RiskMatrixProps {
   risks: Risk[];
 }
 
+// Legend uses solid square swatches matching badge colors (rule 86).
 const LEGEND = [
-  { label: 'Critical', range: '(P×I ≥ 20)', dotClass: 'bg-semantic-critical' },
-  { label: 'High',     range: '(12–19)',     dotClass: 'bg-brand-accent' },
-  { label: 'Medium',   range: '(6–11)',      dotClass: 'bg-semantic-warning' },
-  { label: 'Low',      range: '(1–5)',       dotClass: 'bg-semantic-on-track/80' },
+  { label: 'Critical', range: '(P×I ≥ 20)', swatchClass: 'bg-semantic-critical' },
+  { label: 'High',     range: '(12–19)',     swatchClass: 'bg-brand-accent' },
+  { label: 'Medium',   range: '(6–11)',      swatchClass: 'bg-semantic-warning' },
+  { label: 'Low',      range: '(1–5)',       swatchClass: 'bg-semantic-on-track/80' },
 ] as const;
 
-// Cell width: w-12 = 48px. 5 cells + 4 gaps (gap-px = 1px each) = 244px.
-const CELL_CLASS = 'w-12 h-12';
-const AXIS_LABEL_WIDTH = 'w-[244px]';
+// Cell: w-14 = 56px. 5 cells + 4 × 1px gaps = 284px total grid width.
+const CELL_CLASS = 'w-14 h-14';
+const GRID_WIDTH = 'w-[284px]';
 
 export function RiskMatrix({ risks }: RiskMatrixProps) {
   return (
     <div>
-      <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-3">
+      <p className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-4">
         Probability × Impact
-      </h3>
+      </p>
 
       <div className="flex gap-2">
-        {/* Probability axis label — rotated, reads bottom-to-top */}
-        <div className="flex flex-col items-center justify-center w-5 shrink-0">
+        {/* "PROBABILITY →" — rotated, reads bottom-to-top */}
+        <div className="flex items-center justify-center w-5 shrink-0">
           <span
-            className="text-xs text-neutral-text-secondary whitespace-nowrap"
+            className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary whitespace-nowrap"
             style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+            aria-hidden="true"
           >
-            ↑ Probability
+            Probability →
           </span>
         </div>
 
-        <div className="flex flex-col gap-1">
-          {/* Probability row labels + grid */}
+        <div className="flex flex-col gap-px">
+          {/* Rows: probability 5 → 1 (top to bottom) */}
           {[5, 4, 3, 2, 1].map((prob) => (
             <div key={prob} className="flex items-center gap-1">
               {/* Row label */}
-              <span className="text-xs text-neutral-text-secondary w-4 text-right shrink-0">
+              <span className="text-xs text-neutral-text-secondary w-5 text-right shrink-0 tabular-nums">
                 {prob}
               </span>
 
-              {/* 5 cells for impact 1–5 */}
+              {/* 5 impact cells */}
               <div className="flex gap-px">
                 {[1, 2, 3, 4, 5].map((imp) => {
                   const risksInCell = risks.filter(
@@ -72,7 +84,7 @@ export function RiskMatrix({ risks }: RiskMatrixProps) {
                       key={imp}
                       className={[
                         CELL_CLASS,
-                        'border border-neutral-border flex flex-wrap items-center justify-center gap-0.5 p-1 overflow-hidden',
+                        'border border-neutral-border/60 flex flex-wrap items-center justify-center gap-0.5 p-0.5 overflow-hidden',
                         cellBgClass(prob, imp),
                       ].join(' ')}
                       title={`P${prob} × I${imp} = ${prob * imp}`}
@@ -82,13 +94,13 @@ export function RiskMatrix({ risks }: RiskMatrixProps) {
                           key={r.id}
                           className={[
                             'inline-flex items-center justify-center',
-                            'w-9 h-9 rounded-full shrink-0 text-xs font-semibold',
+                            'w-10 h-10 rounded-full shrink-0 text-xs font-semibold tabular-nums',
                             badgeBgClass(r.severity),
                           ].join(' ')}
                           title={r.title}
                           aria-label={r.title}
                         >
-                          {r.short_id.slice(0, 4)}
+                          {badgeLabel(r.short_id)}
                         </span>
                       ))}
                     </div>
@@ -98,14 +110,14 @@ export function RiskMatrix({ risks }: RiskMatrixProps) {
             </div>
           ))}
 
-          {/* Impact column labels */}
+          {/* Impact column numbers */}
           <div className="flex items-center gap-1 mt-1">
-            <span className="w-4 shrink-0" aria-hidden="true" />
+            <span className="w-5 shrink-0" aria-hidden="true" />
             <div className="flex gap-px">
               {[1, 2, 3, 4, 5].map((imp) => (
                 <div
                   key={imp}
-                  className="w-12 text-center text-xs text-neutral-text-secondary"
+                  className="w-14 text-center text-xs text-neutral-text-secondary tabular-nums"
                 >
                   {imp}
                 </div>
@@ -113,32 +125,27 @@ export function RiskMatrix({ risks }: RiskMatrixProps) {
             </div>
           </div>
 
-          {/* Impact axis label */}
-          <div className="flex items-center gap-1">
-            <span className="w-4 shrink-0" aria-hidden="true" />
-            <div className={`${AXIS_LABEL_WIDTH} text-center text-xs text-neutral-text-secondary`}>
-              ← Impact →
-            </div>
+          {/* "IMPACT →" axis label */}
+          <div className="flex items-center gap-1 mt-0.5">
+            <span className="w-5 shrink-0" aria-hidden="true" />
+            <p className={`${GRID_WIDTH} text-center text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary`}>
+              Impact →
+            </p>
           </div>
 
-          {/* Legend */}
-          <div className="flex items-center gap-1 mt-3">
-            <span className="w-4 shrink-0" aria-hidden="true" />
-            <dl className="flex flex-col gap-1.5">
-              {LEGEND.map(({ label, range, dotClass }) => (
-                <div key={label} className="flex items-center gap-2">
-                  <span
-                    className={['w-2.5 h-2.5 rounded-full shrink-0', dotClass].join(' ')}
-                    aria-hidden="true"
-                  />
-                  <dt className="text-xs font-medium text-neutral-text-primary w-14 shrink-0">
-                    {label}
-                  </dt>
-                  <dd className="text-xs text-neutral-text-secondary">{range}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
+          {/* Legend — square swatches */}
+          <dl className="mt-4 flex flex-col gap-2 ml-6">
+            {LEGEND.map(({ label, range, swatchClass }) => (
+              <div key={label} className="flex items-center gap-2.5">
+                <span
+                  className={['w-3 h-3 rounded-sm shrink-0', swatchClass].join(' ')}
+                  aria-hidden="true"
+                />
+                <dt className="text-xs font-medium text-neutral-text-primary">{label}</dt>
+                <dd className="text-xs text-neutral-text-secondary">{range}</dd>
+              </div>
+            ))}
+          </dl>
         </div>
       </div>
     </div>
