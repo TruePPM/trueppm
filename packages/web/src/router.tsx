@@ -62,7 +62,7 @@ export const router = createBrowserRouter([
               // /projects/:projectId → redirect to board (canonical planning surface)
               { index: true, element: <Navigate to="board" replace /> },
               { path: 'overview', element: <ProjectOverviewPage /> },
-              { path: 'gantt', element: <GanttView /> },
+              { path: 'schedule', element: <GanttView /> },
               { path: 'wbs', element: <WbsView /> },
               { path: 'board', element: <BoardView /> },
               { path: 'list', element: <TaskListView /> },

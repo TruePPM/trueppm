@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * View-switching E2E flows — navigate between Gantt, WBS, Table, and Board views.
+ * View-switching E2E flows — navigate between Schedule, WBS, Table, and Board views.
  *
- * Extends the view-mode switching covered in gantt.spec.ts with:
+ * Extends the view-mode switching covered in schedule.spec.ts with:
  * - Board view navigation and column rendering
- * - Round-trip switching (Gantt → WBS → Board → Table → Gantt)
+ * - Round-trip switching (Schedule → WBS → Board → Table → Schedule)
  * - URL reflects the active view so deep links work
  *
  * These run against the production build with intercepted API routes.
@@ -131,16 +131,16 @@ async function setup(page: import('@playwright/test').Page) {
 test.describe('View switching', () => {
   test.beforeEach(async ({ page }) => {
     await setup(page);
-    // Start on Gantt — path-based routing (ADR-0030)
-    await page.goto(`${BASE_URL}/gantt`);
-    // Wait for the Gantt to be ready before switching views.
+    // Start on Schedule — path-based routing (ADR-0030)
+    await page.goto(`${BASE_URL}/schedule`);
+    // Wait for the Schedule view to be ready before switching views.
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
-  test('Schedule tab is active when on /gantt URL and URL reflects it', async ({ page }) => {
+  test('Schedule tab is active when on /schedule URL and URL reflects it', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
     await expect(nav.getByRole('link', { name: 'Schedule' })).toHaveAttribute('aria-current', 'page');
-    expect(page.url()).toMatch(/\/gantt$/);
+    expect(page.url()).toMatch(/\/schedule$/);
   });
 
   test('navigate to WBS — treegrid renders and URL updates', async ({ page }) => {
@@ -165,7 +165,7 @@ test.describe('View switching', () => {
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
   });
 
-  test('round-trip Gantt → WBS → Board → Table → Gantt', async ({ page }) => {
+  test('round-trip Schedule → WBS → Board → Table → Schedule', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
 
     await nav.getByRole('link', { name: 'WBS' }).click();
@@ -178,13 +178,28 @@ test.describe('View switching', () => {
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
 
     await nav.getByRole('link', { name: 'Schedule' }).click();
-    await expect(page).toHaveURL(/\/gantt$/);
+    await expect(page).toHaveURL(/\/schedule$/);
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
   });
 
-  test('deep-link to WBS view renders without visiting Gantt first', async ({ page }) => {
-    // Navigate directly to /wbs path — must render without round-tripping through Gantt.
+  test('deep-link to WBS view renders without visiting Schedule first', async ({ page }) => {
+    // Navigate directly to /wbs path — must render without round-tripping through Schedule.
     await page.goto(`${BASE_URL}/wbs`);
     await expect(page.getByRole('treegrid', { name: 'WBS task tree' })).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('navigating to /projects/:id with no view segment redirects to Board (issue #204)', async ({ page }) => {
+    // React Router index route: <Navigate to="board" replace /> — must redirect immediately.
+    await page.goto(BASE_URL);
+    await expect(page).toHaveURL(/\/board$/, { timeout: 5_000 });
+    await expect(page.getByRole('navigation', { name: 'View' }).getByRole('link', { name: 'Board' }))
+      .toHaveAttribute('aria-current', 'page');
+  });
+
+  test('Board tab is first and Schedule is second in the tab strip (issue #204)', async ({ page }) => {
+    const nav = page.getByRole('navigation', { name: 'View' });
+    const links = nav.getByRole('link');
+    await expect(links.nth(0)).toHaveText('Board');
+    await expect(links.nth(1)).toHaveText('Schedule');
   });
 });

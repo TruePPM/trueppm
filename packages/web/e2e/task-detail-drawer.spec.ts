@@ -101,7 +101,7 @@ const FIXTURE_HISTORY = {
   ],
 };
 
-async function gotoGantt(page: import('@playwright/test').Page) {
+async function gotoSchedule(page: import('@playwright/test').Page) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -188,7 +188,7 @@ async function gotoGantt(page: import('@playwright/test').Page) {
     }),
   );
 
-  await page.goto(`/projects/${FIXTURE_PROJECT_ID}/gantt`);
+  await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
 }
 
 async function openDrawer(page: import('@playwright/test').Page, taskName: string) {
@@ -206,7 +206,7 @@ async function openDrawer(page: import('@playwright/test').Page, taskName: strin
 
 test.describe('TaskDetailDrawer — tab bar', () => {
   test.beforeEach(async ({ page }) => {
-    await gotoGantt(page);
+    await gotoSchedule(page);
   });
 
   test('four tabs are visible after opening drawer', async ({ page }) => {
@@ -249,7 +249,7 @@ test.describe('TaskDetailDrawer — tab bar', () => {
 
 test.describe('TaskDetailDrawer — Estimates tab', () => {
   test.beforeEach(async ({ page }) => {
-    await gotoGantt(page);
+    await gotoSchedule(page);
   });
 
   test('shows PERT panel when all three fields are set (open mode)', async ({ page }) => {
@@ -274,7 +274,7 @@ test.describe('TaskDetailDrawer — Estimates tab', () => {
 
 test.describe('TaskDetailDrawer — History tab', () => {
   test.beforeEach(async ({ page }) => {
-    await gotoGantt(page);
+    await gotoSchedule(page);
   });
 
   test('shows history records from API', async ({ page }) => {
@@ -301,7 +301,7 @@ test.describe('TaskDetailDrawer — History tab', () => {
 
 test.describe('TaskDetailDrawer — Baseline tab', () => {
   test.beforeEach(async ({ page }) => {
-    await gotoGantt(page);
+    await gotoSchedule(page);
   });
 
   test('shows no-baseline empty state when project has no baseline', async ({ page }) => {

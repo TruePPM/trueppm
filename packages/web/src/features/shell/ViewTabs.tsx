@@ -15,7 +15,7 @@ interface Tab {
 // the order of planning: plan the work, then schedule it. See issues #177/#178.
 const TABS: Tab[] = [
   { view: 'board',      label: 'Board',      Icon: BoardIcon },
-  { view: 'gantt',      label: 'Schedule',   Icon: GanttIcon },
+  { view: 'schedule',   label: 'Schedule',   Icon: GanttIcon },
   { view: 'wbs',        label: 'WBS',        Icon: WbsIcon },
   { view: 'list',       label: 'Table',      Icon: ListIcon },
   { view: 'calendar',   label: 'Calendar',   Icon: CalendarIcon },
@@ -37,7 +37,7 @@ export function ViewTabs() {
   if (!projectId) return null;
 
   // Derive active view from the last path segment.
-  // e.g. /projects/abc/gantt → 'gantt'
+  // e.g. /projects/abc/schedule → 'schedule'
   const pathSegments = location.pathname.split('/');
   const currentView = pathSegments[pathSegments.length - 1] ?? 'overview';
 

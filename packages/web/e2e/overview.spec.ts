@@ -167,8 +167,8 @@ test.describe('Project overview page', () => {
     await expect(nav.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page');
   });
 
-  test('navigate to Gantt view from overview', async ({ page }) => {
-    // Stub task and dependency routes for Gantt
+  test('navigate to Schedule view from overview', async ({ page }) => {
+    // Stub task and dependency routes for Schedule
     await page.route('**/api/v1/tasks/**', (route) =>
       route.fulfill({
         status: 200,
@@ -186,7 +186,7 @@ test.describe('Project overview page', () => {
 
     const nav = page.getByRole('navigation', { name: 'View' });
     await nav.getByRole('link', { name: 'Schedule' }).click();
-    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/gantt`));
+    await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/schedule`));
     await expect(nav.getByRole('link', { name: 'Schedule' })).toHaveAttribute('aria-current', 'page');
   });
 

@@ -49,7 +49,7 @@ export function ProjectListItem({ project, collapsed }: Props) {
   const location = useLocation();
 
   // Preserve the active tab when switching projects (#160).
-  // Extract the path suffix after the current project segment (e.g. "/gantt", "/resources/roster").
+  // Extract the path suffix after the current project segment (e.g. "/schedule", "/resources/roster").
   // Fall back to "/board" (canonical planning surface) when not inside a project route.
   const viewSuffix = currentProjectId
     ? (location.pathname.replace(`/projects/${currentProjectId}`, '') || '/board')

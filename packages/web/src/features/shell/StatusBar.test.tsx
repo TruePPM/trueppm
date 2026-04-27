@@ -36,8 +36,8 @@ describe('StatusBar', () => {
     expect(screen.getByText('Alpha Platform Upgrade · Board')).toBeInTheDocument();
   });
 
-  it('renders Schedule label for the gantt route', () => {
-    renderWithRouter(<StatusBar />, { initialEntries: ['/projects/p1/gantt'] });
+  it('renders Schedule label for the schedule route', () => {
+    renderWithRouter(<StatusBar />, { initialEntries: ['/projects/p1/schedule'] });
     expect(screen.getByText('Alpha Platform Upgrade · Schedule')).toBeInTheDocument();
   });
 });

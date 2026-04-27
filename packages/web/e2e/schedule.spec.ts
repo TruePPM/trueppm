@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * Gantt view E2E tests — toolbar, task list panel, and accessibility basics.
+ * Schedule view E2E tests — toolbar, task list panel, and accessibility basics.
  *
  * The app makes real API calls; we intercept them with Playwright route mocking
- * and navigate to /?project=<fixture-id> so useGanttTasks fires the queries.
+ * and navigate to /projects/:id/schedule so useGanttTasks fires the queries.
  * Auth state is seeded in localStorage before each test so RequireAuth passes.
  */
 
@@ -44,8 +44,8 @@ const FIXTURE_API_TASKS = [
   },
 ];
 
-/** Set up API route interception and navigate to the project Gantt. */
-async function gotoGantt(page: import('@playwright/test').Page) {
+/** Set up API route interception and navigate to the Schedule view. */
+async function gotoSchedule(page: import('@playwright/test').Page) {
   // Seed auth state so RequireAuth lets the test through.
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -95,31 +95,31 @@ async function gotoGantt(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
   );
-  // Path-based routing (ADR-0030): /projects/:projectId/gantt
-  await page.goto(`/projects/${FIXTURE_PROJECT_ID}/gantt`);
+  // Path-based routing (ADR-0030): /projects/:projectId/schedule
+  await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
 }
 
-test.describe('GanttView toolbar', () => {
+test.describe('Schedule toolbar', () => {
   test.beforeEach(async ({ page }) => {
-    await gotoGantt(page);
-    // Wait for the Gantt to finish loading (task list should be visible)
+    await gotoSchedule(page);
+    // Wait for the Schedule view to finish loading (task list should be visible)
     await expect(
       page.getByRole('grid', { name: 'Task list' }),
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test('view-mode switcher has Gantt active; WBS and Table are present', async ({ page }) => {
+  test('view-mode switcher has Schedule active; WBS and Table are present', async ({ page }) => {
     // ViewTabs renders as <nav aria-label="View"> with <Link> children (role="link").
     // Active state is indicated by aria-current="page" (not aria-pressed).
     const nav = page.getByRole('navigation', { name: 'View' });
     await expect(nav).toBeVisible();
 
-    const ganttLink = nav.getByRole('link', { name: 'Schedule' });
+    const scheduleLink = nav.getByRole('link', { name: 'Schedule' });
     const wbsLink = nav.getByRole('link', { name: 'WBS' });
     const tableLink = nav.getByRole('link', { name: 'Table' });
 
-    await expect(ganttLink).toBeVisible();
-    await expect(ganttLink).toHaveAttribute('aria-current', 'page');
+    await expect(scheduleLink).toBeVisible();
+    await expect(scheduleLink).toHaveAttribute('aria-current', 'page');
 
     await expect(wbsLink).toBeVisible();
     await expect(wbsLink).not.toHaveAttribute('aria-current', 'page');
@@ -150,9 +150,9 @@ test.describe('GanttView toolbar', () => {
   });
 });
 
-test.describe('GanttView task list', () => {
+test.describe('Schedule task list', () => {
   test.beforeEach(async ({ page }) => {
-    await gotoGantt(page);
+    await gotoSchedule(page);
     await expect(
       page.getByRole('grid', { name: 'Task list' }),
     ).toBeVisible({ timeout: 10_000 });
@@ -176,7 +176,7 @@ test.describe('GanttView task list', () => {
 
 test.describe('Accessibility basics', () => {
   test.beforeEach(async ({ page }) => {
-    await gotoGantt(page);
+    await gotoSchedule(page);
   });
 
   test('sidebar has accessible label', async ({ page }) => {

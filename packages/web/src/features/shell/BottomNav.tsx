@@ -12,7 +12,7 @@ interface NavItem {
 // Order mirrors ViewTabs: Board first (planning surface), Schedule second (derived view).
 const NAV_ITEMS: NavItem[] = [
   { view: 'board',     label: 'Board',    Icon: BoardIcon },
-  { view: 'gantt',     label: 'Schedule', Icon: GanttIcon },
+  { view: 'schedule',  label: 'Schedule', Icon: GanttIcon },
   { view: 'list',      label: 'Table',    Icon: ListIcon },
   { view: 'calendar',  label: 'Calendar', Icon: CalendarIcon },
   { view: 'resources', label: 'Team',     Icon: ResourcesIcon },
@@ -21,8 +21,8 @@ const NAV_ITEMS: NavItem[] = [
 
 export function BottomNav() {
   const location = useLocation();
-  // Derive active view from ?view= param; default to 'gantt' when absent
-  const currentView = new URLSearchParams(location.search).get('view') ?? 'gantt';
+  // Derive active view from ?view= param; default to 'schedule' when absent
+  const currentView = new URLSearchParams(location.search).get('view') ?? 'schedule';
 
   return (
     <nav
@@ -34,7 +34,7 @@ export function BottomNav() {
         return (
           <Link
             key={view}
-            to={`/gantt?view=${view}`}
+            to={`/schedule?view=${view}`}
             replace
             className={[
               'flex flex-1 flex-col items-center justify-center gap-1 text-xs min-h-[44px]',
