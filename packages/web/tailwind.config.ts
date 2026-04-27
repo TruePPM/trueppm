@@ -39,10 +39,15 @@ const config: Config = {
         },
         // Semantic status tokens — lighter variants in dark mode (see globals.css).
         semantic: {
-          critical:   'rgb(var(--semantic-critical) / <alpha-value>)',
-          warning:    'rgb(var(--semantic-warning) / <alpha-value>)',
-          'on-track': 'rgb(var(--semantic-on-track) / <alpha-value>)',
-          'at-risk':  'rgb(var(--semantic-at-risk) / <alpha-value>)',
+          critical:      'rgb(var(--semantic-critical) / <alpha-value>)',
+          warning:       'rgb(var(--semantic-warning) / <alpha-value>)',
+          'on-track':    'rgb(var(--semantic-on-track) / <alpha-value>)',
+          'at-risk':     'rgb(var(--semantic-at-risk) / <alpha-value>)',
+          // Semantic background tints for pills and cards (see globals.css).
+          'critical-bg': 'var(--sem-critical-bg)',
+          'at-risk-bg':  'var(--sem-at-risk-bg)',
+          'on-track-bg': 'var(--sem-on-track-bg)',
+          'warning-bg':  'var(--sem-warning-bg)',
         },
         // Chrome tokens — sidebar and Gantt panel surfaces (issue #180).
         // Light mode: warm off-white chrome that reads as shell, not content.
@@ -56,6 +61,9 @@ const config: Config = {
           'text-secondary': 'rgb(var(--chrome-text-secondary) / <alpha-value>)',
           // Subtle chrome divider: rgba(0,0,0,0.08) in light, rgba(255,255,255,0.08) in dark
           border:           'rgb(var(--chrome-border) / <alpha-value>)',
+          'row-hover':      'var(--chrome-row-hover)',
+          'row-active':     'var(--chrome-row-active)',
+          grid:             'var(--chrome-grid)',
         },
         // Dark Gantt surface tokens (rule 40/41). These must be defined here before any
         // component references bg-gantt-surface or gantt-text-* — Tailwind silently
@@ -89,6 +97,7 @@ const config: Config = {
       },
       fontFamily: {
         sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ["'JetBrains Mono'", 'ui-monospace', 'monospace'],
       },
       fontSize: {
         xs: ['12px', { lineHeight: '16px' }],

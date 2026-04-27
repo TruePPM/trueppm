@@ -62,10 +62,7 @@ export function AppShell() {
           </main>
         </div>
 
-        {/* Status bar — pinned to bottom, hidden below md */}
-        <div className="hidden md:block">
-          <StatusBar />
-        </div>
+        <StatusBar />
 
         {/* Bottom nav rail — shown below md in place of view tabs */}
         <BottomNav />

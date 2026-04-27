@@ -1,0 +1,6 @@
+- **Wave 1 shell design** (issues #200–204): the app shell now fully follows the active light/dark theme.
+  - **Chrome tokens complete** (#202): `--chrome-row-hover`, `--chrome-row-active`, and `--chrome-grid` CSS custom properties added (light and dark); exposed as `chrome.row-hover`, `chrome.row-active`, `chrome.grid` Tailwind utilities.
+  - **Brand tokens** (#203): `--sem-*-bg` semantic background tint tokens added for badge pill fills (`semantic-critical-bg`, `semantic-at-risk-bg`, `semantic-on-track-bg`, `semantic-warning-bg`); **JetBrains Mono** added as the tabular-numerals font, loaded via Google Fonts and exposed as the `.tppm-mono` utility class.
+  - **Sidebar health dots** (#200): project rows now show a 7 px semantic health dot (green/amber/red) with a 2 px colour-matched halo instead of the generic project colour dot.
+  - **App StatusBar redesign** (#201): the bottom status bar is now a 24 px global shell bar showing a live presence dot + online count, the build commit hash, and the active project/view as a status note. The previous Gantt legend footer is removed.
+  - **Default landing** (#204): opening the app without a view segment now lands on the Board view (the canonical planning surface) instead of Overview.

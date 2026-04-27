@@ -36,6 +36,23 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );
+  await page.route('**/api/v1/projects/*/status-summary/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        task_count: 0,
+        critical_path_count: 0,
+        monte_carlo_p80: null,
+        at_risk_count: 0,
+        critical_count: 0,
+        at_risk_tasks: [],
+        critical_tasks: [],
+        last_saved: null,
+        recalculated_at: null,
+      }),
+    }),
+  );
 });
 
 test('page title is TruePPM', async ({ page }) => {
@@ -57,12 +74,13 @@ test('sidebar shows PROJECTS section header', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'PROJECTS' })).toBeVisible();
 });
 
-test('status bar shows task count from fixture', async ({ page }) => {
+test('status bar shows live presence and build hash', async ({ page }) => {
   await page.goto('/');
-  // useShellStats is still a stub returning 42 tasks (endpoint not yet implemented)
-  const footer = page.getByRole('contentinfo', { name: 'Project status' });
+  // StatusBar redesigned in #201: live dot + N online + build {sha}.
+  const footer = page.getByRole('contentinfo', { name: 'Application status' });
   await expect(footer).toBeVisible();
-  await expect(footer.getByText('42 tasks')).toBeVisible();
+  await expect(footer.getByText(/Live · \d+ online/)).toBeVisible();
+  await expect(footer.getByText(/build /)).toBeVisible();
 });
 
 test('no console errors on load', async ({ page }) => {

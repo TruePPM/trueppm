@@ -18,7 +18,7 @@ import { useRef, useEffect, type CSSProperties, type RefObject } from 'react';
 import type { Task, TaskLink } from '@/types';
 import type { GanttEngine, ZoomLevel } from './engine';
 import { useGanttEngine } from '@/hooks/useGanttEngine';
-import { useThemeStore } from '@/stores/themeStore';
+import { useIsDark } from '@/hooks/useIsDark';
 import { GanttAriaOverlay } from './GanttAriaOverlay';
 
 interface CanvasGanttTimelineProps {
@@ -40,10 +40,7 @@ export function CanvasGanttTimeline({
   const barsCanvasRef = useRef<HTMLCanvasElement>(null);
   const ixCanvasRef = useRef<HTMLCanvasElement>(null);
 
-  const theme = useThemeStore((s) => s.theme);
-  const isDark =
-    theme === 'dark' ||
-    (theme === 'auto' && typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const isDark = useIsDark();
 
   const engine = useGanttEngine(
     containerRef,

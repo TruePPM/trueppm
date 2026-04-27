@@ -371,6 +371,72 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             }
         )
 
+    @action(detail=True, methods=["get"], url_path="status-summary")
+    def status_summary(self, request: Request, pk: str | None = None) -> Response:
+        """Project health summary for the TopBar and StatusBar shell components.
+
+        Returns task counts, health signals, and recency metadata in a single
+        request so the shell avoids waterfall fetches on every project view.
+
+        At-risk: incomplete tasks with total_float <= 5 working days (or
+        negative float, which means already late).
+        Critical: incomplete tasks where is_critical=True.
+
+        P80 is omitted (null) until a Monte Carlo result store is added — the
+        front-end falls back to "P80: —" when the field is null.
+        """
+        project = self.get_object()
+        incomplete_tasks = project.tasks.filter(
+            is_deleted=False,
+        ).exclude(status=TaskStatus.COMPLETE)
+
+        task_count = project.tasks.filter(is_deleted=False).count()
+
+        at_risk_qs = (
+            incomplete_tasks.filter(
+                total_float__isnull=False,
+                total_float__lte=5,
+            )
+            .order_by("total_float", "wbs_path")
+            .values("id", "name", "wbs_path")[:5]
+        )
+        at_risk_tasks = [
+            {"id": str(t["id"]), "name": t["name"], "wbs": t["wbs_path"]} for t in at_risk_qs
+        ]
+        at_risk_count = incomplete_tasks.filter(
+            total_float__isnull=False,
+            total_float__lte=5,
+        ).count()
+
+        critical_qs = (
+            incomplete_tasks.filter(is_critical=True)
+            .order_by("wbs_path")
+            .values("id", "name", "wbs_path")[:5]
+        )
+        critical_tasks = [
+            {"id": str(t["id"]), "name": t["name"], "wbs": t["wbs_path"]} for t in critical_qs
+        ]
+        critical_count = incomplete_tasks.filter(is_critical=True).count()
+
+        # Task model uses server_version rather than auto_now timestamps, so
+        # last_saved / recalculated_at are returned as null. The redesigned
+        # StatusBar (issue #201) does not display these fields; they remain
+        # in the response shape only for ShellStats back-compat.
+        return Response(
+            {
+                "task_count": task_count,
+                "critical_path_count": critical_count,
+                "monte_carlo_p80": None,
+                "at_risk_count": at_risk_count,
+                "critical_count": critical_count,
+                "at_risk_tasks": at_risk_tasks,
+                "critical_tasks": critical_tasks,
+                "last_saved": None,
+                "recalculated_at": None,
+            },
+            status=status.HTTP_200_OK,
+        )
+
 
 class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     """CRUD for tasks within a project.

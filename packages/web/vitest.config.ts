@@ -5,6 +5,9 @@ import { resolve } from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __BUILD_SHA__: JSON.stringify('test-sha'),
+  },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
