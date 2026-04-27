@@ -58,5 +58,5 @@ export function useShellStats(): UseShellStatsResult {
     refetchOnWindowFocus: false,
   });
 
-  return { data, isLoading, error: error as Error | null };
+  return { data, isLoading, error };
 }
