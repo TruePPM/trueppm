@@ -1749,6 +1749,47 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/status-summary/": {
+            "get": {
+                "operationId": "v1_projects_status_summary_retrieve",
+                "description": "Project health summary for the TopBar and StatusBar shell components.\n\nReturns task counts, health signals, and recency metadata in a single\nrequest so the shell avoids waterfall fetches on every project view.\n\nAt-risk: incomplete tasks with total_float <= 5 working days (or\nnegative float, which means already late).\nCritical: incomplete tasks where is_critical=True.\n\nP80 is omitted (null) until a Monte Carlo result store is added — the\nfront-end falls back to \"P80: —\" when the field is null.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/sync/": {
             "get": {
                 "operationId": "v1_projects_sync_retrieve",
