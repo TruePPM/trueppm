@@ -386,11 +386,11 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         front-end falls back to "P80: —" when the field is null.
         """
         project = self.get_object()
-        incomplete_tasks = project.tasks.filter(  # type: ignore[union-attr]
+        incomplete_tasks = project.tasks.filter(
             is_deleted=False,
         ).exclude(status=TaskStatus.COMPLETE)
 
-        task_count = project.tasks.filter(is_deleted=False).count()  # type: ignore[union-attr]
+        task_count = project.tasks.filter(is_deleted=False).count()
 
         at_risk_qs = (
             incomplete_tasks.filter(
@@ -419,13 +419,13 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         critical_count = incomplete_tasks.filter(is_critical=True).count()
 
         last_saved = (
-            project.tasks.filter(is_deleted=False)  # type: ignore[union-attr]
+            project.tasks.filter(is_deleted=False)
             .order_by("-updated_at")
             .values_list("updated_at", flat=True)
             .first()
         )
         recalculated_at = (
-            project.tasks.filter(is_deleted=False, early_start__isnull=False)  # type: ignore[union-attr]
+            project.tasks.filter(is_deleted=False, early_start__isnull=False)
             .order_by("-updated_at")
             .values_list("updated_at", flat=True)
             .first()
