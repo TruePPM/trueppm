@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useDraggable } from '@dnd-kit/core';
-import type { Task, TaskStatus } from '@/types';
+import type { Task, TaskReadiness, TaskStatus } from '@/types';
 import { BoardProgressRing } from './BoardProgressRing';
 
 interface BoardCardProps {
@@ -44,6 +44,48 @@ function entryStamp(task: Task): { text: string; isStalled: boolean } {
     text: `Entered at ${task.progress}% · ${daysLabel}${isStalled ? ' — stalled' : ''}`,
     isStalled,
   };
+}
+
+// Readiness chip — top-left pill on each board card (issue #179).
+function ReadinessChip({ readiness }: { readiness: TaskReadiness }) {
+  switch (readiness) {
+    case 'idea':
+      return (
+        <span className="inline-flex items-center px-1.5 py-px rounded border border-dashed border-neutral-border text-xs text-neutral-text-disabled">
+          idea
+        </span>
+      );
+    case 'estimated':
+      return (
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded bg-neutral-surface-sunken border border-neutral-border text-xs text-neutral-text-secondary">
+          <span aria-hidden="true">·</span> estimated
+        </span>
+      );
+    case 'ready':
+      return (
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded bg-brand-primary/10 border border-brand-primary/30 text-xs text-brand-primary font-medium">
+          <span aria-hidden="true">⛓</span> ready
+        </span>
+      );
+    case 'baselined':
+      return (
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded bg-neutral-surface-sunken border border-neutral-border text-xs text-neutral-text-secondary font-medium">
+          <span aria-hidden="true">🔒</span> baselined
+        </span>
+      );
+  }
+}
+
+// Left accent bar color per readiness state (issue #179).
+// CP (critical) overrides all; at-risk overrides estimated/ready/baselined.
+function accentBarClass(task: Task): string {
+  if (task.isCritical) return 'bg-semantic-critical';
+  const r = task.readiness ?? 'estimated';
+  switch (r) {
+    case 'idea':      return 'bg-transparent';
+    case 'baselined': return 'bg-semantic-on-track';
+    default:          return 'bg-brand-primary';
+  }
 }
 
 export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMenuMove, columns }: BoardCardProps) {
@@ -120,8 +162,11 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
     );
   }
 
-  // At-100% nudge: "Move to Done?"
-  const showNudge = task.progress === 100 && task.status !== 'COMPLETE';
+  // At-100% nudge: "Move to Done?" (also triggers on REVIEW → Done)
+  const showNudge =
+    task.progress === 100 && task.status !== 'COMPLETE';
+
+  const isIdea = (task.readiness ?? 'estimated') === 'idea';
 
   return (
     <div
@@ -129,16 +174,30 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
       {...listeners}
       {...attributes}
       className={[
-        'bg-neutral-surface border rounded-md p-2.5 cursor-grab active:cursor-grabbing relative group',
+        'bg-neutral-surface border rounded-md cursor-grab active:cursor-grabbing relative group overflow-hidden',
         'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
         task.isCritical
           ? 'border-semantic-critical border-2'
-          : 'border-neutral-border',
+          : isIdea
+            ? 'border-dashed border-neutral-border'
+            : 'border-neutral-border',
       ].join(' ')}
       role="button"
       tabIndex={0}
       aria-label={`${task.name}, ${task.progress}% complete${task.isCritical ? ', critical path' : ''}`}
     >
+      {/* Left accent bar per readiness (issue #179) */}
+      <div className={`absolute left-0 inset-y-0 w-1 ${accentBarClass(task)}`} aria-hidden="true" />
+
+      {/* Card content — left-padded to clear the accent bar */}
+      <div className="pl-2.5 pr-2.5 pt-2.5 pb-2.5">
+        {/* Readiness chip — top-left (issue #179) */}
+        {task.readiness && (
+          <div className="mb-1.5">
+            <ReadinessChip readiness={task.readiness} />
+          </div>
+        )}
+
       {/* Priority rank — top-right, below the ··· menu */}
       {task.priorityRank !== undefined && (
         <span
@@ -151,17 +210,21 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
 
       {/* Task name row */}
       <div className="flex items-center gap-1.5 pr-6 min-w-0">
-        <BoardProgressRing
-          progress={task.progress}
-          isCritical={task.isCritical}
-          isStalled={isStalled}
-        />
+        {!isIdea && (
+          <BoardProgressRing
+            progress={task.progress}
+            isCritical={task.isCritical}
+            isStalled={isStalled}
+          />
+        )}
         <span
           className={[
             'text-xs font-medium truncate min-w-0',
             task.isCritical
               ? 'text-semantic-critical font-semibold'
-              : 'text-neutral-text-primary',
+              : isIdea
+                ? 'text-neutral-text-disabled italic'
+                : 'text-neutral-text-primary',
           ].join(' ')}
           title={task.isCritical ? 'This task is on the critical path — a delay here delays the project end date' : undefined}
         >
@@ -169,8 +232,8 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
         </span>
       </div>
 
-      {/* rpill badges — CP and assignee initials */}
-      {(task.isCritical || task.assignees.length > 0) && (
+      {/* rpill badges — CP, assignee initials (or ? placeholder for idea cards) */}
+      {(task.isCritical || task.assignees.length > 0 || isIdea) && (
         <div className="flex items-center gap-1 mt-1.5 flex-wrap">
           {task.isCritical && (
             <span
@@ -180,23 +243,35 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
               CP
             </span>
           )}
-          {task.assignees.slice(0, 3).map((a) => (
+          {isIdea ? (
             <span
-              key={a.resourceId}
-              className="inline-block px-1 py-px rounded text-xs text-white bg-brand-primary font-bold"
-              title={`${a.name} (${Math.round(a.units * 100)}%)`}
-              aria-hidden="true"
+              className="inline-block w-5 h-5 rounded-full border border-dashed border-neutral-border
+                flex items-center justify-center text-xs text-neutral-text-disabled"
+              aria-label="Unassigned"
             >
-              {initials(a.name)}
+              ?
             </span>
-          ))}
-          {task.assignees.length > 3 && (
-            <span
-              className="inline-block px-1 py-px rounded text-xs text-white bg-brand-primary font-bold"
-              aria-hidden="true"
-            >
-              +{task.assignees.length - 3}
-            </span>
+          ) : (
+            <>
+              {task.assignees.slice(0, 3).map((a) => (
+                <span
+                  key={a.resourceId}
+                  className="inline-block px-1 py-px rounded text-xs text-white bg-brand-primary font-bold"
+                  title={`${a.name} (${Math.round(a.units * 100)}%)`}
+                  aria-hidden="true"
+                >
+                  {initials(a.name)}
+                </span>
+              ))}
+              {task.assignees.length > 3 && (
+                <span
+                  className="inline-block px-1 py-px rounded text-xs text-white bg-brand-primary font-bold"
+                  aria-hidden="true"
+                >
+                  +{task.assignees.length - 3}
+                </span>
+              )}
+            </>
           )}
         </div>
       )}
@@ -287,6 +362,7 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
           </div>
         )}
       </div>
+      </div>{/* end padding wrapper */}
     </div>
   );
 }

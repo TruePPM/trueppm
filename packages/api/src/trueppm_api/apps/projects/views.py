@@ -13,6 +13,7 @@ from django.db import transaction
 from django.db.models import (
     BooleanField,
     Count,
+    Exists,
     ExpressionWrapper,
     F,
     IntegerField,
@@ -464,6 +465,13 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 [],
                 output_field=db_models.UUIDField(),
             ),
+        )
+
+        # Readiness annotation: has_predecessors = task has at least one incoming
+        # Dependency edge.  Used by TaskSerializer.get_readiness() to distinguish
+        # 'estimated' (has owner, no predecessors) from 'ready' (has owner + predecessors).
+        qs = qs.annotate(
+            has_predecessors=Exists(Dependency.objects.filter(successor=OuterRef("pk")))
         )
 
         # Baseline overlay: annotate each task with baseline_start / baseline_finish.
@@ -1676,7 +1684,13 @@ class ProjectOverviewView(APIView):
         self.check_object_permissions(request, project)
 
         today = datetime.date.today()
-        active_statuses = [TaskStatus.NOT_STARTED, TaskStatus.IN_PROGRESS, TaskStatus.ON_HOLD]
+        active_statuses = [
+            TaskStatus.BACKLOG,
+            TaskStatus.NOT_STARTED,
+            TaskStatus.IN_PROGRESS,
+            TaskStatus.REVIEW,
+            TaskStatus.ON_HOLD,  # legacy — included for rows not yet migrated
+        ]
 
         # ── Task counts (single query) ──────────────────────────────────────
         counts = Task.objects.filter(project=project, is_deleted=False).aggregate(
@@ -1789,7 +1803,13 @@ class ProjectAttentionView(APIView):
                 is_deleted=False,
                 is_critical=True,
                 early_finish__lt=today,
-                status__in=[TaskStatus.NOT_STARTED, TaskStatus.IN_PROGRESS, TaskStatus.ON_HOLD],
+                status__in=[
+                    TaskStatus.BACKLOG,
+                    TaskStatus.NOT_STARTED,
+                    TaskStatus.IN_PROGRESS,
+                    TaskStatus.REVIEW,
+                    TaskStatus.ON_HOLD,  # legacy
+                ],
             )
             .select_related("assignee")
             .order_by("early_finish")[: self._MAX_PER_BUCKET]

@@ -116,6 +116,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # Nested resource assignments — read-only, used for Gantt assignee chips.
     assignments = TaskAssignmentSerializer(many=True, read_only=True)
 
+    # Computed readiness state for board cards (issue #179).  Derived from
+    # assignee_id, baseline_start annotation, and has_predecessors annotation
+    # added by TaskViewSet.get_queryset().
+    readiness = serializers.SerializerMethodField()
+
     class Meta:
         model = Task
         fields = [
@@ -151,6 +156,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_summary",
             "parent_id",
             "assignments",
+            "readiness",
         ]
         read_only_fields = [
             "id",
@@ -169,6 +175,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_summary",
             "parent_id",
             "assignments",
+            "readiness",
         ]
 
     def get_schedule_variance_days(self, obj: Task) -> int | None:
@@ -176,6 +183,23 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         if obj.actual_finish and obj.early_finish:
             return (obj.actual_finish - obj.early_finish).days
         return None
+
+    def get_readiness(self, obj: Task) -> str:
+        """Derive board-card readiness from available task fields.
+
+        Resolution order (highest specificity first):
+        - baselined: task appears in the active baseline (baseline_start is annotated)
+        - idea: no assignee
+        - ready: has assignee + at least one predecessor dependency
+        - estimated: has assignee, no predecessors
+        """
+        if getattr(obj, "baseline_start", None) is not None:
+            return "baselined"
+        if obj.assignee_id is None:
+            return "idea"
+        if getattr(obj, "has_predecessors", False):
+            return "ready"
+        return "estimated"
 
     def to_representation(self, instance: Task) -> dict[str, Any]:
         """Override percent_complete for summary tasks with duration-weighted child average."""
@@ -408,32 +432,38 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         return attrs
 
 
+# 5-column model per Claude Design handoff (issue #178).
 _DEFAULT_COLUMNS = [
-    {"status": "NOT_STARTED", "label": "TO DO", "visible": True},
-    {"status": "IN_PROGRESS", "label": "IN PROGRESS", "visible": True},
-    {"status": "ON_HOLD", "label": "ON HOLD", "visible": True},
-    {"status": "COMPLETE", "label": "DONE", "visible": True},
+    {"status": "BACKLOG", "label": "Backlog", "visible": True},
+    {"status": "NOT_STARTED", "label": "To Do", "visible": True},
+    {"status": "IN_PROGRESS", "label": "In Progress", "visible": True},
+    {"status": "REVIEW", "label": "Review", "visible": True},
+    {"status": "COMPLETE", "label": "Done", "visible": True},
 ]
+
+# Canonical statuses that must appear in every board config.  ON_HOLD is
+# excluded — it is a legacy value kept for data compatibility only and is
+# never required in new board configurations.
+_CANONICAL_STATUSES = frozenset({"BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIEW", "COMPLETE"})
 
 
 class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
     """Read/write serializer for BoardColumnConfig.
 
-    Validates each column entry: status must be a valid TaskStatus, label
-    ≤ 32 chars, visible is a bool. Exactly the four built-in statuses must
-    appear (no duplicates, no unknown values).
+    Validates each column entry: status must be one of the five canonical
+    statuses, label ≤ 32 chars, visible is a bool. All five canonical statuses
+    must appear exactly once (no duplicates, no missing values).
     """
 
     columns = serializers.ListField(child=serializers.DictField(), allow_empty=False)
 
     def validate_columns(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        valid_statuses = {s.value for s in TaskStatus}
         seen: set[str] = set()
         for entry in value:
             status = entry.get("status")
             label = entry.get("label")
             visible = entry.get("visible")
-            if status not in valid_statuses:
+            if status not in _CANONICAL_STATUSES:
                 raise serializers.ValidationError(f"Unknown status: {status!r}")
             if status in seen:
                 raise serializers.ValidationError(f"Duplicate status: {status!r}")
@@ -442,7 +472,7 @@ class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
                 raise serializers.ValidationError("label must be a string ≤ 32 chars")
             if not isinstance(visible, bool):
                 raise serializers.ValidationError("visible must be a boolean")
-        missing = valid_statuses - seen
+        missing = _CANONICAL_STATUSES - seen
         if missing:
             raise serializers.ValidationError(f"Missing statuses: {missing}")
         return value

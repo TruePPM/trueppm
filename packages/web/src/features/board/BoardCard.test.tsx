@@ -10,11 +10,13 @@ import type { ComponentProps, ReactNode } from 'react';
 import { BoardCard } from './BoardCard';
 import type { Task, TaskStatus } from '@/types';
 
+// 5-column model (issue #178)
 const COLUMNS: { status: TaskStatus; label: string }[] = [
+  { status: 'BACKLOG',     label: 'BACKLOG' },
   { status: 'NOT_STARTED', label: 'TO DO' },
   { status: 'IN_PROGRESS', label: 'IN PROGRESS' },
-  { status: 'ON_HOLD', label: 'ON HOLD' },
-  { status: 'COMPLETE', label: 'DONE' },
+  { status: 'REVIEW',      label: 'REVIEW' },
+  { status: 'COMPLETE',    label: 'DONE' },
 ];
 
 const baseTask: Task = {
@@ -176,7 +178,9 @@ describe('BoardCard', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Move to…' }));
 
     // The submenu lists every column except the source status (IN_PROGRESS).
+    expect(screen.getByRole('menuitem', { name: 'BACKLOG' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'TO DO' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'REVIEW' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'DONE' })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'IN PROGRESS' })).not.toBeInTheDocument();
 
@@ -193,5 +197,40 @@ describe('BoardCard', () => {
     // Outside-click handler listens on document `pointerdown`.
     fireEvent.pointerDown(document.body);
     expect(screen.queryByRole('menuitem', { name: 'Move to…' })).not.toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Readiness chip (issue #179)
+  // ---------------------------------------------------------------------------
+
+  it('renders the idea chip with dashed border for readiness=idea', () => {
+    renderCard({ task: { ...baseTask, readiness: 'idea' } });
+    expect(screen.getByText('idea')).toBeInTheDocument();
+  });
+
+  it('renders the estimated chip for readiness=estimated', () => {
+    renderCard({ task: { ...baseTask, readiness: 'estimated' } });
+    expect(screen.getByText('estimated')).toBeInTheDocument();
+  });
+
+  it('renders the ready chip with chain icon for readiness=ready', () => {
+    renderCard({ task: { ...baseTask, readiness: 'ready' } });
+    expect(screen.getByText('ready')).toBeInTheDocument();
+  });
+
+  it('renders the baselined chip with lock icon for readiness=baselined', () => {
+    renderCard({ task: { ...baseTask, readiness: 'baselined' } });
+    expect(screen.getByText('baselined')).toBeInTheDocument();
+  });
+
+  it('shows ? avatar instead of progress ring for idea cards', () => {
+    renderCard({ task: { ...baseTask, readiness: 'idea', assignees: [] } });
+    expect(screen.getByLabelText('Unassigned')).toBeInTheDocument();
+  });
+
+  it('omits readiness chip when readiness is undefined', () => {
+    renderCard({ task: baseTask }); // no readiness field
+    expect(screen.queryByText('idea')).not.toBeInTheDocument();
+    expect(screen.queryByText('estimated')).not.toBeInTheDocument();
   });
 });

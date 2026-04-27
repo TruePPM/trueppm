@@ -10,6 +10,8 @@ export type LinkType = 'FS' | 'SS' | 'FF' | 'SF';
 export type TaskStatus = 'BACKLOG' | 'NOT_STARTED' | 'IN_PROGRESS' | 'REVIEW' | 'ON_HOLD' | 'COMPLETE';
 export type ZoomLevel = 'day' | 'week' | 'month' | 'quarter' | 'year';
 
+export type TaskReadiness = 'idea' | 'estimated' | 'ready' | 'baselined';
+
 export interface TaskAssignee {
   resourceId: string;
   name: string;
@@ -62,6 +64,8 @@ export interface Task {
   estimateStatus?: 'pending' | 'accepted' | null;
   /** Total float in working days from CPM; negative = already late. Absent until CPM runs. */
   totalFloat?: number | null;
+  /** Computed readiness state for board cards (issue #179). */
+  readiness?: TaskReadiness;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */

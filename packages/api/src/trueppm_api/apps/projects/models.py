@@ -253,15 +253,21 @@ class EstimateStatus(models.TextChoices):
 class TaskStatus(models.TextChoices):
     """Workflow state for a task on the Kanban board.
 
-    status and percent_complete are independent fields — a task can be On Hold
+    5-column model (issue #178): BACKLOG → NOT_STARTED → IN_PROGRESS → REVIEW → COMPLETE.
+    ON_HOLD is retained for backwards compatibility; existing ON_HOLD rows are migrated
+    to BACKLOG in migration 0020. New tasks should never be set to ON_HOLD.
+
+    status and percent_complete are independent fields — a task can be In Review
     at 60% complete, or marked Complete while percent_complete is still 0.8 if
     the PM chooses to track progress separately. The CPM engine ignores status;
     it drives the schedule from duration and dependencies only.
     """
 
+    BACKLOG = "BACKLOG", "Backlog"
     NOT_STARTED = "NOT_STARTED", "Not started"
     IN_PROGRESS = "IN_PROGRESS", "In progress"
-    ON_HOLD = "ON_HOLD", "On hold"
+    REVIEW = "REVIEW", "Review"
+    ON_HOLD = "ON_HOLD", "On hold"  # legacy — maps to Backlog in board config
     COMPLETE = "COMPLETE", "Complete"
 
 
@@ -693,11 +699,12 @@ class BoardColumnConfig(models.Model):
     """Per-project Kanban board column configuration.
 
     Stores an ordered list of column definitions so PMs can rename, reorder,
-    or hide the four built-in task status columns. The API returns hardcoded
-    defaults when no config row exists, so the model is created lazily.
+    or hide the five canonical task status columns (BACKLOG | NOT_STARTED |
+    IN_PROGRESS | REVIEW | COMPLETE). The API returns hardcoded defaults when
+    no config row exists, so the model is created lazily.
 
     columns JSON schema (list of objects):
-        status:  TaskStatus value — NOT_STARTED | IN_PROGRESS | ON_HOLD | COMPLETE
+        status:  TaskStatus canonical value (see _CANONICAL_STATUSES in serializers.py)
         label:   display label (max 32 chars)
         visible: boolean — hidden columns still hold tasks but don't appear on the board
     """
