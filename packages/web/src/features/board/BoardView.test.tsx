@@ -41,6 +41,10 @@ vi.mock('@/hooks/useBoardConfig', () => ({
   }),
 }));
 
+vi.mock('@/hooks/useTaskMutations', () => ({
+  useCreateTask: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+}));
+
 function resetMocks() {
   mockTasks = FIXTURE_TASKS;
   mockIsLoading = false;
@@ -79,22 +83,23 @@ describe('BoardView', () => {
     expect(screen.getByText('Alpha Platform Upgrade')).toBeInTheDocument();
   });
 
-  it('renders an "Other" lane for ungrouped tasks', () => {
+  it('renders an "Project Tasks" lane for ungrouped tasks', () => {
     render(<BoardView />);
-    // t7 "Documentation" has no summary parent — appears in "Other" lane
-    expect(screen.getByText('Other')).toBeInTheDocument();
+    // t7 "Documentation" has no summary parent — appears in "Project Tasks" lane
+    expect(screen.getByText('Project Tasks')).toBeInTheDocument();
     expect(screen.getByText('Documentation')).toBeInTheDocument();
   });
 
   it('does not render summary tasks as cards', () => {
     render(<BoardView />);
-    // "Alpha Platform Upgrade" is a summary task — it should not appear as a card
-    // but it CAN appear as a lane label. We verify there's no card role for it.
+    // "Alpha Platform Upgrade" is a summary task — it should not appear as a draggable card.
+    // The collapse/expand buttons and add-task button do reference the phase name, but
+    // no card-role button should be present (cards have aria-label "Actions for {name}").
     const allButtons = screen.getAllByRole('button');
-    const cardButtons = allButtons.filter(
-      (btn) => btn.getAttribute('aria-label')?.includes('Alpha Platform Upgrade'),
+    const cardActionButtons = allButtons.filter(
+      (btn) => btn.getAttribute('aria-label')?.startsWith('Actions for Alpha Platform Upgrade'),
     );
-    expect(cardButtons).toHaveLength(0);
+    expect(cardActionButtons).toHaveLength(0);
   });
 
   it('renders leaf task cards inside the phase lane', () => {
@@ -115,8 +120,8 @@ describe('BoardView', () => {
   it('collapses a phase lane on header click', async () => {
     const user = userEvent.setup();
     render(<BoardView />);
-    // Expand toggle button for "Alpha Platform Upgrade" phase
-    const toggleBtn = screen.getByRole('button', { name: /Alpha Platform Upgrade/ });
+    // Collapse toggle button for "Alpha Platform Upgrade" phase (aria-label from LaneMeta)
+    const toggleBtn = screen.getByRole('button', { name: /Collapse Alpha Platform Upgrade/ });
     // Initially expanded — task cards visible
     expect(screen.getByText('Discovery & Design')).toBeInTheDocument();
 
@@ -193,7 +198,7 @@ describe('BoardView', () => {
   it('shows per-column counts when a phase is collapsed', async () => {
     const user = userEvent.setup();
     render(<BoardView />);
-    await user.click(screen.getByRole('button', { name: /Alpha Platform Upgrade/ }));
+    await user.click(screen.getByRole('button', { name: /Collapse Alpha Platform Upgrade/ }));
     // The Alpha phase has 1 COMPLETE task (t2) — singular "1 task" branch.
     expect(screen.getAllByText('1 task').length).toBeGreaterThan(0);
     // And NOT_STARTED holds t5, t6 — pluralized "2 tasks" branch.
@@ -211,6 +216,40 @@ describe('BoardView', () => {
     expect(updateMutate).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: 'project-1', status: 'COMPLETE' }),
     );
+  });
+
+  it('renders LaneMeta for each phase with add-task button (issue #208)', () => {
+    render(<BoardView />);
+    // Each visible phase gets a per-lane + button (LaneMeta)
+    expect(screen.getByRole('button', { name: /Add task to Alpha Platform Upgrade/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Add task to Project Tasks/ })).toBeInTheDocument();
+  });
+
+  it('opens AddTaskModal when phase + button is clicked (issue #208)', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    render(<BoardView />);
+    await user.click(screen.getByRole('button', { name: /Add task to Alpha Platform Upgrade/ }));
+    expect(screen.getByRole('dialog', { name: /Add task to Alpha Platform Upgrade/ })).toBeInTheDocument();
+  });
+
+  it('renders "Column tints" toggle in toolbar (issue #211)', () => {
+    render(<BoardView />);
+    expect(screen.getByLabelText('Show column tints')).toBeInTheDocument();
+  });
+
+  it('"Column tints" toggle is on by default (issue #211)', () => {
+    render(<BoardView />);
+    const toggle = screen.getByLabelText<HTMLInputElement>('Show column tints');
+    expect(toggle.checked).toBe(true);
+  });
+
+  it('board still renders when column tints are toggled off (issue #211)', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    render(<BoardView />);
+    const toggle = screen.getByLabelText<HTMLInputElement>('Show column tints');
+    await user.click(toggle);
+    expect(toggle.checked).toBe(false);
+    expect(screen.getByText('TO DO')).toBeInTheDocument();
   });
 
 });

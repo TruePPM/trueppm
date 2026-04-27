@@ -174,7 +174,7 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
       {...listeners}
       {...attributes}
       className={[
-        'bg-neutral-surface border rounded-md cursor-grab active:cursor-grabbing relative group overflow-hidden',
+        'bg-neutral-surface border rounded-md cursor-grab active:cursor-grabbing relative group',
         'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
         task.isCritical
           ? 'border-semantic-critical border-2'
@@ -186,8 +186,9 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
       tabIndex={0}
       aria-label={`${task.name}, ${task.progress}% complete${task.isCritical ? ', critical path' : ''}`}
     >
-      {/* Left accent bar per readiness (issue #179) */}
-      <div className={`absolute left-0 inset-y-0 w-1 ${accentBarClass(task)}`} aria-hidden="true" />
+      {/* Left accent bar — rounded-l-md matches card's border-radius so the bar
+          respects the card corners without needing overflow-hidden on the parent. */}
+      <div className={`absolute left-0 inset-y-0 w-1 rounded-l-md ${accentBarClass(task)}`} aria-hidden="true" />
 
       {/* Card content — left-padded to clear the accent bar */}
       <div className="pl-2.5 pr-2.5 pt-2.5 pb-2.5">

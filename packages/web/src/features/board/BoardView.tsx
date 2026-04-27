@@ -32,6 +32,9 @@ import { useUpdateTaskStatus } from '@/hooks/useBoardTasks';
 import { useBoardConfig } from '@/hooks/useBoardConfig';
 import type { Task, TaskStatus } from '@/types';
 import { BoardCard } from './BoardCard';
+import { LaneMeta } from './LaneMeta';
+import { AddTaskModal } from './AddTaskModal';
+import { phaseColor } from './phaseColors';
 
 // ---------------------------------------------------------------------------
 // Phase helpers
@@ -84,7 +87,7 @@ function buildPhases(allTasks: Task[]): Phase[] {
     .filter((p) => p.tasks.length > 0); // hide empty phases
 
   if (rootTasks.length > 0) {
-    phases.push({ id: 'root', name: 'Other', summaryTask: undefined, tasks: rootTasks });
+    phases.push({ id: 'root', name: 'Project Tasks', summaryTask: undefined, tasks: rootTasks });
   }
 
   return phases;
@@ -170,16 +173,18 @@ interface BoardCellProps {
   showWip: boolean;
   wipLimit?: number;
   isDragActive: boolean;
+  showColTints: boolean;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
   columns: { status: TaskStatus; label: string }[];
 }
 
-// Subtle status tints per column (issue #178 design spec).
+// Subtle status tints per column (issue #211).
 // Applied to the resting state only — drag-over overrides with brand-primary/5.
+// Done=green/4%, Review=amber/5%, Backlog=disabled-grey/5% (spec: mockups-pages.jsx lines 1095–1108).
 const COLUMN_TINT: Partial<Record<TaskStatus, string>> = {
   COMPLETE: 'bg-semantic-on-track/5',
-  REVIEW:   'bg-semantic-at-risk/5',
-  BACKLOG:  'bg-neutral-surface-raised',
+  REVIEW:   'bg-brand-accent/5',
+  BACKLOG:  'bg-neutral-text-disabled/5',
 };
 
 function BoardCell({
@@ -190,6 +195,7 @@ function BoardCell({
   showWip,
   wipLimit,
   isDragActive,
+  showColTints,
   onMenuMove,
   columns,
 }: BoardCellProps) {
@@ -197,7 +203,9 @@ function BoardCell({
   const { setNodeRef } = useDroppable({ id: droppableId });
   const over = isOver && isDragActive;
   const wip = showWip && wipLimit !== undefined && tasks.length > wipLimit;
-  const restingBg = COLUMN_TINT[status] ?? 'bg-neutral-surface-sunken';
+  const restingBg = showColTints
+    ? (COLUMN_TINT[status] ?? 'bg-neutral-surface-sunken')
+    : 'bg-neutral-surface-sunken';
 
   return (
     <div
@@ -237,7 +245,9 @@ interface PhaseLaneProps {
   overCell: string | null;  // `${phaseId}:${status}` or null
   isDragActive: boolean;
   showWip: boolean;
+  showColTints: boolean;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
+  onAddTask: (phaseId: string, phaseName: string) => void;
 }
 
 function PhaseLane({
@@ -247,42 +257,53 @@ function PhaseLane({
   overCell,
   isDragActive,
   showWip,
+  showColTints,
   onMenuMove,
+  onAddTask,
 }: PhaseLaneProps) {
   const [collapsed, setCollapsed] = useState(false);
   const avg = avgProgress(phase.tasks);
+  const color = phaseColor(phase.id);
+  const colCount = columns.length;
+
+  const collapseToggle = (
+    <button
+      type="button"
+      onClick={() => setCollapsed((v) => !v)}
+      className="flex-shrink-0 text-neutral-text-secondary text-xs select-none
+        focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
+      aria-expanded={!collapsed}
+      aria-controls={`phase-${phase.id}-content`}
+      aria-label={collapsed ? `Expand ${phase.name}` : `Collapse ${phase.name}`}
+    >
+      {collapsed ? '▸' : '▾'}
+    </button>
+  );
+
   return (
     <div className="border-b border-neutral-border/60 last:border-b-0">
-      {/* Phase grid row */}
       <div
         className="grid gap-2 p-2"
-        style={{ gridTemplateColumns: '144px repeat(5, 1fr)' }}
+        style={{ gridTemplateColumns: `188px repeat(${colCount}, minmax(0, 1fr))` }}
       >
-        {/* Phase header */}
-        <div className="bg-neutral-surface-raised rounded-lg p-2 flex flex-col gap-0.5 min-w-0">
-          <button
-            type="button"
-            onClick={() => setCollapsed((v) => !v)}
-            className="flex items-center gap-1 text-left focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
-            aria-expanded={!collapsed}
-            aria-controls={`phase-${phase.id}-content`}
-          >
-            <span className="text-neutral-text-secondary text-xs select-none" aria-hidden="true">
-              {collapsed ? '▸' : '▾'}
-            </span>
-            <span className="text-xs font-semibold text-neutral-text-primary truncate">
-              {phase.name}
-            </span>
-          </button>
-          <div className="text-xs text-neutral-text-disabled">
-            {phase.tasks.length} task{phase.tasks.length !== 1 ? 's' : ''} · {avg}% avg
+        {/* Phase meta — LaneMeta atom (issue #208) */}
+        <div className="rounded-lg overflow-hidden border border-neutral-border/40 min-w-0">
+          <LaneMeta
+            phaseId={phase.id}
+            phaseName={phase.name}
+            avgProgress={avg}
+            taskCount={phase.tasks.length}
+            railColor={color}
+            onAddTask={() => onAddTask(phase.id, phase.name)}
+            collapseToggle={collapseToggle}
+          />
+          <div className="px-[11px] pb-2">
+            <PhaseSummaryChips phase={phase} />
           </div>
-          <PhaseSummaryChips phase={phase} />
         </div>
 
         {/* Column cells */}
         {collapsed ? (
-          // Collapsed: show summary counts per column
           columns.map((col) => {
             const count = tasksByStatus[col.status]?.length ?? 0;
             return (
@@ -306,6 +327,7 @@ function PhaseLane({
               isOver={overCell === `${phase.id}:${col.status}`}
               isDragActive={isDragActive}
               showWip={showWip}
+              showColTints={showColTints}
               wipLimit={col.wipLimit}
               onMenuMove={onMenuMove}
               columns={columns}
@@ -331,6 +353,8 @@ export function BoardView() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null); // `${phaseId}:${status}`
   const [showWip, setShowWip] = useState(true);
+  const [showColTints, setShowColTints] = useState(true);
+  const [addTaskPhase, setAddTaskPhase] = useState<{ id: string; name: string } | null>(null);
   const ariaLiveRef = useRef<HTMLDivElement>(null);
 
   const sensors = useSensors(
@@ -418,6 +442,10 @@ export function BoardView() {
     [projectId, updateStatus, COLUMNS],
   );
 
+  const handleAddTask = useCallback((phaseId: string, phaseName: string) => {
+    setAddTaskPhase({ id: phaseId, name: phaseName });
+  }, []);
+
   // Total per-column counts across all phases (for column header WIP badges)
   const totalByStatus = useMemo(() => {
     const counts: Record<TaskStatus, number> = {
@@ -487,6 +515,16 @@ export function BoardView() {
               />
               Show WIP limits
             </label>
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showColTints}
+                onChange={(e) => setShowColTints(e.target.checked)}
+                className="accent-brand-primary"
+                aria-label="Show column tints"
+              />
+              Column tints
+            </label>
           </div>
 
           {/* Board grid — scrollable */}
@@ -494,7 +532,7 @@ export function BoardView() {
             {/* Sticky column headers */}
             <div
               className="grid gap-2 px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10"
-              style={{ gridTemplateColumns: '144px repeat(5, 1fr)' }}
+              style={{ gridTemplateColumns: `188px repeat(${COLUMNS.length}, minmax(0, 1fr))` }}
             >
               <div className="text-xs uppercase tracking-wide text-neutral-text-disabled px-2">
                 Phase
@@ -530,7 +568,9 @@ export function BoardView() {
                 overCell={overCell}
                 isDragActive={activeId !== null}
                 showWip={showWip}
+                showColTints={showColTints}
                 onMenuMove={handleMenuMove}
+                onAddTask={handleAddTask}
               />
             ))}
           </div>
@@ -561,6 +601,15 @@ export function BoardView() {
       >
         +
       </button>
+
+      {/* Per-phase add task modal (issue #208) */}
+      {addTaskPhase && (
+        <AddTaskModal
+          phaseId={addTaskPhase.id}
+          phaseName={addTaskPhase.name}
+          onClose={() => setAddTaskPhase(null)}
+        />
+      )}
     </>
   );
 }

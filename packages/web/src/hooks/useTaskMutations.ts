@@ -25,6 +25,8 @@ export interface CreateTaskPayload {
   duration: number;
   /** UUID of the parent task. Omit or pass null to create at root level. */
   parent_id?: string | null;
+  /** Initial board status. Defaults to NOT_STARTED if omitted. */
+  status?: string;
 }
 
 /** POST /api/v1/tasks/ — create a new task in the given project. */
@@ -38,6 +40,7 @@ export function useCreateTask(projectId: string | null) {
         name: payload.name,
         duration: payload.duration,
         ...(payload.parent_id != null ? { parent_id: payload.parent_id } : {}),
+        ...(payload.status != null ? { status: payload.status } : {}),
       });
       return res.data;
     },
