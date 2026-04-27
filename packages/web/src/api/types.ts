@@ -20,6 +20,8 @@ export interface PaginatedResponse<T> {
 // Risk Register types (issue #52). Hand-authored until openapi-typescript regeneration.
 export interface Risk {
   id: string;
+  /** Short per-project hex ID shared with the Task counter (e.g. "a3f1"). */
+  short_id: string;
   server_version: number;
   project: string;
   title: string;

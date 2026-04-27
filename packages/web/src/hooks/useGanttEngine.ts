@@ -20,6 +20,7 @@ export function useGanttEngine(
   barsCanvasRef: RefObject<HTMLCanvasElement | null>,
   ixCanvasRef: RefObject<HTMLCanvasElement | null>,
   zoomLevel: ZoomLevel,
+  isDark = false,
 ): GanttEngine | null {
   const [engine, setEngine] = useState<GanttEngine | null>(null);
 
@@ -47,6 +48,7 @@ export function useGanttEngine(
       barsCanvas,
       ixCanvas,
       initialZoom: zoomLevel,
+      isDark,
     });
 
     setEngine(impl);
@@ -64,6 +66,12 @@ export function useGanttEngine(
     if (!engine) return;
     engine.setZoom(zoomLevel);
   }, [engine, zoomLevel]);
+
+  // Respond to dark mode changes
+  useEffect(() => {
+    if (!engine) return;
+    engine.setDark(isDark);
+  }, [engine, isDark]);
 
   return engine;
 }

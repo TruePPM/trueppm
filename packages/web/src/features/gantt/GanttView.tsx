@@ -494,7 +494,7 @@ export function GanttView() {
 
   if (error) {
     return (
-      <div className="gantt-light-surface flex h-full items-center justify-center bg-neutral-surface">
+      <div className="flex h-full items-center justify-center bg-neutral-surface">
         <p className="text-sm text-semantic-critical">
           Couldn&apos;t load tasks.{' '}
           <button
@@ -511,7 +511,7 @@ export function GanttView() {
 
   if (isLoading || !rawTasks) {
     return (
-      <div className="gantt-light-surface flex h-full bg-neutral-surface" aria-busy="true" aria-label="Loading Gantt">
+      <div className="flex h-full bg-neutral-surface" aria-busy="true" aria-label="Loading Gantt">
         <div className="w-[280px] flex-shrink-0 border-r border-white/10 p-2 space-y-1">
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="h-7 rounded animate-pulse bg-brand-primary/10" />
@@ -524,7 +524,7 @@ export function GanttView() {
 
   if (!canvasSupported) {
     return (
-      <div className="gantt-light-surface flex flex-col h-full overflow-hidden">
+      <div className="flex flex-col h-full overflow-hidden">
         <div className="flex items-center justify-end px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
           <ZoomControl />
         </div>
@@ -550,7 +550,7 @@ export function GanttView() {
   const totalCanvasWidth = ganttScales?.totalWidth ?? 0;
 
   return (
-    <div className="gantt-light-surface flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden">
       {/* Gantt-specific toolbar — Today + Zoom + Add Task */}
       <div className="flex items-center gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
         {/* "+ Task" button — only shown when a project is selected */}

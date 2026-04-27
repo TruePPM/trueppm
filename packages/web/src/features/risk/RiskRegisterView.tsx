@@ -120,9 +120,14 @@ export function RiskRegisterView() {
         </div>
       )}
 
+      {/* Risk matrix — above the table so the heatmap provides context before the list */}
+      {!isLoading && !error && (
+        <RiskMatrix risks={risks} />
+      )}
+
       {/* Risk table */}
       {!isLoading && !error && risks.length > 0 && (
-        <div className="overflow-x-auto border border-neutral-border rounded">
+        <div className="mt-6 overflow-x-auto border border-neutral-border rounded">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="bg-neutral-surface-raised border-b border-neutral-border">
@@ -203,11 +208,6 @@ export function RiskRegisterView() {
             </tbody>
           </table>
         </div>
-      )}
-
-      {/* Risk matrix */}
-      {!isLoading && !error && (
-        <RiskMatrix risks={risks} />
       )}
 
       {/* Mobile FAB — opens create drawer (rule 90) */}

@@ -112,18 +112,3 @@
   }
 }
 
-/* ── Gantt / Schedule view — always light surface (rule 40) ─────────────────
-   The canvas renderer uses hardcoded light-palette colors. This class resets
-   all neutral tokens to their light values regardless of the .dark class on
-   <html>, ensuring the task-list panel and canvas surface remain on white.   */
-.gantt-light-surface {
-  color-scheme: light;
-  --neutral-surface:         255 255 255;
-  --neutral-surface-raised:  245 245 240;
-  --neutral-surface-sunken:  235 235 235;
-  --neutral-border:          212 210 206;
-  --neutral-text-primary:    26 25 23;
-  --neutral-text-secondary:  107 105 101;
-  --neutral-text-disabled:   160 157 153;
-  --neutral-text-inverse:    255 255 255;
-}

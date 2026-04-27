@@ -47,7 +47,8 @@ const HEADER_MAJOR_HEIGHT = 14;
 const HEADER_MINOR_HEIGHT = 14;
 
 // ---------------------------------------------------------------------------
-// Color palette — light surface (neutral-surface #FFFFFF / neutral-surface-raised #F5F5F0)
+// Color palettes — light and dark surfaces.
+// setRendererColorMode() switches the active palette before each paint pass.
 // ---------------------------------------------------------------------------
 
 export const COLOR = {
@@ -69,6 +70,42 @@ export const COLOR = {
   ghostFill:      'rgba(100,116,139,0.12)',
   ghostBorder:    'rgba(100,116,139,0.55)',
 } as const;
+
+/** Semantic type for the color palette. Both COLOR and COLOR_DARK satisfy this. */
+export type ColorPalette = Record<keyof typeof COLOR, string>;
+
+/** Dark-surface palette — light tokens for readability on neutral-surface dark (#12141E). */
+export const COLOR_DARK: ColorPalette = {
+  surface:        '#12141E',   // neutral-surface dark
+  rowBandAlt:     'rgba(255,255,255,0.025)',
+  weekend:        'rgba(255,255,255,0.03)',
+  gridLine:       'rgba(255,255,255,0.08)',
+  todayLine:      '#4ADE80',   // semantic-on-track dark — Green-400, 5.28:1 on #12141E
+  text:           '#E8E8E8',   // neutral-text-primary dark
+  textSecondary:  '#94A3B8',   // Slate-400 — neutral-text-secondary dark
+  barNormal:      '#60A5FA',   // Blue-400 — readable on dark surface
+  barCritical:    '#F87171',   // Red-400 — semantic-critical dark, 4.87:1 on #12141E
+  barComplete:    '#4ADE80',   // Green-400 — semantic-on-track dark
+  barSummary:     '#94A3B8',   // Slate-400
+  milestone:      '#E8A020',   // brand-accent — unchanged
+  arrowNormal:    'rgba(148,163,184,0.6)',   // Slate-400 based
+  arrowCritical:  '#F87171',   // Red-400
+  selectionRing:  '#4ADE80',   // Green-400, 5.28:1 on dark surface
+  ghostFill:      'rgba(100,116,139,0.12)',
+  ghostBorder:    'rgba(100,116,139,0.55)',
+};
+
+// Active palette — swapped by GanttEngineImpl before each paint pass.
+// Synchronous access only: set immediately before any draw call, never in async context.
+let _palette: ColorPalette = COLOR;
+
+/**
+ * Switch the active color palette for all subsequent draw calls in the current pass.
+ * Called by GanttEngineImpl at the start of each paint method.
+ */
+export function setRendererColorMode(dark: boolean): void {
+  _palette = dark ? COLOR_DARK : COLOR;
+}
 
 // ---------------------------------------------------------------------------
 // Helper: is a UTC date a weekend?
@@ -98,7 +135,7 @@ export function drawRowBands(
 ): void {
   for (let i = firstRow; i <= lastRow; i++) {
     if (i % 2 !== 0) {
-      ctx.fillStyle = COLOR.rowBandAlt;
+      ctx.fillStyle = _palette.rowBandAlt;
       ctx.fillRect(0, i * ROW_HEIGHT + HEADER_HEIGHT - scrollTop, canvasWidth + scrollLeft, ROW_HEIGHT);
     }
   }
@@ -119,7 +156,7 @@ export function drawGridLines(
   firstRow: number,
   lastRow: number,
 ): void {
-  ctx.strokeStyle = COLOR.gridLine;
+  ctx.strokeStyle = _palette.gridLine;
   ctx.lineWidth = 1;
 
   // Vertical lines: walk from scales.start to scales.end in 1-day steps.
@@ -137,7 +174,7 @@ export function drawGridLines(
       // Weekend shading (rule 74) — draw on bg canvas, below the header
       if (isWeekend(date)) {
         const dayWidth = dayMs * scales.pxPerMs;
-        ctx.fillStyle = COLOR.weekend;
+        ctx.fillStyle = _palette.weekend;
         ctx.fillRect(x, HEADER_HEIGHT, dayWidth, canvasHeight + scrollTop - HEADER_HEIGHT);
       }
       ctx.moveTo(x + 0.5, HEADER_HEIGHT);
@@ -149,7 +186,7 @@ export function drawGridLines(
 
   // Horizontal row separators
   ctx.beginPath();
-  ctx.strokeStyle = COLOR.gridLine;
+  ctx.strokeStyle = _palette.gridLine;
   for (let i = firstRow; i <= lastRow + 1; i++) {
     const y = i * ROW_HEIGHT + HEADER_HEIGHT - scrollTop + 0.5;
     ctx.moveTo(0, y);
@@ -174,7 +211,7 @@ export function drawTodayLine(
   if (x < -2 || x > ctx.canvas.width / (window.devicePixelRatio || 1) + 2) return;
 
   ctx.save();
-  ctx.strokeStyle = COLOR.todayLine;
+  ctx.strokeStyle = _palette.todayLine;
   ctx.lineWidth = 2;
   ctx.globalAlpha = 0.9;
   ctx.beginPath();
@@ -227,7 +264,7 @@ function drawHeaderCell(
   if (cellWidth < 4) return;
 
   // Left separator
-  ctx.strokeStyle = COLOR.gridLine;
+  ctx.strokeStyle = _palette.gridLine;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(Math.floor(cellX) + 0.5, cellY);
@@ -243,7 +280,7 @@ function drawHeaderCell(
   ctx.beginPath();
   ctx.rect(cellX + 4, cellY, Math.max(0, cellWidth - 4), cellHeight);
   ctx.clip();
-  ctx.fillStyle = COLOR.textSecondary;
+  ctx.fillStyle = _palette.textSecondary;
   ctx.font = '11px Inter, system-ui, sans-serif';
   ctx.textBaseline = 'middle';
   ctx.fillText(label, Math.max(cellX + 6, 4), cellY + cellHeight / 2);
@@ -270,11 +307,11 @@ export function drawTimelineHeader(
   const endMs = scales.end.getTime();
 
   // Opaque background covers any row bands that reached the header area
-  ctx.fillStyle = COLOR.surface;
+  ctx.fillStyle = _palette.surface;
   ctx.fillRect(0, 0, canvasWidth, HEADER_HEIGHT);
 
   // Bottom border separating header from task area
-  ctx.strokeStyle = COLOR.gridLine;
+  ctx.strokeStyle = _palette.gridLine;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(0, HEADER_HEIGHT - 0.5);
@@ -352,10 +389,10 @@ export function drawTimelineHeader(
 
 /** Choose bar fill color based on task state. */
 function barFillColor(task: Task): string {
-  if (task.isSummary) return COLOR.barSummary;
-  if (task.isComplete || task.progress >= 100) return COLOR.barComplete;
-  if (task.isCritical) return COLOR.barCritical;
-  return COLOR.barNormal;
+  if (task.isSummary) return _palette.barSummary;
+  if (task.isComplete || task.progress >= 100) return _palette.barComplete;
+  if (task.isCritical) return _palette.barCritical;
+  return _palette.barNormal;
 }
 
 /**
@@ -388,7 +425,7 @@ export function drawTaskBar(
 
   // Selection: 2px white inset stroke
   if (isSelected) {
-    ctx.strokeStyle = COLOR.selectionRing;
+    ctx.strokeStyle = _palette.selectionRing;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.roundRect(barLeft + 1, barTop + 1, barWidth - 2, BAR_HEIGHT - 2, 2);
@@ -408,7 +445,7 @@ export function drawTaskBar(
 
   // Label — clipped to bar bounds (rule 72: #E8E8E8 on dark surface)
   ctx.font = CANVAS_FONT;
-  ctx.fillStyle = COLOR.text;
+  ctx.fillStyle = _palette.text;
   ctx.textBaseline = 'middle';
   ctx.beginPath();
   ctx.rect(barLeft, barTop, barWidth, BAR_HEIGHT);
@@ -419,7 +456,7 @@ export function drawTaskBar(
   if (barWidth >= 48 && task.assignees.length > 0) {
     const initials = getInitials(task.assignees[0].name);
     ctx.font = '10px Inter, system-ui, sans-serif';
-    ctx.fillStyle = COLOR.text;
+    ctx.fillStyle = _palette.text;
     const textWidth = ctx.measureText(initials).width;
     ctx.fillText(initials, barLeft + barWidth - 4 - textWidth, barTop + BAR_HEIGHT / 2);
     ctx.font = CANVAS_FONT; // Reset to engine default (rule 71)
@@ -464,11 +501,11 @@ export function drawActualDateBar(
   const variance = task.scheduleVarianceDays ?? null;
   let color: string;
   if (variance !== null && variance > 0) {
-    color = COLOR.barCritical;   // late — semantic-critical
+    color = _palette.barCritical;   // late — semantic-critical
   } else if (variance !== null && variance < 0) {
-    color = COLOR.barComplete;   // early — semantic-on-track
+    color = _palette.barComplete;   // early — semantic-on-track
   } else {
-    color = COLOR.ghostBorder;   // in-progress or no variance info
+    color = _palette.ghostBorder;   // in-progress or no variance info
   }
 
   ctx.save();
@@ -512,7 +549,7 @@ export function drawScheduleVarianceBadge(
   const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
   const badgeY = barTop + BAR_HEIGHT / 2;
   const label = variance > 0 ? `+${variance}d` : `${variance}d`;
-  const color = variance > 0 ? COLOR.barCritical : COLOR.barComplete;
+  const color = variance > 0 ? _palette.barCritical : _palette.barComplete;
 
   ctx.save();
   ctx.font = '10px Inter, system-ui, sans-serif';
@@ -544,13 +581,13 @@ export function drawSummaryBar(
   const barTop = rowCenterY - SUMMARY_BAR_HEIGHT / 2;
 
   ctx.save();
-  ctx.fillStyle = COLOR.barSummary;
+  ctx.fillStyle = _palette.barSummary;
   ctx.beginPath();
   ctx.roundRect(barLeft, barTop, barWidth, SUMMARY_BAR_HEIGHT, 2);
   ctx.fill();
 
   if (isSelected) {
-    ctx.strokeStyle = COLOR.selectionRing;
+    ctx.strokeStyle = _palette.selectionRing;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.roundRect(barLeft + 1, barTop + 1, barWidth - 2, SUMMARY_BAR_HEIGHT - 2, 1);
@@ -561,7 +598,7 @@ export function drawSummaryBar(
   // the bar midline at each end so the summary endpoints visually match
   // milestones on adjacent rows.
   const capHalf = MILESTONE_SIZE / 2;
-  ctx.fillStyle = COLOR.barSummary;
+  ctx.fillStyle = _palette.barSummary;
   for (const centerX of [barLeft, barRight]) {
     ctx.save();
     ctx.translate(centerX, rowCenterY);
@@ -596,13 +633,13 @@ export function drawMilestone(
   ctx.translate(centerX, centerY);
   ctx.rotate(Math.PI / 4);
 
-  ctx.fillStyle = COLOR.milestone;
+  ctx.fillStyle = _palette.milestone;
   ctx.beginPath();
   ctx.rect(-half, -half, MILESTONE_SIZE, MILESTONE_SIZE);
   ctx.fill();
 
   if (isSelected) {
-    ctx.strokeStyle = COLOR.selectionRing;
+    ctx.strokeStyle = _palette.selectionRing;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.rect(-half + 1, -half + 1, MILESTONE_SIZE - 2, MILESTONE_SIZE - 2);
@@ -698,7 +735,7 @@ export function drawDependencyArrows(
     }
 
     const isCriticalArrow = src.isCritical && tgt.isCritical;
-    const stroke = isCriticalArrow ? COLOR.arrowCritical : COLOR.arrowNormal;
+    const stroke = isCriticalArrow ? _palette.arrowCritical : _palette.arrowNormal;
 
     ctx.save();
     ctx.strokeStyle = stroke;
@@ -747,8 +784,8 @@ export function drawDragShadow(
   const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
 
   ctx.save();
-  ctx.fillStyle = COLOR.ghostFill;
-  ctx.strokeStyle = COLOR.ghostBorder;
+  ctx.fillStyle = _palette.ghostFill;
+  ctx.strokeStyle = _palette.ghostBorder;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.roundRect(canvasX, barTop, barWidth, BAR_HEIGHT, 3);
@@ -770,7 +807,7 @@ export function drawResizeIndicator(
 ): void {
   const x = barRight - 4;
   ctx.save();
-  ctx.strokeStyle = COLOR.textSecondary;
+  ctx.strokeStyle = _palette.textSecondary;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(x + 0.5, barTop);

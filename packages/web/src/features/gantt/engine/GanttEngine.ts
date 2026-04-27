@@ -199,6 +199,17 @@ export interface GanttEngine {
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
+  // ── Color mode ────────────────────────────────────────────────────────────
+
+  /**
+   * Switch the canvas renderer between light and dark palettes.
+   * Call whenever the application color scheme changes (e.g. from useThemeStore).
+   * Triggers a full repaint automatically.
+   */
+  setDark(dark: boolean): void;
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
+
   /**
    * Release all resources: cancel rAF loops, remove event listeners,
    * detach ResizeObserver, terminate any workers owned by the engine.

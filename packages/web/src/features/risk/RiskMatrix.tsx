@@ -10,17 +10,22 @@ function cellBgClass(probability: number, impact: number): string {
   return 'bg-risk-zone-minimal';
 }
 
-// Dot color matches the RiskChip text token for the severity band (rule 86).
-function dotColorClass(severity: number): string {
-  if (severity >= 20) return 'bg-semantic-critical';
-  if (severity >= 12) return 'bg-brand-accent-dark';
-  if (severity >= 6)  return 'bg-neutral-text-primary';
-  return 'bg-neutral-text-secondary';
+// Badge background matches the severity band (rule 86).
+function badgeBgClass(severity: number): string {
+  if (severity >= 20) return 'bg-semantic-critical text-white';
+  if (severity >= 12) return 'bg-brand-accent text-neutral-text-primary';
+  if (severity >= 6)  return 'bg-semantic-warning text-white';
+  if (severity >= 2)  return 'bg-semantic-on-track/80 text-white';
+  return 'bg-neutral-border text-neutral-text-secondary';
 }
 
 interface RiskMatrixProps {
   risks: Risk[];
 }
+
+// Cell width: w-12 = 48px. 5 cells + 4 gaps (gap-px = 1px each) = 244px.
+const CELL_CLASS = 'w-12 h-12';
+const AXIS_LABEL_WIDTH = 'w-[244px]';
 
 export function RiskMatrix({ risks }: RiskMatrixProps) {
   return (
@@ -57,7 +62,8 @@ export function RiskMatrix({ risks }: RiskMatrixProps) {
                     <div
                       key={imp}
                       className={[
-                        'w-10 h-10 border border-neutral-border flex flex-wrap items-center justify-center gap-0.5 p-1',
+                        CELL_CLASS,
+                        'border border-neutral-border flex flex-wrap items-center justify-center gap-0.5 p-1 overflow-hidden',
                         cellBgClass(prob, imp),
                       ].join(' ')}
                       title={`P${prob} × I${imp} = ${prob * imp}`}
@@ -66,12 +72,15 @@ export function RiskMatrix({ risks }: RiskMatrixProps) {
                         <span
                           key={r.id}
                           className={[
-                            'w-2 h-2 rounded-full shrink-0',
-                            dotColorClass(r.severity),
+                            'inline-flex items-center justify-center',
+                            'w-9 h-9 rounded-full shrink-0 text-xs font-semibold',
+                            badgeBgClass(r.severity),
                           ].join(' ')}
                           title={r.title}
                           aria-label={r.title}
-                        />
+                        >
+                          {r.short_id.slice(0, 4)}
+                        </span>
                       ))}
                     </div>
                   );
@@ -87,7 +96,7 @@ export function RiskMatrix({ risks }: RiskMatrixProps) {
               {[1, 2, 3, 4, 5].map((imp) => (
                 <div
                   key={imp}
-                  className="w-10 text-center text-xs text-neutral-text-secondary"
+                  className="w-12 text-center text-xs text-neutral-text-secondary"
                 >
                   {imp}
                 </div>
@@ -98,7 +107,7 @@ export function RiskMatrix({ risks }: RiskMatrixProps) {
           {/* Impact axis label */}
           <div className="flex items-center gap-1">
             <span className="w-4 shrink-0" aria-hidden="true" />
-            <div className="w-[212px] text-center text-xs text-neutral-text-secondary">
+            <div className={`${AXIS_LABEL_WIDTH} text-center text-xs text-neutral-text-secondary`}>
               ← Impact →
             </div>
           </div>

@@ -57,6 +57,10 @@ export class GanttEngineStub implements GanttEngine {
     return () => {};
   }
 
+  // ── Color mode ────────────────────────────────────────────────────────────
+
+  setDark(_dark: boolean): void {}
+
   // ── Imperative drag control ───────────────────────────────────────────────
 
   cancelDrag(): void {}
