@@ -3,12 +3,12 @@
  *
  * Layout:
  *   - Rows = WBS phases (summary tasks). Tasks with no summary parent appear
- *     in an "Other" lane at the bottom.
+ *     in a "Project Tasks" lane at the bottom.
  *   - Columns = task status (To Do / In Progress / On Hold / Done).
  *   - Each cell is an individual dnd-kit droppable (id = `${phaseId}:${status}`).
  *     Dropping a card updates its status; phase membership follows parentId.
- *   - Lanes are collapsible — state persists in React (not localStorage, no need
- *     to survive reload for a board-session interaction).
+ *   - Lanes are collapsible — state persists to localStorage per project
+ *     (issue #190). Collapse all / Expand all in toolbar. [ / ] keyboard shortcuts.
  *
  * WIP limits, progress rings, entry stamps, and CP badges are spec-defined
  * features from the design doc (p3m-vs-oss-views-original.html § ⑤).
@@ -31,7 +31,7 @@ import { useGanttTasks } from '@/hooks/useGanttTasks';
 import { useUpdateTaskStatus } from '@/hooks/useBoardTasks';
 import { useBoardConfig } from '@/hooks/useBoardConfig';
 import type { Task, TaskStatus } from '@/types';
-import { BoardCard } from './BoardCard';
+import { BoardCard, type BoardDensity } from './BoardCard';
 import { LaneMeta } from './LaneMeta';
 import { AddTaskModal } from './AddTaskModal';
 import { phaseColor } from './phaseColors';
@@ -113,7 +113,6 @@ interface WipBadgeProps {
 
 function WipBadge({ count, limit }: WipBadgeProps) {
   if (limit === undefined) {
-    // No limit — just the count
     return (
       <span className="ml-1.5 text-xs text-neutral-text-disabled font-medium">
         {count}
@@ -174,6 +173,7 @@ interface BoardCellProps {
   wipLimit?: number;
   isDragActive: boolean;
   showColTints: boolean;
+  density: BoardDensity;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
   columns: { status: TaskStatus; label: string }[];
 }
@@ -196,6 +196,7 @@ function BoardCell({
   wipLimit,
   isDragActive,
   showColTints,
+  density,
   onMenuMove,
   columns,
 }: BoardCellProps) {
@@ -226,6 +227,7 @@ function BoardCell({
         <BoardCard
           key={task.id}
           task={task}
+          density={density}
           onMenuMove={(newStatus) => onMenuMove(task, newStatus)}
           columns={columns}
         />
@@ -246,6 +248,9 @@ interface PhaseLaneProps {
   isDragActive: boolean;
   showWip: boolean;
   showColTints: boolean;
+  density: BoardDensity;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
   onAddTask: (phaseId: string, phaseName: string) => void;
 }
@@ -258,18 +263,28 @@ function PhaseLane({
   isDragActive,
   showWip,
   showColTints,
+  density,
+  collapsed,
+  onToggleCollapse,
   onMenuMove,
   onAddTask,
 }: PhaseLaneProps) {
-  const [collapsed, setCollapsed] = useState(false);
   const avg = avgProgress(phase.tasks);
   const color = phaseColor(phase.id);
   const colCount = columns.length;
 
+  // Keyboard [ / ] shortcuts collapse/expand the focused lane (issue #190).
+  // Skip when focus is inside a form element to avoid capturing text input.
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
+    if (e.key === '[' && !collapsed) { e.preventDefault(); onToggleCollapse(); }
+    if (e.key === ']' && collapsed) { e.preventDefault(); onToggleCollapse(); }
+  }, [collapsed, onToggleCollapse]);
+
   const collapseToggle = (
     <button
       type="button"
-      onClick={() => setCollapsed((v) => !v)}
+      onClick={onToggleCollapse}
       className="flex-shrink-0 text-neutral-text-secondary text-xs select-none
         focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
       aria-expanded={!collapsed}
@@ -281,8 +296,12 @@ function PhaseLane({
   );
 
   return (
-    <div className="border-b border-neutral-border/60 last:border-b-0">
+    <div
+      className="border-b border-neutral-border/60 last:border-b-0"
+      onKeyDown={handleKeyDown}
+    >
       <div
+        id={`phase-${phase.id}-content`}
         className="grid gap-2 p-2"
         style={{ gridTemplateColumns: `188px repeat(${colCount}, minmax(0, 1fr))` }}
       >
@@ -328,6 +347,7 @@ function PhaseLane({
               isDragActive={isDragActive}
               showWip={showWip}
               showColTints={showColTints}
+              density={density}
               wipLimit={col.wipLimit}
               onMenuMove={onMenuMove}
               columns={columns}
@@ -337,6 +357,66 @@ function PhaseLane({
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// localStorage-backed hooks
+// ---------------------------------------------------------------------------
+
+/** Persist collapsed lane IDs per project (issue #190). */
+function useBoardCollapsedLanes(projectId: string) {
+  const storageKey = `trueppm.board.${projectId}.collapsedLanes`;
+
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      return new Set<string>(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set<string>();
+    }
+  });
+
+  const toggle = useCallback((id: string) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      try { localStorage.setItem(storageKey, JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  }, [storageKey]);
+
+  const collapseAll = useCallback((ids: string[]) => {
+    const next = new Set(ids);
+    try { localStorage.setItem(storageKey, JSON.stringify([...next])); } catch { /* ignore */ }
+    setCollapsedIds(next);
+  }, [storageKey]);
+
+  const expandAll = useCallback(() => {
+    try { localStorage.setItem(storageKey, JSON.stringify([])); } catch { /* ignore */ }
+    setCollapsedIds(new Set<string>());
+  }, [storageKey]);
+
+  return { collapsedIds, toggle, collapseAll, expandAll };
+}
+
+/** Persist card density preference per project (issue #193). */
+function useBoardDensity(projectId: string) {
+  const storageKey = `trueppm.board.${projectId}.density`;
+
+  const [density, setDensityState] = useState<BoardDensity>(() => {
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw === 'compact' || raw === 'comfortable' || raw === 'detailed') return raw;
+    } catch { /* ignore */ }
+    return 'comfortable';
+  });
+
+  const setDensity = useCallback((d: BoardDensity) => {
+    try { localStorage.setItem(storageKey, d); } catch { /* ignore */ }
+    setDensityState(d);
+  }, [storageKey]);
+
+  return { density, setDensity };
 }
 
 // ---------------------------------------------------------------------------
@@ -356,6 +436,9 @@ export function BoardView() {
   const [showColTints, setShowColTints] = useState(true);
   const [addTaskPhase, setAddTaskPhase] = useState<{ id: string; name: string } | null>(null);
   const ariaLiveRef = useRef<HTMLDivElement>(null);
+
+  const { collapsedIds, toggle: toggleCollapse, collapseAll, expandAll } = useBoardCollapsedLanes(projectId);
+  const { density, setDensity } = useBoardDensity(projectId);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -475,6 +558,11 @@ export function BoardView() {
     );
   }
 
+  const toolbarBtnClass =
+    'border border-neutral-border rounded px-2 py-0.5 text-neutral-text-primary ' +
+    'hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary ' +
+    'focus-visible:outline-none';
+
   return (
     <>
       {/* aria-live region for status change announcements (rule 105) */}
@@ -490,7 +578,7 @@ export function BoardView() {
         <div className="flex flex-col h-full overflow-hidden">
 
           {/* Board toolbar */}
-          <div className="flex-shrink-0 border-b border-neutral-border bg-neutral-surface px-4 py-2 flex items-center gap-4 text-xs text-neutral-text-secondary">
+          <div className="flex-shrink-0 border-b border-neutral-border bg-neutral-surface px-4 py-2 flex items-center gap-4 text-xs text-neutral-text-secondary flex-wrap">
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
               Lane:
               <select className="border border-neutral-border rounded px-1.5 py-0.5 text-neutral-text-primary focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none">
@@ -505,6 +593,37 @@ export function BoardView() {
                 <option>% complete</option>
               </select>
             </label>
+            {/* Card density — issue #193 */}
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              Density:
+              <select
+                value={density}
+                onChange={(e) => setDensity(e.target.value as BoardDensity)}
+                className="border border-neutral-border rounded px-1.5 py-0.5 text-neutral-text-primary focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                aria-label="Card density"
+              >
+                <option value="compact">Compact</option>
+                <option value="comfortable">Comfortable</option>
+                <option value="detailed">Detailed</option>
+              </select>
+            </label>
+            {/* Collapse all / Expand all — issue #190 */}
+            <button
+              type="button"
+              className={toolbarBtnClass}
+              onClick={() => collapseAll(phases.map((p) => p.id))}
+              aria-label="Collapse all lanes"
+            >
+              Collapse all
+            </button>
+            <button
+              type="button"
+              className={toolbarBtnClass}
+              onClick={expandAll}
+              aria-label="Expand all lanes"
+            >
+              Expand all
+            </button>
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
               <input
                 type="checkbox"
@@ -569,6 +688,9 @@ export function BoardView() {
                 isDragActive={activeId !== null}
                 showWip={showWip}
                 showColTints={showColTints}
+                density={density}
+                collapsed={collapsedIds.has(phase.id)}
+                onToggleCollapse={() => toggleCollapse(phase.id)}
                 onMenuMove={handleMenuMove}
                 onAddTask={handleAddTask}
               />
