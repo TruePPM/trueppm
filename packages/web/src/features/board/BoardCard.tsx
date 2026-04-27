@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react
 import { useDraggable } from '@dnd-kit/core';
 import type { Task, TaskReadiness, TaskStatus } from '@/types';
 import { BoardProgressRing } from './BoardProgressRing';
+import { formatShortDate } from '@/features/gantt/ganttUtils';
 
 export type BoardDensity = 'compact' | 'comfortable' | 'detailed';
 
@@ -310,6 +311,18 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
   const visibleAssignees = isDetailed ? task.assignees : task.assignees.slice(0, 3);
   const hiddenCount = isDetailed ? 0 : Math.max(0, task.assignees.length - 3);
 
+  // Float chip (issue #183): CP tasks have 0d float by definition; non-CP shows totalFloat when set.
+  const hasFloatData = task.isCritical || (task.totalFloat !== undefined && task.totalFloat !== null);
+  const floatDays = task.isCritical ? 0 : (task.totalFloat as number);
+
+  // Baseline variance hover panel (issue #186): calendar days between forecast finish and baseline.
+  // Positive = late. Shown only when baselineFinish is present.
+  const baselineVarianceDays: number | null = task.baselineFinish
+    ? Math.round(
+        (new Date(task.finish).getTime() - new Date(task.baselineFinish).getTime()) / 86_400_000,
+      )
+    : null;
+
   return (
     <div
       ref={measureCardRef}
@@ -423,21 +436,54 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
           </div>
         )}
 
-        {/* Float chip — detailed mode only, when CPM has run (issue #183 groundwork) */}
-        {isDetailed && task.totalFloat !== undefined && task.totalFloat !== null && !task.isCritical && (
+        {/* Float chip — comfortable + detailed, when CPM data is present (issue #183).
+            CP tasks always show "0d float" (red); non-CP shows totalFloat when defined. */}
+        {!isCompact && hasFloatData && (
           <div className="mt-1">
             <span
               className={[
-                'text-xs px-1 py-px rounded border',
-                task.totalFloat <= 0
+                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
+                floatDays <= 0
                   ? 'bg-semantic-critical/10 border-semantic-critical/30 text-semantic-critical'
-                  : task.totalFloat < 3
+                  : floatDays < 3
                     ? 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark'
                     : 'bg-semantic-on-track/10 border-semantic-on-track/30 text-semantic-on-track',
               ].join(' ')}
             >
-              {task.totalFloat}d float
+              {floatDays < 0 && <span aria-hidden="true">⚠</span>}
+              <span className="tppm-mono">{floatDays}d float</span>
             </span>
+          </div>
+        )}
+
+        {/* Baseline vs. forecast date variance — hover/focus panel (issue #186).
+            Hidden by default; revealed on group-hover or group-focus-within. */}
+        {baselineVarianceDays !== null && (
+          <div
+            className="hidden group-hover:block group-focus-within:block mt-1.5 pt-1 border-t border-neutral-border/30"
+            aria-label={`Baseline variance: ${baselineVarianceDays > 0 ? '+' : ''}${baselineVarianceDays}d`}
+          >
+            <div className="flex items-center gap-1.5 flex-wrap text-xs">
+              <span className="text-neutral-text-disabled">
+                BL <span className="tppm-mono">{formatShortDate(task.baselineFinish!)}</span>
+              </span>
+              <span className="text-neutral-text-disabled" aria-hidden="true">→</span>
+              <span className="text-neutral-text-secondary">
+                FC <span className="tppm-mono">{formatShortDate(task.finish)}</span>
+              </span>
+              <span
+                className={[
+                  'font-medium tppm-mono',
+                  baselineVarianceDays > 5
+                    ? 'text-semantic-critical'
+                    : baselineVarianceDays > 0
+                      ? 'text-semantic-at-risk'
+                      : 'text-semantic-on-track',
+                ].join(' ')}
+              >
+                {baselineVarianceDays > 0 ? '+' : ''}{baselineVarianceDays}d
+              </span>
+            </div>
           </div>
         )}
 

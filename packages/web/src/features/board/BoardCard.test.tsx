@@ -280,6 +280,91 @@ describe('BoardCard', () => {
     expect(container.querySelector('.text-brand-accent-dark')).toBeInTheDocument();
   });
 
+  // -------------------------------------------------------------------------
+  // Issue #183 — float chip in comfortable mode + CP "0d float" + negative float
+  // -------------------------------------------------------------------------
+
+  it('comfortable: shows float chip for non-critical task with totalFloat (issue #183)', () => {
+    renderCard({ task: { ...baseTask, totalFloat: 7 }, density: 'comfortable' });
+    expect(screen.getByText('7d float')).toBeInTheDocument();
+  });
+
+  it('comfortable: CP task shows "0d float" chip in red (issue #183)', () => {
+    const { container } = renderCard({ task: { ...baseTask, isCritical: true }, density: 'comfortable' });
+    expect(screen.getByText('0d float')).toBeInTheDocument();
+    expect(container.querySelector('.text-semantic-critical')).toBeInTheDocument();
+  });
+
+  it('comfortable: negative float shows warning icon (issue #183)', () => {
+    renderCard({ task: { ...baseTask, totalFloat: -2 }, density: 'comfortable' });
+    expect(screen.getByText('-2d float')).toBeInTheDocument();
+    expect(screen.getByText('⚠')).toBeInTheDocument();
+  });
+
+  it('compact: does not show float chip (issue #183)', () => {
+    renderCard({ task: { ...baseTask, totalFloat: 5 }, density: 'compact' });
+    expect(screen.queryByText(/d float/)).not.toBeInTheDocument();
+  });
+
+  it('omits float chip when totalFloat is undefined and task is not critical (issue #183)', () => {
+    renderCard({ task: baseTask, density: 'comfortable' }); // no totalFloat
+    expect(screen.queryByText(/d float/)).not.toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #186 — baseline vs. forecast date variance hover panel
+  // -------------------------------------------------------------------------
+
+  it('baseline variance panel is in DOM for tasks with baselineFinish (issue #186)', () => {
+    // finish: Jan 8, baselineFinish: Jan 5 → +3d late (amber, not >5 so not critical)
+    renderCard({
+      task: { ...baseTask, finish: '2026-01-08', baselineFinish: '2026-01-05' },
+      density: 'comfortable',
+    });
+    // The panel is hidden via CSS (group-hover:block) but exists in the DOM
+    expect(screen.getByLabelText('Baseline variance: +3d')).toBeInTheDocument();
+    expect(screen.getByText('+3d')).toBeInTheDocument();
+  });
+
+  it('baseline variance +Nd uses amber class when 0 < variance ≤ 5 (issue #186)', () => {
+    const { container } = renderCard({
+      task: { ...baseTask, finish: '2026-01-08', baselineFinish: '2026-01-05' },
+      density: 'comfortable',
+    });
+    expect(container.querySelector('.text-semantic-at-risk')).toBeInTheDocument();
+  });
+
+  it('baseline variance +Nd uses red class when variance > 5d (issue #186)', () => {
+    const { container } = renderCard({
+      task: { ...baseTask, finish: '2026-01-15', baselineFinish: '2026-01-05' },
+      density: 'comfortable',
+    });
+    // 10 days late → semantic-critical
+    expect(container.querySelector('.text-semantic-critical')).toBeInTheDocument();
+  });
+
+  it('baseline variance is green when forecast is on time (issue #186)', () => {
+    const { container } = renderCard({
+      task: { ...baseTask, finish: '2026-01-05', baselineFinish: '2026-01-08' },
+      density: 'comfortable',
+    });
+    // 3 days early → semantic-on-track
+    expect(container.querySelector('.text-semantic-on-track')).toBeInTheDocument();
+  });
+
+  it('omits baseline variance panel when baselineFinish is undefined (issue #186)', () => {
+    renderCard({ task: baseTask, density: 'comfortable' }); // no baselineFinish
+    expect(screen.queryByLabelText(/Baseline variance/)).not.toBeInTheDocument();
+  });
+
+  it('compact: omits baseline variance panel (issue #186)', () => {
+    renderCard({
+      task: { ...baseTask, finish: '2026-01-08', baselineFinish: '2026-01-05' },
+      density: 'compact',
+    });
+    expect(screen.queryByLabelText(/Baseline variance/)).not.toBeInTheDocument();
+  });
+
   it('detailed: shows all assignees without +N overflow', () => {
     const task: Task = {
       ...baseTask,
