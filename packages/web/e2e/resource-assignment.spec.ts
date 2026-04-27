@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 /**
  * Resource assignment E2E tests — TaskDetailDrawer integration (#97).
  *
- * Tests the full path: Gantt task row click → drawer opens →
+ * Tests the full path: Schedule task row click → drawer opens →
  * ResourceAssignmentSection renders → add/warn/dismiss/remove flows.
  *
  * All API calls are intercepted with Playwright route mocking so the tests
@@ -47,8 +47,8 @@ const FIXTURE_API_TASKS = [
   },
 ];
 
-/** Seed auth + mock core API routes and navigate to the project Gantt. */
-async function gotoGantt(page: import('@playwright/test').Page) {
+/** Seed auth + mock core API routes and navigate to the Schedule view. */
+async function gotoSchedule(page: import('@playwright/test').Page) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -149,7 +149,7 @@ async function gotoGantt(page: import('@playwright/test').Page) {
     }),
   );
 
-  await page.goto(`/projects/${FIXTURE_PROJECT_ID}/gantt`);
+  await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
 }
 
 /** Click a task row by name and wait for the detail drawer to appear. */
@@ -175,7 +175,7 @@ async function openDrawer(page: import('@playwright/test').Page, taskName: strin
 
 test.describe('TaskDetailDrawer — open and close', () => {
   test.beforeEach(async ({ page }) => {
-    await gotoGantt(page);
+    await gotoSchedule(page);
   });
 
   test('clicking a task row opens the task detail drawer', async ({ page }) => {
@@ -202,7 +202,7 @@ test.describe('TaskDetailDrawer — open and close', () => {
 
 test.describe('ResourceAssignmentSection — structure inside drawer', () => {
   test.beforeEach(async ({ page }) => {
-    await gotoGantt(page);
+    await gotoSchedule(page);
   });
 
   test('drawer contains the Resources section with Add resource button', async ({ page }) => {
@@ -256,7 +256,7 @@ test.describe('ResourceAssignmentSection — structure inside drawer', () => {
 
 test.describe('ResourceAssignmentSection — add resource flow', () => {
   test.beforeEach(async ({ page }) => {
-    await gotoGantt(page);
+    await gotoSchedule(page);
   });
 
   test('clicking Add resource opens the search combobox', async ({ page }) => {
@@ -349,7 +349,7 @@ test.describe('ResourceAssignmentSection — add resource flow', () => {
 
 test.describe('ResourceAssignmentSection — overallocation warning', () => {
   test.beforeEach(async ({ page }) => {
-    await gotoGantt(page);
+    await gotoSchedule(page);
   });
 
   test('shows an overallocation warning when POST returns warnings', async ({ page }) => {

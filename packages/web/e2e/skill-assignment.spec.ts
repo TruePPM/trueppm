@@ -102,7 +102,7 @@ async function seedAndNavigate(page: import('@playwright/test').Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
   );
 
-  await page.goto(`/projects/${PROJECT_ID}/gantt`);
+  await page.goto(`/projects/${PROJECT_ID}/schedule`);
   await page.waitForLoadState('networkidle');
 }
 

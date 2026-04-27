@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
  * Authentication E2E flows — login form happy path and error handling.
  *
  * These tests cover the critical "unauthenticated user can log in" flow
- * that smoke.spec.ts and gantt.spec.ts bypass by seeding localStorage.
+ * that smoke.spec.ts and schedule.spec.ts bypass by seeding localStorage.
  *
  * The auth token endpoint is intercepted with Playwright route mocking so
  * the test runs against the production build without a live Django backend.

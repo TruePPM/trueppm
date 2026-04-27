@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * View-switching E2E flows — navigate between Gantt, WBS, Table, and Board views.
+ * View-switching E2E flows — navigate between Schedule, WBS, Table, and Board views.
  *
- * Extends the view-mode switching covered in gantt.spec.ts with:
+ * Extends the view-mode switching covered in schedule.spec.ts with:
  * - Board view navigation and column rendering
  * - Round-trip switching (Schedule → WBS → Board → Table → Schedule)
  * - URL reflects the active view so deep links work
@@ -182,8 +182,8 @@ test.describe('View switching', () => {
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
   });
 
-  test('deep-link to WBS view renders without visiting Gantt first', async ({ page }) => {
-    // Navigate directly to /wbs path — must render without round-tripping through Gantt.
+  test('deep-link to WBS view renders without visiting Schedule first', async ({ page }) => {
+    // Navigate directly to /wbs path — must render without round-tripping through Schedule.
     await page.goto(`${BASE_URL}/wbs`);
     await expect(page.getByRole('treegrid', { name: 'WBS task tree' })).toBeVisible({ timeout: 10_000 });
   });
