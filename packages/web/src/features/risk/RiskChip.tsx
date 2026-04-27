@@ -26,10 +26,12 @@ function getSeverityLevel(severity: number): SeverityLevel {
 
 interface RiskChipProps {
   severity: Risk['severity'];
+  /** When true, appends " · {score}" after the label (e.g. "HIGH · 16"). */
+  showScore?: boolean;
   className?: string;
 }
 
-export function RiskChip({ severity, className }: RiskChipProps) {
+export function RiskChip({ severity, showScore, className }: RiskChipProps) {
   const { label, classes } = getSeverityLevel(severity);
 
   return (
@@ -42,7 +44,7 @@ export function RiskChip({ severity, className }: RiskChipProps) {
         .filter(Boolean)
         .join(' ')}
     >
-      {label}
+      {label}{showScore ? ` · ${severity}` : ''}
     </span>
   );
 }

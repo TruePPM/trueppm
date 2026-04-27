@@ -23,13 +23,20 @@ interface RiskMatrixProps {
   risks: Risk[];
 }
 
+const LEGEND = [
+  { label: 'Critical', range: '≥ 20', dotClass: 'bg-semantic-critical' },
+  { label: 'High',     range: '12–19', dotClass: 'bg-brand-accent' },
+  { label: 'Medium',   range: '6–11',  dotClass: 'bg-semantic-warning' },
+  { label: 'Low',      range: '2–5',   dotClass: 'bg-semantic-on-track/80' },
+] as const;
+
 // Cell width: w-12 = 48px. 5 cells + 4 gaps (gap-px = 1px each) = 244px.
 const CELL_CLASS = 'w-12 h-12';
 const AXIS_LABEL_WIDTH = 'w-[244px]';
 
 export function RiskMatrix({ risks }: RiskMatrixProps) {
   return (
-    <div className="mt-6">
+    <div>
       <h3 className="text-sm font-semibold text-neutral-text-primary mb-3">Risk Matrix</h3>
 
       <div className="flex gap-2">
@@ -110,6 +117,25 @@ export function RiskMatrix({ risks }: RiskMatrixProps) {
             <div className={`${AXIS_LABEL_WIDTH} text-center text-xs text-neutral-text-secondary`}>
               ← Impact →
             </div>
+          </div>
+
+          {/* Legend */}
+          <div className="flex items-center gap-1 mt-3">
+            <span className="w-4 shrink-0" aria-hidden="true" />
+            <dl className="flex flex-col gap-1.5">
+              {LEGEND.map(({ label, range, dotClass }) => (
+                <div key={label} className="flex items-center gap-2">
+                  <span
+                    className={['w-2.5 h-2.5 rounded-full shrink-0', dotClass].join(' ')}
+                    aria-hidden="true"
+                  />
+                  <dt className="text-xs font-medium text-neutral-text-primary w-14 shrink-0">
+                    {label}
+                  </dt>
+                  <dd className="text-xs text-neutral-text-secondary">{range}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
         </div>
       </div>
