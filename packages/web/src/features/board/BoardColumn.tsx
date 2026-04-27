@@ -11,11 +11,14 @@ interface BoardColumnProps {
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
 }
 
+// NOTE: BoardColumn is not used by BoardView — BoardView renders BoardCell inline.
+// This file is retained for reference only and should not be imported.
 const COLUMNS: { status: TaskStatus; label: string }[] = [
+  { status: 'BACKLOG',     label: 'BACKLOG' },
   { status: 'NOT_STARTED', label: 'TO DO' },
   { status: 'IN_PROGRESS', label: 'IN PROGRESS' },
-  { status: 'ON_HOLD', label: 'ON HOLD' },
-  { status: 'COMPLETE', label: 'DONE' },
+  { status: 'REVIEW',      label: 'REVIEW' },
+  { status: 'COMPLETE',    label: 'DONE' },
 ];
 
 export function BoardColumn({

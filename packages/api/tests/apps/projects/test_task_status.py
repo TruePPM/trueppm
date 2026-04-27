@@ -218,3 +218,80 @@ def test_sync_task_serializer_includes_status(project: Project, task: Task) -> N
     data = SyncTaskSerializer(task).data
     assert "status" in data
     assert data["status"] == TaskStatus.NOT_STARTED
+
+
+# ---------------------------------------------------------------------------
+# Readiness field (issue #179)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_readiness_idea_when_no_assignee(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    """Tasks with no assignee report readiness=idea."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        r = client.get(f"/api/v1/tasks/?project={project.pk}")
+    assert r.status_code == 200
+    results = r.data.get("results", r.data)
+    first = next(t for t in results if t["id"] == str(task.pk))
+    assert first["readiness"] == "idea"
+
+
+@pytest.mark.django_db
+def test_readiness_estimated_when_assignee_no_predecessors(
+    client: APIClient, project: Project, membership: ProjectMembership, user: object
+) -> None:
+    """Tasks with an assignee but no predecessor links report readiness=estimated."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        assigned = Task.objects.create(project=project, name="Assigned", duration=2, assignee=user)
+        r = client.get(f"/api/v1/tasks/?project={project.pk}")
+    assert r.status_code == 200
+    results = r.data.get("results", r.data)
+    t_data = next(t for t in results if t["id"] == str(assigned.pk))
+    assert t_data["readiness"] == "estimated"
+
+
+@pytest.mark.django_db
+def test_readiness_ready_when_has_predecessor(
+    client: APIClient, project: Project, membership: ProjectMembership, user: object, task: Task
+) -> None:
+    """Tasks with an assignee and a predecessor link report readiness=ready."""
+    from trueppm_api.apps.projects.models import Dependency
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        successor = Task.objects.create(
+            project=project, name="Successor", duration=2, assignee=user
+        )
+        Dependency.objects.create(predecessor=task, successor=successor)
+        r = client.get(f"/api/v1/tasks/?project={project.pk}")
+    assert r.status_code == 200
+    results = r.data.get("results", r.data)
+    t_data = next(t for t in results if t["id"] == str(successor.pk))
+    assert t_data["readiness"] == "ready"
+
+
+@pytest.mark.django_db
+def test_new_statuses_accepted_by_api(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    """BACKLOG and REVIEW are accepted as valid status values."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        r_backlog = client.patch(f"/api/v1/tasks/{task.pk}/", {"status": "BACKLOG"}, format="json")
+        assert r_backlog.status_code == 200
+        r_review = client.patch(f"/api/v1/tasks/{task.pk}/", {"status": "REVIEW"}, format="json")
+        assert r_review.status_code == 200
+    task.refresh_from_db()
+    assert task.status == TaskStatus.REVIEW

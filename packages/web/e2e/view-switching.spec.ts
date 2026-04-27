@@ -35,7 +35,7 @@ const FIXTURE_TASKS = [
     id: 'v2', wbs_path: '1.1', name: 'Design',
     early_start: '2026-01-05', early_finish: '2026-01-09',
     duration: 5, percent_complete: 100, is_critical: false,
-    is_milestone: false, status: 'DONE',
+    is_milestone: false, status: 'COMPLETE',
   },
   {
     id: 'v3', wbs_path: '1.2', name: 'Build',
@@ -93,6 +93,22 @@ async function setup(page: import('@playwright/test').Page) {
       body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
     }),
   );
+  // Board config — 5-column default (issue #178)
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/board-config/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        columns: [
+          { status: 'BACKLOG',     label: 'Backlog',     visible: true },
+          { status: 'NOT_STARTED', label: 'To Do',       visible: true },
+          { status: 'IN_PROGRESS', label: 'In Progress', visible: true },
+          { status: 'REVIEW',      label: 'Review',      visible: true },
+          { status: 'COMPLETE',    label: 'Done',        visible: true },
+        ],
+      }),
+    }),
+  );
 }
 
 test.describe('View switching', () => {
@@ -104,7 +120,7 @@ test.describe('View switching', () => {
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
-  test('Gantt view is active by default and URL reflects it', async ({ page }) => {
+  test('Schedule tab is active when on /gantt URL and URL reflects it', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
     await expect(nav.getByRole('link', { name: 'Schedule' })).toHaveAttribute('aria-current', 'page');
     expect(page.url()).toMatch(/\/gantt$/);

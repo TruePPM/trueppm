@@ -174,6 +174,14 @@ interface BoardCellProps {
   columns: { status: TaskStatus; label: string }[];
 }
 
+// Subtle status tints per column (issue #178 design spec).
+// Applied to the resting state only — drag-over overrides with brand-primary/5.
+const COLUMN_TINT: Partial<Record<TaskStatus, string>> = {
+  COMPLETE: 'bg-semantic-on-track/5',
+  REVIEW:   'bg-semantic-at-risk/5',
+  BACKLOG:  'bg-neutral-surface-raised',
+};
+
 function BoardCell({
   phaseId,
   status,
@@ -189,6 +197,7 @@ function BoardCell({
   const { setNodeRef } = useDroppable({ id: droppableId });
   const over = isOver && isDragActive;
   const wip = showWip && wipLimit !== undefined && tasks.length > wipLimit;
+  const restingBg = COLUMN_TINT[status] ?? 'bg-neutral-surface-sunken';
 
   return (
     <div
@@ -197,7 +206,7 @@ function BoardCell({
         'rounded-lg p-2 min-h-[120px] flex flex-col gap-1.5 transition-colors duration-100',
         over
           ? 'bg-brand-primary/5 border-l-2 border-brand-primary'
-          : 'bg-neutral-surface-sunken border-l-2 border-transparent',
+          : `${restingBg} border-l-2 border-transparent`,
       ].join(' ')}
     >
       {wip && (

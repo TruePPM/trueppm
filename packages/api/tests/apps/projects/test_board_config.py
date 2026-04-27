@@ -13,11 +13,13 @@ from trueppm_api.apps.projects.models import BoardColumnConfig, Calendar, Projec
 
 User = get_user_model()
 
+# 5-column default per Claude Design handoff (issue #178).
 DEFAULT_COLUMNS = [
-    {"status": "NOT_STARTED", "label": "TO DO", "visible": True},
-    {"status": "IN_PROGRESS", "label": "IN PROGRESS", "visible": True},
-    {"status": "ON_HOLD", "label": "ON HOLD", "visible": True},
-    {"status": "COMPLETE", "label": "DONE", "visible": True},
+    {"status": "BACKLOG", "label": "Backlog", "visible": True},
+    {"status": "NOT_STARTED", "label": "To Do", "visible": True},
+    {"status": "IN_PROGRESS", "label": "In Progress", "visible": True},
+    {"status": "REVIEW", "label": "Review", "visible": True},
+    {"status": "COMPLETE", "label": "Done", "visible": True},
 ]
 
 
@@ -59,7 +61,7 @@ def member_client(member_user, project):
 
 @pytest.mark.django_db
 def test_get_returns_defaults_when_no_config(scheduler_client, project):
-    """GET returns the 4-column default when no config row exists."""
+    """GET returns the 5-column default when no config row exists."""
     resp = scheduler_client.get(f"/api/v1/projects/{project.pk}/board-config/")
     assert resp.status_code == 200
     assert resp.data["columns"] == DEFAULT_COLUMNS
@@ -69,9 +71,10 @@ def test_get_returns_defaults_when_no_config(scheduler_client, project):
 def test_put_saves_config(scheduler_client, project):
     """PUT creates a config and GET reflects it."""
     new_columns = [
-        {"status": "NOT_STARTED", "label": "Backlog", "visible": True},
+        {"status": "BACKLOG", "label": "Ideas", "visible": True},
+        {"status": "NOT_STARTED", "label": "Up Next", "visible": True},
         {"status": "IN_PROGRESS", "label": "Doing", "visible": True},
-        {"status": "ON_HOLD", "label": "Blocked", "visible": False},
+        {"status": "REVIEW", "label": "In Review", "visible": False},
         {"status": "COMPLETE", "label": "Done", "visible": True},
     ]
     put_resp = scheduler_client.put(
@@ -123,11 +126,12 @@ def test_member_cannot_write_config(member_client, project):
 
 @pytest.mark.django_db
 def test_put_rejects_unknown_status(scheduler_client, project):
-    """PUT rejects a column with an unknown status value."""
+    """PUT rejects a column with an unknown status value (e.g. ON_HOLD legacy value)."""
     bad_columns = [
-        {"status": "UNKNOWN_STATUS", "label": "Bad", "visible": True},
+        {"status": "ON_HOLD", "label": "On Hold", "visible": True},  # legacy
+        {"status": "NOT_STARTED", "label": "To Do", "visible": True},
         {"status": "IN_PROGRESS", "label": "In Progress", "visible": True},
-        {"status": "ON_HOLD", "label": "On Hold", "visible": True},
+        {"status": "REVIEW", "label": "Review", "visible": True},
         {"status": "COMPLETE", "label": "Done", "visible": True},
     ]
     resp = scheduler_client.put(
@@ -140,12 +144,13 @@ def test_put_rejects_unknown_status(scheduler_client, project):
 
 @pytest.mark.django_db
 def test_put_rejects_missing_status(scheduler_client, project):
-    """PUT rejects a payload missing one of the four statuses."""
+    """PUT rejects a payload missing one of the five canonical statuses."""
     partial = [
         {"status": "NOT_STARTED", "label": "To Do", "visible": True},
         {"status": "IN_PROGRESS", "label": "In Progress", "visible": True},
+        {"status": "REVIEW", "label": "Review", "visible": True},
         {"status": "COMPLETE", "label": "Done", "visible": True},
-        # ON_HOLD missing
+        # BACKLOG missing
     ]
     resp = scheduler_client.put(
         f"/api/v1/projects/{project.pk}/board-config/",

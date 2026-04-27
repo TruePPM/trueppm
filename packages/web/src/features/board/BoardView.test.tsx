@@ -13,9 +13,10 @@ import type { Task, TaskStatus } from '@/types';
 let mockTasks: Task[] | null = FIXTURE_TASKS;
 let mockIsLoading = false;
 let mockColumns: { status: TaskStatus; label: string; visible: boolean; wipLimit?: number }[] = [
+  { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
   { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
-  { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true },
-  { status: 'ON_HOLD',     label: 'ON HOLD',      visible: true },
+  { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true, wipLimit: 3 },
+  { status: 'REVIEW',      label: 'REVIEW',       visible: true, wipLimit: 2 },
   { status: 'COMPLETE',    label: 'DONE',          visible: true },
 ];
 const updateMutate = vi.fn();
@@ -44,9 +45,10 @@ function resetMocks() {
   mockTasks = FIXTURE_TASKS;
   mockIsLoading = false;
   mockColumns = [
+    { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
     { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
-    { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true },
-    { status: 'ON_HOLD',     label: 'ON HOLD',      visible: true },
+    { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true, wipLimit: 3 },
+    { status: 'REVIEW',      label: 'REVIEW',       visible: true, wipLimit: 2 },
     { status: 'COMPLETE',    label: 'DONE',          visible: true },
   ];
   updateMutate.mockReset();
@@ -64,9 +66,10 @@ describe('BoardView', () => {
 
   it('renders column headers', () => {
     render(<BoardView />);
+    expect(screen.getByText('BACKLOG')).toBeInTheDocument();
     expect(screen.getByText('TO DO')).toBeInTheDocument();
     expect(screen.getByText('IN PROGRESS')).toBeInTheDocument();
-    expect(screen.getByText('ON HOLD')).toBeInTheDocument();
+    expect(screen.getByText('REVIEW')).toBeInTheDocument();
     expect(screen.getByText('DONE')).toBeInTheDocument();
   });
 
@@ -163,9 +166,10 @@ describe('BoardView', () => {
     // Inject a tight wipLimit on IN_PROGRESS so the fixture (which has multiple
     // IN_PROGRESS tasks under "Alpha Platform Upgrade") trips the over-limit branch.
     mockColumns = [
+      { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
       { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
       { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true, wipLimit: 1 },
-      { status: 'ON_HOLD',     label: 'ON HOLD',      visible: true },
+      { status: 'REVIEW',      label: 'REVIEW',       visible: true },
       { status: 'COMPLETE',    label: 'DONE',          visible: true },
     ];
     render(<BoardView />);

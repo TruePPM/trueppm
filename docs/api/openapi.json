@@ -8143,6 +8143,11 @@
                             "$ref": "#/components/schemas/TaskAssignment"
                         },
                         "readOnly": true
+                    },
+                    "readiness": {
+                        "type": "string",
+                        "description": "Derive board-card readiness from available task fields.\n\nResolution order (highest specificity first):\n- baselined: task appears in the active baseline (baseline_start is annotated)\n- idea: no assignee\n- ready: has assignee + at least one predecessor dependency\n- estimated: has assignee, no predecessors",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -8160,6 +8165,7 @@
                     "name",
                     "parent_id",
                     "project",
+                    "readiness",
                     "schedule_variance_days",
                     "server_version",
                     "short_id",
@@ -8498,13 +8504,15 @@
             },
             "TaskStatusEnum": {
                 "enum": [
+                    "BACKLOG",
                     "NOT_STARTED",
                     "IN_PROGRESS",
+                    "REVIEW",
                     "ON_HOLD",
                     "COMPLETE"
                 ],
                 "type": "string",
-                "description": "* `NOT_STARTED` - Not started\n* `IN_PROGRESS` - In progress\n* `ON_HOLD` - On hold\n* `COMPLETE` - Complete"
+                "description": "* `BACKLOG` - Backlog\n* `NOT_STARTED` - Not started\n* `IN_PROGRESS` - In progress\n* `REVIEW` - Review\n* `ON_HOLD` - On hold\n* `COMPLETE` - Complete"
             },
             "TokenObtainPair": {
                 "type": "object",

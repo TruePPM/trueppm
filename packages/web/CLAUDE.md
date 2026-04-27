@@ -423,7 +423,16 @@ These rules are enforced at review time. Violations block merge.
 
 105. **Board keyboard move alternative is mandatory** — drag-and-drop is not keyboard accessible
      (known WCAG 2.1.1 gap, parallel to Gantt rule 34). Every card's `···` overflow menu **must**
-     include a "Move to…" item that opens a submenu listing the other three columns. Arrow keys
+     include a "Move to…" item that opens a submenu listing the other columns. Arrow keys
      navigate the submenu; Enter commits. An `aria-live="polite"` region announces the result:
      `"{task name} moved to {column name}"`. This is not optional — it is the only keyboard path
      to change task status from the board.
+
+106. **5-column board model** (issue #178) — the canonical status set is `BACKLOG | NOT_STARTED | IN_PROGRESS | REVIEW | COMPLETE`. `ON_HOLD` is a legacy value kept for data compatibility; it must never appear as a column in new board configs. The `_CANONICAL_STATUSES` frozenset in `serializers.py` is the authoritative list.
+
+107. **Board card readiness states** (issue #179) — every `BoardCard` renders a `ReadinessChip` when `task.readiness` is present. Four states:
+     - `idea`: no assignee — dashed-border chip, italic task name, `?` avatar circle, no progress ring, no accent bar
+     - `estimated`: has owner — neutral chip with dot prefix
+     - `ready`: has owner + predecessor links — brand-primary chip with ⛓ icon
+     - `baselined`: in active baseline — neutral chip with 🔒 icon, accent bar uses `semantic-on-track`
+     The left accent bar follows readiness, overridden by `isCritical` (→ `semantic-critical`). Absent `readiness` field → no chip rendered (backwards compat with pre-#179 API responses).
