@@ -55,10 +55,10 @@ export function RiskRegisterView() {
   }
 
   return (
-    <div className="flex h-full overflow-hidden bg-neutral-surface">
+    <div className="flex h-full overflow-hidden bg-neutral-surface p-4 gap-4">
 
-      {/* Left panel — risk matrix (desktop only) */}
-      <div className="hidden md:flex flex-col shrink-0 w-72 border-r border-neutral-border overflow-auto p-4">
+      {/* Left card — risk matrix (desktop only) */}
+      <div className="hidden md:flex flex-col shrink-0 w-72 border border-neutral-border rounded-lg overflow-auto p-4 bg-neutral-surface-raised">
         {!isLoading && !error && <RiskMatrix risks={risks} />}
       </div>
 

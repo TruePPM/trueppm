@@ -24,10 +24,10 @@ interface RiskMatrixProps {
 }
 
 const LEGEND = [
-  { label: 'Critical', range: '≥ 20', dotClass: 'bg-semantic-critical' },
-  { label: 'High',     range: '12–19', dotClass: 'bg-brand-accent' },
-  { label: 'Medium',   range: '6–11',  dotClass: 'bg-semantic-warning' },
-  { label: 'Low',      range: '2–5',   dotClass: 'bg-semantic-on-track/80' },
+  { label: 'Critical', range: '(P×I ≥ 20)', dotClass: 'bg-semantic-critical' },
+  { label: 'High',     range: '(12–19)',     dotClass: 'bg-brand-accent' },
+  { label: 'Medium',   range: '(6–11)',      dotClass: 'bg-semantic-warning' },
+  { label: 'Low',      range: '(1–5)',       dotClass: 'bg-semantic-on-track/80' },
 ] as const;
 
 // Cell width: w-12 = 48px. 5 cells + 4 gaps (gap-px = 1px each) = 244px.
@@ -37,7 +37,9 @@ const AXIS_LABEL_WIDTH = 'w-[244px]';
 export function RiskMatrix({ risks }: RiskMatrixProps) {
   return (
     <div>
-      <h3 className="text-sm font-semibold text-neutral-text-primary mb-3">Risk Matrix</h3>
+      <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-3">
+        Probability × Impact
+      </h3>
 
       <div className="flex gap-2">
         {/* Probability axis label — rotated, reads bottom-to-top */}
