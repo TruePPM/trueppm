@@ -418,19 +418,10 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         ]
         critical_count = incomplete_tasks.filter(is_critical=True).count()
 
-        last_saved = (
-            project.tasks.filter(is_deleted=False)
-            .order_by("-updated_at")
-            .values_list("updated_at", flat=True)
-            .first()
-        )
-        recalculated_at = (
-            project.tasks.filter(is_deleted=False, early_start__isnull=False)
-            .order_by("-updated_at")
-            .values_list("updated_at", flat=True)
-            .first()
-        )
-
+        # Task model uses server_version rather than auto_now timestamps, so
+        # last_saved / recalculated_at are returned as null. The redesigned
+        # StatusBar (issue #201) does not display these fields; they remain
+        # in the response shape only for ShellStats back-compat.
         return Response(
             {
                 "task_count": task_count,
@@ -440,8 +431,8 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
                 "critical_count": critical_count,
                 "at_risk_tasks": at_risk_tasks,
                 "critical_tasks": critical_tasks,
-                "last_saved": last_saved.isoformat() if last_saved else None,
-                "recalculated_at": recalculated_at.isoformat() if recalculated_at else None,
+                "last_saved": None,
+                "recalculated_at": None,
             },
             status=status.HTTP_200_OK,
         )

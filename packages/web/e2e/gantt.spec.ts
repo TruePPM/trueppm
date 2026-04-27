@@ -184,18 +184,16 @@ test.describe('Accessibility basics', () => {
   });
 
   test('status bar is a contentinfo landmark', async ({ page }) => {
+    // StatusBar redesigned in #201 — aria-label is now "Application status"
     await expect(
-      page.getByRole('contentinfo', { name: 'Project status' }),
+      page.getByRole('contentinfo', { name: 'Application status' }),
     ).toBeVisible();
   });
 
-  test('Gantt legend lists Complete, In progress, Critical path, Milestone', async ({
-    page,
-  }) => {
-    const legend = page.getByLabel('Gantt legend');
-    await expect(legend).toBeVisible();
-    for (const label of ['Complete', 'In progress', 'Critical path', 'Milestone']) {
-      await expect(legend.getByText(label)).toBeVisible();
-    }
+  test('status bar shows live presence and build hash', async ({ page }) => {
+    const footer = page.getByRole('contentinfo', { name: 'Application status' });
+    await expect(footer).toBeVisible();
+    await expect(footer.getByText(/Live · \d+ online/)).toBeVisible();
+    await expect(footer.getByText(/build /)).toBeVisible();
   });
 });

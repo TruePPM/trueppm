@@ -74,12 +74,13 @@ test('sidebar shows PROJECTS section header', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'PROJECTS' })).toBeVisible();
 });
 
-test('status bar shows task count from fixture', async ({ page }) => {
+test('status bar shows live presence and build hash', async ({ page }) => {
   await page.goto('/');
-  // useShellStats is still a stub returning 42 tasks (endpoint not yet implemented)
-  const footer = page.getByRole('contentinfo', { name: 'Project status' });
+  // StatusBar redesigned in #201: live dot + N online + build {sha}.
+  const footer = page.getByRole('contentinfo', { name: 'Application status' });
   await expect(footer).toBeVisible();
-  await expect(footer.getByText('42 tasks')).toBeVisible();
+  await expect(footer.getByText(/Live · \d+ online/)).toBeVisible();
+  await expect(footer.getByText(/build /)).toBeVisible();
 });
 
 test('no console errors on load', async ({ page }) => {

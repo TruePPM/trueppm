@@ -143,6 +143,17 @@ class TestStatusSummary:
         resp = client.get(f"/api/v1/projects/{project.pk}/status-summary/")
         assert resp.json()["monte_carlo_p80"] is None
 
+    def test_timestamps_are_null(
+        self, client: APIClient, project: Project, tasks: list[Task]
+    ) -> None:
+        # Task model uses server_version, not auto_now timestamps; the response
+        # surfaces null for both fields. The redesigned StatusBar (#201) does
+        # not display them.
+        resp = client.get(f"/api/v1/projects/{project.pk}/status-summary/")
+        data = resp.json()
+        assert data["last_saved"] is None
+        assert data["recalculated_at"] is None
+
     def test_requires_authentication(self, anon_client: APIClient, project: Project) -> None:
         resp = anon_client.get(f"/api/v1/projects/{project.pk}/status-summary/")
         assert resp.status_code in (401, 403)
