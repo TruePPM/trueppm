@@ -58,7 +58,12 @@ export function AddTaskModal({ phaseName, phaseId, onClose }: Props) {
     // 'root' is the synthetic id for the ungrouped "Other" lane — not a real task UUID.
     // Pass null so the task is created at the project root level.
     createTask.mutate(
-      { name: trimmed, duration: 5, parent_id: phaseId === 'root' ? null : phaseId },
+      {
+        name: trimmed,
+        duration: 5,
+        status: 'BACKLOG',
+        parent_id: phaseId === 'root' ? null : phaseId,
+      },
       { onSuccess: () => onClose() },
     );
   }

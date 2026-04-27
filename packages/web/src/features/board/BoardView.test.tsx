@@ -83,10 +83,10 @@ describe('BoardView', () => {
     expect(screen.getByText('Alpha Platform Upgrade')).toBeInTheDocument();
   });
 
-  it('renders an "Other" lane for ungrouped tasks', () => {
+  it('renders an "Project Tasks" lane for ungrouped tasks', () => {
     render(<BoardView />);
-    // t7 "Documentation" has no summary parent — appears in "Other" lane
-    expect(screen.getByText('Other')).toBeInTheDocument();
+    // t7 "Documentation" has no summary parent — appears in "Project Tasks" lane
+    expect(screen.getByText('Project Tasks')).toBeInTheDocument();
     expect(screen.getByText('Documentation')).toBeInTheDocument();
   });
 
@@ -222,7 +222,7 @@ describe('BoardView', () => {
     render(<BoardView />);
     // Each visible phase gets a per-lane + button (LaneMeta)
     expect(screen.getByRole('button', { name: /Add task to Alpha Platform Upgrade/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Add task to Other/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Add task to Project Tasks/ })).toBeInTheDocument();
   });
 
   it('opens AddTaskModal when phase + button is clicked (issue #208)', async () => {

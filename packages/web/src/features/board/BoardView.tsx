@@ -87,7 +87,7 @@ function buildPhases(allTasks: Task[]): Phase[] {
     .filter((p) => p.tasks.length > 0); // hide empty phases
 
   if (rootTasks.length > 0) {
-    phases.push({ id: 'root', name: 'Other', summaryTask: undefined, tasks: rootTasks });
+    phases.push({ id: 'root', name: 'Project Tasks', summaryTask: undefined, tasks: rootTasks });
   }
 
   return phases;
