@@ -323,4 +323,19 @@ describe('BoardView', () => {
     expect(stored).toBe('detailed');
   });
 
+  it('restores density preference from localStorage on mount (issue #193)', () => {
+    localStorage.setItem('trueppm.board.density', 'compact');
+    render(<BoardView />);
+    const select = screen.getByLabelText<HTMLSelectElement>('Card density');
+    expect(select.value).toBe('compact');
+  });
+
+  it('restores collapsed lanes from localStorage on mount (issue #190)', () => {
+    localStorage.setItem('trueppm.board.project-1.collapsedLanes', JSON.stringify(['t1']));
+    render(<BoardView />);
+    // Alpha lane (t1) is pre-collapsed — task cards not visible on mount
+    expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Expand Alpha Platform Upgrade/ })).toBeInTheDocument();
+  });
+
 });
