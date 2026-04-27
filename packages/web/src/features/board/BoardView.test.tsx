@@ -319,7 +319,7 @@ describe('BoardView', () => {
     const user = userEvent.setup();
     render(<BoardView />);
     await user.selectOptions(screen.getByLabelText('Card density'), 'detailed');
-    const stored = localStorage.getItem('trueppm.board.project-1.density');
+    const stored = localStorage.getItem('trueppm.board.density');
     expect(stored).toBe('detailed');
   });
 

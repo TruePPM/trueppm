@@ -90,13 +90,9 @@ function accentBarClass(task: Task): string {
   }
 }
 
-/** Tooltip text for a critical-path task, including float when known (issue #181). */
-function cpTooltip(task: Task): string {
-  const floatStr =
-    task.totalFloat !== undefined && task.totalFloat !== null
-      ? `${task.totalFloat}d float`
-      : '0d float';
-  return `On critical path — ${floatStr}`;
+/** Tooltip text for a critical-path task (issue #181 / WCAG 1.4.1). */
+function cpTooltip(_task: Task): string {
+  return 'On critical path — any delay here will delay the project end date';
 }
 
 export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMenuMove, columns, density = 'comfortable' }: BoardCardProps) {
@@ -257,8 +253,14 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
     );
   }
 
-  // Compact density — title + CP chip only, ~32px (issue #193)
+  // Compact density — title + CP chip + progress strip, ~36px (issue #193)
   if (isCompact) {
+    const progressColor =
+      task.isCritical
+        ? 'bg-semantic-critical'
+        : task.progress === 100
+          ? 'bg-semantic-on-track'
+          : 'bg-brand-primary';
     return (
       <div
         ref={measureCardRef}
@@ -292,6 +294,10 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
               CP
             </span>
           )}
+        </div>
+        {/* 3px progress strip at the bottom of each compact card */}
+        <div className="absolute bottom-0 left-1 right-1 h-[3px] rounded-full overflow-hidden bg-neutral-border" aria-hidden="true">
+          <div className={`h-full ${progressColor}`} style={{ width: `${task.progress}%` }} />
         </div>
         {menuButton}
       </div>

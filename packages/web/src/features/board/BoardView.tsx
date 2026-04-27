@@ -399,9 +399,9 @@ function useBoardCollapsedLanes(projectId: string) {
   return { collapsedIds, toggle, collapseAll, expandAll };
 }
 
-/** Persist card density preference per project (issue #193). */
-function useBoardDensity(projectId: string) {
-  const storageKey = `trueppm.board.${projectId}.density`;
+/** Persist card density preference globally across all projects (issue #193). */
+function useBoardDensity() {
+  const storageKey = 'trueppm.board.density';
 
   const [density, setDensityState] = useState<BoardDensity>(() => {
     try {
@@ -438,7 +438,7 @@ export function BoardView() {
   const ariaLiveRef = useRef<HTMLDivElement>(null);
 
   const { collapsedIds, toggle: toggleCollapse, collapseAll, expandAll } = useBoardCollapsedLanes(projectId);
-  const { density, setDensity } = useBoardDensity(projectId);
+  const { density, setDensity } = useBoardDensity();
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
