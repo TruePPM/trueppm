@@ -48,6 +48,7 @@ function renderCard(props: Partial<ComponentProps<typeof BoardCard>>) {
         columns={props.columns ?? COLUMNS}
         isOverlay={props.isOverlay}
         isStalled={props.isStalled}
+        density={props.density}
       />
     </Wrapper>,
   );
@@ -232,5 +233,66 @@ describe('BoardCard', () => {
     renderCard({ task: baseTask }); // no readiness field
     expect(screen.queryByText('idea')).not.toBeInTheDocument();
     expect(screen.queryByText('estimated')).not.toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Card density (issue #193)
+  // ---------------------------------------------------------------------------
+
+  it('compact: renders task name and CP chip for critical task', () => {
+    renderCard({ task: { ...baseTask, isCritical: true }, density: 'compact' });
+    expect(screen.getByText('Backend Implementation')).toBeInTheDocument();
+    expect(screen.getByText('CP')).toBeInTheDocument();
+  });
+
+  it('compact: progress strip uses semantic-on-track for 100%-complete non-critical task', () => {
+    const { container } = renderCard({ task: { ...baseTask, progress: 100 }, density: 'compact' });
+    // The progress fill div gets bg-semantic-on-track when done
+    expect(container.querySelector('.bg-semantic-on-track')).toBeInTheDocument();
+  });
+
+  it('compact: progress strip uses brand-primary for in-progress non-critical task', () => {
+    const { container } = renderCard({ task: { ...baseTask, progress: 50 }, density: 'compact' });
+    expect(container.querySelector('.bg-brand-primary')).toBeInTheDocument();
+  });
+
+  it('compact: progress strip uses semantic-critical for critical task', () => {
+    const { container } = renderCard({ task: { ...baseTask, isCritical: true, progress: 40 }, density: 'compact' });
+    // The progress fill div should be semantic-critical (not brand-primary)
+    const criticalEl = container.querySelector('.bg-semantic-critical');
+    expect(criticalEl).toBeInTheDocument();
+  });
+
+  it('detailed: renders float chip for non-critical task with totalFloat', () => {
+    renderCard({ task: { ...baseTask, totalFloat: 5 }, density: 'detailed' });
+    expect(screen.getByText('5d float')).toBeInTheDocument();
+  });
+
+  it('detailed: float chip is red when totalFloat is 0', () => {
+    const { container } = renderCard({ task: { ...baseTask, totalFloat: 0 }, density: 'detailed' });
+    expect(screen.getByText('0d float')).toBeInTheDocument();
+    expect(container.querySelector('.text-semantic-critical')).toBeInTheDocument();
+  });
+
+  it('detailed: float chip is amber when totalFloat is < 3', () => {
+    const { container } = renderCard({ task: { ...baseTask, totalFloat: 2 }, density: 'detailed' });
+    expect(screen.getByText('2d float')).toBeInTheDocument();
+    expect(container.querySelector('.text-brand-accent-dark')).toBeInTheDocument();
+  });
+
+  it('detailed: shows all assignees without +N overflow', () => {
+    const task: Task = {
+      ...baseTask,
+      assignees: [
+        { resourceId: 'r1', name: 'Alice Chen', units: 1 },
+        { resourceId: 'r2', name: 'Bob Martinez', units: 1 },
+        { resourceId: 'r3', name: 'Carol Park', units: 1 },
+        { resourceId: 'r4', name: 'David Lee', units: 1 },
+      ],
+    };
+    renderCard({ task, density: 'detailed' });
+    expect(screen.getByText('AC')).toBeInTheDocument();
+    expect(screen.getByText('DL')).toBeInTheDocument();
+    expect(screen.queryByText(/^\+/)).not.toBeInTheDocument();
   });
 });

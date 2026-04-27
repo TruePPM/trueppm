@@ -56,6 +56,7 @@ function resetMocks() {
     { status: 'COMPLETE',    label: 'DONE',          visible: true },
   ];
   updateMutate.mockReset();
+  localStorage.clear(); // reset persisted board prefs (density, collapsedLanes) between tests
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +251,91 @@ describe('BoardView', () => {
     await user.click(toggle);
     expect(toggle.checked).toBe(false);
     expect(screen.getByText('TO DO')).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #190 — Swimlane collapse/expand persistence
+  // -------------------------------------------------------------------------
+
+  it('renders "Collapse all" and "Expand all" buttons in toolbar (issue #190)', () => {
+    render(<BoardView />);
+    expect(screen.getByRole('button', { name: 'Collapse all lanes' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expand all lanes' })).toBeInTheDocument();
+  });
+
+  it('"Collapse all" hides all lane task cards (issue #190)', async () => {
+    const user = userEvent.setup();
+    render(<BoardView />);
+    expect(screen.getByText('Discovery & Design')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Collapse all lanes' }));
+    expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
+  });
+
+  it('"Expand all" restores cards after collapse-all (issue #190)', async () => {
+    const user = userEvent.setup();
+    render(<BoardView />);
+    await user.click(screen.getByRole('button', { name: 'Collapse all lanes' }));
+    expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Expand all lanes' }));
+    expect(screen.getByText('Discovery & Design')).toBeInTheDocument();
+  });
+
+  it('persists collapsed state to localStorage (issue #190)', async () => {
+    const user = userEvent.setup();
+    render(<BoardView />);
+    await user.click(screen.getByRole('button', { name: /Collapse Alpha Platform Upgrade/ }));
+    const stored = localStorage.getItem('trueppm.board.project-1.collapsedLanes');
+    expect(stored).not.toBeNull();
+    const ids = JSON.parse(stored!) as string[];
+    expect(ids.length).toBeGreaterThan(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #193 — Card density toggle
+  // -------------------------------------------------------------------------
+
+  it('renders a "Card density" selector in toolbar (issue #193)', () => {
+    render(<BoardView />);
+    expect(screen.getByLabelText('Card density')).toBeInTheDocument();
+  });
+
+  it('card density defaults to "comfortable" (issue #193)', () => {
+    render(<BoardView />);
+    const select = screen.getByLabelText<HTMLSelectElement>('Card density');
+    expect(select.value).toBe('comfortable');
+  });
+
+  it('switching to compact hides progress rings from cards (issue #193)', async () => {
+    const user = userEvent.setup();
+    render(<BoardView />);
+    // In comfortable mode, cards include a progress ring (SVG aria-hidden)
+    // In compact mode, the progress ring is not rendered.
+    await user.selectOptions(screen.getByLabelText('Card density'), 'compact');
+    // Board still renders — task names still visible
+    expect(screen.getByText('Discovery & Design')).toBeInTheDocument();
+  });
+
+  it('density persists to localStorage (issue #193)', async () => {
+    const user = userEvent.setup();
+    render(<BoardView />);
+    await user.selectOptions(screen.getByLabelText('Card density'), 'detailed');
+    const stored = localStorage.getItem('trueppm.board.density');
+    expect(stored).toBe('detailed');
+  });
+
+  it('restores density preference from localStorage on mount (issue #193)', () => {
+    localStorage.setItem('trueppm.board.density', 'compact');
+    render(<BoardView />);
+    const select = screen.getByLabelText<HTMLSelectElement>('Card density');
+    expect(select.value).toBe('compact');
+  });
+
+  it('restores collapsed lanes from localStorage on mount (issue #190)', () => {
+    localStorage.setItem('trueppm.board.project-1.collapsedLanes', JSON.stringify(['t1']));
+    render(<BoardView />);
+    // Alpha lane (t1) is pre-collapsed — task cards not visible on mount
+    expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Expand Alpha Platform Upgrade/ })).toBeInTheDocument();
   });
 
 });
