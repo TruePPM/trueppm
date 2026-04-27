@@ -63,7 +63,7 @@ function ReadinessChip({ readiness }: { readiness: TaskReadiness }) {
       );
     case 'ready':
       return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded bg-brand-primary/10 border border-brand-primary/30 text-xs text-brand-primary font-medium">
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded bg-brand-primary/10 dark:bg-semantic-on-track/10 border border-brand-primary/30 dark:border-semantic-on-track/30 text-xs text-brand-primary dark:text-semantic-on-track font-medium">
           <span aria-hidden="true">⛓</span> ready
         </span>
       );

@@ -21,6 +21,8 @@ import {
   ROW_HEIGHT,
   BAR_TOP_OFFSET,
   COLOR,
+  COLOR_DARK,
+  setRendererColorMode,
   CANVAS_FONT,
   drawRowBands,
   drawGridLines,
@@ -53,6 +55,8 @@ export interface GanttEngineImplOptions {
   barsCanvas: HTMLCanvasElement;
   ixCanvas: HTMLCanvasElement;
   initialZoom: ZoomLevel;
+  /** Initial color mode — pass true if the app is already in dark mode at mount time. */
+  isDark?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,12 +128,17 @@ export class GanttEngineImpl implements GanttEngine {
   // not the cursor position.
   private _dragOffsetX = 0;
 
+  // Color mode
+  private _isDark = false;
+
   // ---------------------------------------------------------------------------
   // Constructor
   // ---------------------------------------------------------------------------
 
   constructor(options: GanttEngineImplOptions) {
-    const { container, bgCanvas, barsCanvas, ixCanvas, initialZoom } = options;
+    const { container, bgCanvas, barsCanvas, ixCanvas, initialZoom, isDark } = options;
+    this._isDark = isDark ?? false;
+    setRendererColorMode(this._isDark);
     this._container = container;
     this._bgCanvas = bgCanvas;
     this._barsCanvas = barsCanvas;
@@ -294,6 +303,17 @@ export class GanttEngineImpl implements GanttEngine {
     return () => {
       set.delete(h);
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // GanttEngine — Color mode
+  // ---------------------------------------------------------------------------
+
+  setDark(dark: boolean): void {
+    this._isDark = dark;
+    setRendererColorMode(dark);
+    this._fullRepaintPending = true;
+    // The rAF loop is always running; _fullRepaintPending causes a full repaint on the next tick.
   }
 
   // ---------------------------------------------------------------------------
@@ -528,6 +548,7 @@ export class GanttEngineImpl implements GanttEngine {
   // ---------------------------------------------------------------------------
 
   private _paintBg(): void {
+    setRendererColorMode(this._isDark);
     const ctx = this._bgCtx;
     const w = this._viewportWidth;
     const h = this._viewportHeight;
@@ -535,7 +556,7 @@ export class GanttEngineImpl implements GanttEngine {
     ctx.clearRect(0, 0, w, h);
 
     // Surface fill
-    ctx.fillStyle = COLOR.surface;
+    ctx.fillStyle = this._isDark ? COLOR_DARK.surface : COLOR.surface;
     ctx.fillRect(0, 0, w, h);
 
     if (!this._scales) return;
@@ -581,6 +602,7 @@ export class GanttEngineImpl implements GanttEngine {
   }
 
   private _paintRow(rowIndex: number): void {
+    setRendererColorMode(this._isDark);
     if (!this._scales) return;
     const ctx = this._barsCtx;
     const rowTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT - this._scrollTop;
@@ -595,7 +617,7 @@ export class GanttEngineImpl implements GanttEngine {
     ctx.clearRect(0, clampedTop, this._viewportWidth, clampedHeight);
 
     // Re-fill surface color for the cleared row
-    ctx.fillStyle = COLOR.surface;
+    ctx.fillStyle = this._isDark ? COLOR_DARK.surface : COLOR.surface;
     ctx.fillRect(0, clampedTop, this._viewportWidth, clampedHeight);
 
     if (rowTop > this._viewportHeight || rowBottom < HEADER_HEIGHT) return;
