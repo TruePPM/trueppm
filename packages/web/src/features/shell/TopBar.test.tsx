@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { within, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
@@ -36,11 +36,46 @@ describe('TopBar', () => {
   it('renders view tabs navigation with all views including WBS', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     expect(screen.getByRole('navigation', { name: /view/i })).toBeInTheDocument();
-    // "Gantt" renamed to "Schedule" per design handoff (issue #177)
+    // "Gantt" renamed to "Schedule" per design handoff (issue #204)
     expect(screen.getByRole('link', { name: 'Schedule' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'WBS' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Table' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Board' })).toBeInTheDocument();
+  });
+
+  it('Board is the first tab and Schedule is the second (issue #204)', () => {
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    const nav = screen.getByRole('navigation', { name: /view/i });
+    const links = within(nav).getAllByRole('link');
+    expect(links[0]).toHaveTextContent('Board');
+    expect(links[1]).toHaveTextContent('Schedule');
+  });
+
+  it('renders P80 badge from fixture stats (issue #205)', () => {
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    // Fixture has monteCarlop80: '2026-11-03'. Exact day depends on local TZ;
+    // assert the button is present and contains "Nov" (the month is unambiguous).
+    const p80Btn = screen.getByRole('button', { name: /monte carlo p80/i });
+    expect(p80Btn).toBeInTheDocument();
+    expect(p80Btn).toHaveTextContent(/P80:.*Nov/);
+  });
+
+  it('renders mobile Health dropdown button when there are health signals (issue #205)', () => {
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    // HealthDropdown is in the DOM at all viewport sizes; CSS hides it at lg+
+    expect(screen.getByRole('button', { name: /project health summary/i })).toBeInTheDocument();
+  });
+
+  it('mobile Health dropdown expands to show P80 and task items on click (issue #205)', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    const healthBtn = screen.getByRole('button', { name: /project health summary/i });
+    await user.click(healthBtn);
+    expect(healthBtn).toHaveAttribute('aria-expanded', 'true');
+    // Fixture has 2 at-risk tasks and 1 critical task
+    expect(screen.getByRole('menu', { name: /project health summary/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /frontend build/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /backend implementation/i })).toBeInTheDocument();
   });
 
   it('renders hamburger button for mobile', () => {

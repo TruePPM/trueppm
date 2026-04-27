@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
+import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
+import type { ShellStats } from '@/types';
 import { useShellStore } from '@/stores/shellStore';
 import { useShellStats } from '@/hooks/useShellStats';
 import { useGanttStore } from '@/stores/ganttStore';
@@ -15,6 +16,105 @@ import { PresenceAvatarStack } from './PresenceAvatarStack';
 
 interface Props {
   onHamburgerClick: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// HealthDropdown — mobile collapse of the three status pills (issue #205).
+// Visible below lg: (1024px); individual pills are hidden lg:flex above that.
+// ---------------------------------------------------------------------------
+
+interface HealthDropdownProps {
+  stats: ShellStats | undefined;
+  onTaskNavigate: (id: string) => void;
+}
+
+function HealthDropdown({ stats, onTaskNavigate }: HealthDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const hasBadge =
+    Boolean(stats?.monteCarlop80) ||
+    (stats?.atRiskCount ?? 0) > 0 ||
+    (stats?.criticalCount ?? 0) > 0;
+
+  useEffect(() => {
+    if (!open) return;
+    function handleMouseDown(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => document.removeEventListener('mousedown', handleMouseDown);
+  }, [open]);
+
+  if (!hasBadge || !stats) return null;
+
+  return (
+    <div ref={wrapperRef} className="lg:hidden relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label="Project health summary"
+        className="flex items-center gap-1 h-6 px-2 rounded border border-neutral-border
+          text-[12px] font-medium text-neutral-text-secondary
+          hover:bg-neutral-surface-raised
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      >
+        Health <span aria-hidden="true">{open ? '▴' : '▾'}</span>
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          aria-label="Project health summary"
+          className="absolute top-full right-0 mt-1 z-50 min-w-[180px] bg-neutral-surface border border-neutral-border rounded p-1"
+        >
+          {stats.monteCarlop80 && (
+            <div role="presentation" className="flex items-center gap-1 px-2 py-1.5 text-xs">
+              <span className="font-medium text-semantic-at-risk">P80:</span>
+              <span className="tppm-mono text-neutral-text-primary">
+                {new Date(stats.monteCarlop80).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                })}
+              </span>
+            </div>
+          )}
+          {stats.atRiskTasks.map((item) => (
+            <button
+              key={item.id}
+              role="menuitem"
+              type="button"
+              onClick={() => { onTaskNavigate(item.id); setOpen(false); }}
+              className="w-full text-left px-2 py-1.5 rounded text-xs text-semantic-at-risk
+                hover:bg-neutral-surface-raised
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+            >
+              <span className="text-neutral-text-secondary mr-1">{item.wbs}</span>
+              {item.name}
+            </button>
+          ))}
+          {stats.criticalTasks.map((item) => (
+            <button
+              key={item.id}
+              role="menuitem"
+              type="button"
+              onClick={() => { onTaskNavigate(item.id); setOpen(false); }}
+              className="w-full text-left px-2 py-1.5 rounded text-xs text-semantic-critical
+                hover:bg-neutral-surface-raised
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+            >
+              <span className="text-neutral-text-secondary mr-1">{item.wbs}</span>
+              {item.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const THEME_BUTTONS: { value: Theme; label: string; icon: ReactNode }[] = [
@@ -97,44 +197,52 @@ export function TopBar({ onHamburgerClick }: Props) {
 
       {/* Badges — pushed to the right */}
       <div className="ml-auto flex items-center gap-2">
-        {/* P80 badge — desktop only (issue #33 / #205). Outlined pill with
-            at-risk semantic fill so the metric reads as a soft warning.     */}
-        {stats?.monteCarlop80 && (
-          <span
-            className="hidden md:flex items-center gap-1 h-6 px-2 rounded border border-semantic-at-risk/80 bg-semantic-at-risk-bg text-[12px] font-medium text-semantic-at-risk"
-            aria-label={`Monte Carlo P80 completion: ${stats.monteCarlop80}`}
-          >
-            P80:{' '}
-            {new Date(stats.monteCarlop80).toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-            })}
-          </span>
-        )}
+        {/* Status pills — lg+ shows individually; below lg collapses to Health dropdown */}
+        <div className="hidden lg:flex items-center gap-2">
+          {/* P80 — outlined at-risk pill. Click action deferred until MC drawer (#142) ships. */}
+          {stats?.monteCarlop80 && (
+            <button
+              type="button"
+              aria-disabled="true"
+              aria-label={`Monte Carlo P80 completion: ${stats.monteCarlop80}`}
+              className="flex items-center gap-1 h-6 px-2 rounded border border-semantic-at-risk/80 bg-semantic-at-risk-bg text-[12px] font-medium text-semantic-at-risk
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              P80:{' '}
+              {new Date(stats.monteCarlop80).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+              })}
+            </button>
+          )}
 
-        {/* At-risk badge — clickable popover (issue #32) */}
-        {stats && stats.atRiskCount > 0 && (
-          <BadgePopover
-            label={`${stats.atRiskCount} at risk tasks`}
-            count={stats.atRiskCount}
-            items={stats.atRiskTasks}
-            colorVariant="at-risk"
-            icon={<WarningIcon aria-hidden="true" />}
-            onItemClick={handleTaskNavigate}
-          />
-        )}
+          {/* At-risk badge — clickable popover (issue #32) */}
+          {stats && stats.atRiskCount > 0 && (
+            <BadgePopover
+              label={`${stats.atRiskCount} at risk tasks`}
+              count={stats.atRiskCount}
+              items={stats.atRiskTasks}
+              colorVariant="at-risk"
+              icon={<WarningIcon aria-hidden="true" />}
+              onItemClick={handleTaskNavigate}
+            />
+          )}
 
-        {/* Critical badge — clickable popover (issue #32) */}
-        {stats && stats.criticalCount > 0 && (
-          <BadgePopover
-            label={`${stats.criticalCount} critical tasks`}
-            count={stats.criticalCount}
-            items={stats.criticalTasks}
-            colorVariant="critical"
-            icon={<CriticalDotIcon aria-hidden="true" />}
-            onItemClick={handleTaskNavigate}
-          />
-        )}
+          {/* Critical badge — clickable popover (issue #32) */}
+          {stats && stats.criticalCount > 0 && (
+            <BadgePopover
+              label={`${stats.criticalCount} critical tasks`}
+              count={stats.criticalCount}
+              items={stats.criticalTasks}
+              colorVariant="critical"
+              icon={<CriticalDotIcon aria-hidden="true" />}
+              onItemClick={handleTaskNavigate}
+            />
+          )}
+        </div>
+
+        {/* Mobile health dropdown — visible below lg:, hidden at lg+ (rule 205) */}
+        <HealthDropdown stats={stats} onTaskNavigate={handleTaskNavigate} />
 
         {/* Background operations indicator — visible only when runs are active */}
         <TaskRunIndicator />
