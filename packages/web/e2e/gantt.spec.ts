@@ -95,8 +95,8 @@ async function gotoGantt(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
   );
-  // Path-based routing (ADR-0030): /projects/:projectId/gantt
-  await page.goto(`/projects/${FIXTURE_PROJECT_ID}/gantt`);
+  // Path-based routing (ADR-0030): /projects/:projectId/schedule
+  await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
 }
 
 test.describe('GanttView toolbar', () => {
