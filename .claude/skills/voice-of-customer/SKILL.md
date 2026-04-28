@@ -265,7 +265,14 @@ at any single point on the curve (one project at a time), it could be OSS.
 **Title**: Scrum Master & Agile Delivery Lead, Mid-size SaaS Product Company (120 engineers)
 **Age**: 34 | **Tech comfort**: Very high (uses Jira, Linear, Confluence, Miro daily; PSM I certified — Professional Scrum Master, scrum.org)
 
-**Scrum Guide accuracy notes** (Scrum Guide 2020, Schwaber & Sutherland):
+**⚠️ Internal use only:** Persona credential names (PSM I, SAFe®, Release Train Engineer®)
+are descriptive background for simulation purposes. They must not be reproduced in
+product marketing, landing pages, or UI copy — doing so risks trademark claims from
+Scrum.org and Scaled Agile, Inc. SAFe® and Release Train Engineer® are registered
+trademarks of Scaled Agile, Inc. PSM and Professional Scrum Master are trademarks of Scrum.org.
+
+**Scrum Guide accuracy notes** *(Scrum Guide 2020 © Ken Schwaber and Jeff Sutherland,
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/))*:
 - The four named Sprint events are: Sprint Planning, Daily Scrum, Sprint Review, Sprint Retrospective.
   "Daily standup" is informal colloquial usage, not the official term.
 - Velocity and burndown/burn-up are **not** defined in the Scrum Guide 2020. They are XP-era

@@ -31,7 +31,7 @@ trueppm-suite/
 | Database | PostgreSQL | 16+ |
 | Cache | Redis | 7+ |
 | Web UI | React + TypeScript + Vite | 19 / 5.x / 6 |
-| Gantt | SVAR React Gantt (MIT) | latest |
+| Gantt | Custom canvas renderer (packages/web/src/features/schedule/engine/) | — |
 | E2E tests | Playwright | latest |
 | Scheduler | Python (networkx + numpy) | — |
 | Auth | django-allauth + simplejwt | — |
