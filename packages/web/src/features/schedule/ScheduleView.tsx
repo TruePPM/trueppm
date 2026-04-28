@@ -23,6 +23,8 @@ import { DateInputPopover } from './DateInputPopover';
 import { AddTaskForm, type AddTaskFormHandle } from '@/features/project/AddTaskForm';
 import { RecalculatingBadge } from '@/features/project/RecalculatingBadge';
 import { TaskDetailDrawer } from './TaskDetailDrawer';
+import { UnscheduledGutter } from './UnscheduledGutter';
+import { useUnscheduledTasks } from '@/hooks/useUnscheduledTasks';
 import type { Task } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -211,6 +213,8 @@ export function ScheduleView() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allTasks.length]);
+
+  const unscheduledTasks = useUnscheduledTasks(allTasks);
 
   const zoomLevel         = useScheduleStore((s) => s.zoomLevel);
   const selectedTaskId    = useScheduleStore((s) => s.selectedTaskId);
@@ -733,6 +737,17 @@ export function ScheduleView() {
           </div>
         )}
       </div>
+
+      {/* Unscheduled gutter — tasks with no planned/CPM dates (#213) */}
+      {projectId && (
+        <UnscheduledGutter
+          tasks={unscheduledTasks}
+          projectId={projectId}
+          scaleData={scheduleScales}
+          canvasScrollRef={canvasScrollRef}
+          taskListWidth={totalWidth}
+        />
+      )}
 
       <MonteCarloRow engine={engine} taskListWidth={totalWidth} />
 

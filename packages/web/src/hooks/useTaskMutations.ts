@@ -212,6 +212,39 @@ export function useReparentTask(projectId: string | null) {
 }
 
 // ---------------------------------------------------------------------------
+// usePromoteTask — PATCH planned_start + status for unscheduled gutter (#213)
+// ---------------------------------------------------------------------------
+
+export interface PromoteTaskPayload {
+  id: string;
+  projectId: string;
+  planned_start: string;
+}
+
+/**
+ * PATCH /api/v1/tasks/{id}/ to promote an unscheduled task onto the timeline.
+ *
+ * Sets planned_start to the dropped date and transitions status from BACKLOG to
+ * NOT_STARTED.  Invalidates the task cache so the gutter empties and the canvas
+ * renders the task in its new position once CPM re-runs.
+ */
+export function usePromoteTask() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, planned_start }: PromoteTaskPayload) => {
+      await apiClient.patch(`/tasks/${id}/`, {
+        planned_start,
+        status: 'NOT_STARTED',
+      });
+    },
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // useDeleteTask — DELETE /api/v1/tasks/{id}/
 // ---------------------------------------------------------------------------
 

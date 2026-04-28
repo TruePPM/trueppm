@@ -135,6 +135,13 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         read_only=True, allow_null=True, default=None
     )
 
+    # Wave 3 (#210) — passive overalloc indicator in the task detail drawer.
+    # True when the assignee's TaskResource.units across active tasks in this
+    # project sum to > 1.0.  Annotated by TaskViewSet.get_queryset(); defaults
+    # to False so the drawer never shows a stale warning when called outside the
+    # viewset (e.g. in tests or nested serializers).
+    assignee_is_overallocated = serializers.BooleanField(read_only=True, default=False)
+
     class Meta:
         model = Task
         fields = [
@@ -177,6 +184,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "linked_risks_max_severity",
             "status_changed_at",
             "priority_rank",
+            "assignee_is_overallocated",
         ]
         read_only_fields = [
             "id",
@@ -201,6 +209,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "linked_risks_count",
             "linked_risks_max_severity",
             "status_changed_at",
+            "assignee_is_overallocated",
         ]
 
     def get_schedule_variance_days(self, obj: Task) -> int | None:

@@ -80,6 +80,8 @@ export interface Task {
   budgetAtCompletion?: number | null;
   /** Actual cost incurred to date. Null until cost data is available (board batch 4). */
   actualCost?: number | null;
+  /** True when the assignee's total units across active tasks for this project exceeds 1.0. */
+  assigneeIsOverallocated?: boolean;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */
