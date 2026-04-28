@@ -30,7 +30,7 @@ import {
   type DragOverEvent,
   DragOverlay,
 } from '@dnd-kit/core';
-import { useGanttTasks } from '@/hooks/useGanttTasks';
+import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTaskStatus } from '@/hooks/useBoardTasks';
 import { useBoardConfig } from '@/hooks/useBoardConfig';
 import { useBoardKeyboard } from '@/hooks/useBoardKeyboard';
@@ -525,7 +525,7 @@ function useBoardDensity() {
 export function BoardView() {
   const projectId = useProjectId() ?? '';
   const { columns: rawColumns } = useBoardConfig(projectId || null);
-  const { tasks, isLoading } = useGanttTasks();
+  const { tasks, isLoading } = useScheduleTasks();
   const updateStatus = useUpdateTaskStatus();
   const COLUMNS = rawColumns.filter((c) => c.visible);
 

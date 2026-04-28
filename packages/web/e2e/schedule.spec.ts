@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
  * Schedule view E2E tests — toolbar, task list panel, and accessibility basics.
  *
  * The app makes real API calls; we intercept them with Playwright route mocking
- * and navigate to /projects/:id/schedule so useGanttTasks fires the queries.
+ * and navigate to /projects/:id/schedule so useScheduleTasks fires the queries.
  * Auth state is seeded in localStorage before each test so RequireAuth passes.
  */
 

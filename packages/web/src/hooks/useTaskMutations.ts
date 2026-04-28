@@ -87,7 +87,7 @@ export function useUpdateTask() {
 // Unlike useUpdateTask (which invalidates immediately), this hook applies an
 // optimistic patch to the React Query cache in onMutate so both the canvas
 // and task list update instantly. It does NOT call invalidateQueries — instead
-// useGanttTasks polls every 2 s, which picks up CPM-computed dates once Celery
+// useScheduleTasks polls every 2 s, which picks up CPM-computed dates once Celery
 // finishes without causing a stale-data snap-back.
 // ---------------------------------------------------------------------------
 
@@ -103,7 +103,7 @@ export interface RescheduleTaskPayload {
 /**
  * PATCH /api/v1/tasks/{id}/ for drag/resize — applies an optimistic cache update
  * so the Gantt reflects the new position instantly. Does not invalidate the cache on
- * success; useGanttTasks' refetchInterval picks up CPM-computed dates once Celery finishes.
+ * success; useScheduleTasks' refetchInterval picks up CPM-computed dates once Celery finishes.
  */
 export function useRescheduleTask() {
   const queryClient = useQueryClient();
@@ -132,7 +132,7 @@ export function useRescheduleTask() {
         queryClient.setQueryData(['tasks', projectId], context.snapshot);
       }
     },
-    // No onSuccess invalidation — useGanttTasks refetchInterval picks up CPM results
+    // No onSuccess invalidation — useScheduleTasks refetchInterval picks up CPM results
   });
 }
 

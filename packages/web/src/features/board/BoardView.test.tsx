@@ -37,8 +37,8 @@ vi.mock('@/hooks/useProjectId', () => ({
   useProjectId: () => 'project-1',
 }));
 
-vi.mock('@/hooks/useGanttTasks', () => ({
-  useGanttTasks: () => ({ tasks: mockTasks, isLoading: mockIsLoading }),
+vi.mock('@/hooks/useScheduleTasks', () => ({
+  useScheduleTasks: () => ({ tasks: mockTasks, isLoading: mockIsLoading }),
 }));
 
 vi.mock('@/hooks/useBoardTasks', () => ({
@@ -187,7 +187,7 @@ describe('BoardView', () => {
     expect(screen.getByLabelText('Show WIP limits')).toBeInTheDocument();
   });
 
-  it('renders the loading state when useGanttTasks is loading', () => {
+  it('renders the loading state when useScheduleTasks is loading', () => {
     mockIsLoading = true;
     mockTasks = null;
     render(<BoardView />);

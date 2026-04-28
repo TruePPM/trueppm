@@ -1,9 +1,9 @@
 import { useState, useCallback } from 'react';
 
 // v4: split Dur·Start into Dur / Start / Finish columns
-const WIDTHS_KEY = 'trueppm.gantt.columnWidths.v4';
+const WIDTHS_KEY = 'trueppm.schedule.columnWidths.v4';
 // v1: per-column visibility (task is always locked visible)
-const VISIBILITY_KEY = 'trueppm.gantt.columnVisibility.v1';
+const VISIBILITY_KEY = 'trueppm.schedule.columnVisibility.v1';
 
 export const MIN_COL_WIDTHS = {
   task: 120,

@@ -3,7 +3,7 @@
  *
  * Uses start__gte / finish__lte filters added in issue #40 to return only
  * tasks that overlap the requested calendar window.  Mirrors the Task shape
- * used by useGanttTasks so CalendarView and ResourceView share one type.
+ * used by useScheduleTasks so CalendarView and ResourceView share one type.
  */
 
 import { useQuery } from '@tanstack/react-query';

@@ -8,7 +8,7 @@
  * - Handles Escape key cancellation (rule 28).
  *
  * Returns nothing — all side-effects go through the drag store and the
- * aria-live ref passed in by GanttView.
+ * aria-live ref passed in by ScheduleView.
  *
  * Design rules enforced:
  * - Rule 55: engine.on() always returns an unsubscribe; called in cleanup
@@ -17,12 +17,12 @@
  */
 
 import { useEffect, useRef, type RefObject } from 'react';
-import type { GanttEngine } from '@/features/gantt/engine';
-import { leftToDate } from '@/features/gantt/engine';
+import type { GanttEngine } from '@/features/schedule/engine';
+import { leftToDate } from '@/features/schedule/engine';
 import type { Task, TaskLink } from '@/types';
 import type { RecalcMessage, ResultMessage } from '@/workers/cpmWorker.types';
 import { useDragStore } from '@/stores/dragStore';
-import { buildSubgraph } from '@/features/gantt/buildSubgraph';
+import { buildSubgraph } from '@/features/schedule/buildSubgraph';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 
 interface UseDragCpmOptions {

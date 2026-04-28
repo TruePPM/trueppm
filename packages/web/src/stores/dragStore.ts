@@ -1,7 +1,7 @@
 /**
  * Zustand slice for Gantt drag preview state (issue #19).
  *
- * Isolated from ganttStore to keep concerns separate — drag preview state
+ * Isolated from scheduleStore to keep concerns separate — drag preview state
  * is transient and never persisted.
  *
  * Extended in issue #34 to support keyboard rescheduling (same state machine,
@@ -29,7 +29,7 @@ export interface DragState {
   /**
    * The committed start date after a keyboard or mouse drag confirm.
    * Set just before phase transitions to 'committing'; read by the PATCH
-   * dispatcher in GanttView. Null when phase is not 'committing'.
+   * dispatcher in ScheduleView. Null when phase is not 'committing'.
    */
   confirmedStart: string | null;
 

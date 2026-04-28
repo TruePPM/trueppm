@@ -6,7 +6,7 @@
  * monotonically-increasing `seq` number — the main thread discards any
  * result whose seq is lower than the last one it sent.
  *
- * The worker is instantiated once per GanttView mount (via useDragCpm).
+ * The worker is instantiated once per ScheduleView mount (via useDragCpm).
  */
 
 import { runCpmForwardPass } from './cpmEngine';

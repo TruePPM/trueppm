@@ -15,7 +15,7 @@ import {
   verticalListSortingStrategy,
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
-import { useGanttTasks } from '@/hooks/useGanttTasks';
+import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useCreateTask, useUpdateTask, useReorderTasks, useIndentTask, useOutdentTask, useReparentTask } from '@/hooks/useTaskMutations';
 import { useWbsStore } from '@/stores/wbsStore';
 import { buildWbsTree, flattenVisible, collectAllIds } from './buildWbsTree';
@@ -61,7 +61,7 @@ function WbsEmptyState() {
 
 export function WbsView() {
   const projectId = useProjectId() ?? null;
-  const { tasks, isLoading, error } = useGanttTasks();
+  const { tasks, isLoading, error } = useScheduleTasks();
   const { expandedIds, toggle, expandAll, collapseAll, selectedTaskId, setSelectedTaskId } = useWbsStore();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
