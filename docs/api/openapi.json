@@ -8189,6 +8189,26 @@
                         "type": "string",
                         "description": "Derive board-card readiness from available task fields.\n\nResolution order (highest specificity first):\n- baselined: task appears in the active baseline (baseline_start is annotated)\n- idea: no assignee\n- ready: has assignee + at least one predecessor dependency\n- estimated: has assignee, no predecessors",
                         "readOnly": true
+                    },
+                    "predecessor_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "default": 0
+                    },
+                    "is_blocked": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "default": false
+                    },
+                    "linked_risks_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "default": 0
+                    },
+                    "linked_risks_max_severity": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -8199,12 +8219,16 @@
                     "early_start",
                     "free_float",
                     "id",
+                    "is_blocked",
                     "is_critical",
                     "is_summary",
                     "late_finish",
                     "late_start",
+                    "linked_risks_count",
+                    "linked_risks_max_severity",
                     "name",
                     "parent_id",
+                    "predecessor_count",
                     "project",
                     "readiness",
                     "schedule_variance_days",
