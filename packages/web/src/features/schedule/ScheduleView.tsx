@@ -14,7 +14,7 @@ import { useColumnWidths } from '@/hooks/useColumnWidths';
 import { buildWbsTree, flattenVisible, collectAllIds } from '@/features/wbs/buildWbsTree';
 import { formatToggleAnnouncement } from './wbsAnnouncement';
 import { TaskListPanel, type TaskDepChips } from './TaskListPanel';
-import { CanvasGanttTimeline } from './CanvasGanttTimeline';
+import { CanvasScheduleTimeline } from './CanvasScheduleTimeline';
 import { ZoomControl } from './ZoomControl';
 import { MonteCarloRow } from './MonteCarloRow';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
@@ -26,10 +26,10 @@ import { TaskDetailDrawer } from './TaskDetailDrawer';
 import type { Task } from '@/types';
 
 // ---------------------------------------------------------------------------
-// GanttEmptyState — shown when tasks.length === 0 (rule 78)
+// ScheduleEmptyState — shown when tasks.length === 0 (rule 78)
 // ---------------------------------------------------------------------------
 
-function GanttEmptyState() {
+function ScheduleEmptyState() {
   return (
     <div
       role="status"
@@ -41,14 +41,14 @@ function GanttEmptyState() {
 }
 
 // ---------------------------------------------------------------------------
-// GanttFallbackTable — shown when canvas 2D is not supported (rule 79)
+// ScheduleFallbackTable — shown when canvas 2D is not supported (rule 79)
 // ---------------------------------------------------------------------------
 
-interface GanttFallbackTableProps {
+interface ScheduleFallbackTableProps {
   tasks: Task[];
 }
 
-function GanttFallbackTable({ tasks }: GanttFallbackTableProps) {
+function ScheduleFallbackTable({ tasks }: ScheduleFallbackTableProps) {
   return (
     <div className="flex-1 overflow-auto p-4">
       <table className="w-full text-sm text-neutral-text-primary border-collapse">
@@ -297,7 +297,7 @@ export function ScheduleView() {
   const [engine, setEngine] = useState<GanttEngine | null>(null);
   // Reactive scales — updated via scales-change so totalCanvasWidth stays in sync
   // when setTasks rebuilds the scale after a project switch or task edit (issue #96).
-  const [ganttScales, setGanttScales] = useState<GanttScaleData | null>(null);
+  const [scheduleScales, setScheduleScales] = useState<GanttScaleData | null>(null);
   const { widths, visible, setWidth, toggleColumn, totalWidth } = useColumnWidths();
 
   // Ref to the split-pane container for MilestoneDeltaTooltip positioning (rule 31)
@@ -459,8 +459,8 @@ export function ScheduleView() {
   // Subscribe to scales-change so totalCanvasWidth stays current when tasks update (issue #96)
   useEffect(() => {
     if (!engine) return;
-    setGanttScales(engine.scales);
-    return engine.on('scales-change', ({ scales }) => setGanttScales(scales));
+    setScheduleScales(engine.scales);
+    return engine.on('scales-change', ({ scales }) => setScheduleScales(scales));
   }, [engine]);
 
   // "Today" button handler (rule 82)
@@ -485,7 +485,7 @@ export function ScheduleView() {
   }, [engine]);
 
   // Engine scroll → task list sync
-  // We pass canvasScrollRef as containerRef for CanvasGanttTimeline.
+  // We pass canvasScrollRef as containerRef for CanvasScheduleTimeline.
   // The engine's scroll events come from canvasScrollRef, not the engine.on('scroll').
   // We attach a DOM scroll listener instead.
 
@@ -511,7 +511,7 @@ export function ScheduleView() {
 
   if (isLoading || !rawTasks) {
     return (
-      <div className="flex h-full bg-neutral-surface" aria-busy="true" aria-label="Loading Gantt">
+      <div className="flex h-full bg-neutral-surface" aria-busy="true" aria-label="Loading Schedule">
         <div className="w-[280px] flex-shrink-0 border-r border-white/10 p-2 space-y-1">
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="h-7 rounded animate-pulse bg-brand-primary/10" />
@@ -541,13 +541,13 @@ export function ScheduleView() {
             expandedIds={expandedIds}
             onToggle={toggleExpand}
           />
-          <GanttFallbackTable tasks={visibleTasks} />
+          <ScheduleFallbackTable tasks={visibleTasks} />
         </div>
       </div>
     );
   }
 
-  const totalCanvasWidth = ganttScales?.totalWidth ?? 0;
+  const totalCanvasWidth = scheduleScales?.totalWidth ?? 0;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -686,7 +686,7 @@ export function ScheduleView() {
         <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
 
         {visibleTasks.length === 0 ? (
-          <GanttEmptyState />
+          <ScheduleEmptyState />
         ) : (
           <div
             ref={canvasScrollRef}
@@ -720,7 +720,7 @@ export function ScheduleView() {
                   pointerEvents: 'none',
                 }}
               >
-                <CanvasGanttTimeline
+                <CanvasScheduleTimeline
                   tasks={visibleTasks}
                   links={links ?? []}
                   zoomLevel={zoomLevel}

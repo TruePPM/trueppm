@@ -65,7 +65,7 @@ export function useAddAssignment(projectId: string) {
     },
     onSuccess: (_data, { taskId }) => {
       void queryClient.invalidateQueries({ queryKey: ['task-assignments', taskId] });
-      void queryClient.invalidateQueries({ queryKey: ['gantt-tasks', projectId] });
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
     },
   });
 }
@@ -107,7 +107,7 @@ export function useUpdateAssignment(taskId: string, projectId: string) {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ['task-assignments', taskId] });
-      void queryClient.invalidateQueries({ queryKey: ['gantt-tasks', projectId] });
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
     },
   });
 }
@@ -143,7 +143,7 @@ export function useRemoveAssignment(taskId: string, projectId: string) {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ['task-assignments', taskId] });
-      void queryClient.invalidateQueries({ queryKey: ['gantt-tasks', projectId] });
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
     },
   });
 }

@@ -8,7 +8,7 @@
  * Design rules enforced:
  * - Rule 63: spatial index, not per-pixel color mapping
  * - Rule 64: resize handle and link-dot zones expand on touch
- * - Rule 66: touch-action: none on canvas elements (enforced in CanvasGanttTimeline)
+ * - Rule 66: touch-action: none on canvas elements (enforced in CanvasScheduleTimeline)
  */
 
 import type { Task } from '@/types';

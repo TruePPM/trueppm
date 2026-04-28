@@ -172,7 +172,7 @@ export function CriticalPathPanel({ tasks, projectId }: CriticalPathPanelProps) 
           </span>
         )}
         <Link
-          to={`/projects/${projectId}/gantt`}
+          to={`/projects/${projectId}/schedule`}
           className="ml-auto text-xs text-brand-primary underline-offset-2 hover:underline
             focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
             focus-visible:outline-none rounded"

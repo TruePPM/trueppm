@@ -1,7 +1,7 @@
 /**
  * Zustand slice for Gantt drag preview state (issue #19).
  *
- * Isolated from ganttStore to keep concerns separate — drag preview state
+ * Isolated from scheduleStore to keep concerns separate — drag preview state
  * is transient and never persisted.
  *
  * Extended in issue #34 to support keyboard rescheduling (same state machine,

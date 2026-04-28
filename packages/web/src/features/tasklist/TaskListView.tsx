@@ -61,7 +61,7 @@ function TaskListEmptyState() {
     >
       <p className="text-sm text-neutral-text-primary font-medium">No tasks yet</p>
       <p className="text-xs text-neutral-text-secondary">
-        Add tasks in the Gantt view to get started.
+        Add tasks in the Schedule view to get started.
       </p>
     </div>
   );

@@ -5,7 +5,7 @@ import type { Task, TaskAssignee, TaskLink, TaskStatus, LinkType } from '@/types
 import type { PaginatedResponse } from '@/api/types';
 import { computeWbsCodes } from '@/utils/computeWbsCodes';
 
-export interface UseGanttTasksResult {
+export interface UseScheduleTasksResult {
   tasks: Task[] | undefined;
   links: TaskLink[] | undefined;
   isLoading: boolean;
@@ -155,7 +155,7 @@ function mapDependency(d: ApiDependency): TaskLink {
  * An explicit `projectId` argument overrides the URL param for cases
  * where the hook is used outside the project route (e.g. tests).
  */
-export function useScheduleTasks(projectId?: string): UseGanttTasksResult {
+export function useScheduleTasks(projectId?: string): UseScheduleTasksResult {
   const paramId = useProjectId();
   const resolvedId = projectId ?? paramId;
 

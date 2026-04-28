@@ -1,6 +1,6 @@
 /*
  * SVAR React Gantt — TruePPM Design System token overrides.
- * All rules are scoped to .gantt-root to avoid polluting global styles.
+ * All rules are scoped to .schedule-root to avoid polluting global styles.
  * Custom property names come from @svar-ui/react-gantt internals.
  *
  * Bar color reference (light surface):
@@ -14,7 +14,7 @@
  * Bar label color is always #1A1917 (neutral.text-primary) on light bars.
  */
 
-.gantt-root {
+.schedule-root {
   --wx-font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --wx-font-size: 13px;
   --wx-color-primary: #1c6b3a;       /* brand.primary */
@@ -42,33 +42,33 @@
 }
 
 /* Critical bars — semantic-critical */
-.gantt-root .wx-task[data-critical="true"] {
+.schedule-root .wx-task[data-critical="true"] {
   background-color: #b91c1c;
 }
 
 /* Complete bars — semantic-on-track */
-.gantt-root .wx-task[data-complete="true"] {
+.schedule-root .wx-task[data-complete="true"] {
   background-color: #166534;
 }
 
 /* Critical dependency arrows — semantic-critical, 1.5px */
-.gantt-root .wx-link[data-critical="true"] {
+.schedule-root .wx-link[data-critical="true"] {
   stroke: #b91c1c;
   stroke-width: 1.5px;
 }
 
 /* Summary bar height override (8px per Design System) */
-.gantt-root .wx-summary .wx-bar {
+.schedule-root .wx-summary .wx-bar {
   height: 8px;
 }
 
 /* Baseline ghost bar height (6px) */
-.gantt-root .wx-baseline .wx-bar {
+.schedule-root .wx-baseline .wx-bar {
   height: 6px;
 }
 
 /* Milestone diamond (12px) — SVAR renders as rotated square */
-.gantt-root .wx-milestone .wx-bar {
+.schedule-root .wx-milestone .wx-bar {
   width: 12px;
   height: 12px;
 }

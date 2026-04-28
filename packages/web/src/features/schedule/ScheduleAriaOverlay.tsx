@@ -144,7 +144,7 @@ export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAri
       ref={gridRef}
       role="grid"
       aria-rowcount={tasks.length}
-      aria-label="Gantt chart"
+      aria-label="Schedule chart"
       style={{
         position: 'absolute',
         inset: 0,

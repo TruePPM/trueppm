@@ -21,7 +21,7 @@ import { useGanttEngine } from '@/hooks/useGanttEngine';
 import { useIsDark } from '@/hooks/useIsDark';
 import { ScheduleAriaOverlay } from './ScheduleAriaOverlay';
 
-interface CanvasGanttTimelineProps {
+interface CanvasScheduleTimelineProps {
   tasks: Task[];
   links: TaskLink[];
   zoomLevel: ZoomLevel;
@@ -29,13 +29,13 @@ interface CanvasGanttTimelineProps {
   onEngineReady: (engine: GanttEngine) => void;
 }
 
-export function CanvasGanttTimeline({
+export function CanvasScheduleTimeline({
   tasks,
   links,
   zoomLevel,
   containerRef,
   onEngineReady,
-}: CanvasGanttTimelineProps) {
+}: CanvasScheduleTimelineProps) {
   const bgCanvasRef = useRef<HTMLCanvasElement>(null);
   const barsCanvasRef = useRef<HTMLCanvasElement>(null);
   const ixCanvasRef = useRef<HTMLCanvasElement>(null);

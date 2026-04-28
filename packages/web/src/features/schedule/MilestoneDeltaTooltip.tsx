@@ -1,7 +1,7 @@
 /**
  * Floating tooltip showing the most-impacted milestone delta during drag (rule 31).
  *
- * Mounts at ScheduleView level (not inside GanttTimeline) to escape overflow:hidden.
+ * Mounts at ScheduleView level (not inside CanvasScheduleTimeline) to escape overflow:hidden.
  * Positions itself near the worst milestone's bar on the timeline.
  *
  * Design rules:

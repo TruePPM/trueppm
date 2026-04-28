@@ -216,7 +216,7 @@ describe('ProjectOverviewPage', () => {
     });
   });
 
-  it('shows "show full critical path" link pointing to gantt', async () => {
+  it('shows "show full critical path" link pointing to schedule', async () => {
     mockedGet.mockImplementation((url: string) => {
       if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
       if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
@@ -236,7 +236,7 @@ describe('ProjectOverviewPage', () => {
     await waitFor(() => {
       const link = screen.getByRole('link', { name: /show full critical path/i });
       expect(link).toBeInTheDocument();
-      expect(link).toHaveAttribute('href', '/projects/proj-1/gantt');
+      expect(link).toHaveAttribute('href', '/projects/proj-1/schedule');
     });
   });
 });
@@ -303,11 +303,11 @@ describe('CriticalPathPanel', () => {
     expect(screen.getByText(/total slack: —/i)).toBeInTheDocument();
   });
 
-  it('link points to the gantt view for the project', () => {
+  it('link points to the schedule view for the project', () => {
     renderPanel([{ id: 't1', name: 'Foundation', duration: 10, total_float: 0 }], 'proj-42');
     expect(screen.getByRole('link', { name: /show full critical path/i })).toHaveAttribute(
       'href',
-      '/projects/proj-42/gantt',
+      '/projects/proj-42/schedule',
     );
   });
 });
