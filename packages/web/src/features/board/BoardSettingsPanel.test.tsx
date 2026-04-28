@@ -14,7 +14,7 @@ const COLUMNS: BoardColumnDef[] = [
 describe('BoardSettingsPanel', () => {
   it('renders as a dialog and focuses close button on mount', () => {
     render(<BoardSettingsPanel columns={COLUMNS} onSave={vi.fn()} onClose={vi.fn()} />);
-    const dialog = screen.getByRole('dialog', { name: 'Board column settings' });
+    const dialog = screen.getByRole('dialog', { name: 'Column settings' });
     expect(dialog).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close board settings' })).toHaveFocus();
   });
@@ -33,23 +33,23 @@ describe('BoardSettingsPanel', () => {
 
   it('enables Save once a label is edited', () => {
     render(<BoardSettingsPanel columns={COLUMNS} onSave={vi.fn()} onClose={vi.fn()} />);
-    const labels = screen.getAllByLabelText('Label');
-    fireEvent.change(labels[0]!, { target: { value: 'Ideas' } });
+    const [firstLabel] = screen.getAllByLabelText('Label');
+    fireEvent.change(firstLabel, { target: { value: 'Ideas' } });
     expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled();
   });
 
   it('shows inline error for non-hex custom color and blocks save', () => {
     render(<BoardSettingsPanel columns={COLUMNS} onSave={vi.fn()} onClose={vi.fn()} />);
-    const customs = screen.getAllByLabelText('Custom hex');
-    fireEvent.change(customs[0]!, { target: { value: 'not-a-color' } });
+    const [firstCustom] = screen.getAllByLabelText('Custom hex');
+    fireEvent.change(firstCustom, { target: { value: 'not-a-color' } });
     expect(screen.getByText('Use #RRGGBB hex')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 
   it('shows inline error for invalid WIP limit (zero)', () => {
     render(<BoardSettingsPanel columns={COLUMNS} onSave={vi.fn()} onClose={vi.fn()} />);
-    const wipInputs = screen.getAllByLabelText(/WIP limit/);
-    fireEvent.change(wipInputs[0]!, { target: { value: '0' } });
+    const [firstWip] = screen.getAllByLabelText(/WIP limit/);
+    fireEvent.change(firstWip, { target: { value: '0' } });
     expect(screen.getByText('Must be a positive integer')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
@@ -57,25 +57,25 @@ describe('BoardSettingsPanel', () => {
   it('updates color via swatch click', () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<BoardSettingsPanel columns={COLUMNS} onSave={onSave} onClose={vi.fn()} />);
-    const greens = screen.getAllByRole('button', { name: 'Green' });
-    fireEvent.click(greens[0]!);
+    const [firstGreen] = screen.getAllByRole('button', { name: 'Green' });
+    fireEvent.click(firstGreen);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     return waitFor(() => {
       expect(onSave).toHaveBeenCalledTimes(1);
-      const saved = onSave.mock.calls[0]![0] as BoardColumnDef[];
-      expect(saved[0]!.color).toBe('#22C55E');
+      const saved = (onSave.mock.calls[0] as [BoardColumnDef[]])[0];
+      expect(saved[0].color).toBe('#22C55E');
     });
   });
 
   it('clears color when ∅ swatch is clicked', () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<BoardSettingsPanel columns={COLUMNS} onSave={onSave} onClose={vi.fn()} />);
-    const noColors = screen.getAllByRole('button', { name: 'No color' });
-    fireEvent.click(noColors[0]!);
+    const [firstNoColor] = screen.getAllByRole('button', { name: 'No color' });
+    fireEvent.click(firstNoColor);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     return waitFor(() => {
-      const saved = onSave.mock.calls[0]![0] as BoardColumnDef[];
-      expect(saved[0]!.color).toBeNull();
+      const saved = (onSave.mock.calls[0] as [BoardColumnDef[]])[0];
+      expect(saved[0].color).toBeNull();
     });
   });
 
@@ -89,20 +89,20 @@ describe('BoardSettingsPanel', () => {
     fireEvent.click(enabled!);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     return waitFor(() => {
-      const saved = onSave.mock.calls[0]![0] as BoardColumnDef[];
-      expect(saved.find((c) => c.status === 'IN_PROGRESS')!.wipLimit).toBeNull();
+      const saved = (onSave.mock.calls[0] as [BoardColumnDef[]])[0];
+      expect(saved.find((c) => c.status === 'IN_PROGRESS')?.wipLimit).toBeNull();
     });
   });
 
   it('toggles visibility via the switch', () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<BoardSettingsPanel columns={COLUMNS} onSave={onSave} onClose={vi.fn()} />);
-    const switches = screen.getAllByRole('switch', { name: 'Show on board' });
-    fireEvent.click(switches[0]!);
+    const [firstSwitch] = screen.getAllByRole('switch', { name: 'Show on board' });
+    fireEvent.click(firstSwitch);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     return waitFor(() => {
-      const saved = onSave.mock.calls[0]![0] as BoardColumnDef[];
-      expect(saved[0]!.visible).toBe(false);
+      const saved = (onSave.mock.calls[0] as [BoardColumnDef[]])[0];
+      expect(saved[0].visible).toBe(false);
     });
   });
 
@@ -112,16 +112,16 @@ describe('BoardSettingsPanel', () => {
     );
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument();
     expect(screen.getByText(/View-only/)).toBeInTheDocument();
-    const labels = screen.getAllByLabelText('Label') as HTMLInputElement[];
-    expect(labels[0]!.disabled).toBe(true);
+    const [firstLabel] = screen.getAllByLabelText('Label');
+    expect((firstLabel as HTMLInputElement).disabled).toBe(true);
   });
 
   it('shows submit error when onSave rejects', async () => {
     const onSave = vi.fn().mockRejectedValue(new Error('Network down'));
     const onClose = vi.fn();
     render(<BoardSettingsPanel columns={COLUMNS} onSave={onSave} onClose={onClose} />);
-    const labels = screen.getAllByLabelText('Label');
-    fireEvent.change(labels[0]!, { target: { value: 'Ideas' } });
+    const [firstLabel] = screen.getAllByLabelText('Label');
+    fireEvent.change(firstLabel, { target: { value: 'Ideas' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => {
       expect(screen.getByText('Network down')).toBeInTheDocument();

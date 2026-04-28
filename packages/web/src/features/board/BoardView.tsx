@@ -249,7 +249,7 @@ function BoardCell({
     >
       {wip && (
         <div className="text-xs text-semantic-at-risk font-semibold px-1">
-          WIP limit: {wipLimit} — {tasks.length - wipLimit!} over
+          WIP limit: {wipLimit} — {tasks.length - (wipLimit ?? 0)} over
         </div>
       )}
       {tasks.map((task) => (

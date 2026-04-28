@@ -125,7 +125,7 @@ export function BoardSettingsPanel({ columns, onSave, onClose, readOnly = false 
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Board column settings"
+      aria-label="Column settings"
       className="fixed inset-0 z-50 flex"
     >
       <div className="flex-1 bg-black/30" aria-hidden="true" onClick={onClose} />
@@ -190,7 +190,7 @@ export function BoardSettingsPanel({ columns, onSave, onClose, readOnly = false 
             {!readOnly && (
               <button
                 type="button"
-                onClick={handleSave}
+                onClick={() => { void handleSave(); }}
                 disabled={!isDirty || hasErrors || isSaving}
                 className="inline-flex items-center justify-center min-h-[44px] px-3 rounded
                   bg-brand-primary text-white text-xs font-medium
