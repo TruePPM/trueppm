@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Any
 
@@ -450,19 +451,41 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         return attrs
 
 
-# 5-column model per Claude Design handoff (issue #178).
+# 5-column model per Claude Design handoff (issue #178).  Per ADR-0039 the
+# default JSON shape now carries optional `color` and `wip_limit` keys so
+# new projects render the brand semantic palette without a settings round-trip.
 _DEFAULT_COLUMNS = [
-    {"status": "BACKLOG", "label": "Backlog", "visible": True},
-    {"status": "NOT_STARTED", "label": "To Do", "visible": True},
-    {"status": "IN_PROGRESS", "label": "In Progress", "visible": True},
-    {"status": "REVIEW", "label": "Review", "visible": True},
-    {"status": "COMPLETE", "label": "Done", "visible": True},
+    {
+        "status": "BACKLOG",
+        "label": "Backlog",
+        "visible": True,
+        "color": "#94A3B8",
+        "wip_limit": None,
+    },
+    {
+        "status": "NOT_STARTED",
+        "label": "To Do",
+        "visible": True,
+        "color": "#64748B",
+        "wip_limit": None,
+    },
+    {
+        "status": "IN_PROGRESS",
+        "label": "In Progress",
+        "visible": True,
+        "color": "#3B82F6",
+        "wip_limit": 5,
+    },
+    {"status": "REVIEW", "label": "Review", "visible": True, "color": "#A855F7", "wip_limit": 3},
+    {"status": "COMPLETE", "label": "Done", "visible": True, "color": "#22C55E", "wip_limit": None},
 ]
 
 # Canonical statuses that must appear in every board config.  ON_HOLD is
 # excluded — it is a legacy value kept for data compatibility only and is
 # never required in new board configurations.
 _CANONICAL_STATUSES = frozenset({"BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIEW", "COMPLETE"})
+
+_HEX_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
 class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
@@ -471,16 +494,26 @@ class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
     Validates each column entry: status must be one of the five canonical
     statuses, label ≤ 32 chars, visible is a bool. All five canonical statuses
     must appear exactly once (no duplicates, no missing values).
+
+    Optional per-column metadata (ADR-0039):
+        color:      "#RRGGBB" hex string or null
+        wip_limit:  positive integer or null
+
+    Unknown keys are dropped silently — the validated payload only contains
+    the five recognized keys, preventing forward-compat key smuggling.
     """
 
     columns = serializers.ListField(child=serializers.DictField(), allow_empty=False)
 
     def validate_columns(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen: set[str] = set()
+        normalized: list[dict[str, Any]] = []
         for entry in value:
             status = entry.get("status")
             label = entry.get("label")
             visible = entry.get("visible")
+            color = entry.get("color")
+            wip_limit = entry.get("wip_limit")
             if status not in _CANONICAL_STATUSES:
                 raise serializers.ValidationError(f"Unknown status: {status!r}")
             if status in seen:
@@ -490,10 +523,28 @@ class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
                 raise serializers.ValidationError("label must be a string ≤ 32 chars")
             if not isinstance(visible, bool):
                 raise serializers.ValidationError("visible must be a boolean")
+            if color is not None and not (
+                isinstance(color, str) and _HEX_COLOR_RE.fullmatch(color)
+            ):
+                raise serializers.ValidationError("color must be a #RRGGBB hex string or null")
+            # bool is a subclass of int — reject True/False explicitly.
+            if wip_limit is not None and (
+                isinstance(wip_limit, bool) or not isinstance(wip_limit, int) or wip_limit < 1
+            ):
+                raise serializers.ValidationError("wip_limit must be a positive integer or null")
+            normalized.append(
+                {
+                    "status": status,
+                    "label": label,
+                    "visible": visible,
+                    "color": color,
+                    "wip_limit": wip_limit,
+                }
+            )
         missing = _CANONICAL_STATUSES - seen
         if missing:
             raise serializers.ValidationError(f"Missing statuses: {missing}")
-        return value
+        return normalized
 
 
 class RiskSerializer(serializers.ModelSerializer[Risk]):

@@ -154,21 +154,30 @@ async function setup(page: import('@playwright/test').Page) {
       }),
     }),
   );
-  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/board-config/`, (route) =>
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/board-config/`, (route) => {
+    if (route.request().method() === 'PUT') {
+      const body = route.request().postDataJSON() as { columns: unknown[] };
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ columns: body.columns }),
+      });
+      return;
+    }
     route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         columns: [
-          { status: 'BACKLOG',     label: 'Backlog',     visible: true },
-          { status: 'NOT_STARTED', label: 'To Do',       visible: true },
-          { status: 'IN_PROGRESS', label: 'In Progress', visible: true },
-          { status: 'REVIEW',      label: 'Review',      visible: true },
-          { status: 'COMPLETE',    label: 'Done',        visible: true },
+          { status: 'BACKLOG',     label: 'Backlog',     visible: true, wip_limit: null, color: '#94A3B8' },
+          { status: 'NOT_STARTED', label: 'To Do',       visible: true, wip_limit: null, color: '#64748B' },
+          { status: 'IN_PROGRESS', label: 'In Progress', visible: true, wip_limit: 5,    color: '#3B82F6' },
+          { status: 'REVIEW',      label: 'Review',      visible: true, wip_limit: 3,    color: '#A855F7' },
+          { status: 'COMPLETE',    label: 'Done',        visible: true, wip_limit: null, color: '#22C55E' },
         ],
       }),
-    }),
-  );
+    });
+  });
 }
 
 test.describe('Board view', () => {
@@ -272,5 +281,61 @@ test.describe('Board view', () => {
     await expect(dialog.getByText(/Successors \(1\)/)).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(dialog).not.toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // Board batch 5 — configurable column settings (issue #170).
+  // -------------------------------------------------------------------------
+
+  test('Columns button opens the settings panel (issue #170)', async ({ page }) => {
+    await page.getByRole('button', { name: 'Open board column settings' }).click();
+    const panel = page.getByRole('dialog', { name: 'Column settings' });
+    await expect(panel).toBeVisible({ timeout: 5_000 });
+    // Status codes appear as text labels above each row's input field
+    await expect(panel.getByText('BACKLOG')).toBeVisible();
+    await expect(panel.getByText('NOT_STARTED')).toBeVisible();
+    await expect(panel.getByText('IN_PROGRESS')).toBeVisible();
+    await expect(panel.getByText('REVIEW')).toBeVisible();
+    await expect(panel.getByText('COMPLETE')).toBeVisible();
+  });
+
+  test('settings panel Escape closes it (issue #170)', async ({ page }) => {
+    await page.getByRole('button', { name: 'Open board column settings' }).click();
+    const panel = page.getByRole('dialog', { name: 'Column settings' });
+    await expect(panel).toBeVisible({ timeout: 5_000 });
+    await page.keyboard.press('Escape');
+    await expect(panel).not.toBeVisible({ timeout: 3_000 });
+  });
+
+  test('settings panel edits label and saves (issue #170)', async ({ page }) => {
+    let savedColumns: unknown[] | null = null;
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/board-config/`, async (route) => {
+      if (route.request().method() === 'PUT') {
+        const body = route.request().postDataJSON() as { columns: unknown[] };
+        savedColumns = body.columns;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ columns: body.columns }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.getByRole('button', { name: 'Open board column settings' }).click();
+    const panel = page.getByRole('dialog', { name: 'Column settings' });
+    await expect(panel).toBeVisible({ timeout: 5_000 });
+
+    // Edit the Backlog label
+    const backlogInput = panel.getByRole('textbox').first();
+    await backlogInput.fill('Ideas');
+
+    await panel.getByRole('button', { name: 'Save' }).click();
+    await expect(panel).not.toBeVisible({ timeout: 5_000 });
+
+    // Verify PUT body had the updated label
+    const cols = savedColumns as Array<{ status: string; label: string }>;
+    expect(cols?.find((c) => c.status === 'BACKLOG')?.label).toBe('Ideas');
   });
 });

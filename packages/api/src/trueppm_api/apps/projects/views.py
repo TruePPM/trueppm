@@ -1756,15 +1756,25 @@ class BoardColumnConfigView(APIView):
         return Response({"columns": columns}, status=status.HTTP_200_OK)
 
     def put(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
         project = get_object_or_404(Project, pk=pk)
         self.check_object_permissions(request, project)
         serializer = BoardColumnConfigSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
-        BoardColumnConfig.objects.update_or_create(
-            project_id=pk,
-            defaults={"columns": validated["columns"]},
-        )
+        with transaction.atomic():
+            BoardColumnConfig.objects.update_or_create(
+                project_id=pk,
+                defaults={"columns": validated["columns"]},
+            )
+            project_id = str(pk)
+            columns_payload = list(validated["columns"])
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    project_id, "board_config_updated", {"columns": columns_payload}
+                )
+            )
         return Response(validated, status=status.HTTP_200_OK)
 
 
