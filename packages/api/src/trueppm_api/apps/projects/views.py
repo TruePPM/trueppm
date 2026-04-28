@@ -47,6 +47,7 @@ from trueppm_api.apps.projects.models import (
     Baseline,
     BaselineTask,
     BoardColumnConfig,
+    BoardSavedView,
     Calendar,
     Dependency,
     EstimateStatus,
@@ -62,6 +63,7 @@ from trueppm_api.apps.projects.serializers import (
     BaselineDetailSerializer,
     BaselineSerializer,
     BoardColumnConfigSerializer,
+    BoardSavedViewSerializer,
     CalendarSerializer,
     DependencySerializer,
     ProjectSerializer,
@@ -1776,6 +1778,108 @@ class BoardColumnConfigView(APIView):
                 )
             )
         return Response(validated, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Board saved views endpoints (issue #191)
+# ---------------------------------------------------------------------------
+
+
+class BoardSavedViewListView(APIView):
+    """GET/POST per-project board saved view list.
+
+    GET  returns all saved views for the project, ordered by name.
+    POST creates a new named view; name must be unique per project.
+    Any authenticated project member may read and create views.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def get(self, request: Request, pk: str) -> Response:
+        project = get_object_or_404(Project, pk=pk)
+        self.check_object_permissions(request, project)
+        qs = BoardSavedView.objects.filter(project_id=pk).order_by("name")
+        serializer = BoardSavedViewSerializer(qs, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project = get_object_or_404(Project, pk=pk)
+        self.check_object_permissions(request, project)
+        serializer = BoardSavedViewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            view = serializer.save(
+                project=project,
+                created_by=request.user,
+                server_version=1,
+            )
+            view_id = str(view.id)
+            project_id = str(pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "board_view_created", {"id": view_id})
+            )
+        return Response(
+            BoardSavedViewSerializer(view).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class BoardSavedViewDetailView(APIView):
+    """PATCH/DELETE a single board saved view.
+
+    PATCH updates name and/or config. Only the creator or a Scheduler-role
+    member (role ≥ 2) may modify a view.
+    DELETE removes the view with the same role constraints.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def _get_view_or_403(self, request: Request, pk: str, view_pk: str) -> BoardSavedView:
+        """Return the view, enforcing creator-or-Scheduler write permission."""
+        project = get_object_or_404(Project, pk=pk)
+        self.check_object_permissions(request, project)
+        saved_view = get_object_or_404(BoardSavedView, pk=view_pk, project_id=pk)
+        # Allow creator or Scheduler+ to modify.
+        from trueppm_api.apps.access.permissions import _membership_role
+
+        raw_role = _membership_role(request, pk)
+        role: int = raw_role if raw_role is not None else -1
+        is_creator = saved_view.created_by_id == request.user.pk
+        if not (is_creator or role >= Role.SCHEDULER):
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied("Only the view creator or a Scheduler can modify this view.")
+        return saved_view
+
+    def patch(self, request: Request, pk: str, view_pk: str) -> Response:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        saved_view = self._get_view_or_403(request, pk, view_pk)
+        serializer = BoardSavedViewSerializer(saved_view, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            saved_view = serializer.save(server_version=saved_view.server_version + 1)
+            view_id = str(saved_view.id)
+            project_id = str(pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "board_view_updated", {"id": view_id})
+            )
+        return Response(BoardSavedViewSerializer(saved_view).data, status=status.HTTP_200_OK)
+
+    def delete(self, request: Request, pk: str, view_pk: str) -> Response:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        saved_view = self._get_view_or_403(request, pk, view_pk)
+        view_id = str(saved_view.id)
+        project_id = str(pk)
+        with transaction.atomic():
+            saved_view.delete()
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "board_view_deleted", {"id": view_id})
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------

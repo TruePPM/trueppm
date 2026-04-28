@@ -10,8 +10,11 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from trueppm_api.apps.projects.models import (
+    _VALID_EVM_MODES,
+    _VALID_SORT_KEYS,
     Baseline,
     BaselineTask,
+    BoardSavedView,
     Calendar,
     CalendarException,
     Dependency,
@@ -545,6 +548,68 @@ class BoardColumnConfigSerializer(serializers.Serializer[dict[str, Any]]):
         if missing:
             raise serializers.ValidationError(f"Missing statuses: {missing}")
         return normalized
+
+
+class BoardSavedViewSerializer(serializers.ModelSerializer[BoardSavedView]):
+    """Read/write serializer for BoardSavedView.
+
+    config is validated on write to enforce the known schema keys and value
+    ranges. Unknown keys are dropped silently to allow forward-compatible
+    extensions without breaking older clients.
+
+    created_by is set automatically from request.user on create and is
+    read-only thereafter.
+    """
+
+    created_by = serializers.SerializerMethodField()
+
+    def get_created_by(self, obj: BoardSavedView) -> str | None:
+        return str(obj.created_by_id) if obj.created_by_id else None
+
+    def validate_config(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("config must be an object")
+        sort = value.get("sort", "priority")
+        if sort not in _VALID_SORT_KEYS:
+            raise serializers.ValidationError(
+                f"config.sort must be one of {sorted(_VALID_SORT_KEYS)}"
+            )
+        evm_mode = value.get("evm_mode", "off")
+        if evm_mode not in _VALID_EVM_MODES:
+            raise serializers.ValidationError(
+                f"config.evm_mode must be one of {sorted(_VALID_EVM_MODES)}"
+            )
+        for bool_key in ("show_wip", "show_col_tints", "show_cost", "risk_linked_only"):
+            v = value.get(bool_key)
+            if v is not None and not isinstance(v, bool):
+                raise serializers.ValidationError(f"config.{bool_key} must be a boolean")
+        return {
+            "sort": sort,
+            "show_wip": bool(value.get("show_wip", True)),
+            "show_col_tints": bool(value.get("show_col_tints", True)),
+            "evm_mode": evm_mode,
+            "show_cost": bool(value.get("show_cost", False)),
+            "risk_linked_only": bool(value.get("risk_linked_only", False)),
+        }
+
+    class Meta:
+        model = BoardSavedView
+        fields = [
+            "id",
+            "name",
+            "config",
+            "created_by",
+            "server_version",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "server_version",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
 
 
 class RiskSerializer(serializers.ModelSerializer[Risk]):

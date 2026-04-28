@@ -154,6 +154,30 @@ async function setup(page: import('@playwright/test').Page) {
       }),
     }),
   );
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/board-views/`, (route) => {
+    if (route.request().method() === 'GET') {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+      return;
+    }
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { name: string; config: unknown };
+      route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'sv-e2e-1',
+          name: body.name,
+          config: body.config,
+          created_by: 'e2e-user',
+          server_version: 1,
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-01T00:00:00Z',
+        }),
+      });
+      return;
+    }
+    route.continue();
+  });
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/board-config/`, (route) => {
     if (route.request().method() === 'PUT') {
       const body = route.request().postDataJSON() as { columns: unknown[] };
@@ -305,6 +329,54 @@ test.describe('Board view', () => {
     await expect(panel).toBeVisible({ timeout: 5_000 });
     await page.keyboard.press('Escape');
     await expect(panel).not.toBeVisible({ timeout: 3_000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // Board batch 6 — saved views and quick filters (issue #191).
+  // -------------------------------------------------------------------------
+
+  test('View dropdown renders with "View" label when no view is active (issue #191)', async ({ page }) => {
+    const btn = page.getByRole('button', { name: /board view: view/i });
+    await expect(btn).toBeVisible();
+  });
+
+  test('View dropdown opens menu with built-in quick filters (issue #191)', async ({ page }) => {
+    await page.getByRole('button', { name: /board view: view/i }).click();
+    await expect(page.getByRole('menu')).toBeVisible();
+    await expect(page.getByText('⚠ At risk')).toBeVisible();
+    await expect(page.getByText('🔴 Critical path')).toBeVisible();
+    await expect(page.getByText('📅 This week')).toBeVisible();
+    await expect(page.getByText('👤 My work')).toBeVisible();
+  });
+
+  test('selecting "At risk" updates button label and closes menu (issue #191)', async ({ page }) => {
+    await page.getByRole('button', { name: /board view: view/i }).click();
+    await page.getByText('⚠ At risk').click();
+    await expect(page.getByRole('menu')).not.toBeVisible();
+    await expect(page.getByRole('button', { name: /board view: ⚠ at risk/i })).toBeVisible();
+  });
+
+  test('"Clear view" appears after activating a built-in view (issue #191)', async ({ page }) => {
+    await page.getByRole('button', { name: /board view: view/i }).click();
+    await page.getByText('⚠ At risk').click();
+    await page.getByRole('button', { name: /board view: ⚠ at risk/i }).click();
+    await expect(page.getByText('Clear view')).toBeVisible();
+  });
+
+  test('"Clear view" resets button label to "View" (issue #191)', async ({ page }) => {
+    await page.getByRole('button', { name: /board view: view/i }).click();
+    await page.getByText('🔴 Critical path').click();
+    await page.getByRole('button', { name: /board view: 🔴 critical path/i }).click();
+    await page.getByText('Clear view').click();
+    await expect(page.getByRole('button', { name: /board view: view/i })).toBeVisible();
+  });
+
+  test('Sort select is functional and defaults to Priority rank (issue #191)', async ({ page }) => {
+    const sortSelect = page.getByLabel('Sort tasks by');
+    await expect(sortSelect).toBeVisible();
+    await expect(sortSelect).toHaveValue('priority');
+    await sortSelect.selectOption('start_date');
+    await expect(sortSelect).toHaveValue('start_date');
   });
 
   test('settings panel edits label and saves (issue #170)', async ({ page }) => {

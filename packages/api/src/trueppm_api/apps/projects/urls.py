@@ -9,6 +9,8 @@ from trueppm_api.apps.projects.views import (
     BaselineActivateView,
     BaselineViewSet,
     BoardColumnConfigView,
+    BoardSavedViewDetailView,
+    BoardSavedViewListView,
     CalendarViewSet,
     DependencyViewSet,
     ProjectAttentionView,
@@ -81,6 +83,16 @@ urlpatterns = [
         "projects/<pk>/board-config/",
         BoardColumnConfigView.as_view(),
         name="project-board-config",
+    ),
+    path(
+        "projects/<pk>/board-views/",
+        BoardSavedViewListView.as_view(),
+        name="project-board-views",
+    ),
+    path(
+        "projects/<pk>/board-views/<view_pk>/",
+        BoardSavedViewDetailView.as_view(),
+        name="project-board-views-detail",
     ),
     # Presence endpoint — who is connected to this project's WebSocket
     path(

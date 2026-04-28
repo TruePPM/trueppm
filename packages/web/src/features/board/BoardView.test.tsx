@@ -1,7 +1,17 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { MemoryRouter } from 'react-router';
 import { BoardView } from './BoardView';
+
+// BoardView uses useSearchParams — all renders need a Router context.
+function renderBoard() {
+  return render(
+    <MemoryRouter>
+      <BoardView />
+    </MemoryRouter>,
+  );
+}
 
 // jsdom does not implement window.matchMedia — stub it.
 // Default: desktop (matches: false). Individual tests may override via mockReturnValue.
@@ -55,6 +65,17 @@ vi.mock('@/hooks/useBoardConfig', () => ({
 
 vi.mock('@/hooks/useTaskMutations', () => ({
   useCreateTask: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+}));
+
+// Board batch 6 — stub saved views hook so BoardViewDropdown doesn't make network calls.
+vi.mock('@/hooks/useBoardSavedViews', () => ({
+  useBoardSavedViews: () => ({
+    views: [],
+    isLoading: false,
+    create: { mutate: vi.fn(), isPending: false },
+    update: { mutate: vi.fn(), isPending: false },
+    remove: { mutate: vi.fn(), isPending: false },
+  }),
 }));
 
 // Board batch 3 hooks — stub out network-dependent overallocation + dep fetches.
@@ -121,7 +142,7 @@ describe('BoardView', () => {
   });
 
   it('renders column headers', () => {
-    render(<BoardView />);
+    renderBoard();
     expect(screen.getByText('BACKLOG')).toBeInTheDocument();
     expect(screen.getByText('TO DO')).toBeInTheDocument();
     expect(screen.getByText('IN PROGRESS')).toBeInTheDocument();
@@ -130,20 +151,20 @@ describe('BoardView', () => {
   });
 
   it('renders the phase swimlane for the summary task', () => {
-    render(<BoardView />);
+    renderBoard();
     // t1 is a summary task "Alpha Platform Upgrade" — it becomes a lane header
     expect(screen.getByText('Alpha Platform Upgrade')).toBeInTheDocument();
   });
 
   it('renders an "Project Tasks" lane for ungrouped tasks', () => {
-    render(<BoardView />);
+    renderBoard();
     // t7 "Documentation" has no summary parent — appears in "Project Tasks" lane
     expect(screen.getByText('Project Tasks')).toBeInTheDocument();
     expect(screen.getByText('Documentation')).toBeInTheDocument();
   });
 
   it('does not render summary tasks as cards', () => {
-    render(<BoardView />);
+    renderBoard();
     // "Alpha Platform Upgrade" is a summary task — it should not appear as a draggable card.
     // The collapse/expand buttons and add-task button do reference the phase name, but
     // no card-role button should be present (cards have aria-label "Actions for {name}").
@@ -155,7 +176,7 @@ describe('BoardView', () => {
   });
 
   it('renders leaf task cards inside the phase lane', () => {
-    render(<BoardView />);
+    renderBoard();
     // "Discovery & Design" (t2, COMPLETE) and "Backend Implementation" (t3, IN_PROGRESS)
     // should appear as cards
     expect(screen.getByText('Discovery & Design')).toBeInTheDocument();
@@ -163,7 +184,7 @@ describe('BoardView', () => {
   });
 
   it('renders CP rpill for critical tasks', () => {
-    render(<BoardView />);
+    renderBoard();
     // t3 "Backend Implementation" is critical — should show a CP pill
     const cpPills = screen.getAllByText('CP');
     expect(cpPills.length).toBeGreaterThan(0);
@@ -171,7 +192,7 @@ describe('BoardView', () => {
 
   it('collapses a phase lane on header click', async () => {
     const user = userEvent.setup();
-    render(<BoardView />);
+    renderBoard();
     // Collapse toggle button for "Alpha Platform Upgrade" phase (aria-label from LaneMeta)
     const toggleBtn = screen.getByRole('button', { name: /Collapse Alpha Platform Upgrade/ });
     // Initially expanded — task cards visible
@@ -183,14 +204,14 @@ describe('BoardView', () => {
   });
 
   it('shows WIP toggle in toolbar', () => {
-    render(<BoardView />);
+    renderBoard();
     expect(screen.getByLabelText('Show WIP limits')).toBeInTheDocument();
   });
 
   it('renders the loading state when useScheduleTasks is loading', () => {
     mockIsLoading = true;
     mockTasks = null;
-    render(<BoardView />);
+    renderBoard();
     expect(screen.getByText('Loading board…')).toBeInTheDocument();
     // The toolbar / lanes do not render in the loading branch.
     expect(screen.queryByLabelText('Show WIP limits')).not.toBeInTheDocument();
@@ -198,19 +219,19 @@ describe('BoardView', () => {
 
   it('renders the empty state when no leaf tasks exist', () => {
     mockTasks = []; // not null, not loading — but no tasks
-    render(<BoardView />);
+    renderBoard();
     expect(screen.getByText(/No tasks yet/)).toBeInTheDocument();
   });
 
   it('renders the empty state when only summary tasks exist (no leaves)', () => {
     mockTasks = [FIXTURE_TASKS[0]]; // t1 is the sole summary task; no children
-    render(<BoardView />);
+    renderBoard();
     expect(screen.getByText(/No tasks yet/)).toBeInTheDocument();
   });
 
   it('replaces the WIP badge with a plain count when "Show WIP limits" is off', async () => {
     const user = userEvent.setup();
-    render(<BoardView />);
+    renderBoard();
     const toggle = screen.getByLabelText<HTMLInputElement>('Show WIP limits');
     expect(toggle.checked).toBe(true);
     await user.click(toggle);
@@ -229,7 +250,7 @@ describe('BoardView', () => {
       { status: 'REVIEW',      label: 'REVIEW',       visible: true },
       { status: 'COMPLETE',    label: 'DONE',          visible: true },
     ];
-    render(<BoardView />);
+    renderBoard();
     // The header WIP badge for IN_PROGRESS shows "{count} · WIP {limit} ⚠".
     expect(screen.getByText(/WIP 1 ⚠/)).toBeInTheDocument();
   });
@@ -237,19 +258,19 @@ describe('BoardView', () => {
   it('renders an "N done" chip when every task in the phase is COMPLETE', () => {
     // Only the completed leaf t2 under summary t1 — phase becomes 100% done.
     mockTasks = [FIXTURE_TASKS[0], FIXTURE_TASKS[1]];
-    render(<BoardView />);
+    renderBoard();
     expect(screen.getByText('1 done')).toBeInTheDocument();
   });
 
   it('renders an "N CP" chip when the phase contains critical-path tasks', () => {
-    render(<BoardView />);
+    renderBoard();
     // The Alpha phase (FIXTURE_TASKS[0]) has 4 critical leaves: t2, t3, t5, t6.
     expect(screen.getByText('4 CP')).toBeInTheDocument();
   });
 
   it('shows per-column counts when a phase is collapsed', async () => {
     const user = userEvent.setup();
-    render(<BoardView />);
+    renderBoard();
     await user.click(screen.getByRole('button', { name: /Collapse Alpha Platform Upgrade/ }));
     // The Alpha phase has 1 COMPLETE task (t2) — singular "1 task" branch.
     expect(screen.getAllByText('1 task').length).toBeGreaterThan(0);
@@ -258,7 +279,7 @@ describe('BoardView', () => {
   });
 
   it('routes the keyboard "Move to" menu item through updateMutate', () => {
-    render(<BoardView />);
+    renderBoard();
     // Open the overflow menu for the first leaf card and move it to DONE.
     const trigger = screen.getAllByLabelText(/Actions for /)[0];
     fireEvent.click(trigger);
@@ -271,7 +292,7 @@ describe('BoardView', () => {
   });
 
   it('renders LaneMeta for each phase with add-task button (issue #208)', () => {
-    render(<BoardView />);
+    renderBoard();
     // Each visible phase gets a per-lane + button (LaneMeta)
     expect(screen.getByRole('button', { name: /Add task to Alpha Platform Upgrade/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Add task to Project Tasks/ })).toBeInTheDocument();
@@ -279,25 +300,25 @@ describe('BoardView', () => {
 
   it('opens AddTaskModal when phase + button is clicked (issue #208)', async () => {
     const user = (await import('@testing-library/user-event')).default.setup();
-    render(<BoardView />);
+    renderBoard();
     await user.click(screen.getByRole('button', { name: /Add task to Alpha Platform Upgrade/ }));
     expect(screen.getByRole('dialog', { name: /Add task to Alpha Platform Upgrade/ })).toBeInTheDocument();
   });
 
   it('renders "Column tints" toggle in toolbar (issue #211)', () => {
-    render(<BoardView />);
+    renderBoard();
     expect(screen.getByLabelText('Show column tints')).toBeInTheDocument();
   });
 
   it('"Column tints" toggle is on by default (issue #211)', () => {
-    render(<BoardView />);
+    renderBoard();
     const toggle = screen.getByLabelText<HTMLInputElement>('Show column tints');
     expect(toggle.checked).toBe(true);
   });
 
   it('board still renders when column tints are toggled off (issue #211)', async () => {
     const user = (await import('@testing-library/user-event')).default.setup();
-    render(<BoardView />);
+    renderBoard();
     const toggle = screen.getByLabelText<HTMLInputElement>('Show column tints');
     await user.click(toggle);
     expect(toggle.checked).toBe(false);
@@ -309,14 +330,14 @@ describe('BoardView', () => {
   // -------------------------------------------------------------------------
 
   it('renders "Collapse all" and "Expand all" buttons in toolbar (issue #190)', () => {
-    render(<BoardView />);
+    renderBoard();
     expect(screen.getByRole('button', { name: 'Collapse all lanes' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Expand all lanes' })).toBeInTheDocument();
   });
 
   it('"Collapse all" hides all lane task cards (issue #190)', async () => {
     const user = userEvent.setup();
-    render(<BoardView />);
+    renderBoard();
     expect(screen.getByText('Discovery & Design')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Collapse all lanes' }));
     expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
@@ -324,7 +345,7 @@ describe('BoardView', () => {
 
   it('"Expand all" restores cards after collapse-all (issue #190)', async () => {
     const user = userEvent.setup();
-    render(<BoardView />);
+    renderBoard();
     await user.click(screen.getByRole('button', { name: 'Collapse all lanes' }));
     expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Expand all lanes' }));
@@ -333,7 +354,7 @@ describe('BoardView', () => {
 
   it('persists collapsed state to localStorage (issue #190)', async () => {
     const user = userEvent.setup();
-    render(<BoardView />);
+    renderBoard();
     await user.click(screen.getByRole('button', { name: /Collapse Alpha Platform Upgrade/ }));
     const stored = localStorage.getItem('trueppm.board.project-1.collapsedLanes');
     expect(stored).not.toBeNull();
@@ -346,19 +367,19 @@ describe('BoardView', () => {
   // -------------------------------------------------------------------------
 
   it('renders a "Card density" selector in toolbar (issue #193)', () => {
-    render(<BoardView />);
+    renderBoard();
     expect(screen.getByLabelText('Card density')).toBeInTheDocument();
   });
 
   it('card density defaults to "comfortable" (issue #193)', () => {
-    render(<BoardView />);
+    renderBoard();
     const select = screen.getByLabelText<HTMLSelectElement>('Card density');
     expect(select.value).toBe('comfortable');
   });
 
   it('switching to compact hides progress rings from cards (issue #193)', async () => {
     const user = userEvent.setup();
-    render(<BoardView />);
+    renderBoard();
     // In comfortable mode, cards include a progress ring (SVG aria-hidden)
     // In compact mode, the progress ring is not rendered.
     await user.selectOptions(screen.getByLabelText('Card density'), 'compact');
@@ -368,7 +389,7 @@ describe('BoardView', () => {
 
   it('density persists to localStorage (issue #193)', async () => {
     const user = userEvent.setup();
-    render(<BoardView />);
+    renderBoard();
     await user.selectOptions(screen.getByLabelText('Card density'), 'detailed');
     const stored = localStorage.getItem('trueppm.board.density');
     expect(stored).toBe('detailed');
@@ -376,14 +397,14 @@ describe('BoardView', () => {
 
   it('restores density preference from localStorage on mount (issue #193)', () => {
     localStorage.setItem('trueppm.board.density', 'compact');
-    render(<BoardView />);
+    renderBoard();
     const select = screen.getByLabelText<HTMLSelectElement>('Card density');
     expect(select.value).toBe('compact');
   });
 
   it('restores collapsed lanes from localStorage on mount (issue #190)', () => {
     localStorage.setItem('trueppm.board.project-1.collapsedLanes', JSON.stringify(['t1']));
-    render(<BoardView />);
+    renderBoard();
     // Alpha lane (t1) is pre-collapsed — task cards not visible on mount
     expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Expand Alpha Platform Upgrade/ })).toBeInTheDocument();
@@ -394,14 +415,14 @@ describe('BoardView', () => {
   // -------------------------------------------------------------------------
 
   it('collapse toggle shows "Collapse lane  [" title when lane is expanded (issue #225)', () => {
-    render(<BoardView />);
+    renderBoard();
     const btn = screen.getByRole('button', { name: /Collapse Alpha Platform Upgrade/ });
     expect(btn).toHaveAttribute('title', 'Collapse lane  [');
   });
 
   it('collapse toggle shows "Expand lane  ]" title when lane is collapsed (issue #225)', async () => {
     const user = userEvent.setup();
-    render(<BoardView />);
+    renderBoard();
     const btn = screen.getByRole('button', { name: /Collapse Alpha Platform Upgrade/ });
     await user.click(btn);
     const expandBtn = screen.getByRole('button', { name: /Expand Alpha Platform Upgrade/ });
@@ -414,7 +435,7 @@ describe('BoardView', () => {
 
   it('auto-selects compact density below md viewport (issue #224)', () => {
     (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(true));
-    render(<BoardView />);
+    renderBoard();
     const select = screen.getByLabelText<HTMLSelectElement>('Card density');
     expect(select.value).toBe('compact');
   });
@@ -422,7 +443,7 @@ describe('BoardView', () => {
   it('ignores stored desktop density on mobile — auto-compact wins (issue #224)', () => {
     localStorage.setItem('trueppm.board.density', 'detailed');
     (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(true));
-    render(<BoardView />);
+    renderBoard();
     const select = screen.getByLabelText<HTMLSelectElement>('Card density');
     expect(select.value).toBe('compact');
   });
@@ -430,7 +451,7 @@ describe('BoardView', () => {
   it('manual density override on mobile is not persisted to localStorage (issue #224)', async () => {
     (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(true));
     const user = userEvent.setup();
-    render(<BoardView />);
+    renderBoard();
     await user.selectOptions(screen.getByLabelText('Card density'), 'comfortable');
     expect(localStorage.getItem('trueppm.board.density')).toBeNull();
     const select = screen.getByLabelText<HTMLSelectElement>('Card density');
@@ -440,7 +461,7 @@ describe('BoardView', () => {
   it('desktop density still persists to localStorage when viewport is >= md (issue #224)', async () => {
     // matchMedia already returns matches:false (desktop) from resetMocks
     const user = userEvent.setup();
-    render(<BoardView />);
+    renderBoard();
     await user.selectOptions(screen.getByLabelText('Card density'), 'detailed');
     expect(localStorage.getItem('trueppm.board.density')).toBe('detailed');
   });

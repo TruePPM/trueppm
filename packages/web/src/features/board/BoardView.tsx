@@ -17,6 +17,7 @@
  * features from the design doc (p3m-vs-oss-views-original.html § ⑤).
  */
 import { useState, useEffect, useRef, useCallback, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import {
   DndContext,
@@ -35,9 +36,11 @@ import { useUpdateTaskStatus } from '@/hooks/useBoardTasks';
 import { useBoardConfig } from '@/hooks/useBoardConfig';
 import { useBoardKeyboard } from '@/hooks/useBoardKeyboard';
 import { useBoardOverallocation } from '@/hooks/useBoardOverallocation';
+import { type BoardSortKey, type BoardViewConfig } from '@/hooks/useBoardSavedViews';
 import { useTaskDependencies } from '@/hooks/useTaskDependencies';
 import type { Task, TaskStatus } from '@/types';
 import { BoardCard, type BoardDensity, type EvmMode } from './BoardCard';
+import { BoardViewDropdown } from './BoardViewDropdown';
 import { LaneMeta } from './LaneMeta';
 import { AddTaskModal } from './AddTaskModal';
 import { PhaseMilestoneRail } from './PhaseMilestoneRail';
@@ -46,6 +49,23 @@ import { BoardSettingsPanel } from './BoardSettingsPanel';
 import { DepPopover } from './DepPopover';
 import { RiskPopover } from './RiskPopover';
 import { phaseColor } from './phaseColors';
+
+// ---------------------------------------------------------------------------
+// Sort helper
+// ---------------------------------------------------------------------------
+
+function sortTasksBy(tasks: Task[], sort: BoardSortKey): Task[] {
+  if (sort === 'priority') {
+    return [...tasks].sort((a, b) => (a.priorityRank ?? 9999) - (b.priorityRank ?? 9999));
+  }
+  if (sort === 'start_date') {
+    return [...tasks].sort((a, b) => a.start.localeCompare(b.start));
+  }
+  if (sort === 'percent_complete') {
+    return [...tasks].sort((a, b) => b.progress - a.progress);
+  }
+  return tasks;
+}
 
 // ---------------------------------------------------------------------------
 // Phase helpers
@@ -554,15 +574,24 @@ export function BoardView() {
   const { tasks, isLoading } = useScheduleTasks();
   const updateStatus = useUpdateTaskStatus();
   const COLUMNS = rawColumns.filter((c) => c.visible);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null); // `${phaseId}:${status}`
+  const [sort, setSort] = useState<BoardSortKey>('priority');
   const [showWip, setShowWip] = useState(true);
   const [showColTints, setShowColTints] = useState(true);
   const [addTaskPhase, setAddTaskPhase] = useState<{ id: string; name: string } | null>(null);
   const [riskLinkedOnly, setRiskLinkedOnly] = useState(false);
   const [evmMode, setEvmMode] = useState<EvmMode>('off');
   const [showCost, setShowCost] = useState(false);
+  // Built-in view filter state (issue #191)
+  const [cpOnly, setCpOnly] = useState(false);
+  const [dueSoonDays, setDueSoonDays] = useState<number | null>(null);
+  // Active saved/built-in view ID — synced to ?view= URL param
+  const [activeViewId, setActiveViewId] = useState<string | null>(
+    () => searchParams.get('view')
+  );
   // Keyboard focus (issue #195) — focused card + last-focused column for L/H traversal.
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const [focusedColumn, setFocusedColumn] = useState<TaskStatus | null>(null);
@@ -576,6 +605,36 @@ export function BoardView() {
   const [highlightedTaskIds, setHighlightedTaskIds] = useState<Set<string> | null>(null);
   const [chainHoverTaskId, setChainHoverTaskId] = useState<string | null>(null);
   const ariaLiveRef = useRef<HTMLDivElement>(null);
+
+  // Snapshot of current toolbar state for "Save view" — keeps the dropdown in sync.
+  const currentViewConfig: BoardViewConfig = useMemo(() => ({
+    sort,
+    showWip,
+    showColTints,
+    evmMode,
+    showCost,
+    riskLinkedOnly,
+    cpOnly: cpOnly || undefined,
+    dueSoonDays: dueSoonDays ?? undefined,
+  }), [sort, showWip, showColTints, evmMode, showCost, riskLinkedOnly, cpOnly, dueSoonDays]);
+
+  const applyViewConfig = useCallback((config: Partial<BoardViewConfig>, viewId: string | null) => {
+    if (config.sort !== undefined) setSort(config.sort);
+    if (config.showWip !== undefined) setShowWip(config.showWip);
+    if (config.showColTints !== undefined) setShowColTints(config.showColTints);
+    if (config.evmMode !== undefined) setEvmMode(config.evmMode);
+    if (config.showCost !== undefined) setShowCost(config.showCost);
+    if (config.riskLinkedOnly !== undefined) setRiskLinkedOnly(config.riskLinkedOnly);
+    setCpOnly(config.cpOnly ?? false);
+    setDueSoonDays(config.dueSoonDays ?? null);
+    setActiveViewId(viewId);
+    // Sync view ID to URL for deep links
+    if (viewId) {
+      setSearchParams((prev: URLSearchParams) => { prev.set('view', viewId); return prev; }, { replace: true });
+    } else {
+      setSearchParams((prev: URLSearchParams) => { prev.delete('view'); return prev; }, { replace: true });
+    }
+  }, [setSearchParams]);
 
   const { collapsedIds, toggle: toggleCollapse, collapseAll, expandAll } = useBoardCollapsedLanes(projectId);
   const { density, setDensity } = useBoardDensity();
@@ -643,8 +702,10 @@ export function BoardView() {
 
   const focusedTask = focusedCardId ? taskIndex.get(focusedCardId) : null;
 
-  // Per-phase, per-status task groupings
+  // Per-phase, per-status task groupings — applies active sort order.
   const phaseTaskMap = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     const result = new Map<string, Record<TaskStatus, Task[]>>();
     for (const phase of phases) {
       const byStatus: Record<TaskStatus, Task[]> = {
@@ -656,12 +717,23 @@ export function BoardView() {
         COMPLETE: [],
       };
       for (const task of phase.tasks) {
+        // Built-in view filters
+        if (cpOnly && !task.isCritical) continue;
+        if (dueSoonDays !== null) {
+          const finish = new Date(task.finish);
+          const diffMs = finish.getTime() - today.getTime();
+          if (diffMs < 0 || diffMs > dueSoonDays * 86_400_000) continue;
+        }
         byStatus[task.status]?.push(task);
+      }
+      // Apply sort within each status cell
+      for (const s of Object.keys(byStatus) as TaskStatus[]) {
+        byStatus[s] = sortTasksBy(byStatus[s], sort);
       }
       result.set(phase.id, byStatus);
     }
     return result;
-  }, [phases]);
+  }, [phases, sort, cpOnly, dueSoonDays]);
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(String(event.active.id));
@@ -865,6 +937,13 @@ export function BoardView() {
 
           {/* Board toolbar */}
           <div className="flex-shrink-0 border-b border-neutral-border bg-neutral-surface px-4 py-2 flex items-center gap-4 text-xs text-neutral-text-secondary flex-wrap">
+            {/* View dropdown — issue #191 */}
+            <BoardViewDropdown
+              projectId={projectId}
+              currentConfig={currentViewConfig}
+              activeViewId={activeViewId}
+              onApply={applyViewConfig}
+            />
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
               Lane:
               <select className="border border-neutral-border rounded px-1.5 py-0.5 text-neutral-text-primary focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none">
@@ -873,10 +952,15 @@ export function BoardView() {
             </label>
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
               Sort:
-              <select className="border border-neutral-border rounded px-1.5 py-0.5 text-neutral-text-primary focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none">
-                <option>Priority rank</option>
-                <option>Start date</option>
-                <option>% complete</option>
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as BoardSortKey)}
+                className="border border-neutral-border rounded px-1.5 py-0.5 text-neutral-text-primary focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                aria-label="Sort tasks by"
+              >
+                <option value="priority">Priority rank</option>
+                <option value="start_date">Start date</option>
+                <option value="percent_complete">% complete</option>
               </select>
             </label>
             {/* Card density — issue #193 */}
@@ -1027,6 +1111,14 @@ export function BoardView() {
             {/* Phase lanes */}
             {phases
               .filter((phase) => {
+                const phaseCells = phaseTaskMap.get(phase.id);
+                // After cpOnly/dueSoonDays filtering, hide phases with no visible tasks.
+                if (cpOnly || dueSoonDays !== null) {
+                  const visibleCount = Object.values(phaseCells ?? {}).reduce(
+                    (s: number, arr) => s + (arr as unknown[]).length, 0
+                  );
+                  if (visibleCount === 0) return false;
+                }
                 if (!riskLinkedOnly) return true;
                 return phase.tasks.some((t) => (t.linkedRisksCount ?? 0) > 0);
               })
