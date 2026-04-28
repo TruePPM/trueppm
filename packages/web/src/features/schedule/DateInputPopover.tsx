@@ -6,7 +6,7 @@
  * (calendar days) and shown as a read-only preview.
  *
  * Design rules:
- * - Rule 31 pattern: mounts at GanttView level (not inside GanttTimeline) so it
+ * - Rule 31 pattern: mounts at ScheduleView level (not inside GanttTimeline) so it
  *   is not clipped by overflow:hidden on the timeline container.
  * - Rule 4: focus ring on all interactive elements.
  * - Rule 46: focus ring uses brand-primary (light surface dialog).

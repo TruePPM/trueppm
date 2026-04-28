@@ -14,7 +14,7 @@
 import type { Task } from '@/types';
 import type { GanttScaleData } from './GanttScaleData';
 import { dateToLeft } from './GanttScaleData';
-import { HEADER_HEIGHT } from '../ganttConstants';
+import { HEADER_HEIGHT } from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
 // Constants

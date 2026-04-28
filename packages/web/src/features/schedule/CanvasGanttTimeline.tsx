@@ -2,7 +2,7 @@
  * Three-layer canvas Gantt timeline component.
  *
  * Renders three stacked <canvas> elements (bg / bars / interaction) plus a
- * transparent GanttAriaOverlay for accessibility (rule 67).
+ * transparent ScheduleAriaOverlay for accessibility (rule 67).
  *
  * The host div is `position: relative; width: 100%; height: 100%` so canvases
  * fill the available space. The aria overlay is z-index 3 (pointer-events: none).
@@ -11,7 +11,7 @@
  * - Rule 59: three-layer canvas stack, one responsibility each
  * - Rule 62: DPR scaling managed by GanttEngineImpl via useGanttEngine
  * - Rule 66: touch-action: none on all canvas elements
- * - Rule 67: GanttAriaOverlay mandatory; canvas elements aria-hidden
+ * - Rule 67: ScheduleAriaOverlay mandatory; canvas elements aria-hidden
  */
 
 import { useRef, useEffect, type CSSProperties, type RefObject } from 'react';
@@ -19,7 +19,7 @@ import type { Task, TaskLink } from '@/types';
 import type { GanttEngine, ZoomLevel } from './engine';
 import { useGanttEngine } from '@/hooks/useGanttEngine';
 import { useIsDark } from '@/hooks/useIsDark';
-import { GanttAriaOverlay } from './GanttAriaOverlay';
+import { ScheduleAriaOverlay } from './ScheduleAriaOverlay';
 
 interface CanvasGanttTimelineProps {
   tasks: Task[];
@@ -96,7 +96,7 @@ export function CanvasGanttTimeline({
         style={{ ...canvasStyle, zIndex: 2, pointerEvents: 'auto' }}
       />
       {/* Layer 3: accessible ARIA grid overlay (pointer-events: none) */}
-      <GanttAriaOverlay engine={engine} tasks={tasks} containerRef={containerRef} />
+      <ScheduleAriaOverlay engine={engine} tasks={tasks} containerRef={containerRef} />
     </div>
   );
 }

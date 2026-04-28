@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatShortDate, nudgeWorkingDays } from './ganttUtils';
+import { formatShortDate, nudgeWorkingDays } from './scheduleUtils';
 
 // ---------------------------------------------------------------------------
 // formatShortDate

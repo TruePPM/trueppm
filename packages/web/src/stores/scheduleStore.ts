@@ -14,7 +14,7 @@ interface GanttState {
   scrollToTask: (id: string | null) => void;
 }
 
-export const useGanttStore = create<GanttState>()((set) => ({
+export const useScheduleStore = create<GanttState>()((set) => ({
   zoomLevel: 'week',
   selectedTaskId: null,
   scrollToTaskId: null,

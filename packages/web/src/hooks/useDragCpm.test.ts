@@ -2,9 +2,9 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useDragCpm } from './useDragCpm';
 import { useDragStore } from '@/stores/dragStore';
-import { GanttEngineStub } from '@/features/gantt/engine';
-import type { GanttEngineEventMap } from '@/features/gantt/engine';
-import type { GanttScaleData } from '@/features/gantt/engine';
+import { GanttEngineStub } from '@/features/schedule/engine';
+import type { GanttEngineEventMap } from '@/features/schedule/engine';
+import type { GanttScaleData } from '@/features/schedule/engine';
 import type { ResultMessage } from '@/workers/cpmWorker.types';
 import type { Task, TaskLink } from '@/types';
 import { createRef, type MutableRefObject } from 'react';
@@ -40,7 +40,7 @@ vi.mock('@/workers/createCpmWorker', () => ({
   createCpmWorker: vi.fn(() => workerMock),
 }));
 
-vi.mock('@/features/gantt/buildSubgraph', () => ({
+vi.mock('@/features/schedule/buildSubgraph', () => ({
   buildSubgraph: vi.fn(() => ({ tasks: [], edges: [] })),
 }));
 

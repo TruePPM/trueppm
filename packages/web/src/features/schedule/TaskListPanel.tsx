@@ -1,9 +1,9 @@
 import { useRef, useState, useEffect, type RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Task } from '@/types';
-import { ROW_HEIGHT } from './ganttConstants';
+import { ROW_HEIGHT } from './scheduleConstants';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
-import { useGanttStore } from '@/stores/ganttStore';
+import { useScheduleStore } from '@/stores/scheduleStore';
 import { TaskListHeader } from './TaskListHeader';
 import { TaskListRow } from './TaskListRow';
 
@@ -60,7 +60,7 @@ function PendingTaskRow({ name }: { name: string }) {
   );
 }
 
-/** Per-task dep-chip data — computed in GanttView, passed down for focus mode. */
+/** Per-task dep-chip data — computed in ScheduleView, passed down for focus mode. */
 export interface TaskDepChips {
   predsCount: number;
   succsCount: number;
@@ -96,8 +96,8 @@ interface Props {
 
 export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visible, setWidth, totalWidth, summaryIds, expandedIds, onToggle, focusChainIds, depChipsById }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const scrollToTaskId = useGanttStore((s) => s.scrollToTaskId);
-  const scrollToTask = useGanttStore((s) => s.scrollToTask);
+  const scrollToTaskId = useScheduleStore((s) => s.scrollToTaskId);
+  const scrollToTask = useScheduleStore((s) => s.scrollToTask);
 
   const virtualizer = useVirtualizer({
     count: tasks.length,

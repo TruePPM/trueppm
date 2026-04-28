@@ -2,10 +2,10 @@ import { useRef, useCallback, useState, useEffect, useMemo, type PointerEvent } 
 import { useProjectId } from '@/hooks/useProjectId';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate } from './engine';
-import { HEADER_HEIGHT, ROW_HEIGHT } from './ganttConstants';
-import { useGanttTasks } from '@/hooks/useGanttTasks';
+import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
+import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useCreateTask, useRescheduleTask } from '@/hooks/useTaskMutations';
-import { useGanttStore } from '@/stores/ganttStore';
+import { useScheduleStore } from '@/stores/scheduleStore';
 import { useWbsStore } from '@/stores/wbsStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
 import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
@@ -132,12 +132,12 @@ function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
 }
 
 // ---------------------------------------------------------------------------
-// GanttView
+// ScheduleView
 // ---------------------------------------------------------------------------
 
-export function GanttView() {
+export function ScheduleView() {
   const projectId = useProjectId() ?? null;
-  const { tasks: rawTasks, links: rawLinks, isLoading, error } = useGanttTasks();
+  const { tasks: rawTasks, links: rawLinks, isLoading, error } = useScheduleTasks();
   const allTasks          = useMemo(() => rawTasks ?? [], [rawTasks]);
   const allLinks          = useMemo(() => rawLinks ?? [], [rawLinks]);
   const { expandedIds, toggle: toggleExpandRaw, expandAll } = useWbsStore();
@@ -212,9 +212,9 @@ export function GanttView() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allTasks.length]);
 
-  const zoomLevel         = useGanttStore((s) => s.zoomLevel);
-  const selectedTaskId    = useGanttStore((s) => s.selectedTaskId);
-  const setSelectedTaskId = useGanttStore((s) => s.setSelectedTaskId);
+  const zoomLevel         = useScheduleStore((s) => s.zoomLevel);
+  const selectedTaskId    = useScheduleStore((s) => s.selectedTaskId);
+  const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
   const selectedTask      = selectedTaskId
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
     : null;
@@ -739,7 +739,7 @@ export function GanttView() {
       {/* Mobile MC card — md:hidden; desktop uses MonteCarloRow above (issue #33) */}
       <MobileMonteCarloCard projectId={projectId ?? undefined} />
 
-      {/* Milestone delta tooltip — at GanttView level to escape overflow:hidden (rule 31) */}
+      {/* Milestone delta tooltip — at ScheduleView level to escape overflow:hidden (rule 31) */}
       <MilestoneDeltaTooltip milestoneLeft={null} timelineTop={timelineTop} />
 
       {/* Date input popover for keyboard reschedule (issue #34, rule 31 pattern) */}

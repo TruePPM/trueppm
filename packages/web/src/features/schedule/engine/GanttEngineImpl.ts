@@ -37,7 +37,7 @@ import {
   drawActualDateBar,
   drawScheduleVarianceBadge,
 } from './GanttRenderer';
-import { HEADER_HEIGHT } from '../ganttConstants';
+import { HEADER_HEIGHT } from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -435,7 +435,7 @@ export class GanttEngineImpl implements GanttEngine {
     const h = this._viewportHeight;
 
     // Expose viewport dimensions as CSS custom properties so the sticky canvas
-    // wrapper in GanttView can match the exact viewport size. Without this, the
+    // wrapper in ScheduleView can match the exact viewport size. Without this, the
     // wrapper's width: 100% resolves to totalCanvasWidth (the scroll spacer's
     // width), making position:sticky left:0 impossible to satisfy — the element
     // is as wide as its containing block and has no room to "stick" (issue #96).

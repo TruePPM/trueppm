@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Task, TaskStatus } from '@/types';
-import { formatShortDate } from '@/features/gantt/ganttUtils';
+import { formatShortDate } from '@/features/schedule/scheduleUtils';
 
 interface PhaseMilestoneRailProps {
   milestones: Task[];

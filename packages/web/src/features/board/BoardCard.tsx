@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react
 import { useDraggable } from '@dnd-kit/core';
 import type { Task, TaskReadiness, TaskStatus } from '@/types';
 import { BoardProgressRing } from './BoardProgressRing';
-import { formatShortDate } from '@/features/gantt/ganttUtils';
+import { formatShortDate } from '@/features/schedule/scheduleUtils';
 import { severityRagBand } from '@/hooks/useTaskDependencies';
 
 export type BoardDensity = 'compact' | 'comfortable' | 'detailed';

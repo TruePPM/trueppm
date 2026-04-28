@@ -12,7 +12,7 @@ import {
   COLOR,
 } from './GanttRenderer';
 import { buildScaleData, dateToLeft } from './GanttScaleData';
-import { HEADER_HEIGHT } from '../ganttConstants';
+import { HEADER_HEIGHT } from '../scheduleConstants';
 import type { Task } from '@/types';
 
 function makeCtxSpy() {

@@ -155,7 +155,7 @@ function mapDependency(d: ApiDependency): TaskLink {
  * An explicit `projectId` argument overrides the URL param for cases
  * where the hook is used outside the project route (e.g. tests).
  */
-export function useGanttTasks(projectId?: string): UseGanttTasksResult {
+export function useScheduleTasks(projectId?: string): UseGanttTasksResult {
   const paramId = useProjectId();
   const resolvedId = projectId ?? paramId;
 

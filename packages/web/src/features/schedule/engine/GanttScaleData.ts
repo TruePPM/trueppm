@@ -132,7 +132,7 @@ export const ZOOM_CONFIGS: Record<ZoomLevel, ZoomConfig> = {
  * Public coordinate system for the Gantt canvas renderer.
  *
  * All consumers (PreviewOverlay, MonteCarloTimeline, useDragCpm,
- * useKeyboardReschedule, GanttAriaOverlay) depend exclusively on this
+ * useKeyboardReschedule, ScheduleAriaOverlay) depend exclusively on this
  * interface. Replacing @svar-ui/gantt-store's internal `_scales` object.
  *
  * Guaranteed stable: shape never changes between zoom levels. Only the

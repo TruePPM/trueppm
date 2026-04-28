@@ -1,6 +1,6 @@
 import type { GanttEngine } from './engine';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
-import { MC_ROW_HEIGHT } from './ganttConstants';
+import { MC_ROW_HEIGHT } from './scheduleConstants';
 import { MonteCarloLabel } from './MonteCarloLabel';
 import { MonteCarloTimeline } from './MonteCarloTimeline';
 

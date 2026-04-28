@@ -43,11 +43,11 @@ export default defineConfig({
         // jsdom does not implement. These files are integration-tested via the
         // GanttEngineStub test double and visual regression tests — not unit-testable
         // in the jsdom environment.
-        'src/features/gantt/engine/GanttEngineImpl.ts',
-        'src/features/gantt/engine/GanttRenderer.ts',
-        'src/features/gantt/engine/GanttEngineStub.ts', // test double — not production code
-        'src/features/gantt/CanvasGanttTimeline.tsx',
-        'src/features/gantt/GanttAriaOverlay.tsx',
+        'src/features/schedule/engine/GanttEngineImpl.ts',
+        'src/features/schedule/engine/GanttRenderer.ts',
+        'src/features/schedule/engine/GanttEngineStub.ts', // test double — not production code
+        'src/features/schedule/CanvasGanttTimeline.tsx',
+        'src/features/schedule/ScheduleAriaOverlay.tsx',
         'src/hooks/useGanttEngine.ts',
       ],
       thresholds: {

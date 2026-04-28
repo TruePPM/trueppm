@@ -2,7 +2,7 @@
  * Public API contract for the TruePPM canvas Gantt renderer.
  *
  * This interface is the sole integration boundary between the React shell
- * and the canvas renderer. Consumers (GanttView, useDragCpm,
+ * and the canvas renderer. Consumers (ScheduleView, useDragCpm,
  * useKeyboardReschedule, MonteCarloTimeline, PreviewOverlay) hold a
  * GanttEngine reference — they never reach inside the renderer.
  *

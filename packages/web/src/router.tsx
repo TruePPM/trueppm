@@ -6,7 +6,7 @@ import { ProjectShell } from '@/features/project/ProjectShell';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { RequireAuth } from '@/features/auth/RequireAuth';
 import { ProjectOverviewPage } from '@/features/project/ProjectOverviewPage';
-import { GanttView } from '@/features/gantt/GanttView';
+import { ScheduleView } from '@/features/schedule/ScheduleView';
 import { WbsView } from '@/features/wbs/WbsView';
 import { TaskListView } from '@/features/tasklist/TaskListView';
 import { BoardView } from '@/features/board/BoardView';
@@ -62,7 +62,7 @@ export const router = createBrowserRouter([
               // /projects/:projectId → redirect to board (canonical planning surface)
               { index: true, element: <Navigate to="board" replace /> },
               { path: 'overview', element: <ProjectOverviewPage /> },
-              { path: 'schedule', element: <GanttView /> },
+              { path: 'schedule', element: <ScheduleView /> },
               { path: 'wbs', element: <WbsView /> },
               { path: 'board', element: <BoardView /> },
               { path: 'list', element: <TaskListView /> },

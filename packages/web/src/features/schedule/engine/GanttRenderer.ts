@@ -18,7 +18,7 @@
 import type { Task, TaskLink } from '@/types';
 import type { GanttScaleData } from './GanttScaleData';
 import { ZOOM_CONFIGS, dateToLeft, parseUTCDate } from './GanttScaleData';
-import { HEADER_HEIGHT } from '../ganttConstants';
+import { HEADER_HEIGHT } from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
 // Constants (exported — used by GanttEngineImpl and GanttHitIndex)

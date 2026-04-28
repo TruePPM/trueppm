@@ -1,4 +1,4 @@
-import { useGanttStore } from '@/stores/ganttStore';
+import { useScheduleStore } from '@/stores/scheduleStore';
 import type { ZoomLevel } from '@/types';
 
 const LEVELS: { value: ZoomLevel; label: string }[] = [
@@ -9,8 +9,8 @@ const LEVELS: { value: ZoomLevel; label: string }[] = [
 ];
 
 export function ZoomControl() {
-  const zoomLevel = useGanttStore((s) => s.zoomLevel);
-  const setZoomLevel = useGanttStore((s) => s.setZoomLevel);
+  const zoomLevel = useScheduleStore((s) => s.zoomLevel);
+  const setZoomLevel = useScheduleStore((s) => s.setZoomLevel);
 
   return (
     <div

@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useEffect, type RefObject, type KeyboardEvent, type FocusEvent } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { useGanttTasks } from '@/hooks/useGanttTasks';
+import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask, useBulkDeleteTasks } from '@/hooks/useTaskMutations';
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
 import { exportTasksToCsv } from '@/utils/exportCsv';
@@ -339,7 +339,7 @@ type DeletePhase = 'idle' | 'confirming' | 'deleting';
 
 export function TaskListView() {
   const projectId = useProjectId() ?? null;
-  const { tasks, isLoading, error } = useGanttTasks();
+  const { tasks, isLoading, error } = useScheduleTasks();
   const { selectedIds, toggle, selectAll, clearSelection } = useTaskSelectionStore();
   const updateTask = useUpdateTask();
   const bulkDelete = useBulkDeleteTasks(projectId);

@@ -17,10 +17,10 @@
  */
 
 import { useMemo, useEffect, useRef, useState } from 'react';
-import type { GanttScaleData } from '@/features/gantt/engine';
+import type { GanttScaleData } from '@/features/schedule/engine';
 import type { DragPreviewResult } from '@/types';
 import { useDragStore } from '@/stores/dragStore';
-import { dateToLeft } from '@/features/gantt/engine';
+import { dateToLeft } from '@/features/schedule/engine';
 
 // Design tokens (defined in tailwind.config.ts — applied via style prop per rule 10)
 const GHOST_FILL = 'rgba(100, 116, 139, 0.12)';

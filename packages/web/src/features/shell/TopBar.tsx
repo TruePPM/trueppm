@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import type { ShellStats } from '@/types';
 import { useShellStore } from '@/stores/shellStore';
 import { useShellStats } from '@/hooks/useShellStats';
-import { useGanttStore } from '@/stores/ganttStore';
+import { useScheduleStore } from '@/stores/scheduleStore';
 import { useProjectPresence } from '@/hooks/useProjectPresence';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useThemeStore, type Theme } from '@/stores/themeStore';
@@ -160,8 +160,8 @@ const THEME_BUTTONS: { value: Theme; label: string; icon: ReactNode }[] = [
 export function TopBar({ onHamburgerClick }: Props) {
   const sidebarCollapsed = useShellStore((s) => s.sidebarCollapsed);
   const { data: stats } = useShellStats();
-  const setSelectedTaskId = useGanttStore((s) => s.setSelectedTaskId);
-  const scrollToTask = useGanttStore((s) => s.scrollToTask);
+  const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
+  const scrollToTask = useScheduleStore((s) => s.scrollToTask);
   const navigate = useNavigate();
   const projectId = useProjectId() ?? null;
   const onlineUsers = useProjectPresence(projectId);

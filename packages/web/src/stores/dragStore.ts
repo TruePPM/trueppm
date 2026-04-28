@@ -29,7 +29,7 @@ export interface DragState {
   /**
    * The committed start date after a keyboard or mouse drag confirm.
    * Set just before phase transitions to 'committing'; read by the PATCH
-   * dispatcher in GanttView. Null when phase is not 'committing'.
+   * dispatcher in ScheduleView. Null when phase is not 'committing'.
    */
   confirmedStart: string | null;
 

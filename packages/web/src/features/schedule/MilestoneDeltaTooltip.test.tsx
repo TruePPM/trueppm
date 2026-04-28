@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MilestoneDeltaTooltip } from './MilestoneDeltaTooltip';
-import { formatShortDate } from './ganttUtils';
+import { formatShortDate } from './scheduleUtils';
 import { useDragStore } from '@/stores/dragStore';
 import type { WorstMilestone } from '@/types';
 

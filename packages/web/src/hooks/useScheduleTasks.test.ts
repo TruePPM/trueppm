@@ -1,5 +1,5 @@
 /**
- * Tests for the useGanttTasks API mapper (mapTask / mapDependency).
+ * Tests for the useScheduleTasks API mapper (mapTask / mapDependency).
  *
  * The hook itself is tested via integration — here we verify the data
  * transformation from API snake_case to the frontend Task / TaskLink types.
@@ -36,7 +36,7 @@ interface ApiTask {
   total_float: number | null;
 }
 
-/** Inline mapper mirror — must stay in sync with useGanttTasks.ts mapTask(). */
+/** Inline mapper mirror — must stay in sync with useScheduleTasks.ts mapTask(). */
 function mapTask(t: ApiTask) {
   const p = t.planned_start;
   const e = t.early_start;
@@ -84,7 +84,7 @@ function mapTask(t: ApiTask) {
   };
 }
 
-describe('useGanttTasks mapper', () => {
+describe('useScheduleTasks mapper', () => {
   const base: ApiTask = {
     id: 'abc',
     wbs_path: '1.2',

@@ -1,9 +1,9 @@
 import { useState, useRef, useCallback } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import type { Task } from '@/types';
-import { ROW_HEIGHT, WBS_INDENT } from './ganttConstants';
+import { ROW_HEIGHT, WBS_INDENT } from './scheduleConstants';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
-import { useGanttStore } from '@/stores/ganttStore';
+import { useScheduleStore } from '@/stores/scheduleStore';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { AssigneeChips } from './AssigneeChips';
 
@@ -41,8 +41,8 @@ function formatDate(iso: string): string {
 
 export function TaskListRow({ task, level, widths, visible, hasChildren = false, isExpanded = false, onToggle, dimmed = false, depChips }: Props) {
   const projectId = useProjectId() ?? '';
-  const selectedTaskId = useGanttStore((s) => s.selectedTaskId);
-  const setSelectedTaskId = useGanttStore((s) => s.setSelectedTaskId);
+  const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
+  const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
   const isSelected = selectedTaskId === task.id;
   const updateTask = useUpdateTask();
 

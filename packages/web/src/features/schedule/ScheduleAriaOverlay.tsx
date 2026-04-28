@@ -8,7 +8,7 @@
  * Tracks scrollTop from engine.on('scroll') and updates focus ring position.
  *
  * Design rules enforced:
- * - Rule 67: GanttAriaOverlay is mandatory; canvas aria-hidden="true"
+ * - Rule 67: ScheduleAriaOverlay is mandatory; canvas aria-hidden="true"
  * - Rule 68: ARIA grid uses roving tabindex; keyboard nav in overlay
  * - Rule 69: buildTaskAriaLabel canonical format
  */
@@ -18,7 +18,7 @@ import type { Task } from '@/types';
 import type { GanttEngine } from './engine';
 import { dateToLeft } from './engine';
 import { ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './engine/GanttHitIndex';
-import { HEADER_HEIGHT } from './ganttConstants';
+import { HEADER_HEIGHT } from './scheduleConstants';
 
 const OVERSCAN_ROWS = 5;
 
@@ -48,7 +48,7 @@ export function buildTaskAriaLabel(task: Task): string {
 // Props
 // ---------------------------------------------------------------------------
 
-interface GanttAriaOverlayProps {
+interface ScheduleAriaOverlayProps {
   engine: GanttEngine | null;
   tasks: Task[];
   containerRef: RefObject<HTMLDivElement | null>;
@@ -58,7 +58,7 @@ interface GanttAriaOverlayProps {
 // Component
 // ---------------------------------------------------------------------------
 
-export function GanttAriaOverlay({ engine, tasks, containerRef }: GanttAriaOverlayProps) {
+export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAriaOverlayProps) {
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);

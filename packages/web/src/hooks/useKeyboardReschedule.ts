@@ -22,12 +22,12 @@
  */
 
 import { useEffect, useRef, type RefObject } from 'react';
-import type { GanttEngine } from '@/features/gantt/engine';
+import type { GanttEngine } from '@/features/schedule/engine';
 import type { Task, TaskLink } from '@/types';
 import type { RecalcMessage, ResultMessage } from '@/workers/cpmWorker.types';
 import { useDragStore } from '@/stores/dragStore';
-import { buildSubgraph } from '@/features/gantt/buildSubgraph';
-import { nudgeWorkingDays } from '@/features/gantt/ganttUtils';
+import { buildSubgraph } from '@/features/schedule/buildSubgraph';
+import { nudgeWorkingDays } from '@/features/schedule/scheduleUtils';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 
 export interface UseKeyboardRescheduleOptions {

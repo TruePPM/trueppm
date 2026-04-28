@@ -2,12 +2,12 @@ import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, beforeEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
-import { useGanttStore } from '@/stores/ganttStore';
+import { useScheduleStore } from '@/stores/scheduleStore';
 import { ZoomControl } from './ZoomControl';
 
 describe('ZoomControl', () => {
   beforeEach(() => {
-    useGanttStore.setState({ zoomLevel: 'week' });
+    useScheduleStore.setState({ zoomLevel: 'week' });
   });
 
   it('renders all four zoom levels', () => {
@@ -27,6 +27,6 @@ describe('ZoomControl', () => {
   it('clicking Month updates the store', async () => {
     renderWithProviders(<ZoomControl />);
     await userEvent.click(screen.getByRole('button', { name: 'Month' }));
-    expect(useGanttStore.getState().zoomLevel).toBe('month');
+    expect(useScheduleStore.getState().zoomLevel).toBe('month');
   });
 });

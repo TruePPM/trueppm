@@ -11,8 +11,8 @@
  */
 
 import { useState, useEffect, type RefObject } from 'react';
-import type { GanttEngine, ZoomLevel } from '@/features/gantt/engine';
-import { GanttEngineImpl } from '@/features/gantt/engine';
+import type { GanttEngine, ZoomLevel } from '@/features/schedule/engine';
+import { GanttEngineImpl } from '@/features/schedule/engine';
 
 export function useGanttEngine(
   containerRef: RefObject<HTMLDivElement | null>,

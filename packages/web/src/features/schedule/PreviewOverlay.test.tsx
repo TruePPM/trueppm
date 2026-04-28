@@ -2,7 +2,7 @@ import { render, screen, act } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PreviewOverlay } from './PreviewOverlay';
 import { useDragStore } from '@/stores/dragStore';
-import type { GanttScaleData } from '@/features/gantt/engine';
+import type { GanttScaleData } from '@/features/schedule/engine';
 import type { DragPreviewResult } from '@/types';
 
 // ---------------------------------------------------------------------------

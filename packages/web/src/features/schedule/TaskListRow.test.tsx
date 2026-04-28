@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
-import { useGanttStore } from '@/stores/ganttStore';
+import { useScheduleStore } from '@/stores/scheduleStore';
 import { TaskListRow } from './TaskListRow';
 import type { Task } from '@/types';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
@@ -31,7 +31,7 @@ const defaultTreeProps = {
 
 describe('TaskListRow', () => {
   beforeEach(() => {
-    useGanttStore.setState({ selectedTaskId: null });
+    useScheduleStore.setState({ selectedTaskId: null });
   });
 
   it('renders task name', () => {
@@ -73,14 +73,14 @@ describe('TaskListRow', () => {
   it('clicking row selects it in the store', async () => {
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />);
     await userEvent.click(screen.getByRole('row'));
-    expect(useGanttStore.getState().selectedTaskId).toBe('t1');
+    expect(useScheduleStore.getState().selectedTaskId).toBe('t1');
   });
 
   it('clicking selected row deselects it', async () => {
-    useGanttStore.setState({ selectedTaskId: 't1' });
+    useScheduleStore.setState({ selectedTaskId: 't1' });
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />);
     await userEvent.click(screen.getByRole('row'));
-    expect(useGanttStore.getState().selectedTaskId).toBeNull();
+    expect(useScheduleStore.getState().selectedTaskId).toBeNull();
   });
 
   it('Enter key toggles selection', async () => {
@@ -88,7 +88,7 @@ describe('TaskListRow', () => {
     const row = screen.getByRole('row');
     row.focus();
     await userEvent.keyboard('{Enter}');
-    expect(useGanttStore.getState().selectedTaskId).toBe('t1');
+    expect(useScheduleStore.getState().selectedTaskId).toBe('t1');
   });
 
   it('Space key toggles selection', async () => {
@@ -96,7 +96,7 @@ describe('TaskListRow', () => {
     const row = screen.getByRole('row');
     row.focus();
     await userEvent.keyboard(' ');
-    expect(useGanttStore.getState().selectedTaskId).toBe('t1');
+    expect(useScheduleStore.getState().selectedTaskId).toBe('t1');
   });
 
   it('F2 key enters edit mode', async () => {
@@ -154,7 +154,7 @@ describe('TaskListRow', () => {
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     const propBtn = screen.getByLabelText(/Open properties/i);
     await userEvent.click(propBtn);
-    expect(useGanttStore.getState().selectedTaskId).toBe('t1');
+    expect(useScheduleStore.getState().selectedTaskId).toBe('t1');
   });
 
   it('renders assignee chips for non-summary non-milestone tasks', () => {
@@ -184,7 +184,7 @@ describe('TaskListRow', () => {
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     await userEvent.dblClick(screen.getByRole('row'));
     // Now in edit mode — click should not toggle selection
-    expect(useGanttStore.getState().selectedTaskId).toBeNull();
+    expect(useScheduleStore.getState().selectedTaskId).toBeNull();
   });
 
   it('keyboard events are ignored during edit mode', async () => {
@@ -242,7 +242,7 @@ describe('TaskListRow', () => {
     await userEvent.click(screen.getByLabelText(/Expand Design Phase/i));
     expect(toggleFn).toHaveBeenCalledTimes(1);
     // Should not toggle selection (stopPropagation)
-    expect(useGanttStore.getState().selectedTaskId).toBeNull();
+    expect(useScheduleStore.getState().selectedTaskId).toBeNull();
   });
 
   it('leaf tasks show spacer instead of chevron', () => {

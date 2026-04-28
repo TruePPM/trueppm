@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildHitIndex, ROW_HEIGHT, BAR_TOP_OFFSET, BAR_HEIGHT } from './GanttHitIndex';
 import { buildScaleData } from './GanttScaleData';
-import { HEADER_HEIGHT } from '../ganttConstants';
+import { HEADER_HEIGHT } from '../scheduleConstants';
 import type { Task } from '@/types';
 
 // ---------------------------------------------------------------------------
