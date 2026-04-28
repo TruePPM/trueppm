@@ -54,6 +54,8 @@ function renderCard(props: Partial<ComponentProps<typeof BoardCard>>) {
         overallocByResource={props.overallocByResource}
         onShowDeps={props.onShowDeps}
         onShowRisks={props.onShowRisks}
+        showEvm={props.showEvm}
+        showCost={props.showCost}
       />
     </Wrapper>,
   );
@@ -538,5 +540,138 @@ describe('BoardCard', () => {
     const { container } = renderCard({ isDimmed: true });
     const card = container.querySelector('[role="button"]')!;
     expect(card.className).toContain('opacity-40');
+  });
+
+  // ---------------------------------------------------------------------------
+  // EVM indicators — issue #185
+  // ---------------------------------------------------------------------------
+
+  describe('SPI chip (issue #185)', () => {
+    // Fake time: 2026-01-15T12:00:00Z. Baseline: Jan 01 – Jan 08 (7d).
+    // Elapsed > duration → plannedPct = 100%.
+    // progress=60 → SPI=0.60 (red, < 0.85).
+    const taskWithBaseline: Task = {
+      ...baseTask,
+      progress: 60,
+      baselineStart: '2026-01-01',
+      baselineFinish: '2026-01-08',
+    };
+
+    it('shows SPI chip in comfortable density when showEvm=spi and baseline is set', () => {
+      renderCard({ task: taskWithBaseline, showEvm: 'spi', density: 'comfortable' });
+      expect(screen.getByText(/^SPI 0\.\d\d$/)).toBeInTheDocument();
+    });
+
+    it('shows SPI chip in detailed density when showEvm=both', () => {
+      renderCard({ task: taskWithBaseline, showEvm: 'both', density: 'detailed' });
+      expect(screen.getByText(/^SPI 0\.\d\d$/)).toBeInTheDocument();
+    });
+
+    it('behind-schedule SPI chip has behind-schedule aria-label', () => {
+      // progress=10, plannedPct=100 → SPI=0.10 (red)
+      const behindTask = { ...taskWithBaseline, progress: 10 };
+      renderCard({ task: behindTask, showEvm: 'spi', density: 'comfortable' });
+      expect(screen.getByLabelText(/behind schedule/i)).toBeInTheDocument();
+    });
+
+    it('hides SPI chip in compact density', () => {
+      renderCard({ task: taskWithBaseline, showEvm: 'spi', density: 'compact' });
+      expect(screen.queryByText(/SPI/)).not.toBeInTheDocument();
+    });
+
+    it('hides SPI chip when showEvm=off (default)', () => {
+      renderCard({ task: taskWithBaseline, density: 'comfortable' });
+      expect(screen.queryByText(/SPI/)).not.toBeInTheDocument();
+    });
+
+    it('hides SPI chip when task has no baseline data', () => {
+      const noBaseline = { ...baseTask, baselineStart: undefined, baselineFinish: undefined };
+      renderCard({ task: noBaseline, showEvm: 'spi', density: 'comfortable' });
+      expect(screen.queryByText(/SPI/)).not.toBeInTheDocument();
+    });
+
+    it('hides SPI chip when showEvm=cpi only', () => {
+      renderCard({ task: taskWithBaseline, showEvm: 'cpi', density: 'comfortable' });
+      expect(screen.queryByText(/SPI/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('CPI chip (issue #185)', () => {
+    const taskWithCpi: Task = { ...baseTask, cpi: 0.87 };
+
+    it('shows amber CPI chip when showEvm=cpi and 0.85 ≤ CPI < 0.95', () => {
+      renderCard({ task: taskWithCpi, showEvm: 'cpi', density: 'comfortable' });
+      expect(screen.getByText(/CPI 0\.87/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/CPI 0\.87 — over budget/)).toBeInTheDocument();
+    });
+
+    it('shows red CPI chip when CPI < 0.85', () => {
+      const task = { ...baseTask, cpi: 0.72 };
+      renderCard({ task, showEvm: 'cpi', density: 'comfortable' });
+      expect(screen.getByText(/CPI 0\.72/)).toBeInTheDocument();
+      expect(screen.getByLabelText(/significantly over budget/)).toBeInTheDocument();
+    });
+
+    it('hides CPI chip when showEvm=off', () => {
+      renderCard({ task: taskWithCpi, density: 'comfortable' });
+      expect(screen.queryByText(/CPI/)).not.toBeInTheDocument();
+    });
+
+    it('hides CPI chip when task.cpi is null', () => {
+      const task = { ...baseTask, cpi: null };
+      renderCard({ task, showEvm: 'cpi', density: 'comfortable' });
+      expect(screen.queryByText(/CPI/)).not.toBeInTheDocument();
+    });
+
+    it('hides CPI chip in compact density', () => {
+      renderCard({ task: taskWithCpi, showEvm: 'cpi', density: 'compact' });
+      expect(screen.queryByText(/CPI/)).not.toBeInTheDocument();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Cost chip — issue #189
+  // ---------------------------------------------------------------------------
+
+  describe('cost chip (issue #189)', () => {
+    const taskWithCost: Task = {
+      ...baseTask,
+      budgetAtCompletion: 50_000,
+      actualCost: 30_000,
+    };
+
+    it('shows cost chip in comfortable density when showCost=true and BAC is set', () => {
+      renderCard({ task: taskWithCost, showCost: true, density: 'comfortable' });
+      expect(screen.getByText(/\$30K.*\/.*\$50K/)).toBeInTheDocument();
+    });
+
+    it('shows cost chip with over-budget aria-label when actualCost > budgetAtCompletion', () => {
+      const task = { ...taskWithCost, actualCost: 60_000 };
+      renderCard({ task, showCost: true, density: 'comfortable' });
+      // aria-label: "Cost: $60K of $50K budget"
+      expect(screen.getByLabelText(/Cost:.*\$60K.*\$50K/i)).toBeInTheDocument();
+    });
+
+    it('shows — for actual cost when actualCost is null', () => {
+      const task = { ...taskWithCost, actualCost: undefined };
+      renderCard({ task, showCost: true, density: 'comfortable' });
+      expect(screen.getByText(/—.*\/.*\$50K/)).toBeInTheDocument();
+    });
+
+    it('hides cost chip when showCost=false (default)', () => {
+      renderCard({ task: taskWithCost, density: 'comfortable' });
+      expect(screen.queryByText(/\$50K/)).not.toBeInTheDocument();
+    });
+
+    it('hides cost chip when budgetAtCompletion is null', () => {
+      const task = { ...baseTask, budgetAtCompletion: undefined };
+      renderCard({ task, showCost: true, density: 'comfortable' });
+      expect(screen.queryByText(/\$50K/)).not.toBeInTheDocument();
+    });
+
+    it('hides cost chip in compact density', () => {
+      renderCard({ task: taskWithCost, showCost: true, density: 'compact' });
+      expect(screen.queryByText(/\$50K/)).not.toBeInTheDocument();
+    });
   });
 });

@@ -78,6 +78,18 @@ export interface LaneMetaProps {
   onAddTask?: () => void;
   /** Expand/collapse toggle rendered inside the phase name row. */
   collapseToggle?: ReactNode;
+  /** When true, show cost row (issue #189). */
+  showCost?: boolean;
+  /** Sum of task.budgetAtCompletion for all tasks in this phase. */
+  phaseBudgetAtCompletion?: number | null;
+  /** Sum of task.actualCost for tasks that have actual cost data. */
+  phaseActualCost?: number | null;
+}
+
+function fmtCurrencyLane(value: number): string {
+  if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(value) >= 1_000) return `$${Math.round(value / 1_000)}K`;
+  return `$${Math.round(value)}`;
 }
 
 export function LaneMeta({
@@ -89,6 +101,9 @@ export function LaneMeta({
   workshop = false,
   onAddTask,
   collapseToggle,
+  showCost = false,
+  phaseBudgetAtCompletion = null,
+  phaseActualCost = null,
 }: LaneMetaProps) {
   const pct = Math.max(0, Math.min(100, avgProgress));
 
@@ -169,6 +184,29 @@ export function LaneMeta({
             </span>
           </div>
         </div>
+
+        {/* Cost row — shown when showCost toggle is on and phase has budget data (issue #189). */}
+        {showCost && phaseBudgetAtCompletion != null && (
+          <div
+            className="flex items-center gap-1 flex-wrap text-xs"
+            aria-label={`Phase budget: ${phaseActualCost != null ? fmtCurrencyLane(phaseActualCost) : 'no actuals'} of ${fmtCurrencyLane(phaseBudgetAtCompletion)}`}
+          >
+            <span
+              className={[
+                'tppm-mono',
+                phaseActualCost != null && phaseActualCost > phaseBudgetAtCompletion
+                  ? 'text-semantic-critical font-medium'
+                  : 'text-neutral-text-secondary',
+              ].join(' ')}
+            >
+              {phaseActualCost != null ? fmtCurrencyLane(phaseActualCost) : '—'}
+            </span>
+            <span className="text-neutral-text-disabled">/</span>
+            <span className="tppm-mono text-neutral-text-secondary">
+              {fmtCurrencyLane(phaseBudgetAtCompletion)}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

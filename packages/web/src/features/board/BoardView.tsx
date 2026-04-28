@@ -37,7 +37,7 @@ import { useBoardKeyboard } from '@/hooks/useBoardKeyboard';
 import { useBoardOverallocation } from '@/hooks/useBoardOverallocation';
 import { useTaskDependencies } from '@/hooks/useTaskDependencies';
 import type { Task, TaskStatus } from '@/types';
-import { BoardCard, type BoardDensity } from './BoardCard';
+import { BoardCard, type BoardDensity, type EvmMode } from './BoardCard';
 import { LaneMeta } from './LaneMeta';
 import { AddTaskModal } from './AddTaskModal';
 import { PhaseMilestoneRail } from './PhaseMilestoneRail';
@@ -193,6 +193,8 @@ interface BoardCellProps {
   onShowDeps: (task: Task) => void;
   onShowRisks: (task: Task) => void;
   onChainHover: (taskId: string | null) => void;
+  showEvm: EvmMode;
+  showCost: boolean;
 }
 
 // Subtle status tints per column (issue #211).
@@ -223,6 +225,8 @@ function BoardCell({
   onShowDeps,
   onShowRisks,
   onChainHover,
+  showEvm,
+  showCost,
 }: BoardCellProps) {
   const droppableId = `${phaseId}:${status}`;
   const { setNodeRef } = useDroppable({ id: droppableId });
@@ -265,6 +269,8 @@ function BoardCell({
             onShowRisks={() => onShowRisks(task)}
             onChainHoverEnter={() => onChainHover(task.id)}
             onChainHoverLeave={() => onChainHover(null)}
+            showEvm={showEvm}
+            showCost={showCost}
           />
         </div>
       ))}
@@ -298,6 +304,8 @@ interface PhaseLaneProps {
   onShowRisks: (task: Task) => void;
   onChainHover: (taskId: string | null) => void;
   onOpenMilestone: (task: Task) => void;
+  showEvm: EvmMode;
+  showCost: boolean;
 }
 
 function PhaseLane({
@@ -322,10 +330,22 @@ function PhaseLane({
   onShowRisks,
   onChainHover,
   onOpenMilestone,
+  showEvm,
+  showCost,
 }: PhaseLaneProps) {
   const avg = avgProgress(phase.tasks);
   const color = phaseColor(phase.id);
   const colCount = columns.length;
+
+  // Aggregate cost data for phase header (issue #189).
+  const phaseBudgetAtCompletion = phase.tasks.reduce<number | null>((acc, t) => {
+    if (t.budgetAtCompletion == null) return acc;
+    return (acc ?? 0) + t.budgetAtCompletion;
+  }, null);
+  const phaseActualCost = phase.tasks.reduce<number | null>((acc, t) => {
+    if (t.actualCost == null) return acc;
+    return (acc ?? 0) + t.actualCost;
+  }, null);
 
   // Keyboard [ / ] shortcuts collapse/expand the focused lane (issue #190).
   // Skip when focus is inside a form element to avoid capturing text input.
@@ -378,6 +398,9 @@ function PhaseLane({
             railColor={color}
             onAddTask={() => onAddTask(phase.id, phase.name)}
             collapseToggle={collapseToggle}
+            showCost={showCost}
+            phaseBudgetAtCompletion={phaseBudgetAtCompletion}
+            phaseActualCost={phaseActualCost}
           />
           <div className="px-[11px] pb-2">
             <PhaseSummaryChips phase={phase} />
@@ -421,6 +444,8 @@ function PhaseLane({
               onShowDeps={onShowDeps}
               onShowRisks={onShowRisks}
               onChainHover={onChainHover}
+              showEvm={showEvm}
+              showCost={showCost}
             />
           ))
         )}
@@ -535,6 +560,8 @@ export function BoardView() {
   const [showColTints, setShowColTints] = useState(true);
   const [addTaskPhase, setAddTaskPhase] = useState<{ id: string; name: string } | null>(null);
   const [riskLinkedOnly, setRiskLinkedOnly] = useState(false);
+  const [evmMode, setEvmMode] = useState<EvmMode>('off');
+  const [showCost, setShowCost] = useState(false);
   // Keyboard focus (issue #195) — focused card + last-focused column for L/H traversal.
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const [focusedColumn, setFocusedColumn] = useState<TaskStatus | null>(null);
@@ -901,6 +928,32 @@ export function BoardView() {
               />
               Column tints
             </label>
+            {/* EVM indicators toggle — SPI/CPI chips (issue #185) */}
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              EVM:
+              <select
+                value={evmMode}
+                onChange={(e) => setEvmMode(e.target.value as EvmMode)}
+                className="border border-neutral-border rounded px-1.5 py-0.5 text-neutral-text-primary focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                aria-label="EVM indicators"
+              >
+                <option value="off">Off</option>
+                <option value="spi">SPI</option>
+                <option value="cpi">CPI</option>
+                <option value="both">Both</option>
+              </select>
+            </label>
+            {/* Cost toggle — phase row + card cost chips (issue #189) */}
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showCost}
+                onChange={(e) => setShowCost(e.target.checked)}
+                className="accent-brand-primary"
+                aria-label="Show cost"
+              />
+              Show cost
+            </label>
             {/* Risk-linked filter pill — issue #188 */}
             <button
               type="button"
@@ -993,6 +1046,8 @@ export function BoardView() {
                   // Milestone click — focus the milestone task on its column.
                   handleCardFocus(t.id, t.status, t.parentId ?? 'root');
                 }}
+                showEvm={evmMode}
+                showCost={showCost}
               />
             ))}
           </div>
