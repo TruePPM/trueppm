@@ -1734,7 +1734,7 @@ def _task_webhook_payload(task: Task) -> dict:  # type: ignore[type-arg]
 class BoardColumnConfigView(APIView):
     """GET/PUT per-project board column configuration.
 
-    GET returns the saved config or the hardcoded 4-column defaults.
+    GET returns the saved config or the hardcoded 5-column defaults.
     PUT validates and saves the config, creating the row if it doesn't exist.
     Requires SCHEDULER role (≥ 2) for writes — same as schedule-affecting changes.
     Reads are open to all project members.
