@@ -178,7 +178,7 @@ interface BoardCellProps {
   showColTints: boolean;
   density: BoardDensity;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
-  columns: { status: TaskStatus; label: string }[];
+  columns: { status: TaskStatus; label: string; slaDays?: number }[];
 }
 
 // Subtle status tints per column (issue #211).
@@ -245,7 +245,7 @@ function BoardCell({
 
 interface PhaseLaneProps {
   phase: Phase;
-  columns: { status: TaskStatus; label: string; wipLimit?: number }[];
+  columns: { status: TaskStatus; label: string; wipLimit?: number; slaDays?: number }[];
   tasksByStatus: Record<TaskStatus, Task[]>;
   overCell: string | null;  // `${phaseId}:${status}` or null
   isDragActive: boolean;

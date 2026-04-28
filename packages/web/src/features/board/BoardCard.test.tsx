@@ -10,12 +10,12 @@ import type { ComponentProps, ReactNode } from 'react';
 import { BoardCard } from './BoardCard';
 import type { Task, TaskStatus } from '@/types';
 
-// 5-column model (issue #178)
-const COLUMNS: { status: TaskStatus; label: string }[] = [
-  { status: 'BACKLOG',     label: 'BACKLOG' },
-  { status: 'NOT_STARTED', label: 'TO DO' },
-  { status: 'IN_PROGRESS', label: 'IN PROGRESS' },
-  { status: 'REVIEW',      label: 'REVIEW' },
+// 5-column model (issue #178). SLA defaults match useBoardConfig (issue #192).
+const COLUMNS: { status: TaskStatus; label: string; slaDays?: number }[] = [
+  { status: 'BACKLOG',     label: 'BACKLOG',     slaDays: 14 },
+  { status: 'NOT_STARTED', label: 'TO DO',       slaDays: 7  },
+  { status: 'IN_PROGRESS', label: 'IN PROGRESS', slaDays: 10 },
+  { status: 'REVIEW',      label: 'REVIEW',      slaDays: 4  },
   { status: 'COMPLETE',    label: 'DONE' },
 ];
 
@@ -363,6 +363,52 @@ describe('BoardCard', () => {
       density: 'compact',
     });
     expect(screen.queryByLabelText(/Baseline variance/)).not.toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #192 — card aging / dwell-time indicator
+  // -------------------------------------------------------------------------
+
+  it('shows aging chip when dwell exceeds column SLA (issue #192)', () => {
+    // System time: Jan 15. statusEnteredAt: Jan 1 = 14 days ago.
+    // IN_PROGRESS SLA is 10d — 14d > 10d → aging chip appears.
+    const enteredAt = new Date('2026-01-01T12:00:00Z').toISOString();
+    renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, status: 'IN_PROGRESS' } });
+    expect(screen.getByLabelText(/14 days in this column/)).toBeInTheDocument();
+    expect(screen.getByText('14d')).toBeInTheDocument();
+  });
+
+  it('does not show aging chip when dwell is within SLA (issue #192)', () => {
+    // 2 days ago, IN_PROGRESS SLA is 10d — no chip.
+    const enteredAt = new Date('2026-01-13T12:00:00Z').toISOString();
+    renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, status: 'IN_PROGRESS' } });
+    expect(screen.queryByLabelText(/days in this column/)).not.toBeInTheDocument();
+  });
+
+  it('aging chip is red when dwell exceeds 2× SLA (issue #192)', () => {
+    // 25 days ago, SLA 10d — 25 > 20 (2×SLA) → red/critical
+    const enteredAt = new Date('2025-12-21T12:00:00Z').toISOString();
+    const { container } = renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, status: 'IN_PROGRESS' } });
+    expect(container.querySelector('.text-semantic-critical')).toBeInTheDocument();
+  });
+
+  it('aging chip is amber when dwell is between 1× and 2× SLA (issue #192)', () => {
+    // 14 days ago, SLA 10d — 14 is between 10 and 20 → amber
+    const enteredAt = new Date('2026-01-01T12:00:00Z').toISOString();
+    const { container } = renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, status: 'IN_PROGRESS' } });
+    expect(container.querySelector('.text-brand-accent-dark')).toBeInTheDocument();
+  });
+
+  it('does not show aging chip when statusEnteredAt is absent (issue #192)', () => {
+    renderCard({ task: baseTask }); // no statusEnteredAt
+    expect(screen.queryByLabelText(/days in this column/)).not.toBeInTheDocument();
+  });
+
+  it('does not show aging chip when column has no SLA configured (issue #192)', () => {
+    // COMPLETE column has no slaDays in COLUMNS
+    const enteredAt = new Date('2026-01-01T12:00:00Z').toISOString();
+    renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, status: 'COMPLETE' } });
+    expect(screen.queryByLabelText(/days in this column/)).not.toBeInTheDocument();
   });
 
   it('detailed: shows all assignees without +N overflow', () => {

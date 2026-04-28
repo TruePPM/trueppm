@@ -11,7 +11,7 @@ interface BoardCardProps {
   isOverlay?: boolean;
   isStalled?: boolean;
   onMenuMove: (newStatus: TaskStatus) => void;
-  columns: { status: TaskStatus; label: string }[];
+  columns: { status: TaskStatus; label: string; slaDays?: number }[];
   density?: BoardDensity;
 }
 
@@ -26,13 +26,12 @@ function initials(name: string): string {
 }
 
 /**
- * Format an entry-stamp line.
- * e.g. "Entered at 62% · 4d ago"   (when statusEnteredAt is known)
- *      ""                            (fallback)
+ * Format an entry-stamp line and compute dwell time.
+ * Returns daysAgo for use by the SLA aging indicator (issue #192).
  */
-function entryStamp(task: Task): { text: string; isStalled: boolean } {
+function entryStamp(task: Task): { text: string; isStalled: boolean; daysAgo: number | null } {
   if (!task.statusEnteredAt) {
-    return { text: '', isStalled: false };
+    return { text: '', isStalled: false, daysAgo: null };
   }
 
   const now = Date.now();
@@ -46,6 +45,7 @@ function entryStamp(task: Task): { text: string; isStalled: boolean } {
   return {
     text: `Entered at ${task.progress}% · ${daysLabel}${isStalled ? ' — stalled' : ''}`,
     isStalled,
+    daysAgo,
   };
 }
 
@@ -138,8 +138,13 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
   }, [menuOpen]);
 
   const otherColumns = columns.filter((c) => c.status !== task.status);
-  const { text: stampText, isStalled: derivedStalled } = entryStamp(task);
+  const { text: stampText, isStalled: derivedStalled, daysAgo } = entryStamp(task);
   const isStalled = isOverrideStalled ?? derivedStalled;
+
+  // Aging / dwell-time indicator (issue #192)
+  const slaDays = columns.find((c) => c.status === task.status)?.slaDays;
+  const isAging = daysAgo !== null && slaDays !== undefined && daysAgo > slaDays;
+  const isPastTwiceSla = isAging && daysAgo > 2 * slaDays;
   const isIdea = (task.readiness ?? 'estimated') === 'idea';
   const isCompact = density === 'compact';
   const isDetailed = density === 'detailed';
@@ -433,6 +438,23 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
             ].join(' ')}
           >
             {stampText}
+          </div>
+        )}
+
+        {/* Aging / dwell-time indicator (issue #192): shown when dwell > column SLA. */}
+        {isAging && (
+          <div
+            className={[
+              'mt-1 inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
+              isPastTwiceSla
+                ? 'bg-semantic-critical/10 border-semantic-critical/30 text-semantic-critical motion-safe:animate-pulse'
+                : 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark',
+            ].join(' ')}
+            title={`${daysAgo}d in column — SLA: ${slaDays}d`}
+            aria-label={`${daysAgo} days in this column, exceeds ${slaDays}-day SLA`}
+          >
+            <span aria-hidden="true">⏱</span>
+            <span className="tppm-mono">{daysAgo}d</span>
           </div>
         )}
 
