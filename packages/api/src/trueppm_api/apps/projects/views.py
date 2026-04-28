@@ -17,7 +17,9 @@ from django.db.models import (
     ExpressionWrapper,
     F,
     IntegerField,
+    Max,
     OuterRef,
+    Q,
     QuerySet,
     Subquery,
 )
@@ -51,6 +53,7 @@ from trueppm_api.apps.projects.models import (
     EstimationMode,
     Project,
     Risk,
+    RiskStatus,
     Task,
     TaskStatus,
 )
@@ -540,6 +543,38 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             has_predecessors=Exists(Dependency.objects.filter(successor=OuterRef("pk")))
         )
 
+        # Board batch 3 (#182, #188) — PPM signal annotations consumed by BoardCard:
+        #   predecessor_count       — count of live incoming Dependency edges.
+        #   is_blocked              — True when any predecessor is not yet COMPLETE.
+        #   linked_risks_count      — count of active linked risks (OPEN + MITIGATING only).
+        #   linked_risks_max_severity — Max(probability * impact) across active linked risks.
+        # All four are read-only annotations; no migration. ADR-0035.
+        active_risk_filter = Q(risks__is_deleted=False) & Q(
+            risks__status__in=[RiskStatus.OPEN, RiskStatus.MITIGATING]
+        )
+        qs = qs.annotate(
+            predecessor_count=Count(
+                "predecessors",
+                filter=Q(predecessors__is_deleted=False),
+                distinct=True,
+            ),
+            is_blocked=Exists(
+                Dependency.objects.filter(
+                    successor=OuterRef("pk"),
+                    is_deleted=False,
+                ).exclude(predecessor__status=TaskStatus.COMPLETE)
+            ),
+            linked_risks_count=Count(
+                "risks",
+                filter=active_risk_filter,
+                distinct=True,
+            ),
+            linked_risks_max_severity=Max(
+                F("risks__probability") * F("risks__impact"),
+                filter=active_risk_filter,
+            ),
+        )
+
         # Baseline overlay: annotate each task with baseline_start / baseline_finish.
         # Resolution order:
         #   1. ?baseline=<id> explicit override
@@ -873,6 +908,11 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         dep_type = self.request.query_params.get("dep_type")
         if dep_type:
             qs = qs.filter(dep_type=dep_type)
+        # ?task=<uuid> — return all edges where the task is either predecessor
+        # or successor (board DepPopover click-through; ADR-0035 b3).
+        task_id = self.request.query_params.get("task")
+        if task_id:
+            qs = qs.filter(Q(predecessor_id=task_id) | Q(successor_id=task_id))
         return qs
 
     def perform_create(self, serializer: BaseSerializer[Dependency]) -> None:
@@ -1564,6 +1604,11 @@ class RiskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
         status_filter = self.request.query_params.get("status")
         if status_filter:
             qs = qs.filter(status=status_filter)
+        # ?task=<uuid> — return only risks linked to that task (for board RiskPopover
+        # click-through; ADR-0035 b3). Uses the RiskTask through-table reverse path.
+        task_id = self.request.query_params.get("task")
+        if task_id:
+            qs = qs.filter(tasks__id=task_id)
         # Annotate computed severity so OrderingFilter can sort without Python.
         return qs.annotate(  # type: ignore[no-any-return]
             severity=ExpressionWrapper(

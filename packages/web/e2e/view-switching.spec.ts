@@ -110,6 +110,22 @@ async function setup(page: import('@playwright/test').Page) {
       body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
     }),
   );
+  // Board batch 3 (#184) — Board view fires resource-allocation on mount.
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/resource-allocation/**`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        project_id: FIXTURE_PROJECT_ID,
+        window_start: '2026-01-01',
+        window_end: '2026-03-01',
+        resources: [],
+      }),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/risks/**`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
+  );
   // Board config — 5-column default (issue #178)
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/board-config/`, (route) =>
     route.fulfill({

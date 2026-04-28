@@ -57,6 +57,43 @@ vi.mock('@/hooks/useTaskMutations', () => ({
   useCreateTask: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
 }));
 
+// Board batch 3 hooks — stub out network-dependent overallocation + dep fetches.
+vi.mock('@/hooks/useBoardOverallocation', () => ({
+  useBoardOverallocation: () => ({
+    overallocByPair: new Map<string, number>(),
+    threshold: 1.0,
+    scheduleNotRun: false,
+  }),
+}));
+
+vi.mock('@/hooks/useTaskDependencies', () => ({
+  useTaskDependencies: () => ({
+    predecessors: [],
+    successors: [],
+    isLoading: false,
+    error: null,
+  }),
+  useTaskRisks: () => ({
+    risks: [],
+    isLoading: false,
+    error: null,
+  }),
+  severityRagBand: (sev: number | null | undefined) => {
+    if (sev == null || sev <= 0) return null;
+    if (sev <= 5) return 'green';
+    if (sev <= 14) return 'amber';
+    return 'red';
+  },
+  severityDotCount: (sev: number | null | undefined) => {
+    if (sev == null || sev <= 0) return 0;
+    if (sev === 1) return 1;
+    if (sev <= 5) return 2;
+    if (sev <= 11) return 3;
+    if (sev <= 19) return 4;
+    return 5;
+  },
+}));
+
 function resetMocks() {
   mockTasks = FIXTURE_TASKS;
   mockIsLoading = false;

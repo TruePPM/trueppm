@@ -49,6 +49,11 @@ function renderCard(props: Partial<ComponentProps<typeof BoardCard>>) {
         isOverlay={props.isOverlay}
         isStalled={props.isStalled}
         density={props.density}
+        isKeyboardFocused={props.isKeyboardFocused}
+        isDimmed={props.isDimmed}
+        overallocByResource={props.overallocByResource}
+        onShowDeps={props.onShowDeps}
+        onShowRisks={props.onShowRisks}
       />
     </Wrapper>,
   );
@@ -425,5 +430,113 @@ describe('BoardCard', () => {
     expect(screen.getByText('AC')).toBeInTheDocument();
     expect(screen.getByText('DL')).toBeInTheDocument();
     expect(screen.queryByText(/^\+/)).not.toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Board batch 3 PPM signals (#182 deps, #184 overalloc, #188 risks).
+  // ---------------------------------------------------------------------------
+
+  it('shows the chain icon when predecessor_count > 0', () => {
+    const onShowDeps = vi.fn();
+    renderCard({
+      task: { ...baseTask, predecessorCount: 2, isBlocked: false },
+      onShowDeps,
+    });
+    const btn = screen.getByLabelText(/2 dependencies\. Press D to view\./);
+    expect(btn).toBeInTheDocument();
+    fireEvent.click(btn);
+    expect(onShowDeps).toHaveBeenCalled();
+  });
+
+  it('omits the chain icon when predecessor_count is 0', () => {
+    renderCard({ task: { ...baseTask, predecessorCount: 0 } });
+    expect(screen.queryByLabelText(/Press D to view/)).not.toBeInTheDocument();
+  });
+
+  it('renders the chain icon as red and labels it Blocked when is_blocked', () => {
+    renderCard({
+      task: { ...baseTask, predecessorCount: 1, isBlocked: true },
+    });
+    const btn = screen.getByLabelText(/Blocked by 1 dependency\. Press D to view\./);
+    expect(btn.className).toContain('text-semantic-critical');
+  });
+
+  it('shows the risk icon with severity-aware label when linked_risks_count > 0', () => {
+    const onShowRisks = vi.fn();
+    renderCard({
+      task: { ...baseTask, linkedRisksCount: 3, linkedRisksMaxSeverity: 18 },
+      onShowRisks,
+    });
+    const btn = screen.getByLabelText(/3 linked risks, severity red\. Click to view\./);
+    expect(btn).toBeInTheDocument();
+    fireEvent.click(btn);
+    expect(onShowRisks).toHaveBeenCalled();
+  });
+
+  it('omits the risk icon when linked_risks_max_severity is null even if count > 0', () => {
+    // Defensive: count > 0 with null max severity (e.g. all risks have null
+    // probability/impact) should hide the icon — see ADR-0035 §Durable Execution.
+    renderCard({
+      task: { ...baseTask, linkedRisksCount: 1, linkedRisksMaxSeverity: null },
+    });
+    expect(screen.queryByLabelText(/linked risk/)).not.toBeInTheDocument();
+  });
+
+  it('renders the overallocation red dot on assignees with peak factor > 1', () => {
+    const overallocByResource = new Map([['r1', 1.4]]);
+    renderCard({
+      task: {
+        ...baseTask,
+        assignees: [{ resourceId: 'r1', name: 'Pat Chen', units: 1 }],
+      },
+      overallocByResource,
+    });
+    expect(screen.getByLabelText('Pat Chen, overallocated')).toBeInTheDocument();
+  });
+
+  it('does not render the overallocation dot when factor is absent', () => {
+    renderCard({
+      task: {
+        ...baseTask,
+        assignees: [{ resourceId: 'r1', name: 'Pat Chen', units: 1 }],
+      },
+      overallocByResource: new Map(),
+    });
+    expect(screen.queryByLabelText('Pat Chen, overallocated')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Pat Chen')).toBeInTheDocument();
+  });
+
+  it('shows the 1.4× factor inline in detailed density only', () => {
+    const overallocByResource = new Map([['r1', 1.4]]);
+    const task = {
+      ...baseTask,
+      assignees: [{ resourceId: 'r1', name: 'Pat Chen', units: 1 }],
+    };
+    const { rerender } = renderCard({ task, overallocByResource, density: 'comfortable' });
+    expect(screen.queryByText('1.4×')).not.toBeInTheDocument();
+    rerender(
+      <DndContext>
+        <BoardCard
+          task={task}
+          onMenuMove={() => {}}
+          columns={COLUMNS}
+          density="detailed"
+          overallocByResource={overallocByResource}
+        />
+      </DndContext>,
+    );
+    expect(screen.getByText('1.4×')).toBeInTheDocument();
+  });
+
+  it('applies the keyboard-focused ring when isKeyboardFocused', () => {
+    const { container } = renderCard({ isKeyboardFocused: true });
+    const card = container.querySelector('[role="button"]')!;
+    expect(card.className).toContain('ring-2');
+  });
+
+  it('dims the card when isDimmed is true', () => {
+    const { container } = renderCard({ isDimmed: true });
+    const card = container.querySelector('[role="button"]')!;
+    expect(card.className).toContain('opacity-40');
   });
 });

@@ -66,6 +66,14 @@ export interface Task {
   totalFloat?: number | null;
   /** Computed readiness state for board cards (issue #179). */
   readiness?: TaskReadiness;
+  /** Count of live incoming dependency edges (board batch 3, ADR-0035). */
+  predecessorCount?: number;
+  /** True when any predecessor is not COMPLETE (board batch 3, ADR-0035). */
+  isBlocked?: boolean;
+  /** Count of active linked risks (OPEN + MITIGATING; board batch 3, ADR-0035). */
+  linkedRisksCount?: number;
+  /** Max(probability * impact) across active linked risks; null when none. */
+  linkedRisksMaxSeverity?: number | null;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */

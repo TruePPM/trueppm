@@ -33,10 +33,17 @@ import {
 import { useGanttTasks } from '@/hooks/useGanttTasks';
 import { useUpdateTaskStatus } from '@/hooks/useBoardTasks';
 import { useBoardConfig } from '@/hooks/useBoardConfig';
+import { useBoardKeyboard } from '@/hooks/useBoardKeyboard';
+import { useBoardOverallocation } from '@/hooks/useBoardOverallocation';
+import { useTaskDependencies } from '@/hooks/useTaskDependencies';
 import type { Task, TaskStatus } from '@/types';
 import { BoardCard, type BoardDensity } from './BoardCard';
 import { LaneMeta } from './LaneMeta';
 import { AddTaskModal } from './AddTaskModal';
+import { PhaseMilestoneRail } from './PhaseMilestoneRail';
+import { KeyboardCheatsheet } from './KeyboardCheatsheet';
+import { DepPopover } from './DepPopover';
+import { RiskPopover } from './RiskPopover';
 import { phaseColor } from './phaseColors';
 
 // ---------------------------------------------------------------------------
@@ -179,6 +186,13 @@ interface BoardCellProps {
   density: BoardDensity;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
   columns: { status: TaskStatus; label: string; slaDays?: number }[];
+  focusedCardId: string | null;
+  highlightedTaskIds: Set<string> | null;
+  overallocByResourcePerTask: Map<string, Map<string, number>>;
+  onCardFocus: (taskId: string, status: TaskStatus, phaseId: string) => void;
+  onShowDeps: (task: Task) => void;
+  onShowRisks: (task: Task) => void;
+  onChainHover: (taskId: string | null) => void;
 }
 
 // Subtle status tints per column (issue #211).
@@ -202,6 +216,13 @@ function BoardCell({
   density,
   onMenuMove,
   columns,
+  focusedCardId,
+  highlightedTaskIds,
+  overallocByResourcePerTask,
+  onCardFocus,
+  onShowDeps,
+  onShowRisks,
+  onChainHover,
 }: BoardCellProps) {
   const droppableId = `${phaseId}:${status}`;
   const { setNodeRef } = useDroppable({ id: droppableId });
@@ -227,13 +248,25 @@ function BoardCell({
         </div>
       )}
       {tasks.map((task) => (
-        <BoardCard
+        <div
           key={task.id}
-          task={task}
-          density={density}
-          onMenuMove={(newStatus) => onMenuMove(task, newStatus)}
-          columns={columns}
-        />
+          onPointerDown={() => onCardFocus(task.id, status, phaseId)}
+          onFocusCapture={() => onCardFocus(task.id, status, phaseId)}
+        >
+          <BoardCard
+            task={task}
+            density={density}
+            onMenuMove={(newStatus) => onMenuMove(task, newStatus)}
+            columns={columns}
+            isKeyboardFocused={focusedCardId === task.id}
+            isDimmed={highlightedTaskIds !== null && !highlightedTaskIds.has(task.id)}
+            overallocByResource={overallocByResourcePerTask.get(task.id)}
+            onShowDeps={() => onShowDeps(task)}
+            onShowRisks={() => onShowRisks(task)}
+            onChainHoverEnter={() => onChainHover(task.id)}
+            onChainHoverLeave={() => onChainHover(null)}
+          />
+        </div>
       ))}
     </div>
   );
@@ -247,6 +280,7 @@ interface PhaseLaneProps {
   phase: Phase;
   columns: { status: TaskStatus; label: string; wipLimit?: number; slaDays?: number }[];
   tasksByStatus: Record<TaskStatus, Task[]>;
+  milestones: Task[];
   overCell: string | null;  // `${phaseId}:${status}` or null
   isDragActive: boolean;
   showWip: boolean;
@@ -256,12 +290,21 @@ interface PhaseLaneProps {
   onToggleCollapse: () => void;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
   onAddTask: (phaseId: string, phaseName: string) => void;
+  focusedCardId: string | null;
+  highlightedTaskIds: Set<string> | null;
+  overallocByResourcePerTask: Map<string, Map<string, number>>;
+  onCardFocus: (taskId: string, status: TaskStatus, phaseId: string) => void;
+  onShowDeps: (task: Task) => void;
+  onShowRisks: (task: Task) => void;
+  onChainHover: (taskId: string | null) => void;
+  onOpenMilestone: (task: Task) => void;
 }
 
 function PhaseLane({
   phase,
   columns,
   tasksByStatus,
+  milestones,
   overCell,
   isDragActive,
   showWip,
@@ -271,6 +314,14 @@ function PhaseLane({
   onToggleCollapse,
   onMenuMove,
   onAddTask,
+  focusedCardId,
+  highlightedTaskIds,
+  overallocByResourcePerTask,
+  onCardFocus,
+  onShowDeps,
+  onShowRisks,
+  onChainHover,
+  onOpenMilestone,
 }: PhaseLaneProps) {
   const avg = avgProgress(phase.tasks);
   const color = phaseColor(phase.id);
@@ -305,6 +356,13 @@ function PhaseLane({
       aria-label={`${phase.name} swimlane`}
       className="border-b border-neutral-border/60 last:border-b-0"
     >
+      {!collapsed && milestones.length > 0 && (
+        <PhaseMilestoneRail
+          milestones={milestones}
+          columns={columns}
+          onOpenTask={onOpenMilestone}
+        />
+      )}
       <div
         id={`phase-${phase.id}-content`}
         className="grid gap-2 p-2"
@@ -356,6 +414,13 @@ function PhaseLane({
               wipLimit={col.wipLimit}
               onMenuMove={onMenuMove}
               columns={columns}
+              focusedCardId={focusedCardId}
+              highlightedTaskIds={highlightedTaskIds}
+              overallocByResourcePerTask={overallocByResourcePerTask}
+              onCardFocus={onCardFocus}
+              onShowDeps={onShowDeps}
+              onShowRisks={onShowRisks}
+              onChainHover={onChainHover}
             />
           ))
         )}
@@ -469,6 +534,18 @@ export function BoardView() {
   const [showWip, setShowWip] = useState(true);
   const [showColTints, setShowColTints] = useState(true);
   const [addTaskPhase, setAddTaskPhase] = useState<{ id: string; name: string } | null>(null);
+  const [riskLinkedOnly, setRiskLinkedOnly] = useState(false);
+  // Keyboard focus (issue #195) — focused card + last-focused column for L/H traversal.
+  const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
+  const [focusedColumn, setFocusedColumn] = useState<TaskStatus | null>(null);
+  const [focusedPhaseId, setFocusedPhaseId] = useState<string | null>(null);
+  // Overlay state — only one is open at a time.
+  const [showCheatsheet, setShowCheatsheet] = useState(false);
+  const [depTask, setDepTask] = useState<Task | null>(null);
+  const [riskTask, setRiskTask] = useState<Task | null>(null);
+  // Dim non-connected cards (#182) — null means no highlight active.
+  const [highlightedTaskIds, setHighlightedTaskIds] = useState<Set<string> | null>(null);
+  const [chainHoverTaskId, setChainHoverTaskId] = useState<string | null>(null);
   const ariaLiveRef = useRef<HTMLDivElement>(null);
 
   const { collapsedIds, toggle: toggleCollapse, collapseAll, expandAll } = useBoardCollapsedLanes(projectId);
@@ -481,10 +558,61 @@ export function BoardView() {
 
   const phases = useMemo(() => buildPhases(tasks ?? []), [tasks]);
 
+  // Lookup index for jump-to-card from popovers (#182, #195) and milestone classification.
+  const taskIndex = useMemo(() => {
+    const m = new Map<string, Task>();
+    for (const t of tasks ?? []) m.set(t.id, t);
+    return m;
+  }, [tasks]);
+
+  // Phase → milestone tasks (issue #187).  Milestones live on the same WBS branch
+  // as their phase but are flagged via is_milestone.
+  const milestonesByPhase = useMemo(() => {
+    const m = new Map<string, Task[]>();
+    for (const t of tasks ?? []) {
+      if (!t.isMilestone) continue;
+      const phaseId = t.parentId ?? 'root';
+      const list = m.get(phaseId) ?? [];
+      list.push(t);
+      m.set(phaseId, list);
+    }
+    return m;
+  }, [tasks]);
+
+  // Resource overallocation (issue #184) — peak factor per (resource, task).
+  // Returns Map<task_id, Map<resource_id, factor>> for fast per-card lookup.
+  const overalloc = useBoardOverallocation(projectId);
+  const overallocByResourcePerTask = useMemo(() => {
+    const out = new Map<string, Map<string, number>>();
+    for (const [pairKey, factor] of overalloc.overallocByPair.entries()) {
+      const [resourceId, taskId] = pairKey.split(':');
+      const inner = out.get(taskId) ?? new Map<string, number>();
+      inner.set(resourceId, factor);
+      out.set(taskId, inner);
+    }
+    return out;
+  }, [overalloc.overallocByPair]);
+
+  // Dim non-connected cards (#182) — fetch dep edges only when hovering a chain icon.
+  const chainHoverDeps = useTaskDependencies(chainHoverTaskId);
+  useEffect(() => {
+    if (!chainHoverTaskId) {
+      setHighlightedTaskIds(null);
+      return;
+    }
+    if (chainHoverDeps.isLoading) return;
+    const connected = new Set<string>([chainHoverTaskId]);
+    for (const e of chainHoverDeps.predecessors) connected.add(e.predecessorId);
+    for (const e of chainHoverDeps.successors) connected.add(e.successorId);
+    setHighlightedTaskIds(connected);
+  }, [chainHoverTaskId, chainHoverDeps.isLoading, chainHoverDeps.predecessors, chainHoverDeps.successors]);
+
   const activeTask = useMemo(
     () => (activeId ? tasks?.find((t) => t.id === activeId) ?? null : null),
     [activeId, tasks],
   );
+
+  const focusedTask = focusedCardId ? taskIndex.get(focusedCardId) : null;
 
   // Per-phase, per-status task groupings
   const phaseTaskMap = useMemo(() => {
@@ -562,6 +690,101 @@ export function BoardView() {
   const handleAddTask = useCallback((phaseId: string, phaseName: string) => {
     setAddTaskPhase({ id: phaseId, name: phaseName });
   }, []);
+
+  const handleCardFocus = useCallback((taskId: string, status: TaskStatus, phaseId: string) => {
+    setFocusedCardId(taskId);
+    setFocusedColumn(status);
+    setFocusedPhaseId(phaseId);
+  }, []);
+
+  const handleShowDeps = useCallback((task: Task) => {
+    setRiskTask(null);
+    setShowCheatsheet(false);
+    setDepTask(task);
+    handleCardFocus(task.id, task.status, task.parentId ?? 'root');
+  }, [handleCardFocus]);
+
+  const handleShowRisks = useCallback((task: Task) => {
+    setDepTask(null);
+    setShowCheatsheet(false);
+    setRiskTask(task);
+    handleCardFocus(task.id, task.status, task.parentId ?? 'root');
+  }, [handleCardFocus]);
+
+  const handleChainHover = useCallback((taskId: string | null) => {
+    setChainHoverTaskId(taskId);
+  }, []);
+
+  const closeAllOverlays = useCallback(() => {
+    setDepTask(null);
+    setRiskTask(null);
+    setShowCheatsheet(false);
+  }, []);
+
+  // Keyboard navigation — J/K within column (across phases), L/H across columns
+  // within phase (#195).  Wraps; skips empty cells.  See ADR-0035 §Q3.
+  const moveFocusInColumn = useCallback((direction: 'up' | 'down') => {
+    if (!focusedColumn) return;
+    // Build a flat list of (phaseId, taskId) for the focused column across all phases.
+    const orderedPhaseIds = phases.map((p) => p.id);
+    const flat: Array<{ phaseId: string; taskId: string }> = [];
+    for (const pid of orderedPhaseIds) {
+      const tasksInCell = phaseTaskMap.get(pid)?.[focusedColumn] ?? [];
+      for (const t of tasksInCell) flat.push({ phaseId: pid, taskId: t.id });
+    }
+    if (flat.length === 0) return;
+
+    let idx = focusedCardId ? flat.findIndex((x) => x.taskId === focusedCardId) : -1;
+    if (idx === -1) {
+      idx = direction === 'down' ? 0 : flat.length - 1;
+    } else {
+      idx = direction === 'down' ? (idx + 1) % flat.length : (idx - 1 + flat.length) % flat.length;
+    }
+    const next = flat[idx];
+    setFocusedCardId(next.taskId);
+    setFocusedPhaseId(next.phaseId);
+  }, [focusedColumn, focusedCardId, phases, phaseTaskMap]);
+
+  const moveFocusInPhase = useCallback((direction: 'left' | 'right') => {
+    const visibleColumns = COLUMNS.map((c) => c.status);
+    if (visibleColumns.length === 0) return;
+    const activePhaseId = focusedPhaseId ?? phases[0]?.id;
+    if (!activePhaseId) return;
+    const tasksByCol = phaseTaskMap.get(activePhaseId);
+    if (!tasksByCol) return;
+
+    let colIdx = focusedColumn ? visibleColumns.indexOf(focusedColumn) : -1;
+    // Walk in the chosen direction looking for a non-empty column; wrap once.
+    const step = direction === 'right' ? 1 : -1;
+    for (let i = 0; i < visibleColumns.length; i++) {
+      colIdx = (colIdx + step + visibleColumns.length) % visibleColumns.length;
+      const candidate = visibleColumns[colIdx];
+      const cellTasks = tasksByCol[candidate] ?? [];
+      if (cellTasks.length > 0) {
+        setFocusedColumn(candidate);
+        setFocusedCardId(cellTasks[0].id);
+        setFocusedPhaseId(activePhaseId);
+        return;
+      }
+    }
+    // No non-empty column in this phase — leave focus untouched.
+  }, [COLUMNS, focusedColumn, focusedPhaseId, phases, phaseTaskMap]);
+
+  // While any b3 overlay is open, only Esc → onCloseOverlay should fire; nav keys
+  // are suppressed.  When AddTaskModal is open, the modal owns the keyboard.
+  const b3OverlayOpen = depTask !== null || riskTask !== null || showCheatsheet;
+
+  useBoardKeyboard(
+    {
+      onMoveCardFocus: b3OverlayOpen ? undefined : moveFocusInColumn,
+      onMoveColumnFocus: b3OverlayOpen ? undefined : moveFocusInPhase,
+      onShowDeps:
+        !b3OverlayOpen && focusedTask ? () => handleShowDeps(focusedTask) : undefined,
+      onShowCheatsheet: b3OverlayOpen ? undefined : () => setShowCheatsheet(true),
+      onCloseOverlay: b3OverlayOpen ? closeAllOverlays : undefined,
+    },
+    addTaskPhase === null,
+  );
 
   // Total per-column counts across all phases (for column header WIP badges)
   const totalByStatus = useMemo(() => {
@@ -678,6 +901,32 @@ export function BoardView() {
               />
               Column tints
             </label>
+            {/* Risk-linked filter pill — issue #188 */}
+            <button
+              type="button"
+              onClick={() => setRiskLinkedOnly((v) => !v)}
+              aria-pressed={riskLinkedOnly}
+              className={[
+                'border rounded px-2 py-0.5 inline-flex items-center gap-1',
+                'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
+                riskLinkedOnly
+                  ? 'bg-brand-accent/10 border-brand-accent/40 text-brand-accent-dark dark:text-brand-accent'
+                  : 'border-neutral-border text-neutral-text-primary hover:bg-neutral-surface-raised',
+              ].join(' ')}
+            >
+              <span aria-hidden="true">⚠</span>
+              Risk-linked only
+            </button>
+            {/* Keyboard shortcuts hint — issue #195 */}
+            <button
+              type="button"
+              onClick={() => setShowCheatsheet(true)}
+              className={`${toolbarBtnClass} inline-flex items-center gap-1`}
+              aria-label="Show keyboard shortcuts"
+              title="Show keyboard shortcuts (?)"
+            >
+              <kbd className="bg-neutral-surface-raised border border-neutral-border rounded px-1 tppm-mono text-xs">?</kbd>
+            </button>
           </div>
 
           {/* Board grid — scrollable */}
@@ -710,7 +959,12 @@ export function BoardView() {
             </div>
 
             {/* Phase lanes */}
-            {phases.map((phase) => (
+            {phases
+              .filter((phase) => {
+                if (!riskLinkedOnly) return true;
+                return phase.tasks.some((t) => (t.linkedRisksCount ?? 0) > 0);
+              })
+              .map((phase) => (
               <PhaseLane
                 key={phase.id}
                 phase={phase}
@@ -718,6 +972,7 @@ export function BoardView() {
                 tasksByStatus={phaseTaskMap.get(phase.id) ?? {
                   BACKLOG: [], NOT_STARTED: [], IN_PROGRESS: [], REVIEW: [], ON_HOLD: [], COMPLETE: [],
                 }}
+                milestones={milestonesByPhase.get(phase.id) ?? []}
                 overCell={overCell}
                 isDragActive={activeId !== null}
                 showWip={showWip}
@@ -727,6 +982,17 @@ export function BoardView() {
                 onToggleCollapse={() => toggleCollapse(phase.id)}
                 onMenuMove={handleMenuMove}
                 onAddTask={handleAddTask}
+                focusedCardId={focusedCardId}
+                highlightedTaskIds={highlightedTaskIds}
+                overallocByResourcePerTask={overallocByResourcePerTask}
+                onCardFocus={handleCardFocus}
+                onShowDeps={handleShowDeps}
+                onShowRisks={handleShowRisks}
+                onChainHover={handleChainHover}
+                onOpenMilestone={(t) => {
+                  // Milestone click — focus the milestone task on its column.
+                  handleCardFocus(t.id, t.status, t.parentId ?? 'root');
+                }}
               />
             ))}
           </div>
@@ -764,6 +1030,30 @@ export function BoardView() {
           phaseId={addTaskPhase.id}
           phaseName={addTaskPhase.name}
           onClose={() => setAddTaskPhase(null)}
+        />
+      )}
+
+      {/* Board batch 3 overlays — at most one open at a time. */}
+      {showCheatsheet && <KeyboardCheatsheet onClose={() => setShowCheatsheet(false)} />}
+      {depTask && (
+        <DepPopover
+          task={depTask}
+          taskIndex={taskIndex}
+          onClose={() => setDepTask(null)}
+          onJumpTo={(taskId) => {
+            const target = taskIndex.get(taskId);
+            if (target) {
+              handleCardFocus(taskId, target.status, target.parentId ?? 'root');
+            }
+            setDepTask(null);
+          }}
+        />
+      )}
+      {riskTask && projectId && (
+        <RiskPopover
+          projectId={projectId}
+          task={riskTask}
+          onClose={() => setRiskTask(null)}
         />
       )}
     </>
