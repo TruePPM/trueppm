@@ -1,10 +1,32 @@
 import { screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { MonteCarloRow } from './MonteCarloRow';
 
+import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
+
+// Mutable state used by individual tests to override the hook return.
+let mockResult: { data: unknown; isLoading: boolean; error: null } = {
+  data: FIXTURE_MC_RESULT,
+  isLoading: false,
+  error: null,
+};
+
+vi.mock('@/hooks/useMonteCarloResult', () => ({
+  useMonteCarloResult: () => mockResult,
+}));
+
 describe('MonteCarloRow', () => {
+  it('renders nothing when result is undefined', () => {
+    mockResult = { data: undefined, isLoading: false, error: null };
+    const { container } = renderWithProviders(
+      <MonteCarloRow engine={null} taskListWidth={364} />,
+    );
+    expect(container.firstChild).toBeNull();
+  });
+
   it('renders with null engine (pre-init)', () => {
+    mockResult = { data: FIXTURE_MC_RESULT, isLoading: false, error: null };
     // Should render without crashing; bars won't be positioned yet
     renderWithProviders(<MonteCarloRow engine={null} taskListWidth={364} />);
     expect(screen.getByLabelText(/Monte Carlo confidence row/i)).toBeInTheDocument();

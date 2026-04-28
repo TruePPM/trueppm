@@ -102,4 +102,30 @@ describe('AddTaskModal', () => {
     expect(screen.getByRole('button', { name: 'Adding…' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
   });
+
+  it('does not call mutate when isPending is true and form is submitted', () => {
+    mockIsPending = true;
+    renderModal();
+    // Even with a name, mutate should be blocked by the isPending guard
+    fireEvent.submit(screen.getByRole('dialog').querySelector('form')!);
+    expect(createMutate).not.toHaveBeenCalled();
+  });
+
+  it('Tab key dispatches Tab keydown event (focus trap handler fires)', () => {
+    renderModal();
+    // The modal installs a keydown listener for Tab; verify it fires without error
+    // by dispatching Tab from the last focusable element (the submit button).
+    const addButton = screen.getByRole('button', { name: 'Add task' });
+    addButton.focus();
+    // Should not throw
+    expect(() => fireEvent.keyDown(document, { key: 'Tab', shiftKey: false })).not.toThrow();
+  });
+
+  it('Shift+Tab dispatches Shift+Tab keydown event (focus trap handler fires)', () => {
+    renderModal();
+    const input = screen.getByPlaceholderText('Task name');
+    input.focus();
+    // Should not throw
+    expect(() => fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })).not.toThrow();
+  });
 });

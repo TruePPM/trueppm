@@ -92,4 +92,40 @@ describe('buildSubgraph', () => {
     const { tasks: subTasks } = buildSubgraph('A', [t], []);
     expect(subTasks[0].lateFinish).toBe('2025-03-05');
   });
+
+  it('handles cycles — does not loop infinitely when two tasks point to each other', () => {
+    // A → B → A (cycle) — BFS visited check prevents infinite loop
+    const tasks = [task('A'), task('B')];
+    const links = [link('l1', 'A', 'B'), link('l2', 'B', 'A')];
+    const { tasks: subTasks } = buildSubgraph('A', tasks, links);
+    // Both A and B are reachable; no infinite loop
+    expect(subTasks.map((t) => t.id).sort()).toEqual(['A', 'B']);
+  });
+
+  it('handles startTaskId not found in tasks — returns empty results', () => {
+    const tasks = [task('A'), task('B')];
+    // 'MISSING' is not in tasks — outgoing.get will return undefined, BFS visits it
+    // but taskIndex.get returns undefined so it is skipped in cpmTasks
+    const { tasks: subTasks, edges } = buildSubgraph('MISSING', tasks, []);
+    // 'MISSING' is in visited but not in taskIndex — skipped; no crash
+    expect(subTasks).toHaveLength(0);
+    expect(edges).toHaveLength(0);
+  });
+
+  it('does not include edges where only one end is in the subgraph', () => {
+    // A has no links, but a link from X→A exists. Starting from A only includes A.
+    const tasks = [task('A'), task('X')];
+    const links = [link('l1', 'X', 'A')];
+    const { edges } = buildSubgraph('A', tasks, links);
+    // X is not reachable from A, so this edge is excluded
+    expect(edges).toHaveLength(0);
+  });
+
+  it('includes self-loop edge when task links to itself', () => {
+    const tasks = [task('A')];
+    const links = [link('l1', 'A', 'A')];
+    const { edges } = buildSubgraph('A', tasks, links);
+    // A is in visited, A is in visited → internal edge is included
+    expect(edges).toHaveLength(1);
+  });
 });

@@ -13,9 +13,23 @@ vi.mock('@/hooks/useProjectId', () => ({
   useProjectId: () => 'test-project-id',
 }));
 
+// Stub useNavigate to avoid react-router navigation side-effects in JSDOM tests.
+// handleTaskNavigate calls navigate('/') which triggers react-router's fetch machinery
+// and produces an unhandled AbortSignal rejection in the test environment.
+const mockNavigate = vi.fn();
+vi.mock('react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router')>();
+  return { ...actual, useNavigate: () => mockNavigate };
+});
+
 // useShellStats now calls the real API — stub with fixture data for unit tests.
+// Use a hoisted mutable container so individual tests can override the return value.
+import type { ShellStats } from '@/types';
+
+const mockShellStatsContainer = vi.hoisted<{ current: ShellStats | undefined }>(() => ({ current: undefined }));
+
 vi.mock('@/hooks/useShellStats', () => ({
-  useShellStats: () => ({ data: FIXTURE_SHELL_STATS, isLoading: false, error: null }),
+  useShellStats: () => ({ data: mockShellStatsContainer.current, isLoading: false, error: null }),
 }));
 
 // useProjectPresence calls the presence API — stub with empty list for unit tests.
@@ -25,6 +39,7 @@ vi.mock('@/hooks/useProjectPresence', () => ({
 
 beforeEach(() => {
   useThemeStore.setState({ theme: 'auto' });
+  mockShellStatsContainer.current = FIXTURE_SHELL_STATS;
 });
 
 describe('TopBar', () => {
@@ -116,5 +131,108 @@ describe('TopBar', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     await user.click(screen.getByRole('button', { name: /light mode/i }));
     expect(useThemeStore.getState().theme).toBe('light');
+  });
+
+  it('closes health dropdown on outside click', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    const healthBtn = screen.getByRole('button', { name: /project health summary/i });
+    await user.click(healthBtn);
+    expect(healthBtn).toHaveAttribute('aria-expanded', 'true');
+
+    // Click outside the dropdown
+    await user.click(document.body);
+    expect(healthBtn).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('health dropdown menu items are buttons with the correct role', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    const healthBtn = screen.getByRole('button', { name: /project health summary/i });
+    await user.click(healthBtn);
+    // at-risk tasks and critical tasks are rendered as menuitems
+    const menuItems = screen.getAllByRole('menuitem');
+    expect(menuItems.length).toBeGreaterThan(0);
+  });
+
+  it('calls onHamburgerClick when hamburger button is clicked', async () => {
+    const user = userEvent.setup();
+    const onHamburgerClick = vi.fn();
+    renderWithRouter(<TopBar onHamburgerClick={onHamburgerClick} />);
+    await user.click(screen.getByRole('button', { name: /open sidebar/i }));
+    expect(onHamburgerClick).toHaveBeenCalledOnce();
+  });
+
+  it('marks the Board tab as active when on the board route', () => {
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />, {
+      initialEntries: ['/projects/test-project-id/board'],
+    });
+    // The active Board link should have aria-current="page"
+    const boardLink = screen.getByRole('link', { name: /Board/i });
+    expect(boardLink).toHaveAttribute('aria-current', 'page');
+    // Schedule link should NOT have aria-current
+    const scheduleLink = screen.getByRole('link', { name: /Schedule/i });
+    expect(scheduleLink).not.toHaveAttribute('aria-current');
+  });
+
+  it('clicking an at-risk menu item closes the dropdown', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />, {
+      initialEntries: ['/projects/test-project-id/board'],
+    });
+    // Open the health dropdown
+    await user.click(screen.getByRole('button', { name: /project health summary/i }));
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    // Click the first at-risk menuitem (from fixture: "Frontend Build")
+    const items = screen.getAllByRole('menuitem');
+    await user.click(items[0]);
+    // Menu should close
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('clicking a critical menu item closes the dropdown', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />, {
+      initialEntries: ['/projects/test-project-id/board'],
+    });
+    // Open the health dropdown
+    await user.click(screen.getByRole('button', { name: /project health summary/i }));
+    const items = screen.getAllByRole('menuitem');
+    // Fixture: 2 at-risk + 1 critical — click the critical one (last menuitem)
+    await user.click(items[items.length - 1]);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('renders no Health dropdown when stats has no health signals', () => {
+    // Override mockShellStatsData to return stats with no health signals
+    mockShellStatsContainer.current = {
+      ...FIXTURE_SHELL_STATS,
+      monteCarlop80: null,
+      atRiskCount: 0,
+      atRiskTasks: [],
+      criticalCount: 0,
+      criticalTasks: [],
+    };
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    // HealthDropdown renders null when hasBadge is false — no dropdown button
+    expect(screen.queryByRole('button', { name: /project health summary/i })).not.toBeInTheDocument();
+  });
+
+  it('renders no P80 button when monteCarlop80 is null', () => {
+    mockShellStatsContainer.current = { ...FIXTURE_SHELL_STATS, monteCarlop80: null };
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /monte carlo p80/i })).not.toBeInTheDocument();
+  });
+
+  it('renders no at-risk badge when atRiskCount is 0', () => {
+    mockShellStatsContainer.current = { ...FIXTURE_SHELL_STATS, atRiskCount: 0, atRiskTasks: [] };
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /at risk tasks/i })).not.toBeInTheDocument();
+  });
+
+  it('renders no critical badge when criticalCount is 0', () => {
+    mockShellStatsContainer.current = { ...FIXTURE_SHELL_STATS, criticalCount: 0, criticalTasks: [] };
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /1 critical tasks/i })).not.toBeInTheDocument();
   });
 });

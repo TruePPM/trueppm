@@ -101,4 +101,61 @@ describe('collectAllIds', () => {
     const ids = collectAllIds(tree);
     expect(ids.sort()).toEqual(['t1', 't2', 't3', 't4', 't5'].sort());
   });
+
+  it('returns empty array for empty tree', () => {
+    expect(collectAllIds([])).toEqual([]);
+  });
+});
+
+describe('buildWbsTree — parentWbs branch', () => {
+  it('sets parentWbs to parent wbs string when parent exists', () => {
+    const tree = buildWbsTree(FLAT_TASKS);
+    // t2 is a child of t1 (wbs='1') — parentWbs should be '1'
+    const t2Node = tree[0].children[0];
+    expect(t2Node.task.id).toBe('t2');
+    expect(t2Node.parentWbs).toBe('1');
+  });
+
+  it('sets parentWbs to empty string for root nodes', () => {
+    const tree = buildWbsTree(FLAT_TASKS);
+    // t1 is a root node — parentWbs should be ''
+    expect(tree[0].parentWbs).toBe('');
+  });
+
+  it('handles task with parentId that does not exist in the task list (orphan)', () => {
+    // parentId points to a non-existent task — byId.get returns undefined
+    const tasks = [
+      makeTask({ id: 'a', wbs: '1', parentId: 'missing-parent' }),
+    ];
+    // 'a' won't appear under null-parent children so tree is empty
+    const tree = buildWbsTree(tasks);
+    // 'a' is not under null key, so tree is empty — no crash
+    expect(tree).toHaveLength(0);
+  });
+
+  it('wbsCompare handles missing wbs segments (treats missing as 0)', () => {
+    // Two tasks with different wbs depths — shorter one gets 0 for missing segment
+    const tasks = [
+      makeTask({ id: 'b', wbs: '1.2', parentId: null }),
+      makeTask({ id: 'a', wbs: '1', parentId: null }),
+    ];
+    const tree = buildWbsTree(tasks);
+    // '1' < '1.2' — 'a' should come first
+    expect(tree[0].task.id).toBe('a');
+    expect(tree[1].task.id).toBe('b');
+  });
+});
+
+describe('flattenVisible — collapsed subtrees', () => {
+  it('returns empty array for empty tree', () => {
+    expect(flattenVisible([], new Set())).toEqual([]);
+  });
+
+  it('does not include children of leaf nodes even if their id is in expandedIds', () => {
+    // t4 is a leaf (no children) — even if its id is in the set, no extra nodes appear
+    const tree = buildWbsTree(FLAT_TASKS);
+    const visible = flattenVisible(tree, new Set(['t4']));
+    // only root nodes visible (t1, t4) since t1 is not expanded
+    expect(visible.map((n) => n.task.id)).toEqual(['t1', 't4']);
+  });
 });
