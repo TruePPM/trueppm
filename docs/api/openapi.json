@@ -7350,6 +7350,13 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "priority_rank": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true,
+                        "description": "Priority rank within the project; lower is higher priority."
                     }
                 }
             },
@@ -8349,6 +8356,20 @@
                         "type": "integer",
                         "readOnly": true,
                         "nullable": true
+                    },
+                    "status_changed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "When this task last entered its current status column."
+                    },
+                    "priority_rank": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true,
+                        "description": "Priority rank within the project; lower is higher priority."
                     }
                 },
                 "required": [
@@ -8374,6 +8395,7 @@
                     "schedule_variance_days",
                     "server_version",
                     "short_id",
+                    "status_changed_at",
                     "total_float"
                 ]
             },
@@ -8491,6 +8513,13 @@
                                 "$ref": "#/components/schemas/NullEnum"
                             }
                         ]
+                    },
+                    "priority_rank": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true,
+                        "description": "Priority rank within the project; lower is higher priority."
                     }
                 },
                 "required": [
