@@ -31,7 +31,7 @@ trueppm-suite/
 | Database | PostgreSQL | 16+ |
 | Cache | Redis | 7+ |
 | Web UI | React + TypeScript + Vite | 19 / 5.x / 6 |
-| Gantt | SVAR React Gantt (MIT) | latest |
+| Schedule view | Custom canvas renderer (packages/web/src/features/schedule/engine/) | — |
 | E2E tests | Playwright | latest |
 | Scheduler | Python (networkx + numpy) | — |
 | Auth | django-allauth + simplejwt | — |
@@ -135,7 +135,7 @@ cd packages/web && npm test         # web (vitest)
 **Before writing any code, determine if it belongs in the OSS repo or the Enterprise repo.**
 
 ### OSS (trueppm-suite) — Apache 2.0
-Everything in the community edition: scheduling engine, CPM, Monte Carlo, Gantt UI, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, time tracking, baselines, Helm chart, MS Project import/export.
+Everything in the community edition: scheduling engine, CPM, Monte Carlo, schedule view, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, time tracking, baselines, Helm chart, MS Project import/export.
 
 ### Enterprise (trueppm-enterprise) — Proprietary
 Portfolio dashboard, health scores, demand intake, prioritization workspace, cross-project dependencies, resource leveling (cross-project), CCPM, resource heat map (cross-portfolio), schedule forensics (narrative), SSO/SAML/OIDC, LDAP sync, immutable audit trail, custom roles, approval workflows, integration hub (Jira/GitLab/ServiceNow connectors), AI scheduling, scenario modeling, portfolio Monte Carlo, multi-tenancy, HA deployment.
