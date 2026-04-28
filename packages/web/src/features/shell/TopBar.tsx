@@ -7,12 +7,14 @@ import { useScheduleStore } from '@/stores/scheduleStore';
 import { useProjectPresence } from '@/hooks/useProjectPresence';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useThemeStore, type Theme } from '@/stores/themeStore';
+import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
 import { Logo } from './Logo';
 import { ViewTabs } from './ViewTabs';
 import { BadgePopover } from './BadgePopover';
 import { TaskRunIndicator } from './TaskRunIndicator';
 import { PresenceAvatarStack } from './PresenceAvatarStack';
+import { MCResultPanel } from './MCResultPanel';
 
 interface Props {
   onHamburgerClick: () => void;
@@ -167,6 +169,8 @@ export function TopBar({ onHamburgerClick }: Props) {
   const onlineUsers = useProjectPresence(projectId);
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
+  const [showMCPanel, setShowMCPanel] = useState(false);
+  const { data: mcResult } = useMonteCarloResult(projectId ?? undefined);
 
   function handleTaskNavigate(id: string) {
     setSelectedTaskId(id);
@@ -175,6 +179,7 @@ export function TopBar({ onHamburgerClick }: Props) {
   }
 
   return (
+    <>
     <header className="flex items-center h-12 px-4 gap-4 bg-neutral-surface-raised border-b border-neutral-border">
       {/* Hamburger — visible only below md */}
       <button
@@ -199,13 +204,16 @@ export function TopBar({ onHamburgerClick }: Props) {
       <div className="ml-auto flex items-center gap-2">
         {/* Status pills — lg+ shows individually; below lg collapses to Health dropdown */}
         <div className="hidden lg:flex items-center gap-2">
-          {/* P80 — outlined at-risk pill. Click action deferred until MC drawer (#142) ships. */}
+          {/* P80 — outlined at-risk pill; click opens MC distribution panel (issue #196). */}
           {stats?.monteCarlop80 && (
             <button
               type="button"
-              aria-disabled="true"
-              aria-label={`Monte Carlo P80 completion: ${stats.monteCarlop80}`}
+              onClick={() => setShowMCPanel(true)}
+              aria-label={`Monte Carlo P80 completion: ${stats.monteCarlop80}. Click to view distribution.`}
+              aria-haspopup="dialog"
+              aria-expanded={showMCPanel}
               className="flex items-center gap-1 h-6 px-2 rounded border border-semantic-at-risk/80 bg-semantic-at-risk-bg text-[12px] font-medium text-semantic-at-risk
+                hover:bg-semantic-at-risk/10
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               P80:{' '}
@@ -291,5 +299,11 @@ export function TopBar({ onHamburgerClick }: Props) {
         </button>
       </div>
     </header>
+
+    {/* MC distribution panel — opened by clicking the P80 pill (issue #196) */}
+    {showMCPanel && mcResult && (
+      <MCResultPanel result={mcResult} onClose={() => setShowMCPanel(false)} />
+    )}
+  </>
   );
 }

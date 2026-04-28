@@ -37,6 +37,22 @@ vi.mock('@/hooks/useProjectPresence', () => ({
   useProjectPresence: () => [],
 }));
 
+// useMonteCarloResult — stub with fixture data so the MC panel can open.
+vi.mock('@/hooks/useMonteCarloResult', () => ({
+  useMonteCarloResult: () => ({
+    data: {
+      projectId: 'proj-1',
+      runs: 1000,
+      p50: '2026-10-05',
+      p80: '2026-11-03',
+      p95: '2026-11-30',
+      buckets: [],
+    },
+    isLoading: false,
+    error: null,
+  }),
+}));
+
 beforeEach(() => {
   useThemeStore.setState({ theme: 'auto' });
   mockShellStatsContainer.current = FIXTURE_SHELL_STATS;
@@ -234,5 +250,40 @@ describe('TopBar', () => {
     mockShellStatsContainer.current = { ...FIXTURE_SHELL_STATS, criticalCount: 0, criticalTasks: [] };
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /1 critical tasks/i })).not.toBeInTheDocument();
+  });
+
+  // P80 → MC distribution panel (issue #196)
+  it('P80 button is not aria-disabled — it is clickable (issue #196)', () => {
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    const p80Btn = screen.getByRole('button', { name: /monte carlo p80/i });
+    expect(p80Btn).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('clicking P80 button opens MC distribution panel', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    const p80Btn = screen.getByRole('button', { name: /monte carlo p80/i });
+    await user.click(p80Btn);
+    expect(screen.getByRole('dialog', { name: /monte carlo confidence distribution/i })).toBeInTheDocument();
+  });
+
+  it('MC panel shows P50/P80/P95 section labels after P80 button click', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: /monte carlo p80/i }));
+    const dialog = screen.getByRole('dialog', { name: /monte carlo confidence distribution/i });
+    // P50/P80/P95 section labels inside the panel (may appear multiple times with histogram)
+    expect(within(dialog).getAllByText('P50').length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText('P80').length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText('P95').length).toBeGreaterThan(0);
+  });
+
+  it('MC panel can be closed with the close button', async () => {
+    const user = userEvent.setup();
+    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: /monte carlo p80/i }));
+    expect(screen.getByRole('dialog', { name: /monte carlo confidence distribution/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /close monte carlo panel/i }));
+    expect(screen.queryByRole('dialog', { name: /monte carlo confidence distribution/i })).not.toBeInTheDocument();
   });
 });

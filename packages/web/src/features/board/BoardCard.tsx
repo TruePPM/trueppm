@@ -7,6 +7,9 @@ import { severityRagBand } from '@/hooks/useTaskDependencies';
 
 export type BoardDensity = 'compact' | 'comfortable' | 'detailed';
 
+/** Which EVM performance indicators to show on cards (issue #185). */
+export type EvmMode = 'spi' | 'cpi' | 'both' | 'off';
+
 interface BoardCardProps {
   task: Task;
   isOverlay?: boolean;
@@ -29,6 +32,10 @@ interface BoardCardProps {
   /** Hover handlers for chain icon — drives board-level "dim non-connected" state. */
   onChainHoverEnter?: () => void;
   onChainHoverLeave?: () => void;
+  /** Which EVM indicators to show (issue #185). Default 'off'. */
+  showEvm?: EvmMode;
+  /** When true, show budget/cost chips when task has cost data (issue #189). */
+  showCost?: boolean;
 }
 
 /**
@@ -95,6 +102,32 @@ function ReadinessChip({ readiness }: { readiness: TaskReadiness }) {
   }
 }
 
+/**
+ * Compute a simplified SPI (Schedule Performance Index) from baseline dates.
+ * SPI = earned% / planned% where planned% = fraction of baseline duration elapsed.
+ * Returns null when no baseline data or when the task hasn't started per baseline yet.
+ */
+function computeTaskSpi(task: Task): number | null {
+  if (!task.baselineStart || !task.baselineFinish) return null;
+  const baselineStartMs = new Date(task.baselineStart).getTime();
+  const baselineFinishMs = new Date(task.baselineFinish).getTime();
+  const duration = baselineFinishMs - baselineStartMs;
+  if (duration <= 0) return null;
+  const now = Date.now();
+  const elapsed = now - baselineStartMs;
+  if (elapsed <= 0) return null; // hasn't started per baseline
+  const plannedPct = Math.min(100, (elapsed / duration) * 100);
+  if (plannedPct === 0) return null;
+  return task.progress / plannedPct;
+}
+
+/** Format a currency value compactly (e.g. 125000 → "$125K"). */
+function fmtCurrency(value: number): string {
+  if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(value) >= 1_000) return `$${Math.round(value / 1_000)}K`;
+  return `$${Math.round(value)}`;
+}
+
 // Left accent bar color per readiness state (issue #179).
 // CP (critical) overrides all; at-risk overrides estimated/ready/baselined.
 function accentBarClass(task: Task): string {
@@ -143,6 +176,8 @@ export function BoardCard({
   onShowRisks,
   onChainHoverEnter,
   onChainHoverLeave,
+  showEvm = 'off',
+  showCost = false,
 }: BoardCardProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
@@ -195,6 +230,16 @@ export function BoardCard({
   const isIdea = (task.readiness ?? 'estimated') === 'idea';
   const isCompact = density === 'compact';
   const isDetailed = density === 'detailed';
+
+  // EVM indicators (issue #185): SPI computed client-side from baseline; CPI from API field.
+  const spi = computeTaskSpi(task);
+  const cpi = task.cpi ?? null;
+  const showSpiChip = !isCompact && showEvm !== 'off' && (showEvm === 'spi' || showEvm === 'both') && spi !== null;
+  const showCpiChip = !isCompact && showEvm !== 'off' && (showEvm === 'cpi' || showEvm === 'both') && cpi !== null;
+
+  // Cost chip (issue #189): shown when toggle is on and task has BAC data.
+  const hasCostData = task.budgetAtCompletion != null;
+  const showCostChip = showCost && !isCompact && hasCostData;
 
   // PPM signal icons (chain link, risk warn) sit to the left of the ··· menu.
   // ADR-0035 + brand rule 5: 16px icon, ≥44×44 hit area via inset before pseudo-element.
@@ -625,6 +670,69 @@ export function BoardCard({
             >
               {floatDays < 0 && <span aria-hidden="true">⚠</span>}
               <span className="tppm-mono">{floatDays}d float</span>
+            </span>
+          </div>
+        )}
+
+        {/* SPI chip — comfortable + detailed, when showEvm includes 'spi' (issue #185).
+            SPI computed from baseline dates client-side. Green ≥ 0.95, amber 0.85–0.95, red < 0.85. */}
+        {showSpiChip && (
+          <div className="mt-1">
+            <span
+              className={[
+                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
+                spi >= 0.95
+                  ? 'bg-semantic-on-track/10 border-semantic-on-track/30 text-semantic-on-track'
+                  : spi >= 0.85
+                    ? 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark'
+                    : 'bg-semantic-critical/10 border-semantic-critical/30 text-semantic-critical',
+              ].join(' ')}
+              title={`Schedule Performance Index: ${spi.toFixed(2)}`}
+              aria-label={`SPI ${spi.toFixed(2)} — ${spi >= 0.95 ? 'on track' : spi >= 0.85 ? 'at risk' : 'behind schedule'}`}
+            >
+              <span className="tppm-mono">SPI {spi.toFixed(2)}</span>
+            </span>
+          </div>
+        )}
+
+        {/* CPI chip — comfortable + detailed, when showEvm includes 'cpi' and task.cpi is set (issue #185). */}
+        {showCpiChip && (
+          <div className="mt-1">
+            <span
+              className={[
+                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
+                cpi! >= 0.95
+                  ? 'bg-semantic-on-track/10 border-semantic-on-track/30 text-semantic-on-track'
+                  : cpi! >= 0.85
+                    ? 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark'
+                    : 'bg-semantic-critical/10 border-semantic-critical/30 text-semantic-critical',
+              ].join(' ')}
+              title={`Cost Performance Index: ${cpi!.toFixed(2)}`}
+              aria-label={`CPI ${cpi!.toFixed(2)} — ${cpi! >= 0.95 ? 'on budget' : cpi! >= 0.85 ? 'over budget' : 'significantly over budget'}`}
+            >
+              <span className="tppm-mono">CPI {cpi!.toFixed(2)}</span>
+            </span>
+          </div>
+        )}
+
+        {/* Cost chip — when showCost toggle is on and task has cost data (issue #189). */}
+        {showCostChip && (
+          <div className="mt-1">
+            <span
+              className={[
+                'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
+                task.actualCost != null && task.actualCost > task.budgetAtCompletion!
+                  ? 'bg-semantic-critical/10 border-semantic-critical/30 text-semantic-critical'
+                  : 'bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary',
+              ].join(' ')}
+              title={`Actual cost ${task.actualCost != null ? fmtCurrency(task.actualCost) : '—'} of ${fmtCurrency(task.budgetAtCompletion!)}`}
+              aria-label={`Cost: ${task.actualCost != null ? fmtCurrency(task.actualCost) : 'no actuals'} of ${fmtCurrency(task.budgetAtCompletion!)} budget`}
+            >
+              <span className="tppm-mono">
+                {task.actualCost != null ? fmtCurrency(task.actualCost) : '—'}
+                {' / '}
+                {fmtCurrency(task.budgetAtCompletion!)}
+              </span>
             </span>
           </div>
         )}

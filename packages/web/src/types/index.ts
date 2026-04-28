@@ -74,6 +74,12 @@ export interface Task {
   linkedRisksCount?: number;
   /** Max(probability * impact) across active linked risks; null when none. */
   linkedRisksMaxSeverity?: number | null;
+  /** Cost Performance Index = EV / AC. Null until cost data is available (board batch 4). */
+  cpi?: number | null;
+  /** Total planned cost (Budget at Completion). Null until cost data is available (board batch 4). */
+  budgetAtCompletion?: number | null;
+  /** Actual cost incurred to date. Null until cost data is available (board batch 4). */
+  actualCost?: number | null;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */
