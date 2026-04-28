@@ -696,42 +696,42 @@ export function BoardCard({
         )}
 
         {/* CPI chip — comfortable + detailed, when showEvm includes 'cpi' and task.cpi is set (issue #185). */}
-        {showCpiChip && (
+        {showCpiChip && cpi !== null && (
           <div className="mt-1">
             <span
               className={[
                 'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
-                cpi! >= 0.95
+                cpi >= 0.95
                   ? 'bg-semantic-on-track/10 border-semantic-on-track/30 text-semantic-on-track'
-                  : cpi! >= 0.85
+                  : cpi >= 0.85
                     ? 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark'
                     : 'bg-semantic-critical/10 border-semantic-critical/30 text-semantic-critical',
               ].join(' ')}
-              title={`Cost Performance Index: ${cpi!.toFixed(2)}`}
-              aria-label={`CPI ${cpi!.toFixed(2)} — ${cpi! >= 0.95 ? 'on budget' : cpi! >= 0.85 ? 'over budget' : 'significantly over budget'}`}
+              title={`Cost Performance Index: ${cpi.toFixed(2)}`}
+              aria-label={`CPI ${cpi.toFixed(2)} — ${cpi >= 0.95 ? 'on budget' : cpi >= 0.85 ? 'over budget' : 'significantly over budget'}`}
             >
-              <span className="tppm-mono">CPI {cpi!.toFixed(2)}</span>
+              <span className="tppm-mono">CPI {cpi.toFixed(2)}</span>
             </span>
           </div>
         )}
 
         {/* Cost chip — when showCost toggle is on and task has cost data (issue #189). */}
-        {showCostChip && (
+        {showCostChip && task.budgetAtCompletion != null && (
           <div className="mt-1">
             <span
               className={[
                 'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
-                task.actualCost != null && task.actualCost > task.budgetAtCompletion!
+                task.actualCost != null && task.actualCost > task.budgetAtCompletion
                   ? 'bg-semantic-critical/10 border-semantic-critical/30 text-semantic-critical'
                   : 'bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary',
               ].join(' ')}
-              title={`Actual cost ${task.actualCost != null ? fmtCurrency(task.actualCost) : '—'} of ${fmtCurrency(task.budgetAtCompletion!)}`}
-              aria-label={`Cost: ${task.actualCost != null ? fmtCurrency(task.actualCost) : 'no actuals'} of ${fmtCurrency(task.budgetAtCompletion!)} budget`}
+              title={`Actual cost ${task.actualCost != null ? fmtCurrency(task.actualCost) : '—'} of ${fmtCurrency(task.budgetAtCompletion)}`}
+              aria-label={`Cost: ${task.actualCost != null ? fmtCurrency(task.actualCost) : 'no actuals'} of ${fmtCurrency(task.budgetAtCompletion)} budget`}
             >
               <span className="tppm-mono">
                 {task.actualCost != null ? fmtCurrency(task.actualCost) : '—'}
                 {' / '}
-                {fmtCurrency(task.budgetAtCompletion!)}
+                {fmtCurrency(task.budgetAtCompletion)}
               </span>
             </span>
           </div>
