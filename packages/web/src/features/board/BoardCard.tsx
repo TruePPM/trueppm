@@ -3,6 +3,7 @@ import { useDraggable } from '@dnd-kit/core';
 import type { Task, TaskReadiness, TaskStatus } from '@/types';
 import { BoardProgressRing } from './BoardProgressRing';
 import { formatShortDate } from '@/features/gantt/ganttUtils';
+import { severityRagBand } from '@/hooks/useTaskDependencies';
 
 export type BoardDensity = 'compact' | 'comfortable' | 'detailed';
 
@@ -13,6 +14,21 @@ interface BoardCardProps {
   onMenuMove: (newStatus: TaskStatus) => void;
   columns: { status: TaskStatus; label: string; slaDays?: number }[];
   density?: BoardDensity;
+  /**
+   * Per-assignee peak overallocation factor (resourceId → factor > 1.0).
+   * Source: useBoardOverallocation. Optional; absent on the drag overlay.
+   */
+  overallocByResource?: Map<string, number>;
+  /** True when this card is the keyboard-focused card (issue #195). */
+  isKeyboardFocused?: boolean;
+  /** True when card should dim because it's not in the active dep highlight set (issue #182). */
+  isDimmed?: boolean;
+  /** Click handlers for chain / risk icons (issue #182, #188). */
+  onShowDeps?: () => void;
+  onShowRisks?: () => void;
+  /** Hover handlers for chain icon — drives board-level "dim non-connected" state. */
+  onChainHoverEnter?: () => void;
+  onChainHoverLeave?: () => void;
 }
 
 /**
@@ -96,7 +112,38 @@ function cpTooltip(_task: Task): string {
   return 'On critical path — any delay here will delay the project end date';
 }
 
-export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMenuMove, columns, density = 'comfortable' }: BoardCardProps) {
+// Risk icon color band: maps the 5-tier severity register down to a 3-tier
+// RAG palette for icon-scale display (ADR-0035 §Q2).  Full 5-tier breakdown
+// is shown inside the RiskPopover for color-blind safety.
+function riskIconClass(severity: number | null | undefined): string {
+  const band = severityRagBand(severity);
+  switch (band) {
+    case 'red':
+      return 'text-semantic-critical';
+    case 'amber':
+      return 'text-brand-accent-dark dark:text-brand-accent';
+    case 'green':
+      return 'text-semantic-on-track';
+    default:
+      return 'text-neutral-text-disabled';
+  }
+}
+
+export function BoardCard({
+  task,
+  isOverlay,
+  isStalled: isOverrideStalled,
+  onMenuMove,
+  columns,
+  density = 'comfortable',
+  overallocByResource,
+  isKeyboardFocused = false,
+  isDimmed = false,
+  onShowDeps,
+  onShowRisks,
+  onChainHoverEnter,
+  onChainHoverLeave,
+}: BoardCardProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
   });
@@ -148,6 +195,80 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
   const isIdea = (task.readiness ?? 'estimated') === 'idea';
   const isCompact = density === 'compact';
   const isDetailed = density === 'detailed';
+
+  // PPM signal icons (chain link, risk warn) sit to the left of the ··· menu.
+  // ADR-0035 + brand rule 5: 16px icon, ≥44×44 hit area via inset before pseudo-element.
+  const predecessorCount = task.predecessorCount ?? 0;
+  const isBlocked = task.isBlocked ?? false;
+  const linkedRisksCount = task.linkedRisksCount ?? 0;
+  const linkedRisksMaxSeverity = task.linkedRisksMaxSeverity ?? null;
+  const showChain = predecessorCount > 0;
+  const showRisk = linkedRisksCount > 0 && linkedRisksMaxSeverity !== null && linkedRisksMaxSeverity > 0;
+
+  const signalIcons = (showChain || showRisk) ? (
+    <div
+      className={[
+        'absolute top-2 right-9 flex items-center gap-1',
+        density === 'compact' ? 'top-[7px]' : '',
+      ].join(' ')}
+    >
+      {showChain && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onShowDeps?.(); }}
+          onPointerEnter={onChainHoverEnter}
+          onPointerLeave={onChainHoverLeave}
+          onFocus={onChainHoverEnter}
+          onBlur={onChainHoverLeave}
+          className={[
+            'relative w-5 h-5 inline-flex items-center justify-center rounded text-xs',
+            'before:absolute before:inset-[-12px]',
+            'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+            'focus-visible:outline-none',
+            isBlocked ? 'text-semantic-critical' : 'text-neutral-text-secondary',
+            'hover:bg-neutral-surface-raised',
+          ].join(' ')}
+          aria-label={
+            isBlocked
+              ? `Blocked by ${predecessorCount} ${predecessorCount === 1 ? 'dependency' : 'dependencies'}. Press D to view.`
+              : `${predecessorCount} ${predecessorCount === 1 ? 'dependency' : 'dependencies'}. Press D to view.`
+          }
+        >
+          <span aria-hidden="true">🔗</span>
+          {density === 'detailed' && predecessorCount > 1 && (
+            <span className="absolute -bottom-1 -right-1 text-xs tppm-mono leading-none px-0.5 rounded bg-neutral-surface border border-neutral-border">
+              {predecessorCount}
+            </span>
+          )}
+        </button>
+      )}
+      {showRisk && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onShowRisks?.(); }}
+          className={[
+            'relative w-5 h-5 inline-flex items-center justify-center rounded text-xs',
+            'before:absolute before:inset-[-12px]',
+            'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+            'focus-visible:outline-none',
+            riskIconClass(linkedRisksMaxSeverity),
+            'hover:bg-neutral-surface-raised',
+          ].join(' ')}
+          aria-label={
+            `${linkedRisksCount} linked risk${linkedRisksCount === 1 ? '' : 's'}, ` +
+            `severity ${severityRagBand(linkedRisksMaxSeverity) ?? 'low'}. Click to view.`
+          }
+        >
+          <span aria-hidden="true">⚠</span>
+          {linkedRisksCount > 1 && (
+            <span className="absolute -top-1 -right-1 text-xs tppm-mono leading-none px-0.5 rounded bg-neutral-surface border border-neutral-border">
+              {linkedRisksCount}
+            </span>
+          )}
+        </button>
+      )}
+    </div>
+  ) : null;
 
   // Shared menu button rendered in all non-overlay/non-dragging states
   const menuButton = (
@@ -223,11 +344,16 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
   const containerClass = [
     'bg-neutral-surface border rounded-md cursor-grab active:cursor-grabbing relative group',
     'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+    'transition-opacity duration-150',
     task.isCritical
       ? 'border-semantic-critical border-2'
       : isIdea
         ? 'border-dashed border-neutral-border'
         : 'border-neutral-border',
+    isKeyboardFocused
+      ? 'ring-2 ring-brand-primary ring-offset-1 ring-offset-neutral-surface-sunken'
+      : '',
+    isDimmed ? 'opacity-40' : '',
   ].join(' ');
 
   // Overlay card — the floating drag copy (rule 102)
@@ -305,6 +431,7 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
         <div className="absolute bottom-0 left-1 right-1 h-[3px] rounded-full overflow-hidden bg-neutral-border" aria-hidden="true">
           <div className={`h-full ${progressColor}`} style={{ width: `${task.progress}%` }} />
         </div>
+        {signalIcons}
         {menuButton}
       </div>
     );
@@ -406,16 +533,40 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
               </span>
             ) : (
               <>
-                {visibleAssignees.map((a) => (
-                  <span
-                    key={a.resourceId}
-                    className="inline-block px-1 py-px rounded text-xs text-white bg-brand-primary font-bold"
-                    title={`${a.name} (${Math.round(a.units * 100)}%)`}
-                    aria-hidden="true"
-                  >
-                    {initials(a.name)}
-                  </span>
-                ))}
+                {visibleAssignees.map((a) => {
+                  const overFactor = overallocByResource?.get(a.resourceId);
+                  const overTooltip = overFactor
+                    ? `${a.name} — ${overFactor.toFixed(1)}× allocated during this task ` +
+                      `(calendar exceptions not applied)`
+                    : `${a.name} (${Math.round(a.units * 100)}%)`;
+                  return (
+                    <span
+                      key={a.resourceId}
+                      className="relative inline-block"
+                      title={overTooltip}
+                    >
+                      <span
+                        className="inline-block px-1 py-px rounded text-xs text-white bg-brand-primary font-bold"
+                        aria-label={overFactor ? `${a.name}, overallocated` : a.name}
+                      >
+                        {initials(a.name)}
+                      </span>
+                      {overFactor && (
+                        <>
+                          <span
+                            aria-hidden="true"
+                            className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-semantic-critical border border-neutral-surface"
+                          />
+                          {isDetailed && (
+                            <span className="ml-1 inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border bg-semantic-critical/10 border-semantic-critical/30 text-semantic-critical tppm-mono">
+                              {overFactor.toFixed(1)}×
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </span>
+                  );
+                })}
                 {hiddenCount > 0 && (
                   <span
                     className="inline-block px-1 py-px rounded text-xs text-white bg-brand-primary font-bold"
@@ -517,6 +668,7 @@ export function BoardCard({ task, isOverlay, isStalled: isOverrideStalled, onMen
         )}
       </div>{/* end padding wrapper */}
 
+      {signalIcons}
       {menuButton}
     </div>
   );

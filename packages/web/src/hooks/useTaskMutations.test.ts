@@ -204,6 +204,30 @@ describe('useCreateTask', () => {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] }),
     );
   });
+
+  it('includes parent_id in the POST body when provided (non-null)', async () => {
+    const { result } = renderHook(() => useCreateTask('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ name: 'Child Task', duration: 3, parent_id: 'phase-1' });
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/tasks/', expect.objectContaining({ parent_id: 'phase-1' })),
+    );
+  });
+
+  it('includes status in the POST body when provided (non-null)', async () => {
+    const { result } = renderHook(() => useCreateTask('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ name: 'Status Task', duration: 3, status: 'IN_PROGRESS' });
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/tasks/', expect.objectContaining({ status: 'IN_PROGRESS' })),
+    );
+  });
+
+  it('omits parent_id from the POST body when parent_id is null', async () => {
+    const { result } = renderHook(() => useCreateTask('p1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ name: 'Root Task', duration: 3, parent_id: null });
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    const callArgs = postMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(callArgs).not.toHaveProperty('parent_id');
+  });
 });
 
 describe('useUpdateTask', () => {

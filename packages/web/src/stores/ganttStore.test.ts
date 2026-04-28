@@ -26,4 +26,15 @@ describe('useGanttStore', () => {
     useGanttStore.getState().setSelectedTaskId(null);
     expect(useGanttStore.getState().selectedTaskId).toBeNull();
   });
+
+  it('scrollToTask sets scrollToTaskId', () => {
+    useGanttStore.getState().scrollToTask('t2');
+    expect(useGanttStore.getState().scrollToTaskId).toBe('t2');
+  });
+
+  it('scrollToTask(null) clears scrollToTaskId', () => {
+    useGanttStore.setState({ scrollToTaskId: 't2' });
+    useGanttStore.getState().scrollToTask(null);
+    expect(useGanttStore.getState().scrollToTaskId).toBeNull();
+  });
 });

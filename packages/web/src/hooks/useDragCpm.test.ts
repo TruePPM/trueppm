@@ -353,5 +353,69 @@ describe('useDragCpm', () => {
       expect(useDragStore.getState().phase).toBe('dragging');
       expect(engine.cancelDragCalled).toBe(false);
     });
+
+    it('ignores non-Escape keys', () => {
+      const engine = new ControllableEngine();
+      renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      void act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' })));
+      // Enter must not cancel the drag
+      expect(useDragStore.getState().phase).toBe('dragging');
+      expect(engine.cancelDragCalled).toBe(false);
+    });
+
+    it('works without a keyboardModeRef (optional ref not provided)', () => {
+      const engine = new ControllableEngine();
+      // renderCpm without a keyboardModeRef — exercises the keyboardModeRef?.current optional chain
+      const ariaLiveRef = makeAriaRef();
+      renderHook(() =>
+        useDragCpm({ engine, tasks: TASKS, links: LINKS, ariaLiveRef }),
+      );
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      void act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+      expect(useDragStore.getState().phase).toBe('idle');
+    });
+
+    it('writes aria-live text on Escape cancel when ariaLiveRef is attached', () => {
+      const engine = new ControllableEngine();
+      const { ariaLiveRef } = renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      void act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+      expect(ariaLiveRef.current?.textContent).toBe('Drag cancelled');
+    });
+  });
+
+  describe('drag-task-end cancelled branch — aria-live text', () => {
+    it('writes "Drag cancelled" to aria-live when drag-task-end is cancelled', () => {
+      const engine = new ControllableEngine();
+      const { ariaLiveRef } = renderCpm(engine);
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      void act(() => engine.emit('drag-task-end', { id: 't1', left: 0, cancelled: true }));
+      expect(ariaLiveRef.current?.textContent).toBe('Drag cancelled');
+    });
+
+    it('does not throw when ariaLiveRef.current is null on cancelled drag-task-end', () => {
+      const engine = new ControllableEngine();
+      const ariaLiveRef: MutableRefObject<HTMLDivElement | null> = { current: null };
+      renderHook(() =>
+        useDragCpm({ engine, tasks: TASKS, links: LINKS, ariaLiveRef }),
+      );
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      expect(() => {
+        act(() => engine.emit('drag-task-end', { id: 't1', left: 0, cancelled: true }));
+      }).not.toThrow();
+    });
+
+    it('does not throw when ariaLiveRef.current is null on Escape cancel', () => {
+      const engine = new ControllableEngine();
+      const ariaLiveRef: MutableRefObject<HTMLDivElement | null> = { current: null };
+      renderHook(() =>
+        useDragCpm({ engine, tasks: TASKS, links: LINKS, ariaLiveRef }),
+      );
+      void act(() => engine.emit('drag-task', { id: 't1' }));
+      expect(() => {
+        void act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+      }).not.toThrow();
+    });
   });
 });

@@ -23,6 +23,8 @@ const FIXTURE_TASKS = [
     duration: 30, percent_complete: 55, is_critical: false,
     is_milestone: false, is_summary: true, parent_id: null,
     status: 'IN_PROGRESS', assignees: [], total_float: null,
+    predecessor_count: 0, is_blocked: false,
+    linked_risks_count: 0, linked_risks_max_severity: null,
   },
   {
     id: 'b2', wbs_path: '1.1', name: 'Design',
@@ -30,6 +32,8 @@ const FIXTURE_TASKS = [
     duration: 10, percent_complete: 100, is_critical: false,
     is_milestone: false, is_summary: false, parent_id: 'b1',
     status: 'COMPLETE', assignees: [], total_float: null,
+    predecessor_count: 0, is_blocked: false,
+    linked_risks_count: 0, linked_risks_max_severity: null,
   },
   {
     id: 'b3', wbs_path: '1.2', name: 'Build',
@@ -37,6 +41,9 @@ const FIXTURE_TASKS = [
     duration: 10, percent_complete: 60, is_critical: false,
     is_milestone: false, is_summary: false, parent_id: 'b1',
     status: 'IN_PROGRESS', assignees: [], total_float: null,
+    // b3 PPM signals: 2 predecessors (one not complete) → blocked + 1 risk severity 18.
+    predecessor_count: 2, is_blocked: true,
+    linked_risks_count: 1, linked_risks_max_severity: 18,
   },
 ];
 
@@ -112,8 +119,40 @@ async function setup(page: import('@playwright/test').Page) {
       });
     }
   });
-  await page.route('**/api/v1/dependencies/**', (route) =>
+  await page.route('**/api/v1/dependencies/**', (route) => {
+    const url = route.request().url();
+    if (url.includes('task=b3')) {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 2,
+          next: null,
+          previous: null,
+          results: [
+            { id: 'd1', predecessor: 'b2', successor: 'b3', dep_type: 'FS', lag: 0 },
+            { id: 'd2', predecessor: 'b3', successor: 'b1', dep_type: 'FS', lag: 0 },
+          ],
+        }),
+      });
+      return;
+    }
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) });
+  });
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/risks/**`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
+  );
+  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/resource-allocation/**`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        project_id: FIXTURE_PROJECT_ID,
+        window_start: '2026-01-01',
+        window_end: '2026-03-01',
+        resources: [],
+      }),
+    }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/board-config/`, (route) =>
     route.fulfill({
@@ -195,5 +234,43 @@ test.describe('Board view', () => {
     const toggle = page.getByLabel('Show column tints');
     await expect(toggle).toBeVisible();
     await expect(toggle).toBeChecked();
+  });
+
+  // -------------------------------------------------------------------------
+  // Board batch 3 — PPM signals on cards (issues #182 #184 #187 #188 #195).
+  // -------------------------------------------------------------------------
+
+  test('blocked dependency icon renders on Build card (issue #182)', async ({ page }) => {
+    await expect(page.getByLabel(/Blocked by 2 dependencies\. Press D to view\./)).toBeVisible();
+  });
+
+  test('risk linkage icon renders with severity-aware aria-label (issue #188)', async ({ page }) => {
+    await expect(page.getByLabel(/1 linked risk, severity red\. Click to view\./)).toBeVisible();
+  });
+
+  test('? opens the keyboard cheatsheet and Esc closes it (issue #195)', async ({ page }) => {
+    await page.keyboard.press('?');
+    const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('Next card in column')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+  });
+
+  test('Risk-linked-only filter pill toggles aria-pressed (issue #188)', async ({ page }) => {
+    const pill = page.getByRole('button', { name: 'Risk-linked only' });
+    await expect(pill).toHaveAttribute('aria-pressed', 'false');
+    await pill.click();
+    await expect(pill).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  test('clicking the chain icon opens the dependency popover with both directions (issue #182)', async ({ page }) => {
+    await page.getByLabel(/Blocked by 2 dependencies\. Press D to view\./).click();
+    const dialog = page.getByRole('dialog', { name: 'Dependencies' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText(/Predecessors \(1\)/)).toBeVisible();
+    await expect(dialog.getByText(/Successors \(1\)/)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
   });
 });

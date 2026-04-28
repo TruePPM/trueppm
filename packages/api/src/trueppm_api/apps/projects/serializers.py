@@ -121,6 +121,16 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # added by TaskViewSet.get_queryset().
     readiness = serializers.SerializerMethodField()
 
+    # Board batch 3 PPM signal annotations (ADR-0035).  Populated by
+    # TaskViewSet.get_queryset(); default to safe zero values for callers that
+    # bypass the viewset (e.g. nested serialization in tests).
+    predecessor_count = serializers.IntegerField(read_only=True, default=0)
+    is_blocked = serializers.BooleanField(read_only=True, default=False)
+    linked_risks_count = serializers.IntegerField(read_only=True, default=0)
+    linked_risks_max_severity = serializers.IntegerField(
+        read_only=True, allow_null=True, default=None
+    )
+
     class Meta:
         model = Task
         fields = [
@@ -157,6 +167,10 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "parent_id",
             "assignments",
             "readiness",
+            "predecessor_count",
+            "is_blocked",
+            "linked_risks_count",
+            "linked_risks_max_severity",
         ]
         read_only_fields = [
             "id",
@@ -176,6 +190,10 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "parent_id",
             "assignments",
             "readiness",
+            "predecessor_count",
+            "is_blocked",
+            "linked_risks_count",
+            "linked_risks_max_severity",
         ]
 
     def get_schedule_variance_days(self, obj: Task) -> int | None:

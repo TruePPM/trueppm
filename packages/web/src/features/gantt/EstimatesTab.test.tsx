@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@/test/utils';
 import { EstimatesTab } from './EstimatesTab';
 import type { Task } from '@/types';
@@ -198,5 +198,109 @@ describe('EstimatesTab — suggest_approve mode', () => {
       />,
     );
     expect(screen.getByRole('region', { name: /PERT/i })).toBeInTheDocument();
+  });
+
+  it('shows guidance for non-scheduler in suggest_approve with no pending banner', () => {
+    // estimateStatus null, estimationMode suggest_approve, non-scheduler
+    renderWithProviders(
+      <EstimatesTab
+        task={baseTask}
+        projectId="p1"
+        estimationMode="suggest_approve"
+        userIsScheduler={false}
+      />,
+    );
+    expect(screen.getByText(/awaiting scheduler review|submitted for scheduler approval/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Blur handlers and debounced update
+// ---------------------------------------------------------------------------
+
+describe('EstimatesTab — blur handlers', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
+
+  it('fires a PATCH for optimistic duration after blur + debounce', async () => {
+    renderWithProviders(
+      <EstimatesTab
+        task={baseTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+      />,
+    );
+    const input = screen.getByLabelText(/Optimistic/i);
+    fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.blur(input);
+    await vi.runAllTimersAsync();
+    expect(patchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/tasks/t1/'),
+      expect.objectContaining({ optimistic_duration: 5 }),
+    );
+  });
+
+  it('fires a PATCH for most-likely duration after blur + debounce', async () => {
+    renderWithProviders(
+      <EstimatesTab
+        task={baseTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+      />,
+    );
+    const input = screen.getByLabelText(/Most Likely/i);
+    fireEvent.change(input, { target: { value: '8' } });
+    fireEvent.blur(input);
+    await vi.runAllTimersAsync();
+    expect(patchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/tasks/t1/'),
+      expect.objectContaining({ most_likely_duration: 8 }),
+    );
+  });
+
+  it('fires a PATCH for pessimistic duration after blur + debounce', async () => {
+    renderWithProviders(
+      <EstimatesTab
+        task={baseTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+      />,
+    );
+    const input = screen.getByLabelText(/Pessimistic/i);
+    fireEvent.change(input, { target: { value: '15' } });
+    fireEvent.blur(input);
+    await vi.runAllTimersAsync();
+    expect(patchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/tasks/t1/'),
+      expect.objectContaining({ pessimistic_duration: 15 }),
+    );
+  });
+
+  it('sends null when the field is cleared (empty string)', async () => {
+    renderWithProviders(
+      <EstimatesTab
+        task={{ ...baseTask, optimisticDuration: 5 }}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+      />,
+    );
+    const input = screen.getByLabelText(/Optimistic/i);
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+    await vi.runAllTimersAsync();
+    expect(patchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/tasks/t1/'),
+      expect.objectContaining({ optimistic_duration: null }),
+    );
   });
 });

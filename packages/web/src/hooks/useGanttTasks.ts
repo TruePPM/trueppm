@@ -36,6 +36,11 @@ interface ApiTask {
   pessimistic_duration: number | null;
   estimate_status: 'pending' | 'accepted' | null;
   total_float: number | null;
+  // Board batch 3 (ADR-0035) — PPM signal annotations.
+  predecessor_count?: number;
+  is_blocked?: boolean;
+  linked_risks_count?: number;
+  linked_risks_max_severity?: number | null;
   assignments?: Array<{
     resource_id: string;
     resource_name: string;
@@ -125,6 +130,10 @@ function mapTask(t: ApiTask): Task {
     pessimisticDuration: t.pessimistic_duration,
     estimateStatus: t.estimate_status,
     totalFloat: t.total_float,
+    predecessorCount: t.predecessor_count ?? 0,
+    isBlocked: t.is_blocked ?? false,
+    linkedRisksCount: t.linked_risks_count ?? 0,
+    linkedRisksMaxSeverity: t.linked_risks_max_severity ?? null,
   };
 }
 
