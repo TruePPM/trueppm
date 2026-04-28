@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
 import { useResourceAllocation } from './useResourceAllocation';
 import { parseUTCDate, formatISODate, addDays } from '@/features/resource/resourceUtils';
-import type { AllocationTask } from '@/features/resource/resourceUtils';
 
 export interface OverallocationKeyParts {
   resourceId: string;
@@ -59,7 +58,7 @@ export function useBoardOverallocation(projectId: string | null | undefined): Bo
 
       // Build day → total_units across all tasks assigned to this resource.
       const dayUnits = new Map<string, number>();
-      for (const t of resource.tasks as AllocationTask[]) {
+      for (const t of resource.tasks) {
         if (!t.early_start || !t.early_finish) continue;
         const units = parseFloat(t.units);
         let cur = parseUTCDate(t.early_start);
@@ -72,7 +71,7 @@ export function useBoardOverallocation(projectId: string | null | undefined): Bo
       }
 
       // For each task: peak factor = max(dayUnits[day] / max) within its window.
-      for (const t of resource.tasks as AllocationTask[]) {
+      for (const t of resource.tasks) {
         if (!t.early_start || !t.early_finish) continue;
         let peak = 0;
         let cur = parseUTCDate(t.early_start);

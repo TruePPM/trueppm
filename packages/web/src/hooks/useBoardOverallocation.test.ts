@@ -8,7 +8,6 @@ vi.mock('./useResourceAllocation', () => ({
   useResourceAllocation: vi.fn(),
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 import { useResourceAllocation } from './useResourceAllocation';
 const mocked = useResourceAllocation as unknown as ReturnType<typeof vi.fn>;
 

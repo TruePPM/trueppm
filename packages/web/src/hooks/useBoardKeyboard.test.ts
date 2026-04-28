@@ -36,7 +36,7 @@ describe('useBoardKeyboard', () => {
     dispatch('h');
     dispatch('ArrowLeft');
 
-    expect(onMoveColumnFocus.mock.calls.map((c) => c[0])).toEqual([
+    expect(onMoveColumnFocus.mock.calls.map((c: unknown[]) => c[0])).toEqual([
       'right',
       'right',
       'left',

@@ -66,7 +66,7 @@ export function RiskPopover({ projectId, task, onClose }: RiskPopoverProps) {
 
   const handleOpenRegister = () => {
     onClose();
-    navigate(`/projects/${projectId}/risks`);
+    void navigate(`/projects/${projectId}/risks`);
   };
 
   return (
