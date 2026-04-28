@@ -263,38 +263,58 @@ at any single point on the curve (one project at a time), it could be OSS.
 
 **Name**: Alex Rivera
 **Title**: Scrum Master & Agile Delivery Lead, Mid-size SaaS Product Company (120 engineers)
-**Age**: 34 | **Tech comfort**: Very high (uses Jira, Linear, Confluence, Miro daily; CSM certified)
+**Age**: 34 | **Tech comfort**: Very high (uses Jira, Linear, Confluence, Miro daily; PSM I certified — Professional Scrum Master, scrum.org)
+
+**Scrum Guide accuracy notes** (Scrum Guide 2020, Schwaber & Sutherland):
+- The four named Sprint events are: Sprint Planning, Daily Scrum, Sprint Review, Sprint Retrospective.
+  "Daily standup" is informal colloquial usage, not the official term.
+- Velocity and burndown/burn-up are **not** defined in the Scrum Guide 2020. They are XP-era
+  practice-layer metrics widely adopted in the Scrum community but outside the framework proper.
+  The Guide mentions burndown/burn-up in one sentence as optional forecasting tools.
+- Story points are XP-origin (Ron Jeffries), not a Scrum artifact. The Guide says Developers are
+  responsible for sizing but specifies no unit. Story points remain the dominant practice (~61%
+  of teams per Parabol 2024 data) but face growing pressure from #NoEstimates / flow-metrics advocates.
+- WIP limits are Kanban (Kanban Method, David Anderson), not Scrum. Including them in a sprint
+  model creates a Scrumban hybrid — a real and recognized pattern, but not vanilla Scrum.
+- Scope protection mid-sprint: the Scrum Guide assigns scope negotiation to the Developers +
+  Product Owner jointly, not the Scrum Master. The SM's role is to coach and facilitate, and to
+  remove impediments. Framing scope creep as "Alex's #1 enemy" is realistic practitioner language,
+  but it is a coaching accountability, not a gatekeeper authority.
+- At 120 engineers (~12–15 Scrum Teams), Alex likely serves 2–3 teams, not one. The "Agile
+  Delivery Lead" part of the title reflects this multi-team scope and the PMO-bridge responsibility,
+  which is closer to an Agile Coach or Release Train Engineer (SAFe) accountability than a
+  single-team SM.
 
 **Goals**:
-- Run lean sprint ceremonies: planning, daily standup, review, retrospective — without 4-hour Jira admin sessions
-- Give the team a clear sprint commitment and protect it from mid-sprint scope injection
-- Produce velocity and burndown data that stakeholders actually trust
-- Bridge the gap between agile delivery and the Gantt-speak that Sarah (PM) and Marcus (PMO) require upward
-- Track team health: are people burning out? Is WIP creeping up silently?
+- Run lean Sprint events: Sprint Planning, Daily Scrum, Sprint Review, Retrospective — without 4-hour Jira admin sessions
+- Coach the team and Product Owner to protect the Sprint Goal from mid-sprint scope changes (SM accountability is facilitation and coaching, not gatekeeping — the PO owns scope negotiation)
+- Produce velocity and throughput data stakeholders actually trust — and start the conversation about moving toward flow metrics (cycle time, throughput) as the team matures
+- Bridge the gap between agile delivery and the Gantt-speak that Sarah (PM) and Marcus (PMO) require upward — this is the "Agile Delivery Lead" hat, not a core Scrum Master responsibility
+- Track team health across 2–3 teams: are people burning out? Is WIP creeping up silently?
 
 **Pain points**:
-- "I work in two-week sprints. Every PM tool I've seen thinks in months. I'm a different animal."
-- "Boards are great for tracking status, but I need a *sprint container* — a bounded commitment window with a start, end, goal, and burndown. A board is just a column layout."
-- "I have to run sprint planning in Jira and then re-enter everything into the PM tool so Sarah knows what the team committed to this sprint. That's insane."
-- "Velocity doesn't exist in any PM tool I've used. I export to Google Sheets and chart it myself every sprint."
-- "Stakeholders always ask 'when will feature X be done?' I can answer that probabilistically from velocity but there's no tool that connects my sprint cadence to the project timeline."
+- "I work in two-week Sprints. Every PM tool I've seen thinks in months. I'm a different animal."
+- "Boards are great for tracking status, but I need a *Sprint container* — a bounded commitment window with a start, end, goal, and burndown. A board is just a column layout."
+- "I have to run Sprint Planning in Jira and then re-enter everything into the PM tool so Sarah knows what the team committed to this Sprint. That's insane."
+- "Velocity doesn't exist in any PM tool I've used. I export to Google Sheets and chart it myself every Sprint. And half my stakeholders don't even trust story points anymore — they want cycle time."
+- "Stakeholders always ask 'when will feature X be done?' I can answer that probabilistically from velocity but there's no tool that connects my Sprint cadence to the project timeline."
 - "Retrospective action items get logged and forgotten. I need them to become backlog items automatically."
-- "Scope creep mid-sprint is my #1 enemy. The tool should make it *visible and painful* to add scope after sprint start, not invisible."
+- "Mid-Sprint scope changes are a team health issue. The tool should make additions visible and require a deliberate decision — not let them slip in quietly."
 
 **What would make them switch tools**:
-- First-class sprint model: sprint container with goal, capacity, start/end dates, and burndown built-in
-- Velocity chart across the last 8 sprints — calculated automatically, not exported to Sheets
-- WIP limits enforced on board columns (not just visual, but a warning when exceeded)
-- A "sprint forecast" view: given current velocity, when do we finish the backlog?
-- Retro-to-backlog pipeline: retrospective action items flow into the next sprint's backlog without copy-paste
-- One-click "promote sprint commitment to Gantt milestone" so Sarah gets her project timeline update automatically
+- First-class Sprint model: Sprint container with goal, capacity, start/end dates, and burndown built-in
+- Velocity chart across the last 8 Sprints — calculated automatically, not exported to Sheets; with a spread/range for forecasting, not just a point estimate
+- WIP limits on board columns (Kanban-origin practice — Scrumban hybrid is fine; just needs to be a warning when exceeded)
+- A Sprint forecast view: given current velocity and remaining backlog, when do we finish?
+- Retro-to-backlog pipeline: Retrospective action items flow into the next Sprint's backlog without copy-paste
+- One-click "promote Sprint commitment to Gantt milestone" so Sarah gets her project timeline update automatically
 
 **Evaluation criteria** (in order):
-1. Does it have a proper sprint model, or just a board with dates bolted on?
+1. Does it have a proper Sprint model (Goal, Sprint Backlog, burndown), or just a board with dates bolted on?
 2. Can I see velocity trend without opening a spreadsheet?
-3. Does it enforce WIP limits, or just let columns pile up infinitely?
-4. Can I forecast delivery dates from sprint velocity and remaining backlog?
-5. Does it reduce the ceremony overhead, or add to it?
+3. Does it surface WIP overload before it becomes a team health problem?
+4. Can I forecast delivery from Sprint velocity and remaining backlog — with a range, not a false-precision date?
+5. Does it reduce ceremony overhead, or add to it?
 6. Can it coexist with the Gantt/milestone view that the traditional PM upstairs uses?
 
 ---

@@ -225,6 +225,13 @@ disconnected from actual resource availability.
 **always** the count of tasks that completed *within the sprint window*, not the
 final state of carry-over targets.
 
+**Scrum Guide alignment:** The Guide (2020) states that incomplete Sprint Backlog
+items "return to the Product Backlog for future consideration." This makes
+`"backlog"` the canonically correct default — re-selection for a future sprint
+is a Product Owner prioritization decision, not an automatic carry-forward.
+Offering `<sprint-id>` as an option is a convenience feature beyond what the
+Guide prescribes, but it is common real-world practice and explicitly opt-in.
+
 ### Q3 — Velocity storage
 
 **Snapshotted on the Sprint model at close, not computed on the fly.** Reason:
@@ -245,7 +252,7 @@ contribute to task-count velocity. The frontend velocity chart defaults to
 points if any sprint in the project has non-null `committed_points`; falls back
 to task count otherwise.
 
-**Amendment (VoC 2026-04-28): velocity standard deviation and confidence band**
+**Amendment (VoC 2026-04-28): velocity standard deviation and forecast range**
 
 `GET /api/projects/{project_id}/velocity/` response includes standard deviation
 fields alongside each data point and as a rolling summary:
@@ -255,19 +262,25 @@ fields alongside each data point and as a rolling summary:
   "sprints": [...],
   "rolling_avg_points": 38.5,
   "rolling_stdev_points": 6.2,
-  "confidence_band_low": 32,
-  "confidence_band_high": 45,
+  "forecast_range_low": 32,
+  "forecast_range_high": 45,
   "rolling_avg_tasks": 14.1,
   "rolling_stdev_tasks": 2.4
 }
 ```
 
-The frontend renders the confidence band as a shaded area around the rolling
+The frontend renders the forecast range as a shaded area around the rolling
 average line on the velocity chart. Sprint forecast reads
-`confidence_band_low` and `confidence_band_high` to present "5–8 sprints
+`forecast_range_low` and `forecast_range_high` to present "5–8 sprints
 remaining" rather than a false-precision point estimate. Rationale: Alex's VoC
 suggestion — stakeholders trust a range more than a single number, and the
-band naturally feeds the sprint forecast view without additional computation.
+spread naturally feeds the sprint forecast view without additional computation.
+
+**Terminology note:** "velocity confidence band" is not an industry-standard term;
+"forecast range" is preferred. Velocity itself is XP-origin (not in the Scrum
+Guide 2020) but is real-world standard practice. The Guide mentions burndown/burn-up
+in a single sentence as optional forecasting tools — neither is required by the
+framework. TruePPM surfaces them as practice-layer tools, not Scrum mandates.
 
 ### Q4 — Burndown data
 
@@ -409,7 +422,7 @@ velocity snapshots on close, burndown daily snapshots, sprint planning UI, board
 sprint filter, velocity chart, REST endpoints, mobile sync of sprint entities.
 
 **Deferred:**
-- Server-side WIP limits (frontend-only is acceptable until ADR-0013 amendment)
+- Server-side WIP limits (frontend-only is acceptable until ADR-0013 amendment; note: WIP limits are Kanban-origin, not Scrum — implementing them creates a Scrumban hybrid, which is a recognised and common pattern but should be documented as such, not presented as a Scrum feature)
 - CPM feedback from velocity (v1.1)
 - Retrospective action item → backlog pipeline (separate ADR)
 - Sprint forecast view ("when will the backlog finish?") — additive once velocity exists
