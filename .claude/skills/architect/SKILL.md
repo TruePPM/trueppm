@@ -39,6 +39,9 @@ Operations             ← Outcomes, Benefits, Value Performance Analysis (feeds
 A feature that aggregates across projects (moving upward toward Portfolio/Senior Leadership)
 belongs in Enterprise. State the layer in the ADR Context section.
 
+**Persona context**: For persona definitions, who sits at each layer, and feature resonance
+rules (which personas → OSS vs. Enterprise), read `.claude/personas.md`.
+
 ## Product Life Cycle Model
 
 Projects serve a product moving through its life cycle. Programs group related projects
