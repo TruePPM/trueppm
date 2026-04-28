@@ -20,23 +20,18 @@ vi.mock('@/hooks/useProjects', () => ({
 
 // Stub NewProjectModal to a simple dialog — avoids needing useProjectMutations in Sidebar tests.
 // The real modal is tested in NewProjectModal.test.tsx.
-let capturedOnClose: (() => void) | null = null;
 vi.mock('./NewProjectModal', () => ({
-  NewProjectModal: ({ onClose }: { onClose: () => void; onCreated: (id: string) => void }) => {
-    capturedOnClose = onClose;
-    return (
-      <div role="dialog" aria-label="New project">
-        <button onClick={onClose}>Cancel</button>
-      </div>
-    );
-  },
+  NewProjectModal: ({ onClose }: { onClose: () => void; onCreated: (id: string) => void }) => (
+    <div role="dialog" aria-label="New project">
+      <button onClick={onClose}>Cancel</button>
+    </div>
+  ),
 }));
 
 describe('Sidebar', () => {
   beforeEach(() => {
     useShellStore.setState({ sidebarCollapsed: false, sidebarUserControlled: false });
     mockProjectsResult = { data: FIXTURE_PROJECTS, isLoading: false, error: null };
-    capturedOnClose = null;
   });
 
   it('renders project list navigation', () => {

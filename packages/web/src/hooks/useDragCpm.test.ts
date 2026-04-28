@@ -414,7 +414,7 @@ describe('useDragCpm', () => {
       );
       void act(() => engine.emit('drag-task', { id: 't1' }));
       expect(() => {
-        act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+        void act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
       }).not.toThrow();
     });
   });

@@ -142,7 +142,7 @@ describe('useTaskHistory', () => {
     expect(result.current.hasNextPage).toBe(true);
 
     // Fetch page 2 — this exercises the getNextPageParam truthy branch
-    result.current.fetchNextPage();
+    void result.current.fetchNextPage();
     await waitFor(() => expect(result.current.isFetchingNextPage).toBe(false));
 
     expect(getMock).toHaveBeenCalledTimes(2);
