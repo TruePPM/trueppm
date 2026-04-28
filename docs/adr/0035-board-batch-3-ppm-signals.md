@@ -223,8 +223,15 @@ No helm changes.
 4. `DependencyViewSet` adds `?task=<uuid>` filter (returns where `predecessor=task` OR `successor=task`).
 
 ### OSS or Enterprise
-**OSS** — all features are single-project intelligence. Cross-project risk
-rollups, portfolio overalloc heat maps, etc. remain Enterprise.
+**OSS** — all features are single-project intelligence. Explicit Enterprise-only items:
+- Cross-project risk rollups and portfolio risk aggregation (Enterprise — requires
+  aggregating `Risk` rows across projects; violates the OSS single-project boundary)
+- Portfolio overallocation heat maps (Enterprise — ADR-0030/ADR-0033)
+- Risk-triggered approval workflows (Enterprise — no policy engine in OSS)
+- Org-wide risk reporting / SOC 2 evidence export (Enterprise — cross-project aggregation)
+
+The `risk_changed` signal from ADR-0010 is the OSS extension point; Enterprise attaches
+receivers without modifying any OSS code.
 
 ### Durable Execution
 

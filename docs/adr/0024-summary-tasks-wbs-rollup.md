@@ -33,7 +33,7 @@ Programs and Projects — single-project WBS hierarchy. OSS repo.
 1. Indent/outdent must not change task dates or assignments — only hierarchy
 2. When a task gains children and had assignments, warn (don't block)
 3. Duration-weighted percent_complete rollup
-4. Gantt summary bars visually distinct + collapse/expand
+4. Schedule view summary bars visually distinct + collapse/expand
 5. Tab/Shift+Tab primary shortcuts (MS Project convention)
 
 ## Decision
@@ -164,7 +164,7 @@ new `ordered_ids` and calls the existing reorder endpoint.
 Plain arrow keys are navigation only — reorder requires Alt modifier to avoid
 conflicting with basic row navigation.
 
-### 7. Gantt Summary Bar Rendering
+### 7. Schedule Summary Bar Rendering
 
 - `BarType.summary` already exists in `GanttEngineImpl.ts`
 - Summary bars: 16px height, downward triangle end caps (MS Project convention)
@@ -189,7 +189,7 @@ conflicting with basic row navigation.
 ### What becomes easier
 - PMs can structure projects with phases and sub-phases (table-stakes for MS Project migration)
 - Phase-to-phase dependencies enable natural scheduling of multi-phase projects
-- Gantt chart becomes usable for projects with >20 tasks (collapse phases)
+- Schedule view becomes usable for projects with >20 tasks (collapse phases)
 - Portfolio rollups (Enterprise) can build on project-level summary data
 
 ### What becomes harder
@@ -214,7 +214,7 @@ conflicting with basic row navigation.
 
 - **P3M layer**: Programs and Projects (OSS)
 - **Affected packages**: `scheduler` (summary dep expansion), `api` (endpoints, serializer,
-  CPM post-processing), `web` (keyboard shortcuts, Gantt rendering)
+  CPM post-processing), `web` (keyboard shortcuts, Schedule view rendering)
 - **Migration required**: No — no new columns. `is_summary` and `parent_id` are annotations.
   Summary rollups write to existing CPM output fields (`early_start`, `early_finish`, etc.)
 - **API changes**: Yes — two new endpoints (indent/outdent), two new read-only fields on
@@ -243,5 +243,5 @@ conflicting with basic row navigation.
 5. API: summary rollup post-processing in CPM Celery task
 6. API: `percent_complete` weighted rollup in serializer
 7. Web: keyboard shortcuts (Tab/Shift+Tab/Alt+arrows) in WbsView
-8. Web: Gantt summary bar rendering (16px, triangle caps, collapse/expand)
+8. Web: Schedule summary bar rendering (16px, triangle caps, collapse/expand)
 9. Web: dependency arrows to/from summary bars

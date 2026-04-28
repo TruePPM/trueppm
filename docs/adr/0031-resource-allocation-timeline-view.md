@@ -15,7 +15,7 @@ The two views answer different questions:
 | View | Question answered | Visual metaphor |
 |------|------------------|----------------|
 | Utilization grid (existing) | How loaded is this person each day? | Heat map |
-| Allocation timeline (this ADR) | What is this person working on and when? | Gantt-style spans |
+| Allocation timeline (this ADR) | What is this person working on and when? | Schedule-style spans |
 
 **P3M layer**: Programs and Projects — single-project scope. Cross-project allocation
 is an Enterprise feature (#88) and is explicitly out of scope here.
@@ -126,11 +126,11 @@ that toggles; pressing again clears the filter.
 
 ### 3. DOM-based timeline renderer (not canvas)
 
-The Gantt view uses a canvas renderer (`GanttRenderer`) optimised for 2,400+ tasks
+The Schedule view uses a canvas renderer (`GanttRenderer`) optimised for 2,400+ tasks
 with drag interactions. The allocation timeline has different requirements:
 - Fewer rows (typically ≤50 resources)
 - Task spans need inline editing (click → units input) without hit-testing reimplementation
-- No drag-to-reschedule (read-focused view; reschedule happens on the Gantt)
+- No drag-to-reschedule (read-focused view; reschedule happens on the Schedule view)
 
 Approach: CSS-positioned spans inside a scrollable container, with virtual row
 rendering (only rows in viewport ± 2 are mounted). Each row is:
@@ -140,7 +140,7 @@ rendering (only rows in viewport ± 2 are mounted). Each row is:
 ```
 
 Task spans use `left` / `width` percentages computed from `(date - windowStart) /
-(windowEnd - windowStart)`. This is the same geometry used by the Gantt canvas but
+(windowEnd - windowStart)`. This is the same geometry used by the Schedule canvas but
 in DOM form.
 
 **Why not canvas**: Inline partial allocation editing (VoC: Sarah) requires a real
@@ -159,8 +159,10 @@ Overallocated spans: red background with `text-[--color-danger-700]` label
 color. Partial allocation (units < 1.0): stripe pattern overlay or reduced opacity,
 with a `{units × 100}%` badge on the span when width ≥ 48 px.
 
-Row header shows: `{name}` + `{max_units × 100}% available` badge
-(e.g. "Ravi Singh — 50% available"). This makes red spans self-explanatory
+Row header shows: `{name}` + capacity badge (e.g. "Ravi Singh — 50% · 4h/day").
+The percent is `max_units × 100`; the hours figure is `max_units × resource.calendar.hours_per_day`
+(falls back to 8.0 when no calendar is set). Both are derived from the stored decimal
+`max_units` — the model never stores hours directly. This makes red spans self-explanatory
 without needing a legend (VoC: David).
 
 ### 5. Inline partial allocation editing
@@ -192,7 +194,7 @@ frictionless editing requirement without navigating away from the view.
 
 **Easier**:
 - PMs (Sarah) and resource managers (David) can see who is working on what without
-  switching to the Gantt view
+  switching to the Schedule view
 - Partial allocation data quality improves due to inline editing lowering friction
 - ADR-0030 "team utilization" KPI can query this same endpoint and derive its
   overallocation count from the response
@@ -200,7 +202,7 @@ frictionless editing requirement without navigating away from the view.
 
 **Harder**:
 - DOM-based timeline must be kept in sync with Gantt's time-axis geometry logic;
-  if the Gantt time axis is refactored, `ResourceAllocationTimeline` must be updated
+  if the Schedule view time axis is refactored, `ResourceAllocationTimeline` must be updated
   in tandem
 - Client-side overallocation detection is not calendar-aware (does not exclude
   non-working days). This is acceptable for V1 but must be noted in the UI

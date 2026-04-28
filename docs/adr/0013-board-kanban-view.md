@@ -1,7 +1,7 @@
 # ADR-0013: Board / Kanban View — Data Model, API, and Integration Design
 
 ## Status
-Proposed
+Accepted with Amendment — BoardColumnConfig model and column management endpoints added (2026-04-13)
 
 ## Context
 
@@ -148,7 +148,7 @@ last-synced state. Write operations (drag) require connectivity and fail gracefu
 with a toast: "You're offline — move not saved."
 
 This is consistent with the drag-preview offline guard already implemented for the
-Gantt canvas (see `packages/web/CLAUDE.md` rule 29).
+Schedule canvas (see `packages/web/CLAUDE.md` rule 29).
 
 ### Overallocation Indicator
 

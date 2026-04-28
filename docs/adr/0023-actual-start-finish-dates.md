@@ -1,14 +1,14 @@
 # ADR-0023: Actual Start and Finish Dates on Tasks
 
 ## Status
-Proposed
+Accepted
 
 ## Context
 
 TruePPM tracks planned and CPM-computed dates (`planned_start`, `early_start`,
 `early_finish`) but has no way to record when work actually began or ended. This
 prevents schedule variance analysis, earned value metrics, and meaningful
-planned-vs-actual comparisons in the Gantt chart.
+planned-vs-actual comparisons in the Schedule view.
 
 **P3M layer**: Programs and Projects / Operations (single-project scope).
 
@@ -26,6 +26,22 @@ Add two nullable `DateField` columns to the `Task` model:
 actual_start = models.DateField(null=True, blank=True, db_index=True)
 actual_finish = models.DateField(null=True, blank=True, db_index=True)
 ```
+
+### Field independence
+
+`planned_start` and `actual_start` are **independent fields** that serve different purposes
+and must not be conflated:
+
+- `planned_start` — the SNET (Start No Earlier Than) constraint fed into the CPM forward pass.
+  It is the PM's intent, not a record of what happened. Updated when the PM explicitly changes
+  the constraint; never auto-set from work events.
+- `actual_start` — recorded the first time work begins on the task (IN_PROGRESS transition).
+  It is always written regardless of whether a baseline exists. A baseline is a comparison
+  tool — the absence of a baseline snapshot does not change when to record `actual_start`.
+
+This matches PMBOK / PMI EVM practice: actual dates track reality; baselines track the
+original plan; CPM-computed dates (early_start, early_finish) track the current schedule.
+All three are distinct and independently maintained.
 
 ### Auto-set behavior
 
@@ -79,13 +95,13 @@ No stored `schedule_variance` field. Variance is derivable:
 
 No new endpoints. No new permissions — same `TaskViewSet` RBAC applies.
 
-### Gantt visual
+### Schedule view visual
 
 Defer detailed visual design to `ux-design` agent. The data contract to the
 frontend is: `actual_start` and `actual_finish` are nullable ISO date strings on
 the Task API response. The `useGanttTasks` hook maps them to the frontend `Task`
-type. Visual treatment (marker lines, overlay bars, etc.) is a presentation
-decision.
+type (code symbol — the hook retains its original name). Visual treatment
+(marker lines, overlay bars, etc.) is a presentation decision.
 
 ## Alternatives Considered
 
@@ -105,7 +121,7 @@ decision.
 ## Implementation Notes
 
 - P3M layer: Programs and Projects / Operations
-- Affected packages: `api` (model, serializer, migration), `web` (hook, Gantt visual)
+- Affected packages: `api` (model, serializer, migration), `web` (hook, Schedule view visual)
 - Migration required: yes — `0016_task_actual_dates.py`
 - API changes: yes — two new writable fields + one computed read-only field on TaskSerializer
 - OSS or Enterprise: **OSS** (single-project scope, no cross-project aggregation)

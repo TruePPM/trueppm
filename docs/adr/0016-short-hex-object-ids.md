@@ -123,7 +123,7 @@ INSERT and never changes, so it appears in every history row without noise.
 
 - P3M layer: Programs and Projects
 - Affected packages: `api` (model + migration + serializers), `web` (display in
-  task list, Gantt row, risk table, search)
+  task list, Schedule view row, risk table, search)
 - Migration required: yes — 0014 (schema) + 0015 (data backfill)
 - API changes: yes — `short_id` read-only field on Task and Risk serializers;
   `?short_id=` filter on TaskViewSet and RiskViewSet

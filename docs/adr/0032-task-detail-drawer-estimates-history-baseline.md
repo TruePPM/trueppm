@@ -29,6 +29,10 @@ The drawer already handles resource assignments and dependency management (DepRo
 
 **Baseline comparison:**
 - `Baseline` and `BaselineTask` models exist; `BaselineTask` stores an immutable snapshot: `start`, `finish`, `duration`, `actual_start`, `actual_finish`
+- Field semantics: `Task.actual_start` / `Task.actual_finish` are **live records** (updated as
+  work progresses); `BaselineTask.actual_start` / `BaselineTask.actual_finish` are **frozen
+  snapshots** of those live values at the moment the baseline was taken. The delta between them
+  is schedule slip, not data inconsistency.
 - `BaselineTask.task_id` is a plain `UUIDField` (not FK) so snapshots survive task soft-delete
 - `useBaselineDetail(baselineId)` fetches the full baseline including all task rows; no per-task baseline sub-endpoint exists
 - Active baseline is identified via partial unique index (`is_active=True` per project)
@@ -65,7 +69,11 @@ Introduce a three-mode estimation governance system on `Project`, with `open` as
 
 **Monte Carlo input rule (API layer):** When preparing task data for the scheduler, treat estimate fields as `None` when `estimate_status = 'pending'` or when any of the three fields is null. The scheduler's existing all-or-none logic handles the fallback to deterministic duration. This means partial inputs and pending-approval estimates never corrupt MC results.
 
-**Program/portfolio-level policy defaults** (Marcus/Janet's ask) are deferred to the Enterprise repo. The OSS project-level setting is the authoritative control.
+**Program/portfolio-level policy defaults** (Marcus/Janet's ask) are deferred to the Enterprise
+repo. The OSS project-level `estimation_mode` field is the authoritative control for a single
+project. Org-wide governance (e.g., "all projects default to `suggest_approve`") is an
+Enterprise-only concern — it requires aggregating across projects, which crosses the OSS/Enterprise
+boundary.
 
 ---
 

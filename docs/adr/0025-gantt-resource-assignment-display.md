@@ -1,16 +1,16 @@
-# ADR-0025: Gantt Resource Assignment Display
+# ADR-0025: Schedule View Resource Assignment Display
 
 ## Status
 Proposed
 
 ## Context
 
-The `TaskResource` model and `/task-resources/` CRUD endpoint exist, but the Gantt
+The `TaskResource` model and `/task-resources/` CRUD endpoint exist, but the Schedule
 view has no visibility into resource assignments. Users cannot see who is assigned
 to a task without navigating to a separate resource view. This is a basic expectation
 for any PM switching from MS Project or Primavera (VoC: Sarah 8/10).
 
-The feature is read-only display — no assignment editing from the Gantt. Chips show
+The feature is read-only display — no assignment editing from the Schedule view. Chips show
 assignee initials in the task list row; the canvas bar optionally shows the first
 assignee's initials when the bar is wide enough (>= 48px).
 
@@ -50,7 +50,7 @@ Where `TaskAssignmentSerializer` returns:
 }
 ```
 
-**Why nested on TaskSerializer, not a separate fetch**: The Gantt loads all tasks for
+**Why nested on TaskSerializer, not a separate fetch**: The Schedule view loads all tasks for
 a project in one paginated call. Adding assignments inline avoids N+1 separate calls
 to `/task-resources/`. The data is small (typically 1-3 assignments per task).
 
@@ -117,7 +117,7 @@ No new columns or tables. The nested serializer reads from the existing
 ## Consequences
 
 ### What becomes easier
-- PMs see resource assignments directly in the Gantt without navigating away
+- PMs see resource assignments directly in the Schedule view without navigating away
 - Cross-project resource views (Enterprise) can reuse the same API shape
 - Mobile sync can include assignment data in the task payload
 

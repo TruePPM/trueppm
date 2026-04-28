@@ -184,7 +184,14 @@ Guard with `update_fields` check to avoid signal fanout on unrelated saves.
 - `packages/api/src/trueppm_api/settings/base.py` — add to `INSTALLED_APPS`
 - `packages/api/src/trueppm_api/apps/sync/views.py` — register `Risk` in sync pull model registry
 
-**Related ADRs to write:**
-- ADR-0011: Risk Register — Frontend State and Matrix Visualization
-- ADR-0012: Sync Protocol Extension for Risk and RiskTaskLink
-- ADR-0013: Django Signal Contract for Enterprise Extension Points
+**OSS/Enterprise boundary:**
+- `trueppm_api.apps.risks` (this ADR) is fully OSS — single-project scope only.
+- Cross-project risk rollup, portfolio risk aggregation, and risk-triggered approval
+  workflows are **Enterprise-only** and must never be imported by OSS code.
+  Enterprise attaches via the `risk_changed` signal defined above — no OSS changes required.
+
+**Related ADRs (corrected):**
+- ADR-0011: Object Change History (not risk-related — covers audit trail for all entities)
+- ADR-0012: Monte Carlo API and OSS simulation cap (not risk-related — covers probabilistic scheduling)
+- ADR-0013: Board / Kanban View (not risk-related — covers task status columns and BoardColumnConfig)
+- ADR-0035: Board Batch 3 — risk linkage on board cards (risk icon, severity color, RiskPopover)

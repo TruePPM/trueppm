@@ -1,15 +1,15 @@
-# ADR-0014: Gantt Canvas Rendering Fixes and Task Planned-Start Constraint
+# ADR-0014: Schedule Canvas Rendering Fixes and Task Planned-Start Constraint
 
 ## Status
 Accepted
 
 ## Context
 
-Two distinct problems were found during Gantt review:
+Two distinct problems were found during Schedule view review:
 
 ### Problem 1 — Canvas alignment (rendering bugs)
 
-The custom canvas Gantt renderer has four bugs that cause visual misalignment:
+The custom canvas Schedule renderer has four bugs that cause visual misalignment:
 
 1. **No `HEADER_HEIGHT` offset** — `TaskListHeader` is 28 px (h-7) and sits above the
    scrollable row area. The canvas has no equivalent header region. Bar row 0 is painted
@@ -93,7 +93,7 @@ delta pulls and the on-device CPM WASM respects it offline (issue #26).
 
 ## Consequences
 
-- **Easier**: Gantt is visually correct from !A onward. Drag-to-reschedule persists
+- **Easier**: Schedule view is visually correct from !A onward. Drag-to-reschedule persists
   after !C. Schedule integrity is maintained — CPM still drives all other dates.
 - **Harder**: CPM engine must handle the `planned_start` floor in the forward pass.
   Schedules with many constraints can become over-constrained; the PM must manage them.
