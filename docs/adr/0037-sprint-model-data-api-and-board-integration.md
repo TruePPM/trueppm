@@ -419,6 +419,16 @@ The data model does not foreclose CPM feedback. v1.1 will:
 
 No v1 schema decision blocks this. v1.1 is a separate ADR.
 
+**Implementation authority for v1.1 velocity feedback (decided 2026-04-28):**
+Python (`packages/scheduler/`) leads. The Rust/WASM build (ADR-0015) lags by one
+release cycle — velocity-to-duration logic ships in Python first; WASM is updated
+to match in the subsequent release, validated by the shared conformance fixture
+suite. The WASM binary itself remains full CPM at v1.0 (forward + backward + float
++ incremental — unchanged from ADR-0015). Web drag-preview continues to use the
+native-TypeScript engine (per the ADR-0015 amendment); WASM is not loaded in the
+browser at v1.0. Mobile offline scheduling (ADR-0026) uses the full WASM binary
+via JSI from v1.0 onward.
+
 ### v1 scope boundary
 
 **In scope:** Sprint model, sprint-task FK, story_points, sprint state machine,
@@ -505,6 +515,17 @@ sprint filter, velocity chart, REST endpoints, mobile sync of sprint entities.
    `@idempotent_task(on_contention="skip")`. Does not reuse an existing drain —
    sprint close has its own state transition semantics that don't match
    `ScheduleRequest` or MS Project import drains.
+
+   **Sequencing with CPM recompute (decided 2026-04-28):** On successful completion
+   of the close transition, the drain enqueues a `ScheduleRequest` row with
+   `reason=SPRINT_CLOSED`. The `ScheduleRequest.reason` enum gains a new value
+   `SPRINT_CLOSED` to support this. Rationale: (1) audit trail — the CPM drain log
+   records why the recalculation fired; (2) idempotency — if two `SPRINT_CLOSED`
+   requests arrive for the same project in a short window (e.g. broker retry), the
+   drain can deduplicate on `(project_id, reason)` before the close transition
+   commits. The sequencing guarantee is: `SprintCloseRequest` fully completes
+   (state → `COMPLETED`) before `ScheduleRequest` is enqueued, so CPM never sees a
+   partially-closed sprint.
 
 3. **Orphan window:** 5 minutes. The drain query filters
    `created_at < now() - 5min` to avoid racing with in-flight `transaction.on_commit()`
