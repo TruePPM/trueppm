@@ -8,8 +8,8 @@ import logging
 import uuid
 from typing import Any, cast
 
+from django.db import IntegrityError, transaction
 from django.db import models as db_models
-from django.db import transaction
 from django.db.models import (
     BooleanField,
     Count,
@@ -1803,23 +1803,30 @@ class BoardSavedViewListView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
     def post(self, request: Request, pk: str) -> Response:
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project = get_object_or_404(Project, pk=pk)
         self.check_object_permissions(request, project)
         serializer = BoardSavedViewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        with transaction.atomic():
-            view = serializer.save(
-                project=project,
-                created_by=request.user,
-                server_version=1,
-            )
-            view_id = str(view.id)
-            project_id = str(pk)
-            transaction.on_commit(
-                lambda: broadcast_board_event(project_id, "board_view_created", {"id": view_id})
-            )
+        try:
+            with transaction.atomic():
+                view = serializer.save(
+                    project=project,
+                    created_by=request.user,
+                    server_version=1,
+                )
+                view_id = str(view.id)
+                project_id = str(pk)
+                transaction.on_commit(
+                    lambda: broadcast_board_event(project_id, "board_view_created", {"id": view_id})
+                )
+        except IntegrityError:
+            raise DRFValidationError(
+                {"name": "A saved view with this name already exists in this project."}
+            ) from None
         return Response(
             BoardSavedViewSerializer(view).data,
             status=status.HTTP_201_CREATED,

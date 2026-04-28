@@ -49,7 +49,7 @@ def member(project):
 
 
 @pytest.fixture
-def outsider():
+def outsider(db):
     return User.objects.create_user(username="outsider", password="x")
 
 
@@ -182,6 +182,7 @@ def test_post_rejects_name_too_long(pm_client, project):
     assert resp.status_code == 400
 
 
+@pytest.mark.django_db(transaction=True)
 @patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
 def test_post_broadcasts_board_view_created(mock_broadcast, pm_client, project):
     resp = pm_client.post(
@@ -278,6 +279,7 @@ def test_delete_allowed_for_scheduler(member, project, saved_view):
     assert resp.status_code == 204
 
 
+@pytest.mark.django_db(transaction=True)
 @patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
 def test_delete_broadcasts_board_view_deleted(mock_broadcast, pm_client, project, saved_view):
     resp = pm_client.delete(_url(project.pk, saved_view.pk))
