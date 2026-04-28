@@ -1548,6 +1548,146 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/board-views/": {
+            "get": {
+                "operationId": "v1_projects_board_views_retrieve",
+                "description": "GET/POST per-project board saved view list.\n\nGET  returns all saved views for the project, ordered by name.\nPOST creates a new named view; name must be unique per project.\nAny authenticated project member may read and create views.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_projects_board_views_create",
+                "description": "GET/POST per-project board saved view list.\n\nGET  returns all saved views for the project, ordered by name.\nPOST creates a new named view; name must be unique per project.\nAny authenticated project member may read and create views.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/board-views/{view_pk}/": {
+            "patch": {
+                "operationId": "v1_projects_board_views_partial_update",
+                "description": "PATCH/DELETE a single board saved view.\n\nPATCH updates name and/or config. Only the creator or a Scheduler-role\nmember (role ≥ 2) may modify a view.\nDELETE removes the view with the same role constraints.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "view_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_projects_board_views_destroy",
+                "description": "PATCH/DELETE a single board saved view.\n\nPATCH updates name and/or config. Only the creator or a Scheduler-role\nmember (role ≥ 2) may modify a view.\nDELETE removes the view with the same role constraints.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "view_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/monte-carlo/": {
             "post": {
                 "operationId": "v1_projects_monte_carlo_create",

@@ -725,3 +725,60 @@ class BoardColumnConfig(models.Model):
 
     def __str__(self) -> str:
         return f"BoardColumnConfig({self.project_id})"
+
+
+# ---------------------------------------------------------------------------
+# Board saved views (#191)
+# ---------------------------------------------------------------------------
+
+_VALID_SORT_KEYS = frozenset({"priority", "start_date", "percent_complete"})
+_VALID_EVM_MODES = frozenset({"off", "spi", "cpi", "both"})
+
+
+class BoardSavedView(models.Model):
+    """Per-project named board view configuration.
+
+    Stores the filter/sort/display state that a PM has saved so they can
+    quickly restore it. Views are project-scoped and visible to all members.
+    Only the creator or a Scheduler-role member may rename or delete a view.
+
+    config JSON schema:
+        sort:            "priority" | "start_date" | "percent_complete"
+        show_wip:        bool
+        show_col_tints:  bool
+        evm_mode:        "off" | "spi" | "cpi" | "both"
+        show_cost:       bool
+        risk_linked_only: bool
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="board_saved_views",
+    )
+    name = models.CharField(max_length=64)
+    config = models.JSONField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="+",
+    )
+    server_version = models.BigIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "name"],
+                name="unique_board_saved_view_name",
+            )
+        ]
+        verbose_name = "board saved view"
+        verbose_name_plural = "board saved views"
+
+    def __str__(self) -> str:
+        return f"BoardSavedView({self.project_id}, {self.name!r})"
