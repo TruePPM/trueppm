@@ -42,6 +42,7 @@ import { LaneMeta } from './LaneMeta';
 import { AddTaskModal } from './AddTaskModal';
 import { PhaseMilestoneRail } from './PhaseMilestoneRail';
 import { KeyboardCheatsheet } from './KeyboardCheatsheet';
+import { BoardSettingsPanel } from './BoardSettingsPanel';
 import { DepPopover } from './DepPopover';
 import { RiskPopover } from './RiskPopover';
 import { phaseColor } from './phaseColors';
@@ -118,11 +119,11 @@ function avgProgress(tasks: Task[]): number {
 
 interface WipBadgeProps {
   count: number;
-  limit?: number;
+  limit: number | null | undefined;
 }
 
 function WipBadge({ count, limit }: WipBadgeProps) {
-  if (limit === undefined) {
+  if (limit == null) {
     return (
       <span className="ml-1.5 text-xs text-neutral-text-disabled font-medium">
         {count}
@@ -180,7 +181,7 @@ interface BoardCellProps {
   tasks: Task[];
   isOver: boolean;
   showWip: boolean;
-  wipLimit?: number;
+  wipLimit: number | null | undefined;
   isDragActive: boolean;
   showColTints: boolean;
   density: BoardDensity;
@@ -231,7 +232,7 @@ function BoardCell({
   const droppableId = `${phaseId}:${status}`;
   const { setNodeRef } = useDroppable({ id: droppableId });
   const over = isOver && isDragActive;
-  const wip = showWip && wipLimit !== undefined && tasks.length > wipLimit;
+  const wip = showWip && wipLimit != null && tasks.length > wipLimit;
   const restingBg = showColTints
     ? (COLUMN_TINT[status] ?? 'bg-neutral-surface-sunken')
     : 'bg-neutral-surface-sunken';
@@ -248,7 +249,7 @@ function BoardCell({
     >
       {wip && (
         <div className="text-xs text-semantic-at-risk font-semibold px-1">
-          WIP limit: {wipLimit} — {tasks.length - wipLimit} over
+          WIP limit: {wipLimit} — {tasks.length - (wipLimit ?? 0)} over
         </div>
       )}
       {tasks.map((task) => (
@@ -284,7 +285,7 @@ function BoardCell({
 
 interface PhaseLaneProps {
   phase: Phase;
-  columns: { status: TaskStatus; label: string; wipLimit?: number; slaDays?: number }[];
+  columns: { status: TaskStatus; label: string; wipLimit: number | null; color: string | null; slaDays?: number }[];
   tasksByStatus: Record<TaskStatus, Task[]>;
   milestones: Task[];
   overCell: string | null;  // `${phaseId}:${status}` or null
@@ -549,7 +550,7 @@ function useBoardDensity() {
 
 export function BoardView() {
   const projectId = useProjectId() ?? '';
-  const { columns: rawColumns } = useBoardConfig(projectId || null);
+  const { columns: rawColumns, save: saveBoardConfig } = useBoardConfig(projectId || null);
   const { tasks, isLoading } = useScheduleTasks();
   const updateStatus = useUpdateTaskStatus();
   const COLUMNS = rawColumns.filter((c) => c.visible);
@@ -568,6 +569,7 @@ export function BoardView() {
   const [focusedPhaseId, setFocusedPhaseId] = useState<string | null>(null);
   // Overlay state — only one is open at a time.
   const [showCheatsheet, setShowCheatsheet] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [depTask, setDepTask] = useState<Task | null>(null);
   const [riskTask, setRiskTask] = useState<Task | null>(null);
   // Dim non-connected cards (#182) — null means no highlight active.
@@ -970,6 +972,17 @@ export function BoardView() {
               <span aria-hidden="true">⚠</span>
               Risk-linked only
             </button>
+            {/* Column settings — issue #170 */}
+            <button
+              type="button"
+              onClick={() => setShowSettings(true)}
+              className={`${toolbarBtnClass} inline-flex items-center gap-1`}
+              aria-label="Open board column settings"
+              title="Column settings"
+            >
+              <span aria-hidden="true">⚙</span>
+              Columns
+            </button>
             {/* Keyboard shortcuts hint — issue #195 */}
             <button
               type="button"
@@ -1090,6 +1103,13 @@ export function BoardView() {
 
       {/* Board batch 3 overlays — at most one open at a time. */}
       {showCheatsheet && <KeyboardCheatsheet onClose={() => setShowCheatsheet(false)} />}
+      {showSettings && (
+        <BoardSettingsPanel
+          columns={rawColumns}
+          onSave={saveBoardConfig}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
       {depTask && (
         <DepPopover
           task={depTask}

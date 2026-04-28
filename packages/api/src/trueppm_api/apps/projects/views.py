@@ -1734,7 +1734,7 @@ def _task_webhook_payload(task: Task) -> dict:  # type: ignore[type-arg]
 class BoardColumnConfigView(APIView):
     """GET/PUT per-project board column configuration.
 
-    GET returns the saved config or the hardcoded 4-column defaults.
+    GET returns the saved config or the hardcoded 5-column defaults.
     PUT validates and saves the config, creating the row if it doesn't exist.
     Requires SCHEDULER role (≥ 2) for writes — same as schedule-affecting changes.
     Reads are open to all project members.
@@ -1756,15 +1756,25 @@ class BoardColumnConfigView(APIView):
         return Response({"columns": columns}, status=status.HTTP_200_OK)
 
     def put(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
         project = get_object_or_404(Project, pk=pk)
         self.check_object_permissions(request, project)
         serializer = BoardColumnConfigSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
-        BoardColumnConfig.objects.update_or_create(
-            project_id=pk,
-            defaults={"columns": validated["columns"]},
-        )
+        with transaction.atomic():
+            BoardColumnConfig.objects.update_or_create(
+                project_id=pk,
+                defaults={"columns": validated["columns"]},
+            )
+            project_id = str(pk)
+            columns_payload = list(validated["columns"])
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    project_id, "board_config_updated", {"columns": columns_payload}
+                )
+            )
         return Response(validated, status=status.HTTP_200_OK)
 
 

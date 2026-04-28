@@ -1489,7 +1489,7 @@
         "/api/v1/projects/{id}/board-config/": {
             "get": {
                 "operationId": "v1_projects_board_config_retrieve",
-                "description": "GET/PUT per-project board column configuration.\n\nGET returns the saved config or the hardcoded 4-column defaults.\nPUT validates and saves the config, creating the row if it doesn't exist.\nRequires SCHEDULER role (≥ 2) for writes — same as schedule-affecting changes.\nReads are open to all project members.",
+                "description": "GET/PUT per-project board column configuration.\n\nGET returns the saved config or the hardcoded 5-column defaults.\nPUT validates and saves the config, creating the row if it doesn't exist.\nRequires SCHEDULER role (≥ 2) for writes — same as schedule-affecting changes.\nReads are open to all project members.",
                 "parameters": [
                     {
                         "in": "path",
@@ -1519,7 +1519,7 @@
             },
             "put": {
                 "operationId": "v1_projects_board_config_update",
-                "description": "GET/PUT per-project board column configuration.\n\nGET returns the saved config or the hardcoded 4-column defaults.\nPUT validates and saves the config, creating the row if it doesn't exist.\nRequires SCHEDULER role (≥ 2) for writes — same as schedule-affecting changes.\nReads are open to all project members.",
+                "description": "GET/PUT per-project board column configuration.\n\nGET returns the saved config or the hardcoded 5-column defaults.\nPUT validates and saves the config, creating the row if it doesn't exist.\nRequires SCHEDULER role (≥ 2) for writes — same as schedule-affecting changes.\nReads are open to all project members.",
                 "parameters": [
                     {
                         "in": "path",
