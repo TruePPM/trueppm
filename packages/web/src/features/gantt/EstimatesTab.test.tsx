@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, fireEvent, act } from '@testing-library/react';
+import { screen, fireEvent } from '@testing-library/react';
 import { renderWithProviders } from '@/test/utils';
 import { EstimatesTab } from './EstimatesTab';
 import type { Task } from '@/types';
@@ -228,7 +228,7 @@ describe('EstimatesTab — blur handlers', () => {
     vi.clearAllMocks();
   });
 
-  it('fires a PATCH for optimistic duration after blur + debounce', () => {
+  it('fires a PATCH for optimistic duration after blur + debounce', async () => {
     renderWithProviders(
       <EstimatesTab
         task={baseTask}
@@ -240,14 +240,14 @@ describe('EstimatesTab — blur handlers', () => {
     const input = screen.getByLabelText(/Optimistic/i);
     fireEvent.change(input, { target: { value: '5' } });
     fireEvent.blur(input);
-    act(() => { vi.advanceTimersByTime(400); });
+    await vi.runAllTimersAsync();
     expect(patchMock).toHaveBeenCalledWith(
       expect.stringContaining('/tasks/t1/'),
       expect.objectContaining({ optimistic_duration: 5 }),
     );
   });
 
-  it('fires a PATCH for most-likely duration after blur + debounce', () => {
+  it('fires a PATCH for most-likely duration after blur + debounce', async () => {
     renderWithProviders(
       <EstimatesTab
         task={baseTask}
@@ -259,14 +259,14 @@ describe('EstimatesTab — blur handlers', () => {
     const input = screen.getByLabelText(/Most Likely/i);
     fireEvent.change(input, { target: { value: '8' } });
     fireEvent.blur(input);
-    act(() => { vi.advanceTimersByTime(400); });
+    await vi.runAllTimersAsync();
     expect(patchMock).toHaveBeenCalledWith(
       expect.stringContaining('/tasks/t1/'),
       expect.objectContaining({ most_likely_duration: 8 }),
     );
   });
 
-  it('fires a PATCH for pessimistic duration after blur + debounce', () => {
+  it('fires a PATCH for pessimistic duration after blur + debounce', async () => {
     renderWithProviders(
       <EstimatesTab
         task={baseTask}
@@ -278,14 +278,14 @@ describe('EstimatesTab — blur handlers', () => {
     const input = screen.getByLabelText(/Pessimistic/i);
     fireEvent.change(input, { target: { value: '15' } });
     fireEvent.blur(input);
-    act(() => { vi.advanceTimersByTime(400); });
+    await vi.runAllTimersAsync();
     expect(patchMock).toHaveBeenCalledWith(
       expect.stringContaining('/tasks/t1/'),
       expect.objectContaining({ pessimistic_duration: 15 }),
     );
   });
 
-  it('sends null when the field is cleared (empty string)', () => {
+  it('sends null when the field is cleared (empty string)', async () => {
     renderWithProviders(
       <EstimatesTab
         task={{ ...baseTask, optimisticDuration: 5 }}
@@ -297,7 +297,7 @@ describe('EstimatesTab — blur handlers', () => {
     const input = screen.getByLabelText(/Optimistic/i);
     fireEvent.change(input, { target: { value: '' } });
     fireEvent.blur(input);
-    act(() => { vi.advanceTimersByTime(400); });
+    await vi.runAllTimersAsync();
     expect(patchMock).toHaveBeenCalledWith(
       expect.stringContaining('/tasks/t1/'),
       expect.objectContaining({ optimistic_duration: null }),
