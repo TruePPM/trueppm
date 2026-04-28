@@ -8,12 +8,15 @@
  *   - Each cell is an individual dnd-kit droppable (id = `${phaseId}:${status}`).
  *     Dropping a card updates its status; phase membership follows parentId.
  *   - Lanes are collapsible — state persists to localStorage per project
- *     (issue #190). Collapse all / Expand all in toolbar. [ / ] keyboard shortcuts.
+ *     (issue #190). Collapse all / Expand all in toolbar. [ / ] keyboard shortcuts
+ *     surfaced as native tooltips on the toggle button (issue #225).
+ *   - Density auto-selects compact below md breakpoint; user may override for
+ *     the session on mobile; desktop persists to localStorage (issue #224).
  *
  * WIP limits, progress rings, entry stamps, and CP badges are spec-defined
  * features from the design doc (p3m-vs-oss-views-original.html § ⑤).
  */
-import { useState, useRef, useCallback, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import {
   DndContext,
@@ -175,7 +178,7 @@ interface BoardCellProps {
   showColTints: boolean;
   density: BoardDensity;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
-  columns: { status: TaskStatus; label: string }[];
+  columns: { status: TaskStatus; label: string; slaDays?: number }[];
 }
 
 // Subtle status tints per column (issue #211).
@@ -242,7 +245,7 @@ function BoardCell({
 
 interface PhaseLaneProps {
   phase: Phase;
-  columns: { status: TaskStatus; label: string; wipLimit?: number }[];
+  columns: { status: TaskStatus; label: string; wipLimit?: number; slaDays?: number }[];
   tasksByStatus: Record<TaskStatus, Task[]>;
   overCell: string | null;  // `${phaseId}:${status}` or null
   isDragActive: boolean;
@@ -285,6 +288,7 @@ function PhaseLane({
       type="button"
       onClick={onToggleCollapse}
       onKeyDown={handleKeyDown}
+      title={collapsed ? 'Expand lane  ]' : 'Collapse lane  ['}
       className="flex-shrink-0 text-neutral-text-secondary text-xs select-none
         focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
       aria-expanded={!collapsed}
@@ -400,11 +404,16 @@ function useBoardCollapsedLanes(projectId: string) {
   return { collapsedIds, toggle, collapseAll, expandAll };
 }
 
-/** Persist card density preference globally across all projects (issue #193). */
+/**
+ * Persist card density preference globally across all projects (issue #193).
+ * Below md (768px) the board auto-selects compact density; the user can
+ * override for the session. Crossing back above md clears the mobile override
+ * and restores the persisted desktop preference (issue #224).
+ */
 function useBoardDensity() {
   const storageKey = 'trueppm.board.density';
 
-  const [density, setDensityState] = useState<BoardDensity>(() => {
+  const [storedDensity, setStoredDensity] = useState<BoardDensity>(() => {
     try {
       const raw = localStorage.getItem(storageKey);
       if (raw === 'compact' || raw === 'comfortable' || raw === 'detailed') return raw;
@@ -412,10 +421,34 @@ function useBoardDensity() {
     return 'comfortable';
   });
 
+  // Session-only override applied when the user manually changes density on mobile.
+  // Cleared when the viewport grows past md so desktop preference resumes.
+  const [mobileOverride, setMobileOverride] = useState<BoardDensity | null>(null);
+
+  const [isMobile, setIsMobile] = useState<boolean>(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const handler = (e: MediaQueryListEvent) => {
+      setIsMobile(e.matches);
+      if (!e.matches) setMobileOverride(null);
+    };
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
+  const density: BoardDensity = isMobile ? (mobileOverride ?? 'compact') : storedDensity;
+
   const setDensity = useCallback((d: BoardDensity) => {
-    try { localStorage.setItem(storageKey, d); } catch { /* ignore */ }
-    setDensityState(d);
-  }, [storageKey]);
+    if (isMobile) {
+      setMobileOverride(d);
+    } else {
+      try { localStorage.setItem(storageKey, d); } catch { /* ignore */ }
+      setStoredDensity(d);
+    }
+  }, [isMobile, storageKey]);
 
   return { density, setDensity };
 }

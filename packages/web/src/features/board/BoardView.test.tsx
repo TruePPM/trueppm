@@ -2,6 +2,18 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { BoardView } from './BoardView';
+
+// jsdom does not implement window.matchMedia — stub it.
+// Default: desktop (matches: false). Individual tests may override via mockReturnValue.
+const makeMq = (matches: boolean) => ({
+  matches,
+  media: '(max-width: 767px)',
+  onchange: null,
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  dispatchEvent: vi.fn(),
+});
+vi.stubGlobal('matchMedia', vi.fn().mockImplementation(() => makeMq(false)));
 import { FIXTURE_TASKS } from '@/fixtures/tasks';
 import type { Task, TaskStatus } from '@/types';
 
@@ -57,6 +69,8 @@ function resetMocks() {
   ];
   updateMutate.mockReset();
   localStorage.clear(); // reset persisted board prefs (density, collapsedLanes) between tests
+  // Reset matchMedia to desktop default between tests (issue #224)
+  (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(false));
 }
 
 // ---------------------------------------------------------------------------
@@ -336,6 +350,62 @@ describe('BoardView', () => {
     // Alpha lane (t1) is pre-collapsed — task cards not visible on mount
     expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Expand Alpha Platform Upgrade/ })).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #225 — keyboard shortcut hints in collapse button tooltip
+  // -------------------------------------------------------------------------
+
+  it('collapse toggle shows "Collapse lane  [" title when lane is expanded (issue #225)', () => {
+    render(<BoardView />);
+    const btn = screen.getByRole('button', { name: /Collapse Alpha Platform Upgrade/ });
+    expect(btn).toHaveAttribute('title', 'Collapse lane  [');
+  });
+
+  it('collapse toggle shows "Expand lane  ]" title when lane is collapsed (issue #225)', async () => {
+    const user = userEvent.setup();
+    render(<BoardView />);
+    const btn = screen.getByRole('button', { name: /Collapse Alpha Platform Upgrade/ });
+    await user.click(btn);
+    const expandBtn = screen.getByRole('button', { name: /Expand Alpha Platform Upgrade/ });
+    expect(expandBtn).toHaveAttribute('title', 'Expand lane  ]');
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #224 — responsive density auto-select
+  // -------------------------------------------------------------------------
+
+  it('auto-selects compact density below md viewport (issue #224)', () => {
+    (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(true));
+    render(<BoardView />);
+    const select = screen.getByLabelText<HTMLSelectElement>('Card density');
+    expect(select.value).toBe('compact');
+  });
+
+  it('ignores stored desktop density on mobile — auto-compact wins (issue #224)', () => {
+    localStorage.setItem('trueppm.board.density', 'detailed');
+    (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(true));
+    render(<BoardView />);
+    const select = screen.getByLabelText<HTMLSelectElement>('Card density');
+    expect(select.value).toBe('compact');
+  });
+
+  it('manual density override on mobile is not persisted to localStorage (issue #224)', async () => {
+    (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(true));
+    const user = userEvent.setup();
+    render(<BoardView />);
+    await user.selectOptions(screen.getByLabelText('Card density'), 'comfortable');
+    expect(localStorage.getItem('trueppm.board.density')).toBeNull();
+    const select = screen.getByLabelText<HTMLSelectElement>('Card density');
+    expect(select.value).toBe('comfortable');
+  });
+
+  it('desktop density still persists to localStorage when viewport is >= md (issue #224)', async () => {
+    // matchMedia already returns matches:false (desktop) from resetMocks
+    const user = userEvent.setup();
+    render(<BoardView />);
+    await user.selectOptions(screen.getByLabelText('Card density'), 'detailed');
+    expect(localStorage.getItem('trueppm.board.density')).toBe('detailed');
   });
 
 });

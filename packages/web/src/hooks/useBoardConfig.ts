@@ -15,6 +15,12 @@ export interface BoardColumnDef {
    * Stored in the board config so PMs can set it per project.
    */
   wipLimit?: number;
+  /**
+   * Cycle-time SLA in calendar days. Cards that have been in this column
+   * longer than slaDays show an aging indicator (issue #192).
+   * Undefined = no SLA enforced for this column.
+   */
+  slaDays?: number;
 }
 
 interface BoardConfigResponse {
@@ -26,10 +32,10 @@ interface BoardConfigResponse {
 // ON_HOLD is hidden but kept in the type union for migration compatibility — tasks
 // that are ON_HOLD in the API will not appear on the board until they are migrated.
 const DEFAULT_COLUMNS: BoardColumnDef[] = [
-  { status: 'BACKLOG',     label: 'Backlog',     visible: true },
-  { status: 'NOT_STARTED', label: 'To Do',       visible: true },
-  { status: 'IN_PROGRESS', label: 'In Progress', visible: true, wipLimit: 3 },
-  { status: 'REVIEW',      label: 'Review',      visible: true, wipLimit: 2 },
+  { status: 'BACKLOG',     label: 'Backlog',     visible: true, slaDays: 14 },
+  { status: 'NOT_STARTED', label: 'To Do',       visible: true, slaDays: 7  },
+  { status: 'IN_PROGRESS', label: 'In Progress', visible: true, wipLimit: 3, slaDays: 10 },
+  { status: 'REVIEW',      label: 'Review',      visible: true, wipLimit: 2, slaDays: 4  },
   { status: 'COMPLETE',    label: 'Done',        visible: true },
 ];
 

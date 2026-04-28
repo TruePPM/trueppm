@@ -10,12 +10,12 @@ import type { ComponentProps, ReactNode } from 'react';
 import { BoardCard } from './BoardCard';
 import type { Task, TaskStatus } from '@/types';
 
-// 5-column model (issue #178)
-const COLUMNS: { status: TaskStatus; label: string }[] = [
-  { status: 'BACKLOG',     label: 'BACKLOG' },
-  { status: 'NOT_STARTED', label: 'TO DO' },
-  { status: 'IN_PROGRESS', label: 'IN PROGRESS' },
-  { status: 'REVIEW',      label: 'REVIEW' },
+// 5-column model (issue #178). SLA defaults match useBoardConfig (issue #192).
+const COLUMNS: { status: TaskStatus; label: string; slaDays?: number }[] = [
+  { status: 'BACKLOG',     label: 'BACKLOG',     slaDays: 14 },
+  { status: 'NOT_STARTED', label: 'TO DO',       slaDays: 7  },
+  { status: 'IN_PROGRESS', label: 'IN PROGRESS', slaDays: 10 },
+  { status: 'REVIEW',      label: 'REVIEW',      slaDays: 4  },
   { status: 'COMPLETE',    label: 'DONE' },
 ];
 
@@ -278,6 +278,137 @@ describe('BoardCard', () => {
     const { container } = renderCard({ task: { ...baseTask, totalFloat: 2 }, density: 'detailed' });
     expect(screen.getByText('2d float')).toBeInTheDocument();
     expect(container.querySelector('.text-brand-accent-dark')).toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #183 — float chip in comfortable mode + CP "0d float" + negative float
+  // -------------------------------------------------------------------------
+
+  it('comfortable: shows float chip for non-critical task with totalFloat (issue #183)', () => {
+    renderCard({ task: { ...baseTask, totalFloat: 7 }, density: 'comfortable' });
+    expect(screen.getByText('7d float')).toBeInTheDocument();
+  });
+
+  it('comfortable: CP task shows "0d float" chip in red (issue #183)', () => {
+    const { container } = renderCard({ task: { ...baseTask, isCritical: true }, density: 'comfortable' });
+    expect(screen.getByText('0d float')).toBeInTheDocument();
+    expect(container.querySelector('.text-semantic-critical')).toBeInTheDocument();
+  });
+
+  it('comfortable: negative float shows warning icon (issue #183)', () => {
+    renderCard({ task: { ...baseTask, totalFloat: -2 }, density: 'comfortable' });
+    expect(screen.getByText('-2d float')).toBeInTheDocument();
+    expect(screen.getByText('⚠')).toBeInTheDocument();
+  });
+
+  it('compact: does not show float chip (issue #183)', () => {
+    renderCard({ task: { ...baseTask, totalFloat: 5 }, density: 'compact' });
+    expect(screen.queryByText(/d float/)).not.toBeInTheDocument();
+  });
+
+  it('omits float chip when totalFloat is undefined and task is not critical (issue #183)', () => {
+    renderCard({ task: baseTask, density: 'comfortable' }); // no totalFloat
+    expect(screen.queryByText(/d float/)).not.toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #186 — baseline vs. forecast date variance hover panel
+  // -------------------------------------------------------------------------
+
+  it('baseline variance panel is in DOM for tasks with baselineFinish (issue #186)', () => {
+    // finish: Jan 8, baselineFinish: Jan 5 → +3d late (amber, not >5 so not critical)
+    renderCard({
+      task: { ...baseTask, finish: '2026-01-08', baselineFinish: '2026-01-05' },
+      density: 'comfortable',
+    });
+    // The panel is hidden via CSS (group-hover:block) but exists in the DOM
+    expect(screen.getByLabelText('Baseline variance: +3d')).toBeInTheDocument();
+    expect(screen.getByText('+3d')).toBeInTheDocument();
+  });
+
+  it('baseline variance +Nd uses amber class when 0 < variance ≤ 5 (issue #186)', () => {
+    const { container } = renderCard({
+      task: { ...baseTask, finish: '2026-01-08', baselineFinish: '2026-01-05' },
+      density: 'comfortable',
+    });
+    expect(container.querySelector('.text-semantic-at-risk')).toBeInTheDocument();
+  });
+
+  it('baseline variance +Nd uses red class when variance > 5d (issue #186)', () => {
+    const { container } = renderCard({
+      task: { ...baseTask, finish: '2026-01-15', baselineFinish: '2026-01-05' },
+      density: 'comfortable',
+    });
+    // 10 days late → semantic-critical
+    expect(container.querySelector('.text-semantic-critical')).toBeInTheDocument();
+  });
+
+  it('baseline variance is green when forecast is on time (issue #186)', () => {
+    const { container } = renderCard({
+      task: { ...baseTask, finish: '2026-01-05', baselineFinish: '2026-01-08' },
+      density: 'comfortable',
+    });
+    // 3 days early → semantic-on-track
+    expect(container.querySelector('.text-semantic-on-track')).toBeInTheDocument();
+  });
+
+  it('omits baseline variance panel when baselineFinish is undefined (issue #186)', () => {
+    renderCard({ task: baseTask, density: 'comfortable' }); // no baselineFinish
+    expect(screen.queryByLabelText(/Baseline variance/)).not.toBeInTheDocument();
+  });
+
+  it('compact: omits baseline variance panel (issue #186)', () => {
+    renderCard({
+      task: { ...baseTask, finish: '2026-01-08', baselineFinish: '2026-01-05' },
+      density: 'compact',
+    });
+    expect(screen.queryByLabelText(/Baseline variance/)).not.toBeInTheDocument();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #192 — card aging / dwell-time indicator
+  // -------------------------------------------------------------------------
+
+  it('shows aging chip when dwell exceeds column SLA (issue #192)', () => {
+    // System time: Jan 15. statusEnteredAt: Jan 1 = 14 days ago.
+    // IN_PROGRESS SLA is 10d — 14d > 10d → aging chip appears.
+    const enteredAt = new Date('2026-01-01T12:00:00Z').toISOString();
+    renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, status: 'IN_PROGRESS' } });
+    expect(screen.getByLabelText(/14 days in this column/)).toBeInTheDocument();
+    expect(screen.getByText('14d')).toBeInTheDocument();
+  });
+
+  it('does not show aging chip when dwell is within SLA (issue #192)', () => {
+    // 2 days ago, IN_PROGRESS SLA is 10d — no chip.
+    const enteredAt = new Date('2026-01-13T12:00:00Z').toISOString();
+    renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, status: 'IN_PROGRESS' } });
+    expect(screen.queryByLabelText(/days in this column/)).not.toBeInTheDocument();
+  });
+
+  it('aging chip is red when dwell exceeds 2× SLA (issue #192)', () => {
+    // 25 days ago, SLA 10d — 25 > 20 (2×SLA) → red/critical
+    const enteredAt = new Date('2025-12-21T12:00:00Z').toISOString();
+    const { container } = renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, status: 'IN_PROGRESS' } });
+    expect(container.querySelector('.text-semantic-critical')).toBeInTheDocument();
+  });
+
+  it('aging chip is amber when dwell is between 1× and 2× SLA (issue #192)', () => {
+    // 14 days ago, SLA 10d — 14 is between 10 and 20 → amber
+    const enteredAt = new Date('2026-01-01T12:00:00Z').toISOString();
+    const { container } = renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, status: 'IN_PROGRESS' } });
+    expect(container.querySelector('.text-brand-accent-dark')).toBeInTheDocument();
+  });
+
+  it('does not show aging chip when statusEnteredAt is absent (issue #192)', () => {
+    renderCard({ task: baseTask }); // no statusEnteredAt
+    expect(screen.queryByLabelText(/days in this column/)).not.toBeInTheDocument();
+  });
+
+  it('does not show aging chip when column has no SLA configured (issue #192)', () => {
+    // COMPLETE column has no slaDays in COLUMNS
+    const enteredAt = new Date('2026-01-01T12:00:00Z').toISOString();
+    renderCard({ task: { ...baseTask, statusEnteredAt: enteredAt, status: 'COMPLETE' } });
+    expect(screen.queryByLabelText(/days in this column/)).not.toBeInTheDocument();
   });
 
   it('detailed: shows all assignees without +N overflow', () => {
