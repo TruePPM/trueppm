@@ -6,7 +6,7 @@ Proposed
 ## Context
 
 Issue #97: TruePPM has a `TaskResource` model and `/api/v1/task-resources/` CRUD endpoint,
-and ADR-0025 shipped read-only assignment display (assignee chips in the Gantt). But there
+and ADR-0025 shipped read-only assignment display (assignee chips in the Schedule view). But there
 is no UI to create, update units on, or remove assignments. This blocks end-to-end testing
 of the resource utilization view (issue #22) and is a table-stakes PM workflow (VoC panel
 avg 7.0/10, David Resource Mgr 9/10).
@@ -106,6 +106,10 @@ The API accepts and returns the same decimal. The UI presents and accepts intege
 
 - Sarah types `50` (50%). Frontend sends `0.5`. She never sees `0.5`.
 - David's tooltip shows `"50% max"` matching the UI entry. Correct.
+- When a resource has a calendar, the picker may also display as hours: `max_units ×
+  resource.calendar.hours_per_day` (e.g., 0.5 × 8 = "4h/day"). The stored value is always
+  the decimal fraction. See ADR-0033 `CapacityInput` dual-mode component for the canonical
+  conversion display.
 
 **Valid range:** `0.01`–`2.00` on the model (permits planned overtime / over-assignment).
 Add server-side validation to `TaskResourceSerializer`:

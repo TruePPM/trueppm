@@ -1,14 +1,14 @@
 # ADR-0015: WASM CPM Engine — Rust + wasm-pack
 
 ## Status
-Accepted (partial) — see Amendment below
+Accepted with Deferral — web drag-preview uses native TypeScript; Rust WASM is reference implementation for mobile and conformance testing
 
 ## Context
 
 TruePPM's scheduling engine (`trueppm-scheduler`) runs server-side as a Python library
 (networkx + numpy). Two planned features require client-side CPM:
 
-1. **Live Gantt drag simulation (#19)**: When a PM drags a task bar, downstream tasks
+1. **Live Schedule view drag simulation (#19)**: When a PM drags a task bar, downstream tasks
    must reflow instantly (<10 ms) without a server round-trip.
 2. **Offline mobile scheduling (#26)**: When the mobile app is offline, the PM must be
    able to reschedule and see the impact immediately on-device.
@@ -31,7 +31,7 @@ Priya 4/10 — passive benefit; Janet 3/10 — cares about data freshness, not t
 - Client-side CPM must produce **identical results** to the Python engine for the same
   input — otherwise drag preview shows one schedule and the server computes another.
 - Mobile bundle size matters: Sarah is on construction sites with limited bandwidth.
-- Cold start matters: the engine loads on first Gantt interaction, not on page load.
+- Cold start matters: the engine loads on first Schedule view interaction, not on page load.
 - The scheduler package has **zero Django dependencies** by design (ADR constraint).
 
 ## Decision
@@ -185,7 +185,7 @@ means the first drag interaction hangs — unacceptable for the "instant feedbac
 ## Consequences
 
 ### What becomes easier
-- Live Gantt drag simulation (#19) — downstream tasks reflow in <10 ms
+- Live Schedule view drag simulation (#19) — downstream tasks reflow in <10 ms
 - Offline mobile scheduling (#26) — full CPM on-device, no server needed
 - Future: resource conflict preview during drag (VoC David suggestion, v2)
 - Future: what-if scenario modeling on client without server round-trip
@@ -230,7 +230,7 @@ means the first drag interaction hangs — unacceptable for the "instant feedbac
 
 ### Context
 
-Issue #19 originally required the Gantt drag-preview worker to load the Rust WASM
+Issue #19 originally required the Schedule view drag-preview worker to load the Rust WASM
 scheduler via `wasm-pack`. Implementation shipped with a native-TypeScript CPM in the
 worker (`packages/web/src/workers/cpmEngine.ts`) — no WASM import. The Rust WASM build
 exists at `packages/wasm-scheduler/pkg/` and its conformance suite

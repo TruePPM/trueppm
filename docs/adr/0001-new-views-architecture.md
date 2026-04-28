@@ -5,7 +5,7 @@ Proposed
 
 ## Context
 
-Issue #40 requires three new views in the project workspace alongside the existing Gantt:
+Issue #40 requires three new views in the project workspace alongside the existing Schedule view:
 WBS Tree (drag-to-reorder, inline editing), Task List (sortable/filterable table, multi-select
 bulk actions, CSV export), and Calendar (monthly grid, date-range task bars, milestones).
 
@@ -125,7 +125,7 @@ Rationale:
   JavaScript `Blob` + `URL.createObjectURL` download pattern handles this trivially in modern
   browsers. No memory concern at this scale.
 - A dedicated API export endpoint adds backend maintenance burden and is only superior when
-  the client does not already have the full dataset (e.g., paginated API). Since the Gantt and
+  the client does not already have the full dataset (e.g., paginated API). Since the Schedule view and
   Task List require the full project task list anyway, the cache is always warm.
 - Offline export works naturally: the cached data is available without network access.
 

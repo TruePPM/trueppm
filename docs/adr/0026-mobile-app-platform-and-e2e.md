@@ -63,7 +63,7 @@ packages/mobile/
 │   │   ├── projects/       # Project list + detail
 │   │   ├── tasks/          # My tasks + task detail
 │   │   ├── time/           # Time entry (Priya's core flow)
-│   │   ├── gantt/          # Read-only Gantt on phones; editable on tablet
+│   │   ├── schedule/       # Read-only Schedule view on phones; editable on tablet
 │   │   └── settings/
 │   ├── auth/
 │   ├── api/                # Shared OpenAPI-derived types (symlinked from web)
@@ -117,7 +117,7 @@ Minimum flows for ADR sign-off:
    received and UI updates.
 3. **Sync after reconnect**: stale 24h cache → reconnect → assert server data
    pulled, local changes pushed, no duplicates, no lost writes.
-4. **Gantt read on phone**: load project with 100 tasks → scroll Gantt → assert
+4. **Schedule view read on phone**: load project with 100 tasks → scroll Schedule view → assert
    no crash, critical path visible, dependency arrows render.
 5. **Auth flow**: login → receive tokens → backgrounded app for 1h → foreground →
    token refresh silent, session survives.
@@ -137,7 +137,7 @@ Each flow tests both iOS and Android on every nightly run.
 
 ### Milestone
 
-**Target milestone: v0.6** (est. next major release after Wave 3 ships). Not
+**Target milestone: v1.0** (est. next major release after Wave 3 ships). Not
 open-ended — Marcus's 6/10 was explicitly conditional on a date.
 
 ## Alternatives Considered
@@ -193,7 +193,7 @@ plugins are adequate but WatermelonDB is the canonical choice in CLAUDE.md.
 - **API changes**: no (uses existing `/api/v1/sync/pull`, `/api/v1/sync/push`,
   `/api/v1/auth/*`)
 - **OSS or Enterprise**: **OSS** (`trueppm-suite`)
-- **Target milestone**: v0.6
+- **Target milestone**: v1.0
 
 ### Durable execution checklist
 
@@ -208,7 +208,7 @@ transactional outbox pattern per `project_durable_execution` convention.
 4. Auth + JWT storage + refresh flow
 5. Project list + task list + task detail (read-only)
 6. Time entry (write + offline queue) — Priya's flow
-7. Read-only Gantt (canvas, reuse web renderer where possible via React Native Skia)
+7. Read-only Schedule view (canvas, reuse web renderer where possible via React Native Skia)
 8. Detox E2E suite (5 flows above)
 9. EAS Build + CI integration
 10. Alpha to internal testers via TestFlight / Play internal track
@@ -223,7 +223,7 @@ transactional outbox pattern per `project_durable_execution` convention.
 
 ### Follow-up issues
 
-- Mobile Gantt editable interactions (drag, preview) — after read-only ships
+- Mobile Schedule view editable interactions (drag, preview) — after read-only ships
 - Push notifications — after auth + sync stable
 - Biometric unlock toggle — post-MVP
-- iPad tablet layout (split-view Gantt + task list) — post-MVP
+- iPad tablet layout (split-view Schedule + task list) — post-MVP

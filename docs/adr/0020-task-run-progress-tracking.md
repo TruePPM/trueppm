@@ -1,7 +1,7 @@
 # ADR-0020: Long-Running Task Progress Tracking
 
 ## Status
-Accepted
+Accepted with Amendment (2026-04-13) — scheduler-runs endpoint and result_summary consumption pattern added
 
 ## Context
 

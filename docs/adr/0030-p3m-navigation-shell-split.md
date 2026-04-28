@@ -36,19 +36,19 @@ A new route is added to `router.tsx`:
 
 ```
 /projects/:id/overview   →  ProjectOverviewPage
-/projects/:id/gantt      →  (existing Gantt view, renamed from current default)
+/projects/:id/schedule   →  (existing Schedule view, renamed from current default)
 /projects/:id/tasks      →  (existing task list)
 /projects/:id/board      →  (existing board)
 /projects/:id/           →  redirect to /projects/:id/overview
 ```
 
-The default authenticated redirect changes from `/gantt` to `/projects/:lastVisitedId/overview`
+The default authenticated redirect changes from `/schedule` to `/projects/:lastVisitedId/overview`
 (or to the project selection screen if no project exists yet).
 
 `ProjectOverviewPage` is an OSS component in `packages/web/src/features/project/`. It renders:
 - 4 KPI cards: Schedule health (CPI/SPI — two metrics on one card; SPI takes priority if worse),
   Tasks late, Next milestone, Team utilization
-- Hero row (2/3): 4-week Gantt mini-preview (read-only; "Open full Gantt →" link required)
+- Hero row (2/3): 4-week Schedule mini-preview (read-only; "Open full Schedule →" link required)
 - Hero row (1/3): "Needs your attention" panel
 - Bottom row: "My tasks this week" (60%) | "Recent activity" (40%)
 - Slot: `project_overview.kpi_row` — enterprise can inject additional KPI cards to the right
@@ -216,6 +216,6 @@ registry; an ADR now exists).
 - **Durable execution:** N/A (all read-only API calls)
 - **OSS boundary verification:** After implementing, confirm `grep -r "trueppm_enterprise" packages/`
   returns zero. The portfolio breadcrumb uses only `location.state` (no enterprise import).
-- **Charting library:** The Gantt mini-preview in the OSS overview must use the existing SVAR
-  React Gantt component in a constrained/read-only mode, not a new library. The Enterprise
+- **Charting library:** The Schedule mini-preview in the OSS overview must use the existing
+  canvas renderer (`GanttRenderer.ts`) in a constrained/read-only mode, not a new library. The Enterprise
   bubble chart and heat map require Recharts (already approved in ADR-0022 for burn charts).
