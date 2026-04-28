@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useProjectId } from '@/hooks/useProjectId';
 import { apiClient } from '@/api/client';
-import type { Task, TaskAssignee, TaskLink, TaskStatus, LinkType } from '@/types';
+import type { Task, TaskAssignee, TaskLink, TaskStatus, LinkType, TaskReadiness } from '@/types';
 import type { PaginatedResponse } from '@/api/types';
 import { computeWbsCodes } from '@/utils/computeWbsCodes';
 
@@ -41,6 +41,10 @@ interface ApiTask {
   is_blocked?: boolean;
   linked_risks_count?: number;
   linked_risks_max_severity?: number | null;
+  // Board batch 5 (issue #105) — entry stamps, priority rank, readiness.
+  status_changed_at?: string | null;
+  priority_rank?: number | null;
+  readiness?: string | null;
   assignments?: Array<{
     resource_id: string;
     resource_name: string;
@@ -134,6 +138,9 @@ function mapTask(t: ApiTask): Task {
     isBlocked: t.is_blocked ?? false,
     linkedRisksCount: t.linked_risks_count ?? 0,
     linkedRisksMaxSeverity: t.linked_risks_max_severity ?? null,
+    statusEnteredAt: t.status_changed_at ?? undefined,
+    priorityRank: t.priority_rank ?? undefined,
+    readiness: (t.readiness as TaskReadiness | undefined) ?? undefined,
   };
 }
 

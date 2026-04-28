@@ -175,6 +175,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_blocked",
             "linked_risks_count",
             "linked_risks_max_severity",
+            "status_changed_at",
+            "priority_rank",
         ]
         read_only_fields = [
             "id",
@@ -198,6 +200,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "is_blocked",
             "linked_risks_count",
             "linked_risks_max_severity",
+            "status_changed_at",
         ]
 
     def get_schedule_variance_days(self, obj: Task) -> int | None:

@@ -8,6 +8,7 @@ from typing import Any
 from django.conf import settings
 from django.db import models
 from django.db.models import F, Q
+from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
 from trueppm_api.fields import LtreeField
@@ -363,6 +364,25 @@ class Task(VersionedModel):
         help_text="Approval state for three-point estimates (suggest_approve mode only).",
     )
 
+    # Timestamp of the most recent status column transition.  Auto-set by save()
+    # whenever the status field changes (including on initial creation).  Used by
+    # board cards to render entry stamps ("Entered at 72% · 3d ago") and stall
+    # detection logic (issue #105).
+    status_changed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this task last entered its current status column.",
+    )
+
+    # User-assigned priority rank within the project.  Lower = higher priority.
+    # Drives the default board sort order when sort=priority (issue #105).
+    # Nullable — tasks without an explicit rank sort last (9999 sentinel in the client).
+    priority_rank = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Priority rank within the project; lower is higher priority.",
+    )
+
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_TASK)
 
     class Meta:
@@ -400,8 +420,16 @@ class Task(VersionedModel):
             _old_status = (
                 type(self).objects.filter(pk=self.pk).values_list("status", flat=True).first()
             )
+        # Stamp status_changed_at whenever the status column changes (or on creation).
+        # For partial saves with update_fields, append status_changed_at automatically
+        # so the timestamp persists without callers needing to know about it.
+        _status_changed = _track and _old_status != self.status
+        if _status_changed:
+            self.status_changed_at = timezone.now()
+            if _update_fields is not None and "status_changed_at" not in _update_fields:
+                kwargs = {**kwargs, "update_fields": (*_update_fields, "status_changed_at")}
         super().save(*args, **kwargs)
-        if _track and _old_status != self.status:
+        if _status_changed:
             from trueppm_api.apps.projects.signals import task_status_changed
 
             task_status_changed.send(
