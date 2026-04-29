@@ -2,6 +2,7 @@ import { NavLink, useLocation } from 'react-router';
 import { GanttIcon, WbsIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon } from '@/components/Icons';
 import { OverviewIcon } from '@/components/Icons';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import type { ComponentType } from 'react';
 
 interface Tab {
@@ -29,9 +30,13 @@ const TABS: Tab[] = [
  * Links are path-based (`/projects/:projectId/:view`) so each view has a
  * shareable URL.  Hidden when no project is selected (no projectId in params).
  */
+// SCHEDULER role ordinal — same value as Role.SCHEDULER in the Django model.
+const SCHEDULER_ROLE = 2;
+
 export function ViewTabs() {
   const location = useLocation();
   const projectId = useProjectId();
+  const { role } = useCurrentUserRole(projectId ?? undefined);
 
   if (!projectId) return null;
 
@@ -40,9 +45,15 @@ export function ViewTabs() {
   const pathSegments = location.pathname.split('/');
   const currentView = pathSegments[pathSegments.length - 1] ?? 'overview';
 
+  // Pessimistic: hide Team tab while role is loading (null) or for role < SCHEDULER.
+  // Direct URL access still works — TeamView renders PermissionDeniedNotice (rule 94).
+  const visibleTabs = TABS.filter(
+    (t) => t.view !== 'resources' || (role !== null && role >= SCHEDULER_ROLE),
+  );
+
   return (
     <nav aria-label="View" className="hidden md:flex items-stretch h-full gap-0.5">
-      {TABS.map(({ view, label, Icon }) => {
+      {visibleTabs.map(({ view, label, Icon }) => {
         const isActive = currentView === view;
         return (
           <NavLink

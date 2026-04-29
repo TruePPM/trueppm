@@ -1,6 +1,8 @@
 import { Link, useLocation } from 'react-router';
 import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon } from '@/components/Icons';
 import { OverviewIcon } from '@/components/Icons';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useProjectId } from '@/hooks/useProjectId';
 import type { ComponentType } from 'react';
 
 interface NavItem {
@@ -21,17 +23,26 @@ const NAV_ITEMS: NavItem[] = [
   { view: 'resources', label: 'Team',     Icon: ResourcesIcon },
 ];
 
+const SCHEDULER_ROLE = 2;
+
 export function BottomNav() {
   const location = useLocation();
+  const projectId = useProjectId();
+  const { role } = useCurrentUserRole(projectId ?? undefined);
+
   // Derive active view from ?view= param; default to 'schedule' when absent
   const currentView = new URLSearchParams(location.search).get('view') ?? 'schedule';
+
+  const visibleItems = NAV_ITEMS.filter(
+    (t) => t.view !== 'resources' || (role !== null && role >= SCHEDULER_ROLE),
+  );
 
   return (
     <nav
       aria-label="View"
       className="md:hidden flex items-stretch h-14 border-t border-neutral-border bg-neutral-surface"
     >
-      {NAV_ITEMS.map(({ view, label, Icon }) => {
+      {visibleItems.map(({ view, label, Icon }) => {
         const isActive = currentView === view;
         return (
           <Link

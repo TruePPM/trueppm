@@ -94,6 +94,10 @@ class ProjectMembershipViewSet(viewsets.GenericViewSet[ProjectMembership]):
 
             raise PermissionDenied("You must be a member of this project.")
         qs = self.get_queryset()
+        # ?self=true: return only the requesting user's own membership row.
+        # Used by the frontend useCurrentUserRole() hook for tab-level RBAC.
+        if request.query_params.get("self") == "true":
+            qs = qs.filter(user=request.user)
         serializer = ProjectMembershipReadSerializer(qs, many=True)
         return Response(serializer.data)
 
