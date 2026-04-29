@@ -14,6 +14,8 @@ import {
   parseUTCDate,
   todayISO,
   detectOverallocatedAssignments,
+  detectOverallocationWeekRange,
+  isoWeekNumber,
   groupByWeek,
   dateRange,
   MONTH_ABBR,
@@ -70,16 +72,11 @@ function buildWeekColumns(
 ): Array<{ label: string; colSpan: number }> {
   const weeks = groupByWeek(dateRange(windowStart, windowEnd));
   return weeks.map((w) => ({
-    label: `W${getISOWeekNumber(parseUTCDate(w.weekStart))}`,
+    label: `W${isoWeekNumber(parseUTCDate(w.weekStart))}`,
     colSpan: w.days.length,
   }));
 }
 
-function getISOWeekNumber(d: Date): number {
-  const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
-  const startOfWeek1 = new Date(jan4.getTime() - ((jan4.getUTCDay() || 7) - 1) * 86400000);
-  return Math.floor((d.getTime() - startOfWeek1.getTime()) / (7 * 86400000)) + 1;
-}
 
 // ---------------------------------------------------------------------------
 // Geometry helpers
@@ -174,6 +171,9 @@ export function ResourceAllocationTimeline({
     const isCurrentUser = resource.id === currentUserResourceId;
     const hasOverallocation = overloaded.size > 0;
     const availDisplay = `${Math.round(maxUnits * 100)}% available`;
+    const overRange = hasOverallocation
+      ? detectOverallocationWeekRange(resource.tasks, maxUnits)
+      : null;
 
     return (
       <div
@@ -197,14 +197,14 @@ export function ResourceAllocationTimeline({
               {resource.name}
             </span>
             {isCurrentUser && (
-              <span className="text-[9px] font-bold px-1 rounded bg-brand-primary/10 text-brand-primary flex-shrink-0">
-                you
+              <span className="text-xs font-bold px-1 rounded bg-brand-primary/20 text-brand-primary flex-shrink-0">
+                YOU
               </span>
             )}
           </div>
           <div
             className={[
-              'text-[11px] flex items-center gap-1',
+              'text-[11px] flex items-center gap-1 flex-wrap',
               hasOverallocation ? 'text-semantic-critical' : 'text-neutral-text-secondary',
             ].join(' ')}
           >
@@ -215,7 +215,6 @@ export function ResourceAllocationTimeline({
                 aria-label={`Jump to first overallocation for ${resource.name}`}
                 title={`Jump to first overallocation for ${resource.name}`}
                 onClick={() => {
-                  // Scroll the first overallocated span into view
                   const el = timelineRef.current?.querySelector(
                     `[data-assignment-id="${[...overloaded][0]}"]`,
                   );
@@ -223,14 +222,24 @@ export function ResourceAllocationTimeline({
                 }}
               />
             )}
-            {availDisplay}
+            <span>{availDisplay}</span>
+            {overRange && (
+              <span className="text-semantic-critical font-medium tppm-mono">
+                · overallocated · {overRange}
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Timeline track */}
+        {/* Timeline track — overflow-x clips bars; overflow-y visible so popover can extend above row */}
         <div
-          className="flex-1 relative overflow-hidden"
-          style={{ backgroundImage: 'var(--tl-grid-bg)', backgroundSize: `${100 / totalDays}% 100%` }}
+          className="flex-1 relative"
+          style={{
+            overflowX: 'clip',
+            overflowY: 'visible',
+            backgroundImage: 'var(--tl-grid-bg)',
+            backgroundSize: `${100 / totalDays}% 100%`,
+          }}
         >
           {/* Today line */}
           {todayFraction !== null && (

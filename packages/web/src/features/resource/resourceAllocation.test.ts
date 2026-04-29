@@ -10,6 +10,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   detectOverallocatedAssignments,
+  detectOverallocationWeekRange,
+  isoWeekNumber,
   fitToAllocationWindow,
   parseUTCDate,
   formatISODate,
@@ -176,5 +178,69 @@ describe('fitToAllocationWindow', () => {
     // minStart = maxEnd = projectStartDate
     expect(win.start).toBe(formatISODate(isoWeekMonday(parseUTCDate('2026-03-02'))));
     expect(win.end).toBe(formatISODate(isoWeekSunday(parseUTCDate('2026-03-02'))));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isoWeekNumber
+// ---------------------------------------------------------------------------
+
+describe('isoWeekNumber', () => {
+  it('returns 1 for Jan 4 (always in W1)', () => {
+    expect(isoWeekNumber(parseUTCDate('2026-01-04'))).toBe(1);
+  });
+
+  it('returns correct week number for a known date', () => {
+    // 2026-04-27 (Monday) = W18
+    expect(isoWeekNumber(parseUTCDate('2026-04-27'))).toBe(18);
+  });
+
+  it('returns same week number for all days in the same ISO week', () => {
+    const mon = isoWeekNumber(parseUTCDate('2026-04-27'));
+    const sun = isoWeekNumber(parseUTCDate('2026-05-03'));
+    expect(mon).toBe(sun);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// detectOverallocationWeekRange
+// ---------------------------------------------------------------------------
+
+describe('detectOverallocationWeekRange', () => {
+  it('returns null when no tasks', () => {
+    expect(detectOverallocationWeekRange([], 1.0)).toBeNull();
+  });
+
+  it('returns null when resource is within capacity', () => {
+    const tasks = [makeTask('a1', '2026-04-27', '2026-05-03', '0.80')];
+    expect(detectOverallocationWeekRange(tasks, 1.0)).toBeNull();
+  });
+
+  it('returns single week label when only one week is over-allocated', () => {
+    // Two tasks both in W18 (Apr 27–May 3) summing to 1.3 > 1.0
+    const tasks = [
+      makeTask('a1', '2026-04-27', '2026-05-03', '0.80'),
+      makeTask('a2', '2026-04-27', '2026-05-03', '0.50'),
+    ];
+    const result = detectOverallocationWeekRange(tasks, 1.0);
+    expect(result).toBe('W18');
+  });
+
+  it('returns a range when multiple consecutive weeks are over-allocated', () => {
+    // Task 1 spans W18–W19 at 0.80, Task 2 spans same weeks at 0.50 → both over
+    const tasks = [
+      makeTask('a1', '2026-04-27', '2026-05-10', '0.80'), // W18–W19
+      makeTask('a2', '2026-04-27', '2026-05-10', '0.50'),
+    ];
+    const result = detectOverallocationWeekRange(tasks, 1.0);
+    expect(result).toBe('W18–W19');
+  });
+
+  it('ignores unscheduled tasks (null dates)', () => {
+    const tasks = [
+      makeTask('a1', null, null, '1.50'),
+      makeTask('a2', '2026-04-27', '2026-05-03', '0.50'),
+    ];
+    expect(detectOverallocationWeekRange(tasks, 1.0)).toBeNull();
   });
 });

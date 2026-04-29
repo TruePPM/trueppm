@@ -287,6 +287,47 @@ export function fitToAllocationWindow(
  * Returns a Set of assignment_ids that are overallocated on at least one day.
  * Calendar-aware exclusion of non-working days is deferred to a follow-up.
  */
+/** Return the ISO week number (1–53) for a UTC Date. */
+export function isoWeekNumber(d: Date): number {
+  const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const startOfWeek1 = new Date(jan4.getTime() - ((jan4.getUTCDay() || 7) - 1) * 86400000);
+  return Math.floor((d.getTime() - startOfWeek1.getTime()) / (7 * 86400000)) + 1;
+}
+
+/**
+ * Returns a compact week range string for the overallocated period.
+ * e.g. "W17" (single week) or "W17–W20" (multi-week).
+ * Returns null when the resource has no overallocation.
+ */
+export function detectOverallocationWeekRange(
+  tasks: AllocationTask[],
+  maxUnits: number,
+): string | null {
+  const dayUnits: Map<string, number> = new Map();
+  for (const task of tasks) {
+    if (!task.early_start || !task.early_finish) continue;
+    const units = parseFloat(task.units);
+    let cur = parseUTCDate(task.early_start);
+    const end = parseUTCDate(task.early_finish);
+    while (cur <= end) {
+      const iso = formatISODate(cur);
+      dayUnits.set(iso, (dayUnits.get(iso) ?? 0) + units);
+      cur = addDays(cur, 1);
+    }
+  }
+
+  const overWeeks = new Set<number>();
+  for (const [iso, units] of dayUnits) {
+    if (units > maxUnits) overWeeks.add(isoWeekNumber(parseUTCDate(iso)));
+  }
+
+  if (overWeeks.size === 0) return null;
+  const sorted = [...overWeeks].sort((a, b) => a - b);
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  return first === last ? `W${first}` : `W${first}–W${last}`;
+}
+
 export function detectOverallocatedAssignments(
   tasks: AllocationTask[],
   maxUnits: number,
