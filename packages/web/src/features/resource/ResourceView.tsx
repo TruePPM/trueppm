@@ -146,7 +146,7 @@ export function ResourceView({
   if (activeStatus === 'schedule-not-run') {
     return (
       <div className="flex flex-col h-full overflow-hidden">
-        <ResourceEmptyState onRunScheduler={triggerScheduler} />
+        <ResourceEmptyState onRunScheduler={() => void triggerScheduler()} />
       </div>
     );
   }
@@ -270,7 +270,7 @@ export function ResourceView({
                 windowEnd={window_.end}
                 currentUserResourceId={currentUserResourceId}
                 projectId={projectId}
-                onRunScheduler={triggerScheduler}
+                onRunScheduler={() => void triggerScheduler()}
               />
             </div>
           )

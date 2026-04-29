@@ -155,7 +155,7 @@ export function HeatmapPage() {
 
       {/* Schedule-not-run empty state covers both KPI and heatmap */}
       {isScheduleNotRun ? (
-        <ResourceEmptyState onRunScheduler={triggerScheduler} />
+        <ResourceEmptyState onRunScheduler={() => void triggerScheduler()} />
       ) : (
         <>
           {/* KPI row */}
