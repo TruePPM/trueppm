@@ -84,6 +84,12 @@ async function seedAuthAndNavigate(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/resources/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_RESOURCE_CANDIDATES }) }),
   );
+  // useCurrentUserRole() fetches members/?self=true — must return SCHEDULER (role 2)
+  // so ViewTabs shows the Team tab. Without this mock, the request hits ECONNREFUSED
+  // in CI (no backend) and the hook returns null, pessimistically hiding the tab.
+  await page.route('**/api/v1/projects/*/members/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 'mem-sched', role: 2 }]) }),
+  );
 
   await page.goto(`/projects/${PROJECT_ID}/resources/roster`);
   await page.waitForLoadState('networkidle');

@@ -13,6 +13,7 @@ export function TeamView() {
 
   const isRoster = location.pathname.endsWith('/roster') || location.pathname.endsWith('/resources');
   const isAllocation = location.pathname.endsWith('/allocation');
+  const isHeatmap = location.pathname.endsWith('/heatmap');
 
   const tabClass = (active: boolean) =>
     [
@@ -45,6 +46,14 @@ export function TeamView() {
           aria-current={isAllocation ? 'page' : undefined}
         >
           Allocation
+        </NavLink>
+        <NavLink
+          to={`/projects/${projectId}/resources/heatmap`}
+          replace
+          className={tabClass(isHeatmap)}
+          aria-current={isHeatmap ? 'page' : undefined}
+        >
+          Heatmap
         </NavLink>
       </nav>
 

@@ -119,7 +119,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
     def get_permissions(self) -> list[BasePermission]:
         if self.action == "destroy":
             return [IsAuthenticated(), IsProjectOwner()]
-        if self.action in ("utilization", "resource_allocation"):
+        if self.action in ("utilization", "resource_allocation", "heatmap", "resources_summary"):
             return [IsAuthenticated(), IsProjectScheduler()]
         return [IsAuthenticated(), IsProjectMember()]
 
@@ -374,6 +374,152 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
                 "window_start": window_start.isoformat(),
                 "window_end": window_end.isoformat(),
                 "resources": list(resources_map.values()),
+            }
+        )
+
+    @action(detail=True, methods=["get"], url_path="resources/heatmap")
+    def heatmap(self, request: Request, pk: str | None = None) -> Response:
+        """Week × person utilization heatmap (issue #217, ADR-0042).
+
+        Query parameters:
+          weeks    (4|8|12|16, default 8)  — rolling window width
+          start    (YYYY-MM-DD, optional)  — Monday of first week; defaults to
+                                             Monday of the current ISO week
+          group_by (role|project|none, default none) — row sort hint; sorting
+                                             is done server-side so clients that
+                                             don't implement re-sort still work,
+                                             but clients MAY re-sort from the
+                                             returned job_role field without a
+                                             second request.
+
+        Returns 409 when no CPM dates exist on any task.
+        """
+        from trueppm_api.apps.projects.utilization import aggregate_utilization_weekly
+
+        project = self.get_object()
+
+        weeks_str = request.query_params.get("weeks", "8")
+        try:
+            num_weeks = int(weeks_str)
+            if num_weeks not in (4, 8, 12, 16):
+                return Response(
+                    {"detail": "weeks must be 4, 8, 12, or 16."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except ValueError:
+            return Response(
+                {"detail": "weeks must be an integer."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        start_str = request.query_params.get("start")
+        try:
+            if start_str:
+                start_date: datetime.date = datetime.date.fromisoformat(start_str)
+            else:
+                today = datetime.date.today()
+                start_date = today - datetime.timedelta(days=today.weekday())
+        except ValueError:
+            return Response(
+                {"detail": "'start' must be a valid ISO 8601 date (YYYY-MM-DD)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Normalise to Monday of the given week regardless of what day was passed.
+        start_date = start_date - datetime.timedelta(days=start_date.weekday())
+
+        group_by = request.query_params.get("group_by", "none")
+        if group_by not in ("role", "project", "none"):
+            return Response(
+                {"detail": "group_by must be 'role', 'project', or 'none'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        has_cpm = project.tasks.filter(is_deleted=False, early_start__isnull=False).exists()
+        if not has_cpm:
+            return Response(
+                {"detail": "Schedule has not been computed. Run the scheduler first."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        result = aggregate_utilization_weekly(project, start_date, num_weeks, group_by)
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="resources/summary")
+    def resources_summary(self, request: Request, pk: str | None = None) -> Response:
+        """KPI summary for the Resources page header (issue #219, ADR-0042).
+
+        Computes four metrics over an 8-week rolling window from today:
+          avg_utilization_pct, over_allocated_count, over_allocated_weeks,
+          under_utilized_count, under_utilized_names, headcount, contractor_count.
+
+        Returns 409 when no CPM dates exist.
+        """
+        from trueppm_api.apps.projects.utilization import aggregate_utilization_weekly
+        from trueppm_api.apps.resources.models import ProjectResource
+
+        project = self.get_object()
+
+        has_cpm = project.tasks.filter(is_deleted=False, early_start__isnull=False).exists()
+        if not has_cpm:
+            return Response(
+                {"detail": "Schedule has not been computed. Run the scheduler first."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        today = datetime.date.today()
+        start_date = today - datetime.timedelta(days=today.weekday())
+        heatmap = aggregate_utilization_weekly(project, start_date, 8, "none")
+
+        # Headcount from project roster (not just assigned resources).
+        project_resources = list(
+            ProjectResource.objects.select_related("resource").filter(
+                project=project, is_deleted=False
+            )
+        )
+        headcount = len(project_resources)
+        contractor_count = sum(
+            1
+            for pr in project_resources
+            if "contractor" in (pr.resource.job_role or "").lower()
+            or "contractor" in (pr.role_title or "").lower()
+        )
+
+        all_util: list[int] = [u for r in heatmap["resources"] for u in r["util"] if u > 0]
+        avg_util = round(sum(all_util) / len(all_util)) if all_util else 0
+
+        over_allocated = [r for r in heatmap["resources"] if any(u > 100 for u in r["util"])]
+        # Under-utilised: assigned in at least one week but avg < 70 % across the window.
+        under_utilized = [
+            r
+            for r in heatmap["resources"]
+            if any(u > 0 for u in r["util"]) and (sum(r["util"]) / len(r["util"])) < 70
+        ]
+
+        # Collect distinct over-allocated week labels and format as "W21–W23".
+        over_week_indices: list[int] = sorted(
+            {i for r in over_allocated for i, u in enumerate(r["util"]) if u > 100}
+        )
+        if over_week_indices:
+            first_w = heatmap["weeks"][over_week_indices[0]].split("-W")[1]
+            last_w = heatmap["weeks"][over_week_indices[-1]].split("-W")[1]
+            over_weeks_str = f"W{first_w}-W{last_w}" if first_w != last_w else f"W{first_w}"
+        else:
+            over_weeks_str = ""
+
+        def _short_name(full_name: str) -> str:
+            parts = full_name.split()
+            return f"{parts[0][0]}. {parts[-1]}" if len(parts) >= 2 else full_name
+
+        return Response(
+            {
+                "avg_utilization_pct": avg_util,
+                "over_allocated_count": len(over_allocated),
+                "over_allocated_weeks": over_weeks_str,
+                "under_utilized_count": len(under_utilized),
+                "under_utilized_names": [_short_name(r["name"]) for r in under_utilized[:3]],
+                "headcount": headcount,
+                "contractor_count": contractor_count,
             }
         )
 

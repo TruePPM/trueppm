@@ -1,7 +1,7 @@
 # ADR-0016: Short Hex Object IDs — Human-Readable Project-Scoped Identifiers
 
 ## Status
-Proposed
+Accepted
 
 ## Context
 

@@ -1,7 +1,7 @@
 # ADR-0029: Frontend Slot Registry and Edition Detection
 
 ## Status
-Proposed
+Accepted
 
 ## Context
 

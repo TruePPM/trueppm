@@ -1889,6 +1889,88 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/resources/heatmap/": {
+            "get": {
+                "operationId": "v1_projects_resources_heatmap_retrieve",
+                "description": "Week × person utilization heatmap (issue #217, ADR-0042).\n\nQuery parameters:\n  weeks    (4|8|12|16, default 8)  — rolling window width\n  start    (YYYY-MM-DD, optional)  — Monday of first week; defaults to\n                                     Monday of the current ISO week\n  group_by (role|project|none, default none) — row sort hint; sorting\n                                     is done server-side so clients that\n                                     don't implement re-sort still work,\n                                     but clients MAY re-sort from the\n                                     returned job_role field without a\n                                     second request.\n\nReturns 409 when no CPM dates exist on any task.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/resources/summary/": {
+            "get": {
+                "operationId": "v1_projects_resources_summary_retrieve",
+                "description": "KPI summary for the Resources page header (issue #219, ADR-0042).\n\nComputes four metrics over an 8-week rolling window from today:\n  avg_utilization_pct, over_allocated_count, over_allocated_weeks,\n  under_utilized_count, under_utilized_names, headcount, contractor_count.\n\nReturns 409 when no CPM dates exist.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/schedule/": {
             "post": {
                 "operationId": "v1_projects_schedule_create",

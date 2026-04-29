@@ -29,15 +29,10 @@ import {
 import { useResourceUtilization } from '@/hooks/useResourceUtilization';
 import { useResourceAllocation, useInvalidateAllocation } from '@/hooks/useResourceAllocation';
 import { useResolveOverallocation } from '@/hooks/useResolveOverallocation';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useProjectId } from '@/hooks/useProjectId';
+import { useTriggerScheduler } from '@/hooks/useTriggerScheduler';
 
-// ---------------------------------------------------------------------------
-// Role stub — replace with real useCurrentUserRole() once the API exposes the
-// per-project membership role on the auth/user endpoint. Server-side 403 is
-// the authoritative guard today (rule 94); this stub keeps the gate function
-// structurally intact so wiring it in later is a one-line change. Currently
-// equals SCHEDULER so the gate is a no-op for every user.
-// ---------------------------------------------------------------------------
-const STUB_ROLE = 2; // SCHEDULER
 const SCHEDULER_ROLE = 2;
 
 const MODE_STORAGE_KEY = 'trueppm.resources.viewMode';
@@ -55,11 +50,14 @@ interface Props {
 }
 
 export function ResourceView({
-  projectId,
+  projectId: projectIdProp,
   projectStartDate,
   currentUserResourceId,
   highlightResourceId: _highlightResourceId,
 }: Props) {
+  const projectIdFromUrl = useProjectId();
+  const projectId = projectIdProp ?? projectIdFromUrl;
+  const triggerScheduler = useTriggerScheduler(projectId);
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     try {
       const stored = localStorage.getItem(MODE_STORAGE_KEY);
@@ -116,8 +114,9 @@ export function ResourceView({
     }
   }, [viewMode]);
 
-  // --- Permission gate ---
-  if (STUB_ROLE < SCHEDULER_ROLE) {
+  // --- Permission gate (rule 94) ---
+  const { role, isLoading: roleLoading } = useCurrentUserRole(projectId);
+  if (!roleLoading && (role === null || role < SCHEDULER_ROLE)) {
     return (
       <div className="flex flex-col h-full overflow-hidden">
         <PermissionDeniedNotice />
@@ -147,7 +146,7 @@ export function ResourceView({
   if (activeStatus === 'schedule-not-run') {
     return (
       <div className="flex flex-col h-full overflow-hidden">
-        <ResourceEmptyState onRunScheduler={() => {}} />
+        <ResourceEmptyState onRunScheduler={() => void triggerScheduler()} />
       </div>
     );
   }
@@ -271,7 +270,7 @@ export function ResourceView({
                 windowEnd={window_.end}
                 currentUserResourceId={currentUserResourceId}
                 projectId={projectId}
-                onRunScheduler={() => {}}
+                onRunScheduler={() => void triggerScheduler()}
               />
             </div>
           )

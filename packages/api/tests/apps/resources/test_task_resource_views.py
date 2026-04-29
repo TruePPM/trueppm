@@ -12,7 +12,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task
-from trueppm_api.apps.resources.models import Resource, TaskResource
+from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -316,3 +316,40 @@ class TestTaskResourceIDOR:
         r = c.get("/api/v1/task-resources/")
         assert r.status_code == 200
         assert r.data["count"] == 0
+
+
+@pytest.mark.django_db
+class TestAutoRosterOnAssignment:
+    """Assigning a resource to a task auto-creates a ProjectResource row (#241)."""
+
+    def test_creates_project_resource_on_assignment(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        task: Task,
+        resource: Resource,
+        project: Project,
+    ) -> None:
+        assert not ProjectResource.objects.filter(project=project, resource=resource).exists()
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(task.pk), "resource": str(resource.pk), "units": "1.0"},
+        )
+        assert r.status_code == 201
+        assert ProjectResource.objects.filter(project=project, resource=resource).exists()
+
+    def test_idempotent_when_already_rostered(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        task: Task,
+        resource: Resource,
+        project: Project,
+    ) -> None:
+        ProjectResource.objects.create(project=project, resource=resource)
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(task.pk), "resource": str(resource.pk), "units": "1.0"},
+        )
+        assert r.status_code == 201
+        assert ProjectResource.objects.filter(project=project, resource=resource).count() == 1
