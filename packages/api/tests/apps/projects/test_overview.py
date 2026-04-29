@@ -124,6 +124,44 @@ class TestProjectOverview:
         assert data["next_milestone"] is None
         assert data["team_utilization_pct"] is None
 
+    def test_owner_name_returned_when_owner_member_exists(
+        self, client: APIClient, project: Project, user: object, membership: object
+    ) -> None:
+        res = client.get(self.url(project.pk))
+        assert res.status_code == 200
+        data = res.json()
+        # The user fixture creates user with username="pm"; membership is OWNER
+        assert data["owner_name"] is not None
+        assert "owner_name" in data
+
+    def test_start_date_returned_in_iso_format(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        res = client.get(self.url(project.pk))
+        assert res.status_code == 200
+        data = res.json()
+        assert data["start_date"] == project.start_date.isoformat()
+
+    def test_owner_name_is_none_when_no_owner_member(
+        self, client: APIClient, project: Project
+    ) -> None:
+        # membership fixture not injected — project has no member, but the client
+        # user is authenticated as a non-member; force-auth to bypass permission check
+        # by creating a viewer membership instead
+        from django.contrib.auth import get_user_model
+
+        from trueppm_api.apps.access.models import Role
+
+        User = get_user_model()
+        viewer = User.objects.create_user(username="viewer_nm", password="pw")
+        ProjectMembership.objects.create(project=project, user=viewer, role=Role.VIEWER)
+        c = APIClient()
+        c.force_authenticate(user=viewer)
+        res = c.get(self.url(project.pk))
+        assert res.status_code == 200
+        # No owner-role member exists — owner_name should be None
+        assert res.json()["owner_name"] is None
+
     def test_on_track_health_when_all_scheduled_complete(
         self, client: APIClient, project: Project, membership: object
     ) -> None:
@@ -296,6 +334,47 @@ class TestProjectAttention:
         )
         res = client.get(self.url(project.pk))
         assert res.json()["items"] == []
+
+    def test_link_target_field_present_on_all_items(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        yesterday = datetime.date.today() - datetime.timedelta(days=1)
+        make_task(
+            project,
+            name="Late CP",
+            is_critical=True,
+            early_finish=yesterday,
+            status=TaskStatus.IN_PROGRESS,
+        )
+        res = client.get(self.url(project.pk))
+        items = res.json()["items"]
+        assert len(items) > 0
+        for item in items:
+            assert "link_target" in item
+
+    def test_overallocation_item_appears(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        from decimal import Decimal
+
+        from trueppm_api.apps.resources.models import Resource, TaskResource
+
+        resource = Resource.objects.create(
+            name="Over Resource",
+            max_units=Decimal("1.00"),
+        )
+        # Create two tasks each assigning 75% — total 150% > max_units
+        task1 = make_task(project, name="Task A", status=TaskStatus.IN_PROGRESS)
+        task2 = make_task(project, name="Task B", status=TaskStatus.NOT_STARTED)
+        TaskResource.objects.create(task=task1, resource=resource, units=Decimal("0.75"))
+        TaskResource.objects.create(task=task2, resource=resource, units=Decimal("0.75"))
+
+        res = client.get(self.url(project.pk))
+        items = res.json()["items"]
+        assert any(i["type"] == "overallocation" for i in items)
+        overalloc = next(i for i in items if i["type"] == "overallocation")
+        assert overalloc["severity"] == "warning"
+        assert overalloc["task_name"] == "Over Resource"
 
 
 # ---------------------------------------------------------------------------

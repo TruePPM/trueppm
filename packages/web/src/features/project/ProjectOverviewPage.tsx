@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { apiClient } from '@/api/client';
@@ -13,18 +13,23 @@ interface OverviewData {
   spi: number | null;
   tasks_late_count: number;
   critical_task_count: number;
-  next_milestone: { name: string; date: string } | null;
+  total_tasks: number;
+  complete_tasks: number;
+  next_milestone: { id: string; name: string; date: string; percent_complete: number } | null;
   team_utilization_pct: number | null;
+  owner_name: string | null;
+  start_date: string;
 }
 
 interface AttentionItem {
   severity: 'critical' | 'warning' | 'info';
-  type: 'critical_task_late' | 'unassigned_approaching' | 'baseline_drift';
+  type: 'critical_task_late' | 'unassigned_approaching' | 'baseline_drift' | 'overallocation';
   task_id: string | null;
   task_name: string;
   assignee_name: string | null;
   date: string | null;
   detail: string;
+  link_target: unknown | null;
 }
 
 interface MyTask {
@@ -34,6 +39,15 @@ interface MyTask {
   status: string;
   percent_complete: number;
   is_critical: boolean;
+}
+
+interface MCResult {
+  p50: string;
+  p80: string;
+  p95: string;
+  runs: number;
+  distribution: string[];
+  histogram_buckets: { date: string; count: number }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -108,78 +122,101 @@ function useMyTasks(projectId: string | undefined) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Critical path panel
-// ---------------------------------------------------------------------------
-
-const MAX_CP_TASKS = 5;
-
-interface CriticalPathPanelProps {
-  tasks: CpTask[];
-  projectId: string;
+function useMonteCarloLatest(projectId: string | undefined) {
+  return useQuery<MCResult | null>({
+    queryKey: ['mc-latest', projectId],
+    queryFn: async () => {
+      try {
+        const res = await apiClient.get<MCResult>(
+          `/projects/${projectId}/monte-carlo/latest/`,
+        );
+        return res.data;
+      } catch {
+        // 404 means no simulation has been run yet — treat as null
+        return null;
+      }
+    },
+    enabled: !!projectId,
+    retry: false,
+  });
 }
 
-export function CriticalPathPanel({ tasks, projectId }: CriticalPathPanelProps) {
-  const visible = tasks.slice(0, MAX_CP_TASKS);
-  const remaining = tasks.length - visible.length;
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-  if (tasks.length === 0) {
-    return (
-      <p className="text-sm text-neutral-text-secondary px-1">
-        No critical path tasks found. Run the scheduler to compute the critical path.
-      </p>
-    );
-  }
+function formatIsoDate(iso: string): string {
+  const d = new Date(iso + 'T00:00:00Z');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+
+function daysFromToday(iso: string): number {
+  const now = new Date();
+  const target = new Date(iso + 'T00:00:00Z');
+  return Math.round((target.getTime() - now.getTime()) / 86400000);
+}
+
+// ---------------------------------------------------------------------------
+// ProjectHeader
+// ---------------------------------------------------------------------------
+
+interface ProjectHeaderProps {
+  overview: OverviewData;
+}
+
+function ProjectHeader({ overview }: ProjectHeaderProps) {
+  const healthBadgeClass = {
+    on_track: 'border-semantic-on-track/40 text-semantic-on-track',
+    at_risk: 'border-semantic-at-risk/40 text-semantic-at-risk',
+    critical: 'border-semantic-critical/40 text-semantic-critical',
+    unknown: 'border-neutral-border text-neutral-text-disabled',
+  }[overview.schedule_health];
+
+  const healthLabel = {
+    on_track: 'On track',
+    at_risk: 'At risk',
+    critical: 'Critical',
+    unknown: 'Unknown',
+  }[overview.schedule_health];
+
+  const subtitle = [
+    `Started ${formatIsoDate(overview.start_date)}`,
+    `${overview.total_tasks} task${overview.total_tasks === 1 ? '' : 's'}`,
+    `${overview.critical_task_count} on critical path`,
+    `Owner: ${overview.owner_name ?? '—'}`,
+  ].join(' · ');
 
   return (
-    <div className="flex flex-col gap-2">
-      <ul className="flex flex-col gap-1" aria-label="Critical path tasks">
-        {visible.map((task) => (
-          <li
-            key={task.id}
-            className="flex flex-col gap-0.5 px-3 py-2 rounded border border-neutral-border
-              bg-neutral-surface-raised text-sm"
-            title="This task is on the critical path — a delay here delays the project end date"
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <span
-                aria-label="Critical path"
-                className="flex-shrink-0 text-xs font-bold text-semantic-critical
-                  border border-semantic-critical/50 rounded px-1 leading-4"
-              >
-                CP
-              </span>
-              <span className="flex-1 min-w-0 truncate text-neutral-text-primary font-medium">
-                {task.name}
-              </span>
-              <span className="flex-shrink-0 text-xs text-neutral-text-secondary">
-                {task.duration}d
-              </span>
-            </div>
-            <p className="text-xs text-neutral-text-secondary pl-8">
-              {task.total_float !== null
-                ? `Total slack: ${task.total_float}d · Any slip here slips the project end date.`
-                : 'Total slack: — · Any slip here slips the project end date.'}
-            </p>
-          </li>
-        ))}
-      </ul>
-
-      <div className="flex items-center justify-between mt-1">
-        {remaining > 0 && (
-          <span className="text-xs text-neutral-text-disabled">
-            +{remaining} more critical task{remaining === 1 ? '' : 's'}
-          </span>
-        )}
-        <Link
-          to={`/projects/${projectId}/schedule`}
-          className="ml-auto text-xs text-brand-primary underline-offset-2 hover:underline
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-            focus-visible:outline-none rounded"
+    <div className="flex flex-col gap-1 pb-2 border-b border-neutral-border">
+      <div className="flex items-center gap-3 flex-wrap">
+        <span
+          className={`bg-transparent border rounded px-2 py-0.5 text-xs font-medium ${healthBadgeClass}`}
+          aria-label={`Project health: ${healthLabel}`}
         >
-          Show full critical path
-        </Link>
+          {healthLabel}
+        </span>
+        <div className="flex items-center gap-3 ml-auto">
+          <button
+            type="button"
+            className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
+              text-neutral-text-primary hover:bg-neutral-surface-raised
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              focus-visible:outline-none"
+          >
+            Export
+          </button>
+          <button
+            type="button"
+            className="text-xs bg-brand-primary text-white rounded px-3 h-7 font-medium
+              hover:opacity-90
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              focus-visible:outline-none"
+          >
+            Update Status
+          </button>
+        </div>
       </div>
+      <p className="text-xs text-neutral-text-secondary">{subtitle}</p>
     </div>
   );
 }
@@ -192,7 +229,6 @@ interface KpiCardProps {
   label: string;
   value: string;
   sub?: string;
-  /** Semantic color variant for the value */
   variant?: 'on-track' | 'at-risk' | 'critical' | 'neutral';
 }
 
@@ -209,8 +245,22 @@ function KpiCard({ label, value, sub, variant = 'neutral' }: KpiCardProps) {
       <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary">
         {label}
       </span>
-      <span className={`text-2xl font-semibold ${valueColor}`}>{value}</span>
-      {sub && <span className="text-xs text-neutral-text-disabled">{sub}</span>}
+      <span className={`text-2xl font-semibold tppm-mono ${valueColor}`}>{value}</span>
+      {sub && <span className="text-xs text-neutral-text-disabled tppm-mono">{sub}</span>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Skeleton loader
+// ---------------------------------------------------------------------------
+
+function KpiSkeleton() {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="h-24 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised" />
+      ))}
     </div>
   );
 }
@@ -223,6 +273,7 @@ const ATTENTION_ICONS: Record<AttentionItem['type'], string> = {
   critical_task_late: '🔴',
   unassigned_approaching: '🟡',
   baseline_drift: '🟠',
+  overallocation: '🟡',
 };
 
 interface AttentionPanelProps {
@@ -301,7 +352,7 @@ function MyTasksPanel({ tasks }: MyTasksPanelProps) {
           )}
           <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{task.name}</span>
           {task.due && (
-            <span className="flex-shrink-0 text-xs text-neutral-text-secondary">{task.due}</span>
+            <span className="flex-shrink-0 text-xs text-neutral-text-secondary tppm-mono">{task.due}</span>
           )}
         </li>
       ))}
@@ -310,16 +361,210 @@ function MyTasksPanel({ tasks }: MyTasksPanelProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Skeleton loader
+// Critical path panel
 // ---------------------------------------------------------------------------
 
-function KpiSkeleton() {
+const MAX_CP_TASKS = 5;
+
+interface CriticalPathPanelProps {
+  tasks: CpTask[];
+  projectId: string;
+}
+
+export function CriticalPathPanel({ tasks, projectId }: CriticalPathPanelProps) {
+  const visible = tasks.slice(0, MAX_CP_TASKS);
+  const remaining = tasks.length - visible.length;
+
+  if (tasks.length === 0) {
+    return (
+      <p className="text-sm text-neutral-text-secondary px-1">
+        No critical path tasks found. Run the scheduler to compute the critical path.
+      </p>
+    );
+  }
+
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="h-24 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised" />
-      ))}
+    <div className="flex flex-col gap-2">
+      <ul className="flex flex-col gap-1" aria-label="Critical path tasks">
+        {visible.map((task) => (
+          <li
+            key={task.id}
+            className="flex flex-col gap-0.5 px-3 py-2 rounded border border-neutral-border
+              bg-neutral-surface-raised text-sm"
+            title="This task is on the critical path — a delay here delays the project end date"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span
+                aria-label="Critical path"
+                className="flex-shrink-0 text-xs font-bold text-semantic-critical
+                  border border-semantic-critical/50 rounded px-1 leading-4"
+              >
+                CP
+              </span>
+              <span className="flex-1 min-w-0 truncate text-neutral-text-primary font-medium">
+                {task.name}
+              </span>
+              <span className="flex-shrink-0 text-xs text-neutral-text-secondary tppm-mono">
+                {task.duration}d
+              </span>
+            </div>
+            <p className="text-xs text-neutral-text-secondary pl-8">
+              {task.total_float !== null
+                ? `Total slack: ${task.total_float}d · Any slip here slips the project end date.`
+                : 'Total slack: — · Any slip here slips the project end date.'}
+            </p>
+          </li>
+        ))}
+      </ul>
+
+      <div className="flex items-center justify-between mt-1">
+        {remaining > 0 && (
+          <span className="text-xs text-neutral-text-disabled">
+            +{remaining} more critical task{remaining === 1 ? '' : 's'}
+          </span>
+        )}
+        <Link
+          to={`/projects/${projectId}/schedule`}
+          className="ml-auto text-xs text-brand-primary underline-offset-2 hover:underline
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+            focus-visible:outline-none rounded"
+        >
+          Show full critical path
+        </Link>
+      </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Monte Carlo widget
+// ---------------------------------------------------------------------------
+
+interface MonteCarloWidgetProps {
+  projectId: string;
+}
+
+function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
+  const qc = useQueryClient();
+  const { data: mc, isLoading } = useMonteCarloLatest(projectId);
+
+  const runMutation = useMutation({
+    mutationFn: async () => {
+      await apiClient.post(`/projects/${projectId}/monte-carlo/`);
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['mc-latest', projectId] });
+    },
+  });
+
+  const svgWidth = 150;
+  const svgHeight = 40;
+
+  const renderHistogram = (result: MCResult) => {
+    const buckets = result.histogram_buckets;
+    if (buckets.length === 0) return null;
+    const maxCount = Math.max(...buckets.map((b) => b.count), 1);
+    const barWidth = svgWidth / buckets.length;
+
+    return (
+      <svg
+        width={svgWidth}
+        height={svgHeight}
+        aria-hidden="true"
+        className="flex-shrink-0"
+      >
+        {buckets.map((bucket, i) => {
+          const barH = (bucket.count / maxCount) * svgHeight;
+          const y = svgHeight - barH;
+          // Color by percentile region: ≤P50 green, P50–P80 amber, >P80 red
+          let fill = '#4ade80';
+          if (bucket.date > result.p80) fill = '#b91c1c';
+          else if (bucket.date > result.p50) fill = '#f59e0b';
+          return (
+            <rect
+              key={i}
+              x={i * barWidth}
+              y={y}
+              width={barWidth - 1}
+              height={barH}
+              fill={fill}
+              opacity={0.5}
+            />
+          );
+        })}
+      </svg>
+    );
+  };
+
+  return (
+    <section aria-label="Monte Carlo forecast">
+      <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
+        Forecast
+      </h2>
+
+      {isLoading ? (
+        <div className="h-20 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised" />
+      ) : mc ? (
+        <div className="flex flex-col gap-3 p-4 rounded border border-neutral-border bg-neutral-surface-raised">
+          <div className="flex items-end gap-4 flex-wrap">
+            {renderHistogram(mc)}
+            <div className="flex flex-col gap-1">
+              <p className="text-xs text-neutral-text-secondary">
+                8 in 10 simulations finish by{' '}
+                <span className="tppm-mono font-medium text-neutral-text-primary">
+                  {formatIsoDate(mc.p80)}
+                </span>
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span
+                  className="bg-transparent border border-semantic-on-track/40 rounded
+                    px-2 py-0.5 text-xs tppm-mono text-semantic-on-track"
+                >
+                  P50 {formatIsoDate(mc.p50)}
+                </span>
+                <span
+                  className="bg-transparent border border-semantic-at-risk/40 rounded
+                    px-2 py-0.5 text-xs tppm-mono text-semantic-at-risk"
+                >
+                  P80 {formatIsoDate(mc.p80)}
+                </span>
+                <span
+                  className="bg-transparent border border-semantic-critical/40 rounded
+                    px-2 py-0.5 text-xs tppm-mono text-semantic-critical"
+                >
+                  P95 {formatIsoDate(mc.p95)}
+                </span>
+              </div>
+            </div>
+          </div>
+          <Link
+            to={`/projects/${projectId}/schedule`}
+            className="self-start text-xs text-brand-primary underline-offset-2 hover:underline
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              focus-visible:outline-none rounded"
+          >
+            See full forecast
+          </Link>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2 p-4 rounded border border-neutral-border bg-neutral-surface-raised">
+          <p className="text-sm text-neutral-text-secondary">
+            No forecast available. Run a simulation to see finish date probabilities.
+          </p>
+          <button
+            type="button"
+            onClick={() => runMutation.mutate()}
+            disabled={runMutation.isPending}
+            className="self-start text-xs bg-brand-primary text-white rounded px-3 h-7 font-medium
+              hover:opacity-90 disabled:opacity-50
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              focus-visible:outline-none"
+          >
+            {runMutation.isPending ? 'Running…' : 'Run forecast'}
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -339,15 +584,7 @@ export function ProjectOverviewPage() {
   const { data: attention, isLoading: attentionLoading } = useProjectAttention(projectId);
   const { data: myTasks, isLoading: myTasksLoading } = useMyTasks(projectId);
   const { data: cpTasks, isLoading: cpTasksLoading } = useCriticalPathTasks(projectId);
-
-  // Derive health variant for SPI card
-  const spiVariant = (() => {
-    if (!overview) return 'neutral' as const;
-    const spi = overview.spi ?? 1;
-    if (spi >= 0.95) return 'on-track' as const;
-    if (spi >= 0.8) return 'at-risk' as const;
-    return 'critical' as const;
-  })();
+  const { data: mcData } = useMonteCarloLatest(projectId);
 
   const healthVariant = (() => {
     if (!overview) return 'neutral' as const;
@@ -371,56 +608,74 @@ export function ProjectOverviewPage() {
     return map[overview.schedule_health];
   })();
 
+  const nextMilestoneSub = (() => {
+    if (!overview?.next_milestone?.date) return undefined;
+    const days = daysFromToday(overview.next_milestone.date);
+    if (days < 0) return `${Math.abs(days)}d ago`;
+    if (days === 0) return 'Today';
+    return `in ${days}d`;
+  })();
+
+  const utilizationVariant = (() => {
+    if (overview?.team_utilization_pct == null) return 'neutral' as const;
+    if (overview.team_utilization_pct > 100) return 'critical' as const;
+    if (overview.team_utilization_pct >= 85) return 'at-risk' as const;
+    return 'on-track' as const;
+  })();
+
+  const forecastVariant = (() => {
+    if (!mcData?.p80) return 'neutral' as const;
+    const days = daysFromToday(mcData.p80);
+    if (days < 0) return 'critical' as const;
+    if (days < 14) return 'at-risk' as const;
+    return 'neutral' as const;
+  })();
+
   return (
     <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-neutral-surface">
-      {/* KPI row */}
+      {/* Project header */}
+      {overview && !overviewLoading && <ProjectHeader overview={overview} />}
+
+      {/* KPI row — 5 cards per design spec (#166) */}
       <section aria-label="Project KPIs">
         {overviewLoading ? (
           <KpiSkeleton />
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
             <KpiCard
               label="Schedule health"
               value={healthLabel}
+              sub={overview?.spi != null ? `SPI ${overview.spi.toFixed(2)}` : 'SPI —'}
               variant={healthVariant}
             />
             <KpiCard
-              label="SPI"
-              value={overview?.spi != null ? overview.spi.toFixed(2) : '—'}
-              sub="Schedule Performance Index"
-              variant={spiVariant}
+              label="Forecast finish"
+              value={mcData?.p80 ? formatIsoDate(mcData.p80) : '—'}
+              sub="P80 finish estimate"
+              variant={forecastVariant}
             />
             <KpiCard
-              label="Late tasks"
+              label="Tasks late"
               value={overview?.tasks_late_count != null ? String(overview.tasks_late_count) : '—'}
+              sub={overview?.total_tasks != null ? `of ${overview.total_tasks} total` : undefined}
               variant={overview && overview.tasks_late_count > 0 ? 'at-risk' : 'on-track'}
-            />
-            <KpiCard
-              label="Critical tasks"
-              value={overview?.critical_task_count != null ? String(overview.critical_task_count) : '—'}
-              variant={overview && overview.critical_task_count > 0 ? 'critical' : 'neutral'}
             />
             <KpiCard
               label="Next milestone"
               value={overview?.next_milestone?.name ?? '—'}
-              sub={overview?.next_milestone?.date}
+              sub={nextMilestoneSub}
             />
             <KpiCard
               label="Team utilization"
               value={overview?.team_utilization_pct != null ? `${Math.round(overview.team_utilization_pct)}%` : '—'}
-              variant={
-                overview?.team_utilization_pct != null
-                  ? overview.team_utilization_pct > 100
-                    ? 'critical'
-                    : overview.team_utilization_pct >= 85
-                    ? 'at-risk'
-                    : 'on-track'
-                  : 'neutral'
-              }
+              variant={utilizationVariant}
             />
           </div>
         )}
       </section>
+
+      {/* Monte Carlo forecast widget (#172) */}
+      {projectId && <MonteCarloWidget projectId={projectId} />}
 
       {/* Burn-up chart placeholder — issue #53 */}
       <section aria-label="Burn-up chart">

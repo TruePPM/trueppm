@@ -2016,6 +2016,17 @@ class ProjectOverviewView(APIView):
                 "percent_complete": next_milestone_qs["percent_complete"],
             }
 
+        # ── Project owner (first Owner-role member) ───────────────────────
+        owner_membership = (
+            ProjectMembership.objects.filter(project=project, role=Role.OWNER)
+            .select_related("user")
+            .first()
+        )
+        owner_name: str | None = None
+        if owner_membership:
+            u = owner_membership.user
+            owner_name = u.get_full_name() or u.username
+
         return Response(
             {
                 "schedule_health": health,
@@ -2027,6 +2038,8 @@ class ProjectOverviewView(APIView):
                 "next_milestone": next_milestone,
                 # Populated by the resource utilisation module when it extends this endpoint.
                 "team_utilization_pct": None,
+                "owner_name": owner_name,
+                "start_date": project.start_date.isoformat(),
             },
             status=status.HTTP_200_OK,
         )
@@ -2087,6 +2100,7 @@ class ProjectAttentionView(APIView):
                     ),
                     "date": task.early_finish.isoformat() if task.early_finish else None,
                     "detail": "On critical path",
+                    "link_target": None,
                 }
             )
 
@@ -2109,6 +2123,7 @@ class ProjectAttentionView(APIView):
                     "assignee_name": None,
                     "date": task.early_start.isoformat() if task.early_start else None,
                     "detail": "Unassigned — starts soon",
+                    "link_target": None,
                 }
             )
 
@@ -2155,8 +2170,42 @@ class ProjectAttentionView(APIView):
                             "assignee_name": None,
                             "date": task.early_finish.isoformat(),
                             "detail": f"Slipped +{drift_days}d vs baseline",
+                            "link_target": None,
                         }
                     )
+
+        # ── Over-allocated resources ───────────────────────────────────────
+        from trueppm_api.apps.resources.models import Resource, TaskResource
+
+        overalloc_rows = (
+            TaskResource.objects.filter(
+                task__project=project,
+                task__is_deleted=False,
+            )
+            .exclude(task__status=TaskStatus.COMPLETE)
+            .values("resource_id")
+            .annotate(total=Sum("units"))
+            .filter(total__gt=db_models.F("resource__max_units"))
+        )[: self._MAX_PER_BUCKET]
+
+        if overalloc_rows:
+            resource_ids = [r["resource_id"] for r in overalloc_rows]
+            resource_map = {str(r.pk): r for r in Resource.objects.filter(pk__in=resource_ids)}
+            for row in overalloc_rows:
+                res = resource_map.get(str(row["resource_id"]))
+                resource_name = res.name if res else str(row["resource_id"])
+                items.append(
+                    {
+                        "severity": "warning",
+                        "type": "overallocation",
+                        "task_id": None,
+                        "task_name": resource_name,
+                        "assignee_name": None,
+                        "date": None,
+                        "detail": f"Allocated {row['total']:.0%} — over capacity",
+                        "link_target": None,
+                    }
+                )
 
         return Response({"items": items}, status=status.HTTP_200_OK)
 
