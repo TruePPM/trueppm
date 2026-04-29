@@ -80,18 +80,21 @@ export function CanvasScheduleTimeline({
       {/* Layer 0: row bands, grid lines, today line */}
       <canvas
         ref={bgCanvasRef}
+        data-layer="bg"
         aria-hidden="true"
         style={{ ...canvasStyle, zIndex: 0 }}
       />
       {/* Layer 1: task bars, dependency arrows */}
       <canvas
         ref={barsCanvasRef}
+        data-layer="bars"
         aria-hidden="true"
         style={{ ...canvasStyle, zIndex: 1 }}
       />
       {/* Layer 2: drag shadow, resize indicator — must receive pointer events */}
       <canvas
         ref={ixCanvasRef}
+        data-layer="interaction"
         aria-hidden="true"
         style={{ ...canvasStyle, zIndex: 2, pointerEvents: 'auto' }}
       />

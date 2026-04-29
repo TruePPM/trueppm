@@ -45,6 +45,8 @@ interface ApiTask {
   status_changed_at?: string | null;
   priority_rank?: number | null;
   readiness?: string | null;
+  // Wave 3 (#210) — passive overalloc indicator in task drawer.
+  assignee_is_overallocated?: boolean;
   assignments?: Array<{
     resource_id: string;
     resource_name: string;
@@ -141,6 +143,7 @@ function mapTask(t: ApiTask): Task {
     statusEnteredAt: t.status_changed_at ?? undefined,
     priorityRank: t.priority_rank ?? undefined,
     readiness: (t.readiness as TaskReadiness | undefined) ?? undefined,
+    assigneeIsOverallocated: t.assignee_is_overallocated ?? false,
   };
 }
 

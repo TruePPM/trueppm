@@ -8370,9 +8370,15 @@
                         "minimum": 0,
                         "nullable": true,
                         "description": "Priority rank within the project; lower is higher priority."
+                    },
+                    "assignee_is_overallocated": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "default": false
                     }
                 },
                 "required": [
+                    "assignee_is_overallocated",
                     "assignments",
                     "baseline_finish",
                     "baseline_start",

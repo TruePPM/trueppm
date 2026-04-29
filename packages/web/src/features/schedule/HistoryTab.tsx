@@ -5,19 +5,23 @@ interface HistoryTabProps {
   taskId: string;
 }
 
-/** Human-readable field names for the diff display. */
+/** Human-readable labels for history diff fields (system events + manual edits). */
 const FIELD_LABELS: Record<string, string> = {
-  name: 'Name',
-  duration: 'Duration',
-  status: 'Status',
-  percent_complete: 'Progress',
-  planned_start: 'Planned start',
-  actual_start: 'Actual start',
-  actual_finish: 'Actual finish',
+  name: 'Renamed',
+  duration: 'Duration changed',
+  status: 'Status changed',
+  percent_complete: 'Progress updated',
+  planned_start: 'Start date moved',
+  actual_start: 'Actual start logged',
+  actual_finish: 'Actual finish logged',
+  assignee: 'Assignee changed',
+  notes: 'Notes updated',
+  is_milestone: 'Milestone flag changed',
   optimistic_duration: 'Optimistic (O)',
   most_likely_duration: 'Most Likely (M)',
   pessimistic_duration: 'Pessimistic (P)',
   estimate_status: 'Estimate status',
+  priority_rank: 'Priority rank changed',
 };
 
 const HISTORY_TYPE_BADGE: Record<

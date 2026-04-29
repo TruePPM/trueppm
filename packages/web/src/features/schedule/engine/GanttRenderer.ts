@@ -32,6 +32,8 @@ export const MILESTONE_SIZE = 12;
 /** Baseline ghost bar and actual-date overlay height (rule 14). */
 export const GHOST_BAR_HEIGHT = 6;
 export const CANVAS_FONT = '12px Inter, system-ui, sans-serif';
+/** Font used inside % completion chips — JetBrains Mono for tabular numerals. */
+const CHIP_FONT = '11px "JetBrains Mono", monospace';
 
 /** Extract initials from a full name (e.g. "Jane Smith" → "JS"). */
 function getInitials(fullName: string): string {
@@ -396,8 +398,60 @@ function barFillColor(task: Task): string {
 }
 
 /**
+ * Draw a % completion chip inside a task bar (canvas-bars layer).
+ *
+ * Chip is left-anchored, clipped to bar bounds, and omitted when the bar is
+ * narrower than 32px or when the task has 0% progress and is NOT_STARTED
+ * (no useful signal to show).  The chip uses a translucent overlay so the bar
+ * fill color reads through slightly.
+ */
+function drawTaskBarChip(
+  ctx: CanvasRenderingContext2D,
+  task: Task,
+  barLeft: number,
+  barTop: number,
+  barWidth: number,
+): void {
+  const label = `${Math.round(task.progress)}%`;
+  const chipPadX = 4;
+  const chipH = 12;
+
+  ctx.save();
+  ctx.font = CHIP_FONT;
+  const textW = ctx.measureText(label).width;
+  const chipW = Math.max(28, textW + chipPadX * 2);
+  const chipX = barLeft + 4;
+  const chipY = barTop + (BAR_HEIGHT - chipH) / 2;
+
+  // Clip chip rendering to bar bounds so it never overflows
+  ctx.beginPath();
+  ctx.rect(barLeft, barTop, barWidth, BAR_HEIGHT);
+  ctx.clip();
+
+  // Translucent white pill on critical bars; translucent dark pill on others
+  const isCritical = task.isCritical && !task.isComplete;
+  ctx.fillStyle = isCritical ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)';
+  ctx.beginPath();
+  ctx.roundRect(chipX, chipY, chipW, chipH, 3);
+  ctx.fill();
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, chipX + chipPadX, chipY + chipH / 2);
+
+  ctx.restore();
+}
+
+/**
  * Draw a normal (non-summary, non-milestone) task bar on canvas-bars.
- * Clips the label text to the bar width.
+ *
+ * The task name is rendered OUTSIDE the bar (right of bar end, 4px gap) for
+ * light-mode legibility (#212). A % completion chip appears inside the bar
+ * when it is at least 32px wide. Assignee initials remain right-aligned
+ * inside the bar at >= 48px width.
+ *
+ * @param viewportWidth - Logical-px viewport width, used to detect flush-right
+ *   bars and fall back to rendering the name to the left of the bar start.
  */
 export function drawTaskBar(
   ctx: CanvasRenderingContext2D,
@@ -406,6 +460,7 @@ export function drawTaskBar(
   scales: GanttScaleData,
   scrollLeft: number,
   isSelected: boolean,
+  viewportWidth: number,
 ): void {
   // Defense-in-depth: _paintTaskAt already guards, but protect against direct callers too
   if (!task.start || !task.finish) return;
@@ -416,14 +471,14 @@ export function drawTaskBar(
 
   const fill = barFillColor(task);
 
-  // Bar fill
+  // Bar fill + selection ring + progress overlay + chip + initials — all clipped work
   ctx.save();
   ctx.fillStyle = fill;
   ctx.beginPath();
   ctx.roundRect(barLeft, barTop, barWidth, BAR_HEIGHT, 3);
   ctx.fill();
 
-  // Selection: 2px white inset stroke
+  // Selection: 2px inset stroke ring
   if (isSelected) {
     ctx.strokeStyle = _palette.selectionRing;
     ctx.lineWidth = 2;
@@ -432,7 +487,7 @@ export function drawTaskBar(
     ctx.stroke();
   }
 
-  // Progress fill overlay (darker tint at 30% opacity for progress indication)
+  // Progress fill overlay (darker tint at 30% opacity on the unprogressed right portion)
   if (task.progress > 0 && task.progress < 100) {
     const progressWidth = barWidth * (task.progress / 100);
     ctx.globalAlpha = 0.3;
@@ -443,23 +498,53 @@ export function drawTaskBar(
     ctx.globalAlpha = 1;
   }
 
-  // Label — clipped to bar bounds (rule 72: #E8E8E8 on dark surface)
-  ctx.font = CANVAS_FONT;
-  ctx.fillStyle = _palette.text;
-  ctx.textBaseline = 'middle';
-  ctx.beginPath();
-  ctx.rect(barLeft, barTop, barWidth, BAR_HEIGHT);
-  ctx.clip();
-  ctx.fillText(task.name, barLeft + 11, barTop + BAR_HEIGHT / 2);
+  // % chip inside bar — omit for very narrow bars and for 0% NOT_STARTED tasks
+  if (barWidth >= 32 && !(task.progress === 0 && task.status === 'NOT_STARTED')) {
+    drawTaskBarChip(ctx, task, barLeft, barTop, barWidth);
+  }
 
-  // Assignee initials — right-aligned, only when bar is wide enough (>= 48px)
+  // Assignee initials — right-aligned inside bar, only when bar is wide enough (>= 48px)
   if (barWidth >= 48 && task.assignees.length > 0) {
+    ctx.beginPath();
+    ctx.rect(barLeft, barTop, barWidth, BAR_HEIGHT);
+    ctx.clip();
     const initials = getInitials(task.assignees[0].name);
     ctx.font = '10px Inter, system-ui, sans-serif';
-    ctx.fillStyle = _palette.text;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.textBaseline = 'middle';
     const textWidth = ctx.measureText(initials).width;
     ctx.fillText(initials, barLeft + barWidth - 4 - textWidth, barTop + BAR_HEIGHT / 2);
     ctx.font = CANVAS_FONT; // Reset to engine default (rule 71)
+  }
+
+  ctx.restore();
+
+  // Task name — outside the bar (rule 72 / #212).
+  // Primary: 4px right of bar end.
+  // Fallback: 4px left of bar start, right-aligned, when flush right.
+  ctx.save();
+  ctx.font = CANVAS_FONT;
+  ctx.fillStyle = _palette.textSecondary;
+  ctx.textBaseline = 'middle';
+  const nameY = barTop + BAR_HEIGHT / 2;
+  const nameWidth = ctx.measureText(task.name).width;
+  const rightOfBar = barRight + 4;
+  const nameRight = rightOfBar + nameWidth;
+
+  if (nameRight <= viewportWidth - 8) {
+    // Fits to the right — draw with a right-side clip to avoid overflowing viewport
+    ctx.beginPath();
+    ctx.rect(rightOfBar, barTop - 2, viewportWidth - rightOfBar - 4, BAR_HEIGHT + 4);
+    ctx.clip();
+    ctx.fillText(task.name, rightOfBar, nameY);
+  } else {
+    // Flush right — draw left of the bar start, right-aligned
+    const leftX = barLeft - 4 - nameWidth;
+    if (leftX >= 0) {
+      ctx.fillText(task.name, leftX, nameY);
+    }
+    // If the bar is also flush left, the name is silently omitted — bar is too
+    // wide for any label to fit. Acceptable at extreme zoom-out levels.
   }
 
   ctx.restore();

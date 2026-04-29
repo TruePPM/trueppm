@@ -641,7 +641,7 @@ export class GanttEngineImpl implements GanttEngine {
     } else if (task.isSummary) {
       drawSummaryBar(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected);
     } else {
-      drawTaskBar(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected);
+      drawTaskBar(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected, this._viewportWidth);
     }
 
     // Actual-date overlay: drawn after the planned bar so it renders on top.

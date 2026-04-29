@@ -22,6 +22,7 @@ from django.db.models import (
     Q,
     QuerySet,
     Subquery,
+    Sum,
 )
 from django.db.models.expressions import RawSQL
 from django.shortcuts import get_object_or_404
@@ -605,6 +606,32 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 baseline_start=Subquery(start_sub),
                 baseline_finish=Subquery(finish_sub),
             )
+
+        # Wave 3 (#210) — passive overalloc indicator in the task detail drawer.
+        # Sum TaskResource.units across all active (non-COMPLETE, non-BACKLOG) tasks
+        # in this project where the assignee user matches the outer task's assignee.
+        # Resource has no direct user FK, so we join through Task.assignee instead of
+        # Resource.user — units allocated to any resource on a task assigned to the
+        # same user contribute to that user's overallocation total.
+        from trueppm_api.apps.resources.models import TaskResource as _TR
+
+        overallocated_subq = (
+            _TR.objects.filter(
+                task__assignee_id=OuterRef("assignee_id"),
+                task__project_id=OuterRef("project_id"),
+                task__status__in=[
+                    TaskStatus.NOT_STARTED,
+                    TaskStatus.IN_PROGRESS,
+                    TaskStatus.REVIEW,
+                ],
+                task__is_deleted=False,
+            )
+            .values("task__assignee_id")
+            .annotate(total=Sum("units"))
+            .filter(total__gt=1.0)
+            .values("total")[:1]
+        )
+        qs = qs.annotate(assignee_is_overallocated=Exists(overallocated_subq))
 
         return cast("QuerySet[Task]", qs)
 

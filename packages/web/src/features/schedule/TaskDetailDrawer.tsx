@@ -4,6 +4,7 @@ import { DependenciesTab } from './DependenciesTab';
 import { EstimatesTab } from './EstimatesTab';
 import { HistoryTab } from './HistoryTab';
 import { BaselineTab } from './BaselineTab';
+import { TaskDrawerHeader } from './TaskDrawerHeader';
 
 type TabId = 'dependencies' | 'estimates' | 'history' | 'baseline';
 
@@ -206,6 +207,9 @@ function DrawerBody({
           ×
         </button>
       </div>
+
+      {/* Header — owner, dates, float rows (wave 3 #210) */}
+      <TaskDrawerHeader task={task} />
 
       {/* Tab bar — 48px tall, horizontally scrollable on mobile */}
       <div

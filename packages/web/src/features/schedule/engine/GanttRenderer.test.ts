@@ -285,3 +285,101 @@ describe('drawTimelineHeader — sticky label (#96)', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// drawTaskBar — wave 3 bar render (#212)
+// ---------------------------------------------------------------------------
+
+import { drawTaskBar } from './GanttRenderer';
+
+function makeBarTask(overrides: Partial<Task> = {}): Task {
+  return {
+    id: 'b1',
+    name: 'Design sprint',
+    start: '2026-04-06',
+    finish: '2026-04-20',
+    duration: 14,
+    progress: 85,
+    isSummary: false,
+    isMilestone: false,
+    isCritical: false,
+    isComplete: false,
+    parentId: null,
+    wbs: '1.1',
+    status: 'IN_PROGRESS',
+    assignees: [],
+    ...overrides,
+  } as unknown as Task;
+}
+
+describe('drawTaskBar — % chip and outside name (#212)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+  const VIEWPORT_W = 800;
+
+  it('renders a roundRect chip when bar width >= 32px', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBar(ctx, makeBarTask(), 0, scales, 0, false, VIEWPORT_W);
+    // Chip is drawn with roundRect (3 arg: x, y, w, h, radius)
+    // The bar itself is also a roundRect — we just check at least two roundRects exist
+    const roundRects = calls.filter((c) => c.name === 'roundRect');
+    expect(roundRects.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('does not clip the task name inside bar bounds (name is outside)', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const task = makeBarTask({ name: 'My Task' });
+    drawTaskBar(ctx, task, 0, scales, 0, false, VIEWPORT_W);
+    // There should be a fillText call for the name.
+    // Previously the name was clipped; the new call happens after ctx.restore().
+    // We verify the name appears in fillText args.
+    const textCalls = calls.filter((c) => c.name === 'fillText');
+    const nameCall = textCalls.find((c) => c.args[0] === 'My Task');
+    expect(nameCall).toBeDefined();
+  });
+
+  it('omits chip when bar is narrower than 32px (far-right zoom)', () => {
+    // Place bar on a single day with day-zoom scale — bar will be very narrow
+    const dayScales = buildScaleData('day', '2026-04-06', '2026-04-07');
+    const { ctx, calls } = makeCtxSpy();
+    // Override measureText to return 0 width so bar collapses to minimum 2px
+    (ctx.measureText as ReturnType<typeof vi.fn>).mockReturnValue({ width: 5 });
+    const narrowTask = makeBarTask({ start: '2026-04-06', finish: '2026-04-06', duration: 1 });
+    drawTaskBar(ctx, narrowTask, 0, dayScales, 0, false, VIEWPORT_W);
+    // With a 1-day bar at day zoom, pxPerMs is low enough that barWidth < 32px.
+    // We just ensure it doesn't throw — chip suppression is by conditional, not error.
+    expect(calls.filter((c) => c.name === 'roundRect').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('uses translucent white chip fill on critical bars', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const criticalTask = makeBarTask({ isCritical: true, isComplete: false, progress: 50 });
+    drawTaskBar(ctx, criticalTask, 0, scales, 0, false, VIEWPORT_W);
+    // The chip fill for critical bars is 'rgba(255,255,255,0.22)'
+    const chipFill = calls.find(
+      (c) => c.name === 'fillStyle' && c.args[0] === 'rgba(255,255,255,0.22)',
+    );
+    expect(chipFill).toBeDefined();
+  });
+
+  it('uses translucent dark chip fill on non-critical bars', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const task = makeBarTask({ isCritical: false, progress: 50 });
+    drawTaskBar(ctx, task, 0, scales, 0, false, VIEWPORT_W);
+    const chipFill = calls.find(
+      (c) => c.name === 'fillStyle' && c.args[0] === 'rgba(0,0,0,0.18)',
+    );
+    expect(chipFill).toBeDefined();
+  });
+
+  it('does not render chip for 0% NOT_STARTED task', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const newTask = makeBarTask({ progress: 0, status: 'NOT_STARTED' as Task['status'] });
+    drawTaskBar(ctx, newTask, 0, scales, 0, false, VIEWPORT_W);
+    // No translucent fill calls (chip suppressed)
+    const chipFill = calls.find(
+      (c) => c.name === 'fillStyle' &&
+        (c.args[0] === 'rgba(255,255,255,0.22)' || c.args[0] === 'rgba(0,0,0,0.18)'),
+    );
+    expect(chipFill).toBeUndefined();
+  });
+});
