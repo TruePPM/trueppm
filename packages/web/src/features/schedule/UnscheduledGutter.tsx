@@ -144,7 +144,11 @@ export function UnscheduledGutter({
   return (
     <>
       {/* Gutter panel */}
-      <div className="flex-shrink-0 border-t-2 border-neutral-border bg-neutral-surface-sunken">
+      <div
+        role="region"
+        aria-label="Unscheduled tasks"
+        className="flex-shrink-0 border-t-2 border-neutral-border bg-neutral-surface-sunken"
+      >
         {/* Header strip */}
         <div
           className="flex items-center h-11"

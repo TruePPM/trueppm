@@ -1,4 +1,5 @@
-import React, { useState, useRef, useCallback, useId } from 'react';
+import React, { useState, useRef, useCallback, useId, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import type { Task } from '@/types';
 
 interface UnscheduledTaskRowProps {
@@ -15,8 +16,10 @@ interface UnscheduledTaskRowProps {
  */
 export function UnscheduledTaskRow({ task, onDragStart, onSetDate }: UnscheduledTaskRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [dateInput, setDateInput] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
   const inputId = useId();
@@ -28,6 +31,11 @@ export function UnscheduledTaskRow({ task, onDragStart, onSetDate }: Unscheduled
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    // Don't start a drag if the pointer-down originated on the overflow button
+    // or inside the (portaled) menu. setPointerCapture on the row would otherwise
+    // redirect the pointerup away from the button and swallow its click event.
+    if (buttonRef.current?.contains(e.target as Node)) return;
+    if (menuRef.current?.contains(e.target as Node)) return;
     startX.current = e.clientX;
     startY.current = e.clientY;
     dragStarted.current = false;
@@ -67,6 +75,34 @@ export function UnscheduledTaskRow({ task, onDragStart, onSetDate }: Unscheduled
     });
   }, []);
 
+  // Position the portaled menu above the overflow button (escapes scroll-container clipping).
+  useLayoutEffect(() => {
+    if (!menuOpen || !buttonRef.current) {
+      setMenuPos(null);
+      return;
+    }
+    const rect = buttonRef.current.getBoundingClientRect();
+    const MENU_WIDTH = 200;
+    const MENU_HEIGHT = 110;
+    setMenuPos({
+      top: rect.top - MENU_HEIGHT - 4,
+      left: rect.right - MENU_WIDTH,
+    });
+  }, [menuOpen]);
+
+  // Close the menu on outside click.
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    function onDocPointerDown(e: PointerEvent) {
+      const target = e.target as Node;
+      if (menuRef.current?.contains(target)) return;
+      if (buttonRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    }
+    document.addEventListener('pointerdown', onDocPointerDown);
+    return () => document.removeEventListener('pointerdown', onDocPointerDown);
+  }, [menuOpen]);
+
   const handleDateSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     if (dateInput) {
@@ -104,9 +140,13 @@ export function UnscheduledTaskRow({ task, onDragStart, onSetDate }: Unscheduled
         {task.duration}d
       </span>
 
-      {/* Overflow menu — keyboard path to set planned start (rule 105 pattern) */}
-      <div className="relative shrink-0" ref={menuRef}>
+      {/* Overflow menu — keyboard path to set planned start (rule 105 pattern).
+          Menu is portaled to body to escape the scroll container's overflow clip
+          and stacking context, otherwise the gutter header would intercept clicks
+          on the menu's submit button. */}
+      <div className="shrink-0">
         <button
+          ref={buttonRef}
           type="button"
           aria-label={`Actions for ${task.name}`}
           aria-haspopup="menu"
@@ -118,44 +158,46 @@ export function UnscheduledTaskRow({ task, onDragStart, onSetDate }: Unscheduled
         >
           ···
         </button>
-
-        {menuOpen && (
-          <div
-            role="menu"
-            tabIndex={-1}
-            onKeyDown={handleMenuKeyDown}
-            className="absolute right-0 bottom-8 z-30 bg-neutral-surface border border-neutral-border
-              rounded py-2 min-w-[200px]"
-          >
-            <form onSubmit={handleDateSubmit} className="px-3 py-2 flex flex-col gap-2">
-              <label
-                htmlFor={inputId}
-                className="text-xs text-neutral-text-secondary font-medium"
-              >
-                Set planned start
-              </label>
-              <input
-                ref={dateInputRef}
-                id={inputId}
-                type="date"
-                value={dateInput}
-                onChange={(e) => setDateInput(e.target.value)}
-                className="h-8 rounded border border-neutral-border px-2 text-sm
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-              />
-              <button
-                type="submit"
-                disabled={!dateInput}
-                className="h-7 rounded border border-neutral-border text-xs font-medium
-                  disabled:opacity-40 hover:border-brand-primary hover:text-brand-primary
-                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-              >
-                Promote to schedule
-              </button>
-            </form>
-          </div>
-        )}
       </div>
+
+      {menuOpen && menuPos && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          tabIndex={-1}
+          onKeyDown={handleMenuKeyDown}
+          style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, width: 200 }}
+          className="z-50 bg-neutral-surface border border-neutral-border rounded py-2"
+        >
+          <form onSubmit={handleDateSubmit} className="px-3 py-2 flex flex-col gap-2">
+            <label
+              htmlFor={inputId}
+              className="text-xs text-neutral-text-secondary font-medium"
+            >
+              Set planned start
+            </label>
+            <input
+              ref={dateInputRef}
+              id={inputId}
+              type="date"
+              value={dateInput}
+              onChange={(e) => setDateInput(e.target.value)}
+              className="h-8 rounded border border-neutral-border px-2 text-sm
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            />
+            <button
+              type="submit"
+              disabled={!dateInput}
+              className="h-7 rounded border border-neutral-border text-xs font-medium
+                disabled:opacity-40 hover:border-brand-primary hover:text-brand-primary
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            >
+              Promote to schedule
+            </button>
+          </form>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

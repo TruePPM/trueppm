@@ -181,8 +181,9 @@ test.describe('Unscheduled gutter — task rows (#213)', () => {
   });
 
   test('unscheduled task names appear in gutter', async ({ page }) => {
-    await expect(page.getByText('Parking Lot Item')).toBeVisible();
-    await expect(page.getByText('Future Feature')).toBeVisible();
+    const gutter = page.getByRole('region', { name: 'Unscheduled tasks' });
+    await expect(gutter.getByText('Parking Lot Item')).toBeVisible();
+    await expect(gutter.getByText('Future Feature')).toBeVisible();
   });
 
   test('scheduled task does not appear in gutter', async ({ page }) => {
@@ -194,8 +195,9 @@ test.describe('Unscheduled gutter — task rows (#213)', () => {
   });
 
   test('task row shows duration', async ({ page }) => {
-    await expect(page.getByText('5d')).toBeVisible();
-    await expect(page.getByText('3d')).toBeVisible();
+    const gutter = page.getByRole('region', { name: 'Unscheduled tasks' });
+    await expect(gutter.getByText('5d')).toBeVisible();
+    await expect(gutter.getByText('3d')).toBeVisible();
   });
 
   test('each row has an overflow actions button', async ({ page }) => {
@@ -219,18 +221,20 @@ test.describe('Unscheduled gutter — collapse / expand (#213)', () => {
   });
 
   test('clicking collapse hides task rows', async ({ page }) => {
+    const gutter = page.getByRole('region', { name: 'Unscheduled tasks' });
     const collapseBtn = page.getByRole('button', { name: /collapse unscheduled tasks/i });
     await collapseBtn.click();
-    await expect(page.getByText('Parking Lot Item')).not.toBeVisible();
+    await expect(gutter.getByText('Parking Lot Item')).not.toBeVisible();
   });
 
   test('clicking expand after collapse shows task rows again', async ({ page }) => {
+    const gutter = page.getByRole('region', { name: 'Unscheduled tasks' });
     const collapseBtn = page.getByRole('button', { name: /collapse unscheduled tasks/i });
     await collapseBtn.click();
     const expandBtn = page.getByRole('button', { name: /expand unscheduled tasks/i });
     await expect(expandBtn).toBeVisible();
     await expandBtn.click();
-    await expect(page.getByText('Parking Lot Item')).toBeVisible();
+    await expect(gutter.getByText('Parking Lot Item')).toBeVisible();
   });
 });
 
