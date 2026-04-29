@@ -1,11 +1,80 @@
-import { useRef, useState, useCallback, useEffect, type RefObject, type KeyboardEvent, type FocusEvent } from 'react';
+import {
+  useRef, useState, useCallback, useEffect, useMemo,
+  type RefObject, type KeyboardEvent, type FocusEvent,
+} from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask, useBulkDeleteTasks } from '@/hooks/useTaskMutations';
 import { useTaskSelectionStore } from '@/stores/taskSelectionStore';
 import { exportTasksToCsv } from '@/utils/exportCsv';
-import type { Task } from '@/types';
+import type { Task, TaskStatus } from '@/types';
+
+// ---------------------------------------------------------------------------
+// Status pill
+// ---------------------------------------------------------------------------
+
+const STATUS_LABEL: Record<TaskStatus, string> = {
+  BACKLOG:      'Backlog',
+  NOT_STARTED:  'Not started',
+  IN_PROGRESS:  'In progress',
+  REVIEW:       'Review',
+  ON_HOLD:      'On hold',
+  COMPLETE:     'Done',
+};
+
+const STATUS_CLS: Record<TaskStatus, string> = {
+  BACKLOG:      'border-neutral-border text-neutral-text-secondary',
+  NOT_STARTED:  'border-neutral-border text-neutral-text-secondary',
+  IN_PROGRESS:  'border-brand-primary/50 text-brand-primary',
+  REVIEW:       'border-brand-accent/50 text-brand-accent-dark',
+  ON_HOLD:      'border-semantic-at-risk/50 text-semantic-at-risk',
+  COMPLETE:     'border-semantic-on-track/50 text-semantic-on-track',
+};
+
+function StatusPill({ status }: { status: TaskStatus }) {
+  return (
+    <span
+      className={`inline-flex items-center h-5 px-1.5 border rounded text-xs font-medium
+        ${STATUS_CLS[status] ?? STATUS_CLS.NOT_STARTED}`}
+    >
+      {STATUS_LABEL[status] ?? status}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Owner avatar
+// ---------------------------------------------------------------------------
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return (parts[0]?.[0] ?? '').toUpperCase();
+  return ((parts[0]?.[0] ?? '') + (parts[parts.length - 1]?.[0] ?? '')).toUpperCase();
+}
+
+function OwnerAvatar({ name }: { name: string }) {
+  return (
+    <span
+      aria-label={name}
+      title={name}
+      className="w-6 h-6 rounded-full bg-brand-primary/20 text-brand-primary
+        flex items-center justify-center text-xs font-semibold"
+    >
+      {initials(name)}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Date formatting
+// ---------------------------------------------------------------------------
+
+function fmtDate(iso: string | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(`${iso}T00:00:00Z`);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
 
 // ---------------------------------------------------------------------------
 // Sort helpers
@@ -13,6 +82,7 @@ import type { Task } from '@/types';
 
 type SortCol = 'wbs' | 'name' | 'start' | 'finish' | 'duration' | 'progress';
 type SortDir = 'asc' | 'desc';
+type GroupBy = 'phase' | 'owner' | 'status' | 'none';
 
 function compareWbs(a: string, b: string): number {
   const ap = a.split('.').map(Number);
@@ -37,38 +107,138 @@ function sortTasks(tasks: Task[], col: SortCol, dir: SortDir): Task[] {
   });
 }
 
+/**
+ * Derive the "phase" for a task — the name of its closest summary-task ancestor.
+ * Falls back to the task name if it is itself a summary, or "—" if no parent.
+ */
+function getPhase(task: Task, tasksById: Map<string, Task>): string {
+  let current = task;
+  while (current.parentId) {
+    const parent = tasksById.get(current.parentId);
+    if (!parent) break;
+    if (parent.isSummary) return parent.name;
+    current = parent;
+  }
+  if (task.isSummary) return task.name;
+  return '—';
+}
+
 // ---------------------------------------------------------------------------
-// Column layout (fixed widths except Name which is flex-1)
+// Filter rail
 // ---------------------------------------------------------------------------
 
-const COL_CHECKBOX = 'w-10 flex-shrink-0';
-const COL_WBS = 'w-14 flex-shrink-0';
-const COL_START = 'w-24 flex-shrink-0';
-const COL_FINISH = 'w-24 flex-shrink-0';
-const COL_DURATION = 'w-14 flex-shrink-0';
-const COL_PROGRESS = 'w-20 flex-shrink-0';
-const COL_CP = 'w-12 flex-shrink-0';
+interface ActiveFilter {
+  key: 'owner' | 'status' | 'search';
+  label: string;
+  value: string;
+}
 
-// ---------------------------------------------------------------------------
-// Empty state
-// ---------------------------------------------------------------------------
+interface FilterRailProps {
+  search: string;
+  ownerFilter: string;
+  statusFilter: TaskStatus | '';
+  onSearchChange: (v: string) => void;
+  onRemove: (key: ActiveFilter['key']) => void;
+}
 
-function TaskListEmptyState() {
+function FilterRail({ search, ownerFilter, statusFilter, onSearchChange, onRemove }: FilterRailProps) {
+  const [draft, setDraft] = useState(search);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleChange = (v: string) => {
+    setDraft(v);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => onSearchChange(v), 250);
+  };
+
+  const chips: ActiveFilter[] = [
+    ...(ownerFilter ? [{ key: 'owner' as const, label: `Owner: ${ownerFilter}`, value: ownerFilter }] : []),
+    ...(statusFilter ? [{ key: 'status' as const, label: `Status: ${STATUS_LABEL[statusFilter] ?? statusFilter}`, value: statusFilter }] : []),
+  ];
+
   return (
     <div
-      role="status"
-      className="flex h-full flex-col items-center justify-center gap-3 bg-neutral-surface"
+      className="flex items-center gap-2 px-4 py-2 border-b border-neutral-border
+        bg-neutral-surface-raised flex-shrink-0 flex-wrap"
     >
-      <p className="text-sm text-neutral-text-primary font-medium">No tasks yet</p>
-      <p className="text-xs text-neutral-text-secondary">
-        Add tasks in the Schedule view to get started.
-      </p>
+      {/* Search */}
+      <div className="relative flex items-center">
+        <svg
+          aria-hidden="true"
+          className="absolute left-2 w-3 h-3 text-neutral-text-secondary"
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+        </svg>
+        <input
+          type="search"
+          value={draft}
+          onChange={(e) => handleChange(e.target.value)}
+          placeholder="Search tasks…"
+          aria-label="Search tasks"
+          className="
+            pl-7 pr-2 h-7 w-52 text-xs rounded border border-neutral-border
+            bg-neutral-surface text-neutral-text-primary placeholder:text-neutral-text-secondary
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+          "
+        />
+      </div>
+
+      {/* Active filter chips */}
+      {chips.map((chip) => (
+        <span
+          key={chip.key}
+          className="inline-flex items-center gap-1 h-6 px-2 rounded-full border
+            border-brand-primary/40 bg-brand-primary/10 text-xs text-brand-primary"
+        >
+          {chip.label}
+          <button
+            type="button"
+            onClick={() => onRemove(chip.key)}
+            aria-label={`Remove ${chip.label} filter`}
+            className="ml-0.5 hover:text-brand-primary-dark
+              focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-primary rounded-full"
+          >
+            ✕
+          </button>
+        </span>
+      ))}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// ConfirmDeleteStrip — in-place replacement for the sub-toolbar during confirm
+// Empty states
+// ---------------------------------------------------------------------------
+
+function TaskListEmptyState() {
+  return (
+    <div role="status" className="flex h-full flex-col items-center justify-center gap-3 bg-neutral-surface">
+      <p className="text-sm text-neutral-text-primary font-medium">No tasks yet</p>
+      <p className="text-xs text-neutral-text-secondary">Add tasks in the Schedule view to get started.</p>
+    </div>
+  );
+}
+
+function FilterEmptyState({ onClear }: { onClear: () => void }) {
+  return (
+    <div role="status" className="flex h-full flex-col items-center justify-center gap-3 bg-neutral-surface">
+      <p className="text-sm text-neutral-text-primary font-medium">No tasks match these filters</p>
+      <button
+        type="button"
+        onClick={onClear}
+        className="text-xs text-brand-primary underline
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+      >
+        Clear filters
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ConfirmDeleteStrip
 // ---------------------------------------------------------------------------
 
 interface ConfirmDeleteStripProps {
@@ -81,11 +251,8 @@ interface ConfirmDeleteStripProps {
 function ConfirmDeleteStrip({ count, isDeleting, onConfirm, onCancel }: ConfirmDeleteStripProps) {
   const confirmRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    confirmRef.current?.focus();
-  }, []);
+  useEffect(() => { confirmRef.current?.focus(); }, []);
 
-  // Auto-cancel after 5 seconds if user takes no action
   useEffect(() => {
     if (isDeleting) return;
     const timer = setTimeout(onCancel, 5000);
@@ -95,21 +262,12 @@ function ConfirmDeleteStrip({ count, isDeleting, onConfirm, onCancel }: ConfirmD
   const noun = `task${count !== 1 ? 's' : ''}`;
 
   return (
-    <div
-      role="alertdialog"
-      aria-label={`Confirm deletion of ${count} ${noun}`}
-      className="flex items-center gap-3 w-full"
-    >
+    <div role="alertdialog" aria-label={`Confirm deletion of ${count} ${noun}`} className="flex items-center gap-3 w-full">
       <span className="flex-1 min-w-0">
-        <span className="text-xs text-neutral-text-primary">
-          Delete {count} {noun}?
-        </span>
+        <span className="text-xs text-neutral-text-primary">Delete {count} {noun}?</span>
         {!isDeleting && (
           <span aria-hidden="true" className="block h-0.5 mt-0.5 rounded-full bg-neutral-surface-sunken overflow-hidden">
-            <span
-              className="block h-full rounded-full bg-semantic-critical/60"
-              style={{ animation: 'shrink-bar 5s linear forwards' }}
-            />
+            <span className="block h-full rounded-full bg-semantic-critical/60" style={{ animation: 'shrink-bar 5s linear forwards' }} />
           </span>
         )}
       </span>
@@ -118,12 +276,11 @@ function ConfirmDeleteStrip({ count, isDeleting, onConfirm, onCancel }: ConfirmD
         type="button"
         onClick={onConfirm}
         disabled={isDeleting}
-        aria-keyshortcuts="Enter"
         className="flex-shrink-0 h-7 px-3 rounded text-xs font-medium
-          bg-semantic-critical/20 border border-semantic-critical/50
-          text-semantic-critical disabled:opacity-50
+          bg-semantic-critical/20 border border-semantic-critical/50 text-semantic-critical
+          disabled:opacity-50
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface"
+          focus-visible:ring-offset-1"
       >
         {isDeleting ? 'Deleting…' : 'Confirm delete'}
       </button>
@@ -131,12 +288,11 @@ function ConfirmDeleteStrip({ count, isDeleting, onConfirm, onCancel }: ConfirmD
         type="button"
         onClick={onCancel}
         disabled={isDeleting}
-        aria-keyshortcuts="Escape"
         className="flex-shrink-0 h-7 px-3 rounded text-xs font-medium
           border border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary
           disabled:opacity-50
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-          focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface"
+          focus-visible:ring-offset-1"
       >
         Cancel
       </button>
@@ -151,6 +307,8 @@ function ConfirmDeleteStrip({ count, isDeleting, onConfirm, onCancel }: ConfirmD
 
 interface TaskRowProps {
   task: Task;
+  phase: string;
+  rowIndex: number;
   isSelected: boolean;
   isRenaming: boolean;
   onToggleSelect: () => void;
@@ -160,21 +318,13 @@ interface TaskRowProps {
 }
 
 function TaskRow({
-  task,
-  isSelected,
-  isRenaming,
-  onToggleSelect,
-  onStartRename,
-  onRename,
-  onCancelRename,
+  task, phase, rowIndex, isSelected, isRenaming,
+  onToggleSelect, onStartRename, onRename, onCancelRename,
 }: TaskRowProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (isRenaming) {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }
+    if (isRenaming) { inputRef.current?.focus(); inputRef.current?.select(); }
   }, [isRenaming]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -182,7 +332,6 @@ function TaskRow({
     else if (e.key === 'Escape') onCancelRename();
   };
 
-  // Only commit on blur if focus is leaving the row entirely (not moving within it)
   const handleBlur = (e: FocusEvent<HTMLInputElement>) => {
     const related = e.relatedTarget as Element | null;
     if (related && e.currentTarget.closest('[role="row"]')?.contains(related)) return;
@@ -190,17 +339,19 @@ function TaskRow({
   };
 
   const handleRowKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'F2') {
-      e.preventDefault();
-      onStartRename();
-    }
+    if (e.key === 'F2') { e.preventDefault(); onStartRename(); }
   };
+
+  // Alternating row background: even rows get surface-raised
+  const altBg = rowIndex % 2 === 0 ? '' : 'bg-neutral-surface-raised';
 
   const rowBg = task.isCritical
     ? 'bg-semantic-critical/5 border-l-2 border-semantic-critical'
     : isSelected
     ? 'bg-brand-primary/10 border-l-2 border-brand-primary'
-    : 'border-l-2 border-transparent';
+    : `border-l-2 border-transparent ${altBg}`;
+
+  const firstAssignee = task.assignees[0];
 
   return (
     <div
@@ -210,7 +361,7 @@ function TaskRow({
       onKeyDown={handleRowKeyDown}
       onDoubleClick={task.isSummary ? undefined : onStartRename}
       className={`
-        flex items-center h-11 px-2 gap-1
+        flex items-center h-11 px-3 gap-2
         border-b border-neutral-border
         hover:bg-neutral-text-primary/5 group
         focus-within:bg-neutral-text-primary/5
@@ -218,30 +369,25 @@ function TaskRow({
       `}
     >
       {/* Checkbox */}
-      <span className={COL_CHECKBOX}>
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={onToggleSelect}
-          aria-label={`Select ${task.name}`}
-          className="
-            w-4 h-4 rounded border-neutral-border bg-transparent
-            checked:bg-brand-primary checked:border-brand-primary
-            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
-            cursor-pointer
-          "
-        />
-      </span>
+      <input
+        type="checkbox"
+        checked={isSelected}
+        onChange={onToggleSelect}
+        aria-label={`Select ${task.name}`}
+        className="
+          w-4 h-4 rounded border-neutral-border bg-transparent flex-shrink-0
+          checked:bg-brand-primary checked:border-brand-primary
+          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
+          cursor-pointer
+        "
+      />
 
       {/* WBS */}
-      <span
-        role="gridcell"
-        className={`${COL_WBS} text-xs font-mono text-neutral-text-secondary text-right pr-2`}
-      >
+      <span role="gridcell" className="w-14 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2">
         {task.wbs}
       </span>
 
-      {/* Name */}
+      {/* Name + phase subtitle */}
       <span role="gridcell" className="flex-1 min-w-0 pr-2">
         {isRenaming ? (
           <input
@@ -255,78 +401,87 @@ function TaskRow({
               w-full bg-transparent border-b border-brand-primary
               text-sm text-neutral-text-primary outline-none caret-neutral-text-primary px-0
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-              focus-visible:ring-offset-neutral-surface
             "
           />
         ) : (
-          <span
-            className={`
-              text-sm truncate block
-              ${task.isSummary ? 'font-semibold text-neutral-text-primary' : 'text-neutral-text-primary'}
-            `}
-            aria-label={`${task.name}, press F2 or double-click to rename`}
-          >
-            {task.name}
+          <span className="flex items-baseline gap-1.5 min-w-0">
+            {task.isCritical && (
+              <span
+                aria-label="Critical path"
+                title="This task is on the critical path — a delay here delays the project end date"
+                className="flex-shrink-0 tppm-mono text-[11px] font-bold
+                  text-semantic-critical border border-semantic-critical/50 rounded px-0.5 leading-4"
+              >
+                CP
+              </span>
+            )}
+            <span
+              className={`text-sm truncate ${task.isSummary ? 'font-semibold' : ''} text-neutral-text-primary`}
+              aria-label={`${task.name}${phase !== '—' ? `, ${phase}` : ''}`}
+            >
+              {task.name}
+            </span>
+            {phase !== '—' && (
+              <span className="text-xs text-neutral-text-disabled flex-shrink-0" aria-hidden="true">
+                · {phase}
+              </span>
+            )}
           </span>
         )}
       </span>
 
+      {/* Owner */}
+      <span role="gridcell" className="w-10 flex-shrink-0 flex items-center justify-center">
+        {firstAssignee ? <OwnerAvatar name={firstAssignee.name} /> : null}
+      </span>
+
       {/* Start */}
-      <span
-        role="gridcell"
-        className={`${COL_START} text-xs text-neutral-text-secondary text-right pr-2`}
-      >
-        {task.start}
+      <span role="gridcell" className="w-20 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2">
+        {fmtDate(task.start)}
       </span>
 
       {/* Finish */}
-      <span
-        role="gridcell"
-        className={`${COL_FINISH} text-xs text-neutral-text-secondary text-right pr-2`}
-      >
-        {task.finish}
+      <span role="gridcell" className="w-20 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2">
+        {fmtDate(task.finish)}
       </span>
 
       {/* Duration */}
-      <span
-        role="gridcell"
-        className={`${COL_DURATION} text-xs text-neutral-text-secondary text-right pr-2`}
-      >
+      <span role="gridcell" className="w-12 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2">
         {task.duration}d
       </span>
 
       {/* Progress */}
-      <span role="gridcell" className={`${COL_PROGRESS} flex items-center gap-1.5 pr-2`}>
+      <span role="gridcell" className="w-28 flex-shrink-0 flex items-center gap-1.5">
         <span className="flex-1 h-1.5 rounded-full bg-neutral-border" aria-hidden="true">
           <span
-            className={`
-              block h-full rounded-full
-              ${task.isCritical ? 'bg-semantic-critical' : 'bg-brand-primary'}
-            `}
+            className={`block h-full rounded-full ${task.isCritical ? 'bg-semantic-critical' : task.isComplete ? 'bg-semantic-on-track' : 'bg-brand-primary'}`}
             style={{ width: `${task.progress}%` }}
           />
         </span>
-        <span className="text-xs text-neutral-text-secondary w-7 text-right">
-          {task.progress}%
-        </span>
+        <span className="tppm-mono text-xs text-neutral-text-secondary w-7 text-right">{task.progress}%</span>
       </span>
 
-      {/* CP badge */}
-      <span className={`${COL_CP} flex justify-center`}>
-        {task.isCritical && (
-          <span
-            aria-label="Critical path"
-            title="This task is on the critical path — a delay here delays the project end date"
-            className="
-              flex-shrink-0 text-xs font-bold
-              text-semantic-critical border border-semantic-critical/50
-              rounded px-1 leading-4
-            "
-          >
-            CP
-          </span>
-        )}
+      {/* Status pill */}
+      <span role="gridcell" className="w-28 flex-shrink-0 flex items-center">
+        <StatusPill status={task.status} />
       </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Group header row
+// ---------------------------------------------------------------------------
+
+function GroupHeader({ label, count }: { label: string; count: number }) {
+  return (
+    <div
+      role="row"
+      className="flex items-center h-8 px-3 border-b border-neutral-border
+        bg-neutral-surface-sunken text-xs font-semibold text-neutral-text-secondary sticky top-0 z-10"
+    >
+      <span>{label}</span>
+      <span className="ml-2 text-neutral-text-disabled">({count})</span>
     </div>
   );
 }
@@ -336,6 +491,11 @@ function TaskRow({
 // ---------------------------------------------------------------------------
 
 type DeletePhase = 'idle' | 'confirming' | 'deleting';
+
+/** Flat list item — either a group header or a task row. */
+type ListItem =
+  | { kind: 'header'; label: string; count: number; id: string }
+  | { kind: 'task'; task: Task; phase: string; rowIndex: number };
 
 export function TaskListView() {
   const projectId = useProjectId() ?? null;
@@ -349,34 +509,28 @@ export function TaskListView() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [deletePhase, setDeletePhase] = useState<DeletePhase>('idle');
   const [toast, setToast] = useState<{ text: string; isError: boolean } | null>(null);
+  const [groupBy, setGroupBy] = useState<GroupBy>('none');
+  const [search, setSearch] = useState('');
+  const [ownerFilter, setOwnerFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Auto-dismiss toast after 4 seconds
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(timer);
   }, [toast]);
 
-  const handleHeaderClick = useCallback(
-    (col: SortCol) => {
-      if (sortCol === col) {
-        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-      } else {
-        setSortCol(col);
-        setSortDir('asc');
-      }
-    },
-    [sortCol],
-  );
+  const handleHeaderClick = useCallback((col: SortCol) => {
+    if (sortCol === col) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortCol(col); setSortDir('asc'); }
+  }, [sortCol]);
 
   const handleRename = useCallback((task: Task, newName: string) => {
     setRenamingId(null);
     if (newName.trim() === '' || newName === task.name) return;
-    if (projectId) {
-      updateTask.mutate({ id: task.id, projectId, name: newName.trim() });
-    }
+    if (projectId) updateTask.mutate({ id: task.id, projectId, name: newName.trim() });
   }, [projectId, updateTask]);
 
   const handleDeleteClick = useCallback(() => {
@@ -400,18 +554,74 @@ export function TaskListView() {
     });
   }, [selectedIds, bulkDelete, clearSelection]);
 
-  const handleCancelDelete = useCallback(() => setDeletePhase('idle'), []);
+  const tasksById = useMemo(
+    () => new Map((tasks ?? []).map((t) => [t.id, t])),
+    [tasks],
+  );
+
+  // Filter + sort
+  const filtered = useMemo(() => {
+    const base = tasks ?? [];
+    const q = search.toLowerCase();
+    return sortTasks(
+      base.filter((t) => {
+        if (q && !t.name.toLowerCase().includes(q)) return false;
+        if (ownerFilter && !t.assignees.some((a) => a.name === ownerFilter)) return false;
+        if (statusFilter && t.status !== statusFilter) return false;
+        return true;
+      }),
+      sortCol,
+      sortDir,
+    );
+  }, [tasks, search, ownerFilter, statusFilter, sortCol, sortDir]);
+
+  // Build flat list with optional group headers
+  const listItems = useMemo((): ListItem[] => {
+    if (groupBy === 'none') {
+      return filtered.map((task, rowIndex) => ({
+        kind: 'task',
+        task,
+        phase: getPhase(task, tasksById),
+        rowIndex,
+      }));
+    }
+
+    const getGroupKey = (task: Task): string => {
+      if (groupBy === 'phase') return getPhase(task, tasksById);
+      if (groupBy === 'owner') return task.assignees[0]?.name ?? 'Unassigned';
+      if (groupBy === 'status') return STATUS_LABEL[task.status] ?? task.status;
+      return '—';
+    };
+
+    const groups = new Map<string, Task[]>();
+    for (const task of filtered) {
+      const key = getGroupKey(task);
+      const list = groups.get(key) ?? [];
+      list.push(task);
+      groups.set(key, list);
+    }
+
+    const items: ListItem[] = [];
+    let rowIndex = 0;
+    for (const [label, group] of groups) {
+      items.push({ kind: 'header', label, count: group.length, id: `grp-${label}` });
+      for (const task of group) {
+        items.push({ kind: 'task', task, phase: getPhase(task, tasksById), rowIndex });
+        rowIndex++;
+      }
+    }
+    return items;
+  }, [filtered, groupBy, tasksById]);
+
+  const allTaskIds = filtered.map((t) => t.id);
+  const allSelected = allTaskIds.length > 0 && allTaskIds.every((id) => selectedIds.has(id));
 
   if (error) {
     return (
       <div className="flex h-full items-center justify-center bg-neutral-surface">
         <p className="text-sm text-semantic-critical">
           Couldn&apos;t load tasks.{' '}
-          <button
-            type="button"
-            className="underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-            onClick={() => window.location.reload()}
-          >
+          <button type="button" className="underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary" onClick={() => window.location.reload()}>
             Retry
           </button>
         </p>
@@ -431,10 +641,6 @@ export function TaskListView() {
 
   if (tasks.length === 0) return <TaskListEmptyState />;
 
-  const sorted = sortTasks(tasks, sortCol, sortDir);
-  const allIds = sorted.map((t) => t.id);
-  const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
-
   function SortIndicator({ col }: { col: SortCol }) {
     if (sortCol !== col) return null;
     return <span aria-hidden="true" className="ml-0.5">{sortDir === 'asc' ? '↑' : '↓'}</span>;
@@ -442,18 +648,14 @@ export function TaskListView() {
 
   function ColHeader({ col, label, className }: { col: SortCol; label: string; className: string }) {
     return (
-      <span
-        role="columnheader"
-        aria-sort={sortCol === col ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
-        className={className}
-      >
+      <span role="columnheader" aria-sort={sortCol === col ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} className={className}>
         <button
           type="button"
           onClick={() => handleHeaderClick(col)}
           className="flex items-center gap-0.5 text-left w-full
             hover:text-neutral-text-primary transition-colors
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-            focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface"
+            focus-visible:ring-offset-1"
         >
           {label}
           <SortIndicator col={col} />
@@ -461,6 +663,15 @@ export function TaskListView() {
       </span>
     );
   }
+
+  const GROUP_CYCLE: GroupBy[] = ['none', 'phase', 'owner', 'status'];
+  const GROUP_LABEL: Record<GroupBy, string> = {
+    none: 'Group: None',
+    phase: 'Group: Phase',
+    owner: 'Group: Owner',
+    status: 'Group: Status',
+  };
+  const nextGroup = GROUP_CYCLE[(GROUP_CYCLE.indexOf(groupBy) + 1) % GROUP_CYCLE.length] ?? 'none';
 
   return (
     <div className="flex flex-col h-full bg-neutral-surface overflow-hidden relative">
@@ -471,14 +682,14 @@ export function TaskListView() {
             count={selectedIds.size}
             isDeleting={deletePhase === 'deleting'}
             onConfirm={handleConfirmDelete}
-            onCancel={handleCancelDelete}
+            onCancel={() => setDeletePhase('idle')}
           />
         ) : (
           <>
             <input
               type="checkbox"
               checked={allSelected}
-              onChange={() => (allSelected ? clearSelection() : selectAll(allIds))}
+              onChange={() => (allSelected ? clearSelection() : selectAll(allTaskIds))}
               aria-label={allSelected ? 'Deselect all tasks' : 'Select all tasks'}
               className="
                 w-4 h-4 rounded border-neutral-border bg-transparent
@@ -489,93 +700,106 @@ export function TaskListView() {
             />
             {selectedIds.size > 0 && (
               <>
-                <span className="text-xs text-neutral-text-secondary">
-                  {selectedIds.size} selected
-                </span>
+                <span className="text-xs text-neutral-text-secondary">{selectedIds.size} selected</span>
                 <button
                   type="button"
                   onClick={handleDeleteClick}
                   className="text-xs text-semantic-critical hover:underline
                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                    focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface"
+                    focus-visible:ring-offset-1"
                 >
                   Delete
                 </button>
               </>
             )}
+            <span className="tppm-mono text-xs text-neutral-text-secondary">
+              {filtered.length} / {tasks.length} shown
+            </span>
             <div className="flex-1" />
+            {/* Group-by cycle */}
             <button
               type="button"
-              onClick={() => exportTasksToCsv(sorted, `tasks-${projectId ?? 'export'}.csv`)}
-              disabled={sorted.length === 0}
-              aria-label={`Export ${sorted.length} tasks as CSV`}
+              onClick={() => setGroupBy(nextGroup)}
+              className="border border-neutral-border rounded h-7 px-3 text-xs font-medium
+                text-neutral-text-secondary hover:text-neutral-text-primary
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                focus-visible:ring-offset-1"
+            >
+              {GROUP_LABEL[groupBy]}
+            </button>
+            <button
+              type="button"
+              onClick={() => exportTasksToCsv(filtered, `tasks-${projectId ?? 'export'}.csv`)}
+              disabled={filtered.length === 0}
+              aria-label={`Export ${filtered.length} tasks as CSV`}
               className="
                 text-xs text-neutral-text-secondary border border-neutral-border rounded
                 h-6 px-2 hover:text-neutral-text-primary hover:border-neutral-text-secondary
                 disabled:opacity-40 disabled:cursor-not-allowed
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface
-                transition-colors
+                focus-visible:ring-offset-1 transition-colors
               "
             >
               Export CSV
             </button>
-            {/* My tasks — disabled until auth is wired (#auth) */}
-            <label
-              className="flex items-center gap-1.5 text-xs text-neutral-text-disabled cursor-not-allowed"
-              title="Requires sign-in — coming in a future update"
-            >
-              <input
-                type="checkbox"
-                disabled
-                aria-disabled="true"
-                readOnly
-                checked={false}
-                className="w-4 h-4 rounded border-neutral-border bg-transparent opacity-50 cursor-not-allowed
-                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
-              />
-              My tasks
-              <span aria-hidden="true" className="text-neutral-text-disabled">ⓘ</span>
-            </label>
           </>
         )}
       </div>
 
+      {/* Filter rail — always visible; active chips only show when filters are set */}
+      <FilterRail
+        search={search}
+        ownerFilter={ownerFilter}
+        statusFilter={statusFilter}
+        onSearchChange={setSearch}
+        onRemove={(key) => {
+          if (key === 'search') setSearch('');
+          if (key === 'owner') setOwnerFilter('');
+          if (key === 'status') setStatusFilter('');
+        }}
+      />
+
       {/* Column headers */}
       <div
         role="row"
-        className="flex items-center h-8 border-b border-neutral-border px-2 flex-shrink-0
-          text-xs font-semibold tracking-wide uppercase text-neutral-text-secondary"
+        className="flex items-center h-9 border-b border-neutral-border px-3 flex-shrink-0
+          bg-neutral-surface-sunken tppm-mono text-xs font-semibold tracking-widest uppercase
+          text-neutral-text-secondary"
       >
-        <span className={COL_CHECKBOX} />
-        <ColHeader col="wbs" label="WBS" className={`${COL_WBS} text-right pr-2`} />
+        <span className="w-4 flex-shrink-0" />
+        <ColHeader col="wbs" label="WBS" className="w-14 flex-shrink-0 text-right pr-2" />
         <ColHeader col="name" label="Name" className="flex-1 min-w-0" />
-        <ColHeader col="start" label="Start" className={`${COL_START} text-right pr-2`} />
-        <ColHeader col="finish" label="Finish" className={`${COL_FINISH} text-right pr-2`} />
-        <ColHeader col="duration" label="Dur" className={`${COL_DURATION} text-right pr-2`} />
-        <ColHeader col="progress" label="Progress" className={`${COL_PROGRESS}`} />
-        <span className={COL_CP} />
+        <span role="columnheader" className="w-10 flex-shrink-0 text-center">Owner</span>
+        <ColHeader col="start" label="Start" className="w-20 flex-shrink-0 text-right pr-2" />
+        <ColHeader col="finish" label="Finish" className="w-20 flex-shrink-0 text-right pr-2" />
+        <ColHeader col="duration" label="Dur" className="w-12 flex-shrink-0 text-right pr-2" />
+        <ColHeader col="progress" label="Progress" className="w-28 flex-shrink-0" />
+        <span role="columnheader" className="w-28 flex-shrink-0">Status</span>
       </div>
 
-      {/* Virtualized rows */}
-      <div
-        ref={scrollRef}
-        role="grid"
-        aria-label="Task list"
-        aria-rowcount={sorted.length}
-        className="flex-1 overflow-y-auto"
-      >
-        <VirtualRows
-          tasks={sorted}
-          selectedIds={selectedIds}
-          renamingId={renamingId}
-          scrollRef={scrollRef}
-          onToggleSelect={(id) => toggle(id)}
-          onStartRename={(id) => setRenamingId(id)}
-          onRename={(task, name) => handleRename(task, name)}
-          onCancelRename={() => setRenamingId(null)}
-        />
-      </div>
+      {/* List */}
+      {filtered.length === 0 ? (
+        <FilterEmptyState onClear={() => { setSearch(''); setOwnerFilter(''); setStatusFilter(''); }} />
+      ) : (
+        <div
+          ref={scrollRef}
+          role="grid"
+          aria-label="Task list"
+          aria-rowcount={filtered.length}
+          className="flex-1 overflow-y-auto"
+        >
+          <VirtualRows
+            items={listItems}
+            selectedIds={selectedIds}
+            renamingId={renamingId}
+            scrollRef={scrollRef}
+            onToggleSelect={(id) => toggle(id)}
+            onStartRename={(id) => setRenamingId(id)}
+            onRename={(task, name) => handleRename(task, name)}
+            onCancelRename={() => setRenamingId(null)}
+          />
+        </div>
+      )}
 
       {/* Delete result toast */}
       {toast && (
@@ -586,9 +810,7 @@ export function TaskListView() {
             bg-neutral-surface-raised border border-neutral-border
             text-xs text-neutral-text-primary whitespace-nowrap"
         >
-          {!toast.isError && (
-            <span aria-hidden="true" className="text-semantic-on-track">✓</span>
-          )}
+          {!toast.isError && <span aria-hidden="true" className="text-semantic-on-track">✓</span>}
           {toast.text}
         </div>
       )}
@@ -597,11 +819,11 @@ export function TaskListView() {
 }
 
 // ---------------------------------------------------------------------------
-// VirtualRows — separated so useVirtualizer has a stable scrollElement ref
+// VirtualRows
 // ---------------------------------------------------------------------------
 
 interface VirtualRowsProps {
-  tasks: Task[];
+  items: ListItem[];
   selectedIds: Set<string>;
   renamingId: string | null;
   scrollRef: RefObject<HTMLDivElement | null>;
@@ -612,42 +834,45 @@ interface VirtualRowsProps {
 }
 
 function VirtualRows({
-  tasks,
-  selectedIds,
-  renamingId,
-  scrollRef,
-  onToggleSelect,
-  onStartRename,
-  onRename,
-  onCancelRename,
+  items, selectedIds, renamingId, scrollRef,
+  onToggleSelect, onStartRename, onRename, onCancelRename,
 }: VirtualRowsProps) {
   const rowVirtualizer = useVirtualizer({
-    count: tasks.length,
+    count: items.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 44,
+    estimateSize: (i) => {
+      const item = items[i];
+      return item?.kind === 'header' ? 32 : 44;
+    },
     overscan: 5,
   });
 
   return (
     <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
       {rowVirtualizer.getVirtualItems().map((vRow) => {
-        const task = tasks[vRow.index];
-        if (!task) return null;
+        const item = items[vRow.index];
+        if (!item) return null;
         return (
           <div
-            key={task.id}
+            key={item.kind === 'header' ? item.id : item.task.id}
             aria-rowindex={vRow.index + 1}
             style={{ position: 'absolute', top: vRow.start, left: 0, right: 0, height: vRow.size }}
           >
-            <TaskRow
-              task={task}
-              isSelected={selectedIds.has(task.id)}
-              isRenaming={renamingId === task.id}
-              onToggleSelect={() => onToggleSelect(task.id)}
-              onStartRename={() => onStartRename(task.id)}
-              onRename={(name) => onRename(task, name)}
-              onCancelRename={onCancelRename}
-            />
+            {item.kind === 'header' ? (
+              <GroupHeader label={item.label} count={item.count} />
+            ) : (
+              <TaskRow
+                task={item.task}
+                phase={item.phase}
+                rowIndex={item.rowIndex}
+                isSelected={selectedIds.has(item.task.id)}
+                isRenaming={renamingId === item.task.id}
+                onToggleSelect={() => onToggleSelect(item.task.id)}
+                onStartRename={() => onStartRename(item.task.id)}
+                onRename={(name) => onRename(item.task, name)}
+                onCancelRename={onCancelRename}
+              />
+            )}
           </div>
         );
       })}
