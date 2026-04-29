@@ -30,6 +30,7 @@ import { useResourceUtilization } from '@/hooks/useResourceUtilization';
 import { useResourceAllocation, useInvalidateAllocation } from '@/hooks/useResourceAllocation';
 import { useResolveOverallocation } from '@/hooks/useResolveOverallocation';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useProjectId } from '@/hooks/useProjectId';
 
 const SCHEDULER_ROLE = 2;
 
@@ -48,11 +49,13 @@ interface Props {
 }
 
 export function ResourceView({
-  projectId,
+  projectId: projectIdProp,
   projectStartDate,
   currentUserResourceId,
   highlightResourceId: _highlightResourceId,
 }: Props) {
+  const projectIdFromUrl = useProjectId();
+  const projectId = projectIdProp ?? projectIdFromUrl;
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     try {
       const stored = localStorage.getItem(MODE_STORAGE_KEY);
