@@ -7,6 +7,7 @@ export default defineConfig({
   plugins: [react()],
   define: {
     __BUILD_SHA__: JSON.stringify('test-sha'),
+    __APP_VERSION__: JSON.stringify('0.0.0-test'),
   },
   resolve: {
     alias: {

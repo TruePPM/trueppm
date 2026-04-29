@@ -1,4 +1,5 @@
 import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
@@ -8,6 +9,15 @@ const buildSha = (() => {
     return execSync('git rev-parse --short HEAD').toString().trim();
   } catch {
     return 'dev';
+  }
+})();
+
+const appVersion = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8')) as { version: string };
+    return pkg.version;
+  } catch {
+    return '0.0.0';
   }
 })();
 
@@ -26,6 +36,7 @@ export default defineConfig({
   plugins: [react()],
   define: {
     __BUILD_SHA__: JSON.stringify(buildSha),
+    __APP_VERSION__: JSON.stringify(appVersion),
   },
   resolve: {
     alias: {

@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useId, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
@@ -9,11 +9,84 @@ interface TokenResponse {
   refresh: string;
 }
 
+// Decorative mini-Gantt rows for the marketing panel.
+const GANTT_ROWS = [
+  { label: 'Engine integration', widthPct: 70, offsetPct: 10, variant: 'critical' as const },
+  { label: 'Telemetry firmware', widthPct: 55, offsetPct: 18, variant: 'at-risk' as const },
+  { label: 'Avionics PCBA',      widthPct: 65, offsetPct: 25, variant: 'on-track' as const },
+  { label: 'FAT review',         widthPct: 4,  offsetPct: 70, variant: 'milestone' as const },
+] as const;
+
+const MONTH_LABELS = ['MAY', 'JUN', 'JUL', 'AUG'];
+
+const BAR_COLOR: Record<typeof GANTT_ROWS[number]['variant'], string> = {
+  critical:  'bg-semantic-critical',
+  'at-risk': 'bg-semantic-at-risk',
+  'on-track':'bg-semantic-on-track',
+  milestone: '',
+};
+
+/**
+ * Decorative static mini-Gantt used in the marketing panel.
+ * The entire element is aria-hidden — it conveys no functional information.
+ */
+function MiniGantt() {
+  return (
+    <div aria-hidden="true" className="flex flex-col gap-2">
+      {GANTT_ROWS.map((row) => (
+        <div key={row.label} className="flex items-center gap-3 h-5">
+          <span className="text-xs text-chrome-text-secondary w-36 shrink-0 truncate">
+            {row.label}
+          </span>
+          <div className="relative flex-1 h-4">
+            {row.variant === 'milestone' ? (
+              <div
+                className="absolute top-0 h-4 w-4 flex items-center justify-center"
+                style={{ left: `${row.offsetPct}%`, transform: 'translateX(-50%)' }}
+              >
+                {/* Milestone diamond */}
+                <div
+                  className="w-3 h-3 rotate-45"
+                  style={{ backgroundColor: '#FCD34D' }}
+                />
+              </div>
+            ) : (
+              <div
+                className={`absolute top-0 h-full rounded-sm ${BAR_COLOR[row.variant]} opacity-80`}
+                style={{ left: `${row.offsetPct}%`, width: `${row.widthPct}%` }}
+              />
+            )}
+          </div>
+        </div>
+      ))}
+
+      {/* Month axis */}
+      <div className="flex mt-1" aria-hidden="true">
+        {/* Spacer matching label width */}
+        <div className="w-36 shrink-0" />
+        <div className="flex-1 flex justify-between">
+          {MONTH_LABELS.map((m) => (
+            <span key={m} className="tppm-mono text-xs text-chrome-text-secondary">
+              {m}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function LoginPage() {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showSsoTooltip, setShowSsoTooltip] = useState(false);
+
+  const emailId = useId();
+  const passwordId = useId();
+  const rememberMeId = useId();
 
   const setTokens = useAuthStore((s) => s.setTokens);
   const navigate = useNavigate();
@@ -26,17 +99,17 @@ export function LoginPage() {
 
     try {
       const response = await axios.post<TokenResponse>('/api/v1/auth/token/', {
-        username,
+        username: email,
         password,
+        remember_me: rememberMe,
       });
       setTokens(response.data.access, response.data.refresh);
-      // Clear stale cached errors so all queries refetch with the new token.
       queryClient.clear();
       const next = searchParams.get('next') ?? '/';
       void navigate(next, { replace: true });
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && err.response?.status === 401) {
-        setError('Invalid username or password.');
+        setError('Invalid email or password.');
       } else {
         setError('An unexpected error occurred. Please try again.');
       }
@@ -45,103 +118,240 @@ export function LoginPage() {
     }
   }
 
+  const canSubmit = email.trim() !== '' && password !== '' && !isSubmitting;
+
   return (
-    <div className="min-h-screen bg-neutral-surface-raised flex items-center justify-center px-4">
-      <div className="w-full max-w-sm">
-        {/* Logo / wordmark */}
-        <div className="mb-8 text-center">
-          <span className="text-2xl font-semibold text-neutral-text-primary tracking-tight">
+    <div className="min-h-screen grid grid-cols-1 md:grid-cols-2 bg-neutral-surface">
+      {/* ── Left column: form ── */}
+      <div className="flex flex-col justify-center px-10 py-16 md:px-20 gap-8">
+        {/* Brand */}
+        <div className="flex items-center gap-2">
+          <div
+            className="w-9 h-9 rounded bg-brand-primary text-white flex items-center justify-center text-sm font-bold shrink-0"
+            aria-hidden="true"
+          >
+            tP
+          </div>
+          <span className="text-lg font-bold text-neutral-text-primary tracking-tight">
             TruePPM
           </span>
-          <p className="mt-1 text-sm text-neutral-text-secondary">Sign in to your workspace</p>
         </div>
 
-        {/* Card — border instead of shadow per rule 1 */}
-        <div className="bg-neutral-surface border border-neutral-border rounded-lg p-6">
-          <form onSubmit={(e) => { void handleSubmit(e); }} noValidate>
-            <div className="space-y-4">
-              {/* Username */}
-              <div>
-                <label
-                  htmlFor="username"
-                  className="block text-sm font-medium text-neutral-text-primary mb-1"
-                >
-                  Username
-                </label>
-                <input
-                  id="username"
-                  type="text"
-                  autoComplete="username"
-                  required
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  disabled={isSubmitting}
-                  className="
-                    w-full h-11 px-3 rounded border border-neutral-border
-                    bg-neutral-surface text-neutral-text-primary text-sm
-                    placeholder:text-neutral-text-disabled
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                    disabled:opacity-50 disabled:cursor-not-allowed
-                  "
-                  placeholder="Enter your username"
-                />
-              </div>
+        {/* Hero copy */}
+        <div className="flex flex-col gap-1">
+          <h1 className="text-[32px] font-semibold text-neutral-text-primary tracking-tight leading-tight">
+            Welcome back
+          </h1>
+          <p className="text-sm text-neutral-text-secondary leading-relaxed">
+            Sign in to keep your launch on schedule.
+          </p>
+        </div>
 
-              {/* Password */}
-              <div>
-                <label
-                  htmlFor="password"
-                  className="block text-sm font-medium text-neutral-text-primary mb-1"
-                >
-                  Password
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={isSubmitting}
-                  className="
-                    w-full h-11 px-3 rounded border border-neutral-border
-                    bg-neutral-surface text-neutral-text-primary text-sm
-                    placeholder:text-neutral-text-disabled
-                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                    disabled:opacity-50 disabled:cursor-not-allowed
-                  "
-                  placeholder="Enter your password"
-                />
-              </div>
+        {/* Form */}
+        <form onSubmit={(e) => { void handleSubmit(e); }} noValidate className="flex flex-col gap-4">
+          {/* Email */}
+          <div className="flex flex-col gap-1">
+            <label htmlFor={emailId} className="text-sm font-medium text-neutral-text-primary">
+              Email
+            </label>
+            <input
+              id={emailId}
+              type="email"
+              autoComplete="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              disabled={isSubmitting}
+              placeholder="anna.khoury@example.com"
+              className="
+                h-10 px-3 rounded border border-neutral-border
+                bg-neutral-surface text-neutral-text-primary text-sm
+                placeholder:text-neutral-text-disabled
+                focus-visible:outline-none focus-visible:border-brand-primary
+                focus-visible:ring-[3px] focus-visible:ring-brand-primary/20
+                disabled:opacity-50 disabled:cursor-not-allowed
+              "
+            />
+          </div>
 
-              {/* Inline error message */}
-              {error !== null && (
-                <p
-                  role="alert"
-                  className="text-sm text-semantic-critical"
-                >
-                  {error}
-                </p>
-              )}
+          {/* Password */}
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center justify-between">
+              <label htmlFor={passwordId} className="text-sm font-medium text-neutral-text-primary">
+                Password
+              </label>
+              <a
+                href="/forgot-password"
+                className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark"
+              >
+                Forgot?
+              </a>
+            </div>
+            <input
+              id={passwordId}
+              type="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={isSubmitting}
+              className="
+                h-10 px-3 rounded border border-neutral-border
+                bg-neutral-surface text-neutral-text-primary text-sm font-mono
+                focus-visible:outline-none focus-visible:border-brand-primary
+                focus-visible:ring-[3px] focus-visible:ring-brand-primary/20
+                disabled:opacity-50 disabled:cursor-not-allowed
+              "
+            />
+          </div>
 
-              {/* Submit */}
-              <button
-                type="submit"
-                disabled={isSubmitting || username.trim() === '' || password === ''}
+          {/* Remember me */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex items-center justify-center w-4 h-4 shrink-0">
+              <input
+                id={rememberMeId}
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
                 className="
-                  w-full h-11 rounded bg-brand-primary text-neutral-text-inverse
-                  text-sm font-medium
-                  hover:bg-brand-primary-dark
+                  w-4 h-4 rounded-sm border border-neutral-border
+                  bg-neutral-surface text-brand-primary
+                  checked:bg-brand-primary checked:border-brand-primary
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                  transition-colors
+                  cursor-pointer
+                "
+              />
+            </div>
+            <label htmlFor={rememberMeId} className="text-xs text-neutral-text-secondary cursor-pointer select-none">
+              Keep me signed in for 30 days
+            </label>
+          </div>
+
+          {/* Error */}
+          {error !== null && (
+            <p role="alert" className="text-sm text-semantic-critical">
+              {error}
+            </p>
+          )}
+
+          {/* Sign in button */}
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="
+              h-11 w-full rounded bg-brand-primary text-white
+              text-sm font-semibold
+              hover:bg-brand-primary-dark
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+              disabled:opacity-50 disabled:cursor-not-allowed
+              transition-colors
+            "
+          >
+            {isSubmitting ? 'Signing in…' : 'Sign in'}
+          </button>
+
+          {/* OR divider */}
+          <div className="flex items-center gap-3" aria-hidden="true">
+            <div className="flex-1 h-px bg-neutral-border" />
+            <span className="text-xs text-neutral-text-disabled">OR</span>
+            <div className="flex-1 h-px bg-neutral-border" />
+          </div>
+
+          {/* SSO button — stub in OSS; enterprise overrides this component */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowSsoTooltip((v) => !v)}
+              onBlur={() => setShowSsoTooltip(false)}
+              aria-expanded={showSsoTooltip}
+              className="
+                h-11 w-full rounded border border-neutral-border
+                bg-neutral-surface-raised text-neutral-text-primary
+                text-sm font-medium
+                hover:bg-neutral-surface-sunken
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                transition-colors
+              "
+            >
+              Continue with SSO
+            </button>
+            {showSsoTooltip && (
+              <div
+                role="tooltip"
+                className="
+                  absolute top-full left-1/2 -translate-x-1/2 mt-2 z-10
+                  bg-neutral-text-primary text-neutral-text-inverse text-xs rounded px-3 py-2
+                  whitespace-nowrap shadow-none border border-neutral-border
                 "
               >
-                {isSubmitting ? 'Signing in…' : 'Sign in'}
-              </button>
+                SSO available in Enterprise tier
+                <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-neutral-text-primary rotate-45 border-l border-t border-neutral-border" />
+              </div>
+            )}
+          </div>
+        </form>
+
+        {/* Footer link */}
+        <p className="text-xs text-neutral-text-disabled">
+          New to TruePPM?{' '}
+          <a href="/signup" className="font-medium text-brand-primary hover:text-brand-primary-dark">
+            Request access
+          </a>
+        </p>
+      </div>
+
+      {/* ── Right column: marketing panel ── */}
+      <div className="hidden md:flex flex-col justify-between bg-chrome-surface relative overflow-hidden px-16 py-16">
+        {/* Decorative grid overlay */}
+        <svg
+          aria-hidden="true"
+          className="absolute inset-0 w-full h-full pointer-events-none"
+          style={{ opacity: 0.35 }}
+        >
+          <defs>
+            <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+              <path d="M 32 0 L 0 0 0 32" fill="none" stroke="currentColor" strokeWidth="0.5" className="text-chrome-text-secondary" />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#grid)" />
+        </svg>
+
+        {/* Content */}
+        <div className="relative flex flex-col gap-8">
+          {/* Status pill */}
+          <div className="inline-flex items-center gap-2 self-start">
+            <div
+              className="px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase"
+              style={{ backgroundColor: 'rgba(74, 222, 128, 0.12)', color: '#4ADE80' }}
+            >
+              <span
+                className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle"
+                style={{ backgroundColor: '#4ADE80' }}
+                aria-hidden="true"
+              />
+              CPM v{__APP_VERSION__} live
             </div>
-          </form>
+          </div>
+
+          {/* Headline */}
+          <div className="flex flex-col gap-3">
+            <h2 className="text-[28px] font-semibold text-chrome-text-primary leading-snug tracking-tight max-w-sm">
+              Schedules that hold under pressure.
+            </h2>
+            <p className="text-sm text-chrome-text-secondary leading-relaxed max-w-sm">
+              Critical-path scheduling, three-point estimates, and Monte Carlo
+              forecasting — built for teams that ship to a launch window.
+            </p>
+          </div>
+
+          {/* Mini Gantt */}
+          <MiniGantt />
         </div>
+
+        {/* Panel footer */}
+        <p className="relative tppm-mono text-xs text-chrome-text-secondary">
+          v{__APP_VERSION__} · build {__BUILD_SHA__} · status: operational
+        </p>
       </div>
     </div>
   );

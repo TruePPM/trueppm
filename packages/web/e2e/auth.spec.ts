@@ -23,9 +23,9 @@ test.describe('Login flow', () => {
     await expect(page).toHaveURL(/\/login/, { timeout: 5_000 });
   });
 
-  test('login page renders username and password fields', async ({ page }) => {
+  test('login page renders email and password fields', async ({ page }) => {
     await page.goto('/login');
-    await expect(page.getByLabel('Username')).toBeVisible();
+    await expect(page.getByLabel('Email')).toBeVisible();
     await expect(page.getByLabel('Password')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   });
@@ -73,7 +73,7 @@ test.describe('Login flow', () => {
     );
 
     await page.goto('/login');
-    await page.getByLabel('Username').fill('sarah');
+    await page.getByLabel('Email').fill('sarah@example.com');
     await page.getByLabel('Password').fill('correct-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
@@ -88,11 +88,11 @@ test.describe('Login flow', () => {
     );
 
     await page.goto('/login');
-    await page.getByLabel('Username').fill('sarah');
+    await page.getByLabel('Email').fill('sarah@example.com');
     await page.getByLabel('Password').fill('wrong-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
-    await expect(page.getByRole('alert')).toContainText('Invalid username or password');
+    await expect(page.getByRole('alert')).toContainText('Invalid email or password');
     // Must stay on /login after failure.
     await expect(page).toHaveURL(/\/login/);
   });
@@ -101,7 +101,7 @@ test.describe('Login flow', () => {
     await page.route(AUTH_TOKEN_URL, (route) => route.abort('failed'));
 
     await page.goto('/login');
-    await page.getByLabel('Username').fill('sarah');
+    await page.getByLabel('Email').fill('sarah@example.com');
     await page.getByLabel('Password').fill('any-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
