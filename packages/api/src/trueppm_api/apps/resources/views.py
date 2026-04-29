@@ -607,6 +607,14 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         task_id = str(obj.task.pk)
         assignment_id = str(obj.pk)
 
+        # Auto-roster: assigning a resource to a task implicitly adds them to
+        # the project roster so they appear in Team → Roster / Heatmap. Safe to
+        # call unconditionally — get_or_create is idempotent.
+        ProjectResource.objects.get_or_create(
+            project_id=obj.task.project_id,
+            resource=obj.resource,
+        )
+
         def _on_commit() -> None:
             from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
