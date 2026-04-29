@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router';
-import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon } from '@/components/Icons';
+import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon } from '@/components/Icons';
+import { OverviewIcon } from '@/components/Icons';
 import type { ComponentType } from 'react';
 
 interface NavItem {
@@ -9,14 +10,15 @@ interface NavItem {
 }
 
 // Bottom navigation rail — shown at < md (768px) in place of view tabs in the top bar.
-// Order mirrors ViewTabs: Board first (planning surface), Schedule second (derived view).
+// Order mirrors ViewTabs: Overview first (orientation), Board second (execution).
+// Risks omitted at mobile breakpoint — infrequent access; reachable via desktop tabs.
 const NAV_ITEMS: NavItem[] = [
+  { view: 'overview',  label: 'Overview', Icon: OverviewIcon },
   { view: 'board',     label: 'Board',    Icon: BoardIcon },
   { view: 'schedule',  label: 'Schedule', Icon: GanttIcon },
   { view: 'list',      label: 'Table',    Icon: ListIcon },
   { view: 'calendar',  label: 'Calendar', Icon: CalendarIcon },
   { view: 'resources', label: 'Team',     Icon: ResourcesIcon },
-  { view: 'risk',      label: 'Risks',    Icon: RiskIcon },
 ];
 
 export function BottomNav() {
