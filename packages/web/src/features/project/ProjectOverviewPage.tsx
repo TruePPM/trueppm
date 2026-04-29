@@ -29,7 +29,7 @@ interface AttentionItem {
   assignee_name: string | null;
   date: string | null;
   detail: string;
-  link_target: unknown | null;
+  link_target: unknown;
 }
 
 interface MyTask {
