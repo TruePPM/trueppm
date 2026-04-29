@@ -54,7 +54,7 @@ function parseCsvLine(line: string): string[] {
 
 // Parse a full CSV string (strips BOM) into a 2-D array of cells.
 function parseCsv(csv: string): string[][] {
-  const clean = csv.replace(/^﻿/, '');
+  const clean = csv.replace(/^\uFEFF/, '');
   return clean.split('\r\n').map(parseCsvLine);
 }
 
@@ -151,32 +151,40 @@ describe('generateRisksCSV — row content', () => {
 // ---------------------------------------------------------------------------
 
 describe('exportRisksToCSV — download trigger', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const urlProto = URL as any;
   let capturedFilename: string | null = null;
   let capturedBlobType: string | null = null;
+  let clickSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     capturedFilename = null;
     capturedBlobType = null;
 
-    urlProto.createObjectURL = (blob: Blob) => {
-      capturedBlobType = blob.type;
-      return 'blob:mock';
-    };
-    urlProto.revokeObjectURL = vi.fn();
+    // jsdom does not implement URL.createObjectURL — define it explicitly
+    Object.defineProperty(URL, 'createObjectURL', {
+      writable: true,
+      configurable: true,
+      value: (obj: Blob | MediaSource): string => {
+        capturedBlobType = obj instanceof Blob ? obj.type : '';
+        return 'blob:mock';
+      },
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      writable: true,
+      configurable: true,
+      value: vi.fn(),
+    });
 
     vi.spyOn(document.body, 'appendChild').mockImplementation((el) => {
       capturedFilename = (el as HTMLAnchorElement).download ?? null;
       return el;
     });
     vi.spyOn(document.body, 'removeChild').mockImplementation((el) => el);
-    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
   });
 
   afterEach(() => {
-    delete urlProto.createObjectURL;
-    delete urlProto.revokeObjectURL;
+    Object.defineProperty(URL, 'createObjectURL', { writable: true, configurable: true, value: undefined });
+    Object.defineProperty(URL, 'revokeObjectURL', { writable: true, configurable: true, value: undefined });
     vi.restoreAllMocks();
   });
 
@@ -193,6 +201,6 @@ describe('exportRisksToCSV — download trigger', () => {
 
   it('triggers anchor click', () => {
     exportRisksToCSV([makeRisk()], 'proj');
-    expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledOnce();
+    expect(clickSpy).toHaveBeenCalledOnce();
   });
 });

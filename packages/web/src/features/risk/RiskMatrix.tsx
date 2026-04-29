@@ -78,6 +78,9 @@ export function RiskMatrix({ risks, selectedCell, onCellSelect }: RiskMatrixProp
         </div>
 
         <div
+          role="grid"
+          aria-label="Risk matrix"
+          tabIndex={-1}
           className="flex flex-col gap-px"
           onKeyDown={(e) => {
             if (e.key === 'Escape' && selectedCell) {
