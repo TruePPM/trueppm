@@ -140,7 +140,7 @@ function DrawerBody({
                   ))}
                 </ul>
                 {/* Task name resolution is deferred until the tasks API is wired in. */}
-                <p className="mt-2 text-xs text-neutral-text-disabled italic">
+                <p className="mt-2 text-xs text-neutral-text-secondary italic">
                   Task names will appear once the tasks API is connected.
                 </p>
                 <p className="mt-3 text-xs text-neutral-text-secondary">

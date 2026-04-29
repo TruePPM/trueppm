@@ -204,14 +204,14 @@ export function ResourceAllocationTimeline({
           </div>
           <div
             className={[
-              'text-[11px] flex items-center gap-1 flex-wrap',
+              'text-xs flex items-center gap-1 flex-wrap',
               hasOverallocation ? 'text-semantic-critical' : 'text-neutral-text-secondary',
             ].join(' ')}
           >
             {hasOverallocation && (
               <button
                 type="button"
-                className="w-2 h-2 rounded-full bg-semantic-critical flex-shrink-0 focus-visible:ring-1 focus-visible:ring-semantic-critical focus-visible:outline-none"
+                className="w-2 h-2 rounded-full bg-semantic-critical flex-shrink-0 focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-semantic-critical focus-visible:outline-none"
                 aria-label={`Jump to first overallocation for ${resource.name}`}
                 title={`Jump to first overallocation for ${resource.name}`}
                 onClick={() => {
@@ -222,7 +222,7 @@ export function ResourceAllocationTimeline({
                 }}
               />
             )}
-            <span>{availDisplay}</span>
+            <span className="tppm-mono">{availDisplay}</span>
             {overRange && (
               <span className="text-semantic-critical font-medium tppm-mono">
                 · overallocated · {overRange}
@@ -324,7 +324,7 @@ export function ResourceAllocationTimeline({
       <div className="flex flex-shrink-0 border-b border-neutral-border bg-neutral-surface-raised sticky top-0 z-10">
         {/* Column header label */}
         <div className="flex-shrink-0 w-48 border-r border-neutral-border px-3 py-1.5 flex items-end">
-          <span className="text-[10px] uppercase tracking-wide text-neutral-text-secondary">
+          <span className="text-xs uppercase tracking-wide text-neutral-text-secondary">
             Resource
           </span>
         </div>
@@ -332,7 +332,7 @@ export function ResourceAllocationTimeline({
         {/* Month + week axis */}
         <div className="flex-1 overflow-hidden">
           {/* Month row */}
-          <div className="flex text-[10px] font-semibold text-neutral-text-secondary">
+          <div className="flex text-xs font-semibold text-neutral-text-secondary">
             {monthGroups.map((m, i) => (
               <div
                 key={i}
@@ -344,7 +344,7 @@ export function ResourceAllocationTimeline({
             ))}
           </div>
           {/* Week row */}
-          <div className="flex text-[10px] text-neutral-text-secondary">
+          <div className="flex text-xs text-neutral-text-secondary">
             {weekColumns.map((w, i) => (
               <div
                 key={i}
@@ -392,7 +392,7 @@ export function ResourceAllocationTimeline({
                 <span className="font-medium text-neutral-text-primary">{resource.name}</span>
                 <span className="text-neutral-text-secondary">→</span>
                 <span className="font-medium">{task.name}</span>
-                <span className="text-neutral-text-secondary">
+                <span className="text-neutral-text-secondary tppm-mono">
                   ({Math.round(parseFloat(task.units) * 100)}%)
                 </span>
               </div>
