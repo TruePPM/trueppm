@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useResourceHeatmap } from '@/hooks/useResourceHeatmap';
 import { useResourceSummary } from '@/hooks/useResourceSummary';
+import { useTriggerScheduler } from '@/hooks/useTriggerScheduler';
 import { ResourcesKpiRow, ResourcesKpiRowSkeleton } from './ResourcesKpiRow';
 import { ResourcesHeatmap, ResourcesHeatmapSkeleton } from './ResourcesHeatmap';
 import { ResourceEmptyState } from './ResourceEmptyState';
@@ -34,6 +35,7 @@ function weekDisplay(isoWeek: string): string {
  */
 export function HeatmapPage() {
   const projectId = useProjectId();
+  const triggerScheduler = useTriggerScheduler(projectId);
 
   const [weekStart, setWeekStart] = useState(currentWeekMonday);
   const [weeks, setWeeks] = useState<WeeksWindow>(readPersistedWindow);
@@ -153,7 +155,7 @@ export function HeatmapPage() {
 
       {/* Schedule-not-run empty state covers both KPI and heatmap */}
       {isScheduleNotRun ? (
-        <ResourceEmptyState onRunScheduler={() => window.location.reload()} />
+        <ResourceEmptyState onRunScheduler={triggerScheduler} />
       ) : (
         <>
           {/* KPI row */}

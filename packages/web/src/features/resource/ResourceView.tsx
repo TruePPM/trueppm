@@ -31,6 +31,7 @@ import { useResourceAllocation, useInvalidateAllocation } from '@/hooks/useResou
 import { useResolveOverallocation } from '@/hooks/useResolveOverallocation';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useTriggerScheduler } from '@/hooks/useTriggerScheduler';
 
 const SCHEDULER_ROLE = 2;
 
@@ -56,6 +57,7 @@ export function ResourceView({
 }: Props) {
   const projectIdFromUrl = useProjectId();
   const projectId = projectIdProp ?? projectIdFromUrl;
+  const triggerScheduler = useTriggerScheduler(projectId);
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     try {
       const stored = localStorage.getItem(MODE_STORAGE_KEY);
@@ -144,7 +146,7 @@ export function ResourceView({
   if (activeStatus === 'schedule-not-run') {
     return (
       <div className="flex flex-col h-full overflow-hidden">
-        <ResourceEmptyState onRunScheduler={() => {}} />
+        <ResourceEmptyState onRunScheduler={triggerScheduler} />
       </div>
     );
   }
@@ -268,7 +270,7 @@ export function ResourceView({
                 windowEnd={window_.end}
                 currentUserResourceId={currentUserResourceId}
                 projectId={projectId}
-                onRunScheduler={() => {}}
+                onRunScheduler={triggerScheduler}
               />
             </div>
           )
