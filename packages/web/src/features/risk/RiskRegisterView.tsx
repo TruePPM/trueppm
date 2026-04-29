@@ -4,8 +4,9 @@ import { useRisks } from '@/hooks/useRisks';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjects } from '@/hooks/useProjects';
 import { RiskChip } from './RiskChip';
-import { RiskMatrix } from './RiskMatrix';
+import { RiskMatrix, type SelectedCell } from './RiskMatrix';
 import { RiskDrawer } from './RiskDrawer';
+import { exportRisksToCSV } from './riskExport';
 
 const STATUS_LABELS: Record<Risk['status'], string> = {
   OPEN:       'Open',
@@ -33,6 +34,8 @@ export function RiskRegisterView() {
   // null = drawer closed, undefined = create mode, Risk = edit mode
   const [selectedRisk, setSelectedRisk] = useState<Risk | null | undefined>(null);
 
+  const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
+
   const projectName = projects?.find((p) => p.id === projectId)?.name ?? null;
 
   if (!projectId) {
@@ -46,6 +49,20 @@ export function RiskRegisterView() {
   const isDrawerOpen = selectedRisk !== null;
   const criticalCount = risks.filter((r) => r.severity >= 20).length;
   const highCount     = risks.filter((r) => r.severity >= 12 && r.severity < 20).length;
+
+  // When a matrix cell is selected, filter the table to that P×I coordinate.
+  const displayRisks = selectedCell
+    ? risks.filter((r) => r.probability === selectedCell.probability && r.impact === selectedCell.impact)
+    : risks;
+
+  // Overdue: MITIGATING status + mitigation_due_date in the past (client-side, ADR-0043)
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  // Project slug for CSV filename — derived from name since the Project type has no slug field.
+  const projectSlug = (projectName ?? projectId)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || projectId;
 
   function openCreate() { setSelectedRisk(undefined); }
   function openRisk(risk: Risk) { setSelectedRisk(risk); }
@@ -101,8 +118,22 @@ export function RiskRegisterView() {
               dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1"
           >
             Heatmap
-            <span aria-hidden="true" className="text-neutral-text-disabled text-[10px] leading-none mt-px">▾</span>
+            <span aria-hidden="true" className="text-neutral-text-disabled text-xs leading-none mt-px">▾</span>
           </button>
+
+          {risks.length > 0 && (
+            <button
+              type="button"
+              onClick={() => exportRisksToCSV(displayRisks, projectSlug)}
+              className="inline-flex items-center gap-1 h-8 px-3 rounded text-xs font-medium
+                border border-neutral-border text-neutral-text-secondary bg-neutral-surface
+                hover:text-neutral-text-primary hover:bg-neutral-surface-raised
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1"
+            >
+              Export CSV
+            </button>
+          )}
 
           <button
             type="button"
@@ -132,7 +163,13 @@ export function RiskRegisterView() {
             {isLoading && (
               <div className="flex-1 rounded animate-pulse bg-neutral-border/30" aria-hidden="true" />
             )}
-            {!isLoading && !error && <RiskMatrix risks={risks} />}
+            {!isLoading && !error && (
+              <RiskMatrix
+                risks={risks}
+                selectedCell={selectedCell}
+                onCellSelect={setSelectedCell}
+              />
+            )}
           </aside>
         )}
 
@@ -172,7 +209,7 @@ export function RiskRegisterView() {
             </div>
           )}
 
-          {/* Empty */}
+          {/* Empty — no risks at all */}
           {!isLoading && !error && risks.length === 0 && (
             <div className="flex flex-col items-center justify-center gap-3 py-16">
               <p className="text-sm text-neutral-text-secondary">No risks recorded yet.</p>
@@ -190,6 +227,29 @@ export function RiskRegisterView() {
 
           {/* Table */}
           {!isLoading && !error && risks.length > 0 && (
+            <>
+              {/* Matrix cell-filter chip */}
+              {selectedCell && (
+                <div className="flex items-center gap-2 mb-2 px-1 shrink-0" role="status" aria-live="polite">
+                  <span className="text-xs text-neutral-text-secondary">Filtered to</span>
+                  <span className="inline-flex items-center text-xs font-medium tppm-mono
+                    bg-brand-primary/10 text-brand-primary border border-brand-primary/20 rounded px-2 py-0.5">
+                    P{selectedCell.probability} × I{selectedCell.impact}
+                  </span>
+                  <span className="text-xs text-neutral-text-disabled">
+                    {displayRisks.length} of {risks.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCell(null)}
+                    className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary ml-1
+                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                      focus-visible:ring-offset-1 rounded"
+                  >
+                    Clear filter
+                  </button>
+                </div>
+              )}
             <div className="flex-1 overflow-auto rounded-lg border border-neutral-border">
               <table className="w-full text-sm border-collapse">
                 <thead className="sticky top-0 z-10">
@@ -218,17 +278,25 @@ export function RiskRegisterView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {risks.map((risk) => (
+                  {displayRisks.map((risk) => {
+                    const isOverdue =
+                      risk.status === 'MITIGATING' &&
+                      !!risk.mitigation_due_date &&
+                      risk.mitigation_due_date < todayIso;
+
+                    return (
                     <tr
                       key={risk.id}
                       onClick={() => openRisk(risk)}
-                      className="h-14 border-b border-neutral-border last:border-b-0
-                        hover:bg-neutral-surface-raised cursor-pointer
-                        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                        dark:focus-visible:ring-semantic-on-track focus-visible:ring-inset"
+                      className={[
+                        'h-14 border-b border-neutral-border last:border-b-0 cursor-pointer',
+                        isOverdue ? 'bg-semantic-at-risk/5 hover:bg-semantic-at-risk/10' : 'hover:bg-neutral-surface-raised',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
+                        'dark:focus-visible:ring-semantic-on-track focus-visible:ring-inset',
+                      ].join(' ')}
                       tabIndex={0}
                       role="button"
-                      aria-label={`Open risk: ${risk.title}`}
+                      aria-label={`Open risk: ${risk.title}${isOverdue ? ' (overdue mitigation)' : ''}`}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
@@ -237,18 +305,25 @@ export function RiskRegisterView() {
                       }}
                     >
                       {/* ID */}
-                      <td className="px-4 font-mono text-xs text-neutral-text-secondary tabular-nums">
+                      <td className="px-4 text-xs text-neutral-text-secondary tppm-mono">
                         {formatRiskId(risk.short_id)}
                       </td>
 
-                      {/* Risk — title + status sub-label */}
+                      {/* Risk — title + status sub-label + overdue badge */}
                       <td className="px-4">
                         <div className="flex flex-col gap-0.5 min-w-0">
                           <span className="text-sm font-medium text-neutral-text-primary leading-snug truncate">
                             {risk.title}
                           </span>
-                          <span className="text-xs text-neutral-text-secondary leading-none">
+                          <span className="flex items-center gap-1.5 text-xs text-neutral-text-secondary leading-none">
                             {STATUS_LABELS[risk.status]}
+                            {isOverdue && (
+                              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium
+                                bg-semantic-at-risk/10 text-semantic-at-risk border border-semantic-at-risk/30"
+                              >
+                                Overdue
+                              </span>
+                            )}
                           </span>
                         </div>
                       </td>
@@ -289,10 +364,11 @@ export function RiskRegisterView() {
                         )}
                       </td>
                     </tr>
-                  ))}
+                  ); })}
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
       </div>

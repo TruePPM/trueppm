@@ -6410,6 +6410,16 @@
                     "name"
                 ]
             },
+            "CategoryEnum": {
+                "enum": [
+                    "TECHNICAL",
+                    "EXTERNAL",
+                    "ORGANIZATIONAL",
+                    "PROJECT_MANAGEMENT"
+                ],
+                "type": "string",
+                "description": "* `TECHNICAL` - Technical\n* `EXTERNAL` - External\n* `ORGANIZATIONAL` - Organizational\n* `PROJECT_MANAGEMENT` - Project Management"
+            },
             "DepTypeEnum": {
                 "enum": [
                     "FS",
@@ -7348,6 +7358,45 @@
                         "maximum": 32767,
                         "minimum": 0
                     },
+                    "category": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/CategoryEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "response": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ResponseEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "mitigation_due_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "trigger": {
+                        "type": "string"
+                    },
+                    "contingency": {
+                        "type": "string"
+                    },
                     "owner": {
                         "type": "integer",
                         "nullable": true
@@ -7963,6 +8012,16 @@
                     "skill"
                 ]
             },
+            "ResponseEnum": {
+                "enum": [
+                    "AVOID",
+                    "MITIGATE",
+                    "TRANSFER",
+                    "ACCEPT"
+                ],
+                "type": "string",
+                "description": "* `AVOID` - Avoid\n* `MITIGATE` - Mitigate\n* `TRANSFER` - Transfer\n* `ACCEPT` - Accept"
+            },
             "Risk": {
                 "type": "object",
                 "description": "Read/write serializer for project risks.\n\nseverity is a computed read-only field (probability × impact); it is not\nstored in the database to avoid write-consistency hazards.\n\ntasks is a writable PrimaryKeyRelatedField that accepts task UUIDs on\ncreate and update.  The viewset annotates a severity DB expression on the\nqueryset so OrderingFilter can sort without round-tripping to Python.",
@@ -8008,6 +8067,45 @@
                     "severity": {
                         "type": "integer",
                         "readOnly": true
+                    },
+                    "category": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/CategoryEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "response": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ResponseEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "mitigation_due_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "trigger": {
+                        "type": "string"
+                    },
+                    "contingency": {
+                        "type": "string"
                     },
                     "owner": {
                         "type": "integer",
@@ -8074,6 +8172,45 @@
                         "type": "integer",
                         "maximum": 32767,
                         "minimum": 0
+                    },
+                    "category": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/CategoryEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "response": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ResponseEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "mitigation_due_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "trigger": {
+                        "type": "string"
+                    },
+                    "contingency": {
+                        "type": "string"
                     },
                     "owner": {
                         "type": "integer",

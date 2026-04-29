@@ -17,7 +17,7 @@ export interface PaginatedResponse<T> {
   results: T[];
 }
 
-// Risk Register types (issue #52). Hand-authored until openapi-typescript regeneration.
+// Risk Register types (issues #52, #221). Hand-authored until openapi-typescript regeneration.
 export interface Risk {
   id: string;
   /** Short per-project hex ID shared with the Task counter (e.g. "a3f1"). */
@@ -36,4 +36,10 @@ export interface Risk {
   created_at: string;
   updated_at: string;
   tasks: string[];
+  // PMI framework fields (ADR-0043, wave 7 issue #221) — all optional/nullable
+  category?: 'TECHNICAL' | 'EXTERNAL' | 'ORGANIZATIONAL' | 'PROJECT_MANAGEMENT' | null;
+  response?: 'AVOID' | 'MITIGATE' | 'TRANSFER' | 'ACCEPT' | null;
+  mitigation_due_date?: string | null;
+  trigger?: string;
+  contingency?: string;
 }

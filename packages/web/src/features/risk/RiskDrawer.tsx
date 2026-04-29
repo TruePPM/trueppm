@@ -19,6 +19,21 @@ const STATUS_CLASSES: Record<Risk['status'], string> = {
   CLOSED:     'border-neutral-text-disabled/40 text-neutral-text-disabled',
 };
 
+// PMI label maps — used in RiskDetailView
+const CATEGORY_LABELS: Record<NonNullable<Risk['category']>, string> = {
+  TECHNICAL:          'Technical',
+  EXTERNAL:           'External',
+  ORGANIZATIONAL:     'Organizational',
+  PROJECT_MANAGEMENT: 'Project Management',
+};
+
+const RESPONSE_LABELS: Record<NonNullable<Risk['response']>, string> = {
+  AVOID:    'Avoid',
+  MITIGATE: 'Mitigate',
+  TRANSFER: 'Transfer',
+  ACCEPT:   'Accept',
+};
+
 export function RiskDrawer({ projectId, risk, isOpen, onClose }: RiskDrawerProps) {
   const [isEditing, setIsEditing] = useState(false);
   const closeButtonRef            = useRef<HTMLButtonElement>(null);
@@ -234,6 +249,7 @@ function DrawerContent({
 // Read-only detail view
 function RiskDetailView({ risk }: { risk: Risk }) {
   const statusClasses = STATUS_CLASSES[risk.status];
+  const hasPmiFields  = !!(risk.category || risk.response || risk.mitigation_due_date || risk.trigger || risk.contingency);
 
   return (
     <div className="p-4 flex flex-col gap-4">
@@ -271,6 +287,67 @@ function RiskDetailView({ risk }: { risk: Risk }) {
           <p className="text-sm text-neutral-text-primary whitespace-pre-wrap">
             {risk.description}
           </p>
+        </div>
+      )}
+
+      {/* PMI fields — shown when at least one is populated */}
+      {hasPmiFields && (
+        <div className="flex flex-col gap-4 border-t border-neutral-border pt-4">
+          {risk.category && (
+            <div>
+              <p className="text-xs font-medium text-neutral-text-secondary uppercase tracking-wide mb-1">
+                Category
+              </p>
+              <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium
+                bg-neutral-surface-raised text-neutral-text-secondary border border-neutral-border">
+                {CATEGORY_LABELS[risk.category]}
+              </span>
+            </div>
+          )}
+
+          {risk.response && (
+            <div>
+              <p className="text-xs font-medium text-neutral-text-secondary uppercase tracking-wide mb-1">
+                Response
+              </p>
+              {/* Filled pill — visually distinct from the outlined Status pill (ADR-0043) */}
+              <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium
+                bg-brand-primary/10 text-brand-primary border border-brand-primary/20">
+                {RESPONSE_LABELS[risk.response]}
+              </span>
+            </div>
+          )}
+
+          {risk.mitigation_due_date && (
+            <div>
+              <p className="text-xs font-medium text-neutral-text-secondary uppercase tracking-wide mb-1">
+                Mitigation Due
+              </p>
+              <span className="text-sm text-neutral-text-primary tppm-mono">
+                {new Date(`${risk.mitigation_due_date}T00:00:00Z`).toLocaleDateString('en-US', {
+                  month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+                })}
+              </span>
+            </div>
+          )}
+
+          {risk.trigger && (
+            <div>
+              <p className="text-xs font-medium text-neutral-text-secondary uppercase tracking-wide mb-1">
+                Trigger
+              </p>
+              <p className="text-sm text-neutral-text-primary whitespace-pre-wrap">{risk.trigger}</p>
+            </div>
+          )}
+
+          {risk.contingency && (
+            <div>
+              <p className="text-xs font-medium text-neutral-text-secondary uppercase tracking-wide mb-1">
+                Contingency
+              </p>
+              <p className="text-sm text-neutral-text-primary whitespace-pre-wrap">{risk.contingency}</p>
+            </div>
+          )}
         </div>
       )}
 

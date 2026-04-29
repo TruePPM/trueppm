@@ -10,6 +10,12 @@ export interface CreateRiskPayload {
   impact: number;
   owner: string | null;
   tasks: string[];
+  // PMI framework fields (ADR-0043) — all optional
+  category?: Risk['category'];
+  response?: Risk['response'];
+  mitigation_due_date?: string | null;
+  trigger?: string;
+  contingency?: string;
 }
 
 export interface UseRisksResult {
