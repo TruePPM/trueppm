@@ -64,9 +64,9 @@ migrations-check: ## Verify no missing Django migrations (requires `make up`)
 schema-check: ## Verify docs/api/openapi.json matches the live DRF schema
 	bash scripts/export-openapi.sh --check
 
-pre-push: lint typecheck migrations-check schema-check ## Run every CI gate locally — use before `git push`
+pre-push: migrations-check schema-check ## Run pre-push CI gates (lint/typecheck run at commit time via hooks)
 	@echo ""
-	@echo "✅ All pre-push checks passed. Safe to git push."
+	@echo "✅ Pre-push checks passed. Safe to git push."
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 build: ## Build the web bundle
