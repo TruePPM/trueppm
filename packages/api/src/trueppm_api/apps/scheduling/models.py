@@ -16,6 +16,15 @@ class ScheduleRequestStatus(models.TextChoices):
     DEAD = "dead", "Dead"
 
 
+class ScheduleRequestReason(models.TextChoices):
+    """Why a CPM recalculation was requested — used for audit trail and drain dedup."""
+
+    TASK_CHANGE = "task_change", "Task Change"
+    DEPENDENCY_CHANGE = "dependency_change", "Dependency Change"
+    SPRINT_CLOSED = "sprint_closed", "Sprint Closed"
+    MANUAL = "manual", "Manual"
+
+
 class ScheduleRequest(models.Model):
     """Transactional outbox record for CPM recalculation requests.
 
@@ -42,6 +51,12 @@ class ScheduleRequest(models.Model):
         max_length=16,
         choices=ScheduleRequestStatus.choices,
         default=ScheduleRequestStatus.PENDING,
+    )
+    reason = models.CharField(
+        max_length=24,
+        choices=ScheduleRequestReason.choices,
+        default=ScheduleRequestReason.TASK_CHANGE,
+        db_index=True,
     )
     requested_at = models.DateTimeField(auto_now_add=True)
     dispatched_at = models.DateTimeField(null=True, blank=True)
