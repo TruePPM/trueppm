@@ -173,8 +173,8 @@ test.describe('Risk register — golden path', () => {
     // Matrix is in the aside with aria-label "Risk heatmap"
     const heatmap = page.getByRole('complementary', { name: 'Risk heatmap' });
     await expect(heatmap).toBeVisible();
-    // The P×I heading is present
-    await expect(heatmap.getByText(/Probability.*Impact/i)).toBeVisible();
+    // The P×I heading is present (regex also matches the outer legend container — take first)
+    await expect(heatmap.getByText(/Probability.*Impact/i).first()).toBeVisible();
   });
 
   test('Export CSV button is visible', async ({ page }) => {
@@ -298,15 +298,16 @@ test.describe('Risk drawer PMI fields', () => {
   test('opening a risk with PMI fields shows Category and Response', async ({ page }) => {
     await page.getByRole('button', { name: /Open risk: Critical infrastructure failure/ }).click();
 
-    // Wait for drawer content
-    await expect(page.getByText('Technical')).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText('Mitigate')).toBeVisible();
+    // Wait for drawer content (category chip rendered in quick-edit header + detail section)
+    await expect(page.getByText('Technical').first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('Mitigate').first()).toBeVisible();
   });
 
   test('opening the overdue risk shows Trigger and Contingency', async ({ page }) => {
     await page.getByRole('button', { name: /Open risk: Vendor delivery delay/ }).click();
 
-    await expect(page.getByText('Vendor misses milestone')).toBeVisible({ timeout: 5_000 });
-    await expect(page.getByText('Switch supplier')).toBeVisible();
+    // Trigger/contingency text appears in quick-edit header + detail section
+    await expect(page.getByText('Vendor misses milestone').first()).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText('Switch supplier').first()).toBeVisible();
   });
 });
