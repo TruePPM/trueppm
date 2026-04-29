@@ -8,6 +8,12 @@ vi.mock('@/hooks/useProjectId', () => ({
   useProjectId: vi.fn(() => 'proj-1'),
 }));
 
+// Default: SCHEDULER role so the Team tab is visible.
+// Tests that exercise role gating can override with mockReturnValue.
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: vi.fn(() => ({ role: 2, isLoading: false })),
+}));
+
 import { useProjectId } from '@/hooks/useProjectId';
 const mockUseProjectId = useProjectId as ReturnType<typeof vi.fn>;
 
