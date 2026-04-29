@@ -46,8 +46,7 @@ export function useResourceHeatmap(
     },
     enabled: !!projectId,
     retry: (failureCount, error) => {
-      const axErr = error as AxiosError;
-      if (axErr.response?.status === 409 || axErr.response?.status === 403) return false;
+      if (error.response?.status === 409 || error.response?.status === 403) return false;
       return failureCount < 2;
     },
   });
@@ -55,8 +54,7 @@ export function useResourceHeatmap(
   if (!projectId) return { data: undefined, status: 'idle', error: null };
   if (query.isPending) return { data: undefined, status: 'loading', error: null };
   if (query.isError) {
-    const axErr = query.error as AxiosError;
-    if (axErr.response?.status === 409) return { data: undefined, status: 'schedule-not-run', error: null };
+    if (query.error.response?.status === 409) return { data: undefined, status: 'schedule-not-run', error: null };
     return { data: undefined, status: 'error', error: query.error };
   }
   return { data: query.data, status: 'success', error: null };
