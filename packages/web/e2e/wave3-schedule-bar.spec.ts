@@ -171,29 +171,9 @@ test.describe('Schedule bar — canvas structure (#212)', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Visual regression — bar chip + outside-name rendering
-// ---------------------------------------------------------------------------
-
-test.describe('Schedule bar — visual regression (#212)', () => {
-  test('canvas area matches snapshot with chip and outside-name label', async ({ page }) => {
-    await gotoSchedule(page);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
-    // Allow the refetch interval and any animation to settle
-    await page.waitForTimeout(300);
-
-    // Capture the timeline canvas region for visual regression
-    const timelineArea = page.locator('[data-testid="gantt-canvas-container"]').first();
-    if (await timelineArea.count() === 0) {
-      // Fall back to full page screenshot if test-id not present
-      await expect(page).toHaveScreenshot('schedule-bar-render.png', {
-        fullPage: false,
-        maxDiffPixelRatio: 0.02,
-      });
-    } else {
-      await expect(timelineArea).toHaveScreenshot('schedule-bar-render.png', {
-        maxDiffPixelRatio: 0.02,
-      });
-    }
-  });
-});
+// Canvas visual regression is intentionally not covered here — pixel snapshots
+// are platform-dependent (font rendering, antialiasing, devicePixelRatio) and
+// the only practical baseline format would be one snapshot per OS. The chip
+// and outside-name rendering functions are covered by unit tests against
+// GanttRenderer; the structural canvas-bars layer test above guarantees the
+// rendering surface is mounted.
