@@ -1720,6 +1720,38 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/monte-carlo/latest/": {
+            "get": {
+                "operationId": "v1_projects_monte_carlo_latest_retrieve",
+                "description": "Return the latest cached Monte Carlo result for the project.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/my-tasks/": {
             "get": {
                 "operationId": "v1_projects_my_tasks_retrieve",

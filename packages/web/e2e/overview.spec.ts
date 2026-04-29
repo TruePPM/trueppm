@@ -30,6 +30,8 @@ const FIXTURE_OVERVIEW = {
   complete_tasks: 10,
   next_milestone: { id: 'm1', name: 'Phase gate', date: '2026-05-01', percent_complete: 0 },
   team_utilization_pct: 78,
+  owner_name: 'Alice Smith',
+  start_date: '2026-01-01',
 };
 
 const FIXTURE_ATTENTION = {
@@ -127,6 +129,27 @@ async function setupRoutes(page: import('@playwright/test').Page) {
       }),
     }),
   );
+  // MC latest: 404 means no simulation run yet
+  await page.route('**/api/v1/projects/*/monte-carlo/latest/', (route) =>
+    route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No simulation result available.' }) }),
+  );
+  // Tasks + dependencies — needed by useCriticalPathTasks and the Schedule view.
+  // Without these stubs the unstubbed request hits the real API with the e2e token,
+  // returns 401, and triggers the auth redirect before tests can assert.
+  await page.route('**/api/v1/tasks/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+  await page.route('**/api/v1/dependencies/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
 }
 
 test.describe('Project overview page', () => {
@@ -140,11 +163,11 @@ test.describe('Project overview page', () => {
   test('golden path — KPI cards, attention panel, and my-tasks all render', async ({ page }) => {
     // KPI card labels
     await expect(page.getByText(/schedule health/i)).toBeVisible();
-    await expect(page.getByText(/late tasks/i)).toBeVisible();
+    await expect(page.getByText(/tasks late/i)).toBeVisible();
     await expect(page.getByText(/next milestone/i)).toBeVisible();
 
-    // Loaded KPI values
-    await expect(page.getByText('On track')).toBeVisible();
+    // Loaded KPI values — two 'On track' elements exist (header badge + KPI card), use first()
+    await expect(page.getByText('On track').first()).toBeVisible();
     await expect(page.getByText('Phase gate')).toBeVisible();
     await expect(page.getByText('78%')).toBeVisible();
 
@@ -168,22 +191,6 @@ test.describe('Project overview page', () => {
   });
 
   test('navigate to Schedule view from overview', async ({ page }) => {
-    // Stub task and dependency routes for Schedule
-    await page.route('**/api/v1/tasks/**', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-      }),
-    );
-    await page.route('**/api/v1/dependencies/**', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
-      }),
-    );
-
     const nav = page.getByRole('navigation', { name: 'View' });
     await nav.getByRole('link', { name: 'Schedule' }).click();
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/schedule`));
@@ -198,5 +205,20 @@ test.describe('Project overview page', () => {
     await page.reload();
     // Page should still render — KPI section exists even if data is empty
     await expect(page.getByRole('region', { name: /project kpis/i })).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('project header shows health badge and project name', async ({ page }) => {
+    // Health badge is rendered in the header (On track)
+    await expect(page.getByText('On track').first()).toBeVisible();
+    // Owner visible in subtitle
+    await expect(page.getByText(/Owner: Alice Smith/)).toBeVisible();
+    // Export and Update Status buttons present
+    await expect(page.getByRole('button', { name: /export/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /update status/i })).toBeVisible();
+  });
+
+  test('MC section shows Run forecast CTA when no simulation result', async ({ page }) => {
+    await expect(page.getByRole('region', { name: /monte carlo forecast/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /run forecast/i })).toBeVisible();
   });
 });

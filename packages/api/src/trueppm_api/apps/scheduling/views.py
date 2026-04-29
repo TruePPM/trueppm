@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+from datetime import date as _date
 from datetime import timedelta
 
 from celery import current_app
 from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 
 from trueppm_api.apps.access.permissions import IsProjectMember, IsProjectScheduler
@@ -165,7 +169,54 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     except (CyclicDependencyError, ValueError) as exc:
         return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-    return Response(mc_result.to_dict())
+    dist = mc_result.distribution
+    if dist:
+        min_ord = dist[0].toordinal()
+        max_ord = dist[-1].toordinal()
+        span = max(max_ord - min_ord, 1)
+        n_buckets = min(30, len(dist))
+        bucket_size = span / n_buckets
+        bucket_counts: dict[int, int] = {}
+        for d in dist:
+            idx = min(int((d.toordinal() - min_ord) / bucket_size), n_buckets - 1)
+            bucket_counts[idx] = bucket_counts.get(idx, 0) + 1
+        histogram: list[dict[str, object]] = [
+            {
+                "date": _date.fromordinal(min_ord + int((i + 0.5) * bucket_size)).isoformat(),
+                "count": bucket_counts.get(i, 0),
+            }
+            for i in range(n_buckets)
+        ]
+    else:
+        histogram = []
+
+    result_dict = {**mc_result.to_dict(), "histogram_buckets": histogram}
+    cache.set(f"mc_latest:{pk}", result_dict, timeout=86400)
+    return Response(result_dict)
+
+
+class MonteCarloLatestView(APIView):
+    """Return the cached result of the most recent MC simulation for this project.
+
+    Returns 200 with the full result dict if a cached result exists, or 404 if
+    no simulation has been run since the 24-hour cache TTL last expired.
+
+    Permission: Member (any role ≥ Viewer).
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def get(self, request: Request, pk: str) -> Response:
+        """Return the latest cached Monte Carlo result for the project."""
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+        cached = cache.get(f"mc_latest:{pk}")
+        if cached is None:
+            return Response(
+                {"detail": "No simulation result available."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(cached)
 
 
 class FailedTaskViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):  # type: ignore[type-arg]

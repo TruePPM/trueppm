@@ -14,9 +14,13 @@ vi.mock('@/hooks/useProjectId', () => ({
 }));
 
 const mockedGet = vi.fn();
+const mockedPost = vi.fn();
 
 vi.mock('@/api/client', () => ({
-  apiClient: { get: (...args: unknown[]) => mockedGet(...args) as unknown },
+  apiClient: {
+    get: (...args: unknown[]) => mockedGet(...args) as unknown,
+    post: (...args: unknown[]) => mockedPost(...args) as unknown,
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -41,8 +45,12 @@ const OVERVIEW_RESPONSE = {
   spi: 0.97,
   tasks_late_count: 1,
   critical_task_count: 3,
-  next_milestone: { name: 'Phase gate', date: '2026-05-01' },
+  total_tasks: 20,
+  complete_tasks: 10,
+  next_milestone: { id: 'm1', name: 'Phase gate', date: '2026-05-01', percent_complete: 0 },
   team_utilization_pct: 78,
+  owner_name: 'Alice Smith',
+  start_date: '2026-01-01',
 };
 
 const ATTENTION_RESPONSE = { items: [] };
@@ -55,6 +63,7 @@ beforeEach(() => {
     if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
     if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
     if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+    if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
     return Promise.reject(new Error(`Unexpected URL: ${url}`));
   });
 });
@@ -84,12 +93,16 @@ describe('ProjectOverviewPage', () => {
     expect(screen.getByRole('region', { name: /my tasks this week/i })).toBeInTheDocument();
   });
 
-  it('renders all KPI card labels', async () => {
+  it('renders MC forecast section', () => {
+    renderPage();
+    expect(screen.getByRole('region', { name: /monte carlo forecast/i })).toBeInTheDocument();
+  });
+
+  it('renders five KPI card labels', async () => {
     renderPage();
     expect(await screen.findByText(/schedule health/i)).toBeInTheDocument();
-    expect(screen.getByText(/^spi$/i)).toBeInTheDocument();
-    expect(screen.getByText(/late tasks/i)).toBeInTheDocument();
-    expect(screen.getByText(/critical tasks/i)).toBeInTheDocument();
+    expect(screen.getByText(/forecast finish/i)).toBeInTheDocument();
+    expect(screen.getByText(/tasks late/i)).toBeInTheDocument();
     expect(screen.getByText(/next milestone/i)).toBeInTheDocument();
     expect(screen.getByText(/team utilization/i)).toBeInTheDocument();
   });
@@ -97,11 +110,32 @@ describe('ProjectOverviewPage', () => {
   it('shows KPI values after data loads', async () => {
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText('On track')).toBeInTheDocument();
+      expect(screen.getAllByText('On track').length).toBeGreaterThan(0);
     });
-    expect(screen.getByText('0.97')).toBeInTheDocument();
     expect(screen.getByText('Phase gate')).toBeInTheDocument();
     expect(screen.getByText('78%')).toBeInTheDocument();
+  });
+
+  it('shows SPI sub-label on schedule health card', async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText(/SPI 0\.97/)).toBeInTheDocument();
+    });
+  });
+
+  it('renders project header with health badge', async () => {
+    renderPage();
+    await waitFor(() => {
+      // Health badge appears in the header
+      expect(screen.getAllByText('On track').length).toBeGreaterThan(0);
+    });
+  });
+
+  it('shows owner name in header subtitle', async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText(/Owner: Alice Smith/)).toBeInTheDocument();
+    });
   });
 
   it('shows all-clear attention message when items list is empty', async () => {
@@ -115,6 +149,36 @@ describe('ProjectOverviewPage', () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText(/no tasks assigned/i)).toBeInTheDocument();
+    });
+  });
+
+  it('shows Run forecast CTA when no MC result', async () => {
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /run forecast/i })).toBeInTheDocument();
+    });
+  });
+
+  it('shows P50/P80/P95 pills when MC result available', async () => {
+    const mcResult = {
+      p50: '2026-06-01',
+      p80: '2026-06-15',
+      p95: '2026-06-30',
+      runs: 1000,
+      distribution: [],
+      histogram_buckets: [],
+    };
+    mockedGet.mockImplementation((url: string) => {
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.resolve({ data: mcResult });
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText(/8 in 10 simulations finish by/i)).toBeInTheDocument();
     });
   });
 
@@ -134,11 +198,13 @@ describe('ProjectOverviewPage', () => {
                 assignee_name: null,
                 date: '2026-04-10',
                 detail: 'On critical path',
+                link_target: null,
               },
             ],
           },
         });
       if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
       return Promise.reject(new Error(`Unexpected URL: ${url}`));
     });
     renderPage();
@@ -152,6 +218,7 @@ describe('ProjectOverviewPage', () => {
       if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
       if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
       if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
       if (url.endsWith('/my-tasks/'))
         return Promise.resolve({
           data: {
@@ -194,6 +261,7 @@ describe('ProjectOverviewPage', () => {
       if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
       if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
       if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
       if (url === '/tasks/')
         return Promise.resolve({
           data: {
@@ -221,6 +289,7 @@ describe('ProjectOverviewPage', () => {
       if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
       if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
       if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
       if (url === '/tasks/')
         return Promise.resolve({
           data: {

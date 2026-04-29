@@ -6,7 +6,9 @@ repos:
     hooks:
       - id: ruff
         args: [--fix]
+        stages: [pre-commit]
       - id: ruff-format
+        stages: [pre-commit]
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.14.1
     hooks:
@@ -14,13 +16,15 @@ repos:
         additional_dependencies: [networkx-stubs, numpy]
         args: [--config-file=packages/scheduler/pyproject.toml]
         files: ^packages/scheduler/
-  # Pre-push gate — runs the same checks that gate the CI pipeline so we catch
-  # missing migrations, stale openapi.json, and ruff-format drift before they
-  # reach GitLab. Requires `make up` (the migration check needs a live DB).
+        stages: [pre-commit]
+  # Pre-push gate — only checks that require the full codebase state and are
+  # NOT covered by the commit-time hooks above: missing migrations and stale
+  # openapi.json. Lint and typecheck are intentionally omitted here — they run
+  # at commit time on the diff. Requires `make up` (migrations needs a live DB).
   - repo: local
     hooks:
       - id: pre-push-ci-gates
-        name: pre-push CI gates (lint, typecheck, migrations, schema)
+        name: pre-push CI gates (migrations, schema)
         entry: make pre-push
         language: system
         stages: [pre-push]
