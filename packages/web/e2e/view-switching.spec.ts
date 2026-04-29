@@ -204,18 +204,18 @@ test.describe('View switching', () => {
     await expect(page.getByRole('treegrid', { name: 'WBS task tree' })).toBeVisible({ timeout: 10_000 });
   });
 
-  test('navigating to /projects/:id with no view segment redirects to Board (issue #204)', async ({ page }) => {
-    // React Router index route: <Navigate to="board" replace /> — must redirect immediately.
+  test('navigating to /projects/:id with no view segment redirects to Overview (ADR-0030)', async ({ page }) => {
+    // React Router index route: <Navigate to="overview" replace /> — must redirect immediately.
     await page.goto(BASE_URL);
-    await expect(page).toHaveURL(/\/board$/, { timeout: 5_000 });
-    await expect(page.getByRole('navigation', { name: 'View' }).getByRole('link', { name: 'Board' }))
+    await expect(page).toHaveURL(/\/overview$/, { timeout: 5_000 });
+    await expect(page.getByRole('navigation', { name: 'View' }).getByRole('link', { name: 'Overview' }))
       .toHaveAttribute('aria-current', 'page');
   });
 
-  test('Board tab is first and Schedule is second in the tab strip (issue #204)', async ({ page }) => {
+  test('Overview tab is first and Board is second in the tab strip (ADR-0030)', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
     const links = nav.getByRole('link');
-    await expect(links.nth(0)).toHaveText('Board');
-    await expect(links.nth(1)).toHaveText('Schedule');
+    await expect(links.nth(0)).toHaveText('Overview');
+    await expect(links.nth(1)).toHaveText('Board');
   });
 });

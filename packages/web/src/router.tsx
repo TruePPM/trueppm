@@ -18,8 +18,8 @@ import { RiskRegisterView } from '@/features/risk/RiskRegisterView';
 import { ResourcesPage } from '@/features/resources/ResourcesPage';
 
 /**
- * Redirects to the first project's board when landing on `/` with no project
- * selected. Board is the canonical planning surface — first tab, default view.
+ * Redirects to the first project's overview when landing on `/` with no project
+ * selected. Overview is the canonical landing surface (ADR-0030).
  */
 function RootRedirect() {
   const { data: projects, isLoading } = useProjects();
@@ -29,7 +29,7 @@ function RootRedirect() {
     if (isLoading || !projects) return;
     const first = projects[0];
     if (first) {
-      void navigate(`/projects/${first.id}/board`, { replace: true });
+      void navigate(`/projects/${first.id}/overview`, { replace: true });
     }
   }, [projects, isLoading, navigate]);
 
@@ -59,8 +59,8 @@ export const router = createBrowserRouter([
             path: 'projects/:projectId',
             element: <ProjectShell />,
             children: [
-              // /projects/:projectId → redirect to board (canonical planning surface)
-              { index: true, element: <Navigate to="board" replace /> },
+              // /projects/:projectId → redirect to overview (canonical landing surface, ADR-0030)
+              { index: true, element: <Navigate to="overview" replace /> },
               { path: 'overview', element: <ProjectOverviewPage /> },
               { path: 'schedule', element: <ScheduleView /> },
               { path: 'wbs', element: <WbsView /> },

@@ -450,6 +450,6 @@ These rules are enforced at review time. Violations block merge.
 
 ## Shell Navigation Rules (Issues #204–#205)
 
-108. **Canonical view tab order is `Board · Schedule · WBS · Table · Calendar · Overview · Team · Risks`** (issue #204). Board is first — it is the canonical planning surface. The tab order encodes the order of planning: plan work (Board), then schedule it (Schedule). The route segment for the Schedule view is `/schedule`. Never change this order without a design review. `ViewTabs.tsx` is the source of truth.
+108. **Canonical view tab order is `Overview · Board · Schedule · WBS · Table · Calendar · Team · Risks`** (issue #204, updated per VoC review 2026-04-29). Overview is first — it is the canonical landing/orientation surface (ADR-0030). Board is second — the execution surface. The route segment for the Schedule view is `/schedule`. Never change this order without a design review. `ViewTabs.tsx` is the source of truth. The mobile `BottomNav` mirrors this order and omits Risks (infrequent on mobile).
 
 109. **TopBar status pills collapse below 1024px (`lg:`)** (issue #205). At `lg+` viewports: P80 pill, at-risk badge, and critical badge render individually (`hidden lg:flex`). Below `lg:`: all three collapse into a single `HealthDropdown` button (`lg:hidden`) that expands a `role="menu"` listing the task items. The `HealthDropdown` renders nothing when there are no health signals. P80 pill is a `<button>` — click action wires to the MC drawer when issue #142 ships; until then `aria-disabled="true"`.

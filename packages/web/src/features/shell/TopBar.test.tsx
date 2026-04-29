@@ -67,6 +67,7 @@ describe('TopBar', () => {
   it('renders view tabs navigation with all views including WBS', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     expect(screen.getByRole('navigation', { name: /view/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Overview' })).toBeInTheDocument();
     // "Gantt" renamed to "Schedule" per design handoff (issue #204)
     expect(screen.getByRole('link', { name: 'Schedule' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'WBS' })).toBeInTheDocument();
@@ -74,12 +75,12 @@ describe('TopBar', () => {
     expect(screen.getByRole('link', { name: 'Board' })).toBeInTheDocument();
   });
 
-  it('Board is the first tab and Schedule is the second (issue #204)', () => {
+  it('Overview is the first tab and Board is the second (ADR-0030)', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     const nav = screen.getByRole('navigation', { name: /view/i });
     const links = within(nav).getAllByRole('link');
-    expect(links[0]).toHaveTextContent('Board');
-    expect(links[1]).toHaveTextContent('Schedule');
+    expect(links[0]).toHaveTextContent('Overview');
+    expect(links[1]).toHaveTextContent('Board');
   });
 
   it('renders P80 badge from fixture stats (issue #205)', () => {
