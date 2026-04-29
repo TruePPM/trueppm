@@ -1,7 +1,7 @@
 # ADR-0028: Resource Assignment Write Flow
 
 ## Status
-Proposed
+Accepted
 
 ## Context
 

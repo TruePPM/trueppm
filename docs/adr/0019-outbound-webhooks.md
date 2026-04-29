@@ -1,7 +1,7 @@
 # ADR-0019: Outbound Webhooks for Project State Changes
 
 ## Status
-Proposed
+Accepted
 
 ## Context
 External systems (CI/CD pipelines, Slack bots, BI dashboards, ServiceNow) need to

@@ -1,7 +1,7 @@
 # ADR-0025: Schedule View Resource Assignment Display
 
 ## Status
-Proposed
+Accepted
 
 ## Context
 
