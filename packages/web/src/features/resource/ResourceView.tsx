@@ -233,6 +233,10 @@ export function ResourceView({
         }
       : allocationResult.data;
 
+  const timelineResourceCount = filteredAllocationData?.resources.length ?? 0;
+  const timelineAssignmentCount =
+    filteredAllocationData?.resources.reduce((sum, r) => sum + r.tasks.length, 0) ?? 0;
+
   return (
     <>
       <div className="flex flex-col h-full overflow-hidden">
@@ -274,6 +278,54 @@ export function ResourceView({
               />
             </div>
           )
+        )}
+
+        {/* Timeline status bar — resource/assignment counts + legend */}
+        {viewMode === 'timeline' && filteredAllocationData && filteredAllocationData.resources.length > 0 && (
+          <div
+            className="flex-shrink-0 flex items-center gap-4 px-4 h-6 border-t border-neutral-border bg-neutral-surface-sunken text-[11px] text-neutral-text-secondary hidden md:flex"
+            aria-label="Resource timeline summary"
+          >
+            <span className="tppm-mono">
+              {timelineResourceCount} resource{timelineResourceCount !== 1 ? 's' : ''}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span className="tppm-mono">
+              {timelineAssignmentCount} assignment{timelineAssignmentCount !== 1 ? 's' : ''}
+            </span>
+            {overallocationCount > 0 && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="tppm-mono text-semantic-critical">
+                  {overallocationCount} over-allocated
+                </span>
+              </>
+            )}
+            <div className="flex-1" />
+            {/* Legend */}
+            <div className="flex items-center gap-3" aria-label="Legend">
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-sm bg-brand-primary inline-block" aria-hidden="true" />
+                Normal
+              </span>
+              <span className="flex items-center gap-1">
+                <span
+                  className="w-2.5 h-2.5 rounded-sm bg-brand-primary inline-block"
+                  style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(0,0,0,0.2) 2px, rgba(0,0,0,0.2) 4px)' }}
+                  aria-hidden="true"
+                />
+                Partial (&lt;100%)
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-sm bg-semantic-critical inline-block" aria-hidden="true" />
+                Over-allocated
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2.5 h-2.5 rounded-sm bg-neutral-border inline-block" aria-hidden="true" />
+                Complete
+              </span>
+            </div>
+          </div>
         )}
 
         {viewMode === 'utilization' && utilizationResult.data && (
