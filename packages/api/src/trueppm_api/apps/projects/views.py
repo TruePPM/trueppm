@@ -2177,16 +2177,19 @@ class ProjectAttentionView(APIView):
         # ── Over-allocated resources ───────────────────────────────────────
         from trueppm_api.apps.resources.models import Resource, TaskResource
 
-        overalloc_rows = (
-            TaskResource.objects.filter(
-                task__project=project,
-                task__is_deleted=False,
-            )
-            .exclude(task__status=TaskStatus.COMPLETE)
-            .values("resource_id")
-            .annotate(total=Sum("units"))
-            .filter(total__gt=db_models.F("resource__max_units"))
-        )[: self._MAX_PER_BUCKET]
+        overalloc_rows = cast(
+            "list[dict[str, Any]]",
+            (
+                TaskResource.objects.filter(
+                    task__project=project,
+                    task__is_deleted=False,
+                )
+                .exclude(task__status=TaskStatus.COMPLETE)
+                .values("resource_id")
+                .annotate(total=Sum("units"))
+                .filter(total__gt=db_models.F("resource__max_units"))
+            )[: self._MAX_PER_BUCKET],
+        )
 
         if overalloc_rows:
             resource_ids = [r["resource_id"] for r in overalloc_rows]
