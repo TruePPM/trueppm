@@ -608,15 +608,16 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             )
 
         # Wave 3 (#210) — passive overalloc indicator in the task detail drawer.
-        # Annotate each task with whether its assignee's total allocated units
-        # across active (non-COMPLETE, non-BACKLOG) tasks in this project exceeds 1.0.
-        # Uses a correlated subquery: group TaskResource rows by resource/user, sum
-        # units for active tasks, and flag True when the sum > 1.0.
+        # Sum TaskResource.units across all active (non-COMPLETE, non-BACKLOG) tasks
+        # in this project where the assignee user matches the outer task's assignee.
+        # Resource has no direct user FK, so we join through Task.assignee instead of
+        # Resource.user — units allocated to any resource on a task assigned to the
+        # same user contribute to that user's overallocation total.
         from trueppm_api.apps.resources.models import TaskResource as _TR
 
         overallocated_subq = (
             _TR.objects.filter(
-                resource__user_id=OuterRef("assignee_id"),
+                task__assignee_id=OuterRef("assignee_id"),
                 task__project_id=OuterRef("project_id"),
                 task__status__in=[
                     TaskStatus.NOT_STARTED,
@@ -625,7 +626,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 ],
                 task__is_deleted=False,
             )
-            .values("resource__user_id")
+            .values("task__assignee_id")
             .annotate(total=Sum("units"))
             .filter(total__gt=1.0)
             .values("total")[:1]

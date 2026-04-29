@@ -54,8 +54,8 @@ def client(user: object, membership: ProjectMembership) -> APIClient:
 
 
 @pytest.fixture
-def resource(user: object, project: Project) -> Resource:
-    return Resource.objects.create(name="Jane Smith", user=user, project=project)
+def resource(db: object) -> Resource:
+    return Resource.objects.create(name="Jane Smith")
 
 
 # ---------------------------------------------------------------------------
