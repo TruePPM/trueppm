@@ -1,0 +1,3 @@
+- Risk register: row-level quick-edit affordance — a ✎ pencil icon appears on hover/focus on each risk table row; clicking it opens the drawer directly in edit mode, skipping the detail view step (issue #243)
+- Risk register: risk comments / notes thread — each risk now has an append-only notes section in the drawer; comments show author initials, name, and timestamp; members can post notes; comments are immutable in v1 (issue #244)
+- API: new `RiskComment` model with `GET/POST /projects/{project_pk}/risks/{risk_pk}/comments/` endpoints; comments are MEMBER+ to post, VIEWER+ to read; `comment_created` WebSocket broadcast via `transaction.on_commit`; Django migration `0024_riskcomment`

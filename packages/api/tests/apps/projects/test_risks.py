@@ -13,6 +13,9 @@ from trueppm_api.apps.projects.models import (
     Calendar,
     Project,
     Risk,
+    RiskCategory,
+    RiskComment,
+    RiskResponse,
     RiskStatus,
     Task,
 )
@@ -505,3 +508,292 @@ class TestRiskTaskLinks:
             format="json",
         )
         assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# PMI framework fields (ADR-0043 — wave 7)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestRiskPMIFields:
+    """Coverage for the PMI extension fields: category, response,
+    mitigation_due_date, trigger, contingency. All five are nullable/blank;
+    existing risks created without them must remain valid.
+    """
+
+    def test_create_with_all_pmi_fields(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            r = client.post(
+                f"/api/v1/projects/{project.pk}/risks/",
+                {
+                    "title": "Vendor delay",
+                    "probability": 3,
+                    "impact": 4,
+                    "category": RiskCategory.EXTERNAL,
+                    "response": RiskResponse.MITIGATE,
+                    "mitigation_due_date": "2026-06-15",
+                    "trigger": "Vendor confirms delivery slip",
+                    "contingency": "Pre-source backup vendor; reserve $20k",
+                },
+                format="json",
+            )
+        assert r.status_code == 201, r.data
+        assert r.data["category"] == RiskCategory.EXTERNAL
+        assert r.data["response"] == RiskResponse.MITIGATE
+        assert r.data["mitigation_due_date"] == "2026-06-15"
+        assert r.data["trigger"] == "Vendor confirms delivery slip"
+        assert r.data["contingency"].startswith("Pre-source backup vendor")
+
+    def test_create_without_pmi_fields_uses_defaults(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        # Existing minimal payload must still work — PMI fields default to null/empty.
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            r = client.post(
+                f"/api/v1/projects/{project.pk}/risks/",
+                {"title": "Minimal", "probability": 1, "impact": 1},
+                format="json",
+            )
+        assert r.status_code == 201
+        assert r.data["category"] is None
+        assert r.data["response"] is None
+        assert r.data["mitigation_due_date"] is None
+        assert r.data["trigger"] == ""
+        assert r.data["contingency"] == ""
+
+    def test_invalid_category_choice_rejected(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/risks/",
+            {
+                "title": "Bad category",
+                "probability": 1,
+                "impact": 1,
+                "category": "NOT_A_VALID_CATEGORY",
+            },
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "category" in r.data
+
+    def test_invalid_response_choice_rejected(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        # Crucially, "ACCEPTED" (the status value) must NOT be a valid response
+        # — they are different vocabularies. Response uses bare verbs (ACCEPT).
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/risks/",
+            {
+                "title": "Wrong response value",
+                "probability": 1,
+                "impact": 1,
+                "response": "ACCEPTED",
+            },
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "response" in r.data
+
+    def test_response_accept_is_distinct_from_status_accepted(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        # A risk can have status=ACCEPTED (lifecycle) and response=ACCEPT (strategy)
+        # simultaneously — they describe different things and must coexist.
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            r = client.post(
+                f"/api/v1/projects/{project.pk}/risks/",
+                {
+                    "title": "Acknowledged risk",
+                    "probability": 1,
+                    "impact": 2,
+                    "status": RiskStatus.ACCEPTED,
+                    "response": RiskResponse.ACCEPT,
+                },
+                format="json",
+            )
+        assert r.status_code == 201, r.data
+        assert r.data["status"] == RiskStatus.ACCEPTED
+        assert r.data["response"] == RiskResponse.ACCEPT
+
+    def test_patch_pmi_fields_on_existing_risk(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        risk = Risk.objects.create(
+            project=project,
+            title="Pre-existing",
+            probability=2,
+            impact=3,
+        )
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"):
+            r = client.patch(
+                f"/api/v1/projects/{project.pk}/risks/{risk.pk}/",
+                {
+                    "category": RiskCategory.TECHNICAL,
+                    "trigger": "If load test exceeds 200ms p99",
+                },
+                format="json",
+            )
+        assert r.status_code == 200, r.data
+        assert r.data["category"] == RiskCategory.TECHNICAL
+        assert r.data["trigger"] == "If load test exceeds 200ms p99"
+        # Untouched fields stay intact
+        assert r.data["response"] is None
+        assert r.data["mitigation_due_date"] is None
+
+    def test_invalid_mitigation_due_date_format_rejected(
+        self,
+        client: APIClient,
+        project: Project,
+        owner_membership: ProjectMembership,
+    ) -> None:
+        r = client.post(
+            f"/api/v1/projects/{project.pk}/risks/",
+            {
+                "title": "Bad date",
+                "probability": 1,
+                "impact": 1,
+                "mitigation_due_date": "not-a-date",
+            },
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "mitigation_due_date" in r.data
+
+
+# ---------------------------------------------------------------------------
+# RiskCommentViewSet tests (ADR-0044, issue #244)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestRiskComments:
+    """Tests for the append-only risk comment endpoint."""
+
+    def _url(self, project: Project, risk: Risk) -> str:
+        return f"/api/v1/projects/{project.pk}/risks/{risk.pk}/comments/"
+
+    def test_viewer_can_list_comments(
+        self,
+        viewer_client: APIClient,
+        project: Project,
+        risk: Risk,
+        viewer_membership: ProjectMembership,
+    ) -> None:
+        r = viewer_client.get(self._url(project, risk))
+        assert r.status_code == 200
+        assert r.data["results"] == []
+
+    def test_member_can_post_comment(
+        self,
+        member_client: APIClient,
+        project: Project,
+        risk: Risk,
+        member_membership: ProjectMembership,
+    ) -> None:
+        r = member_client.post(
+            self._url(project, risk),
+            {"message": "Discussed with stakeholders."},
+            format="json",
+        )
+        assert r.status_code == 201
+        assert r.data["message"] == "Discussed with stakeholders."
+        assert "created_at" in r.data
+        assert r.data["author"]["display_name"] == "member"
+
+    def test_viewer_cannot_post_comment(
+        self,
+        viewer_client: APIClient,
+        project: Project,
+        risk: Risk,
+        viewer_membership: ProjectMembership,
+    ) -> None:
+        r = viewer_client.post(
+            self._url(project, risk),
+            {"message": "Just looking"},
+            format="json",
+        )
+        assert r.status_code == 403
+
+    def test_unauthenticated_cannot_list(
+        self,
+        project: Project,
+        risk: Risk,
+    ) -> None:
+        r = APIClient().get(self._url(project, risk))
+        assert r.status_code in (401, 403)
+
+    def test_blank_message_rejected(
+        self,
+        member_client: APIClient,
+        project: Project,
+        risk: Risk,
+        member_membership: ProjectMembership,
+    ) -> None:
+        r = member_client.post(
+            self._url(project, risk),
+            {"message": "   "},
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "message" in r.data
+
+    def test_comments_ordered_chronologically(
+        self,
+        member_client: APIClient,
+        project: Project,
+        risk: Risk,
+        member_user: object,
+        member_membership: ProjectMembership,
+    ) -> None:
+        RiskComment.objects.create(risk=risk, author=member_user, message="First")
+        RiskComment.objects.create(risk=risk, author=member_user, message="Second")
+        r = member_client.get(self._url(project, risk))
+        assert r.status_code == 200
+        messages = [c["message"] for c in r.data["results"]]
+        assert messages == ["First", "Second"]
+
+    def test_cross_project_isolation(
+        self,
+        member_client: APIClient,
+        project: Project,
+        risk: Risk,
+        member_membership: ProjectMembership,
+        calendar: Calendar,
+    ) -> None:
+        from datetime import date
+
+        other_project = Project.objects.create(
+            name="Other", start_date=date(2026, 1, 1), calendar=calendar
+        )
+        other_risk = Risk.objects.create(
+            project=other_project, title="Other risk", probability=1, impact=1
+        )
+        r = member_client.get(
+            f"/api/v1/projects/{other_project.pk}/risks/{other_risk.pk}/comments/"
+        )
+        # Non-member gets an empty queryset (200 empty), not 403 — consistent with
+        # how ProjectScopedViewSet handles non-member access on other list endpoints.
+        assert r.status_code == 200
+        assert r.data["results"] == []

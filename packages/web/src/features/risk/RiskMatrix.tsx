@@ -29,8 +29,15 @@ function badgeLabel(shortId: string): string {
   return shortId.slice(0, 3).toUpperCase();
 }
 
+export interface SelectedCell {
+  probability: number;
+  impact: number;
+}
+
 interface RiskMatrixProps {
   risks: Risk[];
+  selectedCell?: SelectedCell | null;
+  onCellSelect?: (cell: SelectedCell | null) => void;
 }
 
 // Legend uses solid square swatches matching badge colors (rule 86).
@@ -42,10 +49,16 @@ const LEGEND = [
 ] as const;
 
 // Cell: w-14 = 56px. 5 cells + 4 × 1px gaps = 284px total grid width.
-const CELL_CLASS = 'w-14 h-14';
+const CELL_SIZE = 'w-14 h-14';
 const GRID_WIDTH = 'w-[284px]';
 
-export function RiskMatrix({ risks }: RiskMatrixProps) {
+export function RiskMatrix({ risks, selectedCell, onCellSelect }: RiskMatrixProps) {
+  function handleCellClick(probability: number, impact: number) {
+    if (!onCellSelect) return;
+    const isActive = selectedCell?.probability === probability && selectedCell?.impact === impact;
+    onCellSelect(isActive ? null : { probability, impact });
+  }
+
   return (
     <div>
       <p className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-4">
@@ -64,12 +77,24 @@ export function RiskMatrix({ risks }: RiskMatrixProps) {
           </span>
         </div>
 
-        <div className="flex flex-col gap-px">
+        <div
+          role="grid"
+          aria-label="Risk matrix"
+          tabIndex={-1}
+          className="flex flex-col gap-px"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && selectedCell) {
+              // Stop propagation so the drawer Escape handler doesn't also fire
+              e.stopPropagation();
+              onCellSelect?.(null);
+            }
+          }}
+        >
           {/* Rows: probability 5 → 1 (top to bottom) */}
           {[5, 4, 3, 2, 1].map((prob) => (
             <div key={prob} className="flex items-center gap-1">
               {/* Row label */}
-              <span className="text-xs text-neutral-text-secondary w-5 text-right shrink-0 tabular-nums">
+              <span className="text-xs text-neutral-text-secondary w-5 text-right shrink-0 tppm-mono">
                 {prob}
               </span>
 
@@ -79,31 +104,45 @@ export function RiskMatrix({ risks }: RiskMatrixProps) {
                   const risksInCell = risks.filter(
                     (r) => r.probability === prob && r.impact === imp,
                   );
+                  const isSelected = selectedCell?.probability === prob && selectedCell?.impact === imp;
+                  const isInteractive = !!onCellSelect;
+
                   return (
-                    <div
+                    <button
                       key={imp}
+                      type="button"
+                      onClick={() => handleCellClick(prob, imp)}
+                      disabled={!isInteractive}
+                      aria-pressed={isSelected}
+                      aria-label={`P${prob} × I${imp} = ${prob * imp}, ${risksInCell.length} risk${risksInCell.length !== 1 ? 's' : ''}`}
                       className={[
-                        CELL_CLASS,
-                        'border border-neutral-border/60 flex flex-wrap items-center justify-center gap-0.5 p-0.5 overflow-hidden',
+                        CELL_SIZE,
+                        'flex flex-wrap items-center justify-center gap-0.5 p-0.5 overflow-hidden',
                         cellBgClass(prob, imp),
+                        isInteractive ? 'cursor-pointer' : 'cursor-default',
+                        isSelected
+                          ? 'border-2 border-brand-primary z-10 relative'
+                          : 'border border-neutral-border/60',
+                        isInteractive
+                          ? 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1'
+                          : 'focus-visible:outline-none',
                       ].join(' ')}
-                      title={`P${prob} × I${imp} = ${prob * imp}`}
                     >
                       {risksInCell.map((r) => (
                         <span
                           key={r.id}
                           className={[
                             'inline-flex items-center justify-center',
-                            'w-10 h-10 rounded-full shrink-0 text-xs font-semibold tabular-nums',
+                            'w-10 h-10 rounded-full shrink-0 text-xs font-semibold tppm-mono',
                             badgeBgClass(r.severity),
                           ].join(' ')}
                           title={r.title}
-                          aria-label={r.title}
+                          aria-hidden="true"
                         >
                           {badgeLabel(r.short_id)}
                         </span>
                       ))}
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -117,7 +156,7 @@ export function RiskMatrix({ risks }: RiskMatrixProps) {
               {[1, 2, 3, 4, 5].map((imp) => (
                 <div
                   key={imp}
-                  className="w-14 text-center text-xs text-neutral-text-secondary tabular-nums"
+                  className="w-14 text-center text-xs text-neutral-text-secondary tppm-mono"
                 >
                   {imp}
                 </div>

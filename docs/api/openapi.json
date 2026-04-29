@@ -3307,6 +3307,147 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/risks/{risk_pk}/comments/": {
+            "get": {
+                "operationId": "v1_projects_risks_comments_list",
+                "description": "Append-only comment thread on a Risk.\n\nPermission matrix:\n  list    — Viewer+ (IsProjectMember)\n  create  — Team Member+ (IsProjectMemberWrite)\n  (no update, no destroy — comments are immutable)",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "risk_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedRiskCommentList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_projects_risks_comments_create",
+                "description": "Append-only comment thread on a Risk.\n\nPermission matrix:\n  list    — Viewer+ (IsProjectMember)\n  create  — Team Member+ (IsProjectMemberWrite)\n  (no update, no destroy — comments are immutable)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "risk_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RiskCommentRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RiskCommentRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RiskCommentRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RiskComment"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/scheduler-runs/": {
             "get": {
                 "operationId": "v1_projects_scheduler_runs_list",
@@ -6410,6 +6551,16 @@
                     "name"
                 ]
             },
+            "CategoryEnum": {
+                "enum": [
+                    "TECHNICAL",
+                    "EXTERNAL",
+                    "ORGANIZATIONAL",
+                    "PROJECT_MANAGEMENT"
+                ],
+                "type": "string",
+                "description": "* `TECHNICAL` - Technical\n* `EXTERNAL` - External\n* `ORGANIZATIONAL` - Organizational\n* `PROJECT_MANAGEMENT` - Project Management"
+            },
             "DepTypeEnum": {
                 "enum": [
                     "FS",
@@ -6896,6 +7047,37 @@
                     }
                 }
             },
+            "PaginatedRiskCommentList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RiskComment"
+                        }
+                    }
+                }
+            },
             "PaginatedRiskList": {
                 "type": "object",
                 "required": [
@@ -7347,6 +7529,45 @@
                         "type": "integer",
                         "maximum": 32767,
                         "minimum": 0
+                    },
+                    "category": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/CategoryEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "response": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ResponseEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "mitigation_due_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "trigger": {
+                        "type": "string"
+                    },
+                    "contingency": {
+                        "type": "string"
                     },
                     "owner": {
                         "type": "integer",
@@ -7963,6 +8184,16 @@
                     "skill"
                 ]
             },
+            "ResponseEnum": {
+                "enum": [
+                    "AVOID",
+                    "MITIGATE",
+                    "TRANSFER",
+                    "ACCEPT"
+                ],
+                "type": "string",
+                "description": "* `AVOID` - Avoid\n* `MITIGATE` - Mitigate\n* `TRANSFER` - Transfer\n* `ACCEPT` - Accept"
+            },
             "Risk": {
                 "type": "object",
                 "description": "Read/write serializer for project risks.\n\nseverity is a computed read-only field (probability × impact); it is not\nstored in the database to avoid write-consistency hazards.\n\ntasks is a writable PrimaryKeyRelatedField that accepts task UUIDs on\ncreate and update.  The viewset annotates a severity DB expression on the\nqueryset so OrderingFilter can sort without round-tripping to Python.",
@@ -8009,6 +8240,45 @@
                         "type": "integer",
                         "readOnly": true
                     },
+                    "category": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/CategoryEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "response": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ResponseEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "mitigation_due_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "trigger": {
+                        "type": "string"
+                    },
+                    "contingency": {
+                        "type": "string"
+                    },
                     "owner": {
                         "type": "integer",
                         "nullable": true
@@ -8050,6 +8320,83 @@
                     "updated_at"
                 ]
             },
+            "RiskComment": {
+                "type": "object",
+                "description": "Read/write serializer for append-only risk comments.\n\nauthor is read-only and set from request.user in perform_create.\nmessage must be non-blank.\nNo update or delete operations are exposed.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "author": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RiskCommentAuthor"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "author",
+                    "created_at",
+                    "id",
+                    "message"
+                ]
+            },
+            "RiskCommentAuthor": {
+                "type": "object",
+                "description": "Minimal author representation embedded in RiskCommentSerializer.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "display_name": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "display_name",
+                    "id"
+                ]
+            },
+            "RiskCommentAuthorRequest": {
+                "type": "object",
+                "description": "Minimal author representation embedded in RiskCommentSerializer.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "id"
+                ]
+            },
+            "RiskCommentRequest": {
+                "type": "object",
+                "description": "Read/write serializer for append-only risk comments.\n\nauthor is read-only and set from request.user in perform_create.\nmessage must be non-blank.\nNo update or delete operations are exposed.",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "message"
+                ]
+            },
             "RiskRequest": {
                 "type": "object",
                 "description": "Read/write serializer for project risks.\n\nseverity is a computed read-only field (probability × impact); it is not\nstored in the database to avoid write-consistency hazards.\n\ntasks is a writable PrimaryKeyRelatedField that accepts task UUIDs on\ncreate and update.  The viewset annotates a severity DB expression on the\nqueryset so OrderingFilter can sort without round-tripping to Python.",
@@ -8074,6 +8421,45 @@
                         "type": "integer",
                         "maximum": 32767,
                         "minimum": 0
+                    },
+                    "category": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/CategoryEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "response": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ResponseEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "mitigation_due_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "trigger": {
+                        "type": "string"
+                    },
+                    "contingency": {
+                        "type": "string"
                     },
                     "owner": {
                         "type": "integer",

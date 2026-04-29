@@ -26,7 +26,7 @@ from django.db.models import (
 )
 from django.db.models.expressions import RawSQL
 from django.shortcuts import get_object_or_404
-from rest_framework import filters, serializers, status, viewsets
+from rest_framework import filters, mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -55,6 +55,7 @@ from trueppm_api.apps.projects.models import (
     EstimationMode,
     Project,
     Risk,
+    RiskComment,
     RiskStatus,
     Task,
     TaskStatus,
@@ -68,6 +69,7 @@ from trueppm_api.apps.projects.serializers import (
     CalendarSerializer,
     DependencySerializer,
     ProjectSerializer,
+    RiskCommentSerializer,
     RiskSerializer,
     TaskBulkSerializer,
     TaskReorderSerializer,
@@ -1827,6 +1829,68 @@ class RiskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
         instance.soft_delete()
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "risk_deleted", {"id": risk_id})
+        )
+
+
+# ---------------------------------------------------------------------------
+# Risk comments — append-only thread per risk
+# ---------------------------------------------------------------------------
+
+
+class RiskCommentViewSet(
+    ProjectScopedViewSet,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    viewsets.GenericViewSet[RiskComment],
+):
+    """Append-only comment thread on a Risk.
+
+    Permission matrix:
+      list    — Viewer+ (IsProjectMember)
+      create  — Team Member+ (IsProjectMemberWrite)
+      (no update, no destroy — comments are immutable)
+    """
+
+    serializer_class = RiskCommentSerializer
+
+    def get_queryset(self) -> QuerySet[RiskComment]:
+        user = getattr(self.request, "user", None)
+        if not user or not user.is_authenticated:
+            return RiskComment.objects.none()
+        project_pk = self.kwargs["project_pk"]
+        # Scope to projects the user is a member of — prevents cross-project reads.
+        if not ProjectMembership.objects.filter(
+            user=user, project_id=project_pk, is_deleted=False
+        ).exists():
+            return RiskComment.objects.none()
+        return RiskComment.objects.filter(
+            risk__project_id=project_pk,
+            risk_id=self.kwargs["risk_pk"],
+        ).select_related("author")
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action == "create":
+            return [IsAuthenticated(), IsProjectMemberWrite()]
+        return [IsAuthenticated(), IsProjectMember()]
+
+    def perform_create(self, serializer: BaseSerializer[RiskComment]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_pk = self.kwargs["project_pk"]
+        risk_pk = self.kwargs["risk_pk"]
+        risk = get_object_or_404(Risk, pk=risk_pk, project_id=project_pk, is_deleted=False)
+        # DRF does not call has_object_permission on create — check explicitly.
+        # This enforces the MEMBER+ requirement (same pattern as RiskViewSet).
+        self.check_object_permissions(self.request, risk)
+        instance = serializer.save(risk=risk, author=self.request.user)
+        comment_id = str(instance.pk)
+        risk_id = str(risk.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                str(project_pk),
+                "comment_created",
+                {"risk_id": risk_id, "id": comment_id},
+            )
         )
 
 

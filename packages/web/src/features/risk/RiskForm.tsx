@@ -35,6 +35,20 @@ const STATUS_OPTIONS: Array<{ value: Risk['status']; label: string }> = [
   { value: 'CLOSED',     label: 'Closed' },
 ];
 
+const CATEGORY_OPTIONS = [
+  { value: 'TECHNICAL',          label: 'Technical' },
+  { value: 'EXTERNAL',           label: 'External' },
+  { value: 'ORGANIZATIONAL',     label: 'Organizational' },
+  { value: 'PROJECT_MANAGEMENT', label: 'Project Management' },
+];
+
+const RESPONSE_OPTIONS = [
+  { value: 'AVOID',    label: 'Avoid' },
+  { value: 'MITIGATE', label: 'Mitigate' },
+  { value: 'TRANSFER', label: 'Transfer' },
+  { value: 'ACCEPT',   label: 'Accept' },
+];
+
 const PROBABILITY_IMPACT_OPTIONS = [1, 2, 3, 4, 5] as const;
 
 const INPUT_BASE =
@@ -51,6 +65,17 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
   const [probability, setProbability] = useState<number>(risk?.probability ?? 3);
   const [impact, setImpact]           = useState<number>(risk?.impact ?? 3);
   const [titleError, setTitleError]   = useState('');
+
+  // PMI fields — Advanced section
+  const [category, setCategory]               = useState<string>(risk?.category ?? '');
+  const [response, setResponse]               = useState<string>(risk?.response ?? '');
+  const [mitigationDueDate, setMitigationDueDate] = useState(risk?.mitigation_due_date ?? '');
+  const [trigger, setTrigger]                 = useState(risk?.trigger ?? '');
+  const [contingency, setContingency]         = useState(risk?.contingency ?? '');
+  // Auto-open if any PMI field is already set (edit mode with existing PMI data)
+  const [advancedOpen, setAdvancedOpen]       = useState(
+    !!(risk?.category || risk?.response || risk?.mitigation_due_date || risk?.trigger || risk?.contingency)
+  );
 
   const createMutation = useCreateRisk();
   const updateMutation = useUpdateRisk();
@@ -82,6 +107,11 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
       impact,
       owner: null,
       tasks: [],
+      category: (category || null) as Risk['category'],
+      response: (response || null) as Risk['response'],
+      mitigation_due_date: mitigationDueDate || null,
+      trigger,
+      contingency,
     };
 
     if (isEdit) {
@@ -215,6 +245,113 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
           onChange={(e) => setDescription(e.target.value)}
           className={`${INPUT_BASE} resize-none py-2`}
         />
+      </div>
+
+      {/* Advanced (PMI) — collapsible */}
+      <div className="border border-neutral-border rounded">
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((o) => !o)}
+          aria-expanded={advancedOpen}
+          className="w-full flex items-center justify-between px-3 h-10 text-sm font-medium rounded
+            text-neutral-text-secondary hover:text-neutral-text-primary
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          <span>Advanced</span>
+          <svg
+            className={`w-4 h-4 transition-transform duration-150 ${advancedOpen ? 'rotate-180' : ''}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {advancedOpen && (
+          <div className="px-3 py-3 flex flex-col gap-4 border-t border-neutral-border">
+            {/* Category */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="risk-category" className="text-sm font-medium text-neutral-text-primary">
+                Category
+              </label>
+              <select
+                id="risk-category"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className={`${INPUT_BASE} h-11`}
+              >
+                <option value="">— none —</option>
+                {CATEGORY_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Response */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="risk-response" className="text-sm font-medium text-neutral-text-primary">
+                Response
+              </label>
+              <select
+                id="risk-response"
+                value={response}
+                onChange={(e) => setResponse(e.target.value)}
+                className={`${INPUT_BASE} h-11`}
+              >
+                <option value="">— none —</option>
+                {RESPONSE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Mitigation Due Date */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="risk-due-date" className="text-sm font-medium text-neutral-text-primary">
+                Mitigation Due Date
+              </label>
+              <input
+                id="risk-due-date"
+                type="date"
+                value={mitigationDueDate}
+                onChange={(e) => setMitigationDueDate(e.target.value)}
+                className={`${INPUT_BASE} h-11`}
+              />
+            </div>
+
+            {/* Trigger */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="risk-trigger" className="text-sm font-medium text-neutral-text-primary">
+                Trigger
+              </label>
+              <p className="text-xs text-neutral-text-secondary">Condition that signals escalation</p>
+              <textarea
+                id="risk-trigger"
+                rows={2}
+                value={trigger}
+                onChange={(e) => setTrigger(e.target.value)}
+                className={`${INPUT_BASE} resize-none py-2`}
+              />
+            </div>
+
+            {/* Contingency */}
+            <div className="flex flex-col gap-1">
+              <label htmlFor="risk-contingency" className="text-sm font-medium text-neutral-text-primary">
+                Contingency
+              </label>
+              <textarea
+                id="risk-contingency"
+                rows={2}
+                value={contingency}
+                onChange={(e) => setContingency(e.target.value)}
+                className={`${INPUT_BASE} resize-none py-2`}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Mutation error */}

@@ -1,5 +1,7 @@
 import { type RefObject, useEffect, useRef, useState } from 'react';
+import type React from 'react';
 import type { Risk } from '@/api/types';
+import { useRiskComments, useCreateRiskComment } from '@/hooks/useRisks';
 import { RiskChip } from './RiskChip';
 import { RiskForm } from './RiskForm';
 
@@ -8,6 +10,8 @@ export interface RiskDrawerProps {
   risk: Risk | null;
   isOpen: boolean;
   onClose: () => void;
+  /** When true, drawer opens directly in edit mode (from the ✎ quick-edit affordance). */
+  initialEditing?: boolean;
 }
 
 // Status badge styling (outlined, rule 39)
@@ -19,15 +23,31 @@ const STATUS_CLASSES: Record<Risk['status'], string> = {
   CLOSED:     'border-neutral-text-disabled/40 text-neutral-text-disabled',
 };
 
-export function RiskDrawer({ projectId, risk, isOpen, onClose }: RiskDrawerProps) {
-  const [isEditing, setIsEditing] = useState(false);
+// PMI label maps — used in RiskDetailView
+const CATEGORY_LABELS: Record<NonNullable<Risk['category']>, string> = {
+  TECHNICAL:          'Technical',
+  EXTERNAL:           'External',
+  ORGANIZATIONAL:     'Organizational',
+  PROJECT_MANAGEMENT: 'Project Management',
+};
+
+const RESPONSE_LABELS: Record<NonNullable<Risk['response']>, string> = {
+  AVOID:    'Avoid',
+  MITIGATE: 'Mitigate',
+  TRANSFER: 'Transfer',
+  ACCEPT:   'Accept',
+};
+
+export function RiskDrawer({ projectId, risk, isOpen, onClose, initialEditing }: RiskDrawerProps) {
+  const [isEditing, setIsEditing] = useState(initialEditing ?? false);
   const closeButtonRef            = useRef<HTMLButtonElement>(null);
   const drawerRef                 = useRef<HTMLDivElement>(null);
 
-  // Reset to view mode when drawer opens with a different risk
+  // Reset editing state whenever the drawer opens or the active risk changes.
+  // Respects initialEditing so the ✎ quick-edit affordance opens in edit mode.
   useEffect(() => {
-    if (isOpen) setIsEditing(false);
-  }, [isOpen, risk?.id]);
+    if (isOpen) setIsEditing(initialEditing ?? false);
+  }, [isOpen, risk?.id, initialEditing]);
 
   // Focus the close button when the drawer opens (focus trap entry point)
   useEffect(() => {
@@ -224,7 +244,7 @@ function DrawerContent({
             onCancel={isCreateMode ? onClose : onFormCancel}
           />
         ) : (
-          risk && <RiskDetailView risk={risk} />
+          risk && <RiskDetailView projectId={projectId} risk={risk} />
         )}
       </div>
     </>
@@ -232,8 +252,9 @@ function DrawerContent({
 }
 
 // Read-only detail view
-function RiskDetailView({ risk }: { risk: Risk }) {
+function RiskDetailView({ projectId, risk }: { projectId: string; risk: Risk }) {
   const statusClasses = STATUS_CLASSES[risk.status];
+  const hasPmiFields  = !!(risk.category || risk.response || risk.mitigation_due_date || risk.trigger || risk.contingency);
 
   return (
     <div className="p-4 flex flex-col gap-4">
@@ -274,9 +295,218 @@ function RiskDetailView({ risk }: { risk: Risk }) {
         </div>
       )}
 
+      {/* PMI fields — shown when at least one is populated */}
+      {hasPmiFields && (
+        <div className="flex flex-col gap-4 border-t border-neutral-border pt-4">
+          {risk.category && (
+            <div>
+              <p className="text-xs font-medium text-neutral-text-secondary uppercase tracking-wide mb-1">
+                Category
+              </p>
+              <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium
+                bg-neutral-surface-raised text-neutral-text-secondary border border-neutral-border">
+                {CATEGORY_LABELS[risk.category]}
+              </span>
+            </div>
+          )}
+
+          {risk.response && (
+            <div>
+              <p className="text-xs font-medium text-neutral-text-secondary uppercase tracking-wide mb-1">
+                Response
+              </p>
+              {/* Filled pill — visually distinct from the outlined Status pill (ADR-0043) */}
+              <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium
+                bg-brand-primary/10 text-brand-primary border border-brand-primary/20">
+                {RESPONSE_LABELS[risk.response]}
+              </span>
+            </div>
+          )}
+
+          {risk.mitigation_due_date && (
+            <div>
+              <p className="text-xs font-medium text-neutral-text-secondary uppercase tracking-wide mb-1">
+                Mitigation Due
+              </p>
+              <span className="text-sm text-neutral-text-primary tppm-mono">
+                {new Date(`${risk.mitigation_due_date}T00:00:00Z`).toLocaleDateString('en-US', {
+                  month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+                })}
+              </span>
+            </div>
+          )}
+
+          {risk.trigger && (
+            <div>
+              <p className="text-xs font-medium text-neutral-text-secondary uppercase tracking-wide mb-1">
+                Trigger
+              </p>
+              <p className="text-sm text-neutral-text-primary whitespace-pre-wrap">{risk.trigger}</p>
+            </div>
+          )}
+
+          {risk.contingency && (
+            <div>
+              <p className="text-xs font-medium text-neutral-text-secondary uppercase tracking-wide mb-1">
+                Contingency
+              </p>
+              <p className="text-sm text-neutral-text-primary whitespace-pre-wrap">{risk.contingency}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Notes (comments) — collapsible, expanded when ≥ 1 comment */}
+      <RiskNotesSection projectId={projectId} riskId={risk.id} />
+
       <div className="text-xs text-neutral-text-secondary">
         Updated {new Date(risk.updated_at).toLocaleDateString()}
       </div>
+    </div>
+  );
+}
+
+// Notes section — append-only comments with author attribution (ADR-0044, issue #244)
+function RiskNotesSection({ projectId, riskId }: { projectId: string; riskId: string }) {
+  const { comments, isLoading } = useRiskComments(projectId, riskId);
+  const createComment           = useCreateRiskComment();
+  const [open, setOpen]         = useState(false);
+  const [message, setMessage]   = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const isOnline = navigator.onLine;
+
+  // Auto-expand when comments arrive
+  useEffect(() => {
+    if (comments.length > 0) setOpen(true);
+  }, [comments.length]);
+
+  function handleSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
+    if (!message.trim()) return;
+    setSubmitError('');
+    createComment.mutate(
+      { projectId, riskId, message: message.trim() },
+      {
+        onSuccess: () => setMessage(''),
+        onError: () => setSubmitError('Failed to post note. Please try again.'),
+      },
+    );
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleSubmit();
+    }
+  }
+
+  return (
+    <div className="border-t border-neutral-border pt-4">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between text-xs font-medium
+          text-neutral-text-secondary hover:text-neutral-text-primary
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+          focus-visible:ring-offset-1 rounded"
+      >
+        <span>Notes {!isLoading && comments.length > 0 ? `(${comments.length})` : ''}</span>
+        <svg
+          className={`w-4 h-4 transition-transform duration-150 ${open ? 'rotate-180' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="mt-3 flex flex-col gap-3">
+          {/* Comment list */}
+          {isLoading && (
+            <div className="h-8 rounded animate-pulse bg-neutral-border/30" aria-hidden="true" />
+          )}
+          {!isLoading && comments.length === 0 && (
+            <p className="text-xs text-neutral-text-disabled">No notes yet.</p>
+          )}
+          {!isLoading && comments.map((c) => {
+            const initials = c.author
+              ? c.author.display_name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase()
+              : '?';
+            return (
+              <div key={c.id} className="flex gap-2 items-start">
+                <span
+                  className="flex-shrink-0 w-6 h-6 rounded-full bg-neutral-surface-sunken
+                    border border-neutral-border flex items-center justify-center
+                    text-xs font-semibold text-neutral-text-secondary"
+                  aria-hidden="true"
+                >
+                  {initials}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <span className="text-xs font-medium text-neutral-text-primary">
+                      {c.author?.display_name ?? 'Unknown'}
+                    </span>
+                    <time
+                      dateTime={c.created_at}
+                      className="text-xs text-neutral-text-disabled tppm-mono"
+                    >
+                      {new Date(c.created_at).toLocaleString('en-US', {
+                        month: 'short', day: 'numeric', hour: 'numeric',
+                        minute: '2-digit', hour12: true,
+                      })}
+                    </time>
+                  </div>
+                  <p className="text-sm text-neutral-text-primary whitespace-pre-wrap mt-0.5">
+                    {c.message}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Add note form */}
+          {!isOnline ? (
+            <p className="text-xs text-neutral-text-disabled italic">
+              Notes require a connection.
+            </p>
+          ) : (
+            <form onSubmit={handleSubmit} className="flex flex-col gap-2 mt-1">
+              <textarea
+                rows={2}
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Add a note…"
+                disabled={createComment.isPending}
+                className="w-full border border-neutral-border rounded px-3 py-2
+                  bg-neutral-surface text-neutral-text-primary text-sm resize-none
+                  placeholder:text-neutral-text-disabled
+                  focus-visible:outline-none focus-visible:ring-2
+                  focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                  disabled:opacity-50"
+              />
+              {submitError && (
+                <p role="alert" className="text-xs text-semantic-critical">{submitError}</p>
+              )}
+              <button
+                type="submit"
+                disabled={createComment.isPending || !message.trim()}
+                className="self-end h-8 px-3 rounded text-xs font-medium
+                  bg-brand-primary border border-brand-primary-dark text-neutral-text-inverse
+                  hover:bg-brand-primary-dark
+                  focus-visible:outline-none focus-visible:ring-2
+                  focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                  disabled:opacity-50"
+              >
+                {createComment.isPending ? 'Posting…' : 'Add note'}
+              </button>
+            </form>
+          )}
+        </div>
+      )}
     </div>
   );
 }

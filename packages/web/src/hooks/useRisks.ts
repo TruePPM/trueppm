@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import type { Risk, PaginatedResponse } from '@/api/types';
+import type { Risk, RiskComment, PaginatedResponse } from '@/api/types';
 
 export interface CreateRiskPayload {
   title: string;
@@ -10,6 +10,12 @@ export interface CreateRiskPayload {
   impact: number;
   owner: string | null;
   tasks: string[];
+  // PMI framework fields (ADR-0043) — all optional
+  category?: Risk['category'];
+  response?: Risk['response'];
+  mitigation_due_date?: string | null;
+  trigger?: string;
+  contingency?: string;
 }
 
 export interface UseRisksResult {
@@ -107,6 +113,54 @@ export function useDeleteRisk() {
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({
         queryKey: ['risks', variables.projectId],
+      });
+    },
+  });
+}
+
+/** GET /api/v1/projects/{id}/risks/{riskId}/comments/ — fetch all comments for a risk. */
+export function useRiskComments(projectId: string, riskId: string | null) {
+  const query = useQuery({
+    queryKey: ['risk-comments', riskId],
+    queryFn: async () => {
+      const res = await apiClient.get<PaginatedResponse<RiskComment>>(
+        `/projects/${projectId}/risks/${riskId}/comments/`,
+      );
+      return res.data.results;
+    },
+    enabled: !!riskId,
+  });
+
+  return {
+    comments: query.data ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+  };
+}
+
+/** POST /api/v1/projects/{id}/risks/{riskId}/comments/ — add a comment to a risk. */
+export function useCreateRiskComment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      projectId,
+      riskId,
+      message,
+    }: {
+      projectId: string;
+      riskId: string;
+      message: string;
+    }) => {
+      const res = await apiClient.post<RiskComment>(
+        `/projects/${projectId}/risks/${riskId}/comments/`,
+        { message },
+      );
+      return res.data;
+    },
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({
+        queryKey: ['risk-comments', variables.riskId],
       });
     },
   });

@@ -600,6 +600,30 @@ class RiskStatus(models.TextChoices):
     CLOSED = "CLOSED", "Closed"
 
 
+class RiskCategory(models.TextChoices):
+    """PMBOK risk source categories (PMI risk framework, ADR-0043)."""
+
+    TECHNICAL = "TECHNICAL", "Technical"
+    EXTERNAL = "EXTERNAL", "External"
+    ORGANIZATIONAL = "ORGANIZATIONAL", "Organizational"
+    PROJECT_MANAGEMENT = "PROJECT_MANAGEMENT", "Project Management"
+
+
+class RiskResponse(models.TextChoices):
+    """PMBOK risk response strategies (PMI risk framework, ADR-0043).
+
+    The bare verb forms (ACCEPT, not ACCEPTED) are deliberate to avoid the
+    visual collision with RiskStatus.ACCEPTED in serializers, audit logs, and
+    UI labels — a risk's status describes its lifecycle, while its response
+    describes the chosen handling strategy.
+    """
+
+    AVOID = "AVOID", "Avoid"
+    MITIGATE = "MITIGATE", "Mitigate"
+    TRANSFER = "TRANSFER", "Transfer"
+    ACCEPT = "ACCEPT", "Accept"
+
+
 class Risk(VersionedModel):
     """A project risk with probability × impact severity scoring.
 
@@ -629,6 +653,21 @@ class Risk(VersionedModel):
     )
     probability = models.PositiveSmallIntegerField()
     impact = models.PositiveSmallIntegerField()
+    category = models.CharField(  # noqa: DJ001 — null distinguishes "unset" from ""
+        max_length=20,
+        choices=RiskCategory.choices,
+        null=True,
+        blank=True,
+    )
+    response = models.CharField(  # noqa: DJ001 — null distinguishes "unset" from ""
+        max_length=10,
+        choices=RiskResponse.choices,
+        null=True,
+        blank=True,
+    )
+    mitigation_due_date = models.DateField(null=True, blank=True)
+    trigger = models.TextField(blank=True, default="")
+    contingency = models.TextField(blank=True, default="")
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -716,6 +755,33 @@ class RiskTask(models.Model):
 
     def __str__(self) -> str:
         return f"RiskTask risk={self.risk_id} task={self.task_id}"
+
+
+class RiskComment(models.Model):
+    """Append-only discussion note on a Risk.
+
+    Plain models.Model (not VersionedModel): comments are not synced to mobile
+    and immutability makes server_version unnecessary. No HistoricalRecords —
+    nothing to diff in an append-only log.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    risk = models.ForeignKey(Risk, on_delete=models.CASCADE, related_name="comments")
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="risk_comments",
+    )
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "projects_riskcomment"
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return f"RiskComment({self.risk_id}, by={self.author_id})"
 
 
 # ---------------------------------------------------------------------------

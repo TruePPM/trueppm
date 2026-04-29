@@ -22,6 +22,7 @@ from trueppm_api.apps.projects.models import (
     EstimationMode,
     Project,
     Risk,
+    RiskComment,
     Task,
     TaskStatus,
 )
@@ -693,6 +694,11 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
             "probability",
             "impact",
             "severity",
+            "category",
+            "response",
+            "mitigation_due_date",
+            "trigger",
+            "contingency",
             "owner",
             "created_by",
             "created_at",
@@ -709,3 +715,35 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
             "created_at",
             "updated_at",
         ]
+
+
+class RiskCommentAuthorSerializer(serializers.Serializer[Any]):
+    """Minimal author representation embedded in RiskCommentSerializer."""
+
+    id = serializers.UUIDField()
+    display_name = serializers.SerializerMethodField()
+
+    def get_display_name(self, obj: Any) -> str:
+        name: str = obj.get_full_name() or obj.username
+        return name
+
+
+class RiskCommentSerializer(serializers.ModelSerializer[RiskComment]):
+    """Read/write serializer for append-only risk comments.
+
+    author is read-only and set from request.user in perform_create.
+    message must be non-blank.
+    No update or delete operations are exposed.
+    """
+
+    author = RiskCommentAuthorSerializer(read_only=True)
+
+    def validate_message(self, value: str) -> str:
+        if not value.strip():
+            raise serializers.ValidationError("Message cannot be blank.")
+        return value
+
+    class Meta:
+        model = RiskComment
+        fields = ["id", "author", "message", "created_at"]
+        read_only_fields = ["id", "author", "created_at"]
