@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useCallback, useState, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import {
   DndContext,
@@ -21,6 +21,7 @@ import { useWbsStore } from '@/stores/wbsStore';
 import { buildWbsTree, flattenVisible, collectAllIds } from './buildWbsTree';
 import { WbsRow } from './WbsRow';
 import { AddTaskForm } from '@/features/project/AddTaskForm';
+import { formatPredecessors } from './formatPredecessor';
 import type { Task } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -61,7 +62,31 @@ function WbsEmptyState() {
 
 export function WbsView() {
   const projectId = useProjectId() ?? null;
-  const { tasks, isLoading, error } = useScheduleTasks();
+  const { tasks, links, isLoading, error } = useScheduleTasks();
+
+  // Build predecessor display strings keyed by task id.
+  const predecessorTextById = useMemo(() => {
+    if (!tasks || !links) return new Map<string, string>();
+    const wbsById = new Map(tasks.map((t) => [t.id, t.wbs]));
+    // Group incoming links by successor id
+    const bySuccessor = new Map<string, typeof links>();
+    for (const link of links) {
+      const list = bySuccessor.get(link.targetId) ?? [];
+      list.push(link);
+      bySuccessor.set(link.targetId, list);
+    }
+    const result = new Map<string, string>();
+    for (const task of tasks) {
+      const incoming = bySuccessor.get(task.id) ?? [];
+      const preds = incoming.map((l) => ({
+        wbs: wbsById.get(l.sourceId) ?? '?',
+        type: l.type,
+        lagDays: l.lag,
+      }));
+      result.set(task.id, formatPredecessors(preds));
+    }
+    return result;
+  }, [tasks, links]);
   const { expandedIds, toggle, expandAll, collapseAll, selectedTaskId, setSelectedTaskId } = useWbsStore();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -409,15 +434,21 @@ export function WbsView() {
 
       {/* Column headers */}
       <div
-        className="flex items-center h-8 border-b border-neutral-border px-2 flex-shrink-0
-          text-xs font-semibold tracking-wide uppercase text-neutral-text-secondary"
+        className="flex items-center h-9 border-b border-neutral-border px-2 flex-shrink-0
+          bg-neutral-surface-sunken tppm-mono text-xs font-semibold tracking-widest uppercase
+          text-neutral-text-secondary"
         aria-hidden="true"
       >
-        <span className="w-5 flex-shrink-0" /> {/* drag handle col */}
-        <span className="w-16 flex-shrink-0 text-right pr-3">WBS</span>
+        <span className="w-4 flex-shrink-0" /> {/* drag handle */}
+        <span className="w-4 flex-shrink-0" /> {/* expand toggle */}
+        <span className="w-14 flex-shrink-0 text-right pr-3">WBS</span>
         <span className="flex-1 min-w-0">Name</span>
-        <span className="w-20 flex-shrink-0 text-right pr-2">Progress</span>
+        <span className="w-12 flex-shrink-0 text-center">Owner</span>
+        <span className="w-24 flex-shrink-0 pr-2">% Done</span>
+        <span className="w-20 flex-shrink-0 text-right pr-2">Start</span>
+        <span className="w-20 flex-shrink-0 text-right pr-2">Finish</span>
         <span className="w-10 flex-shrink-0 text-right">Dur</span>
+        <span className="w-36 flex-shrink-0 pl-2">Predecessors</span>
       </div>
 
       {/* Tree */}
@@ -444,6 +475,7 @@ export function WbsView() {
                 isRenaming={renamingId === node.task.id}
                 isSelected={selectedTaskId === node.task.id}
                 isReparentTarget={reparentTargetId === node.task.id}
+                predecessorText={predecessorTextById.get(node.task.id) ?? ''}
                 onToggle={() => toggle(node.task.id)}
                 onSelect={() => setSelectedTaskId(node.task.id)}
                 onStartRename={() => setRenamingId(node.task.id)}

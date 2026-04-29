@@ -8,6 +8,7 @@ import {
   weekDays,
   monthWeekStarts,
   buildChips,
+  buildMilestoneMarks,
   nextMonth,
   prevMonth,
   isSameDay,
@@ -180,14 +181,22 @@ describe('buildChips', () => {
     expect(lastChip!.isStart).toBe(false);
   });
 
-  it('milestone is always 1-day chip with isMilestone=true', () => {
+  it('milestones are excluded from buildChips (rendered as diamond markers)', () => {
+    // Milestones are rendered via buildMilestoneMarks, not as chip bars
     const task = makeTask({ id: 'm1', start: '2026-03-15', finish: '2026-03-15', isMilestone: true });
     const chips = buildChips([task], anchor);
-    expect(chips).toHaveLength(1);
-    expect(chips[0].chipDays).toBe(1);
-    expect(chips[0].isMilestone).toBe(true);
-    expect(chips[0].isStart).toBe(true);
-    expect(chips[0].isEnd).toBe(true);
+    expect(chips).toHaveLength(0);
+  });
+
+  it('buildMilestoneMarks returns a mark for a milestone in-month', () => {
+    const task = makeTask({ id: 'm1', start: '2026-03-15', finish: '2026-03-15', isMilestone: true });
+    const marks = buildMilestoneMarks([task], anchor);
+    expect(marks).toHaveLength(1);
+    const mark = marks[0];
+    expect(mark?.taskId).toBe('m1');
+    expect(mark?.taskName).toBe(task.name);
+    expect(mark?.dayOffset).toBeGreaterThanOrEqual(0);
+    expect(mark?.dayOffset).toBeLessThanOrEqual(6);
   });
 
   it('excludes tasks completely outside the displayed month', () => {

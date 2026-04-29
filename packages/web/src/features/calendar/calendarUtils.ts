@@ -97,11 +97,19 @@ export interface CalendarChipData {
   isEnd: boolean;
 }
 
+/** A milestone marker positioned in a specific day cell. */
+export interface MilestoneMark {
+  taskId: string;
+  taskName: string;
+  /** ISO of the week-start (Monday) that contains the milestone date. */
+  weekStart: string;
+  /** Day offset from weekStart (0–6). */
+  dayOffset: number;
+}
+
 /**
- * Compute chip fragments for all tasks visible in the month containing `anchorDate`.
- *
- * Each task that overlaps the displayed date range is split into one fragment per
- * calendar week row. Milestones are always 1-day chips on their start date.
+ * Compute chip fragments for regular (non-milestone) tasks visible in the month
+ * containing `anchorDate`. Each task is split into one fragment per calendar week row.
  */
 export function buildChips(tasks: Task[], anchorDate: Date): CalendarChipData[] {
   const weeks = monthWeekStarts(anchorDate);
@@ -113,35 +121,15 @@ export function buildChips(tasks: Task[], anchorDate: Date): CalendarChipData[] 
   const chips: CalendarChipData[] = [];
 
   for (const task of tasks) {
+    // Milestones are rendered as diamond markers via buildMilestoneMarks
+    if (task.isMilestone) continue;
     if (!task.start || !task.finish) continue;
 
     const taskStart = parseUTCDate(task.start);
     const taskEnd = parseUTCDate(task.finish);
 
-    // Skip tasks completely outside the displayed range
     if (taskEnd < viewStart || taskStart > viewEnd) continue;
 
-    if (task.isMilestone) {
-      // Milestone: single-day chip on taskStart
-      const ms = weekStart(taskStart);
-      const msIso = formatISODate(ms);
-      const offset = Math.round((taskStart.getTime() - ms.getTime()) / 86_400_000);
-      chips.push({
-        taskId: task.id,
-        taskName: task.name,
-        weekStart: msIso,
-        chipStartOffset: offset,
-        chipDays: 1,
-        isCritical: task.isCritical,
-        isMilestone: true,
-        isComplete: task.isComplete,
-        isStart: true,
-        isEnd: true,
-      });
-      continue;
-    }
-
-    // Regular task: one fragment per week row it spans
     for (const ws of weeks) {
       const we = addDays(ws, 6);
       const clampStart = taskStart < ws ? ws : taskStart;
@@ -167,6 +155,29 @@ export function buildChips(tasks: Task[], anchorDate: Date): CalendarChipData[] 
   }
 
   return chips;
+}
+
+/** Compute milestone diamond markers for the month grid. */
+export function buildMilestoneMarks(tasks: Task[], anchorDate: Date): MilestoneMark[] {
+  const weeks = monthWeekStarts(anchorDate);
+  if (weeks.length === 0) return [];
+  const viewStart = weeks[0];
+  const viewEnd = addDays(weeks[weeks.length - 1], 6);
+
+  const marks: MilestoneMark[] = [];
+  for (const task of tasks) {
+    if (!task.isMilestone || !task.start) continue;
+    const ms = parseUTCDate(task.start);
+    if (ms < viewStart || ms > viewEnd) continue;
+    const ws = weekStart(ms);
+    marks.push({
+      taskId: task.id,
+      taskName: task.name,
+      weekStart: formatISODate(ws),
+      dayOffset: Math.round((ms.getTime() - ws.getTime()) / 86_400_000),
+    });
+  }
+  return marks;
 }
 
 // ---------------------------------------------------------------------------

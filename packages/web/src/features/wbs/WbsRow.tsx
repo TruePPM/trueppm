@@ -3,11 +3,27 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { WbsNode } from './buildWbsTree';
 
+/** Format an ISO date string ("2026-04-28") as "Apr 28". */
+function fmtDate(iso: string | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(`${iso}T00:00:00Z`);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+/** Initials from a name, max 2 chars. */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return (parts[0]?.[0] ?? '').toUpperCase();
+  return ((parts[0]?.[0] ?? '') + (parts[parts.length - 1]?.[0] ?? '')).toUpperCase();
+}
+
 interface WbsRowProps {
   node: WbsNode;
   isExpanded: boolean;
   isRenaming: boolean;
   isSelected: boolean;
+  /** Pre-formatted predecessor string, e.g. "1.1.1 FS+10, 1.2.2 FS". */
+  predecessorText: string;
   /** This summary row is the current drop target during a reparent drag. */
   isReparentTarget?: boolean;
   onToggle: () => void;
@@ -22,6 +38,7 @@ export function WbsRow({
   isExpanded,
   isRenaming,
   isSelected,
+  predecessorText,
   isReparentTarget = false,
   onToggle,
   onSelect,
@@ -59,26 +76,32 @@ export function WbsRow({
   }, [isRenaming]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      onRename(e.currentTarget.value);
-    } else if (e.key === 'Escape') {
-      onCancelRename();
-    }
+    if (e.key === 'Enter') onRename(e.currentTarget.value);
+    else if (e.key === 'Escape') onCancelRename();
   };
 
   const handleNameKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'F2') {
-      e.preventDefault();
-      onStartRename();
-    }
+    if (e.key === 'F2') { e.preventDefault(); onStartRename(); }
   };
 
-  // Row background: critical path gets subtle red tint
+  // Row variant: project (no parent, is_summary) > summary > milestone > task
+  const isProject = task.isSummary && !task.parentId;
+  const rowHeight = isProject ? 'h-11' : 'h-9';
+
+  const rowBgBase = isProject
+    ? 'bg-neutral-surface-sunken'
+    : task.isSummary
+    ? 'bg-neutral-surface-raised'
+    : '';
   const rowBg = task.isCritical
     ? 'bg-semantic-critical/5 border-l-2 border-semantic-critical'
     : 'border-l-2 border-transparent';
 
-  const indent = depth * 20; // 20px per level
+  const nameWeight = (isProject || task.isSummary) ? 'font-semibold' : 'font-normal';
+  const indent = depth * 16; // 16px per level per spec
+
+  // First assignee avatar (initials)
+  const firstAssignee = task.assignees[0];
 
   return (
     <div
@@ -90,12 +113,12 @@ export function WbsRow({
       aria-expanded={hasChildren ? isExpanded : undefined}
       aria-selected={isSelected}
       className={`
-        flex items-center h-11 px-2 gap-1
+        flex items-center ${rowHeight} px-2 gap-1
         border-b border-neutral-border
         hover:bg-neutral-text-primary/5 group
         focus-within:bg-neutral-text-primary/5
         ${isSelected ? 'bg-brand-primary/10 !border-l-2 !border-l-brand-primary' : ''}
-        ${rowBg}
+        ${rowBgBase} ${rowBg}
         ${isDragging ? 'opacity-50' : ''}
         ${isReparentTarget ? 'bg-brand-primary/5 !border-l-2 !border-l-brand-primary' : ''}
       `}
@@ -104,13 +127,13 @@ export function WbsRow({
       onKeyDown={handleNameKeyDown}
       tabIndex={isSelected ? 0 : -1}
     >
-      {/* Drag handle — hidden on summary rows and on touch < md */}
+      {/* Drag handle — hidden on summary/project rows */}
       <span
         {...attributes}
         {...listeners}
         aria-hidden="true"
         className={`
-          w-5 h-5 flex items-center justify-center flex-shrink-0
+          w-4 h-4 flex items-center justify-center flex-shrink-0
           cursor-grab active:cursor-grabbing text-neutral-text-secondary
           opacity-0 group-hover:opacity-100 transition-opacity
           ${task.isSummary ? 'invisible' : ''}
@@ -131,7 +154,7 @@ export function WbsRow({
           aria-controls={`wbs-subtree-${task.id}`}
           aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
           className="
-            w-5 h-5 flex items-center justify-center flex-shrink-0
+            w-4 h-4 flex items-center justify-center flex-shrink-0
             text-xs font-bold text-neutral-text-secondary
             hover:text-neutral-text-primary rounded
             focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none
@@ -142,23 +165,36 @@ export function WbsRow({
       ) : (
         <span
           aria-hidden="true"
-          className="w-5 h-5 flex items-center justify-center flex-shrink-0
+          className="w-4 h-4 flex items-center justify-center flex-shrink-0
             text-xs text-neutral-text-disabled"
         >
-          □
+          {task.isMilestone ? (
+            <span className="text-brand-accent">◆</span>
+          ) : '□'}
         </span>
       )}
 
-      {/* WBS path */}
+      {/* WBS code */}
       <span
         role="gridcell"
-        className="w-14 flex-shrink-0 text-right pr-3 text-xs font-mono text-neutral-text-secondary"
+        className="w-14 flex-shrink-0 text-right pr-3 tppm-mono text-xs text-neutral-text-secondary"
       >
         {task.wbs}
       </span>
 
-      {/* Name — editable inline */}
-      <span role="gridcell" className="flex-1 min-w-0 pr-2">
+      {/* Name — editable inline, with CP/risk badges */}
+      <span role="gridcell" className="flex-1 min-w-0 pr-2 flex items-center gap-1.5">
+        {task.isCritical && (
+          <span
+            aria-label="Critical path"
+            title="This task is on the critical path — a delay here delays the project end date"
+            className="flex-shrink-0 tppm-mono text-[11px] font-bold
+              text-semantic-critical border border-semantic-critical/50
+              rounded px-0.5 leading-4"
+          >
+            CP
+          </span>
+        )}
         {isRenaming ? (
           <input
             ref={inputRef}
@@ -168,16 +204,13 @@ export function WbsRow({
             onKeyDown={handleKeyDown}
             aria-label="Rename task"
             className="
-              w-full bg-transparent border-b border-brand-primary
+              flex-1 bg-transparent border-b border-brand-primary
               text-sm text-neutral-text-primary outline-none caret-neutral-text-primary px-0
             "
           />
         ) : (
           <span
-            className={`
-              text-sm truncate block
-              ${task.isSummary ? 'font-semibold text-neutral-text-primary' : 'text-neutral-text-primary'}
-            `}
+            className={`text-sm truncate block ${nameWeight} text-neutral-text-primary`}
             title={task.isSummary ? undefined : 'Double-click to rename'}
           >
             {task.name}
@@ -185,47 +218,67 @@ export function WbsRow({
         )}
       </span>
 
-      {/* Progress bar + percent */}
-      <span role="gridcell" className="w-20 flex-shrink-0 flex items-center gap-1.5 pr-2">
-        <span
-          className="flex-1 h-1.5 rounded-full bg-neutral-border"
-          aria-hidden="true"
-        >
+      {/* Owner avatar */}
+      <span role="gridcell" className="w-12 flex-shrink-0 flex items-center justify-center">
+        {firstAssignee ? (
           <span
-            className={`
-              block h-full rounded-full
-              ${task.isCritical ? 'bg-semantic-critical' : 'bg-brand-primary'}
-            `}
+            aria-label={firstAssignee.name}
+            title={firstAssignee.name}
+            className="
+              w-6 h-6 rounded-full bg-brand-primary/20 text-brand-primary
+              flex items-center justify-center text-xs font-semibold
+            "
+          >
+            {initials(firstAssignee.name)}
+          </span>
+        ) : null}
+      </span>
+
+      {/* % Progress */}
+      <span role="gridcell" className="w-24 flex-shrink-0 flex items-center gap-1.5 pr-2">
+        <span className="flex-1 h-1.5 rounded-full bg-neutral-border" aria-hidden="true">
+          <span
+            className={`block h-full rounded-full ${task.isCritical ? 'bg-semantic-critical' : task.isComplete ? 'bg-semantic-on-track' : 'bg-brand-primary'}`}
             style={{ width: `${task.progress}%` }}
           />
         </span>
-        <span className="text-xs text-neutral-text-secondary w-7 text-right">
+        <span className="tppm-mono text-xs text-neutral-text-secondary w-7 text-right">
           {task.progress}%
         </span>
+      </span>
+
+      {/* Start */}
+      <span
+        role="gridcell"
+        className="w-20 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2"
+      >
+        {fmtDate(task.start)}
+      </span>
+
+      {/* Finish */}
+      <span
+        role="gridcell"
+        className="w-20 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2"
+      >
+        {fmtDate(task.finish)}
       </span>
 
       {/* Duration */}
       <span
         role="gridcell"
-        className="w-10 flex-shrink-0 text-right text-xs text-neutral-text-secondary"
+        className="w-10 flex-shrink-0 text-right tppm-mono text-xs text-neutral-text-secondary"
       >
         {task.duration}d
       </span>
 
-      {/* Critical path badge */}
-      {task.isCritical && (
-        <span
-          aria-label="Critical path"
-          title="This task is on the critical path — a delay here delays the project end date"
-          className="
-            ml-1 flex-shrink-0 text-xs font-bold
-            text-semantic-critical border border-semantic-critical/50
-            rounded px-1 leading-4
-          "
-        >
-          CP
-        </span>
-      )}
+      {/* Predecessors */}
+      <span
+        role="gridcell"
+        className="w-36 flex-shrink-0 tppm-mono text-xs text-neutral-text-disabled truncate pl-2"
+        title={predecessorText || undefined}
+      >
+        {predecessorText}
+      </span>
     </div>
   );
 }
