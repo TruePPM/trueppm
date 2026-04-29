@@ -14,6 +14,7 @@ from trueppm_api.apps.projects.models import (
     Project,
     Risk,
     RiskCategory,
+    RiskComment,
     RiskResponse,
     RiskStatus,
     Task,
@@ -679,3 +680,120 @@ class TestRiskPMIFields:
         )
         assert r.status_code == 400
         assert "mitigation_due_date" in r.data
+
+
+# ---------------------------------------------------------------------------
+# RiskCommentViewSet tests (ADR-0044, issue #244)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestRiskComments:
+    """Tests for the append-only risk comment endpoint."""
+
+    def _url(self, project: Project, risk: Risk) -> str:
+        return f"/api/v1/projects/{project.pk}/risks/{risk.pk}/comments/"
+
+    def test_viewer_can_list_comments(
+        self,
+        viewer_client: APIClient,
+        project: Project,
+        risk: Risk,
+        viewer_membership: ProjectMembership,
+    ) -> None:
+        r = viewer_client.get(self._url(project, risk))
+        assert r.status_code == 200
+        assert r.data["results"] == []
+
+    def test_member_can_post_comment(
+        self,
+        member_client: APIClient,
+        project: Project,
+        risk: Risk,
+        member_membership: ProjectMembership,
+    ) -> None:
+        r = member_client.post(
+            self._url(project, risk),
+            {"message": "Discussed with stakeholders."},
+            format="json",
+        )
+        assert r.status_code == 201
+        assert r.data["message"] == "Discussed with stakeholders."
+        assert "created_at" in r.data
+        assert r.data["author"]["display_name"] == "member"
+
+    def test_viewer_cannot_post_comment(
+        self,
+        viewer_client: APIClient,
+        project: Project,
+        risk: Risk,
+        viewer_membership: ProjectMembership,
+    ) -> None:
+        r = viewer_client.post(
+            self._url(project, risk),
+            {"message": "Just looking"},
+            format="json",
+        )
+        assert r.status_code == 403
+
+    def test_unauthenticated_cannot_list(
+        self,
+        project: Project,
+        risk: Risk,
+    ) -> None:
+        r = APIClient().get(self._url(project, risk))
+        assert r.status_code in (401, 403)
+
+    def test_blank_message_rejected(
+        self,
+        member_client: APIClient,
+        project: Project,
+        risk: Risk,
+        member_membership: ProjectMembership,
+    ) -> None:
+        r = member_client.post(
+            self._url(project, risk),
+            {"message": "   "},
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "message" in r.data
+
+    def test_comments_ordered_chronologically(
+        self,
+        member_client: APIClient,
+        project: Project,
+        risk: Risk,
+        member_user: object,
+        member_membership: ProjectMembership,
+    ) -> None:
+        RiskComment.objects.create(risk=risk, author=member_user, message="First")
+        RiskComment.objects.create(risk=risk, author=member_user, message="Second")
+        r = member_client.get(self._url(project, risk))
+        assert r.status_code == 200
+        messages = [c["message"] for c in r.data["results"]]
+        assert messages == ["First", "Second"]
+
+    def test_cross_project_isolation(
+        self,
+        member_client: APIClient,
+        project: Project,
+        risk: Risk,
+        member_membership: ProjectMembership,
+        calendar: Calendar,
+    ) -> None:
+        from datetime import date
+
+        other_project = Project.objects.create(
+            name="Other", start_date=date(2026, 1, 1), calendar=calendar
+        )
+        other_risk = Risk.objects.create(
+            project=other_project, title="Other risk", probability=1, impact=1
+        )
+        r = member_client.get(
+            f"/api/v1/projects/{other_project.pk}/risks/{other_risk.pk}/comments/"
+        )
+        # Non-member gets an empty queryset (200 empty), not 403 — consistent with
+        # how ProjectScopedViewSet handles non-member access on other list endpoints.
+        assert r.status_code == 200
+        assert r.data["results"] == []

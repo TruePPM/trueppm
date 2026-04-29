@@ -757,6 +757,33 @@ class RiskTask(models.Model):
         return f"RiskTask risk={self.risk_id} task={self.task_id}"
 
 
+class RiskComment(models.Model):
+    """Append-only discussion note on a Risk.
+
+    Plain models.Model (not VersionedModel): comments are not synced to mobile
+    and immutability makes server_version unnecessary. No HistoricalRecords —
+    nothing to diff in an append-only log.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    risk = models.ForeignKey(Risk, on_delete=models.CASCADE, related_name="comments")
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="risk_comments",
+    )
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "projects_riskcomment"
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return f"RiskComment({self.risk_id}, by={self.author_id})"
+
+
 # ---------------------------------------------------------------------------
 # Board column configuration
 # ---------------------------------------------------------------------------

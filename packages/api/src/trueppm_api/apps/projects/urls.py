@@ -18,6 +18,7 @@ from trueppm_api.apps.projects.views import (
     ProjectOverviewView,
     ProjectPresenceView,
     ProjectViewSet,
+    RiskCommentViewSet,
     RiskViewSet,
     TaskBaselineDetailView,
     TaskBulkView,
@@ -144,5 +145,11 @@ urlpatterns = [
             }
         ),
         name="project-risks-detail",
+    ),
+    # Risk comments — append-only thread per risk (ADR-0044)
+    path(
+        "projects/<project_pk>/risks/<risk_pk>/comments/",
+        RiskCommentViewSet.as_view({"get": "list", "post": "create"}),
+        name="project-risk-comments-list",
     ),
 ]

@@ -43,3 +43,16 @@ export interface Risk {
   trigger?: string;
   contingency?: string;
 }
+
+// Risk comments — append-only discussion thread (ADR-0044, issue #244)
+export interface RiskCommentAuthor {
+  id: string;
+  display_name: string;
+}
+
+export interface RiskComment {
+  id: string;
+  author: RiskCommentAuthor | null;
+  message: string;
+  created_at: string;
+}

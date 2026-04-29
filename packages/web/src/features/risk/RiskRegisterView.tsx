@@ -35,6 +35,8 @@ export function RiskRegisterView() {
   const [selectedRisk, setSelectedRisk] = useState<Risk | null | undefined>(null);
 
   const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
+  // When true the drawer opens directly in edit mode (✎ quick-edit affordance)
+  const [editMode, setEditMode] = useState(false);
 
   const projectName = projects?.find((p) => p.id === projectId)?.name ?? null;
 
@@ -64,9 +66,10 @@ export function RiskRegisterView() {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '') || projectId;
 
-  function openCreate() { setSelectedRisk(undefined); }
-  function openRisk(risk: Risk) { setSelectedRisk(risk); }
-  function closeDrawer() { setSelectedRisk(null); }
+  function openCreate() { setEditMode(false); setSelectedRisk(undefined); }
+  function openRisk(risk: Risk) { setEditMode(false); setSelectedRisk(risk); }
+  function openRiskEdit(risk: Risk) { setEditMode(true); setSelectedRisk(risk); }
+  function closeDrawer() { setEditMode(false); setSelectedRisk(null); }
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-neutral-surface">
@@ -275,6 +278,8 @@ export function RiskRegisterView() {
                     <th scope="col" className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[80px]">
                       Owner
                     </th>
+                    {/* Quick-edit affordance column — no header */}
+                    <th scope="col" className="w-10 px-2 py-3" aria-label="Actions" />
                   </tr>
                 </thead>
                 <tbody>
@@ -289,7 +294,7 @@ export function RiskRegisterView() {
                       key={risk.id}
                       onClick={() => openRisk(risk)}
                       className={[
-                        'h-14 border-b border-neutral-border last:border-b-0 cursor-pointer',
+                        'group h-14 border-b border-neutral-border last:border-b-0 cursor-pointer',
                         isOverdue ? 'bg-semantic-at-risk/5 hover:bg-semantic-at-risk/10' : 'hover:bg-neutral-surface-raised',
                         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
                         'dark:focus-visible:ring-semantic-on-track focus-visible:ring-inset',
@@ -363,6 +368,22 @@ export function RiskRegisterView() {
                           <span className="text-xs text-neutral-text-disabled" aria-label="Unassigned">—</span>
                         )}
                       </td>
+
+                      {/* Quick-edit affordance — visible on hover/focus-within (ADR-0044) */}
+                      <td className="px-2 text-center">
+                        <button
+                          type="button"
+                          aria-label={`Edit risk: ${risk.title}`}
+                          onClick={(e) => { e.stopPropagation(); openRiskEdit(risk); }}
+                          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100
+                            w-8 h-8 flex items-center justify-center rounded
+                            text-neutral-text-secondary hover:text-neutral-text-primary
+                            focus-visible:outline-none focus-visible:ring-2
+                            focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                        >
+                          ✎
+                        </button>
+                      </td>
                     </tr>
                   ); })}
                 </tbody>
@@ -395,6 +416,7 @@ export function RiskRegisterView() {
           risk={selectedRisk ?? null}
           isOpen={isDrawerOpen}
           onClose={closeDrawer}
+          initialEditing={editMode}
         />
       )}
     </div>
