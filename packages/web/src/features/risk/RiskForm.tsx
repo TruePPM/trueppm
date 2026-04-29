@@ -257,7 +257,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
             text-neutral-text-secondary hover:text-neutral-text-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
-          <span>Advanced (PMI)</span>
+          <span>Advanced</span>
           <svg
             className={`w-4 h-4 transition-transform duration-150 ${advancedOpen ? 'rotate-180' : ''}`}
             fill="none"
