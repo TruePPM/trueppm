@@ -85,7 +85,7 @@ export function AllocationSpan({
       onClick={() => onEdit(task.assignment_id)}
       className={[
         'absolute top-[7px] h-[26px] rounded flex items-center px-1.5 overflow-hidden',
-        'text-[10px] font-semibold whitespace-nowrap',
+        'text-xs font-semibold whitespace-nowrap',
         'transition-[filter] duration-100 hover:brightness-90',
         'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1',
         'focus-visible:outline-brand-primary',

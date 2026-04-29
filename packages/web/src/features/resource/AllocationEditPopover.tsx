@@ -58,6 +58,25 @@ export function AllocationEditPopover({
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Focus trap — keep Tab navigation inside the popover while it is open
+  useEffect(() => {
+    function trapFocus(e: KeyboardEvent) {
+      if (e.key !== 'Tab' || !containerRef.current) return;
+      const focusable = containerRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first?.focus(); }
+      }
+    }
+    document.addEventListener('keydown', trapFocus);
+    return () => document.removeEventListener('keydown', trapFocus);
+  }, []);
+
   const numericValue = parseInt(value, 10);
   const isValid = !isNaN(numericValue) && numericValue >= 1 && numericValue <= 200;
   const newUnits = isValid ? numericValue / 100 : null;
@@ -111,12 +130,12 @@ export function AllocationEditPopover({
       <div className="text-xs font-semibold text-neutral-text-primary mb-0.5 truncate">
         {task.name}
       </div>
-      <div className="text-[11px] text-neutral-text-secondary mb-2">
+      <div className="text-xs text-neutral-text-secondary mb-2">
         {resourceName} · {dateRange}
       </div>
 
       {wouldExceedAlone && (
-        <div className="text-[11px] text-semantic-critical mb-2 flex items-start gap-1">
+        <div className="text-xs text-semantic-critical mb-2 flex items-start gap-1">
           <span>⚠</span>
           <span>
             {numericValue}% exceeds {Math.round(maxUnits * 100)}% availability.
@@ -125,7 +144,7 @@ export function AllocationEditPopover({
       )}
 
       {mutation.isError && (
-        <div className="text-[11px] text-semantic-critical mb-2">
+        <div className="text-xs text-semantic-critical mb-2">
           Save failed — please try again.
         </div>
       )}
@@ -147,8 +166,8 @@ export function AllocationEditPopover({
             if (e.key === 'Enter') handleSave();
           }}
           className={[
-            'w-14 border rounded px-2 py-1 text-sm text-right font-mono',
-            'focus:outline-none focus:ring-2 focus:ring-brand-primary',
+            'w-14 border rounded px-2 py-1 text-sm text-right tppm-mono',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
             !isValid && value !== ''
               ? 'border-semantic-critical text-semantic-critical'
               : 'border-neutral-border',
@@ -158,14 +177,14 @@ export function AllocationEditPopover({
       </div>
 
       {!isValid && value !== '' && (
-        <p className="text-[11px] text-semantic-critical mb-2">Enter a value between 1 and 200.</p>
+        <p className="text-xs text-semantic-critical mb-2">Enter a value between 1 and 200.</p>
       )}
 
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={onClose}
-          className="text-xs px-2 py-1 rounded border border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary"
+          className="text-xs px-2 py-1 rounded border border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
           Cancel
         </button>
@@ -173,7 +192,7 @@ export function AllocationEditPopover({
           type="button"
           onClick={handleSave}
           disabled={!isValid || mutation.isPending}
-          className="text-xs px-3 py-1 rounded bg-brand-primary text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          className="text-xs px-3 py-1 rounded bg-brand-primary text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-brand-primary focus-visible:ring-offset-1"
         >
           {mutation.isPending ? 'Saving…' : 'Save changes'}
         </button>
