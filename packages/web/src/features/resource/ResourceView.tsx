@@ -283,7 +283,7 @@ export function ResourceView({
         {/* Timeline status bar — resource/assignment counts + legend */}
         {viewMode === 'timeline' && filteredAllocationData && filteredAllocationData.resources.length > 0 && (
           <div
-            className="flex-shrink-0 flex items-center gap-4 px-4 h-6 border-t border-neutral-border bg-neutral-surface-sunken text-[11px] text-neutral-text-secondary hidden md:flex"
+            className="flex-shrink-0 flex items-center gap-4 px-4 h-7 border-t border-neutral-border bg-neutral-surface-sunken text-xs text-neutral-text-secondary hidden md:flex"
             aria-label="Resource timeline summary"
           >
             <span className="tppm-mono">
