@@ -65,6 +65,37 @@ vi.mock('@/hooks/useBoardConfig', () => ({
 
 vi.mock('@/hooks/useTaskMutations', () => ({
   useCreateTask: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+  useUpdateTask: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+// Workshop hooks — mutable so individual tests can simulate an active session
+// and exercise the workshop-mode branches in BoardView (banner, exit dialog).
+let mockWorkshopSession: {
+  id: string;
+  project_id: string;
+  started_by_id: string | null;
+  started_at: string;
+  ended_at: string | null;
+  participants: never[];
+} | null = null;
+const startWorkshopMutate = vi.fn();
+const endWorkshopMutate = vi.fn();
+let mockEndWorkshopPending = false;
+
+vi.mock('@/hooks/useWorkshopSession', () => ({
+  useWorkshopSession: () => ({ data: mockWorkshopSession, isLoading: false }),
+  useStartWorkshop: () => ({
+    mutate: startWorkshopMutate,
+    isPending: false,
+  }),
+  useEndWorkshop: () => ({
+    mutate: endWorkshopMutate,
+    isPending: mockEndWorkshopPending,
+  }),
+}));
+
+vi.mock('@/hooks/usePhaseReorder', () => ({
+  usePhaseReorder: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 // Board batch 6 — stub saved views hook so BoardViewDropdown doesn't make network calls.
@@ -126,6 +157,10 @@ function resetMocks() {
     { status: 'COMPLETE',    label: 'DONE',          visible: true },
   ];
   updateMutate.mockReset();
+  startWorkshopMutate.mockReset();
+  endWorkshopMutate.mockReset();
+  mockWorkshopSession = null;
+  mockEndWorkshopPending = false;
   localStorage.clear(); // reset persisted board prefs (density, collapsedLanes) between tests
   // Reset matchMedia to desktop default between tests (issue #224)
   (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(false));
@@ -464,6 +499,141 @@ describe('BoardView', () => {
     renderBoard();
     await user.selectOptions(screen.getByLabelText('Card density'), 'detailed');
     expect(localStorage.getItem('trueppm.board.density')).toBe('detailed');
+  });
+
+  // -------------------------------------------------------------------------
+  // ADR-0046 — Workshop mode (banner, exit dialog, focus trap)
+  // -------------------------------------------------------------------------
+
+  it('renders the workshop toggle in non-workshop mode (ADR-0046)', () => {
+    renderBoard();
+    expect(
+      screen.getByRole('button', { name: 'Start workshop session' }),
+    ).toBeInTheDocument();
+  });
+
+  it('starting workshop mode calls startWorkshop.mutate (ADR-0046)', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
+    expect(startWorkshopMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the workshop banner when a session is active and workshop mode is on (ADR-0046)', async () => {
+    // Pre-set the session and have startWorkshop's mutate invoke onSuccess so
+    // workshopMode flips to true after the toggle is clicked.
+    mockWorkshopSession = {
+      id: 'session-uuid',
+      project_id: 'project-1',
+      started_by_id: 'user-1',
+      started_at: '2026-04-29T10:00:00Z',
+      ended_at: null,
+      participants: [],
+    };
+    startWorkshopMutate.mockImplementation(
+      (_input: undefined, opts?: { onSuccess?: () => void }) => {
+        opts?.onSuccess?.();
+      },
+    );
+    const user = userEvent.setup();
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
+    expect(screen.getByLabelText('Workshop session active')).toBeInTheDocument();
+  });
+
+  it('clicking the toggle while in workshop mode opens the exit confirm dialog (ADR-0046)', async () => {
+    mockWorkshopSession = {
+      id: 'session-uuid',
+      project_id: 'project-1',
+      started_by_id: 'user-1',
+      started_at: '2026-04-29T10:00:00Z',
+      ended_at: null,
+      participants: [],
+    };
+    startWorkshopMutate.mockImplementation(
+      (_input: undefined, opts?: { onSuccess?: () => void }) => {
+        opts?.onSuccess?.();
+      },
+    );
+    const user = userEvent.setup();
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
+    await user.click(screen.getByRole('button', { name: 'Exit workshop mode' }));
+    expect(screen.getByRole('dialog', { name: /End workshop session/ })).toBeInTheDocument();
+  });
+
+  it('cancel in the exit dialog dismisses it without ending the session (ADR-0046)', async () => {
+    mockWorkshopSession = {
+      id: 'session-uuid',
+      project_id: 'project-1',
+      started_by_id: 'user-1',
+      started_at: '2026-04-29T10:00:00Z',
+      ended_at: null,
+      participants: [],
+    };
+    startWorkshopMutate.mockImplementation(
+      (_input: undefined, opts?: { onSuccess?: () => void }) => {
+        opts?.onSuccess?.();
+      },
+    );
+    const user = userEvent.setup();
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
+    await user.click(screen.getByRole('button', { name: 'Exit workshop mode' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog', { name: /End workshop session/ })).not.toBeInTheDocument();
+    expect(endWorkshopMutate).not.toHaveBeenCalled();
+  });
+
+  it('confirming end in the exit dialog calls endWorkshop.mutate (ADR-0046)', async () => {
+    mockWorkshopSession = {
+      id: 'session-uuid',
+      project_id: 'project-1',
+      started_by_id: 'user-1',
+      started_at: '2026-04-29T10:00:00Z',
+      ended_at: null,
+      participants: [],
+    };
+    startWorkshopMutate.mockImplementation(
+      (_input: undefined, opts?: { onSuccess?: () => void }) => {
+        opts?.onSuccess?.();
+      },
+    );
+    endWorkshopMutate.mockImplementation(
+      (_input: undefined, opts?: { onSettled?: () => void }) => {
+        opts?.onSettled?.();
+      },
+    );
+    const user = userEvent.setup();
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
+    await user.click(screen.getByRole('button', { name: 'Exit workshop mode' }));
+    // The dialog renders a primary "End Workshop" button alongside Cancel.
+    await user.click(screen.getByRole('button', { name: 'End Workshop' }));
+    expect(endWorkshopMutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape in the exit dialog dismisses it (ADR-0046)', async () => {
+    mockWorkshopSession = {
+      id: 'session-uuid',
+      project_id: 'project-1',
+      started_by_id: 'user-1',
+      started_at: '2026-04-29T10:00:00Z',
+      ended_at: null,
+      participants: [],
+    };
+    startWorkshopMutate.mockImplementation(
+      (_input: undefined, opts?: { onSuccess?: () => void }) => {
+        opts?.onSuccess?.();
+      },
+    );
+    const user = userEvent.setup();
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
+    await user.click(screen.getByRole('button', { name: 'Exit workshop mode' }));
+    const dialog = screen.getByRole('dialog', { name: /End workshop session/ });
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: /End workshop session/ })).not.toBeInTheDocument();
   });
 
 });

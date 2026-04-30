@@ -103,4 +103,60 @@ describe('LaneMeta', () => {
     );
     expect(screen.getByRole('button', { name: '▾' })).toBeInTheDocument();
   });
+
+  it('calls onPhaseRename when the editable name blurs with a new value', () => {
+    const onPhaseRename = vi.fn();
+    render(<LaneMeta {...BASE_PROPS} workshop onPhaseRename={onPhaseRename} />);
+    const textbox = screen.getByRole('textbox', { name: /Phase name: Engineering/ });
+    textbox.textContent = '  Discovery  ';
+    fireEvent.blur(textbox);
+    expect(onPhaseRename).toHaveBeenCalledWith('Discovery');
+  });
+
+  it('does not call onPhaseRename when the name is unchanged after blur', () => {
+    const onPhaseRename = vi.fn();
+    render(<LaneMeta {...BASE_PROPS} workshop onPhaseRename={onPhaseRename} />);
+    const textbox = screen.getByRole('textbox', { name: /Phase name: Engineering/ });
+    fireEvent.blur(textbox);
+    expect(onPhaseRename).not.toHaveBeenCalled();
+  });
+
+  it('reverts the editable name to the original on blur when emptied', () => {
+    const onPhaseRename = vi.fn();
+    render(<LaneMeta {...BASE_PROPS} workshop onPhaseRename={onPhaseRename} />);
+    const textbox = screen.getByRole('textbox', { name: /Phase name: Engineering/ });
+    textbox.textContent = '   ';
+    fireEvent.blur(textbox);
+    expect(onPhaseRename).not.toHaveBeenCalled();
+    expect(textbox.textContent).toBe('Engineering');
+  });
+
+  it('commits the edit on Enter key', () => {
+    const onPhaseRename = vi.fn();
+    render(<LaneMeta {...BASE_PROPS} workshop onPhaseRename={onPhaseRename} />);
+    const textbox = screen.getByRole('textbox', { name: /Phase name: Engineering/ });
+    textbox.textContent = 'Build';
+    fireEvent.keyDown(textbox, { key: 'Enter' });
+    // Enter triggers blur, which fires the onBlur handler with the new value.
+    fireEvent.blur(textbox);
+    expect(onPhaseRename).toHaveBeenCalledWith('Build');
+  });
+
+  it('reverts the edit on Escape key', () => {
+    const onPhaseRename = vi.fn();
+    render(<LaneMeta {...BASE_PROPS} workshop onPhaseRename={onPhaseRename} />);
+    const textbox = screen.getByRole('textbox', { name: /Phase name: Engineering/ });
+    textbox.textContent = 'AbandonedEdit';
+    fireEvent.keyDown(textbox, { key: 'Escape' });
+    expect(textbox.textContent).toBe('Engineering');
+    fireEvent.blur(textbox);
+    expect(onPhaseRename).not.toHaveBeenCalled();
+  });
+
+  it('ignores blur when no onPhaseRename callback is provided', () => {
+    render(<LaneMeta {...BASE_PROPS} workshop />);
+    const textbox = screen.getByRole('textbox', { name: /Phase name: Engineering/ });
+    textbox.textContent = 'Whatever';
+    expect(() => fireEvent.blur(textbox)).not.toThrow();
+  });
 });

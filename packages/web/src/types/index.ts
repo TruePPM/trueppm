@@ -82,6 +82,8 @@ export interface Task {
   actualCost?: number | null;
   /** True when the assignee's total units across active tasks for this project exceeds 1.0. */
   assigneeIsOverallocated?: boolean;
+  /** Monotonically increasing version counter — used for optimistic locking on phase reorder. */
+  serverVersion?: number;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */
@@ -245,6 +247,24 @@ export interface ShellStatTask {
   id: string;
   wbs: string;
   name: string;
+}
+
+export interface WorkshopParticipant {
+  id: number;
+  user_id: string;
+  display_name: string;
+  joined_at: string;
+  left_at: string | null;
+  color_index: number;
+}
+
+export interface WorkshopSession {
+  id: string;
+  project_id: string;
+  started_by_id: string | null;
+  started_at: string;
+  ended_at: string | null;
+  participants: WorkshopParticipant[];
 }
 
 export interface ShellStats {

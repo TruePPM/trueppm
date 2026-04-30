@@ -2622,3 +2622,106 @@ class TaskBaselineDetailView(APIView):
                 "duration_delta": task.duration - bt.duration,
             }
         )
+
+
+class PhaseReorderView(APIView):
+    """Reorder phase columns on the board by updating priority_rank on WBS L1 tasks.
+
+    PATCH /api/v1/projects/{pk}/phases/reorder/
+
+    Body:
+        {
+            "phases": [
+                {"id": "<uuid>", "server_version": 12},
+                {"id": "<uuid>", "server_version": 7}
+            ]
+        }
+
+    Requires ADMIN (role ≥ 3).  Verifies server_version for every supplied task
+    before writing — returns 409 if any version is stale (another participant
+    modified a phase concurrently).  Atomically sets priority_rank = position * 10,
+    bumps server_version via F() increment, broadcasts phases_reordered, and
+    enqueues a CPM recalculation.
+
+    All IDs must be non-deleted, root-level tasks (wbs_path matches ^\\d+$)
+    belonging to this project — any violation returns 400.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectAdmin]
+
+    def patch(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+
+        phases_data = request.data.get("phases")
+        if not isinstance(phases_data, list) or not phases_data:
+            return Response(
+                {"phases": ["This field is required and must be a non-empty list."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Validate each entry: must be a dict with a UUID id and integer server_version.
+        invalid: list[str] = []
+        parsed: list[tuple[str, int]] = []
+        for entry in phases_data:
+            if not isinstance(entry, dict):
+                invalid.append(repr(entry))
+                continue
+            tid = entry.get("id")
+            sv = entry.get("server_version")
+            if not isinstance(tid, str) or not isinstance(sv, int):
+                invalid.append(repr(entry))
+                continue
+            try:
+                uuid.UUID(tid)
+            except ValueError:
+                invalid.append(tid)
+                continue
+            parsed.append((tid, sv))
+
+        if invalid:
+            bad = ", ".join(invalid)
+            return Response(
+                {"phases": [f"Invalid entries (expected {{id, server_version}}): {bad}"]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        project_id_str = str(project.pk)
+        with transaction.atomic():
+            # Lock rows first to serialise concurrent reorders.
+            root_tasks = Task.objects.select_for_update().filter(
+                project_id=pk, is_deleted=False, wbs_path__regex=r"^\d+$"
+            )
+            root_by_id = {str(t.pk): t for t in root_tasks}
+
+            unknown = [tid for tid, _ in parsed if tid not in root_by_id]
+            if unknown:
+                bad = ", ".join(unknown)
+                return Response(
+                    {"phases": [f"Unknown or non-root task IDs: {bad}"]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Optimistic lock — reject if any server_version is stale.
+            stale = [tid for tid, sv in parsed if root_by_id[tid].server_version != sv]
+            if stale:
+                bad = ", ".join(stale)
+                return Response(
+                    {"detail": f"Conflict: stale server_version for tasks: {bad}"},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            for position, (task_id, _) in enumerate(parsed, start=1):
+                task = root_by_id[task_id]
+                task.priority_rank = position * 10
+                task.server_version = F("server_version") + 1
+                task.save(update_fields=["priority_rank", "server_version"])
+
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id_str, "phases_reordered", {})
+            )
+            transaction.on_commit(lambda: _enqueue_recalculate(project_id_str))
+
+        return Response({"updated": len(parsed)}, status=status.HTTP_200_OK)
