@@ -141,12 +141,10 @@ test.describe('Table view (#207)', () => {
   });
 
   test('renders status pills for Done and Not started', async ({ page }) => {
-    // Filter to a task with "Done" status — filtering triggers virtualizer to render
-    await page.getByRole('searchbox', { name: 'Search tasks' }).fill('Design Sprint');
-    await expect(page.getByText('Done')).toBeVisible({ timeout: 10_000 });
-    // Filter to a task with "Not started" status
-    await page.getByRole('searchbox', { name: 'Search tasks' }).fill('Backend');
-    await expect(page.getByText('Not started')).toBeVisible({ timeout: 10_000 });
+    // Fixture: 1 COMPLETE task (Design Sprint) → 1 "Done" pill;
+    //         2 NOT_STARTED tasks (Backend Build, Phase 1 Gate) → 2 "Not started" pills.
+    await expect(page.getByText('Done')).toHaveCount(1);
+    await expect(page.getByText('Not started')).toHaveCount(2);
   });
 
   test('group-by button cycles through phase grouping', async ({ page }) => {
