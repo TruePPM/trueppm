@@ -247,6 +247,24 @@ export interface ShellStatTask {
   name: string;
 }
 
+export interface WorkshopParticipant {
+  id: number;
+  user_id: string;
+  display_name: string;
+  joined_at: string;
+  left_at: string | null;
+  color_index: number;
+}
+
+export interface WorkshopSession {
+  id: string;
+  project_id: string;
+  started_by_id: string | null;
+  started_at: string;
+  ended_at: string | null;
+  participants: WorkshopParticipant[];
+}
+
 export interface ShellStats {
   taskCount: number;
   criticalPathCount: number;

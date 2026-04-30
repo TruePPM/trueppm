@@ -16,7 +16,7 @@
  * WIP limits, progress rings, entry stamps, and CP badges are spec-defined
  * features from the design doc (p3m-vs-oss-views-original.html § ⑤).
  */
-import { useState, useEffect, useRef, useCallback, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import {
@@ -31,6 +31,13 @@ import {
   type DragOverEvent,
   DragOverlay,
 } from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTaskStatus } from '@/hooks/useBoardTasks';
 import { useBoardConfig } from '@/hooks/useBoardConfig';
@@ -38,10 +45,14 @@ import { useBoardKeyboard } from '@/hooks/useBoardKeyboard';
 import { useBoardOverallocation } from '@/hooks/useBoardOverallocation';
 import { type BoardSortKey, type BoardViewConfig } from '@/hooks/useBoardSavedViews';
 import { useTaskDependencies } from '@/hooks/useTaskDependencies';
+import { useWorkshopSession, useStartWorkshop, useEndWorkshop } from '@/hooks/useWorkshopSession';
+import { usePhaseReorder } from '@/hooks/usePhaseReorder';
+import { useCreateTask, useUpdateTask } from '@/hooks/useTaskMutations';
 import type { Task, TaskStatus } from '@/types';
 import { BoardCard, type BoardDensity, type EvmMode } from './BoardCard';
 import { BoardViewDropdown } from './BoardViewDropdown';
 import { LaneMeta } from './LaneMeta';
+import { WorkshopBanner } from './WorkshopBanner';
 import { AddTaskModal } from './AddTaskModal';
 import { PhaseMilestoneRail } from './PhaseMilestoneRail';
 import { KeyboardCheatsheet } from './KeyboardCheatsheet';
@@ -81,8 +92,14 @@ interface Phase {
 /**
  * Group leaf tasks by their parent (phase) summary task.
  * Summary tasks are excluded from cards — they appear as lane headers.
+ *
+ * In workshop mode, root-level tasks (parentId === null) that aren't yet
+ * summary tasks are treated as proto-phases so a newly created phase appears
+ * as an empty column before any child tasks are added (the backend only sets
+ * is_summary=true once children exist).  Empty phases are also kept visible
+ * so participants can see and fill them during the session.
  */
-function buildPhases(allTasks: Task[]): Phase[] {
+function buildPhases(allTasks: Task[], workshopMode = false): Phase[] {
   const summaryById = new Map<string, Task>();
   const summaryOrder: string[] = [];
 
@@ -93,11 +110,20 @@ function buildPhases(allTasks: Task[]): Phase[] {
     }
   }
 
+  if (workshopMode) {
+    for (const t of allTasks) {
+      if (!t.isSummary && t.parentId === null && !summaryById.has(t.id)) {
+        summaryById.set(t.id, t);
+        summaryOrder.push(t.id);
+      }
+    }
+  }
+
   const byPhase = new Map<string, Task[]>();
   const rootTasks: Task[] = [];
 
   for (const t of allTasks) {
-    if (t.isSummary) continue;
+    if (summaryById.has(t.id)) continue;
     const parentId = t.parentId;
     if (parentId && summaryById.has(parentId)) {
       const arr = byPhase.get(parentId) ?? [];
@@ -115,7 +141,7 @@ function buildPhases(allTasks: Task[]): Phase[] {
       summaryTask: summaryById.get(id),
       tasks: byPhase.get(id) ?? [],
     }))
-    .filter((p) => p.tasks.length > 0); // hide empty phases
+    .filter((p) => workshopMode || p.tasks.length > 0);
 
   if (rootTasks.length > 0) {
     phases.push({ id: 'root', name: 'Project Tasks', summaryTask: undefined, tasks: rootTasks });
@@ -327,6 +353,10 @@ interface PhaseLaneProps {
   onOpenMilestone: (task: Task) => void;
   showEvm: EvmMode;
   showCost: boolean;
+  /** Workshop mode: editable names, drag handle, tinted bg. */
+  workshop?: boolean;
+  onPhaseRename?: (phaseId: string, newName: string) => void;
+  dragHandleListeners?: Record<string, unknown>;
 }
 
 function PhaseLane({
@@ -353,6 +383,9 @@ function PhaseLane({
   onOpenMilestone,
   showEvm,
   showCost,
+  workshop = false,
+  onPhaseRename,
+  dragHandleListeners,
 }: PhaseLaneProps) {
   const avg = avgProgress(phase.tasks);
   const color = phaseColor(phase.id);
@@ -417,6 +450,9 @@ function PhaseLane({
             avgProgress={avg}
             taskCount={phase.tasks.length}
             railColor={color}
+            workshop={workshop}
+            onPhaseRename={onPhaseRename ? (name) => onPhaseRename(phase.id, name) : undefined}
+            dragHandleListeners={dragHandleListeners}
             onAddTask={() => onAddTask(phase.id, phase.name)}
             collapseToggle={collapseToggle}
             showCost={showCost}
@@ -471,6 +507,33 @@ function PhaseLane({
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sortable phase lane — workshop mode drag-to-reorder wrapper
+// ---------------------------------------------------------------------------
+
+function SortablePhaseLane(props: PhaseLaneProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: `phase:${props.phase.id}` });
+
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : undefined,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      <PhaseLane {...props} dragHandleListeners={listeners as Record<string, unknown>} />
     </div>
   );
 }
@@ -573,11 +636,20 @@ export function BoardView() {
   const { columns: rawColumns, save: saveBoardConfig } = useBoardConfig(projectId || null);
   const { tasks, isLoading } = useScheduleTasks();
   const updateStatus = useUpdateTaskStatus();
+  const updateTask = useUpdateTask();
+  const { data: workshopSession } = useWorkshopSession(projectId || null);
+  const startWorkshop = useStartWorkshop(projectId || null);
+  const endWorkshop = useEndWorkshop(projectId || null);
+  const phaseReorder = usePhaseReorder(projectId || null);
   const COLUMNS = rawColumns.filter((c) => c.visible);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null); // `${phaseId}:${status}`
+  const [workshopMode, setWorkshopMode] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const workshopToggleRef = useRef<HTMLButtonElement>(null);
+  const [phaseOrder, setPhaseOrder] = useState<string[]>([]);
   const [sort, setSort] = useState<BoardSortKey>('priority');
   const [showWip, setShowWip] = useState(true);
   const [showColTints, setShowColTints] = useState(true);
@@ -644,7 +716,32 @@ export function BoardView() {
     useSensor(KeyboardSensor),
   );
 
-  const phases = useMemo(() => buildPhases(tasks ?? []), [tasks]);
+  const createTask = useCreateTask(projectId || null);
+  const phases = useMemo(() => buildPhases(tasks ?? [], workshopMode), [tasks, workshopMode]);
+
+  const handleAddPhase = useCallback(() => {
+    const name = `Phase ${phases.filter((p) => p.id !== 'root').length + 1}`;
+    createTask.mutate({ name, duration: 0, parent_id: null });
+  }, [createTask, phases]);
+
+  // Keep phaseOrder in sync with server data; only reset when the phase set changes.
+  const phaseIdKey = phases.map((p) => p.id).join(',');
+  useEffect(() => {
+    setPhaseOrder(phases.map((p) => p.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phaseIdKey]);
+
+  // In workshop mode, sort phases by the locally-managed phaseOrder (optimistic).
+  const sortedPhases = useMemo(() => {
+    if (!workshopMode || phaseOrder.length === 0) return phases;
+    return [...phases].sort((a, b) => {
+      const ai = phaseOrder.indexOf(a.id);
+      const bi = phaseOrder.indexOf(b.id);
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+  }, [phases, phaseOrder, workshopMode]);
 
   // Lookup index for jump-to-card from popovers (#182, #195) and milestone classification.
   const taskIndex = useMemo(() => {
@@ -757,9 +854,30 @@ export function BoardView() {
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
-      const overId = event.over?.id;
+      const { active, over } = event;
+      const activeIdStr = String(active.id);
       setActiveId(null);
       setOverCell(null);
+
+      // Phase reorder (workshop mode) — active ID is prefixed with 'phase:'
+      if (activeIdStr.startsWith('phase:') && over) {
+        const overId = String(over.id);
+        if (activeIdStr !== overId) {
+          const fromPhaseId = activeIdStr.replace('phase:', '');
+          const toPhaseId = overId.replace('phase:', '');
+          const fromIdx = phaseOrder.indexOf(fromPhaseId);
+          const toIdx = phaseOrder.indexOf(toPhaseId);
+          if (fromIdx !== -1 && toIdx !== -1) {
+            const newOrder = arrayMove(phaseOrder, fromIdx, toIdx);
+            setPhaseOrder(newOrder);
+            phaseReorder.mutate(newOrder);
+          }
+        }
+        return;
+      }
+
+      // Card status change
+      const overId = over?.id;
       if (!overId || !activeTask) return;
       const [, newStatus] = String(overId).split(':');
       if (!newStatus || newStatus === activeTask.status) return;
@@ -769,7 +887,7 @@ export function BoardView() {
         ariaLiveRef.current.textContent = `${activeTask.name} moved to ${colLabel}`;
       }
     },
-    [activeTask, projectId, updateStatus, COLUMNS],
+    [activeTask, projectId, updateStatus, COLUMNS, phaseOrder, phaseReorder],
   );
 
   const handleDragCancel = useCallback(() => {
@@ -791,6 +909,14 @@ export function BoardView() {
   const handleAddTask = useCallback((phaseId: string, phaseName: string) => {
     setAddTaskPhase({ id: phaseId, name: phaseName });
   }, []);
+
+  const handlePhaseRename = useCallback(
+    (phaseId: string, newName: string) => {
+      if (!phaseId || phaseId === 'root') return;
+      updateTask.mutate({ id: phaseId, projectId, name: newName });
+    },
+    [updateTask, projectId],
+  );
 
   const handleCardFocus = useCallback((taskId: string, status: TaskStatus, phaseId: string) => {
     setFocusedCardId(taskId);
@@ -904,14 +1030,6 @@ export function BoardView() {
     return (
       <div className="flex items-center justify-center h-full text-neutral-text-secondary text-sm">
         Loading board…
-      </div>
-    );
-  }
-
-  if (!tasks || tasks.filter((t) => !t.isSummary).length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full text-neutral-text-secondary text-sm" role="status">
-        No tasks yet. Create tasks to see them on the board.
       </div>
     );
   }
@@ -1077,7 +1195,43 @@ export function BoardView() {
             >
               <kbd className="bg-neutral-surface-raised border border-neutral-border rounded px-1 tppm-mono text-xs">?</kbd>
             </button>
+
+            {/* Workshop mode toggle (ADR-0046) */}
+            <button
+              ref={workshopToggleRef}
+              type="button"
+              onClick={() => {
+                if (workshopMode) {
+                  setShowExitConfirm(true);
+                } else {
+                  startWorkshop.mutate(undefined, {
+                    onSuccess: () => setWorkshopMode(true),
+                  });
+                }
+              }}
+              disabled={startWorkshop.isPending}
+              aria-pressed={workshopMode}
+              className={[
+                'border rounded px-2 py-0.5 inline-flex items-center gap-1',
+                'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
+                workshopMode
+                  ? 'bg-brand-primary/10 border-brand-primary/40 text-brand-primary-dark dark:text-brand-primary'
+                  : 'border-neutral-border text-neutral-text-primary hover:bg-neutral-surface-raised',
+              ].join(' ')}
+              aria-label={workshopMode ? 'Exit workshop mode' : 'Start workshop session'}
+            >
+              {workshopMode ? '◎ In Workshop' : '◎ Workshop'}
+            </button>
           </div>
+
+          {/* Workshop banner — shown when a session is active (ADR-0046) */}
+          {workshopMode && workshopSession && (
+            <WorkshopBanner
+              session={workshopSession}
+              onEnd={() => setShowExitConfirm(true)}
+              isEnding={endWorkshop.isPending}
+            />
+          )}
 
           {/* Board grid — scrollable */}
           <div className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken">
@@ -1109,52 +1263,115 @@ export function BoardView() {
             </div>
 
             {/* Phase lanes */}
-            {phases
-              .filter((phase) => {
+            {(() => {
+              const filteredPhases = sortedPhases.filter((phase) => {
                 const phaseCells = phaseTaskMap.get(phase.id);
                 // After cpOnly/dueSoonDays filtering, hide phases with no visible tasks.
                 if (cpOnly || dueSoonDays !== null) {
                   const visibleCount = Object.values(phaseCells ?? {}).reduce(
-                    (s: number, arr) => s + (arr as unknown[]).length, 0
+                    (s: number, arr) => s + (arr as unknown[]).length, 0,
                   );
                   if (visibleCount === 0) return false;
                 }
                 if (!riskLinkedOnly) return true;
                 return phase.tasks.some((t) => (t.linkedRisksCount ?? 0) > 0);
-              })
-              .map((phase) => (
-              <PhaseLane
-                key={phase.id}
-                phase={phase}
-                columns={COLUMNS}
-                tasksByStatus={phaseTaskMap.get(phase.id) ?? {
+              });
+
+              const laneProps = (phase: Phase) => ({
+                phase,
+                columns: COLUMNS,
+                tasksByStatus: phaseTaskMap.get(phase.id) ?? {
                   BACKLOG: [], NOT_STARTED: [], IN_PROGRESS: [], REVIEW: [], ON_HOLD: [], COMPLETE: [],
-                }}
-                milestones={milestonesByPhase.get(phase.id) ?? []}
-                overCell={overCell}
-                isDragActive={activeId !== null}
-                showWip={showWip}
-                showColTints={showColTints}
-                density={density}
-                collapsed={collapsedIds.has(phase.id)}
-                onToggleCollapse={() => toggleCollapse(phase.id)}
-                onMenuMove={handleMenuMove}
-                onAddTask={handleAddTask}
-                focusedCardId={focusedCardId}
-                highlightedTaskIds={highlightedTaskIds}
-                overallocByResourcePerTask={overallocByResourcePerTask}
-                onCardFocus={handleCardFocus}
-                onShowDeps={handleShowDeps}
-                onShowRisks={handleShowRisks}
-                onChainHover={handleChainHover}
-                onOpenMilestone={(t) => {
-                  // Milestone click — focus the milestone task on its column.
+                },
+                milestones: milestonesByPhase.get(phase.id) ?? [],
+                overCell,
+                isDragActive: activeId !== null,
+                showWip,
+                showColTints,
+                density,
+                collapsed: collapsedIds.has(phase.id),
+                onToggleCollapse: () => toggleCollapse(phase.id),
+                onMenuMove: handleMenuMove,
+                onAddTask: handleAddTask,
+                focusedCardId,
+                highlightedTaskIds,
+                overallocByResourcePerTask,
+                onCardFocus: handleCardFocus,
+                onShowDeps: handleShowDeps,
+                onShowRisks: handleShowRisks,
+                onChainHover: handleChainHover,
+                onOpenMilestone: (t: Task) => {
                   handleCardFocus(t.id, t.status, t.parentId ?? 'root');
-                }}
-                showEvm={evmMode}
-                showCost={showCost}
-              />
-            ))}
+                },
+                showEvm: evmMode,
+                showCost,
+                workshop: workshopMode,
+                onPhaseRename: workshopMode ? handlePhaseRename : undefined,
+              });
+
+              if (workshopMode) {
+                return (
+                  <>
+                    <SortableContext
+                      items={filteredPhases.map((p) => `phase:${p.id}`)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      {filteredPhases.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-text-secondary">
+                          <p className="text-sm">No phases yet. Add your first phase to start planning.</p>
+                          <button
+                            type="button"
+                            onClick={handleAddPhase}
+                            disabled={createTask.isPending}
+                            className="border border-brand-primary/40 rounded px-4 py-2 text-sm
+                              text-brand-primary-dark dark:text-brand-primary font-medium
+                              hover:bg-brand-primary/10 disabled:opacity-50
+                              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                          >
+                            {createTask.isPending ? 'Adding…' : '+ Add Phase'}
+                          </button>
+                        </div>
+                      ) : (
+                        filteredPhases.map((phase) => (
+                          <SortablePhaseLane key={phase.id} {...laneProps(phase)} />
+                        ))
+                      )}
+                    </SortableContext>
+                    {filteredPhases.length > 0 && (
+                      <div className="flex justify-start px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={handleAddPhase}
+                          disabled={createTask.isPending}
+                          className="border border-dashed border-neutral-border rounded px-3 py-1.5 text-xs
+                            text-neutral-text-secondary hover:border-brand-primary/40
+                            hover:text-brand-primary-dark dark:hover:text-brand-primary
+                            hover:bg-brand-primary/5 disabled:opacity-50
+                            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                        >
+                          {createTask.isPending ? 'Adding…' : '+ Add Phase'}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                );
+              }
+
+              if (filteredPhases.length === 0) {
+                return (
+                  <div
+                    className="flex items-center justify-center py-16 text-neutral-text-secondary text-sm"
+                    role="status"
+                  >
+                    No tasks yet. Create tasks to see them on the board.
+                  </div>
+                );
+              }
+
+              return filteredPhases.map((phase) => (
+                <PhaseLane key={phase.id} {...laneProps(phase)} />
+              ));
+            })()}
           </div>
         </div>
 
@@ -1222,6 +1439,85 @@ export function BoardView() {
           task={riskTask}
           onClose={() => setRiskTask(null)}
         />
+      )}
+
+      {/* Workshop exit confirmation dialog (ADR-0046) */}
+      {showExitConfirm && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="workshop-exit-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onKeyDown={(e: ReactKeyboardEvent<HTMLDivElement>) => {
+            if (e.key === 'Escape') {
+              setShowExitConfirm(false);
+              workshopToggleRef.current?.focus();
+              return;
+            }
+            // Focus trap: cycle Tab through the dialog's interactive elements.
+            if (e.key === 'Tab') {
+              const focusable = Array.from(
+                e.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled])'),
+              );
+              if (focusable.length === 0) return;
+              const first = focusable[0];
+              const last = focusable[focusable.length - 1];
+              if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+              } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+              }
+            }
+          }}
+        >
+          <div className="bg-neutral-surface border border-neutral-border rounded-lg p-6 max-w-sm w-full mx-4">
+            <h2
+              id="workshop-exit-title"
+              className="text-sm font-semibold text-neutral-text-primary mb-2"
+            >
+              End workshop session?
+            </h2>
+            <p className="text-xs text-neutral-text-secondary mb-4">
+              This will end the session for all participants. The board will return to normal mode.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                // eslint-disable-next-line jsx-a11y/no-autofocus
+                autoFocus
+                type="button"
+                onClick={() => {
+                  setShowExitConfirm(false);
+                  workshopToggleRef.current?.focus();
+                }}
+                className="border border-neutral-border rounded px-3 py-1.5 text-xs
+                  text-neutral-text-primary hover:bg-neutral-surface-raised
+                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={endWorkshop.isPending}
+                onClick={() => {
+                  endWorkshop.mutate(undefined, {
+                    onSettled: () => {
+                      setWorkshopMode(false);
+                      setShowExitConfirm(false);
+                      workshopToggleRef.current?.focus();
+                    },
+                  });
+                }}
+                className="border border-semantic-critical/40 rounded px-3 py-1.5 text-xs
+                  text-semantic-critical hover:bg-semantic-critical/10 disabled:opacity-50
+                  focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:outline-none"
+              >
+                {endWorkshop.isPending ? 'Ending…' : 'End Workshop'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

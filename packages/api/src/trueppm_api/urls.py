@@ -51,4 +51,5 @@ urlpatterns = [
     path("api/v1/", include("trueppm_api.apps.msproject.urls")),
     path("api/v1/", include("trueppm_api.apps.webhooks.urls")),
     path("api/v1/", include("trueppm_api.apps.taskruns.urls")),
+    path("api/v1/", include("trueppm_api.apps.workshops.urls")),
 ]

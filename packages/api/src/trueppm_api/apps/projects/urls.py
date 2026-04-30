@@ -13,6 +13,7 @@ from trueppm_api.apps.projects.views import (
     BoardSavedViewListView,
     CalendarViewSet,
     DependencyViewSet,
+    PhaseReorderView,
     ProjectAttentionView,
     ProjectMyTasksView,
     ProjectOverviewView,
@@ -151,5 +152,11 @@ urlpatterns = [
         "projects/<project_pk>/risks/<risk_pk>/comments/",
         RiskCommentViewSet.as_view({"get": "list", "post": "create"}),
         name="project-risk-comments-list",
+    ),
+    # Phase reorder — workshop mode drag-to-reorder (ADR-0046)
+    path(
+        "projects/<pk>/phases/reorder/",
+        PhaseReorderView.as_view(),
+        name="project-phases-reorder",
     ),
 ]

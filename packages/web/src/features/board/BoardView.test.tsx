@@ -65,6 +65,17 @@ vi.mock('@/hooks/useBoardConfig', () => ({
 
 vi.mock('@/hooks/useTaskMutations', () => ({
   useCreateTask: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
+  useUpdateTask: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+vi.mock('@/hooks/useWorkshopSession', () => ({
+  useWorkshopSession: () => ({ data: null, isLoading: false }),
+  useStartWorkshop: () => ({ mutate: vi.fn(), isPending: false }),
+  useEndWorkshop: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+
+vi.mock('@/hooks/usePhaseReorder', () => ({
+  usePhaseReorder: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 // Board batch 6 — stub saved views hook so BoardViewDropdown doesn't make network calls.

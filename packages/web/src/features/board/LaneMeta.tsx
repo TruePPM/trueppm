@@ -7,9 +7,10 @@
  *   ▌    8 tasks
  *
  * Workshop variant (`workshop={true}`): background tinted with phase color,
- * phase name becomes contentEditable, drag handle rendered (wiring is N19).
+ * phase name becomes contentEditable, drag handle rendered (ADR-0046).
+ * Escape reverts to the saved name; Enter/blur commits by calling onPhaseRename.
  */
-import type { ReactNode } from 'react';
+import { type ReactNode, type KeyboardEvent, useRef, useCallback } from 'react';
 
 const SIZE = 36;
 const STROKE_WIDTH = 3;
@@ -75,6 +76,13 @@ export interface LaneMetaProps {
   railColor: string;
   /** Workshop mode: tinted bg, editable name, drag handle. */
   workshop?: boolean;
+  /** Called when the user commits a phase rename in workshop mode. */
+  onPhaseRename?: (newName: string) => void;
+  /**
+   * @dnd-kit listeners for the drag handle in workshop mode. When provided, the
+   * ⋮⋮ handle activates the sortable drag for phase reordering.
+   */
+  dragHandleListeners?: Record<string, unknown>;
   onAddTask?: () => void;
   /** Expand/collapse toggle rendered inside the phase name row. */
   collapseToggle?: ReactNode;
@@ -99,6 +107,8 @@ export function LaneMeta({
   taskCount,
   railColor,
   workshop = false,
+  onPhaseRename,
+  dragHandleListeners,
   onAddTask,
   collapseToggle,
   showCost = false,
@@ -106,6 +116,33 @@ export function LaneMeta({
   phaseActualCost = null,
 }: LaneMetaProps) {
   const pct = Math.max(0, Math.min(100, avgProgress));
+  const editableRef = useRef<HTMLSpanElement>(null);
+
+  const handleBlur = useCallback(() => {
+    if (!editableRef.current || !onPhaseRename) return;
+    const newName = editableRef.current.textContent?.trim() ?? '';
+    if (newName && newName !== phaseName) {
+      onPhaseRename(newName);
+    } else {
+      // Revert if empty or unchanged
+      editableRef.current.textContent = phaseName;
+    }
+  }, [phaseName, onPhaseRename]);
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLSpanElement>) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        editableRef.current?.blur();
+      } else if (e.key === 'Escape') {
+        if (editableRef.current) {
+          editableRef.current.textContent = phaseName;
+        }
+        editableRef.current?.blur();
+      }
+    },
+    [phaseName],
+  );
 
   return (
     <div
@@ -129,6 +166,7 @@ export function LaneMeta({
               aria-hidden="true"
               className="text-neutral-text-disabled text-sm cursor-grab select-none flex-shrink-0"
               title="Drag to reorder phase"
+              {...(dragHandleListeners as Record<string, (e: unknown) => void>)}
             >
               ⋮⋮
             </span>
@@ -138,11 +176,15 @@ export function LaneMeta({
 
           {workshop ? (
             <span
+              ref={editableRef}
               role="textbox"
+              tabIndex={0}
               contentEditable
               suppressContentEditableWarning
               aria-label={`Phase name: ${phaseName}`}
-              className="flex-1 text-xs font-semibold text-neutral-text-primary truncate
+              onBlur={handleBlur}
+              onKeyDown={handleKeyDown}
+              className="flex-1 text-xs font-semibold text-neutral-text-primary
                 outline-none border border-dashed border-neutral-border rounded px-[6px] py-[3px]
                 bg-neutral-surface focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
@@ -179,7 +221,7 @@ export function LaneMeta({
             <span className="text-sm font-semibold text-neutral-text-primary font-mono leading-none">
               {pct}%
             </span>
-            <span className="text-[10px] text-neutral-text-secondary leading-tight mt-0.5">
+            <span className="text-xs text-neutral-text-secondary leading-tight mt-0.5">
               {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
             </span>
           </div>
