@@ -1848,7 +1848,7 @@
         "/api/v1/projects/{id}/phases/reorder/": {
             "patch": {
                 "operationId": "v1_projects_phases_reorder_partial_update",
-                "description": "Reorder phase columns on the board by updating priority_rank on WBS L1 tasks.\n\nPATCH /api/v1/projects/{pk}/phases/reorder/\n\nBody:\n    {\n        \"ordered_ids\": [\"<uuid>\", ...]   # all root-level summary tasks in desired order\n    }\n\nThe server sets priority_rank = position * 10 on each supplied task and\nbroadcasts a phases_reordered event.  Used exclusively during Workshop mode\nwhere any Member+ may drag phases into a new order.\n\nAll IDs must be non-deleted, root-level tasks (wbs_path matches ^\\d+$)\nbelonging to this project — any violation returns 400.",
+                "description": "Reorder phase columns on the board by updating priority_rank on WBS L1 tasks.\n\nPATCH /api/v1/projects/{pk}/phases/reorder/\n\nBody:\n    {\n        \"phases\": [\n            {\"id\": \"<uuid>\", \"server_version\": 12},\n            {\"id\": \"<uuid>\", \"server_version\": 7}\n        ]\n    }\n\nRequires ADMIN (role ≥ 3).  Verifies server_version for every supplied task\nbefore writing — returns 409 if any version is stale (another participant\nmodified a phase concurrently).  Atomically sets priority_rank = position * 10,\nbumps server_version via F() increment, broadcasts phases_reordered, and\nenqueues a CPM recalculation.\n\nAll IDs must be non-deleted, root-level tasks (wbs_path matches ^\\d+$)\nbelonging to this project — any violation returns 400.",
                 "parameters": [
                     {
                         "in": "path",
