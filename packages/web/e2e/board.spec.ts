@@ -486,7 +486,7 @@ test.describe('Board view', () => {
   test('baseline variance chip renders on QA Gate card (issue #186)', async ({ page }) => {
     // The variance panel is `hidden group-hover:block group-focus-within:block` — only revealed
     // on hover/focus. Hover the QA Gate card first, then assert the chip is visible.
-    await page.getByRole('button', { name: /QA Gate/ }).hover();
+    await page.getByRole('button', { name: /^QA Gate,/ }).hover();
     await expect(page.getByLabel(/Baseline variance: \+10d/)).toBeVisible();
   });
 
