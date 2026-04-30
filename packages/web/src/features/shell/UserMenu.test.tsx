@@ -112,7 +112,7 @@ describe('UserMenu', () => {
     // Click the mobile backdrop (fixed inset-0 z-40 aria-hidden div).
     const backdrop = document.querySelector(
       '.fixed.inset-0.z-40[aria-hidden="true"]',
-    ) as HTMLElement | null;
+    );
     expect(backdrop).not.toBeNull();
     fireEvent.click(backdrop!);
     // After close, no "Sarah Chen" text should remain in the DOM.
