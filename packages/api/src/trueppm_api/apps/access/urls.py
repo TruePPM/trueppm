@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from django.urls import path
 
-from trueppm_api.apps.access.views import ProjectMembershipViewSet
+from trueppm_api.apps.access.views import MeView, ProjectMembershipViewSet
 
 _members = ProjectMembershipViewSet.as_view(
     {
@@ -21,6 +21,7 @@ _member_detail = ProjectMembershipViewSet.as_view(
 )
 
 urlpatterns = [
+    path("auth/me/", MeView.as_view(), name="auth-me"),
     path(
         "projects/<uuid:project_pk>/members/",
         _members,
