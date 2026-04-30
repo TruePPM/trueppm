@@ -32,6 +32,10 @@ export interface Risk {
   /** Computed by the API: probability × impact (1–25). */
   severity: number;
   owner: string | null;
+  /** Display name for the owner — first+last, falls back to username. Null when unassigned. */
+  owner_name?: string | null;
+  /** 1–2 char initials for the owner — used in matrix bubbles and the register table avatar. */
+  owner_initials?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

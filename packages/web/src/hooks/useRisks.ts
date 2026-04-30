@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { Risk, RiskComment, PaginatedResponse } from '@/api/types';
+import { useCurrentUser } from './useCurrentUser';
 
 export interface CreateRiskPayload {
   title: string;
@@ -138,27 +139,59 @@ export function useRiskComments(projectId: string, riskId: string | null) {
   };
 }
 
-/** POST /api/v1/projects/{id}/risks/{riskId}/comments/ — add a comment to a risk. */
+interface CreateCommentVars {
+  projectId: string;
+  riskId: string;
+  message: string;
+}
+
+interface OptimisticContext {
+  previous: RiskComment[] | undefined;
+  optimisticId: string;
+}
+
+/**
+ * POST /api/v1/projects/{id}/risks/{riskId}/comments/ — add a comment to a risk.
+ *
+ * Uses optimistic append (ADR-0044): the comment lands in the cached list
+ * immediately so the typing user sees their note right away. On error the
+ * optimistic entry is rolled back; on success it is replaced with the
+ * server's authoritative row via cache invalidation.
+ */
 export function useCreateRiskComment() {
   const queryClient = useQueryClient();
+  const { user } = useCurrentUser();
 
-  return useMutation({
-    mutationFn: async ({
-      projectId,
-      riskId,
-      message,
-    }: {
-      projectId: string;
-      riskId: string;
-      message: string;
-    }) => {
+  return useMutation<RiskComment, Error, CreateCommentVars, OptimisticContext>({
+    mutationFn: async ({ projectId, riskId, message }) => {
       const res = await apiClient.post<RiskComment>(
         `/projects/${projectId}/risks/${riskId}/comments/`,
         { message },
       );
       return res.data;
     },
-    onSuccess: (_data, variables) => {
+    onMutate: async ({ riskId, message }) => {
+      const queryKey = ['risk-comments', riskId];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<RiskComment[]>(queryKey);
+      const optimisticId = `optimistic-${Date.now()}`;
+      const optimistic: RiskComment = {
+        id: optimisticId,
+        author: user
+          ? { id: user.id, display_name: user.display_name }
+          : null,
+        message,
+        created_at: new Date().toISOString(),
+      };
+      queryClient.setQueryData<RiskComment[]>(queryKey, [...(previous ?? []), optimistic]);
+      return { previous, optimisticId };
+    },
+    onError: (_err, variables, context) => {
+      if (!context) return;
+      // Restore the pre-mutation list so the optimistic row disappears.
+      queryClient.setQueryData(['risk-comments', variables.riskId], context.previous);
+    },
+    onSettled: (_data, _err, variables) => {
       void queryClient.invalidateQueries({
         queryKey: ['risk-comments', variables.riskId],
       });
