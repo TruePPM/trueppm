@@ -46,6 +46,7 @@ import { useBoardKeyboard } from '@/hooks/useBoardKeyboard';
 import { useBoardOverallocation } from '@/hooks/useBoardOverallocation';
 import { type BoardSortKey, type BoardViewConfig } from '@/hooks/useBoardSavedViews';
 import { useTaskDependencies } from '@/hooks/useTaskDependencies';
+import { useQueryClient } from '@tanstack/react-query';
 import { useWorkshopSession, useStartWorkshop, useEndWorkshop } from '@/hooks/useWorkshopSession';
 import { usePhaseReorder } from '@/hooks/usePhaseReorder';
 import { useWorkshopSocket } from '@/hooks/useWorkshopSocket';
@@ -639,6 +640,7 @@ export function BoardView() {
   const { tasks, isLoading } = useScheduleTasks();
   const updateStatus = useUpdateTaskStatus();
   const updateTask = useUpdateTask();
+  const queryClient = useQueryClient();
   const { data: workshopSession } = useWorkshopSession(projectId || null);
   const startWorkshop = useStartWorkshop(projectId || null);
   const endWorkshop = useEndWorkshop(projectId || null);
@@ -650,8 +652,12 @@ export function BoardView() {
   const [overCell, setOverCell] = useState<string | null>(null); // `${phaseId}:${status}`
   const [workshopMode, setWorkshopMode] = useState(false);
   // Open the workshop WS channel while a session is active so participant
-  // join/leave events reach the banner in real time.
-  useWorkshopSocket(projectId || null, workshopMode && !!workshopSession, () => {});
+  // join/leave events update the banner in real time.
+  useWorkshopSocket(projectId || null, workshopMode && !!workshopSession, (event) => {
+    if (event.event_type === 'participant_joined' || event.event_type === 'participant_left') {
+      void queryClient.invalidateQueries({ queryKey: ['workshopSession', projectId] });
+    }
+  });
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const workshopToggleRef = useRef<HTMLButtonElement>(null);
   const [phaseOrder, setPhaseOrder] = useState<string[]>([]);

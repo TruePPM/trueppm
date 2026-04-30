@@ -2,14 +2,19 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BoardView } from './BoardView';
 
-// BoardView uses useSearchParams — all renders need a Router context.
+// BoardView uses useSearchParams + useQueryClient — all renders need a Router
+// context and a QueryClientProvider.
 function renderBoard() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter>
-      <BoardView />
-    </MemoryRouter>,
+    <QueryClientProvider client={qc}>
+      <MemoryRouter>
+        <BoardView />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
