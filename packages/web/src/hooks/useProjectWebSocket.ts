@@ -65,6 +65,10 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
   }, []);
 
   useEffect(() => {
+    // Re-arm mountedRef so connect() doesn't exit early after the previous
+    // cleanup set it false on a projectId/token change.
+    mountedRef.current = true;
+
     if (!projectId || !accessToken) return;
 
     let ws: WebSocket | null = null;

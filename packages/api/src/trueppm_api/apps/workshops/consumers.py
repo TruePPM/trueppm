@@ -113,11 +113,17 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             from trueppm_api.apps.workshops.models import WorkshopParticipant
 
             color = int(user_pk.replace("-", ""), 16) % 8
-            WorkshopParticipant.objects.get_or_create(
+            participant, created = WorkshopParticipant.objects.get_or_create(
                 session=sess,
                 user=self._user,
                 defaults={"color_index": color},
             )
+            # Clear left_at on reconnect — get_or_create returns the existing
+            # row without touching left_at, so a reconnecting user would stay
+            # offline until the banner next polls.
+            if not created and participant.left_at is not None:
+                participant.left_at = None
+                participant.save(update_fields=["left_at"])
             # Broadcast only after the participant row commits, preventing
             # clients from receiving a joined event for a non-existent row.
             transaction.on_commit(
