@@ -641,4 +641,59 @@ describe('BoardView', () => {
     expect(screen.queryByRole('dialog', { name: /End workshop session/ })).not.toBeInTheDocument();
   });
 
+  // -------------------------------------------------------------------------
+  // Issue #185 — EVM toolbar toggle (evmMode select + show cost checkbox)
+  // -------------------------------------------------------------------------
+
+  it('renders EVM indicators select in toolbar (issue #185)', () => {
+    renderBoard();
+    expect(screen.getByLabelText('EVM indicators')).toBeInTheDocument();
+  });
+
+  it('EVM indicators select defaults to "off" (issue #185)', () => {
+    renderBoard();
+    const select = screen.getByLabelText<HTMLSelectElement>('EVM indicators');
+    expect(select.value).toBe('off');
+  });
+
+  it('switching EVM to "spi" keeps the board rendering (issue #185)', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await user.selectOptions(screen.getByLabelText('EVM indicators'), 'spi');
+    expect(screen.getByText('TO DO')).toBeInTheDocument();
+  });
+
+  it('switching EVM to "cpi" keeps the board rendering (issue #185)', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await user.selectOptions(screen.getByLabelText('EVM indicators'), 'cpi');
+    expect(screen.getByText('TO DO')).toBeInTheDocument();
+  });
+
+  it('switching EVM to "both" keeps the board rendering (issue #185)', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await user.selectOptions(screen.getByLabelText('EVM indicators'), 'both');
+    expect(screen.getByText('TO DO')).toBeInTheDocument();
+  });
+
+  it('renders "Show cost" checkbox in toolbar (issue #189)', () => {
+    renderBoard();
+    expect(screen.getByLabelText('Show cost')).toBeInTheDocument();
+  });
+
+  it('"Show cost" checkbox defaults to unchecked (issue #189)', () => {
+    renderBoard();
+    const cb = screen.getByLabelText<HTMLInputElement>('Show cost');
+    expect(cb.checked).toBe(false);
+  });
+
+  it('toggling "Show cost" to on keeps the board rendering (issue #189)', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+    await user.click(screen.getByLabelText('Show cost'));
+    expect(screen.getByLabelText<HTMLInputElement>('Show cost').checked).toBe(true);
+    expect(screen.getByText('TO DO')).toBeInTheDocument();
+  });
+
 });

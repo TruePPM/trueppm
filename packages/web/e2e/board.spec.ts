@@ -45,6 +45,31 @@ const FIXTURE_TASKS = [
     predecessor_count: 2, is_blocked: true,
     linked_risks_count: 1, linked_risks_max_severity: 18,
   },
+  {
+    id: 'b4', wbs_path: '1.3', name: 'Release',
+    early_start: '2026-02-01', early_finish: '2026-02-05',
+    duration: 5, percent_complete: 0, is_critical: false,
+    is_milestone: true, is_summary: false, parent_id: 'b1',
+    status: 'NOT_STARTED', assignees: [],
+    total_float: null, predecessor_count: 0, is_blocked: false,
+    linked_risks_count: 0, linked_risks_max_severity: null,
+    status_changed_at: '2025-11-01T00:00:00Z',
+    priority_rank: 3,
+    baseline_start: '2026-01-01', baseline_finish: '2026-01-20',
+  },
+  {
+    id: 'b5', wbs_path: '1.4', name: 'Review Gate',
+    early_start: '2026-01-05', early_finish: '2026-01-20',
+    duration: 12, percent_complete: 40, is_critical: true,
+    is_milestone: false, is_summary: false, parent_id: 'b1',
+    status: 'IN_PROGRESS', assignees: [],
+    total_float: -3,
+    predecessor_count: 0, is_blocked: false,
+    linked_risks_count: 0, linked_risks_max_severity: null,
+    status_changed_at: '2025-11-15T00:00:00Z',
+    priority_rank: 1,
+    baseline_start: '2026-01-01', baseline_finish: '2026-01-10',
+  },
 ];
 
 async function setup(page: import('@playwright/test').Page) {
@@ -412,5 +437,93 @@ test.describe('Board view', () => {
     // Verify PUT body had the updated label
     const cols = savedColumns as Array<{ status: string; label: string }>;
     expect(cols?.find((c) => c.status === 'BACKLOG')?.label).toBe('Ideas');
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #190 — Swimlane collapse/expand toolbar buttons
+  // -------------------------------------------------------------------------
+
+  test('"Collapse all" hides leaf task cards (issue #190)', async ({ page }) => {
+    await expect(page.getByText('Design')).toBeVisible();
+    await page.getByRole('button', { name: 'Collapse all lanes' }).click();
+    await expect(page.getByText('Design')).not.toBeVisible({ timeout: 3_000 });
+  });
+
+  test('"Expand all" restores cards after collapse-all (issue #190)', async ({ page }) => {
+    await page.getByRole('button', { name: 'Collapse all lanes' }).click();
+    await expect(page.getByText('Design')).not.toBeVisible({ timeout: 3_000 });
+    await page.getByRole('button', { name: 'Expand all lanes' }).click();
+    await expect(page.getByText('Design')).toBeVisible({ timeout: 3_000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #193 — Card density toggle
+  // -------------------------------------------------------------------------
+
+  test('card density select is visible and defaults to comfortable (issue #193)', async ({ page }) => {
+    const select = page.getByLabel('Card density');
+    await expect(select).toBeVisible();
+    await expect(select).toHaveValue('comfortable');
+  });
+
+  test('switching to compact keeps board columns visible (issue #193)', async ({ page }) => {
+    await page.getByLabel('Card density').selectOption('compact');
+    await expect(page.getByText('In Progress')).toBeVisible();
+    await expect(page.getByText('Done')).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #183 — Float chip (b5 Review Gate has total_float: -3)
+  // -------------------------------------------------------------------------
+
+  test('negative-float chip renders on Review Gate card (issue #183)', async ({ page }) => {
+    await expect(page.getByText('-3d float')).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #186 — Baseline variance strip (b5 has baseline_finish Jan 10, early_finish Jan 20 → +10d)
+  // -------------------------------------------------------------------------
+
+  test('baseline variance chip renders on Review Gate card (issue #186)', async ({ page }) => {
+    await expect(page.getByLabel(/Baseline variance: \+10d/)).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #192 — Card aging (b4 and b5 have status_changed_at in 2025 — >SLA)
+  // -------------------------------------------------------------------------
+
+  test('aging chip renders on cards with old status_changed_at (issue #192)', async ({ page }) => {
+    // status_changed_at = 2025-11-01, today = 2026-04-30, dwell ≈ 180d → exceeds any column SLA
+    const agingChips = page.getByLabel(/days in this column, exceeds/);
+    await expect(agingChips.first()).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #187 — Milestone rail (b4 Release has is_milestone: true)
+  // -------------------------------------------------------------------------
+
+  test('milestone rail renders a diamond for Release milestone (issue #187)', async ({ page }) => {
+    // PhaseMilestoneRail renders a button with aria-label containing the milestone name and target date
+    await expect(page.getByLabel(/Release.*milestone/i)).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #105 — Entry stamps and priority rank
+  // -------------------------------------------------------------------------
+
+  test('priority rank chip renders on card with priority_rank set (issue #105)', async ({ page }) => {
+    // b5 Review Gate has priority_rank: 1 → renders "#1" chip
+    await expect(page.getByText('#1')).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #185 — SPI chip renders when EVM mode is spi and baseline data present
+  // -------------------------------------------------------------------------
+
+  test('SPI chip renders on card when EVM mode is "spi" (issue #185)', async ({ page }) => {
+    await page.getByLabel('EVM indicators').selectOption('spi');
+    // b5 Review Gate has baseline_start 2026-01-01, baseline_finish 2026-01-10,
+    // early_start 2026-01-05, early_finish 2026-01-20 → SPI computed client-side
+    await expect(page.getByLabel(/SPI \d+\.\d+ —/)).toBeVisible({ timeout: 3_000 });
   });
 });

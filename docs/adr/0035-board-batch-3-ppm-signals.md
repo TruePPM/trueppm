@@ -253,7 +253,7 @@ receivers without modifying any OSS code.
    acceptable.
 
 ## Out of Scope (deferred to b4+)
-- **#185 SPI/CPI** — needs EVM data on Task (PV/EV/AC fields, baseline cost)
+- **#185 SPI/CPI** — needs EVM data on Task (PV/EV/AC fields, baseline cost). **Frontend chip is complete** and no-ops gracefully when API fields are absent (`cpi`, `actual_cost`, `budget_at_completion` not in `TaskSerializer`). See `BoardCard.tsx::showSpiChip`/`showCpiChip` and `# TODO(#185)` comment in `serializers.py`.
 - **#196 P80 distribution panel** — needs Monte Carlo result store (ADR-0012 added the endpoint, not the store)
 - **#189 Cost burn on cards** — needs cost model (#73, #74)
 - **#191 Saved views and quick filters** — needs view persistence layer
