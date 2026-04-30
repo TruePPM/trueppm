@@ -671,6 +671,13 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
             raise serializers.ValidationError("A risk may link to at most 10 tasks.")
         return tasks
 
+    def validate_mitigation_due_date(self, value: Any) -> Any:
+        # Non-blocking: accept past dates so PMs can save overdue risks without
+        # being blocked. The overdue state is surfaced as a UI badge on the
+        # client; blocking here would prevent updating other fields on a risk
+        # whose mitigation deadline has already slipped.
+        return value
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # All linked tasks must belong to the same project as the risk.
         # project is read-only, so resolve from URL kwargs on create or from
