@@ -643,15 +643,15 @@ export function BoardView() {
   const startWorkshop = useStartWorkshop(projectId || null);
   const endWorkshop = useEndWorkshop(projectId || null);
   const phaseReorder = usePhaseReorder(projectId || null);
-  // Open the workshop WS channel while a session is active so participant
-  // join/leave events reach the banner in real time.
-  useWorkshopSocket(projectId || null, workshopMode && !!workshopSession, () => {});
   const COLUMNS = rawColumns.filter((c) => c.visible);
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overCell, setOverCell] = useState<string | null>(null); // `${phaseId}:${status}`
   const [workshopMode, setWorkshopMode] = useState(false);
+  // Open the workshop WS channel while a session is active so participant
+  // join/leave events reach the banner in real time.
+  useWorkshopSocket(projectId || null, workshopMode && !!workshopSession, () => {});
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const workshopToggleRef = useRef<HTMLButtonElement>(null);
   const [phaseOrder, setPhaseOrder] = useState<string[]>([]);
