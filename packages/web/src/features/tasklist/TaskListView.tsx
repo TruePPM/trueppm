@@ -1,6 +1,6 @@
 import {
   useRef, useState, useCallback, useEffect, useMemo,
-  type RefObject, type KeyboardEvent, type FocusEvent,
+  type KeyboardEvent, type FocusEvent,
 } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -514,8 +514,6 @@ export function TaskListView() {
   const [ownerFilter, setOwnerFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(null), 4000);
@@ -781,24 +779,16 @@ export function TaskListView() {
       {filtered.length === 0 ? (
         <FilterEmptyState onClear={() => { setSearch(''); setOwnerFilter(''); setStatusFilter(''); }} />
       ) : (
-        <div
-          ref={scrollRef}
-          role="grid"
-          aria-label="Task list"
-          aria-rowcount={filtered.length}
-          className="flex-1 overflow-y-auto"
-        >
-          <VirtualRows
-            items={listItems}
-            selectedIds={selectedIds}
-            renamingId={renamingId}
-            scrollRef={scrollRef}
-            onToggleSelect={(id) => toggle(id)}
-            onStartRename={(id) => setRenamingId(id)}
-            onRename={(task, name) => handleRename(task, name)}
-            onCancelRename={() => setRenamingId(null)}
-          />
-        </div>
+        <VirtualRows
+          items={listItems}
+          rowCount={filtered.length}
+          selectedIds={selectedIds}
+          renamingId={renamingId}
+          onToggleSelect={(id) => toggle(id)}
+          onStartRename={(id) => setRenamingId(id)}
+          onRename={(task, name) => handleRename(task, name)}
+          onCancelRename={() => setRenamingId(null)}
+        />
       )}
 
       {/* Delete result toast */}
@@ -824,19 +814,26 @@ export function TaskListView() {
 
 interface VirtualRowsProps {
   items: ListItem[];
+  rowCount: number;
   selectedIds: Set<string>;
   renamingId: string | null;
-  scrollRef: RefObject<HTMLDivElement | null>;
   onToggleSelect: (id: string) => void;
   onStartRename: (id: string) => void;
   onRename: (task: Task, name: string) => void;
   onCancelRename: () => void;
 }
 
+/**
+ * Owns the scroll container so the virtualizer and its scroll element are co-located.
+ * Keeping them in the same component avoids ResizeObserver measuring height=0 when
+ * the ref lives in a parent — the bug that caused blank rows (#247).
+ */
 function VirtualRows({
-  items, selectedIds, renamingId, scrollRef,
+  items, rowCount, selectedIds, renamingId,
   onToggleSelect, onStartRename, onRename, onCancelRename,
 }: VirtualRowsProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   const rowVirtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => scrollRef.current,
@@ -848,34 +845,45 @@ function VirtualRows({
   });
 
   return (
-    <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
-      {rowVirtualizer.getVirtualItems().map((vRow) => {
-        const item = items[vRow.index];
-        if (!item) return null;
-        return (
-          <div
-            key={item.kind === 'header' ? item.id : item.task.id}
-            aria-rowindex={vRow.index + 1}
-            style={{ position: 'absolute', top: vRow.start, left: 0, right: 0, height: vRow.size }}
-          >
-            {item.kind === 'header' ? (
-              <GroupHeader label={item.label} count={item.count} />
-            ) : (
-              <TaskRow
-                task={item.task}
-                phase={item.phase}
-                rowIndex={item.rowIndex}
-                isSelected={selectedIds.has(item.task.id)}
-                isRenaming={renamingId === item.task.id}
-                onToggleSelect={() => onToggleSelect(item.task.id)}
-                onStartRename={() => onStartRename(item.task.id)}
-                onRename={(name) => onRename(item.task, name)}
-                onCancelRename={onCancelRename}
-              />
-            )}
-          </div>
-        );
-      })}
+    <div
+      ref={scrollRef}
+      role="grid"
+      aria-label="Task list"
+      aria-rowcount={rowCount}
+      className="flex-1 overflow-y-auto"
+      // CSS containment ensures ResizeObserver measures this element's height
+      // correctly on first paint, same pattern as TaskListPanel in ScheduleView.
+      style={{ contain: 'strict' }}
+    >
+      <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+        {rowVirtualizer.getVirtualItems().map((vRow) => {
+          const item = items[vRow.index];
+          if (!item) return null;
+          return (
+            <div
+              key={item.kind === 'header' ? item.id : item.task.id}
+              aria-rowindex={vRow.index + 1}
+              style={{ position: 'absolute', top: vRow.start, left: 0, right: 0, height: vRow.size }}
+            >
+              {item.kind === 'header' ? (
+                <GroupHeader label={item.label} count={item.count} />
+              ) : (
+                <TaskRow
+                  task={item.task}
+                  phase={item.phase}
+                  rowIndex={item.rowIndex}
+                  isSelected={selectedIds.has(item.task.id)}
+                  isRenaming={renamingId === item.task.id}
+                  onToggleSelect={() => onToggleSelect(item.task.id)}
+                  onStartRename={() => onStartRename(item.task.id)}
+                  onRename={(name) => onRename(item.task, name)}
+                  onCancelRename={onCancelRename}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
