@@ -1845,6 +1845,38 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/phases/reorder/": {
+            "patch": {
+                "operationId": "v1_projects_phases_reorder_partial_update",
+                "description": "Reorder phase columns on the board by updating priority_rank on WBS L1 tasks.\n\nPATCH /api/v1/projects/{pk}/phases/reorder/\n\nBody:\n    {\n        \"ordered_ids\": [\"<uuid>\", ...]   # all root-level summary tasks in desired order\n    }\n\nThe server sets priority_rank = position * 10 on each supplied task and\nbroadcasts a phases_reordered event.  Used exclusively during Workshop mode\nwhere any Member+ may drag phases into a new order.\n\nAll IDs must be non-deleted, root-level tasks (wbs_path matches ^\\d+$)\nbelonging to this project — any violation returns 400.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/presence/": {
             "get": {
                 "operationId": "v1_projects_presence_retrieve",
@@ -2327,6 +2359,178 @@
                             }
                         },
                         "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/workshop/current/": {
+            "get": {
+                "operationId": "v1_projects_workshop_current_retrieve",
+                "description": "Retrieve the current active workshop session for a project.\n\nGET /api/v1/projects/{pk}/workshop/current/\n\nReturns the active session with nested participants, or 404 if none active.",
+                "summary": "Get the active workshop session",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "workshops"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkshopSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/workshop/end/": {
+            "post": {
+                "operationId": "v1_projects_workshop_end_create",
+                "description": "End the active workshop session for a project.\n\nPOST /api/v1/projects/{pk}/workshop/end/\n\nEither the Project Manager (ADMIN+) or the user who started the session may\nend it (IsProjectAdminOrSessionOwner).",
+                "summary": "End the active workshop session",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "workshops"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkshopSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/workshop/force-end/": {
+            "post": {
+                "operationId": "v1_projects_workshop_force_end_create",
+                "description": "Force-end the active workshop session (admin recovery for crashed sessions).\n\nPOST /api/v1/projects/{pk}/workshop/force-end/\n\nRequires ADMIN+. Returns 404 if no session is active.",
+                "summary": "Force-end the active workshop session",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "workshops"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkshopSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/workshop/start/": {
+            "post": {
+                "operationId": "v1_projects_workshop_start_create",
+                "description": "Start a workshop session for a project.\n\nPOST /api/v1/projects/{pk}/workshop/start/\n\nOnly Project Managers (ADMIN+) may start a session.  Returns 409 if an\nactive session already exists (enforced by the DB unique constraint).",
+                "summary": "Start a workshop session",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "workshops"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkshopSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "409": {
+                        "description": "No response body"
                     }
                 }
             }
@@ -9454,6 +9658,97 @@
                     "events",
                     "secret",
                     "url"
+                ]
+            },
+            "WorkshopParticipant": {
+                "type": "object",
+                "description": "Read-only serializer for a workshop participant record.",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "user_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "display_name": {
+                        "type": "string",
+                        "description": "Return the participant's full name or username.",
+                        "readOnly": true
+                    },
+                    "joined_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "left_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "color_index": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "color_index",
+                    "display_name",
+                    "id",
+                    "joined_at",
+                    "left_at",
+                    "user_id"
+                ]
+            },
+            "WorkshopSession": {
+                "type": "object",
+                "description": "Serializer for a workshop session with nested participants.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "started_by_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "ended_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "participants": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/WorkshopParticipant"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "ended_at",
+                    "id",
+                    "participants",
+                    "project_id",
+                    "started_at",
+                    "started_by_id"
                 ]
             },
             "_UserSummary": {
