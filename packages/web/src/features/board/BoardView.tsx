@@ -23,6 +23,7 @@ import {
   DndContext,
   PointerSensor,
   KeyboardSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   useDroppable,
@@ -47,6 +48,7 @@ import { type BoardSortKey, type BoardViewConfig } from '@/hooks/useBoardSavedVi
 import { useTaskDependencies } from '@/hooks/useTaskDependencies';
 import { useWorkshopSession, useStartWorkshop, useEndWorkshop } from '@/hooks/useWorkshopSession';
 import { usePhaseReorder } from '@/hooks/usePhaseReorder';
+import { useWorkshopSocket } from '@/hooks/useWorkshopSocket';
 import { useCreateTask, useUpdateTask } from '@/hooks/useTaskMutations';
 import type { Task, TaskStatus } from '@/types';
 import { BoardCard, type BoardDensity, type EvmMode } from './BoardCard';
@@ -641,6 +643,9 @@ export function BoardView() {
   const startWorkshop = useStartWorkshop(projectId || null);
   const endWorkshop = useEndWorkshop(projectId || null);
   const phaseReorder = usePhaseReorder(projectId || null);
+  // Open the workshop WS channel while a session is active so participant
+  // join/leave events reach the banner in real time.
+  useWorkshopSocket(projectId || null, workshopMode && !!workshopSession, () => {});
   const COLUMNS = rawColumns.filter((c) => c.visible);
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -713,6 +718,7 @@ export function BoardView() {
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor),
   );
 
@@ -869,8 +875,15 @@ export function BoardView() {
           const toIdx = phaseOrder.indexOf(toPhaseId);
           if (fromIdx !== -1 && toIdx !== -1) {
             const newOrder = arrayMove(phaseOrder, fromIdx, toIdx);
+            const prevOrder = phaseOrder;
             setPhaseOrder(newOrder);
-            phaseReorder.mutate(newOrder);
+            phaseReorder.mutate(
+              newOrder.map((id) => ({
+                id,
+                serverVersion: taskIndex.get(id)?.serverVersion ?? 0,
+              })),
+              { onError: () => setPhaseOrder(prevOrder) },
+            );
           }
         }
         return;
@@ -1212,7 +1225,7 @@ export function BoardView() {
               disabled={startWorkshop.isPending}
               aria-pressed={workshopMode}
               className={[
-                'border rounded px-2 py-0.5 inline-flex items-center gap-1',
+                'border rounded px-2 py-0.5 hidden md:inline-flex items-center gap-1',
                 'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
                 workshopMode
                   ? 'bg-brand-primary/10 border-brand-primary/40 text-brand-primary-dark dark:text-brand-primary'

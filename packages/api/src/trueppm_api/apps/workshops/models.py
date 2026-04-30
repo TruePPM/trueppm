@@ -75,6 +75,8 @@ class WorkshopParticipant(models.Model):
     class Meta:
         db_table = "workshops_participant"
         ordering = ["joined_at"]
+        # DB-level guard against duplicate rows from simultaneous reconnects.
+        unique_together = [("session", "user")]
 
     def __str__(self) -> str:
         return f"WorkshopParticipant({self.user_id} in {self.session_id})"

@@ -273,17 +273,26 @@ class TestPhaseReorder:
         t2 = Task.objects.create(project=project, name="Phase 2", wbs_path="2", duration=0)
         return [t1, t2]
 
-    def test_member_can_reorder(
+    def _body(self, phases: list[Task]) -> dict:
+        """Build a valid reorder body in the ADR-0046 format."""
+        return {"phases": [{"id": str(p.pk), "server_version": p.server_version} for p in phases]}
+
+    def test_admin_can_reorder(
         self,
         client: APIClient,
         project: Project,
         admin_membership: ProjectMembership,
         phases: list[Task],
     ) -> None:
-        ordered = [str(phases[1].pk), str(phases[0].pk)]
+        body = {
+            "phases": [
+                {"id": str(phases[1].pk), "server_version": phases[1].server_version},
+                {"id": str(phases[0].pk), "server_version": phases[0].server_version},
+            ]
+        }
         res = client.patch(
             f"/api/v1/projects/{project.pk}/phases/reorder/",
-            data={"ordered_ids": ordered},
+            data=body,
             format="json",
         )
         assert res.status_code == 200
@@ -292,6 +301,61 @@ class TestPhaseReorder:
         # Phase 2 should now have rank 10 (first position); Phase 1 rank 20.
         assert phases[1].priority_rank == 10
         assert phases[0].priority_rank == 20
+
+    def test_server_version_bumped_on_reorder(
+        self,
+        client: APIClient,
+        project: Project,
+        admin_membership: ProjectMembership,
+        phases: list[Task],
+    ) -> None:
+        original_sv = phases[0].server_version
+        body = self._body(phases)
+        res = client.patch(
+            f"/api/v1/projects/{project.pk}/phases/reorder/",
+            data=body,
+            format="json",
+        )
+        assert res.status_code == 200
+        phases[0].refresh_from_db()
+        assert phases[0].server_version == original_sv + 1
+
+    def test_stale_version_returns_409(
+        self,
+        client: APIClient,
+        project: Project,
+        admin_membership: ProjectMembership,
+        phases: list[Task],
+    ) -> None:
+        body = {
+            "phases": [
+                {"id": str(phases[0].pk), "server_version": phases[0].server_version + 99},
+                {"id": str(phases[1].pk), "server_version": phases[1].server_version},
+            ]
+        }
+        res = client.patch(
+            f"/api/v1/projects/{project.pk}/phases/reorder/",
+            data=body,
+            format="json",
+        )
+        assert res.status_code == 409
+
+    def test_member_cannot_reorder(
+        self,
+        project: Project,
+        other_user: object,
+        member_membership: ProjectMembership,
+        phases: list[Task],
+    ) -> None:
+        """ADMIN-only gate — project members cannot reorder phases."""
+        c = APIClient()
+        c.force_authenticate(user=other_user)
+        res = c.patch(
+            f"/api/v1/projects/{project.pk}/phases/reorder/",
+            data=self._body(phases),
+            format="json",
+        )
+        assert res.status_code == 403
 
     def test_unknown_id_returns_400(
         self,
@@ -304,7 +368,7 @@ class TestPhaseReorder:
 
         res = client.patch(
             f"/api/v1/projects/{project.pk}/phases/reorder/",
-            data={"ordered_ids": [str(uuid.uuid4())]},
+            data={"phases": [{"id": str(uuid.uuid4()), "server_version": 0}]},
             format="json",
         )
         assert res.status_code == 400
@@ -317,7 +381,7 @@ class TestPhaseReorder:
     ) -> None:
         res = client.patch(
             f"/api/v1/projects/{project.pk}/phases/reorder/",
-            data={"ordered_ids": []},
+            data={"phases": []},
             format="json",
         )
         assert res.status_code == 400
@@ -333,7 +397,7 @@ class TestPhaseReorder:
         c.force_authenticate(user=other_user)
         res = c.patch(
             f"/api/v1/projects/{project.pk}/phases/reorder/",
-            data={"ordered_ids": [str(phases[0].pk), str(phases[1].pk)]},
+            data=self._body(phases),
             format="json",
         )
         assert res.status_code == 403
@@ -341,7 +405,7 @@ class TestPhaseReorder:
     def test_unauthenticated_returns_401(self, project: Project, phases: list[Task]) -> None:
         res = APIClient().patch(
             f"/api/v1/projects/{project.pk}/phases/reorder/",
-            data={"ordered_ids": [str(phases[0].pk), str(phases[1].pk)]},
+            data=self._body(phases),
             format="json",
         )
         assert res.status_code == 401
@@ -356,7 +420,7 @@ class TestPhaseReorder:
         c.force_authenticate(user=other_user)
         res = c.patch(
             f"/api/v1/projects/{project.pk}/phases/reorder/",
-            data={"ordered_ids": [str(phases[0].pk), str(phases[1].pk)]},
+            data=self._body(phases),
             format="json",
         )
         assert res.status_code == 403

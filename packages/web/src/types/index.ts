@@ -82,6 +82,8 @@ export interface Task {
   actualCost?: number | null;
   /** True when the assignee's total units across active tasks for this project exceeds 1.0. */
   assigneeIsOverallocated?: boolean;
+  /** Monotonically increasing version counter — used for optimistic locking on phase reorder. */
+  serverVersion?: number;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */

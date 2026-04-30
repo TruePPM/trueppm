@@ -184,6 +184,9 @@ export function LaneMeta({
               aria-label={`Phase name: ${phaseName}`}
               onBlur={handleBlur}
               onKeyDown={handleKeyDown}
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               className="flex-1 text-xs font-semibold text-neutral-text-primary
                 outline-none border border-dashed border-neutral-border rounded px-[6px] py-[3px]
                 bg-neutral-surface focus-visible:ring-2 focus-visible:ring-brand-primary"

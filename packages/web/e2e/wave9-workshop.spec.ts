@@ -34,6 +34,7 @@ const FIXTURE_TASKS = [
     status: 'IN_PROGRESS', assignees: [], total_float: null,
     predecessor_count: 0, is_blocked: false,
     linked_risks_count: 0, linked_risks_max_severity: null,
+    server_version: 1,
   },
   {
     id: 'wt2', wbs_path: '1.1', name: 'Task A',
@@ -43,6 +44,7 @@ const FIXTURE_TASKS = [
     status: 'IN_PROGRESS', assignees: [], total_float: null,
     predecessor_count: 0, is_blocked: false,
     linked_risks_count: 0, linked_risks_max_severity: null,
+    server_version: 1,
   },
 ];
 
