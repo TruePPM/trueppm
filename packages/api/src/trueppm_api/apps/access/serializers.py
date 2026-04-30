@@ -81,4 +81,4 @@ class MeSerializer(serializers.Serializer[Any]):
             parts.append(obj.last_name[0].upper())
         if parts:
             return "".join(parts[:2])
-        return obj.username[:2].upper()
+        return str(obj.username[:2].upper())
