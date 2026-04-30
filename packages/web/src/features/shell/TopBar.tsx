@@ -7,6 +7,7 @@ import { useScheduleStore } from '@/stores/scheduleStore';
 import { useProjectPresence } from '@/hooks/useProjectPresence';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
 import { Logo } from './Logo';
 import { ViewTabs } from './ViewTabs';
@@ -127,7 +128,9 @@ export function TopBar({ onHamburgerClick }: Props) {
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
   const navigate = useNavigate();
   const projectId = useProjectId() ?? null;
-  const onlineUsers = useProjectPresence(projectId);
+  const allOnlineUsers = useProjectPresence(projectId);
+  const { user: currentUser } = useCurrentUser();
+  const onlineUsers = allOnlineUsers.filter((u) => u.user_id !== currentUser?.id);
   const [showMCPanel, setShowMCPanel] = useState(false);
   const { data: mcResult } = useMonteCarloResult(projectId ?? undefined);
 
