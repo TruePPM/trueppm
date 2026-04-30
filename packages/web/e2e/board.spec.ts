@@ -58,7 +58,7 @@ const FIXTURE_TASKS = [
     baseline_start: '2026-01-01', baseline_finish: '2026-01-20',
   },
   {
-    id: 'b5', wbs_path: '1.4', name: 'Review Gate',
+    id: 'b5', wbs_path: '1.4', name: 'QA Gate',
     early_start: '2026-01-05', early_finish: '2026-01-20',
     duration: 12, percent_complete: 40, is_critical: true,
     is_milestone: false, is_summary: false, parent_id: 'b1',
@@ -246,9 +246,9 @@ test.describe('Board view', () => {
 
   test('renders LaneMeta with phase name, progress %, and task count', async ({ page }) => {
     await expect(page.getByText('Alpha Phase')).toBeVisible();
-    // Average is computed from leaf tasks: (100 + 60) / 2 = 80%
-    await expect(page.getByText('80%')).toBeVisible();
-    await expect(page.getByText('2 tasks')).toBeVisible();
+    // Average is computed from all leaf tasks: (100 + 60 + 0 + 40) / 4 = 50%
+    await expect(page.getByText('50%')).toBeVisible();
+    await expect(page.getByText('4 tasks')).toBeVisible();
   });
 
   test('per-phase + button opens AddTaskModal with phase pre-selected (issue #208)', async ({ page }) => {
@@ -473,10 +473,10 @@ test.describe('Board view', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Issue #183 — Float chip (b5 Review Gate has total_float: -3)
+  // Issue #183 — Float chip (b5 QA Gate has total_float: -3)
   // -------------------------------------------------------------------------
 
-  test('negative-float chip renders on Review Gate card (issue #183)', async ({ page }) => {
+  test('negative-float chip renders on QA Gate card (issue #183)', async ({ page }) => {
     await expect(page.getByText('-3d float')).toBeVisible();
   });
 
@@ -484,7 +484,7 @@ test.describe('Board view', () => {
   // Issue #186 — Baseline variance strip (b5 has baseline_finish Jan 10, early_finish Jan 20 → +10d)
   // -------------------------------------------------------------------------
 
-  test('baseline variance chip renders on Review Gate card (issue #186)', async ({ page }) => {
+  test('baseline variance chip renders on QA Gate card (issue #186)', async ({ page }) => {
     await expect(page.getByLabel(/Baseline variance: \+10d/)).toBeVisible();
   });
 
@@ -503,8 +503,8 @@ test.describe('Board view', () => {
   // -------------------------------------------------------------------------
 
   test('milestone rail renders a diamond for Release milestone (issue #187)', async ({ page }) => {
-    // PhaseMilestoneRail renders a button with aria-label containing the milestone name and target date
-    await expect(page.getByLabel(/Release.*milestone/i)).toBeVisible();
+    // PhaseMilestoneRail aria-label format: "{Tone} milestone {name}, target {date}"
+    await expect(page.getByLabel(/milestone Release/i)).toBeVisible();
   });
 
   // -------------------------------------------------------------------------
@@ -512,7 +512,7 @@ test.describe('Board view', () => {
   // -------------------------------------------------------------------------
 
   test('priority rank chip renders on card with priority_rank set (issue #105)', async ({ page }) => {
-    // b5 Review Gate has priority_rank: 1 → renders "#1" chip
+    // b5 QA Gate has priority_rank: 1 → renders "#1" chip
     await expect(page.getByText('#1')).toBeVisible();
   });
 
@@ -522,7 +522,7 @@ test.describe('Board view', () => {
 
   test('SPI chip renders on card when EVM mode is "spi" (issue #185)', async ({ page }) => {
     await page.getByLabel('EVM indicators').selectOption('spi');
-    // b5 Review Gate has baseline_start 2026-01-01, baseline_finish 2026-01-10,
+    // b5 QA Gate has baseline_start 2026-01-01, baseline_finish 2026-01-10,
     // early_start 2026-01-05, early_finish 2026-01-20 → SPI computed client-side
     await expect(page.getByLabel(/SPI \d+\.\d+ —/)).toBeVisible({ timeout: 3_000 });
   });
