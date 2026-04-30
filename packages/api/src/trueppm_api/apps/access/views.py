@@ -6,6 +6,7 @@ import uuid
 
 from django.db import transaction
 from django.db.models import QuerySet
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -17,6 +18,7 @@ from rest_framework.views import APIView
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import IsProjectMember, _membership_role
 from trueppm_api.apps.access.serializers import (
+    MeSerializer,
     ProjectMembershipReadSerializer,
     ProjectMembershipWriteSerializer,
 )
@@ -264,7 +266,6 @@ class MeView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(responses={200: MeSerializer})
     def get(self, request: Request) -> Response:
-        from trueppm_api.apps.access.serializers import MeSerializer
-
         return Response(MeSerializer(request.user).data)
