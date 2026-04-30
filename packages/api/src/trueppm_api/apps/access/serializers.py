@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
@@ -56,3 +58,27 @@ class ProjectMembershipWriteSerializer(serializers.ModelSerializer[ProjectMember
         if value not in valid:
             raise serializers.ValidationError(f"Invalid role. Choose from {sorted(valid)}.")
         return value
+
+
+class MeSerializer(serializers.Serializer[Any]):
+    """Read-only serializer for GET /api/v1/auth/me/."""
+
+    id = serializers.UUIDField()
+    username = serializers.CharField()
+    display_name = serializers.SerializerMethodField()
+    initials = serializers.SerializerMethodField()
+    email = serializers.EmailField()
+
+    def get_display_name(self, obj: Any) -> str:
+        name = f"{obj.first_name} {obj.last_name}".strip()
+        return name if name else obj.username
+
+    def get_initials(self, obj: Any) -> str:
+        parts: list[str] = []
+        if obj.first_name:
+            parts.append(obj.first_name[0].upper())
+        if obj.last_name:
+            parts.append(obj.last_name[0].upper())
+        if parts:
+            return "".join(parts[:2])
+        return str(obj.username[:2].upper())

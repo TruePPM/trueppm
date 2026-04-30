@@ -6,16 +6,19 @@ import uuid
 
 from django.db import transaction
 from django.db.models import QuerySet
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import IsProjectMember, _membership_role
 from trueppm_api.apps.access.serializers import (
+    MeSerializer,
     ProjectMembershipReadSerializer,
     ProjectMembershipWriteSerializer,
 )
@@ -252,3 +255,17 @@ class ProjectMembershipViewSet(viewsets.GenericViewSet[ProjectMembership]):
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MeView(APIView):
+    """GET /api/v1/auth/me/ — current user identity.
+
+    Returns display name and initials derived from auth.User fields.
+    No project context — role is project-scoped and available separately.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: MeSerializer})
+    def get(self, request: Request) -> Response:
+        return Response(MeSerializer(request.user).data)

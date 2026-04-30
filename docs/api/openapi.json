@@ -187,6 +187,35 @@
                 }
             }
         },
+        "/api/v1/auth/me/": {
+            "get": {
+                "operationId": "v1_auth_me_retrieve",
+                "description": "GET /api/v1/auth/me/ — current user identity.\n\nReturns display name and initials derived from auth.User fields.\nNo project context — role is project-scoped and available separately.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Me"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/auth/token/": {
             "post": {
                 "operationId": "v1_auth_token_create",
@@ -6753,6 +6782,38 @@
                 ],
                 "type": "string",
                 "description": "* `pending_retry` - Pending Retry\n* `dead` - Dead\n* `dismissed` - Dismissed\n* `retried` - Retried"
+            },
+            "Me": {
+                "type": "object",
+                "description": "Read-only serializer for GET /api/v1/auth/me/.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "display_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "initials": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email"
+                    }
+                },
+                "required": [
+                    "display_name",
+                    "email",
+                    "id",
+                    "initials",
+                    "username"
+                ]
             },
             "MinProficiencyEnum": {
                 "enum": [

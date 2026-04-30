@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type ReactNode } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import type { ShellStats } from '@/types';
 import { useShellStore } from '@/stores/shellStore';
@@ -6,8 +6,8 @@ import { useShellStats } from '@/hooks/useShellStats';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { useProjectPresence } from '@/hooks/useProjectPresence';
 import { useProjectId } from '@/hooks/useProjectId';
-import { useThemeStore, type Theme } from '@/stores/themeStore';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
 import { Logo } from './Logo';
 import { ViewTabs } from './ViewTabs';
@@ -15,6 +15,7 @@ import { BadgePopover } from './BadgePopover';
 import { TaskRunIndicator } from './TaskRunIndicator';
 import { PresenceAvatarStack } from './PresenceAvatarStack';
 import { MCResultPanel } from './MCResultPanel';
+import { UserMenu } from './UserMenu';
 
 interface Props {
   onHamburgerClick: () => void;
@@ -119,45 +120,6 @@ function HealthDropdown({ stats, onTaskNavigate }: HealthDropdownProps) {
   );
 }
 
-const THEME_BUTTONS: { value: Theme; label: string; icon: ReactNode }[] = [
-  {
-    value: 'light',
-    label: 'Light mode',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <circle cx="12" cy="12" r="4" />
-        <line x1="12" y1="2" x2="12" y2="4" />
-        <line x1="12" y1="20" x2="12" y2="22" />
-        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-        <line x1="2" y1="12" x2="4" y2="12" />
-        <line x1="20" y1="12" x2="22" y2="12" />
-        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
-      </svg>
-    ),
-  },
-  {
-    value: 'auto',
-    label: 'Auto (system) mode',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <rect x="2" y="3" width="20" height="14" rx="2" />
-        <line x1="8" y1="21" x2="16" y2="21" />
-        <line x1="12" y1="17" x2="12" y2="21" />
-      </svg>
-    ),
-  },
-  {
-    value: 'dark',
-    label: 'Dark mode',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-      </svg>
-    ),
-  },
-];
 
 export function TopBar({ onHamburgerClick }: Props) {
   const sidebarCollapsed = useShellStore((s) => s.sidebarCollapsed);
@@ -166,9 +128,9 @@ export function TopBar({ onHamburgerClick }: Props) {
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
   const navigate = useNavigate();
   const projectId = useProjectId() ?? null;
-  const onlineUsers = useProjectPresence(projectId);
-  const theme = useThemeStore((s) => s.theme);
-  const setTheme = useThemeStore((s) => s.setTheme);
+  const allOnlineUsers = useProjectPresence(projectId);
+  const { user: currentUser } = useCurrentUser();
+  const onlineUsers = allOnlineUsers.filter((u) => u.user_id !== currentUser?.id);
   const [showMCPanel, setShowMCPanel] = useState(false);
   const { data: mcResult } = useMonteCarloResult(projectId ?? undefined);
 
@@ -258,45 +220,8 @@ export function TopBar({ onHamburgerClick }: Props) {
         {/* Online collaborators — desktop only (hidden md:flex inside component) */}
         <PresenceAvatarStack users={onlineUsers} />
 
-        {/* Theme toggle — desktop only; 3-way: light / auto (system) / dark */}
-        <div
-          role="group"
-          aria-label="Color scheme"
-          className="hidden md:flex items-center border border-neutral-border rounded"
-        >
-          {THEME_BUTTONS.map(({ value, label, icon }, i) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setTheme(value)}
-              aria-pressed={theme === value}
-              aria-label={label}
-              className={[
-                'h-7 w-7 flex items-center justify-center text-xs',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                i === 0 ? 'rounded-l' : '',
-                i === THEME_BUTTONS.length - 1 ? 'rounded-r' : 'border-r border-neutral-border',
-                theme === value
-                  ? 'bg-neutral-surface-sunken text-neutral-text-primary'
-                  : 'text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised',
-              ].join(' ')}
-            >
-              {icon}
-            </button>
-          ))}
-        </div>
-
-        {/* User avatar — menu deferred to auth feature */}
-        <button
-          type="button"
-          aria-label="User menu"
-          aria-haspopup="menu"
-          className="flex items-center justify-center w-8 h-8 rounded-full text-xs font-semibold
-            bg-brand-primary-light text-brand-primary
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-        >
-          U
-        </button>
+        {/* User menu — avatar chip with theme toggle, notifications, keyboard shortcuts, and sign out */}
+        <UserMenu />
       </div>
     </header>
 

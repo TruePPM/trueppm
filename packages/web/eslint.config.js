@@ -22,6 +22,9 @@ export default [
       },
       globals: {
         ...globals.browser,
+        // Vite compile-time constants injected via define in vite.config.ts
+        __BUILD_SHA__: 'readonly',
+        __APP_VERSION__: 'readonly',
       },
     },
     plugins: {

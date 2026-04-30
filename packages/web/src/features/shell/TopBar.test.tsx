@@ -118,7 +118,9 @@ describe('TopBar', () => {
 
   it('renders user avatar button', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /user menu/i })).toBeInTheDocument();
+    // UserMenu renders desktop + mobile variants in JSDOM (CSS media queries
+    // don't apply); assert at least one is present.
+    expect(screen.getAllByRole('button', { name: /user menu/i }).length).toBeGreaterThan(0);
   });
 
   it('renders at-risk and critical badge buttons from fixture stats', () => {
@@ -126,28 +128,6 @@ describe('TopBar', () => {
     // Fixture has atRiskCount=2, criticalCount=1
     expect(screen.getByRole('button', { name: /2 at risk tasks/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /1 critical tasks/i })).toBeInTheDocument();
-  });
-
-  it('renders the color scheme toggle group with three buttons', () => {
-    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    expect(screen.getByRole('group', { name: /color scheme/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /light mode/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /auto.*mode/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /dark mode/i })).toBeInTheDocument();
-  });
-
-  it('marks the current theme button as pressed', () => {
-    useThemeStore.setState({ theme: 'dark' });
-    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    expect(screen.getByRole('button', { name: /dark mode/i })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: /light mode/i })).toHaveAttribute('aria-pressed', 'false');
-  });
-
-  it('switches theme when a toggle button is clicked', async () => {
-    const user = userEvent.setup();
-    renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
-    await user.click(screen.getByRole('button', { name: /light mode/i }));
-    expect(useThemeStore.getState().theme).toBe('light');
   });
 
   it('closes health dropdown on outside click', async () => {
