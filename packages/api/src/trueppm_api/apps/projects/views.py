@@ -2456,6 +2456,15 @@ class ProjectMyTasksView(APIView):
             .order_by("early_finish")
         )
 
+        # Owner display data — by definition the requesting user (assignee==self)
+        # but the frontend's row layout expects the avatar/name fields, so emit
+        # them here once rather than have the client re-derive from /auth/me.
+        u = request.user
+        owner_name = u.get_full_name() or u.username
+        first_initial = u.first_name[0].upper() if u.first_name else ""
+        last_initial = u.last_name[0].upper() if u.last_name else ""
+        owner_initials = (first_initial + last_initial) or u.username[:2].upper()
+
         return Response(
             {
                 "tasks": [
@@ -2466,6 +2475,8 @@ class ProjectMyTasksView(APIView):
                         "status": t.status,
                         "percent_complete": t.percent_complete,
                         "is_critical": t.is_critical,
+                        "owner_name": owner_name,
+                        "owner_initials": owner_initials,
                     }
                     for t in tasks
                 ]

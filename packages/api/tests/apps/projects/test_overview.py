@@ -123,6 +123,9 @@ class TestProjectOverview:
         assert data["critical_task_count"] == 0
         assert data["next_milestone"] is None
         assert data["team_utilization_pct"] is None
+        # Risk summary fields are always present (zero when no open risks).
+        assert data["open_risk_count"] == 0
+        assert data["high_risk_count"] == 0
 
     def test_owner_name_returned_when_owner_member_exists(
         self, client: APIClient, project: Project, user: object, membership: object

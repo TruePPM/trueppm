@@ -51,6 +51,8 @@ const OVERVIEW_RESPONSE = {
   team_utilization_pct: 78,
   owner_name: 'Alice Smith',
   start_date: '2026-01-01',
+  open_risk_count: 4,
+  high_risk_count: 1,
 };
 
 const ATTENTION_RESPONSE = { items: [] };
@@ -98,13 +100,14 @@ describe('ProjectOverviewPage', () => {
     expect(screen.getByRole('region', { name: /monte carlo forecast/i })).toBeInTheDocument();
   });
 
-  it('renders five KPI card labels', async () => {
+  it('renders six KPI card labels', async () => {
     renderPage();
     expect(await screen.findByText(/schedule health/i)).toBeInTheDocument();
     expect(screen.getByText(/forecast finish/i)).toBeInTheDocument();
     expect(screen.getByText(/tasks late/i)).toBeInTheDocument();
     expect(screen.getByText(/next milestone/i)).toBeInTheDocument();
     expect(screen.getByText(/team utilization/i)).toBeInTheDocument();
+    expect(screen.getByText(/open risks/i)).toBeInTheDocument();
   });
 
   it('shows KPI values after data loads', async () => {
