@@ -4,10 +4,12 @@
  * Validates query key setup, 404 normalisation, and mutation side-effects
  * (cache update after start/end).
  */
+/* eslint-disable @typescript-eslint/unbound-method */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement } from 'react';
+import type { ReactNode } from 'react';
 import { useWorkshopSession, useStartWorkshop, useEndWorkshop } from './useWorkshopSession';
 import { apiClient } from '@/api/client';
 import type { WorkshopSession } from '@/types';
@@ -24,8 +26,10 @@ const mockSession: WorkshopSession = {
 };
 
 function makeWrapper(qc: QueryClient) {
-  return ({ children }: { children: React.ReactNode }) =>
-    createElement(QueryClientProvider, { client: qc }, children);
+  function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client: qc }, children);
+  }
+  return Wrapper;
 }
 
 describe('useWorkshopSession', () => {

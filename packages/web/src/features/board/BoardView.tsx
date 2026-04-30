@@ -1443,11 +1443,13 @@ export function BoardView() {
 
       {/* Workshop exit confirmation dialog (ADR-0046) */}
       {showExitConfirm && (
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
         <div
           role="dialog"
           aria-modal="true"
           aria-labelledby="workshop-exit-title"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          tabIndex={-1}
           onKeyDown={(e: ReactKeyboardEvent<HTMLDivElement>) => {
             if (e.key === 'Escape') {
               setShowExitConfirm(false);
