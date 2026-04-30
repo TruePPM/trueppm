@@ -142,7 +142,7 @@ export function TopBar({ onHamburgerClick }: Props) {
 
   return (
     <>
-    <header className="flex items-center h-12 px-4 gap-4 bg-neutral-surface-raised border-b border-neutral-border">
+    <header className="flex items-center h-12 px-4 gap-4 bg-chrome-surface border-b border-chrome-border">
       {/* Hamburger — visible only below md */}
       <button
         type="button"
