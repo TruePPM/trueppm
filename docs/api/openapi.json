@@ -9099,7 +9099,7 @@
                     },
                     "readiness": {
                         "type": "string",
-                        "description": "Derive board-card readiness from available task fields.\n\nResolution order (highest specificity first):\n- baselined: task appears in the active baseline (baseline_start is annotated)\n- idea: no assignee\n- ready: has assignee + at least one predecessor dependency\n- estimated: has assignee, no predecessors",
+                        "description": "Derive board-card readiness from available task fields.\n\nResolution order (highest specificity first):\n- baselined: task appears in the active baseline (baseline_start is annotated)\n- idea: no assignee AND still in BACKLOG (unrefined, uncommitted)\n- ready: has assignee + at least one predecessor dependency\n- estimated: has assignee without predecessors, OR promoted out of BACKLOG\n             without an assignee (committed but unowned — ADR-0047)\n\nSemantic boundary: 'idea' only applies while status == BACKLOG. Once a PM\nmoves a card to any working column they have made a commitment decision;\nghost styling is suppressed even if no assignee has been set yet.",
                         "readOnly": true
                     },
                     "predecessor_count": {
