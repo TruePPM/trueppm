@@ -123,6 +123,68 @@ export interface Project {
   methodology: Methodology;
 }
 
+/**
+ * Sprint state machine (ADR-0037 §Q2).
+ *
+ * `PLANNED` → `ACTIVE` → `COMPLETED`, with `PLANNED → CANCELLED` and rare
+ * `ACTIVE → CANCELLED` (admin-only) escapes. Only one `ACTIVE` sprint per
+ * project at a time (enforced server-side, 409 on activate conflict).
+ */
+export type SprintState = 'PLANNED' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+
+/**
+ * Optional milestone link surfaced inline on the sprint detail.
+ *
+ * The Sprint serializer expands the foreign key into a small object so the
+ * UI can render the "Advancing to milestone" card without a second
+ * round-trip. `wbs_path` may be absent on legacy tasks.
+ */
+export interface SprintTargetMilestone {
+  id: string;
+  name: string;
+  wbs_path?: string | null;
+  /** ISO date string for the milestone's planned finish. */
+  finish?: string | null;
+}
+
+/**
+ * Sprint as returned by the API (`SprintSerializer`).
+ *
+ * `committed_*` is snapshotted on activation; `completed_*` on close.
+ * `completion_ratio_*` are computed by the serializer; nullable when
+ * either input is null. `short_id` is rendered as `SP-{value}` in the UI.
+ */
+export interface ApiSprint {
+  id: string;
+  server_version: number;
+  short_id: string;
+  /** Pre-formatted display id, e.g. ``SP-A1B2``. */
+  short_id_display: string;
+  name: string;
+  goal: string;
+  /** ISO date — sprint window start (inclusive). */
+  start_date: string;
+  /** ISO date — sprint window finish (inclusive). */
+  finish_date: string;
+  state: SprintState;
+  /** FK id of the milestone task this sprint advances toward (writable). */
+  target_milestone: string | null;
+  /** Inline milestone detail returned by the serializer (read-only). */
+  target_milestone_detail: SprintTargetMilestone | null;
+  committed_points: number | null;
+  committed_task_count: number | null;
+  completed_points: number | null;
+  completed_task_count: number | null;
+  completion_ratio_points: number | null;
+  completion_ratio_tasks: number | null;
+  /** ISO datetime — when the sprint was activated (null until ACTIVE). */
+  activated_at: string | null;
+  /** ISO datetime — when the sprint was closed (null until COMPLETED). */
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** One weekly bucket in a Monte Carlo distribution histogram */
 export interface McBucket {
   /** ISO date string for the Monday that starts this week */

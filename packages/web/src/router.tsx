@@ -10,6 +10,7 @@ import { ScheduleView } from '@/features/schedule/ScheduleView';
 import { WbsView } from '@/features/wbs/WbsView';
 import { TaskListView } from '@/features/tasklist/TaskListView';
 import { BoardView } from '@/features/board/BoardView';
+import { SprintsView } from '@/features/sprints/SprintsView';
 import { CalendarView } from '@/features/calendar/CalendarView';
 import { ResourceView } from '@/features/resource/ResourceView';
 import { HeatmapPage } from '@/features/resource/HeatmapPage';
@@ -66,6 +67,7 @@ export const router = createBrowserRouter([
               { path: 'schedule', element: <ScheduleView /> },
               { path: 'wbs', element: <WbsView /> },
               { path: 'board', element: <BoardView /> },
+              { path: 'sprints', element: <SprintsView /> },
               { path: 'list', element: <TaskListView /> },
               { path: 'calendar', element: <CalendarView /> },
               {

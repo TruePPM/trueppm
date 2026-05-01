@@ -441,3 +441,28 @@ def test_task_filter_sprint_none_returns_backlog(
     assert resp.status_code == 200
     ids = [t["id"] for t in _list(resp.json())]
     assert ids == [str(backlog.pk)]
+
+
+def test_target_milestone_detail_inlined_when_set(
+    member_client: APIClient, project: Project
+) -> None:
+    """SprintSerializer nests milestone task fields for the AdvancingToMilestone card."""
+    milestone = Task.objects.create(
+        project=project, name="FAT review", duration=1, is_milestone=True
+    )
+    s = _make_sprint(project, target_milestone=milestone)
+    resp = member_client.get(f"/api/v1/sprints/{s.pk}/")
+    assert resp.status_code == 200
+    detail = resp.data["target_milestone_detail"]
+    assert detail is not None
+    assert detail["id"] == str(milestone.pk)
+    assert detail["name"] == "FAT review"
+
+
+def test_target_milestone_detail_null_when_unset(
+    member_client: APIClient, project: Project
+) -> None:
+    s = _make_sprint(project)
+    resp = member_client.get(f"/api/v1/sprints/{s.pk}/")
+    assert resp.status_code == 200
+    assert resp.data["target_milestone_detail"] is None
