@@ -902,6 +902,28 @@
                 }
             }
         },
+        "/api/v1/me/active-sprints/": {
+            "get": {
+                "operationId": "v1_me_active_sprints_retrieve",
+                "description": "``GET /api/v1/me/active-sprints/`` — multi-team Sprints lens (#230).\n\nReturns a summary entry for every project where the requesting user has\na non-complete task assignment in that project's currently-ACTIVE\nsprint. Frontends use this to render the multi-team Sprints lens\nwithout iterating ``/projects/`` and ``/sprints/`` per project.\n\nEach entry includes enough data to render a card without follow-up\nrequests: sprint name + window + day-N-of-M, points remaining, capacity\nratio + label, and the rolling-velocity forecast range. The user's\nproject membership is implicit — if they are assigned to a task they\nare at minimum a Member.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/project-resources/": {
             "get": {
                 "operationId": "v1_project_resources_list",

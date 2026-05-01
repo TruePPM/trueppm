@@ -13,6 +13,7 @@ from trueppm_api.apps.projects.views import (
     BoardSavedViewListView,
     CalendarViewSet,
     DependencyViewSet,
+    MeActiveSprintsView,
     PhaseReorderView,
     ProjectAttentionView,
     ProjectBurnView,
@@ -214,5 +215,10 @@ urlpatterns = [
         "projects/<pk>/burn/",
         ProjectBurnView.as_view(),
         name="project-burn",
+    ),
+    path(
+        "me/active-sprints/",
+        MeActiveSprintsView.as_view(),
+        name="me-active-sprints",
     ),
 ]

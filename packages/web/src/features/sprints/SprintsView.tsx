@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import {
@@ -17,7 +17,9 @@ import { SprintBurndownChart } from './SprintBurndownChart';
 import { CapacityPreflight } from './CapacityPreflight';
 import { VelocityPanel } from './VelocityPanel';
 import { SprintBacklogTable } from './SprintBacklogTable';
+import { MultiTeamLens } from './MultiTeamLens';
 import { useSprintBacklog } from '@/hooks/useSprintBacklog';
+import { useMyActiveSprints } from '@/hooks/useMyActiveSprints';
 import { daysBetween } from './sprintMath';
 
 /**
@@ -64,6 +66,12 @@ export function SprintsView() {
   const capacity = useSprintCapacity(activeSprint?.id);
   const velocity = useProjectVelocity(projectId);
   const backlog = useSprintBacklog(projectId, activeSprint?.id);
+  const myTeams = useMyActiveSprints();
+  const myTeamsCount = myTeams.data?.length ?? 0;
+  // Toggle only useful when the user has assignments in ≥ 2 active sprints.
+  const showLensToggle = myTeamsCount >= 2;
+  const [scope, setScope] = useState<'project' | 'teams'>('project');
+  const lensEntries = myTeams.data ?? [];
 
   function handlePlanNext() {
     // Scaffold: the sprint planning wizard ships in #229 (backlog) / #228
@@ -90,13 +98,49 @@ export function SprintsView() {
     <div className="flex flex-col h-full overflow-hidden bg-neutral-surface">
       <nav
         aria-label="Breadcrumb"
-        className="px-6 pt-5 flex items-center gap-1.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
+        className="px-6 pt-5 flex items-center justify-between gap-3"
       >
-        <span className="truncate">{projectName ?? 'Project'}</span>
-        <span aria-hidden="true" className="text-neutral-text-disabled">/</span>
-        <span>Sprints</span>
+        <div className="flex items-center gap-1.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
+          <span className="truncate">{projectName ?? 'Project'}</span>
+          <span aria-hidden="true" className="text-neutral-text-disabled">/</span>
+          <span>Sprints</span>
+        </div>
+        {showLensToggle && (
+          <div
+            role="tablist"
+            aria-label="Sprint scope"
+            className="inline-flex rounded border border-neutral-border bg-neutral-surface text-xs"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={scope === 'project'}
+              onClick={() => setScope('project')}
+              className={`px-3 py-1 ${scope === 'project' ? 'bg-brand-primary/10 text-brand-primary font-medium' : 'text-neutral-text-secondary'}
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-l`}
+            >
+              This project
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={scope === 'teams'}
+              onClick={() => setScope('teams')}
+              className={`px-3 py-1 ${scope === 'teams' ? 'bg-brand-primary/10 text-brand-primary font-medium' : 'text-neutral-text-secondary'}
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded-r`}
+            >
+              My Teams ({myTeamsCount})
+            </button>
+          </div>
+        )}
       </nav>
 
+      {scope === 'teams' ? (
+        <main className="flex-1 overflow-y-auto pb-6">
+          <MultiTeamLens entries={lensEntries} />
+        </main>
+      ) : (
+        <>
       <SprintHeader
         sprint={activeSprint}
         sprintNumber={
@@ -189,6 +233,8 @@ export function SprintsView() {
           sprintId={activeSprint.id}
           tasks={backlog.data ?? []}
         />
+      )}
+        </>
       )}
     </div>
   );
