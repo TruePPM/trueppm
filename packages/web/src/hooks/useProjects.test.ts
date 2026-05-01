@@ -25,6 +25,7 @@ interface ApiProject {
   description: string;
   start_date: string;
   calendar: string;
+  methodology?: 'WATERFALL' | 'AGILE' | 'HYBRID';
 }
 
 const COLOR_PALETTE: ReadonlyArray<string> = [
@@ -45,6 +46,7 @@ function mapProject(p: ApiProject, index: number) {
     name: p.name,
     healthState: 'unknown' as const,
     colorDot: COLOR_PALETTE[index % COLOR_PALETTE.length] ?? '#1C6B3A',
+    methodology: p.methodology ?? ('HYBRID' as const),
   };
 }
 

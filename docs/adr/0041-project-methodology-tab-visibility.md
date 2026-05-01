@@ -1,7 +1,7 @@
 # ADR-0041: Project Methodology Preset — Tab Visibility for Waterfall / Agile / Hybrid
 
 ## Status
-Proposed
+Accepted (2026-04-30) — implemented in #233.
 
 ## Context
 

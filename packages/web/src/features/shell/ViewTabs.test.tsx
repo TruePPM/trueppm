@@ -14,8 +14,20 @@ vi.mock('@/hooks/useCurrentUserRole', () => ({
   useCurrentUserRole: vi.fn(() => ({ role: 2, isLoading: false })),
 }));
 
+// Default: HYBRID methodology (all tabs visible). Methodology-filter tests
+// override via mockReturnValue.
+vi.mock('@/hooks/useProject', () => ({
+  useProject: vi.fn(() => ({
+    data: { id: 'proj-1', methodology: 'HYBRID' },
+    isLoading: false,
+    error: null,
+  })),
+}));
+
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProject } from '@/hooks/useProject';
 const mockUseProjectId = useProjectId as ReturnType<typeof vi.fn>;
+const mockUseProject = useProject as ReturnType<typeof vi.fn>;
 
 describe('ViewTabs', () => {
   it('renders null when there is no projectId', () => {
@@ -31,10 +43,11 @@ describe('ViewTabs', () => {
     expect(screen.getByRole('navigation', { name: /view/i })).toBeInTheDocument();
   });
 
-  it('renders all canonical tabs', () => {
+  it('renders all canonical tabs (HYBRID methodology — default)', () => {
     mockUseProjectId.mockReturnValue('proj-1');
     renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
     expect(screen.getByRole('link', { name: /Board/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Sprints/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Schedule/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /WBS/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Table/i })).toBeInTheDocument();
@@ -42,6 +55,48 @@ describe('ViewTabs', () => {
     expect(screen.getByRole('link', { name: /Overview/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Team/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Risks/i })).toBeInTheDocument();
+  });
+
+  // ADR-0041 — methodology preset filtering
+  it('hides Sprints when methodology is WATERFALL', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    mockUseProject.mockReturnValueOnce({
+      data: { id: 'proj-1', methodology: 'WATERFALL' },
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
+    expect(screen.queryByRole('link', { name: /Sprints/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Schedule/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /WBS/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Calendar/i })).toBeInTheDocument();
+  });
+
+  it('hides Schedule, WBS, and Calendar when methodology is AGILE', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    mockUseProject.mockReturnValueOnce({
+      data: { id: 'proj-1', methodology: 'AGILE' },
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
+    expect(screen.getByRole('link', { name: /Sprints/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Schedule/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /WBS/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Calendar/i })).not.toBeInTheDocument();
+  });
+
+  it('shows all tabs while project is loading (HYBRID fallback)', () => {
+    mockUseProjectId.mockReturnValue('proj-1');
+    mockUseProject.mockReturnValueOnce({
+      data: undefined,
+      isLoading: true,
+      error: null,
+    });
+    renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
+    expect(screen.getByRole('link', { name: /Sprints/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Schedule/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /WBS/i })).toBeInTheDocument();
   });
 
   it('marks the board tab as active when on /board route', () => {

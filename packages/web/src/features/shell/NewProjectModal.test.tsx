@@ -115,24 +115,49 @@ describe('NewProjectModal', () => {
   it('Next on step 2 advances to step 3', async () => {
     renderModal();
     await goToStep3();
-    expect(screen.getByRole('radiogroup', { name: /project template/i })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: /project methodology/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /create project/i })).toBeInTheDocument();
   });
 
   // ---------------------------------------------------------------------------
-  // Step 3 — Template
+  // Step 3 — Methodology (ADR-0041)
   // ---------------------------------------------------------------------------
 
-  it('Blank template is pre-selected and other templates are disabled', async () => {
+  it('Hybrid methodology is pre-selected by default', async () => {
     renderModal();
     await goToStep3();
-    const radiogroup = screen.getByRole('radiogroup', { name: /project template/i });
-    const blank = within(radiogroup).getByRole('radio', { name: /blank/i });
-    expect(blank).toHaveAttribute('aria-checked', 'true');
-    const others = within(radiogroup)
-      .getAllByRole('radio')
-      .filter((r) => r !== blank);
-    others.forEach((r) => expect(r).toBeDisabled());
+    const radiogroup = screen.getByRole('radiogroup', { name: /project methodology/i });
+    const hybrid = within(radiogroup).getByRole('radio', { name: /hybrid/i });
+    expect(hybrid).toHaveAttribute('aria-checked', 'true');
+    // Waterfall and Agile remain selectable.
+    const waterfall = within(radiogroup).getByRole('radio', { name: /waterfall/i });
+    const agile = within(radiogroup).getByRole('radio', { name: /agile/i });
+    expect(waterfall).not.toBeDisabled();
+    expect(agile).not.toBeDisabled();
+  });
+
+  it('Selecting Agile changes the aria-checked state', async () => {
+    renderModal();
+    await goToStep3();
+    const radiogroup = screen.getByRole('radiogroup', { name: /project methodology/i });
+    const agile = within(radiogroup).getByRole('radio', { name: /agile/i });
+    await userEvent.click(agile);
+    expect(agile).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('submits selected methodology in the create payload', async () => {
+    renderModal();
+    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Waterfall Project');
+    await userEvent.click(screen.getByRole('button', { name: /next/i })); // step 1 → 2
+    await userEvent.click(screen.getByRole('button', { name: /next/i })); // step 2 → 3
+    const radiogroup = screen.getByRole('radiogroup', { name: /project methodology/i });
+    await userEvent.click(within(radiogroup).getByRole('radio', { name: /waterfall/i }));
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+
+    expect(mutateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Waterfall Project', methodology: 'WATERFALL' }),
+      expect.anything(),
+    );
   });
 
   it('Create project button is enabled by default on step 3', async () => {

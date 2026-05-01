@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import type { Project } from '@/types';
+import type { Methodology, Project } from '@/types';
 import type { PaginatedResponse } from '@/api/types';
 
 export interface UseProjectsResult {
@@ -15,6 +15,7 @@ interface ApiProject {
   description: string;
   start_date: string;
   calendar: string;
+  methodology?: Methodology;
 }
 
 // Deterministic palette cycled by index — no server-side color assignment yet.
@@ -39,6 +40,9 @@ function mapProject(p: ApiProject, index: number): Project {
     healthState: 'unknown',
     // The modulo guarantees index is in bounds; fallback keeps TS happy on the readonly array type
     colorDot: COLOR_PALETTE[index % COLOR_PALETTE.length] ?? '#1C6B3A',
+    // Default to HYBRID for projects created before ADR-0041 landed (preserves
+    // pre-methodology behavior — all tabs visible).
+    methodology: p.methodology ?? 'HYBRID',
   };
 }
 

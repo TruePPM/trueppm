@@ -85,6 +85,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "calendar",
             "estimation_mode",
             "agile_features",
+            "methodology",
         ]
         read_only_fields = ["id", "server_version"]
 

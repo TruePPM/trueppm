@@ -32,6 +32,7 @@ const PROJECT: Project = {
   name: 'Alpha Platform',
   colorDot: '#1C6B3A',
   healthState: 'on-track',
+  methodology: 'HYBRID',
 };
 
 const PROJECT_AT_RISK: Project = {
@@ -39,6 +40,7 @@ const PROJECT_AT_RISK: Project = {
   name: 'Beta Migration',
   colorDot: '#E8A020',
   healthState: 'at-risk',
+  methodology: 'HYBRID',
 };
 
 const PROJECT_CRITICAL: Project = {
@@ -46,6 +48,7 @@ const PROJECT_CRITICAL: Project = {
   name: 'Gamma Compliance',
   colorDot: '#B91C1C',
   healthState: 'critical',
+  methodology: 'HYBRID',
 };
 
 const PROJECT_UNKNOWN: Project = {
@@ -53,6 +56,7 @@ const PROJECT_UNKNOWN: Project = {
   name: 'Delta Infrastructure',
   colorDot: '#6B6965',
   healthState: 'unknown',
+  methodology: 'HYBRID',
 };
 
 describe('ProjectListItem — expanded (collapsed=false)', () => {

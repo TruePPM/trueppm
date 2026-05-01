@@ -70,6 +70,21 @@ export function ResourcesIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/** Sprint — circular arrow suggesting time-boxed iteration cadence */
+export function SprintIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className={className} {...rest}>
+      <path
+        d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <path d="M11 1.5L13.5 4L11 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 /** Warning triangle — for at-risk badge */
 export function WarningIcon({ className, ...rest }: IconProps) {
   return (

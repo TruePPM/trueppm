@@ -1,8 +1,10 @@
 import { NavLink, useLocation } from 'react-router';
-import { GanttIcon, WbsIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon } from '@/components/Icons';
+import { GanttIcon, WbsIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon, SprintIcon } from '@/components/Icons';
 import { OverviewIcon } from '@/components/Icons';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useProject } from '@/hooks/useProject';
+import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
 import type { ComponentType } from 'react';
 
 interface Tab {
@@ -13,9 +15,11 @@ interface Tab {
 
 // Overview is first — it is the project landing/orientation surface (ADR-0030).
 // Board is second — the execution surface for task planning and status.
+// Sprints is third — between Board and Schedule, paired with execution surfaces (ADR-0041).
 const TABS: Tab[] = [
   { view: 'overview',   label: 'Overview',   Icon: OverviewIcon },
   { view: 'board',      label: 'Board',      Icon: BoardIcon },
+  { view: 'sprints',    label: 'Sprints',    Icon: SprintIcon },
   { view: 'schedule',   label: 'Schedule',   Icon: GanttIcon },
   { view: 'wbs',        label: 'WBS',        Icon: WbsIcon },
   { view: 'list',       label: 'Table',      Icon: ListIcon },
@@ -37,6 +41,7 @@ export function ViewTabs() {
   const location = useLocation();
   const projectId = useProjectId();
   const { role } = useCurrentUserRole(projectId ?? undefined);
+  const project = useProject(projectId);
 
   if (!projectId) return null;
 
@@ -45,10 +50,17 @@ export function ViewTabs() {
   const pathSegments = location.pathname.split('/');
   const currentView = pathSegments[pathSegments.length - 1] ?? 'overview';
 
+  // Default to HYBRID (all tabs visible) until the project loads — preserves
+  // pre-methodology behavior during the brief loading window.
+  const methodology = project.data?.methodology ?? 'HYBRID';
+
   // Pessimistic: hide Team tab while role is loading (null) or for role < SCHEDULER.
   // Direct URL access still works — TeamView renders PermissionDeniedNotice (rule 94).
+  // Methodology preset filter (ADR-0041) layers on top of role gating.
   const visibleTabs = TABS.filter(
-    (t) => t.view !== 'resources' || (role !== null && role >= SCHEDULER_ROLE),
+    (t) =>
+      isTabVisibleForMethodology(t.view, methodology) &&
+      (t.view !== 'resources' || (role !== null && role >= SCHEDULER_ROLE)),
   );
 
   return (
