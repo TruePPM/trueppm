@@ -2226,6 +2226,20 @@ class ProjectOverviewView(APIView):
                 "percent_complete": next_milestone_qs["percent_complete"],
             }
 
+        # ── Risk counts (open + high-severity band) ───────────────────────
+        # Severity = probability * impact; high band ≥ 12 matches the
+        # frontend "Open risks" KPI card. Both counts exclude resolved/closed.
+        open_risks = list(
+            Risk.objects.filter(
+                project=project,
+                status__in=[RiskStatus.OPEN, RiskStatus.MITIGATING],
+            ).values("probability", "impact")
+        )
+        open_risk_count = len(open_risks)
+        high_risk_count = sum(
+            1 for r in open_risks if (r["probability"] or 0) * (r["impact"] or 0) >= 12
+        )
+
         # ── Project owner (first Owner-role member) ───────────────────────
         owner_membership = (
             ProjectMembership.objects.filter(project=project, role=Role.OWNER)
@@ -2249,6 +2263,8 @@ class ProjectOverviewView(APIView):
                 # Populated by the resource utilisation module when it extends this endpoint.
                 "team_utilization_pct": None,
                 "owner_name": owner_name,
+                "open_risk_count": open_risk_count,
+                "high_risk_count": high_risk_count,
                 "start_date": project.start_date.isoformat(),
             },
             status=status.HTTP_200_OK,

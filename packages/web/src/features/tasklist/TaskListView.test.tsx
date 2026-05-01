@@ -198,4 +198,14 @@ describe('TaskListView', () => {
       expect(screen.queryByText('Design')).not.toBeInTheDocument();
     }, { timeout: 600 });
   });
+
+  it('export CSV button is disabled when no tasks match filters', async () => {
+    renderWithRouter(<TaskListView />);
+    const input = screen.getByLabelText(/search tasks/i);
+    await userEvent.type(input, 'zzz_no_match_xyz');
+    await waitFor(() => {
+      const exportBtn = screen.getByRole('button', { name: /export 0 tasks as csv/i });
+      expect(exportBtn).toBeDisabled();
+    }, { timeout: 1000 });
+  });
 });

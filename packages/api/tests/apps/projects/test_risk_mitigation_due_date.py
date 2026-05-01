@@ -38,7 +38,7 @@ def project(calendar: Calendar) -> Project:
 
 @pytest.fixture
 def membership(user: object, project: Project) -> ProjectMembership:
-    return ProjectMembership.objects.create(user=user, project=project, role=Role.MANAGER)
+    return ProjectMembership.objects.create(user=user, project=project, role=Role.ADMIN)
 
 
 @pytest.fixture

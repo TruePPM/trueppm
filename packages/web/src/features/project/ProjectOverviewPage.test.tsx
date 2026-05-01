@@ -383,3 +383,263 @@ describe('CriticalPathPanel', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Branch coverage — open risks KPI card, status pills, severity dots, MC histogram
+// ---------------------------------------------------------------------------
+
+describe('Open risks KPI card branches', () => {
+  it('shows "{n} high" when high_risk_count > 0', async () => {
+    mockedGet.mockImplementation((url: string) => {
+      if (url.endsWith('/overview/'))
+        return Promise.resolve({
+          data: { ...OVERVIEW_RESPONSE, open_risk_count: 5, high_risk_count: 2 },
+        });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      return Promise.reject(new Error(url));
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText('2 high')).toBeInTheDocument();
+      expect(screen.getByText('5 register total')).toBeInTheDocument();
+    });
+  });
+
+  it('shows total open count when high_risk_count is 0', async () => {
+    mockedGet.mockImplementation((url: string) => {
+      if (url.endsWith('/overview/'))
+        return Promise.resolve({
+          data: { ...OVERVIEW_RESPONSE, open_risk_count: 3, high_risk_count: 0 },
+        });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      return Promise.reject(new Error(url));
+    });
+    renderPage();
+    await waitFor(() => {
+      // Open risks card label + value "3"
+      expect(screen.getByText(/^Open risks$/)).toBeInTheDocument();
+      expect(screen.getByText('3 register total')).toBeInTheDocument();
+    });
+  });
+
+  it('shows em-dash when both risk counts are absent', async () => {
+    mockedGet.mockImplementation((url: string) => {
+      if (url.endsWith('/overview/')) {
+        const data: Record<string, unknown> = { ...OVERVIEW_RESPONSE };
+        delete data.open_risk_count;
+        delete data.high_risk_count;
+        return Promise.resolve({ data });
+      }
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      return Promise.reject(new Error(url));
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText(/^Open risks$/)).toBeInTheDocument();
+    });
+  });
+});
+
+describe('My tasks status pill + owner branches', () => {
+  function makeTask(overrides: Record<string, unknown>) {
+    return {
+      id: 't',
+      name: 'T',
+      due: '2026-04-18',
+      due_date: '2026-04-18',
+      status: 'IN_PROGRESS',
+      percent_complete: 0,
+      is_critical: false,
+      ...overrides,
+    };
+  }
+
+  function setup(tasks: unknown[]) {
+    mockedGet.mockImplementation((url: string) => {
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: { tasks } });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      return Promise.reject(new Error(url));
+    });
+  }
+
+  it.each([
+    ['COMPLETE', 'Done'],
+    ['IN_PROGRESS', 'In progress'],
+    ['REVIEW', 'Review'],
+    ['NOT_STARTED', 'Not started'],
+    ['BACKLOG', 'Backlog'],
+    ['ON_HOLD', 'On hold'],
+  ])('renders the %s status pill as "%s"', async (status, label) => {
+    setup([makeTask({ id: status, name: `Task-${status}`, status })]);
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    });
+  });
+
+  it('renders no pill when status is unknown', async () => {
+    setup([makeTask({ id: 'x', name: 'Mystery', status: 'UNKNOWN_STATUS' })]);
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText('Mystery')).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/Done|In progress|Review|Not started|Backlog|On hold/)).toBeNull();
+  });
+
+  it('renders owner initials and name when present', async () => {
+    setup([
+      makeTask({
+        id: 'o',
+        name: 'Owned task',
+        owner_name: 'Bob Jones',
+        owner_initials: 'BJ',
+      }),
+    ]);
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText('BJ')).toBeInTheDocument();
+      expect(screen.getByLabelText(/Owner: Bob Jones/)).toBeInTheDocument();
+    });
+  });
+
+  it('falls back to "?" / Unassigned when owner data is absent', async () => {
+    setup([makeTask({ id: 'u', name: 'No owner' })]);
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText('?')).toBeInTheDocument();
+      expect(screen.getByLabelText(/Owner: Unassigned/)).toBeInTheDocument();
+    });
+  });
+
+  it('renders CP badge when is_critical is true', async () => {
+    setup([makeTask({ id: 'c', name: 'Crit', is_critical: true })]);
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText('Critical path')).toBeInTheDocument();
+    });
+  });
+});
+
+describe('Attention severity dot branches', () => {
+  function setup(items: unknown[]) {
+    mockedGet.mockImplementation((url: string) => {
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: { items } });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      return Promise.reject(new Error(url));
+    });
+  }
+
+  it.each(['critical', 'warning', 'info'])('renders the %s severity dot', async (sev) => {
+    setup([
+      {
+        severity: sev,
+        type: 'critical_task_late',
+        task_id: 't',
+        task_name: `T-${sev}`,
+        message: '',
+        assignee_name: null,
+        date: '2026-05-01',
+        detail: 'd',
+        link_target: null,
+      },
+    ]);
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByLabelText(`${sev} severity`)).toBeInTheDocument();
+    });
+  });
+
+  it('omits the date column when item has no date', async () => {
+    setup([
+      {
+        severity: 'info',
+        type: 'critical_task_late',
+        task_id: 't',
+        task_name: 'NoDate',
+        message: '',
+        assignee_name: null,
+        date: null,
+        detail: 'd',
+        link_target: null,
+      },
+    ]);
+    renderPage();
+    await waitFor(() => {
+      expect(screen.getByText('NoDate')).toBeInTheDocument();
+    });
+  });
+});
+
+describe('MC histogram bucket coloring', () => {
+  it('colors buckets by P50/P80 percentile region', async () => {
+    const mc = {
+      p50: '2026-06-01',
+      p80: '2026-06-15',
+      p95: '2026-06-30',
+      runs: 500,
+      distribution: [],
+      histogram_buckets: [
+        { date: '2026-05-15', count: 5 }, // ≤ P50 → green
+        { date: '2026-06-10', count: 9 }, // P50-P80 → amber
+        { date: '2026-06-20', count: 3 }, // > P80 → red
+      ],
+    };
+    mockedGet.mockImplementation((url: string) => {
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.resolve({ data: mc });
+      return Promise.reject(new Error(url));
+    });
+    const { container } = renderPage();
+    await waitFor(() => {
+      expect(screen.getByText(/8 in 10 simulations finish by/i)).toBeInTheDocument();
+    });
+    const rects = container.querySelectorAll('rect');
+    expect(rects.length).toBe(3);
+    const fills = Array.from(rects).map((r) => r.getAttribute('fill'));
+    expect(fills).toContain('#4ade80');
+    expect(fills).toContain('#f59e0b');
+    expect(fills).toContain('#b91c1c');
+  });
+
+  it('renders no svg when histogram_buckets is empty', async () => {
+    const mc = {
+      p50: '2026-06-01',
+      p80: '2026-06-15',
+      p95: '2026-06-30',
+      runs: 0,
+      distribution: [],
+      histogram_buckets: [],
+    };
+    mockedGet.mockImplementation((url: string) => {
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.resolve({ data: mc });
+      return Promise.reject(new Error(url));
+    });
+    const { container } = renderPage();
+    await waitFor(() => {
+      expect(screen.getByText(/8 in 10 simulations finish by/i)).toBeInTheDocument();
+    });
+    expect(container.querySelectorAll('rect').length).toBe(0);
+  });
+});
