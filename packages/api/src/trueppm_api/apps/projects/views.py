@@ -3047,3 +3047,60 @@ class ProjectVelocityView(APIView):
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
         return Response(velocity_summary(project.pk), status=status.HTTP_200_OK)
+
+
+class ProjectBurnView(APIView):
+    """``GET /api/v1/projects/<pk>/burn/`` — burndown / burnup series (issue #239).
+
+    Reconstructs daily task counts (or story-point sums) from
+    ``HistoricalTask`` snapshots and returns the actual / scope / linear
+    ideal curves needed to render burn charts. Includes a planned overlay
+    derived from the project's active baseline when one exists.
+
+    Query params:
+      ``chart_type`` — ``burndown`` (default) or ``burnup``
+      ``metric``     — ``tasks`` (default) or ``points``
+      ``since``      — window start, ISO date; defaults to project start
+      ``until``      — window end, ISO date; defaults to today
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def get(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.projects.services import burn_series
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+
+        chart_type = request.query_params.get("chart_type", "burndown")
+        metric = request.query_params.get("metric", "tasks")
+        since_param = request.query_params.get("since")
+        until_param = request.query_params.get("until")
+
+        since = self._parse_date(since_param) if since_param else project.start_date
+        until = self._parse_date(until_param) if until_param else timezone.localdate()
+
+        if since is None or until is None:
+            return Response(
+                {"detail": "since and until must be ISO dates (YYYY-MM-DD)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            payload = burn_series(
+                project_id=project.pk,
+                chart_type=chart_type,
+                since=since,
+                until=until,
+                metric=metric,
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(payload, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _parse_date(raw: str) -> datetime.date | None:
+        try:
+            return datetime.date.fromisoformat(raw)
+        except ValueError:
+            return None

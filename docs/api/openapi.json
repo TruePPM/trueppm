@@ -1717,6 +1717,38 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/burn/": {
+            "get": {
+                "operationId": "v1_projects_burn_retrieve",
+                "description": "``GET /api/v1/projects/<pk>/burn/`` — burndown / burnup series (issue #239).\n\nReconstructs daily task counts (or story-point sums) from\n``HistoricalTask`` snapshots and returns the actual / scope / linear\nideal curves needed to render burn charts. Includes a planned overlay\nderived from the project's active baseline when one exists.\n\nQuery params:\n  ``chart_type`` — ``burndown`` (default) or ``burnup``\n  ``metric``     — ``tasks`` (default) or ``points``\n  ``since``      — window start, ISO date; defaults to project start\n  ``until``      — window end, ISO date; defaults to today",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/monte-carlo/": {
             "post": {
                 "operationId": "v1_projects_monte_carlo_create",
