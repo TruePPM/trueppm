@@ -146,6 +146,44 @@ async function setupCommon(page: import('@playwright/test').Page) {
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 'mem-1', role: 3 }]) }),
   );
+  // Sprints view fires queries for burndown / capacity / velocity / backlog.
+  // Stub them all with empty payloads so this spec stays focused on the header.
+  await page.route(/\/api\/v1\/sprints\/.*\/burndown\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ sprint: ACTIVE_SPRINT, snapshots: [] }),
+    }),
+  );
+  await page.route(/\/api\/v1\/sprints\/.*\/capacity\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        members: [],
+        totals: { committed_hours: 0, available_hours: 0, ratio: 0, buffer_hours: 0, label: 'on_track', pto_days: 0 },
+        working_days: 0, hours_per_day: 8,
+      }),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/velocity/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        sprints: [], rolling_avg_points: null, rolling_stdev_points: null,
+        forecast_range_low: null, forecast_range_high: null,
+        rolling_avg_tasks: null, rolling_stdev_tasks: null,
+      }),
+    }),
+  );
+  await page.route(/\/api\/v1\/tasks\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
 }
 
 test.describe('Wave 10 — Sprints view header', () => {

@@ -138,6 +138,16 @@ async function setupCommon(page: import('@playwright/test').Page) {
   await page.route(`**/api/v1/projects/${PROJECT_ID}/velocity/`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(VELOCITY_PAYLOAD) }),
   );
+  // Sprint backlog (#229) is rendered by SprintsView and queries /tasks/ —
+  // an unmocked call falls through to the real backend and triggers an auth
+  // redirect. Stub it with an empty list since this spec is metrics-only.
+  await page.route(/\/api\/v1\/tasks\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
 
   await page.route('**/api/v1/projects/*/presence/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
