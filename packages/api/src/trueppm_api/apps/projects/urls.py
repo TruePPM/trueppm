@@ -15,6 +15,7 @@ from trueppm_api.apps.projects.views import (
     DependencyViewSet,
     PhaseReorderView,
     ProjectAttentionView,
+    ProjectBurnView,
     ProjectMyTasksView,
     ProjectOverviewView,
     ProjectPresenceView,
@@ -203,5 +204,10 @@ urlpatterns = [
         "projects/<pk>/velocity/",
         ProjectVelocityView.as_view(),
         name="project-velocity",
+    ),
+    path(
+        "projects/<pk>/burn/",
+        ProjectBurnView.as_view(),
+        name="project-burn",
     ),
 ]

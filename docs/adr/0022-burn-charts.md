@@ -1,7 +1,11 @@
 # ADR-0022: Burn Charts — Burn Down, Burn Up, and Combined
 
 ## Status
-Proposed
+Accepted (2026-04-30) — API portion implemented in #239. The MVP endpoint
+replays `HistoricalTask` directly rather than materialising daily
+snapshots; the `BurnSnapshot` table and nightly Celery job described in §1
+are deferred until measured query performance demands them. The web UI
+(Recharts components, PNG export) ships as part of wave/10 issue #228.
 
 ## Context
 
