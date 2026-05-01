@@ -480,14 +480,15 @@ test.describe('Board view', () => {
   });
 
   // -------------------------------------------------------------------------
-  // Issue #186 — Baseline variance strip (b5 has baseline_finish Jan 10, early_finish Jan 20 → +10d)
+  // Issue #186 — Baseline variance strip (b5: baseline_finish Jan 10,
+  // useScheduleTasks computes finish as start+duration = Jan 5 + 12d = Jan 17 → +7d)
   // -------------------------------------------------------------------------
 
   test('baseline variance chip renders on QA Gate card (issue #186)', async ({ page }) => {
-    // The variance panel is `hidden group-hover:block group-focus-within:block` — only revealed
-    // on hover/focus. Assert the chip is attached in the DOM with the correct aria-label;
-    // hover/focus visibility is covered by the BoardCard.test.tsx vitest unit tests.
-    await expect(page.getByLabel(/Baseline variance: \+10d/)).toBeAttached();
+    // The variance panel is `hidden group-hover:block group-focus-within:block` — only
+    // revealed on hover/focus. Assert the chip is attached in the DOM.
+    // finish = start + duration = 2026-01-05 + 12d = 2026-01-17; baseline_finish = 2026-01-10 → +7d.
+    await expect(page.getByLabel(/Baseline variance: \+7d/)).toBeAttached();
   });
 
   // -------------------------------------------------------------------------
