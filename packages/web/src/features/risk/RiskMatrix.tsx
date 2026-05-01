@@ -10,12 +10,12 @@ function cellBgClass(probability: number, impact: number): string {
   return 'bg-risk-zone-minimal';
 }
 
-// Badge background matches the severity band (rule 86).
+// Badge background matches the design ring formula (mockups-pages.jsx ringFor).
 function badgeBgClass(severity: number): string {
   if (severity >= 20) return 'bg-semantic-critical text-white';
-  if (severity >= 12) return 'bg-brand-accent text-neutral-text-primary';
-  if (severity >= 6)  return 'bg-semantic-warning text-white';
-  if (severity >= 2)  return 'bg-semantic-on-track/80 text-white';
+  if (severity >= 12) return 'bg-brand-accent-dark text-white';
+  if (severity >= 6)  return 'bg-brand-accent text-white';
+  if (severity >= 2)  return 'bg-semantic-on-track text-white';
   return 'bg-neutral-border text-neutral-text-secondary';
 }
 
@@ -40,17 +40,18 @@ interface RiskMatrixProps {
   onCellSelect?: (cell: SelectedCell | null) => void;
 }
 
-// Legend uses solid square swatches matching badge colors (rule 86).
+// Legend swatches mirror badge bg colors (which now follow the design ring formula).
 const LEGEND = [
   { label: 'Critical', range: '(P×I ≥ 20)', swatchClass: 'bg-semantic-critical' },
-  { label: 'High',     range: '(12–19)',     swatchClass: 'bg-brand-accent' },
-  { label: 'Medium',   range: '(6–11)',      swatchClass: 'bg-semantic-warning' },
-  { label: 'Low',      range: '(1–5)',       swatchClass: 'bg-semantic-on-track/80' },
+  { label: 'High',     range: '(12–19)',     swatchClass: 'bg-brand-accent-dark' },
+  { label: 'Medium',   range: '(6–11)',      swatchClass: 'bg-brand-accent' },
+  { label: 'Low',      range: '(1–5)',       swatchClass: 'bg-semantic-on-track' },
 ] as const;
 
-// Cell: w-14 = 56px. 5 cells + 4 × 1px gaps = 284px total grid width.
-const CELL_SIZE = 'w-14 h-14';
-const GRID_WIDTH = 'w-[284px]';
+// Cell: 60px to match design (mockups-pages.jsx gridTemplateRows: "repeat(5, 60px)").
+// 5 cells + 4 × 1px gaps = 304px total grid width.
+const CELL_SIZE = 'w-[60px] h-[60px]';
+const GRID_WIDTH = 'w-[304px]';
 
 export function RiskMatrix({ risks, selectedCell, onCellSelect }: RiskMatrixProps) {
   function handleCellClick(probability: number, impact: number) {
@@ -133,7 +134,10 @@ export function RiskMatrix({ risks, selectedCell, onCellSelect }: RiskMatrixProp
                           key={r.id}
                           className={[
                             'inline-flex items-center justify-center',
-                            'w-10 h-10 rounded-full shrink-0 text-xs font-semibold tppm-mono',
+                            // Design spec is 22px; bumped to 26px to keep label at the
+                            // text-xs (12px) accessibility floor (rule 50). Still reads
+                            // as a compact badge and fits 4 per cell with wrap.
+                            'w-[26px] h-[26px] rounded-full shrink-0 text-xs font-semibold tppm-mono',
                             badgeBgClass(r.severity),
                           ].join(' ')}
                           title={r.title}
@@ -156,7 +160,7 @@ export function RiskMatrix({ risks, selectedCell, onCellSelect }: RiskMatrixProp
               {[1, 2, 3, 4, 5].map((imp) => (
                 <div
                   key={imp}
-                  className="w-14 text-center text-xs text-neutral-text-secondary tppm-mono"
+                  className="w-[60px] text-center text-xs text-neutral-text-secondary tppm-mono"
                 >
                   {imp}
                 </div>

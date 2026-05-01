@@ -647,6 +647,8 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
     """
 
     severity = serializers.SerializerMethodField()
+    owner_name = serializers.SerializerMethodField()
+    owner_initials = serializers.SerializerMethodField()
     tasks = serializers.PrimaryKeyRelatedField(
         many=True,
         queryset=Task.objects.filter(is_deleted=False),
@@ -655,6 +657,31 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
 
     def get_severity(self, obj: Risk) -> int:
         return obj.probability * obj.impact
+
+    def get_owner_name(self, obj: Risk) -> str | None:
+        """Display name for the owner — first+last, falling back to username.
+
+        Resolved here instead of via a select_related on the queryset to keep
+        the registry list payload small when callers don't need it (mobile).
+        """
+        owner = obj.owner
+        if owner is None:
+            return None
+        name = f"{owner.first_name} {owner.last_name}".strip()
+        return name if name else owner.username
+
+    def get_owner_initials(self, obj: Risk) -> str | None:
+        owner = obj.owner
+        if owner is None:
+            return None
+        parts: list[str] = []
+        if owner.first_name:
+            parts.append(owner.first_name[0].upper())
+        if owner.last_name:
+            parts.append(owner.last_name[0].upper())
+        if parts:
+            return "".join(parts[:2])
+        return owner.username[:2].upper()
 
     def validate_probability(self, value: int) -> int:
         if not 1 <= value <= 5:
@@ -670,6 +697,13 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
         if len(tasks) > 10:
             raise serializers.ValidationError("A risk may link to at most 10 tasks.")
         return tasks
+
+    def validate_mitigation_due_date(self, value: Any) -> Any:
+        # Non-blocking: accept past dates so PMs can save overdue risks without
+        # being blocked. The overdue state is surfaced as a UI badge on the
+        # client; blocking here would prevent updating other fields on a risk
+        # whose mitigation deadline has already slipped.
+        return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # All linked tasks must belong to the same project as the risk.
@@ -710,6 +744,8 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
             "trigger",
             "contingency",
             "owner",
+            "owner_name",
+            "owner_initials",
             "created_by",
             "created_at",
             "updated_at",
@@ -721,6 +757,8 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
             "short_id",
             "project",
             "severity",
+            "owner_name",
+            "owner_initials",
             "created_by",
             "created_at",
             "updated_at",

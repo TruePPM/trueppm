@@ -8548,6 +8548,17 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "owner_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Display name for the owner — first+last, falling back to username.\n\nResolved here instead of via a select_related on the queryset to keep\nthe registry list payload small when callers don't need it (mobile).",
+                        "readOnly": true
+                    },
+                    "owner_initials": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
                     "created_by": {
                         "type": "integer",
                         "readOnly": true,
@@ -8576,6 +8587,8 @@
                     "created_by",
                     "id",
                     "impact",
+                    "owner_initials",
+                    "owner_name",
                     "probability",
                     "project",
                     "server_version",

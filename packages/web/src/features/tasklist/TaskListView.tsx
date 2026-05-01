@@ -23,12 +23,15 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
   COMPLETE:     'Done',
 };
 
+// Pill colors mirror the golden design (mockups-pages.jsx TableBody STATUS_PILL):
+// "On hold" uses the warning gold family — at-risk red was a semantic
+// re-assignment that read as "broken" rather than "paused".
 const STATUS_CLS: Record<TaskStatus, string> = {
   BACKLOG:      'border-neutral-border text-neutral-text-secondary',
   NOT_STARTED:  'border-neutral-border text-neutral-text-secondary',
   IN_PROGRESS:  'border-brand-primary/50 text-brand-primary',
   REVIEW:       'border-brand-accent/50 text-brand-accent-dark',
-  ON_HOLD:      'border-semantic-at-risk/50 text-semantic-at-risk',
+  ON_HOLD:      'border-semantic-warning/50 text-semantic-warning',
   COMPLETE:     'border-semantic-on-track/50 text-semantic-on-track',
 };
 

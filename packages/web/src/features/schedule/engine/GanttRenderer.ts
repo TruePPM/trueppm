@@ -71,6 +71,10 @@ export const COLOR = {
   selectionRing:  '#1C6B3A',   // brand-primary
   ghostFill:      'rgba(100,116,139,0.12)',
   ghostBorder:    'rgba(100,116,139,0.55)',
+  // Chip text tokens (ADR-0040 #212): named so a future high-contrast theme
+  // can override them without touching draw call sites.
+  chipTextOnCritical: '#FFFFFF',  // semantic-on-critical
+  chipTextOnSurface:  '#FFFFFF',  // semantic-on-surface (white reads on every bar fill)
 } as const;
 
 /** Semantic type for the color palette. Both COLOR and COLOR_DARK satisfy this. */
@@ -95,6 +99,8 @@ export const COLOR_DARK: ColorPalette = {
   selectionRing:  '#4ADE80',   // Green-400, 5.28:1 on dark surface
   ghostFill:      'rgba(100,116,139,0.12)',
   ghostBorder:    'rgba(100,116,139,0.55)',
+  chipTextOnCritical: '#FFFFFF',
+  chipTextOnSurface:  '#FFFFFF',
 };
 
 // Active palette — swapped by GanttEngineImpl before each paint pass.
@@ -435,7 +441,7 @@ function drawTaskBarChip(
   ctx.roundRect(chipX, chipY, chipW, chipH, 3);
   ctx.fill();
 
-  ctx.fillStyle = '#FFFFFF';
+  ctx.fillStyle = isCritical ? _palette.chipTextOnCritical : _palette.chipTextOnSurface;
   ctx.textBaseline = 'middle';
   ctx.fillText(label, chipX + chipPadX, chipY + chipH / 2);
 
@@ -509,8 +515,9 @@ export function drawTaskBar(
     ctx.rect(barLeft, barTop, barWidth, BAR_HEIGHT);
     ctx.clip();
     const initials = getInitials(task.assignees[0].name);
-    ctx.font = '10px Inter, system-ui, sans-serif';
-    ctx.fillStyle = '#FFFFFF';
+    // Initials font matches rule 50 floor when scaled for canvas (rule 71 reset below).
+    ctx.font = '12px Inter, system-ui, sans-serif';
+    ctx.fillStyle = _palette.chipTextOnSurface;
     ctx.textBaseline = 'middle';
     const textWidth = ctx.measureText(initials).width;
     ctx.fillText(initials, barLeft + barWidth - 4 - textWidth, barTop + BAR_HEIGHT / 2);

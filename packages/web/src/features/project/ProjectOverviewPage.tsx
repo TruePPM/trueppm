@@ -19,6 +19,9 @@ interface OverviewData {
   team_utilization_pct: number | null;
   owner_name: string | null;
   start_date: string;
+  // Risk summary used by the "Open risks" KPI card and risk register summary section.
+  open_risk_count?: number;
+  high_risk_count?: number;
 }
 
 interface AttentionItem {
@@ -39,6 +42,10 @@ interface MyTask {
   status: string;
   percent_complete: number;
   is_critical: boolean;
+  // Optional owner display data; tolerated absent for backwards-compat with
+  // older API responses. Falls back to a single-character "?" avatar.
+  owner_name?: string | null;
+  owner_initials?: string | null;
 }
 
 interface MCResult {
@@ -280,6 +287,15 @@ interface AttentionPanelProps {
   items: AttentionItem[];
 }
 
+// Severity dot colors mirror the design mockup (mockups-pages.jsx OverviewBody
+// attention rows). The icon glyph remains as a screen-reader-friendly fallback
+// when the severity color alone could fail WCAG 1.4.1.
+const SEVERITY_DOT_CLASS: Record<AttentionItem['severity'], string> = {
+  critical: 'bg-semantic-critical',
+  warning:  'bg-semantic-at-risk',
+  info:     'bg-brand-primary',
+};
+
 function AttentionPanel({ items }: AttentionPanelProps) {
   if (items.length === 0) {
     return (
@@ -299,16 +315,27 @@ function AttentionPanel({ items }: AttentionPanelProps) {
       {items.map((item, i) => (
         <li
           key={i}
-          className="flex items-start gap-3 px-4 py-3 rounded border border-neutral-border
-            bg-neutral-surface-raised text-sm"
+          className="grid grid-cols-[10px_1fr_auto] gap-3 items-start px-4 py-3 rounded
+            border border-neutral-border bg-neutral-surface-raised text-sm"
         >
-          <span aria-hidden="true" className="flex-shrink-0 mt-0.5">
-            {ATTENTION_ICONS[item.type]}
-          </span>
+          {/* Severity dot — colour conveys severity, aria-label conveys severity in words */}
+          <span
+            className={`mt-1.5 w-2.5 h-2.5 rounded-full ${SEVERITY_DOT_CLASS[item.severity]}`}
+            role="img"
+            aria-label={`${item.severity} severity`}
+          />
           <span className="flex flex-col min-w-0">
-            <span className="text-neutral-text-primary truncate">{item.task_name}</span>
+            <span className="text-neutral-text-primary truncate flex items-center gap-1.5">
+              <span aria-hidden="true" className="text-xs">{ATTENTION_ICONS[item.type]}</span>
+              {item.task_name}
+            </span>
             <span className="text-xs text-neutral-text-secondary">{item.detail}</span>
           </span>
+          {item.date && (
+            <span className="text-xs text-neutral-text-secondary tppm-mono whitespace-nowrap pt-0.5">
+              {item.date}
+            </span>
+          )}
         </li>
       ))}
     </ul>
@@ -332,30 +359,65 @@ function MyTasksPanel({ tasks }: MyTasksPanelProps) {
     );
   }
 
+  // Map task status to a compact pill label + colour family.
+  function statusPill(status: string): { label: string; cls: string } | null {
+    switch (status) {
+      case 'COMPLETE':    return { label: 'Done',        cls: 'border-semantic-on-track/40 text-semantic-on-track' };
+      case 'IN_PROGRESS': return { label: 'In progress', cls: 'border-brand-primary/40 text-brand-primary' };
+      case 'REVIEW':      return { label: 'Review',      cls: 'border-brand-accent-dark/40 text-brand-accent-dark' };
+      case 'NOT_STARTED': return { label: 'Not started', cls: 'border-neutral-border text-neutral-text-secondary' };
+      case 'BACKLOG':     return { label: 'Backlog',     cls: 'border-neutral-border text-neutral-text-secondary' };
+      case 'ON_HOLD':     return { label: 'On hold',     cls: 'border-semantic-warning/40 text-semantic-warning' };
+      default:            return null;
+    }
+  }
+
   return (
     <ul className="flex flex-col gap-1" aria-label="My tasks due this week">
-      {tasks.map((task) => (
-        <li
-          key={task.id}
-          className="flex items-center gap-3 px-3 py-2 rounded border border-neutral-border
-            bg-neutral-surface-raised text-sm"
-        >
-          {task.is_critical && (
+      {tasks.map((task) => {
+        const pill = statusPill(task.status);
+        const initials = task.owner_initials ?? '?';
+        const ownerLabel = task.owner_name ?? 'Unassigned';
+        return (
+          <li
+            key={task.id}
+            className="flex items-center gap-3 px-3 py-2 rounded border border-neutral-border
+              bg-neutral-surface-raised text-sm"
+          >
+            {task.is_critical && (
+              <span
+                aria-label="Critical path"
+                title="This task is on the critical path"
+                className="flex-shrink-0 text-xs font-bold text-semantic-critical
+                  border border-semantic-critical/50 rounded px-1 leading-4"
+              >
+                CP
+              </span>
+            )}
             <span
-              aria-label="Critical path"
-              title="This task is on the critical path"
-              className="flex-shrink-0 text-xs font-bold text-semantic-critical
-                border border-semantic-critical/50 rounded px-1 leading-4"
+              className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full
+                border border-neutral-border bg-neutral-surface text-xs font-semibold tppm-mono
+                text-neutral-text-secondary"
+              aria-label={`Owner: ${ownerLabel}`}
+              title={ownerLabel}
             >
-              CP
+              {initials}
             </span>
-          )}
-          <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{task.name}</span>
-          {task.due && (
-            <span className="flex-shrink-0 text-xs text-neutral-text-secondary tppm-mono">{task.due}</span>
-          )}
-        </li>
-      ))}
+            <span className="flex-1 min-w-0 truncate text-neutral-text-primary">{task.name}</span>
+            <span className="flex-shrink-0 text-xs text-neutral-text-secondary tppm-mono w-9 text-right">
+              {Math.round(task.percent_complete)}%
+            </span>
+            {pill && (
+              <span className={`flex-shrink-0 text-xs px-2 py-0.5 rounded border ${pill.cls}`}>
+                {pill.label}
+              </span>
+            )}
+            {task.due && (
+              <span className="flex-shrink-0 text-xs text-neutral-text-secondary tppm-mono">{task.due}</span>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -636,12 +698,12 @@ export function ProjectOverviewPage() {
       {/* Project header */}
       {overview && !overviewLoading && <ProjectHeader overview={overview} />}
 
-      {/* KPI row — 5 cards per design spec (#166) */}
+      {/* KPI row — 6 cards per design spec (mockups-pages.jsx OverviewBody) */}
       <section aria-label="Project KPIs">
         {overviewLoading ? (
           <KpiSkeleton />
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <KpiCard
               label="Schedule health"
               value={healthLabel}
@@ -669,6 +731,26 @@ export function ProjectOverviewPage() {
               label="Team utilization"
               value={overview?.team_utilization_pct != null ? `${Math.round(overview.team_utilization_pct)}%` : '—'}
               variant={utilizationVariant}
+            />
+            <KpiCard
+              label="Open risks"
+              value={
+                overview?.high_risk_count != null && overview.high_risk_count > 0
+                  ? `${overview.high_risk_count} high`
+                  : overview?.open_risk_count != null
+                  ? String(overview.open_risk_count)
+                  : '—'
+              }
+              sub={
+                overview?.open_risk_count != null
+                  ? `${overview.open_risk_count} register total`
+                  : undefined
+              }
+              variant={
+                overview && overview.high_risk_count != null && overview.high_risk_count > 0
+                  ? 'at-risk'
+                  : 'on-track'
+              }
             />
           </div>
         )}

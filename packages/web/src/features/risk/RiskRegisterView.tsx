@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Risk } from '@/api/types';
 import { useRisks } from '@/hooks/useRisks';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -37,6 +37,27 @@ export function RiskRegisterView() {
   const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
   // When true the drawer opens directly in edit mode (✎ quick-edit affordance)
   const [editMode, setEditMode] = useState(false);
+
+  // Mobile overflow menu (… button) — exposes Export CSV on viewports < md (ADR-0043)
+  const [isOverflowOpen, setIsOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!isOverflowOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+        setIsOverflowOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setIsOverflowOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [isOverflowOpen]);
 
   const projectName = projects?.find((p) => p.id === projectId)?.name ?? null;
 
@@ -93,7 +114,7 @@ export function RiskRegisterView() {
           {!isLoading && !error && criticalCount > 0 && (
             <span
               className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-                bg-transparent border border-semantic-critical/40 text-semantic-critical"
+                bg-semantic-critical text-white"
               aria-label={`${criticalCount} critical risk${criticalCount !== 1 ? 's' : ''}`}
             >
               {criticalCount} critical
@@ -102,8 +123,7 @@ export function RiskRegisterView() {
           {!isLoading && !error && highCount > 0 && (
             <span
               className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
-                bg-transparent border border-brand-accent-dark/40 dark:border-brand-accent/40
-                text-brand-accent-dark dark:text-brand-accent"
+                bg-brand-accent-dark text-white"
               aria-label={`${highCount} high risk${highCount !== 1 ? 's' : ''}`}
             >
               {highCount} high
@@ -150,7 +170,71 @@ export function RiskRegisterView() {
             + New risk
           </button>
         </div>
+
+        {/* Mobile overflow menu (< md) — exposes Export CSV (ADR-0043) and other low-frequency actions */}
+        {risks.length > 0 && (
+          <div ref={overflowRef} className="md:hidden relative shrink-0 pt-1">
+            <button
+              type="button"
+              onClick={() => setIsOverflowOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={isOverflowOpen}
+              aria-label="More actions"
+              className="inline-flex items-center justify-center w-10 h-10 rounded
+                text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1"
+            >
+              <span aria-hidden="true" className="text-xl leading-none">⋯</span>
+            </button>
+            {isOverflowOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-11 min-w-[180px] z-30 rounded-md
+                  bg-neutral-surface border border-neutral-border py-1"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    exportRisksToCSV(displayRisks, projectSlug);
+                    setIsOverflowOpen(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm text-neutral-text-primary
+                    hover:bg-neutral-surface-raised
+                    focus-visible:outline-none focus-visible:bg-neutral-surface-raised"
+                >
+                  Export CSV
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </header>
+
+      {/* Mobile-only count pill row — desktop toolbar is hidden < md so pills surface here */}
+      {!isLoading && !error && (criticalCount > 0 || highCount > 0) && (
+        <div className="md:hidden flex items-center gap-2 px-6 pb-3 shrink-0">
+          {criticalCount > 0 && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                bg-semantic-critical text-white"
+              aria-label={`${criticalCount} critical risk${criticalCount !== 1 ? 's' : ''}`}
+            >
+              {criticalCount} critical
+            </span>
+          )}
+          {highCount > 0 && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                bg-brand-accent-dark text-white"
+              aria-label={`${highCount} high risk${highCount !== 1 ? 's' : ''}`}
+            >
+              {highCount} high
+            </span>
+          )}
+        </div>
+      )}
 
       {/* ── Two-column content ───────────────────────────────────────────── */}
       <div className="flex-1 min-h-0 flex gap-4 px-6 pb-6 overflow-hidden">
@@ -158,7 +242,7 @@ export function RiskRegisterView() {
         {/* Left — heatmap card (lg+, togglable) */}
         {showHeatmap && (
           <aside
-            className="hidden lg:flex flex-col shrink-0 w-[420px]
+            className="hidden lg:flex flex-col shrink-0 w-[440px]
               border border-neutral-border rounded-lg p-5
               bg-neutral-surface-raised overflow-auto"
             aria-label="Risk heatmap"
@@ -275,7 +359,7 @@ export function RiskRegisterView() {
                     <th scope="col" className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[72px]">
                       Trend
                     </th>
-                    <th scope="col" className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[80px]">
+                    <th scope="col" className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[180px]">
                       Owner
                     </th>
                     {/* Quick-edit affordance column — no header */}
@@ -353,16 +437,21 @@ export function RiskRegisterView() {
                         <span className="text-base text-neutral-text-disabled" aria-hidden="true">→</span>
                       </td>
 
-                      {/* Owner */}
+                      {/* Owner — initials avatar + display name (design conformance) */}
                       <td className="px-4">
                         {risk.owner ? (
-                          <span
-                            className="inline-flex items-center justify-center w-7 h-7 rounded-full
-                              bg-neutral-surface-sunken border border-neutral-border
-                              text-xs font-semibold text-neutral-text-secondary"
-                            aria-label="Owner assigned"
-                          >
-                            ?
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-full shrink-0
+                                bg-neutral-surface-sunken border border-neutral-border
+                                text-xs font-semibold text-neutral-text-primary tppm-mono"
+                              aria-hidden="true"
+                            >
+                              {risk.owner_initials ?? '?'}
+                            </span>
+                            <span className="text-xs text-neutral-text-secondary truncate">
+                              {risk.owner_name ?? 'Assigned'}
+                            </span>
                           </span>
                         ) : (
                           <span className="text-xs text-neutral-text-disabled" aria-label="Unassigned">—</span>
