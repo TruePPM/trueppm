@@ -107,12 +107,20 @@ export interface TaskLink {
   isCritical: boolean;
 }
 
+/**
+ * Project planning methodology preset (ADR-0041).
+ * Drives default tab visibility in the project workspace; does not gate API access.
+ */
+export type Methodology = 'WATERFALL' | 'AGILE' | 'HYBRID';
+
 export interface Project {
   id: string;
   name: string;
   /** Hex color for the 8px project dot, e.g. '#1C6B3A' */
   colorDot: string;
   healthState: HealthState;
+  /** Project methodology preset — drives default tab visibility (ADR-0041). */
+  methodology: Methodology;
 }
 
 /** One weekly bucket in a Monte Carlo distribution histogram */

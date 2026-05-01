@@ -7581,6 +7581,15 @@
                     "username"
                 ]
             },
+            "MethodologyEnum": {
+                "enum": [
+                    "WATERFALL",
+                    "AGILE",
+                    "HYBRID"
+                ],
+                "type": "string",
+                "description": "* `WATERFALL` - Waterfall\n* `AGILE` - Agile\n* `HYBRID` - Hybrid"
+            },
             "MinProficiencyEnum": {
                 "enum": [
                     1,
@@ -8282,6 +8291,9 @@
                     },
                     "agile_features": {
                         "type": "boolean"
+                    },
+                    "methodology": {
+                        "$ref": "#/components/schemas/MethodologyEnum"
                     }
                 }
             },
@@ -8707,6 +8719,9 @@
                     },
                     "agile_features": {
                         "type": "boolean"
+                    },
+                    "methodology": {
+                        "$ref": "#/components/schemas/MethodologyEnum"
                     }
                 },
                 "required": [
@@ -8840,6 +8855,9 @@
                     },
                     "agile_features": {
                         "type": "boolean"
+                    },
+                    "methodology": {
+                        "$ref": "#/components/schemas/MethodologyEnum"
                     }
                 },
                 "required": [

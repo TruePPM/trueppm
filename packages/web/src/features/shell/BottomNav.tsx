@@ -1,8 +1,10 @@
 import { NavLink, useLocation } from 'react-router';
-import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon } from '@/components/Icons';
+import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, SprintIcon } from '@/components/Icons';
 import { OverviewIcon } from '@/components/Icons';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProject } from '@/hooks/useProject';
+import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
 import type { ComponentType } from 'react';
 
 interface NavItem {
@@ -17,6 +19,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { view: 'overview',  label: 'Overview', Icon: OverviewIcon },
   { view: 'board',     label: 'Board',    Icon: BoardIcon },
+  { view: 'sprints',   label: 'Sprints',  Icon: SprintIcon },
   { view: 'schedule',  label: 'Schedule', Icon: GanttIcon },
   { view: 'list',      label: 'Table',    Icon: ListIcon },
   { view: 'calendar',  label: 'Calendar', Icon: CalendarIcon },
@@ -29,13 +32,19 @@ export function BottomNav() {
   const location = useLocation();
   const projectId = useProjectId();
   const { role } = useCurrentUserRole(projectId ?? undefined);
+  const project = useProject(projectId);
 
   // Derive active view from the last path segment, matching ViewTabs logic (ADR-0030).
   const pathSegments = location.pathname.split('/');
   const currentView = pathSegments[pathSegments.length - 1] ?? 'overview';
 
+  // Default to HYBRID (all tabs visible) until the project loads.
+  const methodology = project.data?.methodology ?? 'HYBRID';
+
   const visibleItems = NAV_ITEMS.filter(
-    (t) => t.view !== 'resources' || (role !== null && role >= SCHEDULER_ROLE),
+    (t) =>
+      isTabVisibleForMethodology(t.view, methodology) &&
+      (t.view !== 'resources' || (role !== null && role >= SCHEDULER_ROLE)),
   );
 
   if (!projectId) return null;

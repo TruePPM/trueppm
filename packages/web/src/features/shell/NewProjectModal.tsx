@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, type FormEvent } from 'react';
 import { useCreateProject } from '@/hooks/useProjectMutations';
+import type { Methodology } from '@/types';
 
 interface Props {
   onClose: () => void;
@@ -10,12 +11,18 @@ interface Props {
 type Step = 1 | 2 | 3;
 const TOTAL_STEPS: Step = 3;
 
-const TEMPLATES = [
-  { id: 'blank', label: 'Blank', description: 'Start from scratch', available: true },
-  { id: 'software', label: 'Software Delivery', description: 'Sprints, releases, and QA phases', available: false },
-  { id: 'construction', label: 'Construction', description: 'Site prep, build, and inspection phases', available: false },
-  { id: 'general', label: 'General', description: 'Initiate, plan, execute, close', available: false },
-] as const;
+// Methodology options per ADR-0041. Order matches the ADR's matrix
+// (Waterfall, Agile, Hybrid). Hybrid is the default — keeps all tabs visible
+// for users who haven't yet decided which planning model fits.
+const METHODOLOGIES: ReadonlyArray<{
+  id: Methodology;
+  label: string;
+  description: string;
+}> = [
+  { id: 'WATERFALL', label: 'Waterfall', description: 'Phase-gate scheduling with Gantt, WBS, and critical path' },
+  { id: 'AGILE',     label: 'Agile',     description: 'Sprint-based delivery with Board, velocity, and burndown' },
+  { id: 'HYBRID',    label: 'Hybrid',    description: 'Both scheduling models — all views available (default)' },
+];
 
 function getFocusable(container: HTMLElement): HTMLElement[] {
   return Array.from(
@@ -35,7 +42,7 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [template, setTemplate] = useState('blank');
+  const [methodology, setMethodology] = useState<Methodology>('HYBRID');
 
   const nameRef = useRef<HTMLInputElement>(null);
   const startRef = useRef<HTMLInputElement>(null);
@@ -97,7 +104,12 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
     if (step < TOTAL_STEPS) { advance(); return; }
     if (!name.trim() || !startDate || createProject.isPending) return;
     createProject.mutate(
-      { name: name.trim(), start_date: startDate, description: description.trim() || undefined },
+      {
+        name: name.trim(),
+        start_date: startDate,
+        description: description.trim() || undefined,
+        methodology,
+      },
       { onSuccess: (data) => onCreated(data.id) },
     );
   }
@@ -202,32 +214,29 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
               </>
             )}
 
-            {/* Step 3: Template */}
+            {/* Step 3: Methodology (ADR-0041) */}
             {step === 3 && (
               <>
-                <h2 className="text-base font-semibold text-neutral-text-primary">Choose a template</h2>
-                <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Project template">
-                  {TEMPLATES.map((t) => (
+                <h2 className="text-base font-semibold text-neutral-text-primary">Planning model</h2>
+                <p className="text-xs text-neutral-text-secondary -mt-2">
+                  Sets which views your team sees by default. You can change it later in project settings.
+                </p>
+                <div className="flex flex-col gap-2" role="radiogroup" aria-label="Project methodology">
+                  {METHODOLOGIES.map((m) => (
                     <button
-                      key={t.id}
+                      key={m.id}
                       type="button"
                       role="radio"
-                      aria-checked={template === t.id}
-                      disabled={!t.available}
-                      onClick={() => { if (t.available) setTemplate(t.id); }}
+                      aria-checked={methodology === m.id}
+                      onClick={() => setMethodology(m.id)}
                       className={`flex flex-col gap-1 rounded border p-3 text-left
                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                        ${t.available
-                          ? template === t.id
-                            ? 'border-brand-primary bg-brand-primary/5'
-                            : 'border-neutral-border hover:border-brand-primary/40'
-                          : 'border-neutral-border opacity-50 cursor-not-allowed'}`}
+                        ${methodology === m.id
+                          ? 'border-brand-primary bg-brand-primary/5'
+                          : 'border-neutral-border hover:border-brand-primary/40'}`}
                     >
-                      <span className="text-sm font-medium text-neutral-text-primary">{t.label}</span>
-                      <span className="text-xs text-neutral-text-secondary">{t.description}</span>
-                      {!t.available && (
-                        <span className="text-xs text-neutral-text-disabled mt-0.5">Coming soon</span>
-                      )}
+                      <span className="text-sm font-medium text-neutral-text-primary">{m.label}</span>
+                      <span className="text-xs text-neutral-text-secondary">{m.description}</span>
                     </button>
                   ))}
                 </div>

@@ -5,7 +5,7 @@ import { StatusBar } from './StatusBar';
 
 vi.mock('@/hooks/useProjects', () => ({
   useProjects: () => ({
-    data: [{ id: 'p1', name: 'Alpha Platform Upgrade', healthState: 'on-track', colorDot: '#1C6B3A' }],
+    data: [{ id: 'p1', name: 'Alpha Platform Upgrade', healthState: 'on-track', colorDot: '#1C6B3A', methodology: 'HYBRID' }],
     isLoading: false,
     error: null,
   }),

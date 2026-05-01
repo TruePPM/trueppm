@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { PaginatedResponse } from '@/api/types';
+import type { Methodology } from '@/types';
 
 interface ApiProject {
   id: string;
@@ -8,6 +9,7 @@ interface ApiProject {
   description: string;
   start_date: string;
   calendar: string | null;
+  methodology?: Methodology;
 }
 
 // ---------------------------------------------------------------------------
@@ -18,6 +20,8 @@ export interface CreateProjectPayload {
   name: string;
   start_date: string;
   description?: string;
+  /** Project planning methodology (ADR-0041). Server defaults to HYBRID when omitted. */
+  methodology?: Methodology;
 }
 
 /** POST /api/v1/projects/ — create a new project and invalidate the project list cache. */

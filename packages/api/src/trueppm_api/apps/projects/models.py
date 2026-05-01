@@ -171,6 +171,20 @@ class CalendarException(models.Model):
 # ---------------------------------------------------------------------------
 
 
+class Methodology(models.TextChoices):
+    """Project planning methodology preset (ADR-0041).
+
+    Controls default tab visibility in the project workspace. The API
+    surface is unchanged — any view remains reachable via direct URL
+    regardless of methodology. Per-user overrides (issue #220) layer on
+    top of the methodology defaults.
+    """
+
+    WATERFALL = "WATERFALL", "Waterfall"
+    AGILE = "AGILE", "Agile"
+    HYBRID = "HYBRID", "Hybrid"
+
+
 class EstimationMode(models.TextChoices):
     """Controls who may write three-point estimates on tasks within a project.
 
@@ -219,6 +233,14 @@ class Project(VersionedModel):
     # a UI/UX preference, not an access-control gate.  Auto-set to True for
     # projects created from the Software Delivery template.
     agile_features = models.BooleanField(default=False)
+    # Project planning methodology preset (ADR-0041). Drives default tab
+    # visibility; does not gate API access. HYBRID shows all tabs (preserves
+    # existing behavior for projects created before this field landed).
+    methodology = models.CharField(
+        max_length=16,
+        choices=Methodology.choices,
+        default=Methodology.HYBRID,
+    )
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
 
