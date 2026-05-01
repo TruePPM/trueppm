@@ -237,20 +237,26 @@ describe('TaskListView', () => {
 
   it('sorts by Name column on header click', async () => {
     renderWithRouter(<TaskListView />);
-    const nameHeader = screen.getByRole('button', { name: /^Name$/i });
-    await userEvent.click(nameHeader);
-    // After click, sort direction indicator appears; no error
-    expect(nameHeader).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /^Name$/i }));
+    // After click, the columnheader gains aria-sort="ascending"
+    const nameCol = screen.getByRole('columnheader', { name: /^name/i });
+    expect(nameCol).toHaveAttribute('aria-sort', 'ascending');
   });
 
   it('toggles sort direction when same column header is clicked twice', async () => {
     renderWithRouter(<TaskListView />);
-    const wbsHeader = screen.getByRole('button', { name: /^WBS$/i });
-    // First click: switches to WBS col with asc (already default, so sets asc)
-    await userEvent.click(wbsHeader);
-    // Second click: toggles to desc
-    await userEvent.click(wbsHeader);
-    expect(wbsHeader).toBeInTheDocument();
+    // WBS is the default sort col — first click toggles to descending.
+    await userEvent.click(screen.getByRole('button', { name: /^WBS/i }));
+    expect(screen.getByRole('columnheader', { name: /^wbs/i })).toHaveAttribute(
+      'aria-sort',
+      'descending',
+    );
+    // Second click toggles back to ascending.
+    await userEvent.click(screen.getByRole('button', { name: /^WBS/i }));
+    expect(screen.getByRole('columnheader', { name: /^wbs/i })).toHaveAttribute(
+      'aria-sort',
+      'ascending',
+    );
   });
 
   it('sorts by Start, Finish, Dur, Progress columns', async () => {
