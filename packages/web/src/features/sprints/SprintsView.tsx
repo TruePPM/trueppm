@@ -16,6 +16,8 @@ import { SprintTimelineStrip } from './SprintTimelineStrip';
 import { SprintBurndownChart } from './SprintBurndownChart';
 import { CapacityPreflight } from './CapacityPreflight';
 import { VelocityPanel } from './VelocityPanel';
+import { SprintBacklogTable } from './SprintBacklogTable';
+import { useSprintBacklog } from '@/hooks/useSprintBacklog';
 import { daysBetween } from './sprintMath';
 
 /**
@@ -61,6 +63,7 @@ export function SprintsView() {
   const burndown = useSprintBurndown(activeSprint?.id);
   const capacity = useSprintCapacity(activeSprint?.id);
   const velocity = useProjectVelocity(projectId);
+  const backlog = useSprintBacklog(projectId, activeSprint?.id);
 
   function handlePlanNext() {
     // Scaffold: the sprint planning wizard ships in #229 (backlog) / #228
@@ -177,6 +180,14 @@ export function SprintsView() {
           onPlanNext={handlePlanNext}
           iterationWeeks={iterationWeeks}
           milestoneName={activeSprint?.target_milestone_detail?.name ?? null}
+        />
+      )}
+
+      {!isLoading && !error && activeSprint && projectId && (
+        <SprintBacklogTable
+          projectId={projectId}
+          sprintId={activeSprint.id}
+          tasks={backlog.data ?? []}
         />
       )}
     </div>
