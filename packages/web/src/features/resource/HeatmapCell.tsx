@@ -28,11 +28,16 @@ export function HeatmapCell({ util, resourceName, weekLabel, onClick }: Props) {
       aria-label={`${resourceName}, ${weekNum}, ${util}% utilized`}
       className={[
         'flex items-center justify-center rounded h-9 text-xs font-medium tppm-mono',
-        'mx-0.5 my-[3px] w-full',
+        // 4px vertical / 2px horizontal margin matches the design spec
+        // (mockups-pages.jsx ResourcesBody: margin: "4px 2px").
+        'mx-0.5 my-1 w-full',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
         'transition-opacity hover:opacity-80 cursor-pointer',
       ].join(' ')}
-      style={{ backgroundColor: bg, color: fg, border: border ?? 'none' }}
+      // Always render a 1px border (transparent below the overalloc threshold)
+      // to reserve the space — keeps cell heights identical between rows that
+      // do and don't trip the critical border (design spec consistency).
+      style={{ backgroundColor: bg, color: fg, border: border ?? '1px solid transparent' }}
     >
       {util > 0 ? `${util}%` : ''}
     </button>

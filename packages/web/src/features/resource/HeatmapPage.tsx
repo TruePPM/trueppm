@@ -8,6 +8,7 @@ import { ResourcesHeatmap, ResourcesHeatmapSkeleton } from './ResourcesHeatmap';
 import { ResourceEmptyState } from './ResourceEmptyState';
 import { WeeksWindowControl, readPersistedWindow } from './WeeksWindowControl';
 import type { WeeksWindow } from './WeeksWindowControl';
+import { registry } from '@/lib/widget-registry';
 
 type GroupBy = 'role' | 'project' | 'none';
 
@@ -140,16 +141,27 @@ export function HeatmapPage() {
           {/* Window control */}
           <WeeksWindowControl value={weeks} onChange={setWeeks} />
 
-          {/* Level loads — OSS upsell */}
-          <button
-            type="button"
-            disabled
-            aria-disabled="true"
-            title="Available in Team tier — cross-project resource leveling and what-if simulation"
-            className="h-7 px-3 text-xs font-medium rounded border border-neutral-border text-neutral-text-disabled cursor-not-allowed"
-          >
-            ⚡ Level loads
-          </button>
+          {/* Level loads — Enterprise replaces this via the resources_heatmap.level_loads slot.
+              In OSS we render the disabled upsell button. */}
+          {(() => {
+            const overrides = registry.get('resources_heatmap.level_loads');
+            if (overrides.length > 0) {
+              return overrides.map(({ id, component: Component }) => (
+                <Component key={id} />
+              ));
+            }
+            return (
+              <button
+                type="button"
+                disabled
+                aria-disabled="true"
+                title="Available in Team tier — cross-project resource leveling and what-if simulation"
+                className="h-7 px-3 text-xs font-medium rounded border border-neutral-border text-neutral-text-disabled cursor-not-allowed"
+              >
+                ⚡ Level loads
+              </button>
+            );
+          })()}
         </div>
       </div>
 

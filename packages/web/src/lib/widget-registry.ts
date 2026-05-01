@@ -23,7 +23,9 @@ export type SlotId =
   // --- Resource catalog slots (issue #155, ADR-0034) ---
   | 'resources_page.toolbar_end'        // Enterprise: "Sync from LDAP" button + last-synced timestamp
   | 'resources_page.detail_managed_by'  // Enterprise: "Managed by Active Directory" badge in detail pane
-  | 'resources_page.create_form_extension'; // Enterprise: extra fields in the create/edit form
+  | 'resources_page.create_form_extension' // Enterprise: extra fields in the create/edit form
+  // --- Resource heatmap slots (issue #217 / ADR-0042) ---
+  | 'resources_heatmap.level_loads';    // Enterprise: replaces the static disabled "Level loads" upsell button
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface SlotRegistration<T = ComponentType<any>> {

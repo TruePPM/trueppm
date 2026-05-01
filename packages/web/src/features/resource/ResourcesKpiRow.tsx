@@ -27,8 +27,10 @@ function KpiCard({ label, value, sub, variant = 'neutral' }: KpiCardProps) {
         {label}
       </span>
       <span className={`text-[22px] font-semibold tppm-mono ${valueColor}`}>{value}</span>
+      {/* Sub-lines mix words with numbers (e.g. "vs. 80% target", "+2 contractors").
+          Apply mono only to the value above, not whole prose strings (rule 8c). */}
       {subLines.map((line, i) => (
-        <span key={i} className="text-xs text-neutral-text-disabled tppm-mono">{line}</span>
+        <span key={i} className="text-xs text-neutral-text-disabled">{line}</span>
       ))}
     </div>
   );
