@@ -158,6 +158,8 @@ export interface ApiSprint {
   id: string;
   server_version: number;
   short_id: string;
+  /** Pre-formatted display id, e.g. ``SP-A1B2``. */
+  short_id_display: string;
   name: string;
   goal: string;
   /** ISO date — sprint window start (inclusive). */
@@ -165,7 +167,10 @@ export interface ApiSprint {
   /** ISO date — sprint window finish (inclusive). */
   finish_date: string;
   state: SprintState;
-  target_milestone: SprintTargetMilestone | null;
+  /** FK id of the milestone task this sprint advances toward (writable). */
+  target_milestone: string | null;
+  /** Inline milestone detail returned by the serializer (read-only). */
+  target_milestone_detail: SprintTargetMilestone | null;
   committed_points: number | null;
   committed_task_count: number | null;
   completed_points: number | null;

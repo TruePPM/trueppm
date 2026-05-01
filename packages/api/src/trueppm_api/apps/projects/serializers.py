@@ -822,6 +822,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
     short_id_display = serializers.SerializerMethodField()
     completion_ratio_points = serializers.SerializerMethodField()
     completion_ratio_tasks = serializers.SerializerMethodField()
+    target_milestone_detail = serializers.SerializerMethodField()
 
     def get_short_id_display(self, obj: Sprint) -> str:
         """Return the human-facing form ``SP-XXXXXXXX`` of the short id."""
@@ -838,6 +839,24 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
         if not committed:
             return None
         return round((obj.completed_task_count or 0) / committed, 4)
+
+    def get_target_milestone_detail(self, obj: Sprint) -> dict[str, Any] | None:
+        """Inline the milestone task so the Sprints UI can render the
+        "Advancing to milestone" card without a second round-trip.
+
+        Returns ``None`` when no milestone is linked. The nested shape is
+        read-only — writes still go through ``target_milestone`` (the FK id).
+        """
+        milestone = obj.target_milestone
+        if milestone is None:
+            return None
+        wbs = milestone.wbs_path
+        return {
+            "id": str(milestone.pk),
+            "name": milestone.name,
+            "wbs_path": str(wbs) if wbs else None,
+            "finish": milestone.early_finish.isoformat() if milestone.early_finish else None,
+        }
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         start = attrs.get("start_date") or (self.instance.start_date if self.instance else None)
@@ -869,6 +888,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "finish_date",
             "state",
             "target_milestone",
+            "target_milestone_detail",
             "committed_points",
             "committed_task_count",
             "completed_points",
@@ -888,6 +908,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "short_id_display",
             "project",
             "state",
+            "target_milestone_detail",
             "committed_points",
             "committed_task_count",
             "completed_points",

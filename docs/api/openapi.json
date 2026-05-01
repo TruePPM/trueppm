@@ -9668,6 +9668,13 @@
                         "nullable": true,
                         "description": "Optional milestone task this sprint progresses toward."
                     },
+                    "target_milestone_detail": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "description": "Inline the milestone task so the Sprints UI can render the\n\"Advancing to milestone\" card without a second round-trip.\n\nReturns ``None`` when no milestone is linked. The nested shape is\nread-only — writes still go through ``target_milestone`` (the FK id).",
+                        "readOnly": true
+                    },
                     "committed_points": {
                         "type": "integer",
                         "readOnly": true,
@@ -9748,6 +9755,7 @@
                     "short_id_display",
                     "start_date",
                     "state",
+                    "target_milestone_detail",
                     "updated_at"
                 ]
             },
