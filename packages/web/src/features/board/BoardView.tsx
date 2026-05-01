@@ -737,9 +737,15 @@ export function BoardView() {
   }, [createTask, phases]);
 
   // Keep phaseOrder in sync with server data; only reset when the phase set changes.
+  // Preserve manual drag order: keep existing positions, append new phases at the end.
   const phaseIdKey = phases.map((p) => p.id).join(',');
   useEffect(() => {
-    setPhaseOrder(phases.map((p) => p.id));
+    setPhaseOrder((prev) => {
+      const newIds = phases.map((p) => p.id);
+      const existing = prev.filter((id) => newIds.includes(id));
+      const added = newIds.filter((id) => !prev.includes(id));
+      return [...existing, ...added];
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phaseIdKey]);
 
@@ -895,18 +901,26 @@ export function BoardView() {
         return;
       }
 
-      // Card status change
+      // Card status change (and optional phase move in workshop mode)
       const overId = over?.id;
       if (!overId || !activeTask) return;
-      const [, newStatus] = String(overId).split(':');
-      if (!newStatus || newStatus === activeTask.status) return;
-      updateStatus.mutate({ projectId, taskId: activeTask.id, status: newStatus as TaskStatus });
+      const [newPhaseId, newStatus] = String(overId).split(':');
+      if (!newStatus) return;
+      const currentPhaseId = activeTask.parentId ?? 'root';
+      const phaseChanged = workshopMode && newPhaseId !== currentPhaseId;
+      if (newStatus === activeTask.status && !phaseChanged) return;
+      updateStatus.mutate({
+        projectId,
+        taskId: activeTask.id,
+        status: newStatus as TaskStatus,
+        ...(phaseChanged ? { parentId: newPhaseId } : {}),
+      });
       if (ariaLiveRef.current) {
         const colLabel = COLUMNS.find((c) => c.status === newStatus)?.label ?? newStatus;
         ariaLiveRef.current.textContent = `${activeTask.name} moved to ${colLabel}`;
       }
     },
-    [activeTask, projectId, updateStatus, COLUMNS, phaseOrder, phaseReorder],
+    [activeTask, projectId, updateStatus, COLUMNS, phaseOrder, phaseReorder, workshopMode],
   );
 
   const handleDragCancel = useCallback(() => {
