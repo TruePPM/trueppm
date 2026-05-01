@@ -23,6 +23,9 @@ from trueppm_api.apps.projects.models import (
     Project,
     Risk,
     RiskComment,
+    Sprint,
+    SprintBurnSnapshot,
+    SprintState,
     Task,
     TaskStatus,
 )
@@ -81,6 +84,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "start_date",
             "calendar",
             "estimation_mode",
+            "agile_features",
         ]
         read_only_fields = ["id", "server_version"]
 
@@ -191,6 +195,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "status_changed_at",
             "priority_rank",
             "assignee_is_overallocated",
+            "sprint",
+            "story_points",
         ]
         read_only_fields = [
             "id",
@@ -795,3 +801,160 @@ class RiskCommentSerializer(serializers.ModelSerializer[RiskComment]):
         model = RiskComment
         fields = ["id", "author", "message", "created_at"]
         read_only_fields = ["id", "author", "created_at"]
+
+
+# ---------------------------------------------------------------------------
+# Sprint serializers (ADR-0037)
+# ---------------------------------------------------------------------------
+
+
+class SprintSerializer(serializers.ModelSerializer[Sprint]):
+    """Read/write serializer for sprints.
+
+    State, committed_*, completed_*, activated_at, closed_at are read-only —
+    they are written by the dedicated activate/close actions, not by PATCH.
+
+    completion_ratio_* are computed from snapshotted committed/completed
+    fields and only become non-null after sprint close.
+    """
+
+    short_id_display = serializers.SerializerMethodField()
+    completion_ratio_points = serializers.SerializerMethodField()
+    completion_ratio_tasks = serializers.SerializerMethodField()
+
+    def get_short_id_display(self, obj: Sprint) -> str:
+        """Return the human-facing form ``SP-XXXXXXXX`` of the short id."""
+        return f"SP-{obj.short_id}" if obj.short_id else ""
+
+    def get_completion_ratio_points(self, obj: Sprint) -> float | None:
+        committed = obj.committed_points or 0
+        if not committed:
+            return None
+        return round((obj.completed_points or 0) / committed, 4)
+
+    def get_completion_ratio_tasks(self, obj: Sprint) -> float | None:
+        committed = obj.committed_task_count or 0
+        if not committed:
+            return None
+        return round((obj.completed_task_count or 0) / committed, 4)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        start = attrs.get("start_date") or (self.instance.start_date if self.instance else None)
+        finish = attrs.get("finish_date") or (self.instance.finish_date if self.instance else None)
+        if start and finish and finish <= start:
+            raise serializers.ValidationError(
+                {"finish_date": "finish_date must be after start_date."}
+            )
+        # Only PLANNED sprints accept name/goal/date edits via PATCH.
+        if self.instance and self.instance.state != SprintState.PLANNED:
+            mutating = {k for k in attrs if k in {"name", "goal", "start_date", "finish_date"}}
+            if mutating:
+                raise serializers.ValidationError(
+                    f"Sprint is {self.instance.state}; cannot modify {sorted(mutating)}."
+                )
+        return attrs
+
+    class Meta:
+        model = Sprint
+        fields = [
+            "id",
+            "server_version",
+            "short_id",
+            "short_id_display",
+            "project",
+            "name",
+            "goal",
+            "start_date",
+            "finish_date",
+            "state",
+            "target_milestone",
+            "committed_points",
+            "committed_task_count",
+            "completed_points",
+            "completed_task_count",
+            "completion_ratio_points",
+            "completion_ratio_tasks",
+            "activated_at",
+            "closed_at",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "server_version",
+            "short_id",
+            "short_id_display",
+            "project",
+            "state",
+            "committed_points",
+            "committed_task_count",
+            "completed_points",
+            "completed_task_count",
+            "completion_ratio_points",
+            "completion_ratio_tasks",
+            "activated_at",
+            "closed_at",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class SprintBurnSnapshotSerializer(serializers.ModelSerializer[SprintBurnSnapshot]):
+    """Read-only serializer for a single burn snapshot row."""
+
+    class Meta:
+        model = SprintBurnSnapshot
+        fields = [
+            "snapshot_date",
+            "remaining_points",
+            "remaining_task_count",
+            "completed_points",
+            "completed_task_count",
+            "scope_change_points",
+            "scope_change_task_count",
+        ]
+        read_only_fields = fields
+
+
+class SprintBurndownSerializer(serializers.Serializer[dict[str, Any]]):
+    """Composite payload for ``GET /api/sprints/{id}/burndown/``.
+
+    Returns the sprint metadata and the list of actual burn snapshots. The
+    ideal line is computed client-side from ``committed_points`` and the
+    sprint date range — server returns only actual data points (ADR-0037 Q4).
+    """
+
+    sprint = SprintSerializer(read_only=True)
+    snapshots = SprintBurnSnapshotSerializer(many=True, read_only=True)
+
+
+class SprintCloseRequestSerializer(serializers.Serializer[dict[str, Any]]):
+    """Validate the body for ``POST /api/sprints/{id}/close/``."""
+
+    carry_over_to = serializers.CharField(default="backlog")
+
+    def validate_carry_over_to(self, value: str) -> str:
+        if value in {"backlog", "none"}:
+            return value
+        # Must be a UUID string referencing another sprint in the same project.
+        try:
+            uuid.UUID(value)
+        except (TypeError, ValueError) as exc:
+            raise serializers.ValidationError(
+                "carry_over_to must be 'backlog', 'none', or a sprint UUID."
+            ) from exc
+        return value
+
+
+class ProjectVelocitySerializer(serializers.Serializer[dict[str, Any]]):
+    """Response shape for ``GET /api/projects/{id}/velocity/`` (ADR-0037 Q3)."""
+
+    sprints = serializers.ListField(child=serializers.DictField())
+    rolling_avg_points = serializers.FloatField(allow_null=True)
+    rolling_stdev_points = serializers.FloatField(allow_null=True)
+    forecast_range_low = serializers.IntegerField(allow_null=True)
+    forecast_range_high = serializers.IntegerField(allow_null=True)
+    rolling_avg_tasks = serializers.FloatField(allow_null=True)
+    rolling_stdev_tasks = serializers.FloatField(allow_null=True)

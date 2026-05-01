@@ -175,6 +175,24 @@ CELERY_BEAT_SCHEDULE = {
         # 02:45 UTC — after other nightly purge jobs.
         "schedule": crontab(hour=2, minute=45),
     },
+    # Sprint close drain: dispatches pending SprintCloseRequest rows every 30 s.
+    # Also recovers IN_FLIGHT rows orphaned past the 5-minute window.
+    "drain-sprint-close-requests": {
+        "task": "projects.drain_sprint_close_requests",
+        "schedule": 30.0,
+    },
+    # Daily burndown snapshot: writes yesterday's row for every ACTIVE sprint
+    # — covers days with no task status changes (signal handler covers today).
+    "update-sprint-burndown-snapshots": {
+        "task": "projects.update_sprint_burndown_snapshots",
+        "schedule": crontab(hour=1, minute=0),
+    },
+    # Nightly cleanup: deletes COMPLETED/FAILED SprintCloseRequest rows >7 days.
+    "purge-sprint-close-requests": {
+        "task": "projects.purge_sprint_close_requests",
+        # 03:00 UTC — after other nightly purge jobs.
+        "schedule": crontab(hour=3, minute=0),
+    },
 }
 
 # ---------------------------------------------------------------------------

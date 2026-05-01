@@ -1,7 +1,7 @@
 # ADR-0037: Sprint Model — Data, API, and Board Integration
 
 ## Status
-Proposed
+Accepted (2026-04-30) — backend implemented in #234.
 
 ## Context
 

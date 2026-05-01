@@ -18,9 +18,11 @@ from trueppm_api.apps.projects.views import (
     ProjectMyTasksView,
     ProjectOverviewView,
     ProjectPresenceView,
+    ProjectVelocityView,
     ProjectViewSet,
     RiskCommentViewSet,
     RiskViewSet,
+    SprintViewSet,
     TaskBaselineDetailView,
     TaskBulkView,
     TaskHistoryView,
@@ -158,5 +160,48 @@ urlpatterns = [
         "projects/<pk>/phases/reorder/",
         PhaseReorderView.as_view(),
         name="project-phases-reorder",
+    ),
+    # Sprint endpoints (ADR-0037)
+    path(
+        "projects/<project_pk>/sprints/",
+        SprintViewSet.as_view({"get": "list", "post": "create"}),
+        name="project-sprints-list",
+    ),
+    path(
+        "sprints/<pk>/",
+        SprintViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="sprints-detail",
+    ),
+    path(
+        "sprints/<pk>/activate/",
+        SprintViewSet.as_view({"post": "activate"}),
+        name="sprints-activate",
+    ),
+    path(
+        "sprints/<pk>/close/",
+        SprintViewSet.as_view({"post": "close"}),
+        name="sprints-close",
+    ),
+    path(
+        "sprints/<pk>/cancel/",
+        SprintViewSet.as_view({"post": "cancel"}),
+        name="sprints-cancel",
+    ),
+    path(
+        "sprints/<pk>/burndown/",
+        SprintViewSet.as_view({"get": "burndown"}),
+        name="sprints-burndown",
+    ),
+    path(
+        "projects/<pk>/velocity/",
+        ProjectVelocityView.as_view(),
+        name="project-velocity",
     ),
 ]
