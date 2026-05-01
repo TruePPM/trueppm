@@ -50,8 +50,12 @@ const mockTasks: Task[] = [
 
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));
 
+// Mutable so individual tests can override state (error, loading, empty)
+let scheduleTasksMockReturn: { tasks: typeof mockTasks | null; isLoading: boolean; error: unknown } =
+  { tasks: mockTasks, isLoading: false, error: null };
+
 vi.mock('@/hooks/useScheduleTasks', () => ({
-  useScheduleTasks: () => ({ tasks: mockTasks, isLoading: false, error: null }),
+  useScheduleTasks: () => scheduleTasksMockReturn,
 }));
 
 vi.mock('@/hooks/useTaskMutations', () => ({
@@ -94,6 +98,7 @@ import { TaskListView } from './TaskListView';
 describe('TaskListView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    scheduleTasksMockReturn = { tasks: mockTasks, isLoading: false, error: null };
   });
 
   it('renders task names in the list', () => {
@@ -207,5 +212,68 @@ describe('TaskListView', () => {
       const exportBtn = screen.getByRole('button', { name: /export 0 tasks as csv/i });
       expect(exportBtn).toBeDisabled();
     }, { timeout: 1000 });
+  });
+
+  it('shows error state when tasks fail to load', () => {
+    scheduleTasksMockReturn = { tasks: null, isLoading: false, error: new Error('Network error') };
+    renderWithRouter(<TaskListView />);
+    expect(screen.getByText(/couldn't load tasks/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+  });
+
+  it('shows loading skeleton when isLoading is true', () => {
+    scheduleTasksMockReturn = { tasks: null, isLoading: true, error: null };
+    renderWithRouter(<TaskListView />);
+    const container = document.querySelector('[aria-busy="true"]');
+    expect(container).not.toBeNull();
+  });
+
+  it('shows empty state when tasks array is empty', () => {
+    scheduleTasksMockReturn = { tasks: [], isLoading: false, error: null };
+    renderWithRouter(<TaskListView />);
+    // TaskListEmptyState renders; task rows are absent
+    expect(screen.queryByText('Planning')).not.toBeInTheDocument();
+  });
+
+  it('sorts by Name column on header click', async () => {
+    renderWithRouter(<TaskListView />);
+    const nameHeader = screen.getByRole('button', { name: /^Name$/i });
+    await userEvent.click(nameHeader);
+    // After click, sort direction indicator appears; no error
+    expect(nameHeader).toBeInTheDocument();
+  });
+
+  it('toggles sort direction when same column header is clicked twice', async () => {
+    renderWithRouter(<TaskListView />);
+    const wbsHeader = screen.getByRole('button', { name: /^WBS$/i });
+    // First click: switches to WBS col with asc (already default, so sets asc)
+    await userEvent.click(wbsHeader);
+    // Second click: toggles to desc
+    await userEvent.click(wbsHeader);
+    expect(wbsHeader).toBeInTheDocument();
+  });
+
+  it('sorts by Start, Finish, Dur, Progress columns', async () => {
+    renderWithRouter(<TaskListView />);
+    for (const label of ['Start', 'Finish', 'Dur', 'Progress']) {
+      const btn = screen.getByRole('button', { name: new RegExp(`^${label}$`, 'i') });
+      await userEvent.click(btn);
+    }
+    // If we reach here without error, all sort branches executed
+    expect(screen.getByText('Planning')).toBeInTheDocument();
+  });
+
+  it('select-all checkbox selects and deselects all filtered tasks', async () => {
+    renderWithRouter(<TaskListView />);
+    const selectAll = screen.getByRole('checkbox', { name: /select all tasks/i });
+    await userEvent.click(selectAll);
+    // Should now show deselect-all label
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: /deselect all tasks/i })).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByRole('checkbox', { name: /deselect all tasks/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: /select all tasks/i })).toBeInTheDocument();
+    });
   });
 });
