@@ -2459,11 +2459,20 @@ class ProjectMyTasksView(APIView):
         # Owner display data — by definition the requesting user (assignee==self)
         # but the frontend's row layout expects the avatar/name fields, so emit
         # them here once rather than have the client re-derive from /auth/me.
-        u = request.user
-        owner_name = u.get_full_name() or u.username
-        first_initial = u.first_name[0].upper() if u.first_name else ""
-        last_initial = u.last_name[0].upper() if u.last_name else ""
-        owner_initials = (first_initial + last_initial) or u.username[:2].upper()
+        # IsAuthenticated permission guarantees request.user is a real user, not
+        # an AnonymousUser; cast for mypy's benefit since DRF's request.user
+        # union type still includes AnonymousUser at the type level.
+        from django.contrib.auth.models import AbstractBaseUser
+
+        u = cast(AbstractBaseUser, request.user)
+        first_name = getattr(u, "first_name", "") or ""
+        last_name = getattr(u, "last_name", "") or ""
+        username = getattr(u, "username", "") or ""
+        full_name = f"{first_name} {last_name}".strip()
+        owner_name = full_name or username
+        first_initial = first_name[0].upper() if first_name else ""
+        last_initial = last_name[0].upper() if last_name else ""
+        owner_initials = (first_initial + last_initial) or username[:2].upper()
 
         return Response(
             {
