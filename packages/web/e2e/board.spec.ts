@@ -45,6 +45,30 @@ const FIXTURE_TASKS = [
     predecessor_count: 2, is_blocked: true,
     linked_risks_count: 1, linked_risks_max_severity: 18,
   },
+  {
+    id: 'b4', wbs_path: '1.3', name: 'Release',
+    early_start: '2026-02-01', early_finish: '2026-02-05',
+    duration: 5, percent_complete: 0, is_critical: false,
+    is_milestone: true, is_summary: false, parent_id: 'b1',
+    status: 'NOT_STARTED', assignees: [],
+    total_float: null, predecessor_count: 0, is_blocked: false,
+    linked_risks_count: 0, linked_risks_max_severity: null,
+    status_changed_at: '2025-11-01T00:00:00Z',
+    priority_rank: 3,
+  },
+  {
+    id: 'b5', wbs_path: '1.4', name: 'QA Gate',
+    early_start: '2026-01-05', early_finish: '2026-01-20',
+    duration: 12, percent_complete: 40, is_critical: false,
+    is_milestone: false, is_summary: false, parent_id: 'b1',
+    status: 'IN_PROGRESS', assignees: [],
+    total_float: -3,
+    predecessor_count: 0, is_blocked: false,
+    linked_risks_count: 0, linked_risks_max_severity: null,
+    status_changed_at: '2025-11-15T00:00:00Z',
+    priority_rank: 1,
+    baseline_start: '2026-01-01', baseline_finish: '2026-01-10',
+  },
 ];
 
 async function setup(page: import('@playwright/test').Page) {
@@ -221,9 +245,9 @@ test.describe('Board view', () => {
 
   test('renders LaneMeta with phase name, progress %, and task count', async ({ page }) => {
     await expect(page.getByText('Alpha Phase')).toBeVisible();
-    // Average is computed from leaf tasks: (100 + 60) / 2 = 80%
-    await expect(page.getByText('80%')).toBeVisible();
-    await expect(page.getByText('2 tasks')).toBeVisible();
+    // Average is computed from all leaf tasks: (100 + 60 + 0 + 40) / 4 = 50%
+    await expect(page.getByText('50%')).toBeVisible();
+    await expect(page.getByText('4 tasks')).toBeVisible();
   });
 
   test('per-phase + button opens AddTaskModal with phase pre-selected (issue #208)', async ({ page }) => {
@@ -412,5 +436,97 @@ test.describe('Board view', () => {
     // Verify PUT body had the updated label
     const cols = savedColumns as Array<{ status: string; label: string }>;
     expect(cols?.find((c) => c.status === 'BACKLOG')?.label).toBe('Ideas');
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #190 — Swimlane collapse/expand toolbar buttons
+  // -------------------------------------------------------------------------
+
+  test('"Collapse all" hides leaf task cards (issue #190)', async ({ page }) => {
+    await expect(page.getByText('Design')).toBeVisible();
+    await page.getByRole('button', { name: 'Collapse all lanes' }).click();
+    await expect(page.getByText('Design')).not.toBeVisible({ timeout: 3_000 });
+  });
+
+  test('"Expand all" restores cards after collapse-all (issue #190)', async ({ page }) => {
+    await page.getByRole('button', { name: 'Collapse all lanes' }).click();
+    await expect(page.getByText('Design')).not.toBeVisible({ timeout: 3_000 });
+    await page.getByRole('button', { name: 'Expand all lanes' }).click();
+    await expect(page.getByText('Design')).toBeVisible({ timeout: 3_000 });
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #193 — Card density toggle
+  // -------------------------------------------------------------------------
+
+  test('card density select is visible and defaults to comfortable (issue #193)', async ({ page }) => {
+    const select = page.getByLabel('Card density');
+    await expect(select).toBeVisible();
+    await expect(select).toHaveValue('comfortable');
+  });
+
+  test('switching to compact keeps board columns visible (issue #193)', async ({ page }) => {
+    await page.getByLabel('Card density').selectOption('compact');
+    await expect(page.getByText('In Progress')).toBeVisible();
+    await expect(page.getByText('Done')).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #183 — Float chip (b5 QA Gate has total_float: -3)
+  // -------------------------------------------------------------------------
+
+  test('negative-float chip renders on QA Gate card (issue #183)', async ({ page }) => {
+    await expect(page.getByText('-3d float')).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #186 — Baseline variance strip (b5: baseline_finish Jan 10,
+  // useScheduleTasks computes finish as start+duration = Jan 5 + 12d = Jan 17 → +7d)
+  // -------------------------------------------------------------------------
+
+  test('baseline variance chip renders on QA Gate card (issue #186)', async ({ page }) => {
+    // The variance panel is `hidden group-hover:block group-focus-within:block` — only
+    // revealed on hover/focus. Assert the chip is attached in the DOM.
+    // finish = start + duration = 2026-01-05 + 12d = 2026-01-17; baseline_finish = 2026-01-10 → +7d.
+    await expect(page.getByLabel(/Baseline variance: \+7d/)).toBeAttached();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #192 — Card aging (b4 and b5 have status_changed_at in 2025 — >SLA)
+  // -------------------------------------------------------------------------
+
+  test('aging chip renders on cards with old status_changed_at (issue #192)', async ({ page }) => {
+    // status_changed_at = 2025-11-01, today = 2026-04-30, dwell ≈ 180d → exceeds any column SLA
+    const agingChips = page.getByLabel(/days in this column, exceeds/);
+    await expect(agingChips.first()).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #187 — Milestone rail (b4 Release has is_milestone: true)
+  // -------------------------------------------------------------------------
+
+  test('milestone rail renders a diamond for Release milestone (issue #187)', async ({ page }) => {
+    // PhaseMilestoneRail aria-label format: "{Tone} milestone {name}, target {date}"
+    await expect(page.getByLabel(/milestone Release/i)).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #105 — Entry stamps and priority rank
+  // -------------------------------------------------------------------------
+
+  test('priority rank chip renders on card with priority_rank set (issue #105)', async ({ page }) => {
+    // b5 QA Gate has priority_rank: 1 → renders "#1" chip
+    await expect(page.getByText('#1')).toBeVisible();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #185 — SPI chip renders when EVM mode is spi and baseline data present
+  // -------------------------------------------------------------------------
+
+  test('SPI chip renders on card when EVM mode is "spi" (issue #185)', async ({ page }) => {
+    await page.getByLabel('EVM indicators').selectOption('spi');
+    // b5 QA Gate has baseline_start 2026-01-01, baseline_finish 2026-01-10,
+    // early_start 2026-01-05, early_finish 2026-01-20 → SPI computed client-side
+    await expect(page.getByLabel(/SPI \d+\.\d+ —/)).toBeVisible({ timeout: 3_000 });
   });
 });

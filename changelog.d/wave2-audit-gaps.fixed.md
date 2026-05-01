@@ -1,0 +1,1 @@
+Document CPI/cost API deferral in TaskSerializer and ADR-0035; add vitest coverage for EVM toolbar toggle and Show cost checkbox; add Playwright E2E coverage for swimlane collapse, density toggle, float chip, baseline variance, card aging, milestone rail, priority rank, and SPI chip.
