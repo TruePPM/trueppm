@@ -1,11 +1,21 @@
 import { useMemo } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
-import { useSprints, useSprintsByState, useSprintMutations } from '@/hooks/useSprints';
+import {
+  useSprints,
+  useSprintsByState,
+  useSprintMutations,
+  useSprintBurndown,
+  useSprintCapacity,
+  useProjectVelocity,
+} from '@/hooks/useSprints';
 import { SprintHeader } from './SprintHeader';
 import { SprintGoalCard } from './SprintGoalCard';
 import { AdvancingToMilestoneCard } from './AdvancingToMilestoneCard';
 import { SprintTimelineStrip } from './SprintTimelineStrip';
+import { SprintBurndownChart } from './SprintBurndownChart';
+import { CapacityPreflight } from './CapacityPreflight';
+import { VelocityPanel } from './VelocityPanel';
 import { daysBetween } from './sprintMath';
 
 /**
@@ -46,6 +56,11 @@ export function SprintsView() {
   const activeSprint = buckets.active;
   const hasPlannedSprint = buckets.planned.length > 0;
   const projectName = projectQuery.data?.name;
+
+  // Metrics row queries — only fire when we have an active sprint.
+  const burndown = useSprintBurndown(activeSprint?.id);
+  const capacity = useSprintCapacity(activeSprint?.id);
+  const velocity = useProjectVelocity(projectId);
 
   function handlePlanNext() {
     // Scaffold: the sprint planning wizard ships in #229 (backlog) / #228
@@ -116,14 +131,41 @@ export function SprintsView() {
         )}
 
         {!isLoading && !error && activeSprint && (
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-            <div className="md:col-span-3">
-              <SprintGoalCard sprint={activeSprint} />
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <div className="md:col-span-3">
+                <SprintGoalCard sprint={activeSprint} />
+              </div>
+              <div className="md:col-span-2">
+                <AdvancingToMilestoneCard sprint={activeSprint} projectId={projectId ?? ''} />
+              </div>
             </div>
-            <div className="md:col-span-2">
-              <AdvancingToMilestoneCard sprint={activeSprint} projectId={projectId ?? ''} />
+
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <div className="md:col-span-3">
+                {burndown.data ? (
+                  <SprintBurndownChart
+                    sprint={burndown.data.sprint}
+                    snapshots={burndown.data.snapshots}
+                  />
+                ) : (
+                  <ChartSkeleton label="Sprint Burndown" />
+                )}
+              </div>
+              <div className="md:col-span-2 flex flex-col gap-4">
+                {capacity.data ? (
+                  <CapacityPreflight capacity={capacity.data} />
+                ) : (
+                  <ChartSkeleton label="Capacity Preflight" />
+                )}
+                {velocity.data ? (
+                  <VelocityPanel velocity={velocity.data} />
+                ) : (
+                  <ChartSkeleton label="Velocity" />
+                )}
+              </div>
             </div>
-          </div>
+          </>
         )}
       </main>
 
@@ -137,6 +179,18 @@ export function SprintsView() {
           milestoneName={activeSprint?.target_milestone_detail?.name ?? null}
         />
       )}
+    </div>
+  );
+}
+
+function ChartSkeleton({ label }: { label: string }) {
+  return (
+    <div
+      role="status"
+      aria-label={`Loading ${label}`}
+      className="rounded-md border border-neutral-border bg-neutral-surface-raised p-4 min-h-[180px] flex items-center justify-center"
+    >
+      <span className="text-xs text-neutral-text-disabled">Loading {label}…</span>
     </div>
   );
 }

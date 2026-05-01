@@ -27,6 +27,9 @@ vi.mock('@/hooks/useSprints', () => ({
   useSprints: (projectId?: string | null) => useSprintsMock(projectId),
   useSprintsByState: (projectId?: string | null) => useSprintsByStateMock(projectId),
   useSprintMutations: (projectId?: string | null) => useSprintMutationsMock(projectId),
+  useSprintBurndown: () => ({ data: undefined, isLoading: false, error: null }),
+  useSprintCapacity: () => ({ data: undefined, isLoading: false, error: null }),
+  useProjectVelocity: () => ({ data: undefined, isLoading: false, error: null }),
 }));
 
 const ACTIVE = makeSprint({

@@ -5955,6 +5955,47 @@
                 }
             }
         },
+        "/api/v1/sprints/{id}/capacity/": {
+            "get": {
+                "operationId": "v1_sprints_capacity_retrieve",
+                "description": "Return per-person and aggregate capacity for a sprint (#228).\n\nExposes every assigned member (not only over-allocated ones) plus\naggregate totals — what the wave/10 capacity preflight panel\nrenders. The activate endpoint still returns the warnings-only\nslice via ``capacity_check``.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sprints/{id}/close/": {
             "post": {
                 "operationId": "v1_sprints_close_create",

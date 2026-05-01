@@ -97,29 +97,29 @@ def _working_days(start: date, finish: date, working_days_mask: int = 31) -> int
     return total
 
 
-def capacity_check(sprint: Any) -> list[dict[str, Any]]:
-    """Compute non-blocking over-allocation warnings for a sprint (ADR-0037 Q2).
+def _initials(name: str) -> str:
+    """Two-letter uppercase initials from a person's display name."""
+    parts = [p for p in name.split() if p]
+    if not parts:
+        return "?"
+    if len(parts) == 1:
+        return parts[0][:2].upper()
+    return (parts[0][0] + parts[-1][0]).upper()
+
+
+def capacity_summary(sprint: Any) -> dict[str, Any]:
+    """Compute per-person committed/available hours and aggregate totals.
 
     For each resource assigned to a task in the sprint, sum the committed
-    work hours (units * working_days * hours_per_day) and compare to the
-    resource's available hours. Returns one warning entry per over-allocated
-    member.
+    work hours (``units × working_days × hours_per_day``) and compare to the
+    resource's available hours. Returns every assigned member (not only
+    over-allocated ones) plus an aggregate ``totals`` block — the Sprints
+    capacity preflight panel (#228) renders both shapes from the same
+    payload, so we shape it once here.
 
-    Hours-per-day is read from the project's calendar (or 8.0 default).
-    Working days span the sprint window honoring the calendar's
-    ``working_days`` bitmask.
-
-    Returns:
-        List of dicts shaped like::
-
-            {
-              "type": "over_capacity",
-              "member_id": str,
-              "member_name": str,
-              "committed_hours": float,
-              "available_hours": float,
-              "suggested_commitment_points": int,
-            }
+    Hours-per-day comes from the project calendar (8.0 default). Working
+    days honour the calendar's ``working_days`` bitmask. ``pto_days`` is a
+    placeholder zero until a dedicated time-off model lands.
     """
     from trueppm_api.apps.resources.models import TaskResource
 
@@ -129,7 +129,19 @@ def capacity_check(sprint: Any) -> list[dict[str, Any]]:
     wd_mask = cal.working_days if cal else 31
     working_days = _working_days(sprint.start_date, sprint.finish_date, wd_mask)
     if working_days <= 0:
-        return []
+        return {
+            "members": [],
+            "totals": {
+                "committed_hours": 0.0,
+                "available_hours": 0.0,
+                "ratio": 0.0,
+                "buffer_hours": 0.0,
+                "label": "on_track",
+                "pto_days": 0,
+            },
+            "working_days": 0,
+            "hours_per_day": hours_per_day,
+        }
 
     assignments = (
         TaskResource.objects.filter(task__sprint_id=sprint.pk, task__is_deleted=False)
@@ -148,24 +160,78 @@ def capacity_check(sprint: Any) -> list[dict[str, Any]]:
         )
         entry["committed"] += units or Decimal("0")
 
-    warnings: list[dict[str, Any]] = []
-    sprint_total_points = sprint.committed_points or 0
+    members: list[dict[str, Any]] = []
+    total_committed = 0.0
+    total_available = 0.0
     for resource_id, data in by_resource.items():
         committed_hours = float(data["committed"]) * working_days * hours_per_day
         available_hours = float(data["max_units"]) * working_days * hours_per_day
-        if committed_hours > available_hours:
-            ratio = available_hours / committed_hours if committed_hours else 0
-            suggested = round(sprint_total_points * ratio) if sprint_total_points else 0
-            warnings.append(
-                {
-                    "type": "over_capacity",
-                    "member_id": str(resource_id),
-                    "member_name": data["name"],
-                    "committed_hours": round(committed_hours, 2),
-                    "available_hours": round(available_hours, 2),
-                    "suggested_commitment_points": suggested,
-                }
-            )
+        ratio = committed_hours / available_hours if available_hours > 0 else 0.0
+        members.append(
+            {
+                "member_id": str(resource_id),
+                "member_name": data["name"],
+                "initials": _initials(data["name"]),
+                "committed_hours": round(committed_hours, 2),
+                "available_hours": round(available_hours, 2),
+                "ratio": round(ratio, 4),
+                "is_over": committed_hours > available_hours,
+            }
+        )
+        total_committed += committed_hours
+        total_available += available_hours
+
+    members.sort(key=lambda m: m["member_name"])
+    total_ratio = total_committed / total_available if total_available > 0 else 0.0
+    if total_ratio > 1.0:
+        label = "over_capacity"
+    elif total_ratio >= 0.9:
+        label = "at_risk"
+    else:
+        label = "on_track"
+
+    return {
+        "members": members,
+        "totals": {
+            "committed_hours": round(total_committed, 2),
+            "available_hours": round(total_available, 2),
+            "ratio": round(total_ratio, 4),
+            "buffer_hours": round(total_available - total_committed, 2),
+            "label": label,
+            "pto_days": 0,
+        },
+        "working_days": working_days,
+        "hours_per_day": hours_per_day,
+    }
+
+
+def capacity_check(sprint: Any) -> list[dict[str, Any]]:
+    """Backwards-compatible wrapper: returns only the over-capacity warnings.
+
+    Used by the activate endpoint (ADR-0037 Q2 amendment) which only surfaces
+    over-allocated members. Full per-member data is exposed via
+    ``capacity_summary`` and the ``/api/v1/sprints/<pk>/capacity/`` endpoint.
+    """
+    summary = capacity_summary(sprint)
+    sprint_total_points = sprint.committed_points or 0
+    warnings: list[dict[str, Any]] = []
+    for member in summary["members"]:
+        if not member["is_over"]:
+            continue
+        committed_hours = member["committed_hours"]
+        available_hours = member["available_hours"]
+        ratio = available_hours / committed_hours if committed_hours else 0
+        suggested = round(sprint_total_points * ratio) if sprint_total_points else 0
+        warnings.append(
+            {
+                "type": "over_capacity",
+                "member_id": member["member_id"],
+                "member_name": member["member_name"],
+                "committed_hours": committed_hours,
+                "available_hours": available_hours,
+                "suggested_commitment_points": suggested,
+            }
+        )
     return warnings
 
 

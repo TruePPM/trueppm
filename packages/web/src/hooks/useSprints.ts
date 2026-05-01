@@ -165,6 +165,109 @@ export function useSprintMutations(projectId: string | null | undefined) {
   return { createSprint, closeSprint };
 }
 
+// ---------------------------------------------------------------------------
+// Burndown / capacity / velocity reads (issue #228)
+// ---------------------------------------------------------------------------
+
+export interface SprintBurnSnapshot {
+  id: string;
+  snapshot_date: string;
+  remaining_points: number;
+  remaining_task_count: number;
+  completed_points: number;
+  completed_task_count: number;
+  scope_change_points: number;
+  scope_change_task_count: number;
+  created_at: string;
+}
+
+export interface SprintBurndown {
+  sprint: ApiSprint;
+  snapshots: SprintBurnSnapshot[];
+}
+
+/** GET /api/v1/sprints/{id}/burndown/ — sprint metadata + actual burn series. */
+export function useSprintBurndown(sprintId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['sprint', sprintId, 'burndown'],
+    queryFn: async () => {
+      const res = await apiClient.get<SprintBurndown>(`/sprints/${sprintId}/burndown/`);
+      return res.data;
+    },
+    enabled: !!sprintId,
+  });
+}
+
+export interface SprintCapacityMember {
+  member_id: string;
+  member_name: string;
+  initials: string;
+  committed_hours: number;
+  available_hours: number;
+  ratio: number;
+  is_over: boolean;
+}
+
+export interface SprintCapacity {
+  members: SprintCapacityMember[];
+  totals: {
+    committed_hours: number;
+    available_hours: number;
+    ratio: number;
+    buffer_hours: number;
+    label: 'on_track' | 'at_risk' | 'over_capacity';
+    pto_days: number;
+  };
+  working_days: number;
+  hours_per_day: number;
+}
+
+/** GET /api/v1/sprints/{id}/capacity/ — per-person + aggregate capacity (#228). */
+export function useSprintCapacity(sprintId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['sprint', sprintId, 'capacity'],
+    queryFn: async () => {
+      const res = await apiClient.get<SprintCapacity>(`/sprints/${sprintId}/capacity/`);
+      return res.data;
+    },
+    enabled: !!sprintId,
+  });
+}
+
+export interface VelocitySprintEntry {
+  id: string;
+  name: string;
+  start_date: string;
+  finish_date: string;
+  committed_points: number | null;
+  completed_points: number | null;
+  committed_task_count: number | null;
+  completed_task_count: number | null;
+}
+
+export interface ProjectVelocity {
+  sprints: VelocitySprintEntry[];
+  rolling_avg_points: number | null;
+  rolling_stdev_points: number | null;
+  forecast_range_low: number | null;
+  forecast_range_high: number | null;
+  rolling_avg_tasks: number | null;
+  rolling_stdev_tasks: number | null;
+}
+
+/** GET /api/v1/projects/{id}/velocity/ — last-8 closed sprint stats. */
+export function useProjectVelocity(projectId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['project', projectId, 'velocity'],
+    queryFn: async () => {
+      const res = await apiClient.get<ProjectVelocity>(`/projects/${projectId}/velocity/`);
+      return res.data;
+    },
+    enabled: !!projectId,
+  });
+}
+
+
 /** Helper exposed for tests — keeps the bucketing logic hot-swappable. */
 export const __testing = {
   bucketByState(sprints: ApiSprint[]): SprintsByState {
