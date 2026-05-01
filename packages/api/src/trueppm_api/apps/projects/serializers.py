@@ -229,14 +229,19 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         Resolution order (highest specificity first):
         - baselined: task appears in the active baseline (baseline_start is annotated)
-        - idea: no assignee
+        - idea: no assignee AND still in BACKLOG (unrefined, uncommitted)
         - ready: has assignee + at least one predecessor dependency
-        - estimated: has assignee, no predecessors
+        - estimated: has assignee without predecessors, OR promoted out of BACKLOG
+                     without an assignee (committed but unowned — ADR-0047)
+
+        Semantic boundary: 'idea' only applies while status == BACKLOG. Once a PM
+        moves a card to any working column they have made a commitment decision;
+        ghost styling is suppressed even if no assignee has been set yet.
         """
         if getattr(obj, "baseline_start", None) is not None:
             return "baselined"
         if obj.assignee_id is None:
-            return "idea"
+            return "idea" if obj.status == TaskStatus.BACKLOG else "estimated"
         if getattr(obj, "has_predecessors", False):
             return "ready"
         return "estimated"

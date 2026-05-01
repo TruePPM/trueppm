@@ -226,19 +226,44 @@ def test_sync_task_serializer_includes_status(project: Project, task: Task) -> N
 
 
 @pytest.mark.django_db
-def test_readiness_idea_when_no_assignee(
-    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+def test_readiness_idea_when_no_assignee_in_backlog(
+    client: APIClient, project: Project, membership: ProjectMembership
 ) -> None:
-    """Tasks with no assignee report readiness=idea."""
+    """Unassigned tasks in BACKLOG report readiness=idea (ADR-0047)."""
     with (
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
         patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
     ):
+        backlog_task = Task.objects.create(
+            project=project, name="Backlog idea", duration=2, status=TaskStatus.BACKLOG
+        )
         r = client.get(f"/api/v1/tasks/?project={project.pk}")
     assert r.status_code == 200
     results = r.data.get("results", r.data)
-    first = next(t for t in results if t["id"] == str(task.pk))
-    assert first["readiness"] == "idea"
+    t_data = next(t for t in results if t["id"] == str(backlog_task.pk))
+    assert t_data["readiness"] == "idea"
+
+
+@pytest.mark.django_db
+def test_readiness_estimated_when_no_assignee_outside_backlog(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """Unassigned tasks promoted out of BACKLOG report readiness=estimated, not idea (ADR-0047).
+
+    Ghost styling is suppressed once a PM commits the card to a working column.
+    """
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        committed = Task.objects.create(
+            project=project, name="Committed unassigned", duration=2, status=TaskStatus.NOT_STARTED
+        )
+        r = client.get(f"/api/v1/tasks/?project={project.pk}")
+    assert r.status_code == 200
+    results = r.data.get("results", r.data)
+    t_data = next(t for t in results if t["id"] == str(committed.pk))
+    assert t_data["readiness"] == "estimated"
 
 
 @pytest.mark.django_db
