@@ -466,3 +466,31 @@ def test_target_milestone_detail_null_when_unset(
     resp = member_client.get(f"/api/v1/sprints/{s.pk}/")
     assert resp.status_code == 200
     assert resp.data["target_milestone_detail"] is None
+
+
+# ---------------------------------------------------------------------------
+# /capacity/ endpoint (issue #228)
+# ---------------------------------------------------------------------------
+
+
+def test_capacity_endpoint_returns_aggregate_and_members(
+    member_client: APIClient, project: Project
+) -> None:
+    s = _make_sprint(project)
+    resp = member_client.get(f"/api/v1/sprints/{s.pk}/capacity/")
+    assert resp.status_code == 200
+    assert "members" in resp.data
+    assert "totals" in resp.data
+    totals = resp.data["totals"]
+    for key in ("committed_hours", "available_hours", "ratio", "buffer_hours", "label", "pto_days"):
+        assert key in totals
+    assert totals["pto_days"] == 0
+    assert totals["label"] in ("on_track", "at_risk", "over_capacity")
+
+
+def test_capacity_endpoint_requires_membership(
+    stranger_client: APIClient, project: Project
+) -> None:
+    s = _make_sprint(project)
+    resp = stranger_client.get(f"/api/v1/sprints/{s.pk}/capacity/")
+    assert resp.status_code == 403

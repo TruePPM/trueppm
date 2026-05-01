@@ -3035,6 +3035,25 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         }
         return Response(payload, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=["get"])
+    def capacity(self, request: Request, pk: str | None = None) -> Response:
+        """Return per-person and aggregate capacity for a sprint (#228).
+
+        Exposes every assigned member (not only over-allocated ones) plus
+        aggregate totals — what the wave/10 capacity preflight panel
+        renders. The activate endpoint still returns the warnings-only
+        slice via ``capacity_check``.
+        """
+        from trueppm_api.apps.projects.services import capacity_summary
+
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"),
+            pk=pk,
+            is_deleted=False,
+        )
+        self.check_object_permissions(request, sprint)
+        return Response(capacity_summary(sprint), status=status.HTTP_200_OK)
+
 
 class ProjectVelocityView(APIView):
     """``GET /api/v1/projects/<pk>/velocity/`` — last 8 closed sprints + stats."""

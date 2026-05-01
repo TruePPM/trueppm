@@ -201,6 +201,11 @@ urlpatterns = [
         name="sprints-burndown",
     ),
     path(
+        "sprints/<pk>/capacity/",
+        SprintViewSet.as_view({"get": "capacity"}),
+        name="sprints-capacity",
+    ),
+    path(
         "projects/<pk>/velocity/",
         ProjectVelocityView.as_view(),
         name="project-velocity",
