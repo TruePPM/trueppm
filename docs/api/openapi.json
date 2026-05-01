@@ -2363,6 +2363,38 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/velocity/": {
+            "get": {
+                "operationId": "v1_projects_velocity_retrieve",
+                "description": "``GET /api/v1/projects/<pk>/velocity/`` — last 8 closed sprints + stats.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/workshop/current/": {
             "get": {
                 "operationId": "v1_projects_workshop_current_retrieve",
@@ -3786,6 +3818,122 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/SchedulerRun"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/sprints/": {
+            "get": {
+                "operationId": "v1_projects_sprints_list",
+                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel                  — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedSprintList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_projects_sprints_create",
+                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel                  — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
                                 }
                             }
                         },
@@ -5418,6 +5566,420 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/": {
+            "get": {
+                "operationId": "v1_sprints_retrieve",
+                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel                  — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_sprints_update",
+                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel                  — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_sprints_partial_update",
+                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel                  — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSprintRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_sprints_destroy",
+                "description": "CRUD plus state-transition actions for sprints (ADR-0037).\n\nRoutes are nested under projects for list/create\n(``/projects/<project_pk>/sprints/``) and exposed at top level for detail\nand actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,\n``.../cancel/``, ``.../burndown/``).\n\nPermission matrix:\n  list / retrieve / burndown      — Viewer+ (IsProjectMember)\n  create / update / activate /\n  close / cancel                  — Team Member+ (IsProjectMemberWrite)\n  destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/activate/": {
+            "post": {
+                "operationId": "v1_sprints_activate_create",
+                "description": "Transition PLANNED → ACTIVE.\n\nSnapshots committed_points and committed_task_count from the current\nbacklog. Enforces the single-active-sprint-per-project soft constraint\n(409 with conflicting sprint id). Returns the updated sprint plus a\nnon-blocking ``warnings`` array for over-allocated members\n(ADR-0037 Q2 amendment).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/burndown/": {
+            "get": {
+                "operationId": "v1_sprints_burndown_retrieve",
+                "description": "Return the sprint plus its actual burn snapshot series.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/cancel/": {
+            "post": {
+                "operationId": "v1_sprints_cancel_create",
+                "description": "Transition PLANNED → CANCELLED.\n\nACTIVE → CANCELLED requires admin role and is a rare admin-only\nrecovery path; not exposed via this action in v1.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/close/": {
+            "post": {
+                "operationId": "v1_sprints_close_create",
+                "description": "Async transition ACTIVE → COMPLETED via the outbox drain.\n\nReturns 202 Accepted with the SprintCloseRequest id. The frontend\npolls retrieve or subscribes via WebSocket to observe ``state=COMPLETED``.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -7436,6 +7998,37 @@
                     }
                 }
             },
+            "PaginatedSprintList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Sprint"
+                        }
+                    }
+                }
+            },
             "PaginatedTaskList": {
                 "type": "object",
                 "required": [
@@ -7686,6 +8279,9 @@
                     },
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"
+                    },
+                    "agile_features": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -7862,6 +8458,34 @@
                     }
                 }
             },
+            "PatchedSprintRequest": {
+                "type": "object",
+                "description": "Read/write serializer for sprints.\n\nState, committed_*, completed_*, activated_at, closed_at are read-only —\nthey are written by the dedicated activate/close actions, not by PATCH.\n\ncompletion_ratio_* are computed from snapshotted committed/completed\nfields and only become non-null after sprint close.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255
+                    },
+                    "goal": {
+                        "type": "string"
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "finish_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "target_milestone": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Optional milestone task this sprint progresses toward."
+                    }
+                }
+            },
             "PatchedTaskRequest": {
                 "type": "object",
                 "properties": {
@@ -7957,6 +8581,17 @@
                         "minimum": 0,
                         "nullable": true,
                         "description": "Priority rank within the project; lower is higher priority."
+                    },
+                    "sprint": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
                     }
                 }
             },
@@ -8069,6 +8704,9 @@
                     },
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"
+                    },
+                    "agile_features": {
+                        "type": "boolean"
                     }
                 },
                 "required": [
@@ -8199,6 +8837,9 @@
                     },
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"
+                    },
+                    "agile_features": {
+                        "type": "boolean"
                     }
                 },
                 "required": [
@@ -8921,6 +9562,188 @@
                     "name"
                 ]
             },
+            "Sprint": {
+                "type": "object",
+                "description": "Read/write serializer for sprints.\n\nState, committed_*, completed_*, activated_at, closed_at are read-only —\nthey are written by the dedicated activate/close actions, not by PATCH.\n\ncompletion_ratio_* are computed from snapshotted committed/completed\nfields and only become non-null after sprint close.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "short_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "short_id_display": {
+                        "type": "string",
+                        "description": "Return the human-facing form ``SP-XXXXXXXX`` of the short id.",
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "goal": {
+                        "type": "string"
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "finish_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "state": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StateEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "target_milestone": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Optional milestone task this sprint progresses toward."
+                    },
+                    "committed_points": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "committed_task_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "completed_points": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "completed_task_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "completion_ratio_points": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "completion_ratio_tasks": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "activated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "closed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "activated_at",
+                    "closed_at",
+                    "committed_points",
+                    "committed_task_count",
+                    "completed_points",
+                    "completed_task_count",
+                    "completion_ratio_points",
+                    "completion_ratio_tasks",
+                    "created_at",
+                    "created_by",
+                    "finish_date",
+                    "id",
+                    "name",
+                    "project",
+                    "server_version",
+                    "short_id",
+                    "short_id_display",
+                    "start_date",
+                    "state",
+                    "updated_at"
+                ]
+            },
+            "SprintRequest": {
+                "type": "object",
+                "description": "Read/write serializer for sprints.\n\nState, committed_*, completed_*, activated_at, closed_at are read-only —\nthey are written by the dedicated activate/close actions, not by PATCH.\n\ncompletion_ratio_* are computed from snapshotted committed/completed\nfields and only become non-null after sprint close.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255
+                    },
+                    "goal": {
+                        "type": "string"
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "finish_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "target_milestone": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Optional milestone task this sprint progresses toward."
+                    }
+                },
+                "required": [
+                    "finish_date",
+                    "name",
+                    "start_date"
+                ]
+            },
+            "StateEnum": {
+                "enum": [
+                    "PLANNED",
+                    "ACTIVE",
+                    "COMPLETED",
+                    "CANCELLED"
+                ],
+                "type": "string",
+                "description": "* `PLANNED` - Planned\n* `ACTIVE` - Active\n* `COMPLETED` - Completed\n* `CANCELLED` - Cancelled"
+            },
             "Status9bdEnum": {
                 "enum": [
                     "pending",
@@ -9153,6 +9976,17 @@
                         "type": "boolean",
                         "readOnly": true,
                         "default": false
+                    },
+                    "sprint": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -9304,6 +10138,17 @@
                         "minimum": 0,
                         "nullable": true,
                         "description": "Priority rank within the project; lower is higher priority."
+                    },
+                    "sprint": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
                     }
                 },
                 "required": [

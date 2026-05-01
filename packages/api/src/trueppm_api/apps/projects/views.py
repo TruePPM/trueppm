@@ -26,6 +26,7 @@ from django.db.models import (
 )
 from django.db.models.expressions import RawSQL
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import filters, mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
@@ -57,6 +58,8 @@ from trueppm_api.apps.projects.models import (
     Risk,
     RiskComment,
     RiskStatus,
+    Sprint,
+    SprintState,
     Task,
     TaskStatus,
 )
@@ -71,6 +74,9 @@ from trueppm_api.apps.projects.serializers import (
     ProjectSerializer,
     RiskCommentSerializer,
     RiskSerializer,
+    SprintBurnSnapshotSerializer,
+    SprintCloseRequestSerializer,
+    SprintSerializer,
     TaskBulkSerializer,
     TaskReorderSerializer,
     TaskSerializer,
@@ -640,6 +646,14 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         status = self.request.query_params.get("status")
         if status:
             qs = qs.filter(status=status)
+        # Sprint membership filter (ADR-0037 Q5):
+        #   ?sprint=<uuid>  — only tasks in that sprint
+        #   ?sprint=none    — only sprint-less tasks (project backlog)
+        sprint_filter = self.request.query_params.get("sprint")
+        if sprint_filter == "none":
+            qs = qs.filter(sprint__isnull=True)
+        elif sprint_filter:
+            qs = qs.filter(sprint_id=sprint_filter)
 
         # Date-range filter for calendar / resource views.
         # ?start__gte=YYYY-MM-DD  — tasks whose early_finish >= this date (still active)
@@ -2761,3 +2775,275 @@ class PhaseReorderView(APIView):
             transaction.on_commit(lambda: _enqueue_recalculate(project_id_str))
 
         return Response({"updated": len(parsed)}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Sprint endpoints (ADR-0037)
+# ---------------------------------------------------------------------------
+
+
+class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
+    """CRUD plus state-transition actions for sprints (ADR-0037).
+
+    Routes are nested under projects for list/create
+    (``/projects/<project_pk>/sprints/``) and exposed at top level for detail
+    and actions (``/sprints/<id>/``, ``.../activate/``, ``.../close/``,
+    ``.../cancel/``, ``.../burndown/``).
+
+    Permission matrix:
+      list / retrieve / burndown      — Viewer+ (IsProjectMember)
+      create / update / activate /
+      close / cancel                  — Team Member+ (IsProjectMemberWrite)
+      destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)
+    """
+
+    queryset = Sprint.objects.select_related("project", "created_by").filter(is_deleted=False)
+    serializer_class = SprintSerializer
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["start_date", "finish_date", "name", "state"]
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action in ("list", "retrieve", "burndown"):
+            return [IsAuthenticated(), IsProjectMember()]
+        if self.action == "destroy":
+            return [IsAuthenticated(), IsProjectAdmin()]
+        return [IsAuthenticated(), IsProjectMemberWrite()]
+
+    def get_queryset(self) -> QuerySet[Sprint]:
+        qs = super().get_queryset()
+        project_pk = self.kwargs.get("project_pk")
+        if project_pk:
+            qs = qs.filter(project_id=project_pk)
+        state_filter = self.request.query_params.get("state")
+        if state_filter:
+            qs = qs.filter(state=state_filter)
+        return qs
+
+    def perform_create(self, serializer: BaseSerializer[Sprint]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_pk = self.kwargs["project_pk"]
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        # DRF does not call has_object_permission on create — check explicitly.
+        self.check_object_permissions(self.request, project)
+        instance = serializer.save(project=project, created_by=self.request.user)
+        sprint_id = str(instance.pk)
+        project_id_str = str(project_pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id_str, "sprint_created", {"id": sprint_id})
+        )
+
+    def perform_update(self, serializer: BaseSerializer[Sprint]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        instance = serializer.save()
+        project_id = str(instance.project_id)
+        sprint_id = str(instance.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "sprint_updated", {"id": sprint_id})
+        )
+
+    def perform_destroy(self, instance: Sprint) -> None:
+        if instance.state not in (SprintState.PLANNED, SprintState.CANCELLED):
+            raise serializers.ValidationError(
+                {"detail": "Only PLANNED or CANCELLED sprints can be deleted."}
+            )
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_id = str(instance.project_id)
+        sprint_id = str(instance.pk)
+        instance.soft_delete()
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "sprint_deleted", {"id": sprint_id})
+        )
+
+    @action(detail=True, methods=["post"])
+    def activate(self, request: Request, pk: str | None = None) -> Response:
+        """Transition PLANNED → ACTIVE.
+
+        Snapshots committed_points and committed_task_count from the current
+        backlog. Enforces the single-active-sprint-per-project soft constraint
+        (409 with conflicting sprint id). Returns the updated sprint plus a
+        non-blocking ``warnings`` array for over-allocated members
+        (ADR-0037 Q2 amendment).
+        """
+        from trueppm_api.apps.projects.services import (
+            capacity_check,
+            snapshot_committed_metrics,
+        )
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        if pk is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        with transaction.atomic():
+            sprint = (
+                Sprint.objects.select_for_update()
+                .select_related("project")
+                .filter(pk=pk, is_deleted=False)
+                .first()
+            )
+            if sprint is None:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            self.check_object_permissions(request, sprint)
+            if sprint.state != SprintState.PLANNED:
+                return Response(
+                    {
+                        "detail": (
+                            f"Sprint state {sprint.state} cannot be activated (must be PLANNED)."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            existing_active = (
+                Sprint.objects.filter(
+                    project_id=sprint.project_id,
+                    state=SprintState.ACTIVE,
+                    is_deleted=False,
+                )
+                .exclude(pk=sprint.pk)
+                .first()
+            )
+            if existing_active is not None:
+                return Response(
+                    {
+                        "detail": "Another sprint is already active for this project.",
+                        "conflicting_sprint_id": str(existing_active.pk),
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            snapshot_committed_metrics(sprint)
+            sprint.state = SprintState.ACTIVE
+            sprint.activated_at = timezone.now()
+            sprint.save(
+                update_fields=[
+                    "committed_points",
+                    "committed_task_count",
+                    "state",
+                    "activated_at",
+                ]
+            )
+            warnings = capacity_check(sprint)
+            project_id_str = str(sprint.project_id)
+            sprint_id_str = str(sprint.pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    project_id_str, "sprint_activated", {"id": sprint_id_str}
+                )
+            )
+
+        data = SprintSerializer(sprint).data
+        data["warnings"] = warnings
+        return Response(data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"])
+    def close(self, request: Request, pk: str | None = None) -> Response:
+        """Async transition ACTIVE → COMPLETED via the outbox drain.
+
+        Returns 202 Accepted with the SprintCloseRequest id. The frontend
+        polls retrieve or subscribes via WebSocket to observe ``state=COMPLETED``.
+        """
+        from trueppm_api.apps.projects.services import enqueue_sprint_close
+
+        sprint = get_object_or_404(Sprint, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, sprint)
+        if sprint.state != SprintState.ACTIVE:
+            return Response(
+                {"detail": (f"Sprint state {sprint.state} cannot be closed (must be ACTIVE).")},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        body = SprintCloseRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        carry_over_to = body.validated_data["carry_over_to"]
+
+        if carry_over_to not in {"backlog", "none"}:
+            target = Sprint.objects.filter(
+                pk=carry_over_to,
+                project_id=sprint.project_id,
+                is_deleted=False,
+            ).first()
+            if target is None:
+                return Response(
+                    {"carry_over_to": "Target sprint must exist in the same project."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if target.state == SprintState.COMPLETED:
+                return Response(
+                    {"carry_over_to": "Cannot carry over to a closed sprint."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        with transaction.atomic():
+            req = enqueue_sprint_close(
+                sprint_id=sprint.pk,
+                carry_over_to=carry_over_to,
+                requested_by=request.user,
+            )
+        return Response(
+            {"queued": True, "request_id": str(req.id)},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request: Request, pk: str | None = None) -> Response:
+        """Transition PLANNED → CANCELLED.
+
+        ACTIVE → CANCELLED requires admin role and is a rare admin-only
+        recovery path; not exposed via this action in v1.
+        """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        if pk is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        with transaction.atomic():
+            sprint = Sprint.objects.select_for_update().filter(pk=pk, is_deleted=False).first()
+            if sprint is None:
+                return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+            self.check_object_permissions(request, sprint)
+            if sprint.state != SprintState.PLANNED:
+                return Response(
+                    {
+                        "detail": (
+                            f"Sprint state {sprint.state} cannot be cancelled (must be PLANNED)."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            sprint.state = SprintState.CANCELLED
+            sprint.save(update_fields=["state"])
+            project_id_str = str(sprint.project_id)
+            sprint_id_str = str(sprint.pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    project_id_str, "sprint_cancelled", {"id": sprint_id_str}
+                )
+            )
+        return Response(SprintSerializer(sprint).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["get"])
+    def burndown(self, request: Request, pk: str | None = None) -> Response:
+        """Return the sprint plus its actual burn snapshot series."""
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project", "created_by"),
+            pk=pk,
+            is_deleted=False,
+        )
+        self.check_object_permissions(request, sprint)
+        snapshots = sprint.burn_snapshots.all().order_by("snapshot_date")
+        payload = {
+            "sprint": SprintSerializer(sprint).data,
+            "snapshots": SprintBurnSnapshotSerializer(snapshots, many=True).data,
+        }
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class ProjectVelocityView(APIView):
+    """``GET /api/v1/projects/<pk>/velocity/`` — last 8 closed sprints + stats."""
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def get(self, request: Request, pk: str) -> Response:
+        from trueppm_api.apps.projects.services import velocity_summary
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+        return Response(velocity_summary(project.pk), status=status.HTTP_200_OK)

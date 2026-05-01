@@ -213,6 +213,12 @@ class Project(VersionedModel):
         choices=EstimationMode.choices,
         default=EstimationMode.OPEN,
     )
+    # Sprint UI gate (ADR-0037 amendment).  When False, the frontend hides
+    # sprint-related affordances (Sprints route, board sprint filter,
+    # story_points columns).  API endpoints remain active regardless — this is
+    # a UI/UX preference, not an access-control gate.  Auto-set to True for
+    # projects created from the Software Delivery template.
+    agile_features = models.BooleanField(default=False)
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
 
@@ -382,6 +388,22 @@ class Task(VersionedModel):
         blank=True,
         help_text="Priority rank within the project; lower is higher priority.",
     )
+
+    # Sprint membership (ADR-0037 Q1).  A task may belong to at most one sprint
+    # at a time; carry-over moves the FK on close.  Sprint-less tasks are the
+    # project backlog.  Historical sprint membership is reconstructable from
+    # HistoricalTask within the 90-day retention window.
+    sprint = models.ForeignKey(
+        "Sprint",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tasks",
+        db_index=True,
+    )
+    # Agile estimate (ADR-0037 Q1).  Nullable — story_points is fully optional
+    # so non-agile projects do not see a "0 pts" badge on every card.
+    story_points = models.PositiveSmallIntegerField(null=True, blank=True)
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_TASK)
 
@@ -876,3 +898,209 @@ class BoardSavedView(models.Model):
 
     def __str__(self) -> str:
         return f"BoardSavedView({self.project_id}, {self.name!r})"
+
+
+# ---------------------------------------------------------------------------
+# Sprint (ADR-0037)
+# ---------------------------------------------------------------------------
+
+
+class SprintState(models.TextChoices):
+    """Lifecycle state of a sprint.
+
+    PLANNED   — sprint exists with goal/dates; no commitment snapshot yet.
+    ACTIVE    — sprint is in progress; committed_* are snapshotted on entry.
+    COMPLETED — sprint has closed; completed_* and velocity are frozen.
+    CANCELLED — sprint was abandoned (PLANNED → only) or hard-closed (admin).
+    """
+
+    PLANNED = "PLANNED", "Planned"
+    ACTIVE = "ACTIVE", "Active"
+    COMPLETED = "COMPLETED", "Completed"
+    CANCELLED = "CANCELLED", "Cancelled"
+
+
+class Sprint(VersionedModel):
+    """A time-boxed iteration container for tasks (ADR-0037).
+
+    Project-scoped; a task can be in at most one sprint at a time. Velocity is
+    snapshotted on close into ``completed_points`` / ``completed_task_count``;
+    these survive the 90-day HistoricalTask retention so sprints older than
+    that still report velocity. Burndown points are written to
+    ``SprintBurnSnapshot``.
+    """
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="sprints")
+    short_id = models.CharField(max_length=8, editable=False, blank=True)
+    name = models.CharField(max_length=255)
+    goal = models.TextField(blank=True, default="")
+    start_date = models.DateField()
+    finish_date = models.DateField()
+    state = models.CharField(
+        max_length=12,
+        choices=SprintState.choices,
+        default=SprintState.PLANNED,
+        db_index=True,
+    )
+    target_milestone = models.ForeignKey(
+        Task,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="targeting_sprints",
+        help_text="Optional milestone task this sprint progresses toward.",
+    )
+    # Snapshotted on activation; never recomputed.  Stored values survive
+    # HistoricalTask retention pruning (90-day cap).
+    committed_points = models.PositiveIntegerField(null=True, blank=True)
+    committed_task_count = models.PositiveIntegerField(null=True, blank=True)
+    # Snapshotted on close; reflects tasks that completed within the sprint
+    # window — carry-over does NOT inflate completed_*.
+    completed_points = models.PositiveIntegerField(null=True, blank=True)
+    completed_task_count = models.PositiveIntegerField(null=True, blank=True)
+    activated_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="created_sprints",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
+
+    class Meta:
+        db_table = "projects_sprint"
+        ordering = ["start_date", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "short_id"],
+                name="unique_sprint_short_id_per_project",
+            ),
+            models.CheckConstraint(
+                condition=Q(finish_date__gt=F("start_date")),
+                name="sprint_finish_after_start",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["project", "state"], name="sprint_project_state_idx"),
+            models.Index(fields=["project", "start_date"], name="sprint_project_start_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.project_id}/SP-{self.short_id}: {self.name}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Assign short_id on INSERT, sharing the per-project sequence with
+        # Task and Risk so a single short_id never refers to two entities.
+        is_new = not type(self).objects.filter(pk=self.pk).exists() if self.pk else True
+        if is_new and not self.short_id:
+            self.short_id = _next_short_id(self.project_id)
+        super().save(*args, **kwargs)
+
+
+class SprintBurnSnapshot(models.Model):
+    """Daily burndown row for a sprint (ADR-0037 Q4).
+
+    One row per (sprint, snapshot_date). The unique constraint makes
+    real-time UPSERTs from the task_status_changed signal naturally idempotent
+    — concurrent writes converge on a single row per day. Ideal-line is
+    computed client-side from sprint.committed_points and the date range, so
+    the server returns only actual values.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sprint = models.ForeignKey(Sprint, on_delete=models.CASCADE, related_name="burn_snapshots")
+    snapshot_date = models.DateField()
+    remaining_points = models.PositiveIntegerField()
+    remaining_task_count = models.PositiveIntegerField()
+    completed_points = models.PositiveIntegerField()
+    completed_task_count = models.PositiveIntegerField()
+    # Signed: positive = scope added during sprint, negative = scope removed.
+    # Mid-sprint scope churn is signal, not noise — the chart shows it.
+    scope_change_points = models.IntegerField(default=0)
+    scope_change_task_count = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "projects_sprintburnsnapshot"
+        ordering = ["sprint_id", "snapshot_date"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["sprint", "snapshot_date"],
+                name="unique_sprint_snapshot_per_day",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["sprint", "snapshot_date"], name="sprint_burn_lookup_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"BurnSnapshot({self.sprint_id} @ {self.snapshot_date})"
+
+
+class SprintCloseRequestStatus(models.TextChoices):
+    """Lifecycle of a transactional outbox row for sprint close (ADR-0037)."""
+
+    PENDING = "pending", "Pending"
+    IN_FLIGHT = "in_flight", "In Flight"
+    COMPLETED = "completed", "Completed"
+    FAILED = "failed", "Failed"
+
+
+class SprintCloseRequest(models.Model):
+    """Transactional outbox record for sprint close operations (ADR-0037).
+
+    Sprint close is async: the API endpoint inserts one of these rows in the
+    same DB transaction as the state transition to ``ACTIVE→`` and returns
+    202 Accepted.  A Celery Beat drain (``drain_sprint_close_requests``) picks
+    up PENDING rows every 30 seconds, applies the close transition with
+    ``select_for_update``, and on success enqueues a ScheduleRequest with
+    ``reason=SPRINT_CLOSED`` for downstream CPM recompute.
+
+    Idempotency: the row PK is the lock key. If a concurrent dispatch is in
+    flight the drain skips the row; if the sprint is already COMPLETED at
+    drain time the row is short-circuited to COMPLETED without touching the
+    sprint state.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sprint = models.ForeignKey(Sprint, on_delete=models.CASCADE, related_name="close_requests")
+    # Verbatim copy of the API request payload — replayable from this row alone.
+    carry_over_to = models.CharField(
+        max_length=64,
+        default="backlog",
+        help_text="Either 'backlog', 'none', or a sprint UUID string.",
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="sprint_close_requests",
+    )
+    status = models.CharField(
+        max_length=12,
+        choices=SprintCloseRequestStatus.choices,
+        default=SprintCloseRequestStatus.PENDING,
+        db_index=True,
+    )
+    requested_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True, default="")
+    attempt_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = "projects_sprintcloserequest"
+        ordering = ["requested_at"]
+        indexes = [
+            models.Index(
+                fields=["status", "requested_at"],
+                name="sprint_close_status_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"SprintCloseRequest({self.sprint_id}, {self.status})"
