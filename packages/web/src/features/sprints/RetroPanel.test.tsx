@@ -2,11 +2,25 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
+import type { SaveRetroPayload, SprintRetroPayload } from '@/hooks/useSprints';
 import { RetroPanel } from './RetroPanel';
 
-const useSprintRetroMock = vi.fn();
-const saveMutateMock = vi.fn();
-const useSaveSprintRetroMock = vi.fn(() => ({
+interface SprintRetroQueryResult {
+  data: SprintRetroPayload | null;
+  isLoading: boolean;
+  error: unknown;
+}
+
+interface SaveRetroMutationResult {
+  mutate: (payload: SaveRetroPayload) => void;
+  isPending: boolean;
+  isError: boolean;
+  isSuccess: boolean;
+}
+
+const useSprintRetroMock = vi.fn<() => SprintRetroQueryResult>();
+const saveMutateMock = vi.fn<(payload: SaveRetroPayload) => void>();
+const useSaveSprintRetroMock = vi.fn<() => SaveRetroMutationResult>(() => ({
   mutate: saveMutateMock,
   isPending: false,
   isError: false,
@@ -14,8 +28,8 @@ const useSaveSprintRetroMock = vi.fn(() => ({
 }));
 
 vi.mock('@/hooks/useSprints', () => ({
-  useSprintRetro: () => useSprintRetroMock(),
-  useSaveSprintRetro: () => useSaveSprintRetroMock(),
+  useSprintRetro: (): SprintRetroQueryResult => useSprintRetroMock(),
+  useSaveSprintRetro: (): SaveRetroMutationResult => useSaveSprintRetroMock(),
 }));
 
 beforeEach(() => {
