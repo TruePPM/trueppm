@@ -61,6 +61,54 @@ Impact ▲
 
 ---
 
+## VoC Scoring Rubric
+
+When `/voc` produces a 1–10 score for a persona, use this scale — do not invent ad-hoc criteria per run.
+
+| Score | Meaning |
+|-------|---------|
+| 10    | Public reference — they would put their name on a case study |
+| 8–9   | Champion — would pitch internally and push to adopt |
+| 6–7   | Will adopt **if conditions are met** (e.g. SSO, Jira sync, mobile parity) |
+| 4–5   | Useful but not switching — a nice-to-have, not a budget line |
+| 2–3   | Nice demo, won't pay or won't use |
+| 1     | Dealbreaker triggered — actively negative reaction |
+
+**Severity tags** (use alongside the numeric score):
+
+- 🔴 **Blocker** — a hard NO is triggered, or a top-3 evaluation criterion is missed (e.g. Marcus without SSO, Sarah without offline). Must be resolved before architect handoff.
+- 🟡 **Concern** — soft pain not addressed; would lower the score but not kill adoption. Flag and triage.
+- 🟢 **Win** — directly resolves a top-3 evaluation criterion or hits a 10/10 anchor.
+
+**Panel-average heuristics**:
+- Average ≥ 8: ship with confidence.
+- Average 6–7: ship if no 🔴 blockers; address 🟡 concerns in the same milestone.
+- Average < 6: rethink scope before invoking architect — feature does not earn its build cost.
+
+A single 🔴 blocker outweighs a high panel average. Do not average away a hard NO.
+
+---
+
+## Cross-Persona Tensions
+
+The most informative VoC findings are **tensions**, not consensus. When designing a feature, ask which axis it sits on and which side it's serving — a feature that silently picks one side without acknowledging the other is a future complaint queue.
+
+| Tension                | Side A                                            | Side B                                                  |
+|------------------------|---------------------------------------------------|---------------------------------------------------------|
+| Notification volume    | **Priya**: fewer, smart-only, opt-in              | **Marcus**: more visibility into team status            |
+| Schedule rigidity      | **Sarah**: locked CPM, predict everything         | **Alex**: sprint flexibility, replan every two weeks    |
+| Allocation model       | **David**: partial allocations (60/40 splits)     | **Sarah's CPM**: typically assumes binary assignment    |
+| Forecast precision     | **Janet**: confidence-weighted ranges             | **Sarah**: point estimates and committed dates          |
+| Tool surface area      | **Priya**: minimal, "just my tasks"               | **Marcus**: deep, configurable, every metric exposed    |
+| Process formality      | **Alex**: lean, just-enough ceremony              | **Marcus**: audit trail, approvals, evidence            |
+| Offline tolerance      | **Sarah**: must work with no signal               | **Marcus / Janet**: assume always-connected             |
+| Source of truth        | **Priya**: Jira (TruePPM is downstream)           | **Sarah**: TruePPM (Jira is one input among many)       |
+| Status cadence         | **Janet**: weekly digest, push to her             | **Alex**: live burndown, pull when curious              |
+
+A feature that **resolves** a tension cleanly (e.g. a notification model that satisfies both Priya's signal-only preference *and* Marcus's visibility need) is high-leverage. A feature that ignores a tension is technical debt with a customer-facing fuse.
+
+---
+
 ## Persona 1 — Project Manager
 
 **Name**: Sarah Chen
@@ -93,6 +141,20 @@ Impact ▲
 3. Can my team log time in under 30 seconds?
 4. Can I export a professional-looking schedule for the client?
 5. How much does it cost per person?
+
+**One-question filter**: *"Does this work on my phone with no signal?"* — answers ~80% of her reactions before any other detail.
+
+**Hard NOs (dealbreakers)**:
+- Web-only / no real native mobile app
+- Mobile that's read-only (a "viewer" rather than a real editor)
+- Per-user pricing in the same tier as MS Project or above
+- Requires VPN to access from job sites
+
+**Decision authority**: Influencer, not buyer. Champions to her ops director or PMO. Advocates internally but does not sign the contract herself.
+
+**Frequency & time budget**: 5–10 min per session, ~4× daily on a job site (often offline). One longer 20–30 min session on Friday afternoon to produce the client-ready schedule export. Anything that takes longer than that on Friday gets cut.
+
+**10/10 anchor**: She updates the schedule from her truck on a project with no LTE, the change cascades to downstream tasks when she comes back into signal, and she emails a client-ready PDF before driving back to the office — total active time under 5 minutes.
 
 ---
 
@@ -132,6 +194,20 @@ Impact ▲
 5. TCO: total cost including implementation, training, ongoing support
 6. Self-hostable or EU-hosted cloud for regulatory requirements
 
+**One-question filter**: *"Can I show this to the CEO without reformatting?"* — if the answer is no, nothing else about the feature matters to him.
+
+**Hard NOs (dealbreakers)**:
+- No SSO / SAML / OIDC
+- No audit trail or no SOC 2 evidence path
+- Cloud-only with no self-host or EU residency option
+- No portfolio-level (cross-project) view — single-project tools are a non-starter at his scale
+
+**Decision authority**: Budget owner for departmental tools; larger spend escalates to the CFO. The signing decision depends on SSO, audit trail, and a portfolio dashboard meeting his bar — without those, his evaluation stops at "no."
+
+**Frequency & time budget**: Daily 5–10 min portfolio scan; weekly 30 min CEO prep; monthly 2-day Excel reporting ritual he is desperate to automate. Quarterly board-prep cycle (~1 day) where the tool's PDF export gets stress-tested.
+
+**10/10 anchor**: He kills the 2-day Excel ritual entirely, opens TruePPM 60 seconds before the CEO meeting, and answers every "how confident are we?" question with a probability-weighted forecast he didn't have to build by hand.
+
 ---
 
 ## Persona 3 — Team Member / Contributor
@@ -164,6 +240,20 @@ Impact ▲
 2. Is time entry fast and painless?
 3. Does it respect my attention (smart notifications, not spam)?
 4. Can I see just my tasks without navigating a complex PM interface?
+
+**One-question filter**: *"Does this remove a click from my day, or add one?"* — if it adds friction, she churns silently.
+
+**Hard NOs (dealbreakers)**:
+- Required to enter data already in Jira
+- Push notifications she didn't opt into
+- No mobile time entry
+- A "PM-y" UI that asks her to learn project management vocabulary
+
+**Decision authority**: Veto only. Won't pay personally; her org pays. **Her behavior is the failure mode** — if she doesn't use it, the data layer rots and Marcus's dashboards become fiction. Adoption among Priyas is the leading indicator that determines whether Marcus's investment ever pays off.
+
+**Frequency & time budget**: 15–30 sec/day for time entry from her phone. ~2 min/week to glance at her task list. Hard ceiling: anything over 2 min/day of "PM overhead" and she stops opening the app.
+
+**10/10 anchor**: She never opens TruePPM directly. Her Jira tickets sync in, her time auto-logs from a 10-second mobile prompt at end-of-day, and the only push notification she gets all month is the one that actually matters — a real blocker on her work.
 
 ---
 
@@ -199,6 +289,20 @@ Impact ▲
 4. Can I model "what if we hire one more engineer in Q3"?
 5. Does it integrate with how PMs are already scheduling tasks?
 
+**One-question filter**: *"Does this catch the conflict before it's locked in?"* — after-the-fact reporting is what every existing tool already does badly.
+
+**Hard NOs (dealbreakers)**:
+- Treats allocation as binary (100% or 0%) only — no partial-allocation support
+- Shows utilization only after the fact (no pre-commit conflict warning)
+- No way to model "what if we hire one more engineer in Q3?"
+- Requires every PM to enter data the same way before the heat map is useful (chicken-and-egg)
+
+**Decision authority**: Strong influencer; co-signs with Marcus on the resource module. Will champion the portfolio-wide resource heat map once core scheduling has been proven in his org for several months.
+
+**Frequency & time budget**: 15 min daily allocation check, plus 1–2 hr weekly capacity planning. Quarterly 1-day forecasting cycle for headcount discussions with his director.
+
+**10/10 anchor**: A PM tries to assign Aisha 60% to a new project; the tool warns *"this puts her at 130% in March"* before the assignment is saved, and David doesn't find out from a burned-out engineer six weeks later.
+
 ---
 
 ## Persona 5 — Executive Sponsor (C-Suite)
@@ -232,6 +336,20 @@ Impact ▲
 3. Can I export something board-ready without reformatting?
 4. Does it give me confidence-weighted forecasts, not just "on track / off track"?
 5. Will my team actually use it (so the data is trustworthy)?
+
+**One-question filter**: *"Can I get the answer without asking anyone?"* — every "let me check with Marcus" is a failure.
+
+**Hard NOs (dealbreakers)**:
+- Requires her to log in and navigate to find a number
+- Status that depends on PMs filing reports manually (because they won't, on time, every week)
+- Cannot export to a clean PDF for a board deck
+- Forecasts presented as binary "on track / off track" with no confidence band
+
+**Decision authority**: Final approver of the platform decision but does not evaluate features. She cares about *"is the data trustworthy"* and *"did Marcus pick something that won't embarrass us in front of the board."* Her veto is an existential risk to a decision Marcus already champions.
+
+**Frequency & time budget**: 30–60 sec, 1–2× per week — usually right before a board or exec meeting. Never inside the tool on a phone; reads a digest in email or on a tablet. Monthly 5-min check before the CFO meeting.
+
+**10/10 anchor**: A Sunday-evening email digest tells her the three projects at risk, *why*, and what's being done. She walks into Monday's exec staff meeting having already read the answer to every question that gets asked — without ever opening the app.
 
 ---
 
@@ -293,3 +411,32 @@ PSM and Professional Scrum Master are trademarks of Scrum.org.
 4. Can I forecast delivery from Sprint velocity and remaining backlog — with a range, not a false-precision date?
 5. Does it reduce ceremony overhead, or add to it?
 6. Can it coexist with the schedule/milestone view the traditional PM upstairs uses?
+
+**One-question filter**: *"Does this respect the Sprint boundary?"* — if scope, tracking, or planning crosses the Sprint line without an explicit decision, he's out.
+
+**Hard NOs (dealbreakers)**:
+- Sprint modeled as "a label on tasks" instead of a first-class container with goal, dates, and burndown
+- No velocity chart, or a velocity that requires manual export to Sheets
+- Mid-sprint scope changes that slip in silently with no audit
+- Forces strict Scrum Guide terminology that doesn't fit Scrumban or SAFe-adjacent teams (his teams aren't all vanilla Scrum)
+- "PM tool with a sprint view bolted on" — a board with date columns is not a Sprint
+
+**Decision authority**: Influencer for ~2–3 teams. Will champion if the Sprint model is real; will lose interest within a single Sprint if the abstraction is shallow. Reports up to a Director of Engineering or Head of Delivery who actually signs.
+
+**Frequency & time budget**: 30 min 2× weekly (Sprint Planning + Retro) + 2 min daily check-in. Sprint Review and Retro are the high-investment touchpoints (~1–2 hr biweekly each). Monthly velocity / forecast review with the PMO.
+
+**10/10 anchor**: Sprint Planning ends in 45 minutes instead of 2 hours, the velocity chart is right there with a forecast range (not a single number), retro action items flow into next Sprint's backlog automatically, and Sarah upstairs sees the milestone update without him copy-pasting anything between tools.
+
+---
+
+## Anti-Personas — Who TruePPM Is *Not* For
+
+Naming who we explicitly exclude prevents feature dilution. The `/voc` agent should **not** soften recommendations to please these users, and architecture decisions should not be justified by "but X would want this."
+
+- **Pete the P6 Loyalist** — Primavera P6 user running large-scale nuclear / aerospace / civil-megaproject schedules. Needs schedule-of-record audit chains, claims management, contractor delay analysis, multi-resource-leveling at 50,000-activity scale. Our scheduling engine is solid but our compliance, audit, and contract-claims story will never match P6 + Deltek for capital projects. **Out of scope by design.**
+- **Trina the Trello Refugee** — 5-person creative agency that just needs a list of cards with due dates. TruePPM's CPM, sync conflict resolution, role matrix, and portfolio model are pure overhead she will never use. Send her to Trello, Asana, or Linear. **A persona-fit failure, not a feature gap.**
+- **Frank the Fortune 50 Buyer** — Buys at the SAP / Oracle / Workday tier. Wants global tax engine integration, ERP-native PPM, white-glove onboarding, custom contractual SLAs, dedicated CSM. Our open-core model and team size aren't a fit; serving Frank distracts from Marcus. **Punt indefinitely.**
+- **Carla the Compliance-First Federal** — DoD / FedRAMP Moderate or High / IL5 buyer. Possibly addressable eventually, but not in the near term. Until we have FedRAMP Moderate authorization, government compliance asks should not drive product priorities. **Deferred indefinitely.**
+- **Stan the Solo Freelancer** — One-person consultancy tracking his own time across 3 clients. Doesn't need scheduling, sync, RBAC, or boards. A spreadsheet plus Toggl is the right answer for him. **A market we cannot serve well.**
+
+When a feature is justified primarily by an anti-persona's pain — push back. They are not the customer, and chasing them dilutes what makes us valuable to Sarah, Marcus, Priya, David, Janet, and Alex.
