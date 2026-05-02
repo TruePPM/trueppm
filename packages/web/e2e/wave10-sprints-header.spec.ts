@@ -184,6 +184,9 @@ async function setupCommon(page: import('@playwright/test').Page) {
       body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
     }),
   );
+  await page.route(/\/api\/v1\/sprints\/.*\/retro\//, (route) =>
+    route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"None"}' }),
+  );
   await page.route('**/api/v1/me/active-sprints/', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   );

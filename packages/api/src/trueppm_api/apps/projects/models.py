@@ -1126,3 +1126,80 @@ class SprintCloseRequest(models.Model):
 
     def __str__(self) -> str:
         return f"SprintCloseRequest({self.sprint_id}, {self.status})"
+
+
+# ---------------------------------------------------------------------------
+# Sprint retrospective (issue #231)
+# ---------------------------------------------------------------------------
+
+
+class SprintRetro(models.Model):
+    """Retrospective notes attached to a sprint (one-to-one).
+
+    Created by the team during or after sprint close. The free-text
+    ``notes`` field captures the meeting summary; structured action items
+    live on the related ``RetroActionItem`` rows. The Sprints view renders
+    the retro panel beneath the timeline strip when the sprint is in
+    ``COMPLETED`` state, and inline during the active close window.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sprint = models.OneToOneField(
+        Sprint,
+        on_delete=models.CASCADE,
+        related_name="retro",
+    )
+    notes = models.TextField(blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_sprint_retros",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "projects_sprintretro"
+
+    def __str__(self) -> str:
+        return f"Retro({self.sprint_id})"
+
+
+class RetroActionItem(models.Model):
+    """A single action item from a sprint retrospective.
+
+    Items can be promoted to actual tasks in a future sprint via the
+    ``promoted_task_id`` field — set to the new task's UUID once the
+    retro endpoint creates it. Until promoted the item is a free-floating
+    note; after promotion the UI renders a `T-XXX` link back to the task
+    so the team can see the action item closed the loop.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    retro = models.ForeignKey(
+        SprintRetro,
+        on_delete=models.CASCADE,
+        related_name="action_items",
+    )
+    text = models.TextField()
+    assignee = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retro_action_items",
+    )
+    story_points = models.PositiveSmallIntegerField(null=True, blank=True)
+    # FK as plain UUID — the task may live in a different sprint and the
+    # snapshot survives task soft-delete. Nullable until promotion happens.
+    promoted_task_id = models.UUIDField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "projects_retroactionitem"
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return f"RetroActionItem({self.id}, retro={self.retro_id})"

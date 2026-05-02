@@ -268,6 +268,84 @@ export function useProjectVelocity(projectId: string | null | undefined) {
 }
 
 
+// ---------------------------------------------------------------------------
+// Sprint retrospective (issue #231)
+// ---------------------------------------------------------------------------
+
+export interface SprintRetroActionItemInput {
+  text: string;
+  assignee?: string | null;
+  story_points?: number | null;
+  promote?: boolean;
+}
+
+export interface SprintRetroActionItem {
+  id: string;
+  text: string;
+  assignee: string | null;
+  assignee_username: string | null;
+  story_points: number | null;
+  promoted_task_id: string | null;
+  created_at: string;
+}
+
+export interface SprintRetroPayload {
+  id: string;
+  sprint: string;
+  notes: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  action_items: SprintRetroActionItem[];
+}
+
+/** GET /api/v1/sprints/{id}/retro/ — current retrospective (404 = not yet written). */
+export function useSprintRetro(sprintId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['sprint', sprintId, 'retro'],
+    queryFn: async () => {
+      try {
+        const res = await apiClient.get<SprintRetroPayload>(`/sprints/${sprintId}/retro/`);
+        return res.data;
+      } catch (err) {
+        // Translate the 404 into a sentinel `null` so consumers can branch
+        // on "no retro yet" without inspecting the axios error shape.
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 404) return null;
+        throw err;
+      }
+    },
+    enabled: !!sprintId,
+  });
+}
+
+export interface SaveRetroPayload {
+  notes: string;
+  action_items: SprintRetroActionItemInput[];
+  promote_to_sprint_id?: string | null;
+}
+
+/** POST /api/v1/sprints/{id}/retro/ — upsert notes + replace action item set. */
+export function useSaveSprintRetro(sprintId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: SaveRetroPayload) => {
+      const res = await apiClient.post<SprintRetroPayload>(
+        `/sprints/${sprintId}/retro/`,
+        payload,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sprint', sprintId, 'retro'] });
+      // Promotion may have created tasks in another sprint — bust the
+      // sprint backlog cache too.
+      void queryClient.invalidateQueries({ queryKey: ['sprint-backlog'] });
+    },
+  });
+}
+
+
 /** Helper exposed for tests — keeps the bucketing logic hot-swappable. */
 export const __testing = {
   bucketByState(sprints: ApiSprint[]): SprintsByState {
