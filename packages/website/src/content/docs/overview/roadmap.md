@@ -16,30 +16,40 @@ TruePPM is pre-alpha. This page tracks what's built, what's in progress, and wha
 | Real-time WebSocket | Stable | Broadcasts for all mutations, deferred to transaction commit |
 | Offline sync protocol | Stable | WatermelonDB-compatible delta sync with soft-delete tombstones |
 | Auto-scheduling | Stable | Celery recalculates CPM on every write, Redis-locked for idempotency |
-| Gantt view | Early | Split-pane, 6 bar types, 4 dependency types, zoom, scroll sync (fixture data) |
-| Application shell | Early | Top bar, collapsible sidebar, status bar, mobile bottom nav |
+| Schedule view (Gantt-style) | Stable | Canvas renderer with critical path, baselines, milestones, unscheduled gutter, drag-to-reschedule |
+| Board / Kanban | Stable | 5-column model, swimlanes, WIP limit overload detection, workshop mode |
+| Sprints workspace | Stable | Header + goal + milestone link + cadence timeline + backlog + burndown + capacity + velocity + retro |
+| Multi-team Sprints lens | Stable | Aggregated active-sprint health for users with assignments across projects |
+| Methodology preset | Stable | Tab visibility per Waterfall / Agile / Hybrid choice |
+| Application shell | Stable | Top bar, collapsible sidebar, status bar, mobile bottom nav, login |
 | Helm chart | Draft | Kubernetes with Bitnami sub-charts for PostgreSQL and Redis |
 
-## In progress
+## In progress (0.1)
 
 | Feature | Description |
 |---------|-------------|
-| Live API wiring | Connect the Gantt view and app shell to the REST API |
-| Login/auth flow | User registration, login, JWT token management in the web UI |
-| Board/Kanban view | Drag-and-drop task board |
-| List view | Flat task list with filters and sorting |
+| Sprint header buttons | Filter popover, close confirmation + carry-over picker, timeline activate/edit (#299) |
+| MS Project import UI | Backend implemented; web upload modal + export button pending (#68) |
+| CSV / Excel import | Spreadsheet-to-schedule migration (#111) |
+| Risk register CSV import | Bulk import for the Risk register (#223) |
+| Project settings — RBAC management UI | Members + role assignment in-app (#144) |
+| Schedule view design polish | Restore parity with target design (#248) and dependency editing UX (#249) |
+| Release engineering | Helm chart + Docker images + PyPI publish path (#301) |
 
 ## Planned (community edition)
 
-- Calendar view
-- Resource view (allocation per project)
-- Drag-to-reschedule on Gantt (requires WASM CPM on client)
-- Time tracking
-- Baselines and baseline comparison
-- MS Project import/export
-- Burn charts
-- Risk register
-- Mobile app (React Native + WatermelonDB)
+Past 0.1, the OSS surface continues to expand. Current priorities:
+
+- WASM CPM on the client (incremental recompute for sub-100ms drag preview, ADR-0027)
+- Time tracking (passive signals where possible — commits, calendar — per Tom's persona)
+- Multi-baseline support with structured rebaseline reasons
+- EVM (BCWS / BCWP / ACWP / CPI / SPI) on the Schedule view
+- Sub-tasks and checklists on stories
+- Cycle time and throughput analytics on the board
+- Mobile app (React Native + WatermelonDB) — read + simple updates first
+- Additional migration importers (Primavera P6 .xer, GanttProject, Linear, Trello, Notion CSV)
+
+The full list lives as open issues in [the GitLab project](https://gitlab.com/trueppm/trueppm/-/issues).
 
 ## Planned (enterprise edition)
 
