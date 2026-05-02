@@ -18,6 +18,7 @@ import { CapacityPreflight } from './CapacityPreflight';
 import { VelocityPanel } from './VelocityPanel';
 import { SprintBacklogTable } from './SprintBacklogTable';
 import { MultiTeamLens } from './MultiTeamLens';
+import { PlanSprintModal } from './PlanSprintModal';
 import { useSprintBacklog } from '@/hooks/useSprintBacklog';
 import { useMyActiveSprints } from '@/hooks/useMyActiveSprints';
 import { daysBetween } from './sprintMath';
@@ -36,7 +37,7 @@ export function SprintsView() {
   const projectQuery = useProject(projectId);
   const { sprints, isLoading, error } = useSprints(projectId);
   const buckets = useSprintsByState(projectId);
-  const { closeSprint, createSprint } = useSprintMutations(projectId);
+  const { closeSprint } = useSprintMutations(projectId);
 
   // Sprint number is 1-based chronological index across all sprints (any state).
   // Derived once per data update so every child can read the same answer.
@@ -71,15 +72,12 @@ export function SprintsView() {
   // Toggle only useful when the user has assignments in ≥ 2 active sprints.
   const showLensToggle = myTeamsCount >= 2;
   const [scope, setScope] = useState<'project' | 'teams'>('project');
+  const [planOpen, setPlanOpen] = useState(false);
   const lensEntries = myTeams.data ?? [];
 
   function handlePlanNext() {
-    // Scaffold: the sprint planning wizard ships in #229 (backlog) / #228
-    // (capacity preflight). Until then the button no-ops to satisfy the
-    // disabled-state acceptance criteria without committing UX shape that
-    // a downstream wave issue is responsible for.
     if (hasPlannedSprint) return;
-    void createSprint;
+    setPlanOpen(true);
   }
 
   function handleCloseSprint() {
@@ -235,6 +233,17 @@ export function SprintsView() {
         />
       )}
         </>
+      )}
+
+      {planOpen && projectId && (
+        <PlanSprintModal
+          projectId={projectId}
+          defaultStart={
+            buckets.planned[buckets.planned.length - 1]?.finish_date ??
+            activeSprint?.finish_date
+          }
+          onClose={() => setPlanOpen(false)}
+        />
       )}
     </div>
   );

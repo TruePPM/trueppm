@@ -148,6 +148,23 @@ describe('SprintsView', () => {
     expect(screen.queryByRole('tablist', { name: /Sprint scope/i })).not.toBeInTheDocument();
   });
 
+  it('opens the Plan sprint modal when Plan next sprint is clicked', async () => {
+    const userEvent = (await import('@testing-library/user-event')).default;
+    useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
+    useSprintsByStateMock.mockReturnValue({
+      closed: [], active: ACTIVE, planned: [], isLoading: false, error: null,
+    });
+    renderWithRouter(<SprintsView />);
+    // Match the header button (exact label) — the timeline's "+ Plan next sprint" slot
+    // has a different accessible name and shouldn't be the trigger under test.
+    await userEvent.click(
+      screen.getByRole('button', { name: /^Plan next sprint$/i }),
+    );
+    expect(
+      screen.getByRole('dialog', { name: /Plan next sprint/i }),
+    ).toBeInTheDocument();
+  });
+
   it('renders the My Teams toggle when user has 2+ active sprints', () => {
     useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
     useSprintsByStateMock.mockReturnValue({
