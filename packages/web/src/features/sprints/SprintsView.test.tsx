@@ -30,6 +30,13 @@ vi.mock('@/hooks/useSprints', () => ({
   useSprintBurndown: () => ({ data: undefined, isLoading: false, error: null }),
   useSprintCapacity: () => ({ data: undefined, isLoading: false, error: null }),
   useProjectVelocity: () => ({ data: undefined, isLoading: false, error: null }),
+  useSprintRetro: () => ({ data: null, isLoading: false, error: null }),
+  useSaveSprintRetro: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isError: false,
+    isSuccess: false,
+  }),
 }));
 
 const useMyActiveSprintsMock = vi.fn(() => ({

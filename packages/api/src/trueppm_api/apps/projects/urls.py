@@ -207,6 +207,11 @@ urlpatterns = [
         name="sprints-capacity",
     ),
     path(
+        "sprints/<pk>/retro/",
+        SprintViewSet.as_view({"get": "retro", "post": "retro"}),
+        name="sprints-retro",
+    ),
+    path(
         "projects/<pk>/velocity/",
         ProjectVelocityView.as_view(),
         name="project-velocity",

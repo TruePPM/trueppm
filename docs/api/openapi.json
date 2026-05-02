@@ -6079,6 +6079,106 @@
                 }
             }
         },
+        "/api/v1/sprints/{id}/retro/": {
+            "get": {
+                "operationId": "v1_sprints_retro_retrieve",
+                "description": "Sprint retrospective (#231).\n\n``GET`` returns the existing retro (or 404 if none has been written).\n``POST`` upserts the retro notes and replaces the action item set.\nItems flagged with ``promote=true`` are created as tasks in the\ntarget sprint (``promote_to_sprint_id``, defaults to the next\n``PLANNED`` sprint in the project) and the resulting task UUID is\nrecorded on the action item via ``promoted_task_id``.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.\nBoth gate through the parent sprint's project.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_sprints_retro_create",
+                "description": "Sprint retrospective (#231).\n\n``GET`` returns the existing retro (or 404 if none has been written).\n``POST`` upserts the retro notes and replaces the action item set.\nItems flagged with ``promote=true`` are created as tasks in the\ntarget sprint (``promote_to_sprint_id``, defaults to the next\n``PLANNED`` sprint in the project) and the resulting task UUID is\nrecorded on the action item via ``promoted_task_id``.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.\nBoth gate through the parent sprint's project.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/task-resources/": {
             "get": {
                 "operationId": "v1_task_resources_list",

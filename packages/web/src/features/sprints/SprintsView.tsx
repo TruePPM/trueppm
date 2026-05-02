@@ -19,6 +19,7 @@ import { VelocityPanel } from './VelocityPanel';
 import { SprintBacklogTable } from './SprintBacklogTable';
 import { MultiTeamLens } from './MultiTeamLens';
 import { PlanSprintModal } from './PlanSprintModal';
+import { RetroPanel } from './RetroPanel';
 import { useSprintBacklog } from '@/hooks/useSprintBacklog';
 import { useMyActiveSprints } from '@/hooks/useMyActiveSprints';
 import { daysBetween } from './sprintMath';
@@ -232,6 +233,21 @@ export function SprintsView() {
           tasks={backlog.data ?? []}
         />
       )}
+
+      {!isLoading && !error && (() => {
+        // Retro panel attaches to the active sprint while one is running,
+        // otherwise to the most-recently-closed sprint so the team can
+        // amend the retro after close. Hidden when neither exists.
+        const target = activeSprint ?? buckets.closed[buckets.closed.length - 1] ?? null;
+        if (!target) return null;
+        return (
+          <RetroPanel
+            sprintId={target.id}
+            isClosed={target.state === 'COMPLETED'}
+            promoteToSprintId={buckets.planned[0]?.id ?? null}
+          />
+        );
+      })()}
         </>
       )}
 

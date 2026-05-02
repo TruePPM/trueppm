@@ -2803,7 +2803,11 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
     ordering_fields = ["start_date", "finish_date", "name", "state"]
 
     def get_permissions(self) -> list[BasePermission]:
-        if self.action in ("list", "retrieve", "burndown"):
+        if self.action in ("list", "retrieve", "burndown", "capacity"):
+            return [IsAuthenticated(), IsProjectMember()]
+        # `retro` accepts both GET (read) and POST (write); the read path
+        # only needs membership, the write path needs write.
+        if self.action == "retro" and self.request.method == "GET":
             return [IsAuthenticated(), IsProjectMember()]
         if self.action == "destroy":
             return [IsAuthenticated(), IsProjectAdmin()]
@@ -3053,6 +3057,111 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         )
         self.check_object_permissions(request, sprint)
         return Response(capacity_summary(sprint), status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["get", "post"])
+    def retro(self, request: Request, pk: str | None = None) -> Response:
+        """Sprint retrospective (#231).
+
+        ``GET`` returns the existing retro (or 404 if none has been written).
+        ``POST`` upserts the retro notes and replaces the action item set.
+        Items flagged with ``promote=true`` are created as tasks in the
+        target sprint (``promote_to_sprint_id``, defaults to the next
+        ``PLANNED`` sprint in the project) and the resulting task UUID is
+        recorded on the action item via ``promoted_task_id``.
+
+        Permissions: read = IsProjectMember; write = IsProjectMemberWrite.
+        Both gate through the parent sprint's project.
+        """
+        from trueppm_api.apps.projects.models import (
+            RetroActionItem,
+            SprintRetro,
+        )
+        from trueppm_api.apps.projects.serializers import (
+            SprintRetroSerializer,
+        )
+
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"),
+            pk=pk,
+            is_deleted=False,
+        )
+        self.check_object_permissions(request, sprint)
+
+        if request.method == "GET":
+            retro = SprintRetro.objects.filter(sprint=sprint).first()
+            if retro is None:
+                return Response(
+                    {"detail": "No retro recorded for this sprint."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            return Response(SprintRetroSerializer(retro).data, status=status.HTTP_200_OK)
+
+        # POST — write permission already enforced via get_permissions().
+        notes = request.data.get("notes", "")
+        items_in: list[dict[str, Any]] = list(request.data.get("action_items", []) or [])
+
+        # Resolve promote target: explicit id, or the next PLANNED sprint
+        # in the same project (chronological start_date).
+        promote_to_id_raw = request.data.get("promote_to_sprint_id")
+        promote_target: Sprint | None = None
+        if promote_to_id_raw:
+            promote_target = Sprint.objects.filter(
+                pk=promote_to_id_raw,
+                project_id=sprint.project_id,
+                is_deleted=False,
+            ).first()
+            if promote_target is None:
+                return Response(
+                    {"promote_to_sprint_id": "Target sprint must exist in the same project."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            promote_target = (
+                Sprint.objects.filter(
+                    project_id=sprint.project_id,
+                    state=SprintState.PLANNED,
+                    is_deleted=False,
+                )
+                .order_by("start_date")
+                .first()
+            )
+
+        with transaction.atomic():
+            retro, _ = SprintRetro.objects.update_or_create(
+                sprint=sprint,
+                defaults={"notes": notes, "created_by": request.user},
+            )
+            # Replace the action item set — retros are append-on-save semantics
+            # at the meeting boundary, not a continuously-edited document.
+            retro.action_items.all().delete()
+            new_items: list[RetroActionItem] = []
+            for entry in items_in:
+                text = (entry.get("text") or "").strip()
+                if not text:
+                    continue
+                item = RetroActionItem(
+                    retro=retro,
+                    text=text,
+                    assignee_id=entry.get("assignee") or None,
+                    story_points=entry.get("story_points"),
+                )
+                new_items.append(item)
+                if entry.get("promote") and promote_target is not None:
+                    task = Task.objects.create(
+                        project=sprint.project,
+                        name=text[:255],
+                        duration=1,
+                        sprint=promote_target,
+                        assignee_id=entry.get("assignee") or None,
+                        story_points=entry.get("story_points"),
+                        status=TaskStatus.BACKLOG,
+                    )
+                    item.promoted_task_id = task.pk
+            for item in new_items:
+                item.save()
+
+        retro.refresh_from_db()
+        return Response(SprintRetroSerializer(retro).data, status=status.HTTP_200_OK)
 
 
 class MeActiveSprintsView(APIView):

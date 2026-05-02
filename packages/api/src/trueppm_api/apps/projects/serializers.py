@@ -21,10 +21,12 @@ from trueppm_api.apps.projects.models import (
     EstimateStatus,
     EstimationMode,
     Project,
+    RetroActionItem,
     Risk,
     RiskComment,
     Sprint,
     SprintBurnSnapshot,
+    SprintRetro,
     SprintState,
     Task,
     TaskStatus,
@@ -980,3 +982,62 @@ class ProjectVelocitySerializer(serializers.Serializer[dict[str, Any]]):
     forecast_range_high = serializers.IntegerField(allow_null=True)
     rolling_avg_tasks = serializers.FloatField(allow_null=True)
     rolling_stdev_tasks = serializers.FloatField(allow_null=True)
+
+
+# ---------------------------------------------------------------------------
+# Sprint retrospective (issue #231)
+# ---------------------------------------------------------------------------
+
+
+class RetroActionItemSerializer(serializers.ModelSerializer[RetroActionItem]):
+    """Read serializer for retro action items.
+
+    Includes ``promoted_task_id`` so the frontend can render a `T-XXX`
+    link back to the task created by promotion. The assignee FK is
+    surfaced as the username (``assignee_username``) for display; writes
+    use ``assignee_id``.
+    """
+
+    assignee_username = serializers.SerializerMethodField()
+
+    def get_assignee_username(self, obj: RetroActionItem) -> str | None:
+        return getattr(obj.assignee, "username", None) if obj.assignee else None
+
+    class Meta:
+        model = RetroActionItem
+        fields = [
+            "id",
+            "text",
+            "assignee",
+            "assignee_username",
+            "story_points",
+            "promoted_task_id",
+            "created_at",
+        ]
+        read_only_fields = ["id", "promoted_task_id", "created_at", "assignee_username"]
+
+
+class SprintRetroSerializer(serializers.ModelSerializer[SprintRetro]):
+    """Sprint retrospective + nested action items."""
+
+    action_items = RetroActionItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = SprintRetro
+        fields = [
+            "id",
+            "sprint",
+            "notes",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "action_items",
+        ]
+        read_only_fields = [
+            "id",
+            "sprint",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "action_items",
+        ]
