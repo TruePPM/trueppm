@@ -32,6 +32,16 @@ vi.mock('@/hooks/useSprints', () => ({
   useProjectVelocity: () => ({ data: undefined, isLoading: false, error: null }),
 }));
 
+const useMyActiveSprintsMock = vi.fn(() => ({
+  data: [] as Array<{ project_id: string; project_name: string }>,
+  isLoading: false,
+  error: null,
+}));
+
+vi.mock('@/hooks/useMyActiveSprints', () => ({
+  useMyActiveSprints: () => useMyActiveSprintsMock(),
+}));
+
 const ACTIVE = makeSprint({
   id: 'sp-active',
   state: 'ACTIVE',
@@ -122,5 +132,37 @@ describe('SprintsView', () => {
         name: /Plan next sprint \(a planned sprint already exists\)/i,
       }),
     ).toBeDisabled();
+  });
+
+  it('does not render the My Teams toggle when user has < 2 active sprints', () => {
+    useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
+    useSprintsByStateMock.mockReturnValue({
+      closed: [], active: ACTIVE, planned: [], isLoading: false, error: null,
+    });
+    useMyActiveSprintsMock.mockReturnValue({
+      data: [{ project_id: 'p1', project_name: 'Alpha' }],
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<SprintsView />);
+    expect(screen.queryByRole('tablist', { name: /Sprint scope/i })).not.toBeInTheDocument();
+  });
+
+  it('renders the My Teams toggle when user has 2+ active sprints', () => {
+    useSprintsMock.mockReturnValue({ sprints: [ACTIVE], isLoading: false, error: null });
+    useSprintsByStateMock.mockReturnValue({
+      closed: [], active: ACTIVE, planned: [], isLoading: false, error: null,
+    });
+    useMyActiveSprintsMock.mockReturnValue({
+      data: [
+        { project_id: 'p1', project_name: 'Alpha' },
+        { project_id: 'p2', project_name: 'Beta' },
+      ],
+      isLoading: false,
+      error: null,
+    });
+    renderWithRouter(<SprintsView />);
+    expect(screen.getByRole('tablist', { name: /Sprint scope/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /My Teams \(2\)/i })).toBeInTheDocument();
   });
 });

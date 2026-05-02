@@ -3055,6 +3055,107 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         return Response(capacity_summary(sprint), status=status.HTTP_200_OK)
 
 
+class MeActiveSprintsView(APIView):
+    """``GET /api/v1/me/active-sprints/`` — multi-team Sprints lens (#230).
+
+    Returns a summary entry for every project where the requesting user has
+    a non-complete task assignment in that project's currently-ACTIVE
+    sprint. Frontends use this to render the multi-team Sprints lens
+    without iterating ``/projects/`` and ``/sprints/`` per project.
+
+    Each entry includes enough data to render a card without follow-up
+    requests: sprint name + window + day-N-of-M, points remaining, capacity
+    ratio + label, and the rolling-velocity forecast range. The user's
+    project membership is implicit — if they are assigned to a task they
+    are at minimum a Member.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request) -> Response:
+        from trueppm_api.apps.projects.services import (
+            capacity_summary,
+            velocity_summary,
+        )
+
+        # Find every (project, sprint) pair where the user owns a non-complete
+        # task in the currently-ACTIVE sprint.
+        active_pairs = (
+            Task.objects.filter(
+                assignee_id=request.user.pk,
+                is_deleted=False,
+                sprint__state=SprintState.ACTIVE,
+                sprint__is_deleted=False,
+            )
+            .exclude(status=TaskStatus.COMPLETE)
+            .values("project_id", "sprint_id")
+            .distinct()
+        )
+
+        sprint_ids = {row["sprint_id"] for row in active_pairs}
+        if not sprint_ids:
+            return Response([], status=status.HTTP_200_OK)
+
+        sprints = list(
+            Sprint.objects.filter(pk__in=sprint_ids, is_deleted=False)
+            .select_related("project", "target_milestone")
+            .order_by("project__name")
+        )
+
+        today = timezone.localdate()
+        results: list[dict[str, Any]] = []
+        velocity_cache: dict[str, dict[str, Any]] = {}
+        for sprint in sprints:
+            window = (sprint.finish_date - sprint.start_date).days + 1
+            elapsed = (today - sprint.start_date).days + 1
+            day = max(1, min(elapsed, window))
+
+            committed = sprint.committed_points or 0
+            latest = (
+                sprint.burn_snapshots.order_by("-snapshot_date").values("remaining_points").first()
+            )
+            remaining = latest["remaining_points"] if latest else committed
+            ideal_now = committed * (1 - day / window) if window > 0 else 0
+            trend_pts = round(ideal_now - remaining)  # positive = ahead
+
+            cap = capacity_summary(sprint)
+            project_id = str(sprint.project_id)
+            if project_id not in velocity_cache:
+                velocity_cache[project_id] = velocity_summary(sprint.project_id)
+            vel = velocity_cache[project_id]
+
+            results.append(
+                {
+                    "project_id": project_id,
+                    "project_name": sprint.project.name,
+                    "sprint": {
+                        "id": str(sprint.pk),
+                        "name": sprint.name,
+                        "short_id_display": f"SP-{sprint.short_id}" if sprint.short_id else "",
+                        "start_date": sprint.start_date.isoformat(),
+                        "finish_date": sprint.finish_date.isoformat(),
+                        "day": day,
+                        "total": window,
+                        "remaining_points": remaining,
+                        "committed_points": committed,
+                        "trend_pts": trend_pts,
+                    },
+                    "capacity_ratio": cap["totals"]["ratio"],
+                    "capacity_label": cap["totals"]["label"],
+                    "velocity": {
+                        "rolling_avg_points": vel["rolling_avg_points"],
+                        "forecast_range_low": vel["forecast_range_low"],
+                        "forecast_range_high": vel["forecast_range_high"],
+                    },
+                }
+            )
+
+        # Sort by burndown deviation, most-behind first; on_track sprints
+        # fall to the bottom so the UI shows urgency without a manual sort.
+        results.sort(key=lambda r: r["sprint"]["trend_pts"])
+        return Response(results, status=status.HTTP_200_OK)
+
+
 class ProjectVelocityView(APIView):
     """``GET /api/v1/projects/<pk>/velocity/`` — last 8 closed sprints + stats."""
 
