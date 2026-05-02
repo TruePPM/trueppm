@@ -47,7 +47,7 @@ export function MultiTeamLens({ entries }: Props) {
             No active assignments across your teams
           </p>
           <p className="mt-1 text-xs text-neutral-text-secondary">
-            You'll see a card for each project where you have tasks in an active sprint.
+            You&apos;ll see a card for each project where you have tasks in an active sprint.
           </p>
         </div>
       ) : (
