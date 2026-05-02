@@ -1,0 +1,1 @@
+Plan Sprint modal — clicking "Plan next sprint" in the Sprints view header now opens a dialog with name, start/finish dates, and an optional goal, then POSTs to `/api/v1/projects/{id}/sprints/`. Closes the gap left by #227, which stubbed the button as a no-op pending later wave/10 issues.
