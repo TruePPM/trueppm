@@ -75,8 +75,9 @@ describe('PlanSprintModal', () => {
 
   it('submits the create payload with trimmed name and goal', async () => {
     const onClose = vi.fn();
-    mutateMock.mockImplementation((_payload, opts) =>
-      opts?.onSuccess?.({ id: 'new-sprint-id' }),
+    mutateMock.mockImplementation(
+      (_payload: unknown, opts?: { onSuccess?: (data: { id: string }) => void }) =>
+        opts?.onSuccess?.({ id: 'new-sprint-id' }),
     );
     renderWithProviders(
       <PlanSprintModal
@@ -102,8 +103,9 @@ describe('PlanSprintModal', () => {
   });
 
   it('omits goal from payload when blank', async () => {
-    mutateMock.mockImplementation((_payload, opts) =>
-      opts?.onSuccess?.({ id: 'new-sprint-id' }),
+    mutateMock.mockImplementation(
+      (_payload: unknown, opts?: { onSuccess?: (data: { id: string }) => void }) =>
+        opts?.onSuccess?.({ id: 'new-sprint-id' }),
     );
     renderWithProviders(
       <PlanSprintModal
