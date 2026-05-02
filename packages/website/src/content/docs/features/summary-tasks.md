@@ -67,7 +67,7 @@ See the [API reference](/api/tasks) for the complete schema.
 | Path | Purpose |
 |------|---------|
 | `src/features/wbs/WbsView.tsx` | WBS table with keyboard + DnD handlers |
-| `src/features/gantt/engine/GanttRenderer.ts` | `drawSummaryBar` — 8px bar with diamond end-caps |
-| `src/features/gantt/wbsAnnouncement.ts` | Expand / collapse aria-live formatter |
+| `src/features/schedule/engine/GanttRenderer.ts` | `drawSummaryBar` — 8px bar with diamond end-caps |
+| `src/features/schedule/wbsAnnouncement.ts` | Expand / collapse aria-live formatter |
 | `src/hooks/useTaskMutations.ts` | `useIndentTask`, `useOutdentTask`, `useReorderTasks` |
 | `src/stores/wbsStore.ts` | Expanded / collapsed state per summary |

@@ -46,7 +46,7 @@ Define working calendars with weekend rules and holiday exceptions. All duration
 
 ### Real-time updates
 
-When a scheduler or admin changes the plan, you see it immediately. WebSocket push means no manual refresh — the Gantt view updates in real time across all connected browsers.
+When a scheduler or admin changes the plan, you see it immediately. WebSocket push means no manual refresh — the Schedule view (Gantt-style) updates in real time across all connected browsers.
 
 ### Offline and mobile ready
 
@@ -69,4 +69,4 @@ The sync protocol is designed for unreliable connectivity. Sync when you have si
 1. Ask your admin to [set up a TruePPM instance](/getting-started/installation/)
 2. Walk through the [Quickstart](/getting-started/quickstart/) to create your first project
 3. Read the [Scheduler deep dive](/features/scheduler/) for CPM and Monte Carlo details
-4. Explore the [Gantt view](/features/gantt/) (currently showing fixture data while API wiring is completed)
+4. Explore the [Schedule view](/features/schedule/) — the project timeline (Gantt-style) with critical path, baselines, and milestones

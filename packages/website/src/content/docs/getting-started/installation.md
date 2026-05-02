@@ -44,8 +44,26 @@ Wait for all services to be healthy (usually 15-20 seconds), then apply migratio
 
 ```bash
 docker compose exec api python manage.py migrate
-docker compose exec api python manage.py createsuperuser
 ```
+
+The api container runs the `create_admin` command automatically on startup, generating a secure random password and writing it to `/tmp/trueppm_admin_password`. Retrieve it with:
+
+```bash
+docker compose exec api cat /tmp/trueppm_admin_password
+docker compose exec api rm  /tmp/trueppm_admin_password   # delete after retrieval
+```
+
+For full details on first-run credentials, password rotation, and production deployments, see [Admin password setup](/administration/admin-password/).
+
+## Seed a demo project (optional)
+
+The fastest way to see TruePPM populated is to run the demo seed:
+
+```bash
+docker compose exec api python manage.py seed_demo_project --with-personas
+```
+
+This bootstraps a coherent "Platform Migration" project with eight closed sprints, an active sprint mid-window, baselines, resources, a retro, and six persona logins (all password `demo`). See [Quickstart](/getting-started/quickstart/) for the per-persona walkthrough.
 
 ## Verify
 

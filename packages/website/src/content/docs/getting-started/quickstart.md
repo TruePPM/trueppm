@@ -1,26 +1,57 @@
 ---
 title: Quickstart
-description: Create your first project and schedule via the API.
+description: Get from a fresh clone to a populated workspace in five minutes.
 ---
 
-This guide creates a project with two tasks and a dependency, triggers a CPM schedule calculation, and reads the result back — all via the REST API. It assumes you have completed [Installation](/getting-started/installation/) and the stack is running.
+The fastest path from `git clone` to a workspace you can actually click around. Two routes: the **demo seed** (recommended for evaluation) and the **API tutorial** (recommended for learning the data model).
 
-:::tip
-The web UI is in early development. For now, the API is the primary way to interact with TruePPM. The examples below use `curl` and `jq`.
+You should already have completed [Installation](/getting-started/installation/) — the stack is up via `docker compose up -d`.
+
+## Route A — seed the demo project (recommended)
+
+The `seed_demo_project` management command bootstraps a coherent "Platform Migration" project with phases, work packages, baselines, resources, eight closed sprints, an active sprint mid-window, a planned sprint, a retro with a promoted action item, and board WIP overload. With `--with-personas` it also creates six demo logins.
+
+```bash
+docker compose exec api python manage.py seed_demo_project --with-personas
+```
+
+That's it. Sign in at `http://localhost:5173` as any of the personas (password: `demo`):
+
+| Username | Persona | What to look at first |
+|---|---|---|
+| `maya` | Scrum Master | The [Sprints workspace](/features/sprints/) — burndown, capacity, backlog, retro all populated |
+| `raj` | Project Manager | The [Schedule view](/features/schedule/) — critical path lit up, milestones, baseline overlay |
+| `sarah` | Resource Manager | The Capacity preflight panel surfaces an over-allocated member |
+| `diana` | PMO Director | The [Multi-team Sprints lens](/features/multi-team-lens/) shows both projects |
+| `carlos` | Executive | The Overview page with forecast confidence intervals |
+| `tom` | Senior Engineer | The Board with the WIP overload chip and his assigned cards |
+
+Re-running the command clears the prior demo and re-seeds, so you can refresh after pulling new features.
+
+:::tip[The story behind the demo]
+The demo project is built to walk through the eight-step [hybrid PM flow](/the-story/) end-to-end. Read the story, then sign in as each persona — the seeded data exercises every step.
 :::
 
-## 1. Authenticate
+## Route B — build a project via the API
+
+If you want to learn the data model rather than evaluate the UI, build a project with two tasks and a dependency, trigger CPM, and read the result back. The examples below use `curl` and `jq`.
+
+### 1. Set up admin credentials
+
+If you haven't already, see [Admin password setup](/administration/admin-password/). The default is to run `python manage.py create_admin` which generates a secure random password and writes it to `/tmp/trueppm_admin_password`.
+
+### 2. Authenticate
 
 ```bash
 curl -s -X POST http://localhost:8000/api/token/ \
   -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "yourpassword"}' \
+  -d '{"username": "admin", "password": "<your password>"}' \
   | jq .access
 
 export TOKEN="<paste access token here>"
 ```
 
-## 2. Create a calendar
+### 3. Create a calendar
 
 ```bash
 CALENDAR=$(curl -s -X POST http://localhost:8000/api/v1/calendars/ \
@@ -31,18 +62,20 @@ CALENDAR=$(curl -s -X POST http://localhost:8000/api/v1/calendars/ \
 CALENDAR_ID=$(echo $CALENDAR | jq -r .id)
 ```
 
-## 3. Create a project
+### 4. Create a project
 
 ```bash
 PROJECT=$(curl -s -X POST http://localhost:8000/api/v1/projects/ \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"name\": \"My First Project\", \"start_date\": \"2026-04-01\", \"calendar\": \"$CALENDAR_ID\"}")
+  -d "{\"name\": \"My First Project\", \"start_date\": \"2026-04-01\", \"calendar\": \"$CALENDAR_ID\", \"methodology\": \"HYBRID\"}")
 
 PROJECT_ID=$(echo $PROJECT | jq -r .id)
 ```
 
-## 4. Add tasks
+The `methodology` field controls default tab visibility — see [Project methodology preset](/features/methodology-preset/).
+
+### 5. Add tasks
 
 ```bash
 TASK_A=$(curl -s -X POST http://localhost:8000/api/v1/tasks/ \
@@ -59,7 +92,7 @@ TASK_A_ID=$(echo $TASK_A | jq -r .id)
 TASK_B_ID=$(echo $TASK_B | jq -r .id)
 ```
 
-## 5. Add a dependency
+### 6. Add a dependency
 
 ```bash
 curl -s -X POST http://localhost:8000/api/v1/dependencies/ \
@@ -68,7 +101,7 @@ curl -s -X POST http://localhost:8000/api/v1/dependencies/ \
   -d "{\"predecessor\": \"$TASK_A_ID\", \"successor\": \"$TASK_B_ID\", \"dep_type\": \"FS\", \"lag\": 0}"
 ```
 
-## 6. Read the schedule
+### 7. Read the schedule
 
 CPM recalculates automatically via Celery after each write. Wait a moment, then:
 
@@ -87,7 +120,7 @@ Expected output:
 
 Both tasks are critical because there is only one path through the network.
 
-## 7. Add a project member
+### 8. Add a project member
 
 ```bash
 curl -s -X POST "http://localhost:8000/api/v1/projects/$PROJECT_ID/members/" \
@@ -98,13 +131,16 @@ curl -s -X POST "http://localhost:8000/api/v1/projects/$PROJECT_ID/members/" \
 
 Role values: Owner=4, Admin=3, Scheduler=2, Member=1, Viewer=0.
 
-## 8. Open the web UI
+### 9. Open the web UI
 
-Navigate to `http://localhost:5173` in your browser. The Gantt view displays example tasks and dependencies to demonstrate the visualization. Live API wiring is in progress.
+Navigate to `http://localhost:5173`. The [Schedule view](/features/schedule/) (Gantt-style) renders the timeline with critical path lit up; the Board, Sprints, and supporting views are all wired against the live API.
 
 ## Next steps
 
-- [CPM Scheduler](/features/scheduler/) — deep dive into the scheduling engine and Monte Carlo
-- [Gantt View](/features/gantt/) — the primary visualization
+- [The Story](/the-story/) — the eight-step hybrid PM flow narrative
+- [Admin password setup](/administration/admin-password/) — production password rotation
+- [CPM scheduler](/features/scheduler/) — deep dive into the scheduling engine and Monte Carlo
+- [Schedule view](/features/schedule/) — the project timeline (Gantt-style)
+- [Sprints workspace](/features/sprints/) — burndown, capacity, velocity, backlog, retro
 - [RBAC](/administration/rbac/) — role and permission details
-- [API Reference](/api/reference/) — full endpoint listing
+- [API reference](/api/reference/) — full endpoint listing

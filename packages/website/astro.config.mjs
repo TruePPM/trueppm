@@ -43,6 +43,13 @@ export default defineConfig({
             { slug: "overview/roadmap" },
           ],
         },
+        // --- The Story (canonical narrative — lands prospects + evaluators) ---
+        {
+          label: "The Story",
+          items: [
+            { slug: "the-story" },
+          ],
+        },
         // --- Getting Started (everyone) ---
         {
           label: "Getting Started",
@@ -67,6 +74,7 @@ export default defineConfig({
           items: [
             { slug: "administration/deployment" },
             { slug: "administration/configuration" },
+            { slug: "administration/admin-password" },
             { slug: "administration/rbac" },
             { slug: "administration/security" },
           ],
@@ -76,7 +84,20 @@ export default defineConfig({
           label: "Features",
           items: [
             { slug: "features/scheduler" },
-            { slug: "features/gantt" },
+            { slug: "features/schedule" },
+            { slug: "features/methodology-preset" },
+            // Sprint surface (wave/10)
+            { slug: "features/sprints" },
+            { slug: "features/plan-sprint" },
+            { slug: "features/sprint-backlog" },
+            { slug: "features/sprint-burndown" },
+            { slug: "features/capacity-preflight" },
+            { slug: "features/velocity" },
+            { slug: "features/multi-team-lens" },
+            { slug: "features/retrospective" },
+            // Board surface
+            { slug: "features/wip-overload" },
+            // Cross-cutting
             { slug: "features/real-time" },
             { slug: "features/offline-sync" },
           ],
@@ -96,14 +117,13 @@ export default defineConfig({
           ],
         },
         // --- Architecture (evaluators + contributors) ---
+        // ADRs are not mirrored here — they live at docs/adr/ in the monorepo.
+        // The decisions page links out to the canonical location to avoid drift.
         {
           label: "Architecture",
           items: [
             { slug: "architecture/overview" },
-            {
-              label: "ADRs",
-              autogenerate: { directory: "architecture/adr" },
-            },
+            { slug: "architecture/decisions" },
           ],
         },
         // --- Contributing ---
