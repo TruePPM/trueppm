@@ -171,6 +171,17 @@ interface WipBadgeProps {
   limit: number | null | undefined;
 }
 
+/**
+ * WIP-limit badge for board column headers (#232).
+ *
+ * Three visual bands per the spec:
+ *   count < limit   → neutral (no warning chrome)
+ *   count == limit  → at-risk amber, label `{N}/{limit} WIP`
+ *   count >  limit  → critical red, label `{N}/{limit} — over WIP limit`
+ *
+ * `limit == null` falls back to a count-only neutral chip — fully
+ * backwards compatible with projects that haven't configured WIP yet.
+ */
 function WipBadge({ count, limit }: WipBadgeProps) {
   if (limit == null) {
     return (
@@ -179,19 +190,68 @@ function WipBadge({ count, limit }: WipBadgeProps) {
       </span>
     );
   }
-  const over = count > limit;
+  if (count > limit) {
+    return (
+      <span
+        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-semantic-critical/10 border-semantic-critical/40 text-semantic-critical"
+        aria-label={`${count} of ${limit} WIP limit, over limit`}
+      >
+        {count}/{limit} — over WIP limit
+      </span>
+    );
+  }
+  if (count >= limit) {
+    return (
+      <span
+        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-semantic-at-risk/10 border-semantic-at-risk/40 text-semantic-at-risk"
+        aria-label={`${count} of ${limit} WIP limit, at limit`}
+      >
+        {count}/{limit} WIP
+      </span>
+    );
+  }
   return (
     <span
-      className={[
-        'ml-1.5 text-xs font-medium px-1 py-0.5 rounded border',
-        over
-          ? 'bg-semantic-at-risk/10 border-semantic-at-risk/40 text-semantic-at-risk'
-          : 'bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary',
-      ].join(' ')}
-      aria-label={`${count} tasks${limit !== undefined ? `, WIP limit ${limit}${over ? ', over limit' : ''}` : ''}`}
+      className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary"
+      aria-label={`${count} of ${limit} WIP limit`}
     >
-      {count} · WIP {limit}{over ? ' ⚠' : ''}
+      {count}/{limit}
     </span>
+  );
+}
+
+/** Returns the wip-state band for a column header / badge. */
+type WipState = 'under' | 'at' | 'over' | 'none';
+function wipState(count: number, limit: number | null | undefined): WipState {
+  if (limit == null) return 'none';
+  if (count > limit) return 'over';
+  if (count >= limit) return 'at';
+  return 'under';
+}
+
+/**
+ * Confirm-prompt guard for moving a task into a column at or over its WIP
+ * limit (#232). Returns ``true`` when the move should proceed (under limit
+ * or user confirmed) and ``false`` when it should be cancelled.
+ *
+ * Uses the native ``window.confirm`` rather than a custom modal — the spec
+ * is explicit about a "warning prompt" and the lighter pattern keeps board
+ * drag flows responsive. Skips silently when ``window`` isn't available
+ * (vitest jsdom + e2e environments both expose it; the guard is defensive).
+ */
+function confirmWipMove(
+  columns: { status: TaskStatus; label: string; wipLimit: number | null }[],
+  countByStatus: Record<string, number>,
+  newStatus: TaskStatus,
+): boolean {
+  const col = columns.find((c) => c.status === newStatus);
+  const limit = col?.wipLimit;
+  if (!limit) return true;
+  const projected = (countByStatus[newStatus] ?? 0) + 1;
+  if (projected <= limit) return true;
+  if (typeof window === 'undefined' || typeof window.confirm !== 'function') return true;
+  return window.confirm(
+    `This column is at its WIP limit (${countByStatus[newStatus] ?? 0}/${limit}). Move anyway?`,
   );
 }
 
@@ -731,6 +791,20 @@ export function BoardView() {
   const createTask = useCreateTask(projectId || null);
   const phases = useMemo(() => buildPhases(tasks ?? [], workshopMode), [tasks, workshopMode]);
 
+  // Hoisted ahead of `handleDragEnd` / `handleMenuMove` so the WIP-limit
+  // guard can read live counts before issuing the move mutation (#232).
+  const totalByStatus = useMemo(() => {
+    const counts: Record<TaskStatus, number> = {
+      BACKLOG: 0, NOT_STARTED: 0, IN_PROGRESS: 0, REVIEW: 0, ON_HOLD: 0, COMPLETE: 0,
+    };
+    for (const phase of phases) {
+      for (const task of phase.tasks) {
+        counts[task.status]++;
+      }
+    }
+    return counts;
+  }, [phases]);
+
   const handleAddPhase = useCallback(() => {
     const name = `Phase ${phases.filter((p) => p.id !== 'root').length + 1}`;
     createTask.mutate({ name, duration: 0, parent_id: null });
@@ -909,6 +983,15 @@ export function BoardView() {
       const currentPhaseId = activeTask.parentId ?? 'root';
       const phaseChanged = workshopMode && newPhaseId !== currentPhaseId;
       if (newStatus === activeTask.status && !phaseChanged) return;
+      // WIP-limit guard (#232): if the destination column is at or over its
+      // limit and the task isn't already in that column, prompt before moving.
+      if (
+        showWip &&
+        newStatus !== activeTask.status &&
+        !confirmWipMove(COLUMNS, totalByStatus, newStatus as TaskStatus)
+      ) {
+        return;
+      }
       updateStatus.mutate({
         projectId,
         taskId: activeTask.id,
@@ -930,13 +1013,20 @@ export function BoardView() {
 
   const handleMenuMove = useCallback(
     (task: Task, newStatus: TaskStatus) => {
+      if (
+        showWip &&
+        newStatus !== task.status &&
+        !confirmWipMove(COLUMNS, totalByStatus, newStatus)
+      ) {
+        return;
+      }
       updateStatus.mutate({ projectId, taskId: task.id, status: newStatus });
       if (ariaLiveRef.current) {
         const colLabel = COLUMNS.find((c) => c.status === newStatus)?.label ?? newStatus;
         ariaLiveRef.current.textContent = `${task.name} moved to ${colLabel}`;
       }
     },
-    [projectId, updateStatus, COLUMNS],
+    [projectId, updateStatus, COLUMNS, showWip, totalByStatus],
   );
 
   const handleAddTask = useCallback((phaseId: string, phaseName: string) => {
@@ -1045,19 +1135,6 @@ export function BoardView() {
     },
     addTaskPhase === null,
   );
-
-  // Total per-column counts across all phases (for column header WIP badges)
-  const totalByStatus = useMemo(() => {
-    const counts: Record<TaskStatus, number> = {
-      BACKLOG: 0, NOT_STARTED: 0, IN_PROGRESS: 0, REVIEW: 0, ON_HOLD: 0, COMPLETE: 0,
-    };
-    for (const phase of phases) {
-      for (const task of phase.tasks) {
-        counts[task.status]++;
-      }
-    }
-    return counts;
-  }, [phases]);
 
   if (isLoading) {
     return (
@@ -1276,23 +1353,38 @@ export function BoardView() {
               <div className="text-xs uppercase tracking-wide text-neutral-text-disabled px-2">
                 Phase
               </div>
-              {COLUMNS.map((col) => (
-                <div key={col.status} className="flex items-center px-2">
-                  <h2
-                    className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
-                    aria-label={`${col.label}, ${totalByStatus[col.status]} task${totalByStatus[col.status] !== 1 ? 's' : ''}`}
+              {COLUMNS.map((col) => {
+                const count = totalByStatus[col.status];
+                const state = showWip ? wipState(count, col.wipLimit) : 'none';
+                // Header band tint matches the WIP state per #232 spec.
+                const headerTint =
+                  state === 'over'
+                    ? 'bg-semantic-critical/5 border-l-2 border-semantic-critical'
+                    : state === 'at'
+                      ? 'bg-semantic-at-risk/5 border-l-2 border-semantic-at-risk'
+                      : '';
+                return (
+                  <div
+                    key={col.status}
+                    className={`flex items-center px-2 ${headerTint}`}
+                    data-wip-state={state}
                   >
-                    {col.label}
-                  </h2>
-                  {showWip ? (
-                    <WipBadge count={totalByStatus[col.status]} limit={col.wipLimit} />
-                  ) : (
-                    <span className="ml-1.5 text-xs text-neutral-text-disabled">
-                      {totalByStatus[col.status]}
-                    </span>
-                  )}
-                </div>
-              ))}
+                    <h2
+                      className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
+                      aria-label={`${col.label}, ${count} task${count !== 1 ? 's' : ''}`}
+                    >
+                      {col.label}
+                    </h2>
+                    {showWip ? (
+                      <WipBadge count={count} limit={col.wipLimit} />
+                    ) : (
+                      <span className="ml-1.5 text-xs text-neutral-text-disabled">
+                        {count}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             {/* Phase lanes */}

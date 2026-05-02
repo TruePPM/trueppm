@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { MemoryRouter } from 'react-router';
@@ -291,8 +291,31 @@ describe('BoardView', () => {
       { status: 'COMPLETE',    label: 'DONE',          visible: true },
     ];
     renderBoard();
-    // The header WIP badge for IN_PROGRESS shows "{count} · WIP {limit} ⚠".
-    expect(screen.getByText(/WIP 1 ⚠/)).toBeInTheDocument();
+    // Per #232 the over-limit chip reads "{count}/{limit} — over WIP limit".
+    expect(screen.getByText(/over WIP limit/i)).toBeInTheDocument();
+  });
+
+  it('renders the at-limit WIP chip when count equals the limit (#232)', () => {
+    // Render once with no WIP gate to discover how many leaf IN_PROGRESS
+    // cards the BoardView actually paints (summary tasks become phases and
+    // are excluded from the per-status totals).
+    renderBoard();
+    const probe = screen.queryByText(/(\d+)\/3/);
+    const inProgressCount = probe ? Number(probe.textContent?.split('/')[0] ?? 0) : 0;
+    cleanup();
+    expect(inProgressCount).toBeGreaterThan(0);
+
+    mockColumns = [
+      { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
+      { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
+      { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true, wipLimit: inProgressCount },
+      { status: 'REVIEW',      label: 'REVIEW',       visible: true },
+      { status: 'COMPLETE',    label: 'DONE',          visible: true },
+    ];
+    renderBoard();
+    expect(
+      screen.getByLabelText(`${inProgressCount} of ${inProgressCount} WIP limit, at limit`),
+    ).toBeInTheDocument();
   });
 
   it('renders an "N done" chip when every task in the phase is COMPLETE', () => {
@@ -329,6 +352,49 @@ describe('BoardView', () => {
     expect(updateMutate).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: 'project-1', status: 'COMPLETE' }),
     );
+  });
+
+  it('cancels a Move-to move when destination is over WIP limit and user declines (#232)', () => {
+    // IN_PROGRESS already has > 0 tasks; tighten its limit to make any new
+    // move push it over the threshold, then decline the confirm prompt.
+    mockColumns = [
+      { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
+      { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
+      { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true, wipLimit: 1 },
+      { status: 'REVIEW',      label: 'REVIEW',       visible: true },
+      { status: 'COMPLETE',    label: 'DONE',          visible: true },
+    ];
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderBoard();
+    // Find a card whose status is NOT IN_PROGRESS so the move triggers the guard.
+    const trigger = screen.getAllByLabelText(/Actions for /)[0];
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Move to…' }));
+    fireEvent.click(screen.getAllByRole('menuitem', { name: 'IN PROGRESS' })[0]);
+    expect(confirmSpy).toHaveBeenCalledOnce();
+    expect(updateMutate).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('proceeds with the move when user confirms over-WIP-limit prompt (#232)', () => {
+    mockColumns = [
+      { status: 'BACKLOG',     label: 'BACKLOG',      visible: true },
+      { status: 'NOT_STARTED', label: 'TO DO',        visible: true },
+      { status: 'IN_PROGRESS', label: 'IN PROGRESS',  visible: true, wipLimit: 1 },
+      { status: 'REVIEW',      label: 'REVIEW',       visible: true },
+      { status: 'COMPLETE',    label: 'DONE',          visible: true },
+    ];
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderBoard();
+    const trigger = screen.getAllByLabelText(/Actions for /)[0];
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Move to…' }));
+    fireEvent.click(screen.getAllByRole('menuitem', { name: 'IN PROGRESS' })[0]);
+    expect(confirmSpy).toHaveBeenCalledOnce();
+    expect(updateMutate).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'IN_PROGRESS' }),
+    );
+    confirmSpy.mockRestore();
   });
 
   it('renders LaneMeta for each phase with add-task button (issue #208)', () => {
