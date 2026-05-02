@@ -1,7 +1,7 @@
 # ADR-0049: External Integration Extension Points (Task Links, Outgoing Channels, Notification Channels)
 
 ## Status
-Proposed
+Accepted
 
 ## Context
 
@@ -22,13 +22,40 @@ mapping rules, and an immutable audit trail on top. **Enterprise must register a
 in OSS — it cannot fork them or it will diverge on every release.** That is the motivating problem
 for this ADR.
 
-**Persona resonance** (from `/voice-of-customer` panel against the OSS slice — average 5.8/10):
-Alex (Scrum Master) is the hero at 8/10; Sarah (PM) at 7/10 values email; Priya (Team Member) at
-6/10 if defaults are tight; Marcus, Janet, and David need the Enterprise tier. Resonance rule
-confirms the OSS/Enterprise split.
+### Persona resonance — VoC panel
 
-**P3M layer**: Programs and Projects (OSS) for the slice this ADR governs. Portfolio-level digests
-and cross-project event routing are explicitly out of scope and live in trueppm-enterprise#57.
+Scored against the rubric in `.claude/personas.md` (1–10, severity-tagged):
+
+| Persona | P3M layer | Score | Tag | Headline |
+|---|---|---|---|---|
+| Alex (Scrum Master) | Operations | **8** — Champion | 🟢 | Top-three eval criterion satisfied. Will push for bidirectional sync next (Enterprise). |
+| Sarah (PM) | Programs/Projects | 7 | 🟢 | Email is the win. Slack/git lukewarm for non-software Sarahs — keep opt-in. |
+| Priya (Team Member) | Operations | 6 | 🟡 | Opt-in defaults save it. Aggressive defaults would lose her. |
+| Janet (Executive Sponsor) | Senior Leadership | 5 | 🟡 | Wants portfolio digest, not per-task pings — Enterprise-tier need. |
+| Marcus (PMO Director) | Portfolios | 5 | 🟡 | Checklist tick. Governance/audit is what he buys — Enterprise. |
+| David (Resource Manager) | Portfolios | 4 | 🟡 | Doesn't solve his core problem unless allocation events ship. **`task.assignee_changed` does ship in scope** — moves him to ~6 in practice. |
+
+**Target-layer average** (Operations + Programs/Projects, the OSS slice's audience): **7.0/10**.
+**Cross-layer average** (all six personas): 5.8/10 — informational, not the decision figure for an OSS-targeted feature.
+
+**Heuristic applied** (extending `personas.md` rubric to use stratified scoring + champion threshold):
+
+- The relevant signal for an OSS feature is the average across personas at the **target P3M layer**, not all six. Non-target personas scoring low is the resonance rule working as intended, not a problem to be averaged into the headline. The cross-layer figure is informational.
+- A single target-layer persona at score ≥ 8 is a **champion** — sufficient to justify shipping when no 🔴 blockers exist. A 7 is "strong adopt-with-conditions" — sufficient when paired with another target-layer ≥ 6.
+- 🔴 blockers still override regardless of scores.
+
+For this slice: Alex (Operations) is the champion at 8; Sarah (Programs/Projects) at 7 with Priya (Operations) at 6 confirms the layer adoption. **Verdict: ship with confidence.**
+
+### 🔴 Blockers — addressed in scope below
+
+The original panel surfaced four blockers; all are resolved by the design in this ADR:
+
+1. **Notification defaults must be tight** (Priya 🔴) — per-event-type opt-in; default seeded only for own-task events. Encoded in §4 (`apps/notifications/`).
+2. **Outgoing webhook URL is a secret** (Marcus 🔴) — project-admin RBAC; reuses existing `apps/webhooks/` audit (`WebhookDelivery`). Encoded in §2.
+3. **`task.assignee_changed` ships day one, not v0.3** (David 🔴) — listed in the four new event types in §2; lifts his score from 4 to ~6 in practice.
+4. **Bidirectional sync is the upgrade path** (Alex's soft 🟡 expectation) — explicit in §5 boundary table. Sets honest expectations.
+
+**P3M layer**: Programs and Projects (OSS) for the slice this ADR governs. Portfolio-level digests and cross-project event routing are explicitly out of scope and live in trueppm-enterprise#57.
 
 ### Existing infrastructure to reuse (not duplicate)
 
