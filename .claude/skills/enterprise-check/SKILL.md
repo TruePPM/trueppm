@@ -47,6 +47,19 @@ Operations
 A feature that aggregates or compares data **across** projects (upward toward Portfolio)
 belongs in Enterprise. A feature that operates **within** a single project belongs in OSS.
 
+> **Adoption lens (read this before applying the rule above strictly):**
+> "Cross-project" alone is not the test — **governance** is. A solo PM or small team
+> with three active projects who can't put them on a single read-only timeline goes
+> to Asana, Linear, Notion, or MS Project — all of which show multiple projects in a
+> free tier. Forcing the *basic* multi-project view into Enterprise blocks the buyer
+> from ever feeling value, which kills the upsell motion entirely.
+>
+> The clean line is **basic multi-project viewing (OSS)** vs **governance on top of
+> it (Enterprise)**. Health scores, P80 forecasts, baselines, cross-project
+> dependency arrows, scenario modeling, demand intake, policy enforcement, audit
+> trail, sign-off ceremonies — all governance. The OSS version anchors adoption;
+> the Enterprise version is what an *organization* needs once the tool is embedded.
+
 ## Product Life Cycle Model
 
 Projects don't exist in isolation — they serve a product moving through its life cycle.
@@ -82,10 +95,11 @@ Impact/Sales ▲
 
 ### OSS — goes in `trueppm-suite`
 A feature belongs in the community edition if an **individual PM or small team**
-would need it to manage a single project effectively.
+would need it to manage their work effectively — including viewing multiple of
+their own projects together at a basic level.
 
 OSS feature list (non-exhaustive):
-- Scheduling: CPM, Monte Carlo, PERT estimates, calendars, baselines
+- Scheduling: CPM, Monte Carlo (capped), PERT estimates, calendars, baselines
 - Task management: WBS hierarchy, dependencies (all 4 types), milestones
 - Gantt chart (web + mobile)
 - Time tracking and time entries
@@ -98,6 +112,18 @@ OSS feature list (non-exhaustive):
 - Basic reporting (project health, task list, critical path)
 - Burn charts: burn down, burn up, combined burn (single-project/sprint scope)
 - Risk register: risk model, CRUD, risk matrix (probability × impact), risk-to-task linkage, status lifecycle
+- **Basic multi-project viewing** — projects-as-swimlanes timeline, shared milestone
+  markers, today line, basic anonymous read-only sharing links. **Read-only**, **no
+  governance overlay**. The executive narrative (health colors, P80 markers,
+  baselines, dep arrows, scenario integration) is Enterprise.
+- **Basic project setting templates** — copy settings from another project, optional
+  default-from-program-parent. **Manual** override per project. Policy-enforced
+  inheritance with locks is Enterprise.
+- **Outbound integration extension points** — task carries external URL with
+  on-demand preview, board posts one-way events to webhook URL, user opts into
+  SMTP notifications. Read-on-demand pulls from external systems are also OK
+  here (e.g. fetch current Jira state when a linked task opens). Webhook ingest,
+  bidirectional sync workers, OAuth flows, and conflict resolution are Enterprise.
 
 ### Enterprise — goes in `trueppm-enterprise`
 A feature belongs in the enterprise edition if it requires **coordinating across
@@ -129,7 +155,18 @@ Enterprise feature list (non-exhaustive):
 - Risk register: risk matrix visualization, risk-to-task linkage, severity scoring (OSS has basic CRUD only)
 - Monte Carlo: unlimited simulations and tasks, sensitivity analysis, confidence intervals (OSS has capped simulation only)
 - Custom fields / custom attributes on tasks and projects (org-specific metadata)
-- Guest / external stakeholder access (view-only client-facing Gantt without project membership)
+- Guest / external stakeholder access (managed guest accounts with audit trail; OSS provides anonymous read-only links only)
+- **Executive multi-project Roadmap** — health-colored project bars, P80 markers,
+  baseline shadow bars, inter-project dependency arrows, scenario integration,
+  program swimlanes, board-deck PNG export. (OSS has the basic timeline; this is
+  the governance overlay.)
+- **Policy-enforced setting inheritance** — program admin locks settings as policy
+  in child projects, audit trail of policy changes, override flag governance. (OSS
+  has manual setting templates; this is the lock + audit layer.)
+- **Bidirectional integration sync** — webhook ingest with HMAC verification and
+  replay protection, OAuth flows, conflict resolution policy, reconciliation loop,
+  per-tenant rate-limit budgets, audit trail of every inbound/outbound mutation.
+  (OSS has outbound + read-on-demand; this is the durable two-way machinery.)
 - Advanced report builder (custom queries, scheduled PDF delivery, executive templates)
 - White-label / custom domain (consulting firms branding the tool for clients)
 - Data retention policy controls (7-year archive, GDPR deletion workflows)
@@ -154,14 +191,28 @@ These rules are **non-negotiable**:
 ## Decision Framework
 
 Ask in order:
-1. **Which P3M layer does this feature serve?**
-   - Senior Leadership or Portfolios → Enterprise
+1. **Adoption test (run first):** if this feature is missing from the OSS edition,
+   does the prospect bounce to Asana / Linear / Notion / MS Project before they
+   can feel value? If yes, the feature (or a *basic* version of it) belongs in
+   OSS regardless of the layer. The Enterprise upsell sits *on top* of the OSS
+   anchor, not in front of it.
+2. **Governance test:** does the feature add health scoring, audit trail, sign-off,
+   policy enforcement, scenario modeling, P80/baseline comparison, locked
+   inheritance, or compliance-grade record-keeping? → **Enterprise**
+3. **Which P3M layer does this feature serve?**
+   - Senior Leadership or Portfolios → Enterprise (unless the OSS adoption test
+     applies — basic multi-project viewing for an individual PM passes step 1)
    - Programs and Projects or Operations → OSS
-2. Does this feature require data from more than one project? → Enterprise
-3. Does this feature require org-level admin (not project-level)? → Enterprise
-4. Would a freelance PM using the free tier miss this? → OSS
-5. Is this a compliance, audit, or governance feature? → Enterprise
-6. Is it a core scheduling algorithm? → OSS (scheduling is TruePPM's OSS differentiator)
+4. Does this feature require data from more than one project?
+   - For **basic read-only viewing** of one's own projects → OSS
+   - For governance, aggregation, leveling, scenario modeling, cross-project
+     dependencies, or anything an *organization* coordinates → Enterprise
+5. Does this feature require org-level admin (not project-level)? → Enterprise
+6. Would a freelance PM using the free tier miss this? → OSS
+7. Is this a compliance, audit, or governance feature? → Enterprise
+8. Is it a core scheduling algorithm? → OSS (scheduling is TruePPM's OSS differentiator)
+9. Does it require durable two-way machinery (webhook ingest, OAuth flows, conflict
+   resolution, reconciliation loops, audit trail of inbound events)? → Enterprise
 
 ## Output Format
 
@@ -171,6 +222,15 @@ If the feature straddles the boundary (e.g., an OSS hook + enterprise implementa
 ```
 OSS: Define the extension point (signal / plugin hook / settings include)
 Enterprise: Implement the feature against that hook
+```
+
+If the feature is a **basic-vs-governance split** (the most common case for
+adoption-sensitive features), call out both sides explicitly with their
+non-goals:
+```
+OSS basic version: <what an individual PM gets, with explicit non-goals>
+Enterprise governance version: <what an organization gets on top — health,
+audit, P80, baselines, locks, scenario, durable sync, etc.>
 ```
 
 List any ADR implications — if this decision requires an architecture change, flag it
