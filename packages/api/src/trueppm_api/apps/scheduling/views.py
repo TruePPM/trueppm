@@ -90,7 +90,19 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         return Response({"detail": "Permission denied."}, status=status.HTTP_403_FORBIDDEN)
 
     cap: int | None = settings.MC_SIMULATION_CAP
-    n_simulations: int = int(request.data.get("n_simulations", cap or 1_000))
+    raw_n = request.data.get("n_simulations", cap or 1_000)
+    try:
+        n_simulations: int = int(raw_n)
+    except (TypeError, ValueError):
+        return Response(
+            {"detail": "n_simulations must be an integer."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if n_simulations < 1:
+        return Response(
+            {"detail": "n_simulations must be a positive integer."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     cal = project.calendar
     sched_calendar = SchedCalendar(

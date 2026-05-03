@@ -62,6 +62,19 @@ def _make_request(user: object, method: str = "GET") -> MagicMock:
     return req
 
 
+def _make_view(project_pk: object | None = None) -> MagicMock:
+    """Build a view mock with explicit kwargs.
+
+    Top-level routes pass ``project_pk=None`` (kwargs is empty) so the
+    permission classes treat the route as not project-scoped. Nested routes
+    pass the project's UUID under the ``project_pk`` kwarg, mirroring DRF's
+    URL resolution for ``/projects/<project_pk>/...`` patterns.
+    """
+    view = MagicMock()
+    view.kwargs = {"project_pk": str(project_pk)} if project_pk is not None else {}
+    return view
+
+
 def _add_member(user: object, project: Project, role: int) -> ProjectMembership:
     return ProjectMembership.objects.create(project=project, user=user, role=role)
 
@@ -76,12 +89,12 @@ class TestIsProjectMember:
     def test_unauthenticated_denied(self, project: Project) -> None:
         perm = IsProjectMember()
         req = _make_request(MagicMock(is_authenticated=False))
-        assert perm.has_permission(req, MagicMock()) is False
+        assert perm.has_permission(req, _make_view()) is False
 
     def test_authenticated_allowed(self, user: object) -> None:
         perm = IsProjectMember()
         req = _make_request(user)
-        assert perm.has_permission(req, MagicMock()) is True
+        assert perm.has_permission(req, _make_view()) is True
 
     def test_non_member_denied_on_object(
         self, user: object, other_user: object, project: Project
@@ -89,13 +102,13 @@ class TestIsProjectMember:
         _add_member(user, project, Role.OWNER)
         perm = IsProjectMember()
         req = _make_request(other_user)
-        assert perm.has_object_permission(req, MagicMock(), project) is False
+        assert perm.has_object_permission(req, _make_view(), project) is False
 
     def test_viewer_allowed_on_object(self, user: object, project: Project) -> None:
         _add_member(user, project, Role.VIEWER)
         perm = IsProjectMember()
         req = _make_request(user)
-        assert perm.has_object_permission(req, MagicMock(), project) is True
+        assert perm.has_object_permission(req, _make_view(), project) is True
 
 
 # ---------------------------------------------------------------------------
@@ -109,24 +122,24 @@ class TestIsProjectMemberWrite:
         _add_member(user, project, Role.VIEWER)
         perm = IsProjectMemberWrite()
         req = _make_request(user, method="POST")
-        assert perm.has_object_permission(req, MagicMock(), project) is False
+        assert perm.has_object_permission(req, _make_view(), project) is False
 
     def test_member_can_write(self, user: object, project: Project) -> None:
         _add_member(user, project, Role.MEMBER)
         perm = IsProjectMemberWrite()
         req = _make_request(user, method="POST")
-        assert perm.has_object_permission(req, MagicMock(), project) is True
+        assert perm.has_object_permission(req, _make_view(), project) is True
 
     def test_viewer_can_read(self, user: object, project: Project) -> None:
         _add_member(user, project, Role.VIEWER)
         perm = IsProjectMemberWrite()
         req = _make_request(user, method="GET")
-        assert perm.has_object_permission(req, MagicMock(), project) is True
+        assert perm.has_object_permission(req, _make_view(), project) is True
 
     def test_non_member_denied(self, user: object, project: Project) -> None:
         perm = IsProjectMemberWrite()
         req = _make_request(user, method="POST")
-        assert perm.has_object_permission(req, MagicMock(), project) is False
+        assert perm.has_object_permission(req, _make_view(), project) is False
 
 
 # ---------------------------------------------------------------------------
@@ -140,19 +153,19 @@ class TestIsProjectScheduler:
         _add_member(user, project, Role.MEMBER)
         perm = IsProjectScheduler()
         req = _make_request(user)
-        assert perm.has_object_permission(req, MagicMock(), project) is False
+        assert perm.has_object_permission(req, _make_view(), project) is False
 
     def test_scheduler_allowed(self, user: object, project: Project) -> None:
         _add_member(user, project, Role.SCHEDULER)
         perm = IsProjectScheduler()
         req = _make_request(user)
-        assert perm.has_object_permission(req, MagicMock(), project) is True
+        assert perm.has_object_permission(req, _make_view(), project) is True
 
     def test_admin_allowed(self, user: object, project: Project) -> None:
         _add_member(user, project, Role.ADMIN)
         perm = IsProjectScheduler()
         req = _make_request(user)
-        assert perm.has_object_permission(req, MagicMock(), project) is True
+        assert perm.has_object_permission(req, _make_view(), project) is True
 
 
 # ---------------------------------------------------------------------------
@@ -166,19 +179,19 @@ class TestIsProjectAdmin:
         _add_member(user, project, Role.SCHEDULER)
         perm = IsProjectAdmin()
         req = _make_request(user)
-        assert perm.has_object_permission(req, MagicMock(), project) is False
+        assert perm.has_object_permission(req, _make_view(), project) is False
 
     def test_admin_allowed(self, user: object, project: Project) -> None:
         _add_member(user, project, Role.ADMIN)
         perm = IsProjectAdmin()
         req = _make_request(user)
-        assert perm.has_object_permission(req, MagicMock(), project) is True
+        assert perm.has_object_permission(req, _make_view(), project) is True
 
     def test_owner_allowed(self, user: object, project: Project) -> None:
         _add_member(user, project, Role.OWNER)
         perm = IsProjectAdmin()
         req = _make_request(user)
-        assert perm.has_object_permission(req, MagicMock(), project) is True
+        assert perm.has_object_permission(req, _make_view(), project) is True
 
 
 # ---------------------------------------------------------------------------
@@ -192,13 +205,13 @@ class TestIsProjectOwner:
         _add_member(user, project, Role.ADMIN)
         perm = IsProjectOwner()
         req = _make_request(user)
-        assert perm.has_object_permission(req, MagicMock(), project) is False
+        assert perm.has_object_permission(req, _make_view(), project) is False
 
     def test_owner_allowed(self, user: object, project: Project) -> None:
         _add_member(user, project, Role.OWNER)
         perm = IsProjectOwner()
         req = _make_request(user)
-        assert perm.has_object_permission(req, MagicMock(), project) is True
+        assert perm.has_object_permission(req, _make_view(), project) is True
 
 
 # ---------------------------------------------------------------------------
@@ -246,14 +259,14 @@ class TestIsProjectMemberWriteOrOwn:
         _add_member(user, project, Role.VIEWER)
         perm = IsProjectMemberWriteOrOwn()
         req = _make_request(user, method="PATCH")
-        assert perm.has_object_permission(req, MagicMock(), task) is False
+        assert perm.has_object_permission(req, _make_view(), task) is False
 
     def test_member_can_edit_own_task(self, user: object, project: Project) -> None:
         task = Task.objects.create(project=project, name="T", duration=1, assignee=user)
         _add_member(user, project, Role.MEMBER)
         perm = IsProjectMemberWriteOrOwn()
         req = _make_request(user, method="PATCH")
-        assert perm.has_object_permission(req, MagicMock(), task) is True
+        assert perm.has_object_permission(req, _make_view(), task) is True
 
     def test_member_cannot_edit_others_task(
         self, user: object, other_user: object, project: Project
@@ -262,14 +275,14 @@ class TestIsProjectMemberWriteOrOwn:
         _add_member(user, project, Role.MEMBER)
         perm = IsProjectMemberWriteOrOwn()
         req = _make_request(user, method="PATCH")
-        assert perm.has_object_permission(req, MagicMock(), task) is False
+        assert perm.has_object_permission(req, _make_view(), task) is False
 
     def test_member_cannot_edit_unassigned_task(self, user: object, project: Project) -> None:
         task = Task.objects.create(project=project, name="T", duration=1, assignee=None)
         _add_member(user, project, Role.MEMBER)
         perm = IsProjectMemberWriteOrOwn()
         req = _make_request(user, method="PATCH")
-        assert perm.has_object_permission(req, MagicMock(), task) is False
+        assert perm.has_object_permission(req, _make_view(), task) is False
 
     def test_scheduler_cannot_edit_task_content(self, user: object, project: Project) -> None:
         """Resource Manager cannot edit task content — read-only for task fields."""
@@ -277,7 +290,7 @@ class TestIsProjectMemberWriteOrOwn:
         _add_member(user, project, Role.SCHEDULER)
         perm = IsProjectMemberWriteOrOwn()
         req = _make_request(user, method="PATCH")
-        assert perm.has_object_permission(req, MagicMock(), task) is False
+        assert perm.has_object_permission(req, _make_view(), task) is False
 
     def test_admin_can_edit_any_task(
         self, user: object, other_user: object, project: Project
@@ -287,14 +300,14 @@ class TestIsProjectMemberWriteOrOwn:
         _add_member(user, project, Role.ADMIN)
         perm = IsProjectMemberWriteOrOwn()
         req = _make_request(user, method="PATCH")
-        assert perm.has_object_permission(req, MagicMock(), task) is True
+        assert perm.has_object_permission(req, _make_view(), task) is True
 
     def test_any_member_can_read(self, user: object, project: Project) -> None:
         task = Task.objects.create(project=project, name="T", duration=1, assignee=None)
         _add_member(user, project, Role.VIEWER)
         perm = IsProjectMemberWriteOrOwn()
         req = _make_request(user, method="GET")
-        assert perm.has_object_permission(req, MagicMock(), task) is True
+        assert perm.has_object_permission(req, _make_view(), task) is True
 
 
 # ---------------------------------------------------------------------------
@@ -311,7 +324,7 @@ class TestSoftDeletedMembershipExcluded:
         perm = IsProjectMember()
         req = _make_request(user)
         # has_object_permission queries is_deleted=False — soft-deleted must be excluded.
-        assert perm.has_object_permission(req, MagicMock(), project) is False
+        assert perm.has_object_permission(req, _make_view(), project) is False
 
 
 # ---------------------------------------------------------------------------
@@ -372,4 +385,92 @@ class TestH1NonMemberCannotCreate:
             "/api/v1/dependencies/",
             {"predecessor": str(t1.pk), "successor": str(t2.pk), "dep_type": "FS"},
         )
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# #254: IDOR protection on project-nested list/create routes
+# IsProjectMember.has_permission must enforce membership when project_pk is
+# present in URL kwargs, not only on object endpoints. List/create actions
+# never trigger has_object_permission so the gate must close earlier.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestProjectNestedRouteMembership:
+    """has_permission must reject non-members on project-nested routes."""
+
+    def test_member_allowed_on_nested_route(self, user: object, project: Project) -> None:
+        _add_member(user, project, Role.VIEWER)
+        perm = IsProjectMember()
+        req = _make_request(user)
+        assert perm.has_permission(req, _make_view(project_pk=project.pk)) is True
+
+    def test_non_member_denied_on_nested_route(
+        self, user: object, other_user: object, project: Project
+    ) -> None:
+        _add_member(user, project, Role.OWNER)
+        perm = IsProjectMember()
+        req = _make_request(other_user)
+        assert perm.has_permission(req, _make_view(project_pk=project.pk)) is False
+
+    def test_writer_non_member_denied(
+        self, user: object, other_user: object, project: Project
+    ) -> None:
+        _add_member(user, project, Role.OWNER)
+        perm = IsProjectMemberWrite()
+        req = _make_request(other_user, method="POST")
+        assert perm.has_permission(req, _make_view(project_pk=project.pk)) is False
+
+    def test_scheduler_non_member_denied(
+        self, user: object, other_user: object, project: Project
+    ) -> None:
+        _add_member(user, project, Role.OWNER)
+        perm = IsProjectScheduler()
+        req = _make_request(other_user)
+        assert perm.has_permission(req, _make_view(project_pk=project.pk)) is False
+
+    def test_admin_below_threshold_denied(self, user: object, project: Project) -> None:
+        """A scheduler-role member should not pass IsProjectAdmin on nested route."""
+        _add_member(user, project, Role.SCHEDULER)
+        perm = IsProjectAdmin()
+        req = _make_request(user)
+        assert perm.has_permission(req, _make_view(project_pk=project.pk)) is False
+
+    def test_owner_role_required_for_owner_class(self, user: object, project: Project) -> None:
+        _add_member(user, project, Role.ADMIN)
+        perm = IsProjectOwner()
+        req = _make_request(user)
+        assert perm.has_permission(req, _make_view(project_pk=project.pk)) is False
+
+
+@pytest.mark.django_db
+class TestNestedListIDOR:
+    """End-to-end: GET /projects/<other-project>/scheduler-runs/ must not leak."""
+
+    def test_non_member_gets_403_on_scheduler_runs_list(
+        self, user: object, other_user: object, project: Project
+    ) -> None:
+        _add_member(user, project, Role.OWNER)
+        c = APIClient()
+        c.force_authenticate(user=other_user)
+        resp = c.get(f"/api/v1/projects/{project.pk}/scheduler-runs/")
+        assert resp.status_code == 403
+
+    def test_non_member_gets_403_on_task_runs_list(
+        self, user: object, other_user: object, project: Project
+    ) -> None:
+        _add_member(user, project, Role.OWNER)
+        c = APIClient()
+        c.force_authenticate(user=other_user)
+        resp = c.get(f"/api/v1/projects/{project.pk}/task-runs/")
+        assert resp.status_code == 403
+
+    def test_non_member_gets_403_on_webhooks_list(
+        self, user: object, other_user: object, project: Project
+    ) -> None:
+        _add_member(user, project, Role.OWNER)
+        c = APIClient()
+        c.force_authenticate(user=other_user)
+        resp = c.get(f"/api/v1/projects/{project.pk}/webhooks/")
         assert resp.status_code == 403

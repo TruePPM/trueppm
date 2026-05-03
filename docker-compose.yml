@@ -47,6 +47,7 @@ services:
       DATABASE_URL: postgres://trueppm:trueppm@db:5432/trueppm
       REDIS_URL: redis://redis:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
+      TRUEPPM_ALLOW_DEV_SETTINGS: "1"
       SECRET_KEY: dev-secret-key-change-in-prod
       TRUEPPM_ADMIN_PASSWORD_FILE: /tmp/trueppm_admin_password
       STATIC_ROOT: /app/staticfiles
@@ -94,6 +95,7 @@ services:
       DATABASE_URL: postgres://trueppm:trueppm@db:5432/trueppm
       REDIS_URL: redis://redis:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
+      TRUEPPM_ALLOW_DEV_SETTINGS: "1"
       SECRET_KEY: dev-secret-key-change-in-prod
       PYTHONPATH: /app/src
     volumes:
@@ -113,6 +115,7 @@ services:
       DATABASE_URL: postgres://trueppm:trueppm@db:5432/trueppm
       REDIS_URL: redis://redis:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
+      TRUEPPM_ALLOW_DEV_SETTINGS: "1"
       SECRET_KEY: dev-secret-key-change-in-prod
       PYTHONPATH: /app/src
     volumes:

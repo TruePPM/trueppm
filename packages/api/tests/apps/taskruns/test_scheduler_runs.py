@@ -172,13 +172,12 @@ def test_default_ordering_is_newest_first(
 
 
 @pytest.mark.django_db
-def test_non_member_gets_empty_list(outsider_client: APIClient, project: Project) -> None:
-    """IsProjectMember.has_permission only checks authentication.
-    List endpoints are data-scoped: outsiders see an empty queryset, not 403.
-    This matches the existing ProjectTaskRunViewSet behaviour."""
+def test_non_member_gets_403(outsider_client: APIClient, project: Project) -> None:
+    """#254: IsProjectMember.has_permission enforces project membership on
+    project-nested routes. A non-member receives 403 — not an empty 200 — so
+    project IDs cannot be probed by enumeration."""
     resp = outsider_client.get(_url(project))
-    assert resp.status_code == 200
-    assert _results(resp) == []
+    assert resp.status_code == 403
 
 
 @pytest.mark.django_db

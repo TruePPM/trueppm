@@ -213,3 +213,46 @@ class TestMonteCarloEndpoint:
         )
         assert r.status_code == 200
         assert r.data["runs"] == 2_000
+
+    def test_non_integer_n_simulations_returns_400(
+        self,
+        member_client: APIClient,
+        project: Project,
+        pert_task: Task,
+    ) -> None:
+        """#255: non-integer n_simulations returns 400, not a 500 from int() raise."""
+        r = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/",
+            {"n_simulations": "not-a-number"},
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "integer" in r.data["detail"].lower()
+
+    def test_zero_n_simulations_returns_400(
+        self,
+        member_client: APIClient,
+        project: Project,
+        pert_task: Task,
+    ) -> None:
+        """#255: zero n_simulations is rejected as not positive."""
+        r = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/",
+            {"n_simulations": 0},
+            format="json",
+        )
+        assert r.status_code == 400
+
+    def test_null_n_simulations_returns_400(
+        self,
+        member_client: APIClient,
+        project: Project,
+        pert_task: Task,
+    ) -> None:
+        """#255: an explicit JSON null for n_simulations returns 400 (TypeError)."""
+        r = member_client.post(
+            f"/api/v1/projects/{project.pk}/monte-carlo/",
+            {"n_simulations": None},
+            format="json",
+        )
+        assert r.status_code == 400

@@ -793,7 +793,7 @@ class TestRiskComments:
         r = member_client.get(
             f"/api/v1/projects/{other_project.pk}/risks/{other_risk.pk}/comments/"
         )
-        # Non-member gets an empty queryset (200 empty), not 403 — consistent with
-        # how ProjectScopedViewSet handles non-member access on other list endpoints.
-        assert r.status_code == 200
-        assert r.data["results"] == []
+        # #254: project-nested routes return 403 to non-members so project IDs
+        # cannot be probed by enumeration. Empty 200 was the prior IDOR-prone
+        # behavior; membership is now enforced at has_permission.
+        assert r.status_code == 403

@@ -85,17 +85,36 @@ def _membership_role(request: Request, project_id: Any) -> int | None:
 # ---------------------------------------------------------------------------
 
 
+def _project_pk_from_view(view: APIView) -> Any | None:
+    """Extract project_pk from a view's URL kwargs (for nested routes).
+
+    Project-nested routes use ``project_pk`` (e.g. /projects/<project_pk>/task-runs/).
+    Returns None for top-level routes that have no project_pk kwarg — in that case
+    has_permission cannot enforce membership and per-class fallthrough applies
+    (e.g. ProjectViewSet retrieves rely on ProjectScopedViewSet to filter the
+    queryset to member projects).
+    """
+    return getattr(view, "kwargs", {}).get("project_pk")
+
+
 class IsProjectMember(BasePermission):
     """Allow any project member (Viewer or above) to read; enforce membership on objects.
 
-    List/create endpoints: user must be authenticated.
-    Object endpoints: user must have a ProjectMembership row (any role ≥ Viewer).
+    Project-nested routes (URL contains ``project_pk``): membership is enforced
+    in has_permission so list endpoints are gated before the queryset runs.
+    Top-level routes without ``project_pk``: authentication is sufficient at the
+    permission layer; per-object membership is enforced in has_object_permission.
     """
 
     message = "You must be a member of this project."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        return bool(request.user and request.user.is_authenticated)
+        if not (request.user and request.user.is_authenticated):
+            return False
+        project_pk = _project_pk_from_view(view)
+        if project_pk is not None:
+            return _membership_role(request, project_pk) is not None
+        return True
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
@@ -114,7 +133,17 @@ class IsProjectMemberWrite(BasePermission):
     message = "You need at least Team Member role to modify this project."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        return bool(request.user and request.user.is_authenticated)
+        if not (request.user and request.user.is_authenticated):
+            return False
+        project_pk = _project_pk_from_view(view)
+        if project_pk is not None:
+            role = _membership_role(request, project_pk)
+            if role is None:
+                return False
+            if request.method in ("GET", "HEAD", "OPTIONS"):
+                return True
+            return role >= Role.MEMBER
+        return True
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
@@ -188,7 +217,13 @@ class IsProjectScheduler(BasePermission):
     message = "You need at least Resource Manager role for this action."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        return bool(request.user and request.user.is_authenticated)
+        if not (request.user and request.user.is_authenticated):
+            return False
+        project_pk = _project_pk_from_view(view)
+        if project_pk is not None:
+            role = _membership_role(request, project_pk)
+            return role is not None and role >= Role.SCHEDULER
+        return True
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
@@ -204,7 +239,13 @@ class IsProjectAdmin(BasePermission):
     message = "You need at least Project Manager role for this action."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        return bool(request.user and request.user.is_authenticated)
+        if not (request.user and request.user.is_authenticated):
+            return False
+        project_pk = _project_pk_from_view(view)
+        if project_pk is not None:
+            role = _membership_role(request, project_pk)
+            return role is not None and role >= Role.ADMIN
+        return True
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
@@ -223,7 +264,13 @@ class IsProjectOwner(BasePermission):
     message = "Only the Project Admin can perform this action."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        return bool(request.user and request.user.is_authenticated)
+        if not (request.user and request.user.is_authenticated):
+            return False
+        project_pk = _project_pk_from_view(view)
+        if project_pk is not None:
+            role = _membership_role(request, project_pk)
+            return role == Role.OWNER
+        return True
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         project_id = _get_project_id_from_obj(obj)
@@ -231,6 +278,33 @@ class IsProjectOwner(BasePermission):
             return False
         role = _membership_role(request, project_id)
         return role == Role.OWNER
+
+
+class IsOrgScheduler(BasePermission):
+    """Org-level scheduler gate for the global skill catalog (#254).
+
+    Skill and ResourceSkill catalogs are org-shared, not project-scoped. Their
+    write intent is "SCHEDULER+ on at least one project" — equivalent to
+    IsOrgAdmin's pattern but at the SCHEDULER floor instead of ADMIN.
+
+    Django superusers bypass the membership check.
+    """
+
+    message = (
+        "You need at least Resource Manager role on at least one project "
+        "to manage the skill catalog."
+    )
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.user.is_superuser:
+            return True
+        return ProjectMembership.objects.filter(
+            user=request.user,
+            role__gte=Role.SCHEDULER,
+            is_deleted=False,
+        ).exists()
 
 
 class IsOrgAdmin(BasePermission):
