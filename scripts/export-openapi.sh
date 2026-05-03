@@ -30,6 +30,10 @@ fi
 TMP="$(mktemp)"
 trap 'rm -f "${TMP}"' EXIT
 
+# settings/dev.py refuses to load outside pytest/mypy unless this opt-in is set
+# (see #256 — guard prevents AllowAny from leaking into staging/prod by accident).
+export TRUEPPM_ALLOW_DEV_SETTINGS=1
+
 "${PYTHON_BIN}" manage.py spectacular --format openapi-json --file "${TMP}" > /dev/null
 
 if [[ "${CHECK}" -eq 1 ]]; then

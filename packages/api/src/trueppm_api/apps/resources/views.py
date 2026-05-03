@@ -50,11 +50,11 @@ from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue
 class SkillViewSet(viewsets.ModelViewSet[Skill]):
     """CRUD for the org-level skill catalog.
 
-    Any authenticated user may read. Org admins (PM/Owner on any project) may
-    create/update — IsProjectMember on its own would not enforce this because
-    the route is not project-nested (no project_pk URL kwarg).
-    Skill creation normalises the name and returns the existing row if the
-    normalised name already exists (de-dup by normalized_name unique constraint).
+    Any authenticated user may read. Writes require ``SCHEDULER+`` on at least
+    one project (#254 — IsProjectMember alone would not gate writes here
+    because the route is not project-nested). Skill creation normalises the
+    name and returns the existing row if the normalised name already exists
+    (de-dup by normalized_name unique constraint).
     """
 
     queryset = Skill.objects.filter(is_deleted=False).order_by("name")

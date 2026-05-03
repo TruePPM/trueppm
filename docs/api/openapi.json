@@ -4690,7 +4690,7 @@
         "/api/v1/resource-skills/": {
             "get": {
                 "operationId": "v1_resource_skills_list",
-                "description": "CRUD for skill tags on resources.\n\nRead: authenticated user, or the resource owner via email match (self-service).\nWrite: SCHEDULER+ on at least one project shared with the resource.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -4737,7 +4737,7 @@
             },
             "post": {
                 "operationId": "v1_resource_skills_create",
-                "description": "CRUD for skill tags on resources.\n\nRead: authenticated user, or the resource owner via email match (self-service).\nWrite: SCHEDULER+ on at least one project shared with the resource.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
                 "tags": [
                     "v1"
                 ],
@@ -4786,7 +4786,7 @@
         "/api/v1/resource-skills/{id}/": {
             "get": {
                 "operationId": "v1_resource_skills_retrieve",
-                "description": "CRUD for skill tags on resources.\n\nRead: authenticated user, or the resource owner via email match (self-service).\nWrite: SCHEDULER+ on at least one project shared with the resource.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
                 "parameters": [
                     {
                         "in": "path",
@@ -4825,7 +4825,7 @@
             },
             "put": {
                 "operationId": "v1_resource_skills_update",
-                "description": "CRUD for skill tags on resources.\n\nRead: authenticated user, or the resource owner via email match (self-service).\nWrite: SCHEDULER+ on at least one project shared with the resource.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
                 "parameters": [
                     {
                         "in": "path",
@@ -4884,7 +4884,7 @@
             },
             "patch": {
                 "operationId": "v1_resource_skills_partial_update",
-                "description": "CRUD for skill tags on resources.\n\nRead: authenticated user, or the resource owner via email match (self-service).\nWrite: SCHEDULER+ on at least one project shared with the resource.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
                 "parameters": [
                     {
                         "in": "path",
@@ -4942,7 +4942,7 @@
             },
             "delete": {
                 "operationId": "v1_resource_skills_destroy",
-                "description": "CRUD for skill tags on resources.\n\nRead: authenticated user, or the resource owner via email match (self-service).\nWrite: SCHEDULER+ on at least one project shared with the resource.",
+                "description": "CRUD for skill tags on resources.\n\nRead: any authenticated user (resource catalog is org-shared).\nWrite: org admins (PM/Owner on any project). The route is not project-nested\nso IsProjectMember alone would not gate writes; IsOrgAdmin enforces the\nintended ADMIN+ floor.",
                 "parameters": [
                     {
                         "in": "path",
@@ -5332,7 +5332,7 @@
         "/api/v1/skills/": {
             "get": {
                 "operationId": "v1_skills_list",
-                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. SCHEDULER+ may create/update.\nSkill creation normalises the name and returns the existing row if the\nnormalised name already exists (de-dup by normalized_name unique constraint).",
+                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. Writes require ``SCHEDULER+`` on at least\none project (#254 — IsProjectMember alone would not gate writes here\nbecause the route is not project-nested). Skill creation normalises the\nname and returns the existing row if the normalised name already exists\n(de-dup by normalized_name unique constraint).",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -5437,7 +5437,7 @@
         "/api/v1/skills/{id}/": {
             "get": {
                 "operationId": "v1_skills_retrieve",
-                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. SCHEDULER+ may create/update.\nSkill creation normalises the name and returns the existing row if the\nnormalised name already exists (de-dup by normalized_name unique constraint).",
+                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. Writes require ``SCHEDULER+`` on at least\none project (#254 — IsProjectMember alone would not gate writes here\nbecause the route is not project-nested). Skill creation normalises the\nname and returns the existing row if the normalised name already exists\n(de-dup by normalized_name unique constraint).",
                 "parameters": [
                     {
                         "in": "path",
@@ -5476,7 +5476,7 @@
             },
             "put": {
                 "operationId": "v1_skills_update",
-                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. SCHEDULER+ may create/update.\nSkill creation normalises the name and returns the existing row if the\nnormalised name already exists (de-dup by normalized_name unique constraint).",
+                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. Writes require ``SCHEDULER+`` on at least\none project (#254 — IsProjectMember alone would not gate writes here\nbecause the route is not project-nested). Skill creation normalises the\nname and returns the existing row if the normalised name already exists\n(de-dup by normalized_name unique constraint).",
                 "parameters": [
                     {
                         "in": "path",
@@ -5535,7 +5535,7 @@
             },
             "patch": {
                 "operationId": "v1_skills_partial_update",
-                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. SCHEDULER+ may create/update.\nSkill creation normalises the name and returns the existing row if the\nnormalised name already exists (de-dup by normalized_name unique constraint).",
+                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. Writes require ``SCHEDULER+`` on at least\none project (#254 — IsProjectMember alone would not gate writes here\nbecause the route is not project-nested). Skill creation normalises the\nname and returns the existing row if the normalised name already exists\n(de-dup by normalized_name unique constraint).",
                 "parameters": [
                     {
                         "in": "path",
@@ -5593,7 +5593,7 @@
             },
             "delete": {
                 "operationId": "v1_skills_destroy",
-                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. SCHEDULER+ may create/update.\nSkill creation normalises the name and returns the existing row if the\nnormalised name already exists (de-dup by normalized_name unique constraint).",
+                "description": "CRUD for the org-level skill catalog.\n\nAny authenticated user may read. Writes require ``SCHEDULER+`` on at least\none project (#254 — IsProjectMember alone would not gate writes here\nbecause the route is not project-nested). Skill creation normalises the\nname and returns the existing row if the normalised name already exists\n(de-dup by normalized_name unique constraint).",
                 "parameters": [
                     {
                         "in": "path",
