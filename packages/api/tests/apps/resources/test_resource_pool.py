@@ -157,6 +157,19 @@ class TestSkillViewSet:
         assert len(res.data["results"]) == 1
         assert res.data["results"][0]["name"] == "React"
 
+    def test_create_rejected_for_user_without_scheduler_role(
+        self, viewer_client: APIClient, viewer_user: object, project: Project
+    ) -> None:
+        """#254: a user without SCHEDULER+ on any project cannot write to the catalog."""
+        ProjectMembership.objects.create(project=project, user=viewer_user, role=Role.VIEWER)
+        res = viewer_client.post("/api/v1/skills/", {"name": "Kotlin"})
+        assert res.status_code == 403
+
+    def test_create_rejected_for_user_with_no_membership(self, viewer_client: APIClient) -> None:
+        """#254: an authenticated user with no project membership cannot create skills."""
+        res = viewer_client.post("/api/v1/skills/", {"name": "Kotlin"})
+        assert res.status_code == 403
+
 
 # ---------------------------------------------------------------------------
 # Resource skill (tagging) tests

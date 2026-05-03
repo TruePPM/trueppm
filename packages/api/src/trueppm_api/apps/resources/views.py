@@ -18,6 +18,7 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
     CanAssignResource,
     IsOrgAdmin,
+    IsOrgScheduler,
     IsProjectMember,
     ProjectScopedViewSet,
     _membership_role,
@@ -49,17 +50,24 @@ from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue
 class SkillViewSet(viewsets.ModelViewSet[Skill]):
     """CRUD for the org-level skill catalog.
 
-    Any authenticated user may read. SCHEDULER+ may create/update.
-    Skill creation normalises the name and returns the existing row if the
-    normalised name already exists (de-dup by normalized_name unique constraint).
+    Any authenticated user may read. Writes require ``SCHEDULER+`` on at least
+    one project (#254 — IsProjectMember alone would not gate writes here
+    because the route is not project-nested). Skill creation normalises the
+    name and returns the existing row if the normalised name already exists
+    (de-dup by normalized_name unique constraint).
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
     queryset = Skill.objects.filter(is_deleted=False).order_by("name")
     serializer_class = SkillSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name", "category"]
     ordering_fields = ["name"]
+
+    def get_permissions(self) -> list[BasePermission]:
+        """Read open to any authenticated user; writes require SCHEDULER+ on any project."""
+        if self.request.method in ("GET", "HEAD", "OPTIONS"):
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsOrgScheduler()]
 
     def create(self, request: Request, *args: object, **kwargs: object) -> Response:
         """Create or return existing skill — de-dup by normalized_name."""
@@ -84,14 +92,20 @@ class SkillViewSet(viewsets.ModelViewSet[Skill]):
 class ResourceSkillViewSet(viewsets.ModelViewSet[ResourceSkill]):
     """CRUD for skill tags on resources.
 
-    Read: authenticated user, or the resource owner via email match (self-service).
-    Write: SCHEDULER+ on at least one project shared with the resource.
+    Read: any authenticated user (resource catalog is org-shared).
+    Write: org admins (PM/Owner on any project). The route is not project-nested
+    so IsProjectMember alone would not gate writes; IsOrgAdmin enforces the
+    intended ADMIN+ floor.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
     serializer_class = ResourceSkillSerializer
     filter_backends = [filters.OrderingFilter]
     queryset = ResourceSkill.objects.select_related("skill").filter(is_deleted=False)
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.request.method in ("GET", "HEAD", "OPTIONS"):
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsOrgScheduler()]
 
     def get_queryset(self) -> QuerySet[ResourceSkill]:
         qs = ResourceSkill.objects.select_related("skill").filter(is_deleted=False)

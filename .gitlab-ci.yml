@@ -145,6 +145,7 @@ workflow:
       alias: redis
   variables:
     DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
+    TRUEPPM_ALLOW_DEV_SETTINGS: "1"
     DATABASE_URL: "postgres://trueppm:trueppm@postgres/trueppm_test"
     REDIS_URL: "redis://redis:6379"
   before_script:
@@ -163,6 +164,7 @@ workflow:
     policy: pull
   variables:
     DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
+    TRUEPPM_ALLOW_DEV_SETTINGS: "1"
     DATABASE_URL: "postgres://trueppm:trueppm@localhost/trueppm_test"
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
