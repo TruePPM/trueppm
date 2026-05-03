@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>TruePPM — Git workflows</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<!-- Reuse the design tokens from mockups.html so the chrome matches exactly. -->
+<link rel="stylesheet" href="data:text/css,"><!-- placeholder -->
+<style>
+  /* ──────────────────────────────────────────────────────────────────────
+     Tokens copied from mockups.html (so this artboard is a true peer
+     of the main mockups). Same values, same scopes.
+     ────────────────────────────────────────────────────────────────────── */
+  :root {
+    --brand-primary:#1C6B3A; --brand-primary-dark:#145229; --brand-primary-light:#D4EDDA;
+    --brand-accent:#E8A020; --brand-accent-dark:#C17A10; --brand-accent-light:#FFF3CD;
+    --semantic-critical:#B91C1C; --semantic-warning:#D97706;
+    --semantic-on-track:#166534; --semantic-at-risk:#92400E;
+    --gantt-surface:#0F1117;
+    --gantt-text-primary:#E8E8E8; --gantt-text-secondary:#94A3B8;
+    --gantt-semantic-critical:#F87171; --gantt-semantic-at-risk:#FB923C; --gantt-semantic-on-track:#4ADE80;
+    --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:24px; --sp-8:32px; --sp-10:40px; --sp-12:48px;
+    --fs-xs:12px; --fs-sm:14px; --fs-base:16px; --fs-lg:18px; --fs-xl:20px; --fs-2xl:24px; --fs-3xl:30px; --fs-4xl:36px;
+    --lh-xs:16px; --lh-sm:20px; --lh-base:24px; --lh-lg:28px;
+  }
+  .tppm-light{
+    --surface:rgb(255 255 255);--surface-raised:rgb(245 245 240);--surface-sunken:rgb(235 235 235);
+    --border:rgb(212 210 206);--border-soft:rgba(212 210 206/.55);
+    --text-primary:rgb(26 25 23);--text-secondary:rgb(107 105 101);--text-disabled:rgb(160 157 153);--text-inverse:rgb(255 255 255);
+    --shadow-card:0 1px 0 rgba(0,0,0,.02),0 1px 2px rgba(0,0,0,.04);
+    --shadow-pop:0 1px 2px rgba(0,0,0,.06),0 8px 24px rgba(0,0,0,.10);
+    --sem-critical-bg:rgba(185,28,28,.08);--sem-at-risk-bg:rgba(146,64,14,.10);
+    --sem-on-track-bg:rgba(22,101,52,.10);--sem-warning-bg:rgba(217,119,6,.10);
+    --chrome-surface:rgb(248 247 243);--chrome-surface-raised:rgb(238 236 230);
+    --chrome-border:rgba(0 0 0/.08);--chrome-text-primary:rgb(26 25 23);--chrome-text-secondary:rgb(107 105 101);
+    --chrome-row-hover:rgba(0 0 0/.04);--chrome-row-active:rgba(28 107 58/.10);--chrome-grid:rgba(0 0 0/.06);
+    --gantt-bar-critical:var(--semantic-critical);--gantt-bar-at-risk:var(--semantic-at-risk);
+    --gantt-bar-on-track:var(--semantic-on-track);--gantt-bar-label:#1A1917;--gantt-summary:rgba(0 0 0/.25);
+    color-scheme:light;
+  }
+  .tppm-dark{
+    --surface:rgb(18 20 30);--surface-raised:rgb(26 29 42);--surface-sunken:rgb(12 14 22);
+    --border:rgb(50 55 80);--border-soft:rgba(50 55 80/.65);
+    --text-primary:rgb(232 232 232);--text-secondary:rgb(148 163 184);--text-disabled:rgb(100 116 139);--text-inverse:rgb(26 25 23);
+    --shadow-card:0 1px 0 rgba(0,0,0,.25),0 1px 2px rgba(0,0,0,.35);
+    --shadow-pop:0 1px 2px rgba(0,0,0,.4),0 12px 32px rgba(0,0,0,.55);
+    --sem-critical-bg:rgba(248,113,113,.12);--sem-at-risk-bg:rgba(251,146,60,.12);
+    --sem-on-track-bg:rgba(74,222,128,.12);--sem-warning-bg:rgba(251,146,60,.12);
+    --chrome-surface:rgb(15 17 23);--chrome-surface-raised:rgb(22 25 36);
+    --chrome-border:rgba(255 255 255/.08);--chrome-text-primary:rgb(232 232 232);--chrome-text-secondary:rgb(148 163 184);
+    --chrome-row-hover:rgba(255 255 255/.05);--chrome-row-active:rgba(255 255 255/.08);--chrome-grid:rgba(255 255 255/.05);
+    --gantt-bar-critical:var(--gantt-semantic-critical);--gantt-bar-at-risk:var(--gantt-semantic-at-risk);
+    --gantt-bar-on-track:var(--gantt-semantic-on-track);--gantt-bar-label:#1A1917;--gantt-summary:rgba(255 255 255/.18);
+    color-scheme:dark;
+  }
+  .tppm-dark{--semantic-critical:#F87171;--semantic-warning:#FB923C;--semantic-on-track:#4ADE80;--semantic-at-risk:#FB923C;}
+
+  .tppm-frame,.tppm-frame *{box-sizing:border-box;}
+  .tppm-frame{
+    font-family:'Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
+    font-feature-settings:"cv02","cv03","cv04","cv11";
+    -webkit-font-smoothing:antialiased;
+    color:var(--text-primary);background:var(--surface);
+    width:100%;height:100%;overflow:hidden;
+    font-size:var(--fs-sm);line-height:var(--lh-sm);
+    display:flex;flex-direction:column;
+    border:1px solid var(--border);border-radius:8px;
+  }
+  .tppm-mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-feature-settings:"tnum";}
+  .tppm-frame button{font:inherit;color:inherit;background:transparent;border:0;padding:0;cursor:pointer;}
+  .tppm-frame ::-webkit-scrollbar{width:8px;height:8px;}
+  .tppm-frame ::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+  .tppm-frame ::-webkit-scrollbar-track{background:transparent;}
+  body{background:#fafaf7;margin:0;}
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- Reuse the same shell so chrome (sidebar, top bar, view tabs, status bar)
+       is identical to the main mockups. -->
+  <script type="text/babel" data-presets="env,react" src="mockups-shell.jsx"></script>
+  <script type="text/babel" data-presets="env,react" src="git-workflows-pages.jsx"></script>
+  <script type="text/babel" src="design-canvas.jsx" data-presets="env,react"></script>
+
+  <script type="text/babel" data-presets="env,react">
+    // App: 5 page bodies for the Git Workflows exploration.
+    const PAGES = [
+      { id: "connect",       title: "Settings · Connect a repo",
+        sub: "Hosts · linked repos · naming convention · merge gates",
+        body: () => <ConnectRepoBody/>, view: null, w: 1480, h: 980 },
+      { id: "attach-mr",     title: "Task drawer · Attach branch / MR",
+        sub: "Per-task git context · pre-merge gate checklist",
+        body: () => <AttachMrBody/>, view: "board", w: 1480, h: 920 },
+      { id: "board-git",     title: "Board · Branch + CI badges on cards",
+        sub: "Engineering signal in the planning surface",
+        body: () => <BoardWithGitBody/>, view: "board", w: 1480, h: 940 },
+      { id: "mr-queue",      title: "PM cockpit · MR queue",
+        sub: "Grouped by gate reason · merge readiness · escalation",
+        body: () => <MrQueueBody/>, view: null, w: 1480, h: 940 },
+      { id: "commit-graph",  title: "Schedule · Commit-graph rail",
+        sub: "Engineering velocity vs. plan · git pulse rail",
+        body: () => <CommitGraphScheduleBody/>, view: "gantt", w: 1480, h: 920 },
+    ];
+
+    function renderPair(p) {
+      const Body = p.body;
+      return [
+        <DCArtboard key={`${p.id}-light`} id={`${p.id}-light`} label={`${p.title} — Light`} width={p.w} height={p.h}>
+          <ArtboardFrame theme="light" activeView={p.view}><Body/></ArtboardFrame>
+        </DCArtboard>,
+        <DCArtboard key={`${p.id}-dark`} id={`${p.id}-dark`} label={`${p.title} — Dark`} width={p.w} height={p.h}>
+          <ArtboardFrame theme="dark" activeView={p.view}><Body/></ArtboardFrame>
+        </DCArtboard>,
+      ];
+    }
+
+    function App() {
+      return (
+        <DesignCanvas>
+          {PAGES.map(p => (
+            <DCSection key={p.id} id={p.id} title={p.title} subtitle={p.sub}>
+              {renderPair(p)}
+            </DCSection>
+          ))}
+        </DesignCanvas>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>

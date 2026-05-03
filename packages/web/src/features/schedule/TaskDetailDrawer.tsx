@@ -1,38 +1,44 @@
-import { type RefObject, useEffect, useRef, useState } from 'react';
-import type { EstimationMode, Task, TaskLink } from '@/types';
-import { DependenciesTab } from './DependenciesTab';
-import { EstimatesTab } from './EstimatesTab';
-import { HistoryTab } from './HistoryTab';
-import { BaselineTab } from './BaselineTab';
-import { TaskDrawerHeader } from './TaskDrawerHeader';
+import { useEffect, useMemo, useRef, type RefObject } from 'react';
+import type { Task } from '@/types';
+import {
+  registry,
+  type DrawerSectionRegistration,
+} from '@/lib/widget-registry';
+import { MetaRail } from './MetaRail';
+import { CollapsibleSection } from './sections/CollapsibleSection';
+import { SectionErrorBoundary } from './sections/SectionErrorBoundary';
+import { registerOssDrawerSections } from './sections';
 
-type TabId = 'dependencies' | 'estimates' | 'history' | 'baseline';
-
-const TABS: { id: TabId; label: string }[] = [
-  { id: 'dependencies', label: 'Dependencies' },
-  { id: 'estimates', label: 'Estimates' },
-  { id: 'history', label: 'History' },
-  { id: 'baseline', label: 'Baseline' },
-];
+// Register OSS sections at module init — Enterprise registers in its own
+// init module. Both must run before the first drawer render; both are
+// idempotent so the order doesn't matter.
+registerOssDrawerSections();
 
 export interface TaskDetailDrawerProps {
   task: Task | null;
-  tasks: Task[];
-  links: TaskLink[];
   projectId: string;
-  estimationMode?: EstimationMode;
-  userIsScheduler?: boolean;
   onClose: () => void;
+  /**
+   * Optional context passed to each section's `canRender(ctx)` predicate.
+   * Sections use this to hide entirely when a feature is not licensed/available;
+   * pass the current user object so Enterprise sections can gate visibility.
+   */
+  sectionContext?: { user?: unknown };
 }
 
+/**
+ * Right-side slide-in drawer hosting registry-driven sections (ADR-0050).
+ *
+ * Desktop ≥ md: 540px wide, sticky header + sticky 120px meta rail + scrollable
+ * section list. Mobile < md: 85vh bottom sheet, stacked rail + sections.
+ * Sections are wrapped in error boundaries so a buggy section cannot crash
+ * the surrounding drawer chrome.
+ */
 export function TaskDetailDrawer({
   task,
-  tasks,
-  links,
   projectId,
-  estimationMode = 'open',
-  userIsScheduler = false,
   onClose,
+  sectionContext,
 }: TaskDetailDrawerProps) {
   const isOpen = task !== null;
   const drawerTitle = task ? `${task.wbs ? task.wbs + ' — ' : ''}${task.name}` : '';
@@ -40,6 +46,7 @@ export function TaskDetailDrawer({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
 
+  // Move focus to Close on open so keyboard users land somewhere sensible.
   useEffect(() => {
     if (isOpen) {
       const id = setTimeout(() => closeButtonRef.current?.focus(), 50);
@@ -48,6 +55,7 @@ export function TaskDetailDrawer({
     return undefined;
   }, [isOpen, task?.id]);
 
+  // Esc closes — preserved from prior drawer.
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape' && isOpen) {
@@ -59,6 +67,7 @@ export function TaskDetailDrawer({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
+  // Focus trap inside drawer when open — preserved from prior drawer.
   useEffect(() => {
     if (!isOpen) return undefined;
     function trapFocus(e: KeyboardEvent) {
@@ -69,31 +78,35 @@ export function TaskDetailDrawer({
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
       if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last?.focus(); }
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last?.focus();
+        }
       } else {
-        if (document.activeElement === last) { e.preventDefault(); first?.focus(); }
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first?.focus();
+        }
       }
     }
     document.addEventListener('keydown', trapFocus);
     return () => document.removeEventListener('keydown', trapFocus);
   }, [isOpen]);
 
-  const drawerContent = (
-    <DrawerBody
-      task={task}
-      tasks={tasks}
-      links={links}
-      projectId={projectId}
-      estimationMode={estimationMode}
-      userIsScheduler={userIsScheduler}
-      closeButtonRef={closeButtonRef}
-      drawerTitle={drawerTitle}
-      onClose={onClose}
-    />
-  );
+  // Read sections from the registry once per render. The registry sorts by
+  // priority on register() so no sort here. Filter by canRender so Enterprise
+  // sections that gate on license disappear cleanly.
+  const sections = useMemo(() => {
+    if (!task) return [];
+    const ctx = { user: sectionContext?.user, task };
+    return (
+      registry.get('task_detail.section') as DrawerSectionRegistration[]
+    ).filter((s) => !s.canRender || s.canRender(ctx));
+  }, [task, sectionContext?.user]);
 
   return (
     <>
+      {/* Mobile backdrop — closes on click; desktop has no backdrop (drawer is non-modal-feeling) */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/30 md:hidden z-30"
@@ -102,23 +115,32 @@ export function TaskDetailDrawer({
         />
       )}
 
-      {/* Desktop: 480px right-side slide-in */}
+      {/* Desktop: 540px right-side slide-in (ADR-0050 ux-design) */}
       <div
         ref={drawerRef}
         role="dialog"
         aria-modal="true"
         aria-label={drawerTitle}
         className={[
-          'hidden md:flex fixed inset-y-0 right-0 w-[480px] flex-col',
+          'hidden md:flex fixed inset-y-0 right-0 w-[540px] flex-col',
           'bg-neutral-surface border-l border-neutral-border z-40',
           'transition-transform duration-200',
           isOpen ? 'translate-x-0' : 'translate-x-full',
         ].join(' ')}
       >
-        {drawerContent}
+        {task && (
+          <DrawerContent
+            task={task}
+            projectId={projectId}
+            sections={sections}
+            drawerTitle={drawerTitle}
+            closeButtonRef={closeButtonRef}
+            onClose={onClose}
+          />
+        )}
       </div>
 
-      {/* Mobile: 85vh bottom sheet */}
+      {/* Mobile: 85vh bottom sheet — preserves prior shell */}
       <div
         role="dialog"
         aria-modal="true"
@@ -131,64 +153,53 @@ export function TaskDetailDrawer({
           isOpen ? 'translate-y-0' : 'translate-y-full',
         ].join(' ')}
       >
-        <div className="w-8 h-1 rounded-full bg-neutral-border mx-auto mt-3 mb-2 shrink-0" aria-hidden="true" />
-        {drawerContent}
+        <div
+          className="w-8 h-1 rounded-full bg-neutral-border mx-auto mt-3 mb-2 shrink-0"
+          aria-hidden="true"
+        />
+        {task && (
+          <DrawerContent
+            task={task}
+            projectId={projectId}
+            sections={sections}
+            drawerTitle={drawerTitle}
+            closeButtonRef={closeButtonRef}
+            onClose={onClose}
+          />
+        )}
       </div>
     </>
   );
 }
 
-// ---------------------------------------------------------------------------
-// DrawerBody — shared between desktop and mobile shells
-// ---------------------------------------------------------------------------
-
-interface DrawerBodyProps {
-  task: Task | null;
-  tasks: Task[];
-  links: TaskLink[];
+interface DrawerContentProps {
+  task: Task;
   projectId: string;
-  estimationMode: EstimationMode;
-  userIsScheduler: boolean;
-  closeButtonRef: RefObject<HTMLButtonElement | null>;
+  sections: DrawerSectionRegistration[];
   drawerTitle: string;
+  closeButtonRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
 }
 
-function DrawerBody({
+/**
+ * Shared chrome rendered inside both desktop side-panel and mobile bottom-sheet
+ * shells. Holds the sticky header, the meta rail (sticky 120px on desktop,
+ * stacked on mobile), and the scrollable section list. Default expansion
+ * applies only to Overview (ADR-0050 ux-design); other sections start
+ * collapsed so their TanStack Query hooks don't fire on drawer open.
+ */
+function DrawerContent({
   task,
-  tasks,
-  links,
   projectId,
-  estimationMode,
-  userIsScheduler,
-  closeButtonRef,
+  sections,
   drawerTitle,
+  closeButtonRef,
   onClose,
-}: DrawerBodyProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('dependencies');
-
-  useEffect(() => {
-    setActiveTab('dependencies');
-  }, [task?.id]);
-
-  if (!task) return null;
-
-  const hasPendingEstimate = task.estimateStatus === 'pending';
-  const hasPartialEstimate =
-    (task.optimisticDuration != null ||
-      task.mostLikelyDuration != null ||
-      task.pessimisticDuration != null) &&
-    !(
-      task.optimisticDuration != null &&
-      task.mostLikelyDuration != null &&
-      task.pessimisticDuration != null
-    );
-  const showEstimateBadge = hasPendingEstimate || hasPartialEstimate;
-
+}: DrawerContentProps) {
   return (
     <>
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 h-14 border-b border-neutral-border shrink-0">
+      {/* Sticky header — title + close + (future) prev/next nav */}
+      <div className="sticky top-0 z-10 flex items-center justify-between px-4 h-14 border-b border-neutral-border bg-neutral-surface shrink-0">
         <h2
           className="text-base font-semibold text-neutral-text-primary truncate pr-2"
           title={drawerTitle}
@@ -200,7 +211,7 @@ function DrawerBody({
           type="button"
           onClick={onClose}
           aria-label="Close task detail"
-          className="w-8 h-8 flex items-center justify-center rounded text-neutral-text-secondary
+          className="w-11 h-11 -mr-1.5 flex items-center justify-center rounded text-neutral-text-secondary
             hover:text-neutral-text-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
         >
@@ -208,102 +219,43 @@ function DrawerBody({
         </button>
       </div>
 
-      {/* Header — owner, dates, float rows (wave 3 #210) */}
-      <TaskDrawerHeader task={task} />
+      {/* Body — meta rail + section list. md+: 2-column grid (rail | sections);
+          below md: stacked (rail above sections). */}
+      <div className="flex-1 min-h-0 flex flex-col md:grid md:grid-cols-[120px_1fr] md:overflow-y-auto">
+        <MetaRail task={task} />
 
-      {/* Tab bar — 48px tall, horizontally scrollable on mobile */}
-      <div
-        role="tablist"
-        aria-label="Task detail sections"
-        className="flex overflow-x-auto shrink-0 border-b border-neutral-border h-12 px-1"
-      >
-        {TABS.map((tab) => {
-          const isActive = tab.id === activeTab;
-          return (
-            <button
-              key={tab.id}
-              role="tab"
-              id={`tab-${tab.id}`}
-              aria-selected={isActive}
-              aria-controls={`tabpanel-${tab.id}`}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={[
-                'relative flex items-center gap-1.5 h-full shrink-0 px-3 text-sm',
-                'whitespace-nowrap border-b-2 transition-colors duration-100',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:rounded-sm',
-                isActive
-                  ? 'border-brand-primary font-semibold text-neutral-text-primary'
-                  : 'border-transparent font-normal text-neutral-text-secondary hover:text-neutral-text-primary',
-              ].join(' ')}
-            >
-              {tab.label}
-              {tab.id === 'estimates' && showEstimateBadge && (
-                <span
-                  className="w-1.5 h-1.5 rounded-full bg-brand-accent shrink-0"
-                  aria-label="Estimates incomplete or pending approval"
-                />
-              )}
-            </button>
-          );
-        })}
+        <div className="flex-1 min-w-0 md:overflow-visible overflow-y-auto">
+          {sections.length === 0 ? (
+            <div className="px-4 py-6 text-sm italic text-neutral-text-secondary">
+              No sections registered.
+            </div>
+          ) : (
+            sections.map((section, idx) => {
+              const SectionComponent = section.component;
+              return (
+                <SectionErrorBoundary
+                  key={section.id}
+                  sectionTitle={section.title}
+                >
+                  <CollapsibleSection
+                    id={section.id}
+                    title={section.title}
+                    defaultOpen={idx === 0}
+                  >
+                    {() => (
+                      <SectionComponent taskId={task.id} projectId={projectId} />
+                    )}
+                  </CollapsibleSection>
+                </SectionErrorBoundary>
+              );
+            })
+          )}
+        </div>
       </div>
 
-      {/* Tab panels */}
-      <div className="flex-1 overflow-y-auto p-4">
-        <div
-          role="tabpanel"
-          id="tabpanel-dependencies"
-          aria-labelledby="tab-dependencies"
-          hidden={activeTab !== 'dependencies'}
-        >
-          {activeTab === 'dependencies' && (
-            <DependenciesTab
-              task={task}
-              tasks={tasks}
-              links={links}
-              projectId={projectId}
-            />
-          )}
-        </div>
-
-        <div
-          role="tabpanel"
-          id="tabpanel-estimates"
-          aria-labelledby="tab-estimates"
-          hidden={activeTab !== 'estimates'}
-        >
-          {activeTab === 'estimates' && (
-            <EstimatesTab
-              task={task}
-              projectId={projectId}
-              estimationMode={estimationMode}
-              userIsScheduler={userIsScheduler}
-            />
-          )}
-        </div>
-
-        <div
-          role="tabpanel"
-          id="tabpanel-history"
-          aria-labelledby="tab-history"
-          hidden={activeTab !== 'history'}
-        >
-          {activeTab === 'history' && (
-            <HistoryTab projectId={projectId} taskId={task.id} />
-          )}
-        </div>
-
-        <div
-          role="tabpanel"
-          id="tabpanel-baseline"
-          aria-labelledby="tab-baseline"
-          hidden={activeTab !== 'baseline'}
-        >
-          {activeTab === 'baseline' && (
-            <BaselineTab projectId={projectId} taskId={task.id} />
-          )}
-        </div>
+      {/* Esc-to-close hint footer */}
+      <div className="px-4 py-2 border-t border-neutral-border bg-neutral-surface-raised text-xs text-neutral-text-secondary shrink-0 hidden md:block">
+        <span className="tppm-mono">Esc</span> to close
       </div>
     </>
   );

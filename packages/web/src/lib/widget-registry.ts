@@ -25,7 +25,9 @@ export type SlotId =
   | 'resources_page.detail_managed_by'  // Enterprise: "Managed by Active Directory" badge in detail pane
   | 'resources_page.create_form_extension' // Enterprise: extra fields in the create/edit form
   // --- Resource heatmap slots (issue #217 / ADR-0042) ---
-  | 'resources_heatmap.level_loads';    // Enterprise: replaces the static disabled "Level loads" upsell button
+  | 'resources_heatmap.level_loads'     // Enterprise: replaces the static disabled "Level loads" upsell button
+  // --- Task detail drawer slots (issue #309 / ADR-0050) ---
+  | 'task_detail.section';              // sections inside TaskDetailDrawer (OSS + Enterprise)
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface SlotRegistration<T = ComponentType<any>> {
@@ -34,6 +36,18 @@ export interface SlotRegistration<T = ComponentType<any>> {
   component: T;
   /** Lower priority values are rendered first. */
   priority: number;
+  /**
+   * Optional display title. Required for `task_detail.section` registrations
+   * (ADR-0050) — used as the collapsible header label. Ignored by other slots.
+   */
+  title?: string;
+  /**
+   * Optional predicate that hides the registration entirely when it returns
+   * false. The context shape is slot-specific; consumers cast as needed. Used
+   * by `task_detail.section` to gate Enterprise-only sections without OSS
+   * knowing about licensing rules.
+   */
+  canRender?: (ctx: unknown) => boolean;
 }
 
 class WidgetRegistry {
@@ -64,3 +78,45 @@ class WidgetRegistry {
 
 /** Singleton registry shared by the OSS shell and the enterprise overlay. */
 export const registry = new WidgetRegistry();
+
+// ---------------------------------------------------------------------------
+// Task detail drawer section registrations (ADR-0050)
+// ---------------------------------------------------------------------------
+
+/**
+ * Props every component registered against `task_detail.section` receives.
+ * The drawer passes only identifiers; sections own their own data fetching
+ * via TanStack Query keyed by these props (per ADR-0050 §Decision).
+ */
+export interface DrawerSectionProps {
+  taskId: string;
+  projectId: string;
+}
+
+/**
+ * Context passed to `canRender` for drawer-section registrations. Sections
+ * use this to gate visibility — typically Enterprise sections check whether
+ * the user holds the required license/role. OSS sections rarely need it.
+ */
+export interface DrawerSectionContext {
+  /** Authenticated user object — exact shape lives in `@/types`. */
+  user: unknown;
+  /** Current task object the drawer is rendering. */
+  task: unknown;
+}
+
+/**
+ * Typed alias of {@link SlotRegistration} for the `task_detail.section` slot.
+ * `title` is required (used as the section header / tab label).
+ *
+ * Priority allocation (per ADR-0050) — OSS reserves multiples of 100:
+ *  100 Overview · 200 Dependencies · 300 Subtasks · 400 Attachments
+ *  500 Comments · 600 Activity · 700 Recurring · 800 Estimates
+ *  900 History · 1000 Baseline. Enterprise picks any non-multiple of 100
+ *  between (e.g. 250 for Custom Fields).
+ */
+export interface DrawerSectionRegistration
+  extends Omit<SlotRegistration<ComponentType<DrawerSectionProps>>, 'canRender'> {
+  title: string;
+  canRender?: (ctx: DrawerSectionContext) => boolean;
+}

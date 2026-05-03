@@ -96,4 +96,56 @@ describe('WidgetRegistry', () => {
 
     expect(registry.get('project_overview.below_hero')).toHaveLength(2);
   });
+
+  // --- task_detail.section slot (ADR-0050) -----------------------------------
+
+  it('preserves optional title and canRender on drawer-section registrations', () => {
+    const canRender = (ctx: unknown) => ctx !== null;
+    registry.register('task_detail.section', {
+      id: 'overview',
+      title: 'Overview',
+      component: stubComponent,
+      priority: 100,
+      canRender,
+    });
+
+    const result = registry.get('task_detail.section');
+    expect(result).toHaveLength(1);
+    expect(result[0]?.title).toBe('Overview');
+    expect(result[0]?.canRender).toBe(canRender);
+  });
+
+  it('orders drawer sections by priority — OSS multiples of 100 + Enterprise in between', () => {
+    // OSS sections register at 100, 200, 300...
+    registry.register('task_detail.section', {
+      id: 'overview',
+      title: 'Overview',
+      component: stubComponent,
+      priority: 100,
+    });
+    registry.register('task_detail.section', {
+      id: 'dependencies',
+      title: 'Dependencies',
+      component: stubComponent,
+      priority: 200,
+    });
+    registry.register('task_detail.section', {
+      id: 'subtasks',
+      title: 'Subtasks',
+      component: stubComponent,
+      priority: 300,
+    });
+    // Enterprise registers Custom Fields at 250 (between Dependencies and Subtasks)
+    registry.register('task_detail.section', {
+      id: 'custom-fields',
+      title: 'Custom fields',
+      component: stubComponent,
+      priority: 250,
+    });
+
+    const ids = registry
+      .get('task_detail.section')
+      .map((r) => r.id);
+    expect(ids).toEqual(['overview', 'dependencies', 'custom-fields', 'subtasks']);
+  });
 });
