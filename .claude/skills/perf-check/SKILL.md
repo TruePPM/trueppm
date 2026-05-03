@@ -30,7 +30,10 @@ You are auditing TruePPM API code for performance regressions before merge.
 - [ ] Serializers with nested serializers (`TaskSerializer(many=True)`) are served from
   a prefetched queryset, not lazy-loaded per row
 - [ ] `get_queryset()` overrides preserve the base `select_related` chain
-- [ ] Counted fields (e.g., `task_count`) use `annotate(Count(...))`, not Python len()
+- [ ] Counted fields (e.g., `task_count`) use `annotate(Count(...))`, not Python `len()`
+- [ ] **`.count()` and `.exists()` on prefetched relations** — both always issue a fresh `COUNT(*)` query and ignore the prefetch cache. The right pattern when the relation is already prefetched is `len(obj.relation.all())`. Grep: `grep -rnE '\.(count|exists)\(\)' packages/api/` and verify each call site is acting on a non-prefetched relation, or refactor to use `len(...)` against the prefetched cache.
+- [ ] **`.order_by()` on prefetched relations** — calling `.order_by()` on a prefetched reverse relation **always** issues a fresh `ORDER BY` query because the prefetch's order may differ from the requested order. The fix is to either (a) declare `Meta.ordering` on the related model and call `.all()`, or (b) prefetch with `Prefetch(... queryset=Model.objects.order_by(...))` so the cached rows arrive pre-ordered.
+- [ ] **Annotation-fallback `SerializerMethodField` from bare instances** — if a method field uses `getattr(obj, '_count', None)` with a live `.count()` fallback, every code path that constructs the serializer must thread the annotation through `get_queryset()`. The bare-instance call site (e.g. after `Model.objects.create()` returning the freshly-saved row, or an `@action` that re-fetches by PK) silently triggers the live fallback — one extra query per render. Flag any new call site that builds the serializer from a non-annotated bare instance.
 
 ### Pagination
 - [ ] Every list endpoint paginates — no endpoint returns an unbounded queryset
