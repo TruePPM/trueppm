@@ -75,6 +75,18 @@ Uniformity or Sustainability rates MEDIUM or LOW.
 - Screen reader announcements for dynamic content (aria-live)
 - Keyboard navigation: every action possible without a mouse
 
+### 6.1 Audit-Class Pattern Checks (Greppable)
+
+These are concrete patterns derived from prior pre-release audit findings that surfaced after merge. Run each grep against the touched files in `packages/web/src/`. Any match is a HIGH severity finding unless explicitly justified.
+
+- **`focus:` vs `focus-visible:` gate** — the permitted form on standalone interactive controls is `focus:ring-...`. `focus-visible:` produces *invisible* focus indicators in Firefox and desktop Safari for pointer-driven focus on standalone buttons, dropdown triggers, tab controls, modal tabs, accordion headers, and inline confirm rows. Reserve `focus-visible:` for elements that receive programmatic focus from drag-and-drop libraries or keyboard-only flows. Grep: `grep -rn "focus-visible:" packages/web/src/`. Flag every match on a standalone interactive control as HIGH.
+- **Sub-12px informational text gate** — every piece of *informational* text (stats, timestamps, identifiers, badge counts, shortcut hints) must be ≥12px / `text-xs`. Sub-12px sizes are reserved for decorative single-glyph indicators (e.g. `aria-hidden` chevrons) where meaning is carried by an adjacent label or `title`. Grep: `grep -rnE 'text-\[(9|10|11)px\]' packages/web/src/`.
+- **Raw color-token gate** — Design System v1.0 uses semantic tokens. Raw Tailwind shades like `bg-blue-500`, `text-red-700`, `border-amber-400` indicate token drift on touched files. Grep: `grep -rnE '\b(bg|text|border|ring)-(blue|red|amber|emerald|sky|slate|gray)-[0-9]{3}\b' packages/web/src/`. Flag matches that should be a semantic token (`bg-primary`, `text-error`, `border-warning`, etc.).
+- **Tab buttons and inline confirms** — modal tabs, accordion headers, "Confirm/Cancel" inline rows, and toast action buttons each need the standard focus class set. Audit any touched file for `<button>` elements with only `transition` or hover styles and no `focus:ring-*` class — flag every one.
+- **Icon-only and count-bearing buttons** — every icon-only `<button>` must carry an `aria-label`. Buttons that wrap a numeric badge (notification bell with unread count, filter pill with active count, sync status with pending count) must update their `aria-label` to include the count, e.g. `aria-label={count > 0 ? \`Notifications, ${count} unread\` : "Notifications"}`. Grep: `grep -rn '<svg' packages/web/src/ | grep -B1 -A2 '<button'` — verify each has an accessible name.
+- **Hover-reveal controls** — when a button uses `opacity-0 group-hover:opacity-100`, it must also include `focus:opacity-100` (otherwise it is unreachable by keyboard). Grep: `grep -rn 'group-hover:opacity-100' packages/web/src/` and confirm every match also has `focus:opacity-100` on the same element.
+- **Conditional permission-gated affordances** — admin-only or role-restricted controls must be hidden entirely from the DOM (`{isAdmin && (...)}`), never rendered as `disabled` with reduced opacity. A disabled focusable button announces "[label], dimmed" to screen readers and is a dead affordance. Grep: `grep -rnE 'disabled=\{!(isAdmin|isOrgAdmin|isPMOAdmin|hasRole)' packages/web/src/`.
+
 ### 7. Information Hierarchy
 - Can a PM see project health in <2 seconds?
 - Is the most important information visible without scrolling?

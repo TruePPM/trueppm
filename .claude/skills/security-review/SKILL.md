@@ -51,6 +51,11 @@ Using the research results, evaluate each finding against the checklist below. P
 - [ ] File uploads: type validation, size limits, malware scanning, S3 storage (never local)
 - [ ] Pagination: enforced maximums (prevent full-table dumps)
 - [ ] Batch operations: size limits (prevent DoS via bulk create)
+- [ ] **ORM instances captured in `transaction.on_commit()` closures** — closures registered with `transaction.on_commit()` (and Celery `delay()` callbacks, signal handlers that defer work, any "fire after the request" hook) must capture *plain values* (dicts, integer/UUID PKs), not ORM instances or live querysets. ORM rows captured in such closures may have already been modified, deleted, or be cross-thread by the time the closure runs, leading to stale-read leaks on broadcast or `DoesNotExist` crashes. Grep: `grep -rnB2 -A5 'transaction.on_commit' packages/api/` and verify no closure references a model instance bound by the outer scope.
+
+### Real-time / Push-Channel Security
+- [ ] **Per-recipient field filtering on Channels group_send** — when a serializer's `to_representation` strips a field for a subset of viewers (admin-only metadata, PII, internal state, audit fields) on the REST surface, every WebSocket consumer that uses the same serializer needs an equivalent gate at the consumer layer (`Consumer.<event_handler>`). A REST-stripped field shipped intact via `channel_layer.group_send()` is the same leak as exposing it on REST. Audit every `group_send` call site against every `to_representation` override on the serializer it uses.
+- [ ] **Post-revocation data retention on push surfaces** — when a write removes a user's access to a resource (`Membership.delete`, group leave, role demotion, project archival), audit every endpoint that surfaces the resource's *historical* content to that user (notifications, activity feeds, mention digests, search results, recent-views lists). If access is revoked but historical project/task/group names are still served, that is an information-retention leak. The fix is either to filter at read time (re-check membership) or purge on the revocation event. Flag any new revocation flow that does neither.
 
 ### Data Protection
 - [ ] PII handling: email, names in encrypted columns or with access logging
