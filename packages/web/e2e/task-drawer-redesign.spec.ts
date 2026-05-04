@@ -62,6 +62,7 @@ const FIXTURE_API_TASKS = [
     early_finish: '2026-10-30',
     duration: 10,
     percent_complete: 0,
+    total_float: 0,
     is_critical: true,
     is_milestone: false,
     is_summary: false,
@@ -226,14 +227,20 @@ test.describe('TaskDetailDrawer redesign — section list', () => {
   test('renders 5 OSS sections in priority order', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
 
-    // Each section's collapsible header is a <button> (no longer a tab).
-    const headers = drawer.getByRole('button').filter({
-      hasText: /^(Overview|Dependencies|Estimates|History|Baseline)$/,
+    // Each section's collapsible header is a <button> with the title as its
+    // accessible name. The visible ▶ glyph sits in an aria-hidden span, so
+    // textContent includes it but the accessible name does not — filter by
+    // accessible name to avoid leaking the glyph into the assertion.
+    const sectionNames = ['Overview', 'Dependencies', 'Estimates', 'History', 'Baseline'];
+    const headers = drawer.getByRole('button', {
+      name: new RegExp(`^(${sectionNames.join('|')})$`),
     });
     await expect(headers).toHaveCount(5);
 
-    const titles = await headers.allInnerTexts();
-    expect(titles).toEqual(['Overview', 'Dependencies', 'Estimates', 'History', 'Baseline']);
+    const titles = await headers.evaluateAll((els) =>
+      els.map((el) => el.getAttribute('aria-label') ?? el.querySelector('span:not([aria-hidden])')?.textContent ?? ''),
+    );
+    expect(titles).toEqual(sectionNames);
   });
 
   test('Overview section is expanded by default', async ({ page }) => {
