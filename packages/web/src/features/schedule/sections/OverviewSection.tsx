@@ -1,5 +1,6 @@
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
+import { ResourceAssignmentSection } from '../ResourceAssignmentSection';
 
 /** Status pill background — matches existing readiness chip styling */
 const STATUS_LABELS: Record<string, string> = {
@@ -18,7 +19,7 @@ const STATUS_LABELS: Record<string, string> = {
  * current status from the task object. No new endpoints; reads from the
  * existing schedule cache so it costs nothing on drawer open.
  */
-export function OverviewSection({ taskId }: DrawerSectionProps) {
+export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
   const { tasks } = useScheduleTasks();
   const task = tasks?.find((t) => t.id === taskId);
 
@@ -45,36 +46,11 @@ export function OverviewSection({ taskId }: DrawerSectionProps) {
         )}
       </div>
 
-      {/* Assignees */}
-      <div>
-        <div className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
-          Assignees
-        </div>
-        {task.assignees.length > 0 ? (
-          <ul className="flex flex-col gap-1.5 list-none p-0 m-0">
-            {task.assignees.map((a) => (
-              <li
-                key={a.resourceId}
-                className="flex items-center gap-2 px-2 py-1 rounded
-                  border border-neutral-border bg-neutral-surface"
-              >
-                <span className="text-sm text-neutral-text-primary truncate flex-1 min-w-0">
-                  {a.name}
-                </span>
-                <span
-                  className="tppm-mono text-xs text-neutral-text-secondary px-1.5 py-0.5
-                    rounded bg-neutral-surface-sunken shrink-0"
-                  aria-label={`${Math.round(a.units * 100)} percent allocation`}
-                >
-                  {Math.round(a.units * 100)}%
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm italic text-neutral-text-secondary">Unassigned.</p>
-        )}
-      </div>
+      {/* Assignees — interactive editor (units %, add/remove, overallocation +
+          skill-mismatch warnings). Replaces the read-only list to align with
+          the May 2026 mockup, which exposes editing in this surface and never
+          shows a separate "Resources" block under Dependencies. */}
+      <ResourceAssignmentSection taskId={taskId} projectId={projectId} />
 
       {/* Status */}
       <div>

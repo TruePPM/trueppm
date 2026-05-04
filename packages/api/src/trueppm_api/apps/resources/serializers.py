@@ -129,10 +129,12 @@ class TaskResourceSerializer(serializers.ModelSerializer[TaskResource]):
     to the range [0.01, 2.0] so accidental 0 or runaway values are caught early.
     """
 
+    resource_name = serializers.CharField(source="resource.name", read_only=True)
+
     class Meta:
         model = TaskResource
-        fields = ["id", "task", "resource", "units"]
-        read_only_fields = ["id"]
+        fields = ["id", "task", "resource", "resource_name", "units"]
+        read_only_fields = ["id", "resource_name"]
 
     def validate_units(self, value: Decimal) -> Decimal:
         """Enforce that units stay within the valid assignment range.

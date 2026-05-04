@@ -170,17 +170,16 @@ async function openDrawer(page: import('@playwright/test').Page, taskName: strin
 }
 
 /**
- * Open the drawer and expand the Dependencies section, where the resource
- * assignment UI lives in the redesigned drawer (ADR-0050). Sections other than
- * Overview start collapsed, so their bodies are not mounted until expanded.
+ * Open the drawer; the resource assignment UI lives inside the Overview
+ * section (issue #313 — pulled out of Dependencies to align with the May 2026
+ * mockup). Overview is expanded by default per ADR-0050, so no extra clicks
+ * are required.
  */
 async function openDrawerWithResources(
   page: import('@playwright/test').Page,
   taskName: string,
 ) {
-  const drawer = await openDrawer(page, taskName);
-  await drawer.getByRole('button', { name: 'Dependencies' }).click();
-  return drawer;
+  return await openDrawer(page, taskName);
 }
 
 // ---------------------------------------------------------------------------
@@ -211,7 +210,7 @@ test.describe('TaskDetailDrawer — open and close', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Resource Assignments section structure
+// Assignees section structure
 // ---------------------------------------------------------------------------
 
 test.describe('ResourceAssignmentSection — structure inside drawer', () => {
@@ -219,15 +218,15 @@ test.describe('ResourceAssignmentSection — structure inside drawer', () => {
     await gotoSchedule(page);
   });
 
-  test('drawer contains the Resources section with Add resource button', async ({ page }) => {
+  test('drawer contains the Assignees section with Add resource button', async ({ page }) => {
     const drawer = await openDrawerWithResources(page, 'Discovery & Design');
-    await expect(drawer.getByRole('region', { name: 'Resource Assignments' })).toBeVisible();
+    await expect(drawer.getByRole('region', { name: 'Assignees' })).toBeVisible();
     await expect(drawer.getByRole('button', { name: /Add resource/i })).toBeVisible();
   });
 
   test('shows "None" when the task has no assignments', async ({ page }) => {
     const drawer = await openDrawerWithResources(page, 'Discovery & Design');
-    const section = drawer.getByRole('region', { name: 'Resource Assignments' });
+    const section = drawer.getByRole('region', { name: 'Assignees' });
     await expect(section.getByText('None')).toBeVisible();
   });
 
@@ -255,7 +254,7 @@ test.describe('ResourceAssignmentSection — structure inside drawer', () => {
     );
 
     const drawer = await openDrawerWithResources(page, 'Discovery & Design');
-    const section = drawer.getByRole('region', { name: 'Resource Assignments' });
+    const section = drawer.getByRole('region', { name: 'Assignees' });
     await expect(section.getByText('Alice Nguyen')).toBeVisible();
     // Allocation input should show 75 (percent)
     await expect(
@@ -350,7 +349,7 @@ test.describe('ResourceAssignmentSection — add resource flow', () => {
     // Combobox closes after selection
     await expect(drawer.getByRole('combobox', { name: 'Search resources' })).not.toBeVisible();
     // Assignment row appears
-    const section = drawer.getByRole('region', { name: 'Resource Assignments' });
+    const section = drawer.getByRole('region', { name: 'Assignees' });
     await expect(section.getByText('Alice Nguyen')).toBeVisible();
     // No warning banner for a clean add
     await expect(drawer.getByRole('alert')).not.toBeVisible();

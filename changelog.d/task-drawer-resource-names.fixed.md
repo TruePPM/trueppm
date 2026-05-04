@@ -1,0 +1,1 @@
+Task drawer Resources section now displays resource names. The `/task-resources/` endpoint payload was missing `resource_name`, leaving rows in the redesigned drawer (#306) with only the percent input and remove button.

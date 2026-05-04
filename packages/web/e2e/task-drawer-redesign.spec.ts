@@ -249,6 +249,17 @@ test.describe('TaskDetailDrawer redesign — section list', () => {
     await expect(overview).toHaveAttribute('aria-expanded', 'true');
   });
 
+  test('Assignees editor lives inside Overview, not under Dependencies (#313)', async ({ page }) => {
+    // Regression guard: pre-#313 the assignees editor was rendered inside the
+    // legacy DependenciesTab, so opening the drawer surfaced a "Resources"
+    // block under Dependencies that duplicated the Overview Assignees list.
+    // The mockup has no such block — Assignees is the only home for this UI.
+    const drawer = await openDrawer(page, 'Discovery & Design');
+    await expect(drawer.getByRole('region', { name: 'Assignees' })).toBeVisible();
+    await drawer.getByRole('button', { name: 'Dependencies' }).click();
+    await expect(drawer.getByRole('region', { name: 'Assignees' })).toHaveCount(1);
+  });
+
   test('other sections start collapsed', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
     for (const name of ['Dependencies', 'Estimates', 'History', 'Baseline']) {
