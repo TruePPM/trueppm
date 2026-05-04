@@ -57,9 +57,9 @@ export function ResourceAssignmentSection({ taskId, projectId }: ResourceAssignm
   }
 
   return (
-    <section aria-label="Resource Assignments">
+    <section aria-label="Assignees">
       <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
-        Resources
+        Assignees
       </h3>
 
       {isLoading ? (

@@ -95,6 +95,23 @@ class TestTaskResourceCreateWarnings:
         )
         assert r.status_code == 201
         assert r.data["warnings"] == []
+        # The drawer Resources section reads resource_name from this payload —
+        # without it the rows render blank (regression caught visually).
+        assert r.data["resource_name"] == resource.name
+
+    def test_list_includes_resource_name(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        task: Task,
+        resource: Resource,
+    ) -> None:
+        """GET /task-resources/?task= must expose resource_name for drawer rendering."""
+        TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.0"))
+        r = client.get(f"/api/v1/task-resources/?task={task.pk}")
+        assert r.status_code == 200
+        assert r.data["count"] == 1
+        assert r.data["results"][0]["resource_name"] == resource.name
 
     def test_warning_when_overallocated(
         self,

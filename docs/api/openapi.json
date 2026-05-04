@@ -10394,6 +10394,10 @@
                         "type": "string",
                         "format": "uuid"
                     },
+                    "resource_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "units": {
                         "type": "string",
                         "format": "decimal",
@@ -10403,6 +10407,7 @@
                 "required": [
                     "id",
                     "resource",
+                    "resource_name",
                     "task"
                 ]
             },

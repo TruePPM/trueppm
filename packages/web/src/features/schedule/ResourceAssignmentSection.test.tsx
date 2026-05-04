@@ -231,7 +231,7 @@ describe('ResourceAssignmentSection — overallocation warning (#97)', () => {
     renderSection();
     // AssignmentRow is the real component so we can't easily query it by name,
     // but the section should render without crashing.
-    expect(screen.getByRole('region', { name: /Resource Assignments/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /^Assignees$/i })).toBeInTheDocument();
   });
 
   it('clears overallocation warning when the associated resource is removed', () => {

@@ -5,7 +5,6 @@ import {
   useUpdateDependency,
   useDeleteDependency,
 } from '@/hooks/useDependencyMutations';
-import { ResourceAssignmentSection } from './ResourceAssignmentSection';
 
 const DEP_TYPES: { value: LinkType; label: string }[] = [
   { value: 'FS', label: 'FS — Finish to Start' },
@@ -65,8 +64,6 @@ export function DependenciesTab({ task, tasks, links, projectId }: DependenciesT
 
   return (
     <div className="flex flex-col gap-6">
-      <ResourceAssignmentSection taskId={taskId} projectId={projectId} />
-
       <section aria-label="Predecessors">
         <h3 className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-2">
           Predecessors
