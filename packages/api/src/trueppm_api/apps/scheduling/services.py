@@ -41,6 +41,7 @@ def enqueue_recalculate(project_id: str) -> None:
     """
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
 
+    req: ScheduleRequest
     try:
         with transaction.atomic():
             req = ScheduleRequest.objects.create(project_id=project_id)
@@ -50,14 +51,15 @@ def enqueue_recalculate(project_id: str) -> None:
         # dispatch, e.g. broker outage) and every subsequent edit will pile up
         # on it. Re-dispatching it now coalesces all those edits into a single
         # CPM run with the latest data.
-        req = ScheduleRequest.objects.filter(
+        existing = ScheduleRequest.objects.filter(
             project_id=project_id,
             status=ScheduleRequestStatus.PENDING,
         ).first()
-        if req is None:
+        if existing is None:
             # Race: row transitioned out of PENDING between insert + lookup.
             # The other writer already dispatched it; nothing to do.
             return
+        req = existing
 
     # Best-effort immediate dispatch — reduces recalculation latency when the
     # broker is healthy.  Failure here is not fatal; the row stays PENDING.
