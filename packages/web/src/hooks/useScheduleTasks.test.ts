@@ -44,11 +44,12 @@ function mapTask(t: ApiTask) {
 
   const finish = t.is_summary
     ? (t.early_finish ?? '')
-    : (start && t.duration > 0)
-      ? new Date(
-          new Date(start + 'T00:00:00Z').getTime() + t.duration * 86_400_000,
-        ).toISOString().slice(0, 10)
-      : (t.early_finish ?? '');
+    : t.early_finish
+      ?? ((start && t.duration > 0)
+        ? new Date(
+            new Date(start + 'T00:00:00Z').getTime() + t.duration * 86_400_000,
+          ).toISOString().slice(0, 10)
+        : '');
 
   const displayDuration =
     t.is_summary && t.early_start && t.early_finish
@@ -119,10 +120,45 @@ describe('useScheduleTasks mapper', () => {
     expect(task.baselineStart).toBeUndefined();
   });
 
-  it('derives finish from start + duration', () => {
+  it('uses early_finish for leaf tasks once CPM has produced it', () => {
+    // CPM has run (early_finish present) — use the working-day-correct value
+    // straight from the API rather than re-deriving with calendar arithmetic.
+    // This keeps leaf bars aligned with summary roll-ups, which use early_finish.
     const task = mapTask(base);
-    // 2026-10-05 + 10 days = 2026-10-15
     expect(task.finish).toBe('2026-10-15');
+  });
+
+  it('falls back to start + duration when early_finish is missing (pre-CPM)', () => {
+    // Immediately after a duration drag the API may return null early_finish until
+    // CPM completes. Fall back to a calendar-day estimate so the bar still moves.
+    const task = mapTask({ ...base, early_finish: null });
+    // 2026-10-05 + 10 calendar days = 2026-10-15
+    expect(task.finish).toBe('2026-10-15');
+  });
+
+  it('summary leaf parity: leaf finish matches early_finish so summary roll-up does not visibly extend past its widest child', () => {
+    // Regression for #314: leaf used start+duration*calendar-day-ms while summary
+    // used early_finish (working-day-correct). Every weekend inside a leaf made
+    // the summary look 1+ days longer than its widest child. Both must use the
+    // same authoritative value once CPM has run.
+    const validate = mapTask({
+      ...base,
+      id: 'validate',
+      early_start: '2026-05-28',
+      early_finish: '2026-06-10', // 10 working days against a M–F calendar
+      planned_start: null,
+      duration: 10,
+    });
+    const engSummary = mapTask({
+      ...base,
+      id: 'eng',
+      is_summary: true,
+      early_start: '2026-05-11',
+      early_finish: '2026-06-10',
+      planned_start: null,
+      duration: 30,
+    });
+    expect(validate.finish).toBe(engSummary.finish);
   });
 
   it('falls back to empty string when CPM has not run (null early_start)', () => {
@@ -256,15 +292,19 @@ describe('useScheduleTasks mapper', () => {
     expect(task.isSummary).toBe(true);
   });
 
-  it('leaf task: finish still computed from start + duration', () => {
+  it('leaf task: finish prefers early_finish (working-day-correct) over start + duration', () => {
+    // After CPM, early_finish is the calendar date that corresponds to
+    // (working-day) duration applied against the project calendar. Re-deriving
+    // from start + duration*calendar-day-ms underestimates by the number of
+    // weekends inside the span, which made summary roll-ups visibly extend
+    // past their widest child (#314).
     const task = mapTask({
       ...base,
       is_summary: false,
       early_start: '2026-10-05',
-      early_finish: '2026-10-20', // would give 15 days if used directly
+      early_finish: '2026-10-20',
       duration: 10,
     });
-    // 2026-10-05 + 10 days = 2026-10-15 (uses duration, not early_finish)
-    expect(task.finish).toBe('2026-10-15');
+    expect(task.finish).toBe('2026-10-20');
   });
 });
