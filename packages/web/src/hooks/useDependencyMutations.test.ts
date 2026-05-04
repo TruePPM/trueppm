@@ -134,6 +134,21 @@ describe('useCreateDependency', () => {
     );
   });
 
+  it('also invalidates tasks cache so CPM cascade is visible without WS (#314)', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useCreateDependency('proj1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    result.current.mutate({ predecessor: 'ta', successor: 'tb', dep_type: 'FS' });
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['tasks', 'proj1'],
+      }),
+    );
+  });
+
   it('invalidates with undefined when projectId is null', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useCreateDependency(null), {
@@ -145,6 +160,11 @@ describe('useCreateDependency', () => {
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith({
         queryKey: ['dependencies', undefined],
+      }),
+    );
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['tasks', undefined],
       }),
     );
   });
@@ -193,6 +213,21 @@ describe('useUpdateDependency', () => {
     );
   });
 
+  it('also invalidates tasks cache so CPM cascade is visible without WS (#314)', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useUpdateDependency('proj1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    result.current.mutate({ id: 'dep-1', dep_type: 'FF' });
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['tasks', 'proj1'],
+      }),
+    );
+  });
+
   it('invalidates with undefined when projectId is null', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useUpdateDependency(null), {
@@ -204,6 +239,11 @@ describe('useUpdateDependency', () => {
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith({
         queryKey: ['dependencies', undefined],
+      }),
+    );
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['tasks', undefined],
       }),
     );
   });
@@ -249,6 +289,21 @@ describe('useDeleteDependency', () => {
     );
   });
 
+  it('also invalidates tasks cache so CPM cascade is visible without WS (#314)', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useDeleteDependency('proj1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    result.current.mutate('dep-1');
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['tasks', 'proj1'],
+      }),
+    );
+  });
+
   it('invalidates with undefined when projectId is null', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useDeleteDependency(null), {
@@ -260,6 +315,11 @@ describe('useDeleteDependency', () => {
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith({
         queryKey: ['dependencies', undefined],
+      }),
+    );
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['tasks', undefined],
       }),
     );
   });
