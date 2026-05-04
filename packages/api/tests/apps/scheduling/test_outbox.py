@@ -120,17 +120,65 @@ class TestEnqueueRecalculate:
         assert req.status == ScheduleRequestStatus.PENDING
         assert req.celery_task_id == ""
 
-    def test_duplicate_suppressed_silently(self, project) -> None:
-        """A second call while a pending row exists is a no-op (no exception)."""
-        ScheduleRequest.objects.create(project=project)
-        # Should not raise even though the unique constraint would fire
+    def test_duplicate_adopts_existing_pending_row(self, project) -> None:
+        """A second call adopts the existing pending row and dispatches it.
+
+        Previously this was a silent no-op which let stranded pending rows
+        swallow every subsequent edit until the drain task ran. The drain
+        task was itself unreachable for #314, so edits accumulated invisibly.
+        """
+        existing = ScheduleRequest.objects.create(project=project)
+        mock_result = MagicMock()
+        mock_result.id = "celery-task-xyz"
         with patch(
             "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+            return_value=mock_result,
         ) as mock_delay:
             self._call(str(project.pk))
-        mock_delay.assert_not_called()
-        # Still only one row
+        mock_delay.assert_called_once_with(str(project.pk))
+        # Still only one row, now dispatched.
         assert ScheduleRequest.objects.filter(project=project).count() == 1
+        existing.refresh_from_db()
+        assert existing.status == ScheduleRequestStatus.DISPATCHED
+        assert existing.celery_task_id == "celery-task-xyz"
+
+
+# ---------------------------------------------------------------------------
+# Celery app wiring regression — covers the #314 root cause: without the
+# `from .celery import app as celery_app` line in `trueppm_api/__init__.py`,
+# `current_app` resolves to an unconfigured default Celery instance and every
+# `shared_task.delay()` raises `OperationalError: Connection refused`.  The
+# unit tests above mocked `delay()` and so could never catch it.
+# ---------------------------------------------------------------------------
+
+
+class TestCeleryAppWiring:
+    def test_shared_task_resolves_to_configured_trueppm_app(self) -> None:
+        """`current_app` must be the configured trueppm app, not the default."""
+        from celery import current_app
+
+        from trueppm_api.celery import app as trueppm_app
+
+        # Both checks matter: the proxy must point at our app, AND that app
+        # must have a real broker_url. A mismatch means __init__.py forgot to
+        # import the celery app and `set_default()` was never called.
+        assert current_app._get_current_object() is trueppm_app
+        assert current_app.conf.broker_url, (
+            "current_app has no broker_url — `from .celery import app as "
+            "celery_app` is missing from trueppm_api/__init__.py. Without it "
+            "every shared_task.delay() raises OperationalError and the "
+            "scheduling outbox row is silently left PENDING (#314)."
+        )
+
+    def test_recalculate_schedule_delay_uses_configured_broker(self) -> None:
+        """recalculate_schedule.delay() must dispatch through the configured app."""
+        from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+        from trueppm_api.celery import app as trueppm_app
+
+        # idempotent_task wraps with @shared_task, which binds at first access
+        # to whatever current_app is. If __init__.py forgot to import the
+        # celery app, this assertion fails.
+        assert recalculate_schedule.app is trueppm_app
 
 
 # ---------------------------------------------------------------------------
