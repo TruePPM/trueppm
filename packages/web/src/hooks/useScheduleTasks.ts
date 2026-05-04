@@ -76,21 +76,26 @@ function mapTask(t: ApiTask): Task {
   const e = t.early_start;
   const start = (p && e) ? (p >= e ? p : e) : (p ?? e ?? '');
 
-  // Summary tasks: start/finish always come from CPM rollup (early_start / early_finish).
-  // Duration is also CPM-derived (calendar-day span written back by the scheduler).
-  // We must not compute finish from duration here — the stored duration may be stale
-  // before the first CPM run, or the span may not match the stored working-day count.
+  // Summary tasks: start/finish always come from the CPM rollup (early_start /
+  // early_finish). Without CPM there's no meaningful finish — the stored
+  // duration is rolled up from children, not stored on the row.
   //
-  // Leaf tasks: derive finish from start + duration rather than early_finish directly.
-  // early_finish is only updated after CPM runs; using start + duration means
-  // the bar width is always consistent with the duration the user just set.
+  // Leaf tasks: prefer early_finish (CPM result, working-day-correct against the
+  // project calendar) once CPM has produced it. Fall back to a calendar-day
+  // estimate (start + duration) only when early_finish is missing — e.g.
+  // immediately after a duration drag, before CPM has had a chance to run.
+  // Without this preference the leaf bar used a calendar-day span while the
+  // summary used the working-day span, so every weekend inside a leaf widened
+  // the summary visibly past its widest child (#314: rollup looked 4 days
+  // "longer" than its longest child).
   const finish = t.is_summary
     ? (t.early_finish ?? '')
-    : (start && t.duration > 0)
-      ? new Date(
-          new Date(start + 'T00:00:00Z').getTime() + t.duration * 86_400_000,
-        ).toISOString().slice(0, 10)
-      : (t.early_finish ?? '');
+    : t.early_finish
+      ?? ((start && t.duration > 0)
+        ? new Date(
+            new Date(start + 'T00:00:00Z').getTime() + t.duration * 86_400_000,
+          ).toISOString().slice(0, 10)
+        : '');
 
   // For summary tasks that have CPM dates, compute a display duration as the
   // calendar-day span. This matches what the backend writes back during CPM so

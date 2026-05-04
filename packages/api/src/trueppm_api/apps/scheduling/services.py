@@ -29,19 +29,37 @@ def enqueue_recalculate(project_id: str) -> None:
       - ``transaction.on_commit()`` callbacks (HTTP request context)
       - Celery task bodies (no ambient transaction; ``atomic()`` opens its own)
 
-    If a pending row already exists for the project the call is a no-op
-    (idempotent by design — the partial unique index raises IntegrityError
-    which is swallowed).  If the broker is unavailable the row is left
-    PENDING and ``drain_schedule_queue`` picks it up within 30 seconds.
+    If a pending row already exists for the project we adopt it — coalescing
+    every edit that happened while it was waiting into a single CPM run — and
+    still attempt the immediate dispatch.  Without this, a stranded pending
+    row (e.g. from an earlier broker outage) would silently swallow every
+    subsequent edit until ``drain_schedule_queue`` ran, which is the failure
+    mode that produced #314.
+
+    If the broker is unavailable the row is left PENDING and
+    ``drain_schedule_queue`` picks it up within 30 seconds.
     """
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
 
+    req: ScheduleRequest
     try:
         with transaction.atomic():
             req = ScheduleRequest.objects.create(project_id=project_id)
     except IntegrityError:
-        # A pending row already exists — drain task will handle it.
-        return
+        # A pending row already exists. Adopt it instead of returning — the
+        # existing row may be stranded (the request that created it failed to
+        # dispatch, e.g. broker outage) and every subsequent edit will pile up
+        # on it. Re-dispatching it now coalesces all those edits into a single
+        # CPM run with the latest data.
+        existing = ScheduleRequest.objects.filter(
+            project_id=project_id,
+            status=ScheduleRequestStatus.PENDING,
+        ).first()
+        if existing is None:
+            # Race: row transitioned out of PENDING between insert + lookup.
+            # The other writer already dispatched it; nothing to do.
+            return
+        req = existing
 
     # Best-effort immediate dispatch — reduces recalculation latency when the
     # broker is healthy.  Failure here is not fatal; the row stays PENDING.
@@ -50,7 +68,11 @@ def enqueue_recalculate(project_id: str) -> None:
     try:
         result = recalculate_schedule.delay(project_id)
     except Exception:
-        logger.warning(
+        # Use logger.exception so the broker error and stack trace are visible.
+        # A previous regression (#314) silently swallowed `OperationalError:
+        # Connection refused` here for weeks because logger.warning hid the
+        # cause — the cascade quietly stopped firing for every dependency edit.
+        logger.exception(
             "enqueue_recalculate: could not immediately dispatch for project %s "
             "— drain task will pick it up within 30 s",
             project_id,

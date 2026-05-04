@@ -109,7 +109,10 @@ services:
   celery-beat:
     image: trueppm-api:local
     # Runs CELERY_BEAT_SCHEDULE periodic tasks (drain_schedule_queue every 30 s, etc.)
-    command: ["celery", "-A", "trueppm_api.celery", "beat", "--loglevel=info"]
+    # `--schedule=/tmp/...` writes the persistent schedule DB to a writable path;
+    # the container's working directory is owned by root so the default
+    # `celerybeat-schedule` write fails with PermissionError (#314 follow-up).
+    command: ["celery", "-A", "trueppm_api.celery", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule"]
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://trueppm:trueppm@db:5432/trueppm

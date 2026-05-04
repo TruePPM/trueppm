@@ -9,6 +9,7 @@
  *   task_run_cancelled → taskRunStore.cancelRun()
  *   cpm_complete      → invalidate tasks query, schedulerStore.setCpmComplete() (compat broadcast)
  *   task_created / task_updated / task_deleted → invalidate tasks query
+ *   dependency_created / dependency_updated / dependency_deleted → invalidate dependencies + tasks
  *   baseline_created / baseline_activated / baseline_deleted → invalidate baselines + tasks
  *
  * Reconnects with exponential backoff (1s → 2s → 4s → … up to 30s).
@@ -154,6 +155,16 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         event_type === 'task_updated' ||
         event_type === 'task_deleted'
       ) {
+        void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+      } else if (
+        event_type === 'dependency_created' ||
+        event_type === 'dependency_updated' ||
+        event_type === 'dependency_deleted'
+      ) {
+        // Collaborators see new/edited dependency edges immediately rather than
+        // waiting for the next 2 s poll. The follow-up cpm_complete event
+        // refreshes computed dates, but the edge itself becomes visible now.
+        void queryClient.invalidateQueries({ queryKey: ['dependencies', projectIdRef.current] });
         void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
       } else if (
         event_type === 'baseline_created' ||

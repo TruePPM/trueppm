@@ -481,14 +481,18 @@ test.describe('Board view', () => {
 
   // -------------------------------------------------------------------------
   // Issue #186 — Baseline variance strip (b5: baseline_finish Jan 10,
-  // useScheduleTasks computes finish as start+duration = Jan 5 + 12d = Jan 17 → +7d)
+  // useScheduleTasks reads finish from early_finish = Jan 20 → +10d)
   // -------------------------------------------------------------------------
 
   test('baseline variance chip renders on QA Gate card (issue #186)', async ({ page }) => {
     // The variance panel is `hidden group-hover:block group-focus-within:block` — only
     // revealed on hover/focus. Assert the chip is attached in the DOM.
-    // finish = start + duration = 2026-01-05 + 12d = 2026-01-17; baseline_finish = 2026-01-10 → +7d.
-    await expect(page.getByLabel(/Baseline variance: \+7d/)).toBeAttached();
+    // finish = early_finish = 2026-01-20; baseline_finish = 2026-01-10 → +10d.
+    // Pre-#314 fix this asserted +7d because the leaf-task path re-derived
+    // finish as start + duration*calendar-day-ms (Jan 5 + 12d = Jan 17). That
+    // re-derivation has been removed; early_finish is the authoritative
+    // working-day-correct value.
+    await expect(page.getByLabel(/Baseline variance: \+10d/)).toBeAttached();
   });
 
   // -------------------------------------------------------------------------

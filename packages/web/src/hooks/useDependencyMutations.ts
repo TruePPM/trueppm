@@ -35,8 +35,15 @@ export function useCreateDependency(projectId: string | null) {
       return res.data;
     },
     onSuccess: () => {
+      // Invalidate both keys: the dependency edge changed, and the CPM cascade
+      // will shift early/late dates on the successor and its downstream tasks.
+      // Relying solely on the cpm_complete WS event leaves the originating
+      // client stale when the tab is backgrounded or the socket drops (#314).
       void queryClient.invalidateQueries({
         queryKey: ['dependencies', projectId ?? undefined],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['tasks', projectId ?? undefined],
       });
     },
   });
@@ -62,8 +69,13 @@ export function useUpdateDependency(projectId: string | null) {
       return res.data;
     },
     onSuccess: () => {
+      // See useCreateDependency: dep edits cascade through CPM, so the tasks
+      // query must be invalidated alongside dependencies (#314).
       void queryClient.invalidateQueries({
         queryKey: ['dependencies', projectId ?? undefined],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['tasks', projectId ?? undefined],
       });
     },
   });
@@ -82,8 +94,13 @@ export function useDeleteDependency(projectId: string | null) {
       await apiClient.delete(`/dependencies/${depId}/`);
     },
     onSuccess: () => {
+      // See useCreateDependency: dep deletion cascades through CPM, so the
+      // tasks query must be invalidated alongside dependencies (#314).
       void queryClient.invalidateQueries({
         queryKey: ['dependencies', projectId ?? undefined],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ['tasks', projectId ?? undefined],
       });
     },
   });
