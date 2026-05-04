@@ -184,6 +184,7 @@ def close_sprint(self: object, request_id: str) -> None:
     time_limit=30,
     acks_late=True,
     reject_on_worker_lost=True,
+    name="projects.drain_sprint_close_requests",
 )
 def drain_sprint_close_requests(self: object) -> None:
     """Dispatch any pending or stranded SprintCloseRequest rows.
@@ -202,6 +203,7 @@ def drain_sprint_close_requests(self: object) -> None:
     time_limit=180,
     acks_late=True,
     reject_on_worker_lost=True,
+    name="projects.update_sprint_burndown_snapshots",
 )
 def update_sprint_burndown_snapshots(self: object) -> None:
     """Write yesterday's burndown row for every ACTIVE sprint.
@@ -229,6 +231,7 @@ def update_sprint_burndown_snapshots(self: object) -> None:
     time_limit=90,
     acks_late=True,
     reject_on_worker_lost=True,
+    name="projects.purge_sprint_close_requests",
 )
 def purge_sprint_close_requests(self: object) -> None:
     """Delete COMPLETED / FAILED SprintCloseRequest rows older than 7 days."""

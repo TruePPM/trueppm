@@ -134,6 +134,7 @@ def _mark_import_done(import_request_id: str) -> None:
     time_limit=30,
     acks_late=True,
     reject_on_worker_lost=True,
+    name="msproject.drain_import_queue",
 )
 def drain_import_queue(self: object) -> None:
     """Dispatch any pending ImportRequest outbox rows.
@@ -153,6 +154,7 @@ def drain_import_queue(self: object) -> None:
     time_limit=90,
     acks_late=True,
     reject_on_worker_lost=True,
+    name="msproject.purge_old_import_requests",
 )
 def purge_old_import_requests(self: object) -> None:
     """Delete done/dead ImportRequest rows older than 7 days.

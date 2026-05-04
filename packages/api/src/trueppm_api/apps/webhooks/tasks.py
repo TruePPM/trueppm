@@ -195,6 +195,7 @@ def _do_drain_webhooks() -> None:
     time_limit=30,
     acks_late=True,
     reject_on_worker_lost=True,
+    name="webhooks.drain_webhook_queue",
 )
 def drain_webhook_queue(self: object) -> None:
     """Beat task: drain stranded PENDING webhook deliveries every 30 seconds."""

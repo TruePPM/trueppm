@@ -90,6 +90,7 @@ def recalculate_schedule(
     time_limit=30,
     acks_late=True,
     reject_on_worker_lost=True,
+    name="scheduling.drain_schedule_queue",
 )
 def drain_schedule_queue(self: object) -> None:
     """Dispatch any pending ScheduleRequest outbox rows.
@@ -117,6 +118,7 @@ def drain_schedule_queue(self: object) -> None:
     time_limit=90,
     acks_late=True,
     reject_on_worker_lost=True,
+    name="scheduling.purge_old_schedule_requests",
 )
 def purge_old_schedule_requests(self: object) -> None:
     """Delete done/dead ScheduleRequest rows older than 7 days.
