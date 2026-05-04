@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>TruePPM — Card & Task dialogs</title>
+<meta name="viewport" content="width=1400" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css" />
+<style>
+  body { background: #efeeea; }
+  .stage-bg-light { background: rgb(235 235 235); }
+  .stage-bg-dark { background: rgb(12 14 22); }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="parts.jsx"></script>
+<script type="text/babel" src="card-info.jsx"></script>
+<script type="text/babel" src="task-form.jsx"></script>
+<script type="text/babel" src="detail-drawer.jsx"></script>
+<script type="text/babel" src="task-content-variations.jsx"></script>
+<script type="text/babel">
+const { DesignCanvas, DCSection, DCArtboard } = window;
+
+function StageLight({ children, padded }) {
+  return (
+    <div style={{
+      width: '100%', height: '100%',
+      background: 'rgb(235 235 235)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: padded ? 32 : 0,
+    }}>{children}</div>
+  );
+}
+
+function StageDark({ children, padded }) {
+  return (
+    <div className="dark" style={{
+      width: '100%', height: '100%',
+      background: 'rgb(12 14 22)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: padded ? 32 : 0,
+    }}>{children}</div>
+  );
+}
+
+function App() {
+  return (
+    <DesignCanvas
+      title="Card information & Tasks dialogs"
+      subtitle="TruePPM — A/B variations for card popover, task create/edit, and task detail drawer"
+      storageKey="trueppm-dialogs-v1"
+    >
+      <DCSection id="card-info" title="Card information popover" subtitle="Quick summary that appears when clicking a board card. A — structured rows, B — hero header with inline meta strip.">
+        <DCArtboard id="card-a" label="A · Structured summary (light)" width={440} height={520}>
+          <StageLight padded><CardInfoA /></StageLight>
+        </DCArtboard>
+        <DCArtboard id="card-b" label="B · Hero header (light)" width={460} height={560}>
+          <StageLight padded><CardInfoB /></StageLight>
+        </DCArtboard>
+        <DCArtboard id="card-a-dark" label="A · dark mode" width={440} height={520}>
+          <StageDark padded><CardInfoA /></StageDark>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="task-form" title="Task create / edit dialog" subtitle="A — single-column centered modal (good for create). B — two-pane modal with properties side panel (good for edit).">
+        <DCArtboard id="form-a-create" label="A · Create — single column" width={640} height={780}>
+          <StageLight padded><TaskFormA mode="create" /></StageLight>
+        </DCArtboard>
+        <DCArtboard id="form-a-edit" label="A · Edit — single column" width={640} height={780}>
+          <StageLight padded><TaskFormA mode="edit" /></StageLight>
+        </DCArtboard>
+        <DCArtboard id="form-b-edit" label="B · Edit — two-pane (properties)" width={840} height={780}>
+          <StageLight padded><TaskFormB /></StageLight>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="detail-drawer" title="Task detail drawer" subtitle="Right-side slide-in. A — tabbed (Overview / Dependencies / Activity). B — single-scroll with left meta rail and collapsible sections.">
+        <DCArtboard id="drawer-a" label="A · Tabbed drawer (480px)" width={520} height={760}>
+          <StageLight><DetailDrawerA /></StageLight>
+        </DCArtboard>
+        <DCArtboard id="drawer-b" label="B · Single-scroll + meta rail (520px)" width={560} height={760}>
+          <StageLight><DetailDrawerB /></StageLight>
+        </DCArtboard>
+        <DCArtboard id="drawer-a-dark" label="A · dark mode" width={520} height={760}>
+          <StageDark><DetailDrawerA /></StageDark>
+        </DCArtboard>
+      </DCSection>
+
+      <DCSection id="task-content" title="Task detail · content variations" subtitle="Five additional surfaces inside the drawer or full-page view: subtasks, custom fields, attachments + thread, activity log, recurring task setup.">
+        <DCArtboard id="content-subtasks" label="Subtasks" width={520} height={520}>
+          <StageLight padded><window.TaskContentVariations.SubtasksPanel /></StageLight>
+        </DCArtboard>
+        <DCArtboard id="content-custom" label="Custom fields" width={520} height={620}>
+          <StageLight padded><window.TaskContentVariations.CustomFieldsPanel /></StageLight>
+        </DCArtboard>
+        <DCArtboard id="content-attach" label="Attachments + comments thread" width={540} height={840}>
+          <StageLight padded><window.TaskContentVariations.AttachmentsComments /></StageLight>
+        </DCArtboard>
+        <DCArtboard id="content-activity" label="Activity log" width={540} height={780}>
+          <StageLight padded><window.TaskContentVariations.ActivityLog /></StageLight>
+        </DCArtboard>
+        <DCArtboard id="content-recurring" label="Recurring task setup" width={540} height={820}>
+          <StageLight padded><window.TaskContentVariations.RecurringTask /></StageLight>
+        </DCArtboard>
+      </DCSection>
+    </DesignCanvas>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

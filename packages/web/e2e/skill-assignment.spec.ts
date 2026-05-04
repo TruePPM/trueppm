@@ -112,10 +112,15 @@ test('Skill-fit groups appear in the assignment picker when task has requirement
   // Open task detail drawer by clicking the task row (scoped to grid to avoid
   // matching the canvas aria-overlay row which resolves to a second element)
   await page.getByRole('grid', { name: 'Task list' }).getByRole('row', { name: /Build API/i }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
+  const drawer = page.getByRole('dialog');
+  await expect(drawer).toBeVisible();
+
+  // Resource assignment lives inside the Dependencies section, which is
+  // collapsed by default in the redesigned drawer (ADR-0050).
+  await drawer.getByRole('button', { name: 'Dependencies' }).click();
 
   // Click "Add assignee" to open the resource combobox
-  await page.getByRole('button', { name: /add resource/i }).click();
+  await drawer.getByRole('button', { name: /add resource/i }).click();
 
   // Should show grouped headings
   await expect(page.getByText('Best fit')).toBeVisible();
@@ -130,8 +135,10 @@ test('Missing skill badge shown for no-match resources', async ({ page }) => {
   await seedAndNavigate(page);
 
   await page.getByRole('grid', { name: 'Task list' }).getByRole('row', { name: /Build API/i }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await page.getByRole('button', { name: /add resource/i }).click();
+  const drawer = page.getByRole('dialog');
+  await expect(drawer).toBeVisible();
+  await drawer.getByRole('button', { name: 'Dependencies' }).click();
+  await drawer.getByRole('button', { name: /add resource/i }).click();
 
   // Bob should have a "Missing: Django" chip
   await expect(page.getByText('Missing: Django')).toBeVisible();

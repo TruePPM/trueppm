@@ -169,6 +169,20 @@ async function openDrawer(page: import('@playwright/test').Page, taskName: strin
   return drawer;
 }
 
+/**
+ * Open the drawer and expand the Dependencies section, where the resource
+ * assignment UI lives in the redesigned drawer (ADR-0050). Sections other than
+ * Overview start collapsed, so their bodies are not mounted until expanded.
+ */
+async function openDrawerWithResources(
+  page: import('@playwright/test').Page,
+  taskName: string,
+) {
+  const drawer = await openDrawer(page, taskName);
+  await drawer.getByRole('button', { name: 'Dependencies' }).click();
+  return drawer;
+}
+
 // ---------------------------------------------------------------------------
 // Drawer open/close
 // ---------------------------------------------------------------------------
@@ -206,13 +220,13 @@ test.describe('ResourceAssignmentSection — structure inside drawer', () => {
   });
 
   test('drawer contains the Resources section with Add resource button', async ({ page }) => {
-    const drawer = await openDrawer(page, 'Discovery & Design');
+    const drawer = await openDrawerWithResources(page, 'Discovery & Design');
     await expect(drawer.getByRole('region', { name: 'Resource Assignments' })).toBeVisible();
     await expect(drawer.getByRole('button', { name: /Add resource/i })).toBeVisible();
   });
 
   test('shows "None" when the task has no assignments', async ({ page }) => {
-    const drawer = await openDrawer(page, 'Discovery & Design');
+    const drawer = await openDrawerWithResources(page, 'Discovery & Design');
     const section = drawer.getByRole('region', { name: 'Resource Assignments' });
     await expect(section.getByText('None')).toBeVisible();
   });
@@ -240,7 +254,7 @@ test.describe('ResourceAssignmentSection — structure inside drawer', () => {
       }),
     );
 
-    const drawer = await openDrawer(page, 'Discovery & Design');
+    const drawer = await openDrawerWithResources(page, 'Discovery & Design');
     const section = drawer.getByRole('region', { name: 'Resource Assignments' });
     await expect(section.getByText('Alice Nguyen')).toBeVisible();
     // Allocation input should show 75 (percent)
@@ -260,13 +274,13 @@ test.describe('ResourceAssignmentSection — add resource flow', () => {
   });
 
   test('clicking Add resource opens the search combobox', async ({ page }) => {
-    const drawer = await openDrawer(page, 'Discovery & Design');
+    const drawer = await openDrawerWithResources(page, 'Discovery & Design');
     await drawer.getByRole('button', { name: /Add resource/i }).click();
     await expect(drawer.getByRole('combobox', { name: 'Search resources' })).toBeVisible();
   });
 
   test('Escape inside the combobox closes the combobox', async ({ page }) => {
-    const drawer = await openDrawer(page, 'Discovery & Design');
+    const drawer = await openDrawerWithResources(page, 'Discovery & Design');
     await drawer.getByRole('button', { name: /Add resource/i }).click();
 
     const combobox = drawer.getByRole('combobox', { name: 'Search resources' });
@@ -280,7 +294,7 @@ test.describe('ResourceAssignmentSection — add resource flow', () => {
   });
 
   test('resource search shows results from the API', async ({ page }) => {
-    const drawer = await openDrawer(page, 'Discovery & Design');
+    const drawer = await openDrawerWithResources(page, 'Discovery & Design');
     await drawer.getByRole('button', { name: /Add resource/i }).click();
 
     // The combobox preloads on mount; results should appear
@@ -329,7 +343,7 @@ test.describe('ResourceAssignmentSection — add resource flow', () => {
       }
     });
 
-    const drawer = await openDrawer(page, 'Discovery & Design');
+    const drawer = await openDrawerWithResources(page, 'Discovery & Design');
     await drawer.getByRole('button', { name: /Add resource/i }).click();
     await drawer.getByRole('option', { name: 'Alice Nguyen' }).click();
 
@@ -384,7 +398,7 @@ test.describe('ResourceAssignmentSection — overallocation warning', () => {
       }
     });
 
-    const drawer = await openDrawer(page, 'Discovery & Design');
+    const drawer = await openDrawerWithResources(page, 'Discovery & Design');
     await drawer.getByRole('button', { name: /Add resource/i }).click();
     await drawer.getByRole('option', { name: 'Alice Nguyen' }).click();
 
@@ -425,7 +439,7 @@ test.describe('ResourceAssignmentSection — overallocation warning', () => {
       }
     });
 
-    const drawer = await openDrawer(page, 'Discovery & Design');
+    const drawer = await openDrawerWithResources(page, 'Discovery & Design');
     await drawer.getByRole('button', { name: /Add resource/i }).click();
     await drawer.getByRole('option', { name: 'Alice Nguyen' }).click();
 

@@ -780,12 +780,10 @@ export function ScheduleView() {
         </div>
       )}
 
-      {/* Task detail drawer — predecessor/successor management (rule 89 pattern) */}
+      {/* Task detail drawer — sections fetch their own data via the registry (ADR-0050). */}
       {projectId && (
         <TaskDetailDrawer
           task={selectedTask}
-          tasks={allTasks}
-          links={links ?? []}
           projectId={projectId}
           onClose={() => setSelectedTaskId(null)}
         />

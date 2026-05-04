@@ -1,0 +1,71 @@
+/**
+ * OSS section registrations for `task_detail.section` (ADR-0050).
+ *
+ * Imported once at app init via TaskDetailDrawer.tsx so the registry is
+ * populated before the drawer first renders. Enterprise sections register
+ * themselves in their own init module — OSS does not import from
+ * `trueppm_enterprise`.
+ *
+ * Priority allocation (multiples of 100 reserved for OSS):
+ *   100 Overview · 200 Dependencies · 300 Subtasks (#308)
+ *   400 Attachments (#310) · 500 Comments (#311) · 600 Activity (#307)
+ *   700 Recurring (#312) · 800 Estimates · 900 History · 1000 Baseline
+ *
+ * Subtasks / Attachments / Comments / Activity / Recurring are added in
+ * their own MRs as each feature ships; their absence in this index leaves
+ * those slots empty until then.
+ */
+
+import { registry } from '@/lib/widget-registry';
+import { OverviewSection } from './OverviewSection';
+import { DependenciesSection } from './DependenciesSection';
+import { EstimatesSection } from './EstimatesSection';
+import { HistorySection } from './HistorySection';
+import { BaselineSection } from './BaselineSection';
+
+let registered = false;
+
+/**
+ * Register all OSS drawer sections. Idempotent — safe to call repeatedly
+ * (the registry sorts on every register, so duplicate calls would re-add
+ * the same id; the guard avoids that).
+ */
+export function registerOssDrawerSections(): void {
+  if (registered) return;
+  registered = true;
+
+  registry.register('task_detail.section', {
+    id: 'overview',
+    title: 'Overview',
+    component: OverviewSection,
+    priority: 100,
+  });
+
+  registry.register('task_detail.section', {
+    id: 'dependencies',
+    title: 'Dependencies',
+    component: DependenciesSection,
+    priority: 200,
+  });
+
+  registry.register('task_detail.section', {
+    id: 'estimates',
+    title: 'Estimates',
+    component: EstimatesSection,
+    priority: 800,
+  });
+
+  registry.register('task_detail.section', {
+    id: 'history',
+    title: 'History',
+    component: HistorySection,
+    priority: 900,
+  });
+
+  registry.register('task_detail.section', {
+    id: 'baseline',
+    title: 'Baseline',
+    component: BaselineSection,
+    priority: 1000,
+  });
+}
