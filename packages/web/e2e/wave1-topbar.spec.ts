@@ -94,6 +94,27 @@ async function setupBase(page: import('@playwright/test').Page, statusSummary: o
       body: JSON.stringify(statusSummary),
     }),
   );
+  await page.route('**/api/v1/projects/*/monte-carlo/latest/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        project_id: FIXTURE_PROJECT_ID,
+        runs: 1000,
+        p50: '2026-10-20',
+        p80: '2026-11-03',
+        p95: '2026-11-17',
+        histogram_buckets: [
+          { date: '2026-10-13', count: 50 },
+          { date: '2026-10-20', count: 200 },
+          { date: '2026-10-27', count: 350 },
+          { date: '2026-11-03', count: 250 },
+          { date: '2026-11-10', count: 100 },
+          { date: '2026-11-17', count: 50 },
+        ],
+      }),
+    }),
+  );
 }
 
 test.describe('Wave 1 — TopBar health badges (desktop, lg+ viewport)', () => {

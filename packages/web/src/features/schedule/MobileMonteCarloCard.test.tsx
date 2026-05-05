@@ -1,7 +1,16 @@
 import { screen, fireEvent } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
+import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
+
+vi.mock('@/hooks/useMonteCarloResult', () => ({
+  useMonteCarloResult: () => ({
+    data: FIXTURE_MC_RESULT,
+    isLoading: false,
+    error: null,
+  }),
+}));
 
 describe('MobileMonteCarloCard (#33)', () => {
   it('renders P50/P80/P95 chips with dates', () => {
