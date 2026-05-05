@@ -40,7 +40,11 @@ function task(over: Record<string, unknown>): Record<string, unknown> {
 
 const FIXTURE_TASKS = [
   // Scheduled — provides a non-empty Gantt + a row in the task list.
+  // `planned_start` is set so the missing-dates data-integrity chip does NOT
+  // render on this row (the chip rule fires on IN_PROGRESS without a
+  // PM-committed planned_start; see TaskListRow.hasMissingDatesWarning).
   task({ id: 't-scheduled', wbs_path: '1', name: 'Scheduled Item',
+    planned_start: '2026-04-07',
     early_start: '2026-04-07', early_finish: '2026-04-21', duration: 14,
     status: 'IN_PROGRESS', percent_complete: 30 }),
   // BACKLOG idea — must NOT appear in the gutter.
