@@ -2,9 +2,12 @@ import { screen, fireEvent } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
+import type { UseMonteCarloResultReturn } from '@/hooks/useMonteCarloResult';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
 
-const useMonteCarloResultSpy = vi.hoisted(() => vi.fn());
+const useMonteCarloResultSpy = vi.hoisted(() =>
+  vi.fn<(projectId?: string) => UseMonteCarloResultReturn>(),
+);
 
 vi.mock('@/hooks/useMonteCarloResult', () => ({
   useMonteCarloResult: (projectId?: string) => useMonteCarloResultSpy(projectId),
