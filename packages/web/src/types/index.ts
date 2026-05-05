@@ -84,6 +84,12 @@ export interface Task {
   assigneeIsOverallocated?: boolean;
   /** Monotonically increasing version counter — used for optimistic locking on phase reorder. */
   serverVersion?: number;
+  /**
+   * Sprint membership: when set, the task is committed to a sprint and is treated
+   * as scheduled — it must not appear in the Schedule view's Unscheduled gutter
+   * (issue #317). Null/undefined for tasks not assigned to a sprint.
+   */
+  sprintId?: string | null;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */

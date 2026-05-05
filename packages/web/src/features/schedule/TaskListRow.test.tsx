@@ -250,4 +250,65 @@ describe('TaskListRow', () => {
     expect(screen.queryByLabelText(/Expand/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Collapse/i)).not.toBeInTheDocument();
   });
+
+  describe('missing-dates warning chip (issue #317)', () => {
+    it.each(['IN_PROGRESS', 'REVIEW', 'COMPLETE'] as const)(
+      'renders chip when status is %s and start is empty',
+      (status) => {
+        renderWithRouter(
+          <TaskListRow
+            task={{ ...base, status, start: '' }}
+            level={1}
+            widths={defaultWidths}
+            visible={defaultVisible}
+            {...defaultTreeProps}
+          />,
+        );
+        expect(screen.getByTestId('missing-dates-chip')).toBeInTheDocument();
+        expect(screen.getByLabelText('Missing schedule dates')).toBeInTheDocument();
+      },
+    );
+
+    it('does not render chip when start is present', () => {
+      renderWithRouter(
+        <TaskListRow
+          task={{ ...base, status: 'IN_PROGRESS', start: '2026-10-05' }}
+          level={1}
+          widths={defaultWidths}
+          visible={defaultVisible}
+          {...defaultTreeProps}
+        />,
+      );
+      expect(screen.queryByTestId('missing-dates-chip')).not.toBeInTheDocument();
+    });
+
+    it.each(['BACKLOG', 'NOT_STARTED', 'ON_HOLD'] as const)(
+      'does not render chip for status %s without dates (those belong on the board / in the gutter)',
+      (status) => {
+        renderWithRouter(
+          <TaskListRow
+            task={{ ...base, status, start: '' }}
+            level={1}
+            widths={defaultWidths}
+            visible={defaultVisible}
+            {...defaultTreeProps}
+          />,
+        );
+        expect(screen.queryByTestId('missing-dates-chip')).not.toBeInTheDocument();
+      },
+    );
+
+    it('does not render chip on summary tasks (rollup, not data-integrity)', () => {
+      renderWithRouter(
+        <TaskListRow
+          task={{ ...base, status: 'IN_PROGRESS', start: '', isSummary: true }}
+          level={1}
+          widths={defaultWidths}
+          visible={defaultVisible}
+          {...defaultTreeProps}
+        />,
+      );
+      expect(screen.queryByTestId('missing-dates-chip')).not.toBeInTheDocument();
+    });
+  });
 });

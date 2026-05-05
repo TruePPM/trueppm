@@ -81,6 +81,17 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
 
   const isSummaryStyle = task.isSummary ? 'font-medium' : '';
 
+  // Data-integrity warning (issue #317): non-BACKLOG / non-NOT_STARTED tasks
+  // missing a start date are a data error, not "needs scheduling". The
+  // Unscheduled gutter excludes them; this inline chip surfaces them so they
+  // are not silently hidden.
+  const hasMissingDatesWarning =
+    !task.start &&
+    !task.isSummary &&
+    (task.status === 'IN_PROGRESS' ||
+      task.status === 'REVIEW' ||
+      task.status === 'COMPLETE');
+
   // Width available for task name content: full task column minus indent, chevron, and base left padding.
   // (paddingLeft = (level-1)*WBS_INDENT + 8; chevron = 18px; base = 8px)
   const taskNameWidth = Math.max(0, widths.task - (level - 1) * WBS_INDENT - 26);
@@ -174,6 +185,17 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
             >
               {task.name}
             </span>
+            {hasMissingDatesWarning && (
+              <span
+                className="inline-flex shrink-0 items-center gap-0.5 px-1 py-px rounded text-xs font-medium text-semantic-at-risk border border-semantic-at-risk/40"
+                title="This task is in progress but has no schedule dates. Set a start date or move it to To Do."
+                aria-label="Missing schedule dates"
+                data-testid="missing-dates-chip"
+              >
+                <span aria-hidden="true">⚠</span>
+                <span>missing dates</span>
+              </span>
+            )}
             {/* Dep chips — shown when task is selected in focus mode; replaces assignee chips */}
             {isSelected && depChips ? (
               <span className="flex items-center gap-0.5 flex-shrink-0" aria-label={`${depChips.predsCount} predecessors, ${depChips.succsCount} successors`}>
