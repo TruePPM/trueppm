@@ -32,11 +32,48 @@ function findBucketIndex(buckets: McBucket[], isoDate: string): number {
  *   P80 — dashed 4,2
  *   P95 — dotted 1,2
  *
+ * Degenerate case: when every simulation finishes on the same date (no PERT
+ * estimates set, or a trivial schedule), the API returns a single bucket and
+ * all three percentile rules collapse to the same x-position. Drawing them
+ * would stack the rule lines and overlap the labels into illegible glyphs.
+ * In that case we render a plain-prose summary instead of a broken chart.
+ *
  * No external charting library — plain SVG keeps bundle impact at zero.
  * Rendered inside the hover tooltip on the MonteCarloRow.
  */
 export function MonteCarloHistogram({ result }: Props) {
   const { buckets, p50, p80, p95 } = result;
+
+  // Collapse case — single-date distribution. Nothing to plot.
+  //
+  // The strongest signal is `p50 === p80 === p95` (ISO date equality). The
+  // API does NOT return one bucket in this case — it always returns up to 30
+  // buckets sized by run count, so when every run finishes on the same date
+  // you get 30 buckets sharing a single date with all weight in bucket 0 and
+  // the percentile rules pinned to the last bucket index. Drawing that
+  // produces a lonely bar at the left edge and three rules stacked at the
+  // right edge with their labels overlapping into illegible glyphs.
+  const isCollapsed = p50 === p80 && p80 === p95;
+  if (isCollapsed || buckets.length <= 1) {
+    // Format in the local zone for consistency with the chips elsewhere in
+    // the row. `new Date(iso)` parses ISO date strings as UTC midnight, which
+    // can shift the displayed day west of UTC — that mismatch is real but
+    // project-scoped (every other date label has the same behaviour) and
+    // tracked separately.
+    const sameDate = new Intl.DateTimeFormat('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(new Date(p80));
+    return (
+      <p className="text-xs text-neutral-text-secondary leading-snug" role="img" aria-label={`Monte Carlo distribution: every simulation finished on ${p80}.`}>
+        Every simulation finished on{' '}
+        <span className="font-medium text-neutral-text-primary tppm-mono">{sameDate}</span>.
+        No date spread to plot — add PERT estimates (optimistic / most-likely / pessimistic durations) on tasks to see a distribution.
+      </p>
+    );
+  }
+
   const maxCount = Math.max(...buckets.map((b) => b.count));
   const innerW = buckets.length * (BAR_W + BAR_GAP) - BAR_GAP;
   const svgW = innerW + PADDING.left + PADDING.right;

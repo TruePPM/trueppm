@@ -62,4 +62,69 @@ describe('MonteCarloHistogram', () => {
     expect(title).not.toBeNull();
     expect(title?.textContent).toContain('P50');
   });
+
+  describe('collapse case — single-bucket distribution', () => {
+    const COLLAPSED: typeof FIXTURE_MC_RESULT = {
+      ...FIXTURE_MC_RESULT,
+      p50: '2026-11-30',
+      p80: '2026-11-30',
+      p95: '2026-11-30',
+      buckets: [{ weekStart: '2026-11-30', count: 1000 }],
+    };
+
+    it('renders a prose summary instead of the SVG chart', () => {
+      const { container } = renderWithProviders(
+        <MonteCarloHistogram result={COLLAPSED} />,
+      );
+      expect(container.querySelector('svg')).toBeNull();
+      expect(screen.getByText(/Every simulation finished on/i)).toBeInTheDocument();
+    });
+
+    it('mentions the converged date and offers PERT guidance', () => {
+      renderWithProviders(<MonteCarloHistogram result={COLLAPSED} />);
+      // The exact day-of-month depends on the host timezone (the local-zone
+      // formatter shifts west of UTC). Assert only the year + month + that a
+      // PERT hint is rendered, both of which are TZ-stable.
+      expect(screen.getByText(/November.*2026|November 2026/)).toBeInTheDocument();
+      expect(screen.getByText(/PERT estimates/i)).toBeInTheDocument();
+    });
+
+    it('detects collapse via percentile equality even when the API returns 30 buckets', () => {
+      // Reproduces the real API shape: 30 buckets sharing one date, all weight
+      // in bucket 0, percentile values identical. Without the percentile-equality
+      // check the SVG draws a lonely bar at the left and three stacked rules
+      // at index 29 with overlapping labels.
+      const apiShape: typeof FIXTURE_MC_RESULT = {
+        ...FIXTURE_MC_RESULT,
+        p50: '2026-11-30',
+        p80: '2026-11-30',
+        p95: '2026-11-30',
+        buckets: Array.from({ length: 30 }, (_, i) => ({
+          weekStart: '2026-11-30',
+          count: i === 0 ? 1000 : 0,
+        })),
+      };
+      const { container } = renderWithProviders(<MonteCarloHistogram result={apiShape} />);
+      expect(container.querySelector('svg')).toBeNull();
+      expect(screen.getByText(/Every simulation finished on/i)).toBeInTheDocument();
+    });
+
+    it('treats an empty buckets array the same as a single bucket', () => {
+      const empty = { ...COLLAPSED, buckets: [] };
+      const { container } = renderWithProviders(
+        <MonteCarloHistogram result={empty} />,
+      );
+      expect(container.querySelector('svg')).toBeNull();
+      expect(screen.getByText(/Every simulation finished on/i)).toBeInTheDocument();
+    });
+
+    it('exposes an accessible label on the prose summary', () => {
+      renderWithProviders(<MonteCarloHistogram result={COLLAPSED} />);
+      const region = screen.getByRole('img');
+      expect(region).toHaveAttribute(
+        'aria-label',
+        expect.stringContaining('every simulation finished on'),
+      );
+    });
+  });
 });

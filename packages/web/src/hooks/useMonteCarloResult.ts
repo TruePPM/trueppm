@@ -1,6 +1,6 @@
-// Stub hook — returns fixture data until real API hooks are wired in.
-// Replace the body with a real useQuery call; the return type is stable.
-import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
+import { useQuery } from '@tanstack/react-query';
+import axios from 'axios';
+import { apiClient } from '@/api/client';
 import type { MonteCarloResult } from '@/types';
 
 export interface UseMonteCarloResultReturn {
@@ -9,13 +9,63 @@ export interface UseMonteCarloResultReturn {
   error: Error | null;
 }
 
+// Wire shape returned by GET /projects/{pk}/monte-carlo/latest/. Distinct from
+// the frontend type — keys use snake_case and `histogram_buckets` carries the
+// pre-bucketed distribution under a `date` key per bucket.
+interface MonteCarloLatestResponse {
+  project_id: string;
+  runs: number;
+  p50: string;
+  p80: string;
+  p95: string;
+  histogram_buckets: { date: string; count: number }[];
+}
+
+function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
+  return {
+    projectId: api.project_id,
+    runs: api.runs,
+    p50: api.p50,
+    p80: api.p80,
+    p95: api.p95,
+    buckets: api.histogram_buckets.map((b) => ({ weekStart: b.date, count: b.count })),
+  };
+}
+
 /**
- * Fetch the Monte Carlo simulation result for a project.
+ * Fetch the latest Monte Carlo simulation result for a project.
  *
- * @stub Returns fixture data until GET /projects/{id}/monte-carlo/ is wired.
- * Replace the body with a real useQuery call; the return type is stable.
+ * Calls `GET /projects/{pk}/monte-carlo/latest/`, which returns the cached
+ * result of the most recent simulation (24h TTL). A 404 means no simulation
+ * has been run since the cache last expired — we surface this as an empty
+ * (`data: undefined`) state rather than an error, so callers can render a
+ * "not run yet" placeholder without an error toast.
  */
 export function useMonteCarloResult(projectId?: string): UseMonteCarloResultReturn {
-  void projectId; // stub — real hook will use this
-  return { data: FIXTURE_MC_RESULT, isLoading: false, error: null };
+  const query = useQuery({
+    queryKey: ['monte-carlo-latest', projectId],
+    queryFn: async () => {
+      try {
+        const res = await apiClient.get<MonteCarloLatestResponse>(
+          `/projects/${projectId}/monte-carlo/latest/`,
+        );
+        return mapResponse(res.data);
+      } catch (err) {
+        if (axios.isAxiosError(err) && err.response?.status === 404) {
+          // No simulation run yet — empty state, not an error. Return `null`
+          // (React Query v5 disallows `undefined` from queryFn) and map to
+          // `undefined` in the public hook return.
+          return null;
+        }
+        throw err;
+      }
+    },
+    enabled: !!projectId,
+  });
+
+  return {
+    data: query.data ?? undefined,
+    isLoading: query.isLoading,
+    error: query.error,
+  };
 }

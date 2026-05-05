@@ -49,11 +49,15 @@ These rules are enforced at review time. Violations block merge.
 ## Monte Carlo Row Rules
 
 17. **MC row height is 44px** — outside the virtualizer; does not participate in scroll sync (not 28px like task rows).
-18. **MC mini-histogram bars are coloured by percentile region** — green (`bg-semantic-on-track/50`) for buckets ≤ P50, amber (`bg-semantic-at-risk/50`) for P50–P80, red (`bg-semantic-critical/50`) for > P80. WCAG 1.4.1 is satisfied by the accompanying text chips, not by the bar colours alone.
-19. **MC histogram SVG bars in the tooltip use `fill-neutral-text-disabled`** — distribution shape is neutral; semantic colours are reserved for the P50/P80/P95 vertical rule lines inside the tooltip.
-20. **P50 / P80 / P95 date chips are permanently visible** in the `MonteCarloTimeline` panel — outlined style (`bg-transparent border border-{semantic}/40 text-{semantic}`). Not fill. Hover or keyboard-focus opens the detailed histogram tooltip over the strip.
+18. **No always-visible mini-histogram strip in the MC row** — the always-visible surface is chips-only (`P50 {date}` · `P80 {date}` · `P95 {date}`) plus a "Detail ›" hint. Real-world inputs without PERT estimates collapse to a single histogram bar that misleads more than it informs; the chips are the persona-aligned signal. Distribution shape lives only in the hover/focus tooltip (desktop) and the bottom-sheet (mobile).
+19. **MC histogram SVG bars in the tooltip use `fill-neutral-text-disabled`** — distribution shape is neutral; semantic colours are reserved for the P50/P80/P95 vertical rule lines inside the tooltip. The same rule applies to the histogram inside `MonteCarloSheet` (mobile) and `MCResultPanel` (TopBar P80 click).
+20. **P50 / P80 / P95 date chips are permanently visible** in the `MonteCarloTimeline` row — outlined style (`bg-transparent border border-{semantic}/40 text-{semantic}`), not fill. Hover or keyboard-focus opens the detailed histogram tooltip; chip text is the WCAG 1.4.1 fallback so colour is never the sole signal.
 21. **P80 badge uses outlined style** — `bg-transparent border border-semantic-at-risk/40 text-semantic-at-risk`. Not `bg-semantic-at-risk/10` fill. Consistent with rule 39.
-22. **MC row (`MonteCarloRow`) is `hidden md:flex`** — suppressed below 768px. The P80 badge in `TopBar` is `hidden md:flex` (desktop only). Mobile surfaces P80 via a chip in `StatusBar` (`md:hidden`) — resolved by issue #33. `MonteCarloLabel` shows a persistent "P80: Mon D" chip at `md+` breakpoints.
+22. **MC row (`MonteCarloRow`) is `hidden md:flex`** — suppressed below 768px. The P80 badge in `TopBar` is `hidden md:flex` (desktop only). Mobile surfaces P80 via a chip in `StatusBar` (`md:hidden`) — resolved by issue #33. `MonteCarloLabel` is text-only (σ + "Monte Carlo") — the previous left-side P80 chip was a duplicate of the right-side P80 chip in the timeline and was VoC-flagged as noise.
+
+22a. **MC row uses a browser-native `title`, not a custom popover.** The plain-English explanation (`"8 in 10 simulations finish by {date}"` for real distributions, `"Every simulation finished on {date}. Add PERT estimates …"` when percentiles collapse to one date) is carried by the `title` attribute on the row's static `div`, mirrored to `aria-label` for screen readers. The previous `mouseenter`-triggered popover opened on cursor pass-through and overlapped the unscheduled gutter sitting directly above; native `title` doesn't fire on transient hovers and never positions over adjacent elements. The full histogram lives in `MCResultPanel` (TopBar P80 click) and `MonteCarloSheet` (mobile) — surfaces where the user has explicitly asked for distribution shape.
+
+22b. **MC chips use a colon separator** — `P50: Nov 30`, `P80: Nov 30`, `P95: Nov 30`. Consistent across `MonteCarloTimeline` and `MobileMonteCarloCard`. Never render the label and date with only a space.
 
 ## Drag Preview Rules (Issue #19)
 

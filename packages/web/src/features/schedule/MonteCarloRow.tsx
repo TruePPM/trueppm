@@ -1,5 +1,6 @@
 import type { GanttEngine } from './engine';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
+import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
 import { MC_ROW_HEIGHT } from './scheduleConstants';
 import { MonteCarloLabel } from './MonteCarloLabel';
 import { MonteCarloTimeline } from './MonteCarloTimeline';
@@ -16,16 +17,52 @@ interface Props {
  * Full-width strip below the Gantt split pane showing the Monte Carlo
  * distribution histogram and P50/P80/P95 date chips.
  *
- * Hidden on screens narrower than md (768px) — mobile surface is deferred.
- * Renders nothing if no MC result is available (first load, loading state).
+ * Hidden on screens narrower than md (768px) — mobile uses
+ * `MobileMonteCarloCard`. When no simulation result is cached for the
+ * project, renders an inline "Run Monte Carlo" CTA so the row remains
+ * visible (the previous behavior of returning null hid the entire feature
+ * from users who had not yet run a simulation).
  *
  * The `engine` prop is retained for role-gating (rule 47) and future
  * engine-event wiring; it is not used for scroll sync in this layout.
  */
 export function MonteCarloRow({ engine: _engine, projectId, taskListWidth }: Props) {
-  const { data: result } = useMonteCarloResult(projectId);
+  const { data: result, isLoading } = useMonteCarloResult(projectId);
+  const runMc = useRunMonteCarlo(projectId);
 
-  if (!result) return null;
+  if (!result) {
+    // No project context yet — render nothing rather than a CTA that cannot fire.
+    if (!projectId) return null;
+    return (
+      <div
+        className="hidden md:flex flex-row items-center gap-3 flex-shrink-0 border-t border-neutral-border px-4"
+        style={{ height: MC_ROW_HEIGHT }}
+        aria-label="Monte Carlo confidence row — no simulation run yet"
+      >
+        <span className="text-xs font-medium text-neutral-text-secondary tracking-wide uppercase">
+          Monte Carlo
+        </span>
+        <span className="text-xs text-neutral-text-secondary">
+          {isLoading
+            ? 'Loading forecast…'
+            : runMc.isError
+              ? 'Could not run simulation. Try again.'
+              : 'Run a simulation to see P50/P80/P95 finish-date probabilities.'}
+        </span>
+        <button
+          type="button"
+          onClick={() => runMc.mutate({})}
+          disabled={runMc.isPending || isLoading}
+          className="ml-auto inline-flex items-center h-7 px-3 rounded border border-neutral-border bg-neutral-surface
+            text-xs font-medium text-neutral-text-primary
+            hover:bg-neutral-surface-raised disabled:opacity-50 disabled:cursor-not-allowed
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          {runMc.isPending ? 'Running…' : 'Run Monte Carlo'}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -33,7 +70,7 @@ export function MonteCarloRow({ engine: _engine, projectId, taskListWidth }: Pro
       style={{ height: MC_ROW_HEIGHT }}
       aria-label="Monte Carlo confidence row"
     >
-      <MonteCarloLabel width={taskListWidth} p80Date={result.p80} />
+      <MonteCarloLabel width={taskListWidth} />
       <MonteCarloTimeline result={result} />
     </div>
   );
