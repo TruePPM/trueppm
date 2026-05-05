@@ -1641,10 +1641,12 @@ export function BoardView() {
       {/* Task detail drawer — rendered from BoardView for the first time
           (folds in #265). Driven by the popover's "Open detail" / "Edit"
           actions; shares the same registry-backed entry path as the
-          Schedule view (ADR-0050). */}
-      {projectId && (
+          Schedule view (ADR-0050). Conditionally mounted on selection so a
+          closed `role="dialog"` does not collide with the Workshop modal's
+          loose `getByRole('dialog')` locator (wave9-workshop e2e). */}
+      {projectId && selectedTaskId && (
         <TaskDetailDrawer
-          task={selectedTaskId ? (taskIndex.get(selectedTaskId) ?? null) : null}
+          task={taskIndex.get(selectedTaskId) ?? null}
           projectId={projectId}
           onClose={() => setSelectedTaskId(null)}
         />

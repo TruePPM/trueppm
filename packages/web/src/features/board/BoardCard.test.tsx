@@ -60,6 +60,7 @@ function renderCard(props: Partial<ComponentProps<typeof BoardCard>>) {
         onShowRisks={props.onShowRisks}
         showEvm={props.showEvm}
         showCost={props.showCost}
+        onCardClick={props.onCardClick}
       />
     </Wrapper>,
   );
@@ -745,6 +746,44 @@ describe('BoardCard', () => {
       };
       renderCard({ task, density: 'comfortable' });
       expect(screen.getByText('5d float')).toBeInTheDocument();
+    });
+  });
+
+  describe('onCardClick (issue #304)', () => {
+    function getCardRoot(): HTMLElement {
+      // The card root carries `aria-roledescription="draggable"` from dnd-kit;
+      // the menu trigger and chain icon are also `role="button"` but on
+      // smaller elements.
+      return screen.getAllByRole('button').find(
+        (el) => el.getAttribute('aria-roledescription') === 'draggable',
+      )!;
+    }
+
+    it('fires onCardClick on root click with the task and the card root as anchor', () => {
+      const onCardClick = vi.fn();
+      renderCard({ onCardClick });
+      const card = getCardRoot();
+      fireEvent.click(card);
+      expect(onCardClick).toHaveBeenCalledTimes(1);
+      expect(onCardClick).toHaveBeenCalledWith(baseTask, card);
+    });
+
+    it('fires onCardClick on Enter and Space when focus is on the card root', () => {
+      const onCardClick = vi.fn();
+      renderCard({ onCardClick });
+      const card = getCardRoot();
+      fireEvent.keyDown(card, { key: 'Enter' });
+      expect(onCardClick).toHaveBeenCalledTimes(1);
+      fireEvent.keyDown(card, { key: ' ' });
+      expect(onCardClick).toHaveBeenCalledTimes(2);
+    });
+
+    it('fires onCardClick on the comfortable density variant as well', () => {
+      const onCardClick = vi.fn();
+      renderCard({ onCardClick, density: 'comfortable' });
+      const card = getCardRoot();
+      fireEvent.click(card);
+      expect(onCardClick).toHaveBeenCalledTimes(1);
     });
   });
 });

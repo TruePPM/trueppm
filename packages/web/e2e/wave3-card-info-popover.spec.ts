@@ -185,7 +185,9 @@ test.describe('Card information popover (#304)', () => {
     await setup(page);
     await page.goto(`${BASE_URL}/board`);
     await page.getByText('Design Review').click();
-    const popover = page.getByRole('dialog', { name: /Design Review/ });
+    // Anchor the popover regex so it does not also match the drawer's
+    // WBS-prefixed accessible name ("1.1 — Design Review").
+    const popover = page.getByRole('dialog', { name: /^Design Review$/ });
     await popover.getByRole('button', { name: 'Open detail' }).click();
     // Drawer's accessible name uses the WBS-prefixed task title.
     await expect(page.getByRole('dialog', { name: /1\.1.*Design Review/ })).toBeVisible();

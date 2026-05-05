@@ -164,4 +164,109 @@ describe('BoardCardPopover (issue #304)', () => {
     renderPopover(baseTask(), { isMobile: false });
     expect(screen.getByRole('dialog').getAttribute('aria-modal')).toBe('false');
   });
+
+  it('closes on pointerdown outside both the popover and the anchor', () => {
+    const anchor = document.createElement('div');
+    document.body.appendChild(anchor);
+    const { props } = renderPopover(baseTask(), { anchor });
+    fireEvent.pointerDown(document.body);
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+    document.body.removeChild(anchor);
+  });
+
+  it('does not close on pointerdown inside the anchor (re-open guard)', () => {
+    const anchor = document.createElement('div');
+    document.body.appendChild(anchor);
+    const { props } = renderPopover(baseTask(), { anchor });
+    fireEvent.pointerDown(anchor);
+    expect(props.onClose).not.toHaveBeenCalled();
+    document.body.removeChild(anchor);
+  });
+
+  it('does not close on pointerdown inside the popover content', () => {
+    const { props } = renderPopover(baseTask());
+    const dialog = screen.getByRole('dialog');
+    fireEvent.pointerDown(dialog);
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+
+  it('closes on scrim tap on mobile', () => {
+    const { container, props } = renderPopover(baseTask(), { isMobile: true });
+    // Scrim is the first child div with aria-hidden="true" and bg-black/40 sibling-of-dialog.
+    const scrim = container.querySelector('[aria-hidden="true"].bg-black\\/40') as HTMLElement;
+    expect(scrim).toBeTruthy();
+    fireEvent.pointerDown(scrim);
+    expect(props.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a neutral float chip for a scheduled non-critical task with totalFloat set', () => {
+    renderPopover(baseTask({ isCritical: false, totalFloat: 3 }));
+    expect(screen.getByText(/^3d float$/)).toBeInTheDocument();
+    expect(screen.queryByText(/critical path/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['COMPLETE', 'Complete'],
+    ['REVIEW', 'Review'],
+    ['BACKLOG', 'Backlog'],
+    ['ON_HOLD', 'On hold'],
+    ['NOT_STARTED', 'To Do'],
+  ] as const)('renders the %s status pill with the correct label', (status, label) => {
+    renderPopover(baseTask({ status }));
+    expect(screen.getByLabelText(`Status: ${label}`)).toBeInTheDocument();
+  });
+
+  it.each(['idea', 'estimated', 'baselined'] as const)(
+    'renders the %s readiness chip variant',
+    (readiness) => {
+      renderPopover(baseTask({ readiness }));
+      expect(screen.getByText(readiness)).toBeInTheDocument();
+    },
+  );
+
+  it('renders a single-letter initial for a one-word assignee name', () => {
+    renderPopover(
+      baseTask({
+        assignees: [{ resourceId: 'r1', name: 'Maya', units: 1 }],
+      }),
+    );
+    const chip = screen.getByLabelText('Maya');
+    expect(chip.textContent).toBe('M');
+  });
+
+  it('falls back to "?" initials when an assignee name is whitespace', () => {
+    const { container } = renderPopover(
+      baseTask({
+        assignees: [{ resourceId: 'r1', name: '   ', units: 1 }],
+      }),
+    );
+    // Whitespace `aria-label` is normalised by accessible-name lookups;
+    // assert directly on the assignee chip's text content instead.
+    const chip = container.querySelector('.bg-brand-primary.font-bold');
+    expect(chip?.textContent).toBe('?');
+  });
+
+  it('traps Tab focus inside the dialog on mobile (Tab from last → first)', () => {
+    renderPopover(baseTask(), { isMobile: true });
+    const dialog = screen.getByRole('dialog');
+    const focusables = dialog.querySelectorAll<HTMLElement>('button');
+    const last = focusables[focusables.length - 1];
+    last.focus();
+    expect(document.activeElement).toBe(last);
+    const first = focusables[0];
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+  });
+
+  it('traps Shift+Tab focus inside the dialog on mobile (Shift+Tab from first → last)', () => {
+    renderPopover(baseTask(), { isMobile: true });
+    const dialog = screen.getByRole('dialog');
+    const focusables = dialog.querySelectorAll<HTMLElement>('button');
+    const first = focusables[0];
+    first.focus();
+    expect(document.activeElement).toBe(first);
+    const last = focusables[focusables.length - 1];
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+  });
 });
