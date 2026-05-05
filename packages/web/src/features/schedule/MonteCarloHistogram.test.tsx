@@ -87,6 +87,26 @@ describe('MonteCarloHistogram', () => {
       expect(screen.getByText(/PERT estimates/i)).toBeInTheDocument();
     });
 
+    it('detects collapse via percentile equality even when the API returns 30 buckets', () => {
+      // Reproduces the real API shape: 30 buckets sharing one date, all weight
+      // in bucket 0, percentile values identical. Without the percentile-equality
+      // check the SVG draws a lonely bar at the left and three stacked rules
+      // at index 29 with overlapping labels.
+      const apiShape: typeof FIXTURE_MC_RESULT = {
+        ...FIXTURE_MC_RESULT,
+        p50: '2026-11-30',
+        p80: '2026-11-30',
+        p95: '2026-11-30',
+        buckets: Array.from({ length: 30 }, (_, i) => ({
+          weekStart: '2026-11-30',
+          count: i === 0 ? 1000 : 0,
+        })),
+      };
+      const { container } = renderWithProviders(<MonteCarloHistogram result={apiShape} />);
+      expect(container.querySelector('svg')).toBeNull();
+      expect(screen.getByText(/Every simulation finished on/i)).toBeInTheDocument();
+    });
+
     it('treats an empty buckets array the same as a single bucket', () => {
       const empty = { ...COLLAPSED, buckets: [] };
       const { container } = renderWithProviders(

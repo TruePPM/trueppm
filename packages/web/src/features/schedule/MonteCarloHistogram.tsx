@@ -45,7 +45,16 @@ export function MonteCarloHistogram({ result }: Props) {
   const { buckets, p50, p80, p95 } = result;
 
   // Collapse case — single-date distribution. Nothing to plot.
-  if (buckets.length <= 1) {
+  //
+  // The strongest signal is `p50 === p80 === p95` (ISO date equality). The
+  // API does NOT return one bucket in this case — it always returns up to 30
+  // buckets sized by run count, so when every run finishes on the same date
+  // you get 30 buckets sharing a single date with all weight in bucket 0 and
+  // the percentile rules pinned to the last bucket index. Drawing that
+  // produces a lonely bar at the left edge and three rules stacked at the
+  // right edge with their labels overlapping into illegible glyphs.
+  const isCollapsed = p50 === p80 && p80 === p95;
+  if (isCollapsed || buckets.length <= 1) {
     // ISO date strings (`YYYY-MM-DD`) are parsed by `new Date()` as UTC
     // midnight, so formatting in the local zone shifts the day west of UTC.
     // Force UTC display to keep the date label consistent with the API value.
