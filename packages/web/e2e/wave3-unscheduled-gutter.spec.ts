@@ -293,6 +293,12 @@ test.describe('Unscheduled gutter — overflow menu promote (#213)', () => {
     await page.waitForTimeout(500);
     expect(patchBody).not.toBeNull();
     expect(patchBody!['planned_start']).toBe('2026-05-12');
+    // Future drop date → status stays NOT_STARTED so the board doesn't
+    // claim work has begun (#336). IN_PROGRESS is gated on planned_start
+    // ≤ today; today/past-drop variants are covered exhaustively in
+    // useTaskMutations.test.ts (vi.setSystemTime makes those date branches
+    // deterministic; reproducing them in a Playwright run is brittle).
     expect(patchBody!['status']).toBe('NOT_STARTED');
+    expect(patchBody!['actual_start']).toBeUndefined();
   });
 });

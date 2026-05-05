@@ -5,7 +5,7 @@
  */
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import {
@@ -18,6 +18,7 @@ import {
   useDeleteTask,
   useBulkDeleteTasks,
   useReorderTasks,
+  usePromoteTask,
 } from './useTaskMutations';
 import type { Task } from '@/types';
 
@@ -405,6 +406,80 @@ describe('useReorderTasks', () => {
     result.current.mutate({ parent_path: '', ordered_ids: ['t1'] });
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', undefined] }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// usePromoteTask — date-conditional status transition (#336).
+// Drop-on-future = NOT_STARTED (committed but not started).
+// Drop-on-today  = IN_PROGRESS (work begins now; backend auto-sets actual_start).
+// Drop-on-past   = IN_PROGRESS + actual_start pinned to planned_start so the
+// backend's auto-actual_start = today doesn't overwrite the historical value.
+// ---------------------------------------------------------------------------
+describe('usePromoteTask', () => {
+  let qc: QueryClient;
+  const TODAY = '2026-05-05';
+
+  beforeEach(() => {
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    vi.clearAllMocks();
+    // Pin only Date — leaving setTimeout/setInterval real so React Testing
+    // Library's waitFor() can still flush microtasks.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('keeps status NOT_STARTED when scheduled for the future', async () => {
+    const { result } = renderHook(() => usePromoteTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ id: 't1', projectId: 'proj1', planned_start: '2026-06-15' });
+
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', {
+        planned_start: '2026-06-15',
+        status: 'NOT_STARTED',
+      }),
+    );
+  });
+
+  it('transitions to IN_PROGRESS when scheduled for today (no actual_start)', async () => {
+    const { result } = renderHook(() => usePromoteTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ id: 't1', projectId: 'proj1', planned_start: TODAY });
+
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', {
+        planned_start: TODAY,
+        status: 'IN_PROGRESS',
+      }),
+    );
+  });
+
+  it('transitions to IN_PROGRESS and pins actual_start when scheduled for the past', async () => {
+    const { result } = renderHook(() => usePromoteTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ id: 't1', projectId: 'proj1', planned_start: '2026-05-01' });
+
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', {
+        planned_start: '2026-05-01',
+        status: 'IN_PROGRESS',
+        actual_start: '2026-05-01',
+      }),
+    );
+  });
+
+  it('invalidates the tasks cache for the project on success', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => usePromoteTask(), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ id: 't1', projectId: 'proj1', planned_start: '2026-07-01' });
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj1'] }),
     );
   });
 });

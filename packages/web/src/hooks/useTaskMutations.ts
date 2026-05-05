@@ -224,19 +224,33 @@ export interface PromoteTaskPayload {
 /**
  * PATCH /api/v1/tasks/{id}/ to promote an unscheduled task onto the timeline.
  *
- * Sets planned_start to the dropped date and transitions status from BACKLOG to
- * NOT_STARTED.  Invalidates the task cache so the gutter empties and the canvas
- * renders the task in its new position once CPM re-runs.
+ * Status transition is gated on the drop date so the unified data model holds
+ * across Schedule and Board views (#336): a task is `IN_PROGRESS` only when
+ * work has actually begun, not when it has been *scheduled* to begin in the
+ * future. Dropping today/past = pulling into active work → `IN_PROGRESS`.
+ * Dropping in the future = committing dates without starting → `NOT_STARTED`.
+ *
+ * For past drops the frontend pins `actual_start` to `planned_start` so the
+ * backend's auto-`actual_start = today` (TaskSerializer.update) doesn't
+ * overwrite the user-supplied historical start.
  */
 export function usePromoteTask() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ id, planned_start }: PromoteTaskPayload) => {
-      await apiClient.patch(`/tasks/${id}/`, {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const isStartingNowOrEarlier = planned_start <= todayIso;
+
+      const body: Record<string, string> = {
         planned_start,
-        status: 'NOT_STARTED',
-      });
+        status: isStartingNowOrEarlier ? 'IN_PROGRESS' : 'NOT_STARTED',
+      };
+      if (isStartingNowOrEarlier && planned_start < todayIso) {
+        body.actual_start = planned_start;
+      }
+
+      await apiClient.patch(`/tasks/${id}/`, body);
     },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });

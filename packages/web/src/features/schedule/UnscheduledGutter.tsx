@@ -33,7 +33,9 @@ const COLLAPSED_KEY = 'trueppm.gantt.unscheduledGutter.collapsed';
  * Unscheduled gutter — shows tasks with no schedule dates below the Gantt (#213).
  *
  * Drag-to-promote: pointer events on task rows → floating preview → drop on canvas
- * → PATCH {planned_start, status: NOT_STARTED}.
+ * → PATCH {planned_start, status}. Status transitions to IN_PROGRESS when the
+ * drop date is today/past (work is starting now); future drops keep status at
+ * NOT_STARTED so the board doesn't claim work has begun (#336).
  */
 export function UnscheduledGutter({
   tasks,
