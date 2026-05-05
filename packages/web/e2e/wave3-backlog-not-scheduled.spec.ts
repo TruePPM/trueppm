@@ -191,8 +191,11 @@ test.describe('Backlog cards must not display as scheduled (#332)', () => {
     // confirm the Schedule view is ready before asserting on the row.
     await expect(page.getByText('Unscheduled', { exact: true })).toBeVisible({ timeout: 10_000 });
     // The backlog task name should appear in the gutter row list — proving
-    // useUnscheduledTasks now widens to BACKLOG (#332).
-    await expect(page.getByText('Backlog Idea')).toBeVisible();
+    // useUnscheduledTasks now widens to BACKLOG (#332). Scope the lookup to
+    // the gutter region: the task name also appears in the task list panel,
+    // which would trip strict-mode on a top-level getByText.
+    const gutter = page.getByRole('region', { name: 'Unscheduled tasks' });
+    await expect(gutter.getByText('Backlog Idea')).toBeVisible();
     // And the empty-state copy must NOT be visible — there IS an unscheduled task.
     await expect(page.getByText('All To Do and Backlog tasks have planned dates')).toHaveCount(0);
   });
