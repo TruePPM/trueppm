@@ -1,139 +1,71 @@
-import { render, screen, fireEvent } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { MonteCarloTimeline } from './MonteCarloTimeline';
 import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
 
 describe('MonteCarloTimeline', () => {
-  it('renders the interactive button element', () => {
+  it('renders the three permanent percentile chips with colon separator', () => {
     render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    const btn = screen.getByRole('button');
-    expect(btn).toBeInTheDocument();
-    expect(btn).toHaveAttribute('aria-haspopup', 'dialog');
-    expect(btn).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByText(/^P50: /)).toBeInTheDocument();
+    expect(screen.getByText(/^P80: /)).toBeInTheDocument();
+    expect(screen.getByText(/^P95: /)).toBeInTheDocument();
   });
 
-  it('renders permanently-visible P50, P80, P95 chips', () => {
+  it('does not open a custom popover on hover (chips are static)', () => {
     render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    // Chips include the label text "P50", "P80", "P95" always visible
-    expect(screen.getByText(/^P50/)).toBeInTheDocument();
-    expect(screen.getByText(/^P80/)).toBeInTheDocument();
-    expect(screen.getByText(/^P95/)).toBeInTheDocument();
-  });
-
-  it('does not render a loading placeholder (histogram is always shown)', () => {
-    render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    expect(screen.queryByText('Loading…')).not.toBeInTheDocument();
-  });
-
-  it('opens the histogram dialog on mouse enter', async () => {
-    const user = userEvent.setup();
-    render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    const btn = screen.getByRole('button');
-    await user.hover(btn);
-    expect(btn).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-  });
-
-  it('closes the histogram dialog on mouse leave', async () => {
-    const user = userEvent.setup();
-    render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    const btn = screen.getByRole('button');
-    await user.hover(btn);
-    await user.unhover(btn);
-    expect(btn).toHaveAttribute('aria-expanded', 'false');
+    // The previous design opened a `role="dialog"` on mouseenter and that
+    // popover overlapped the unscheduled gutter above the row. The row is
+    // now non-interactive — explanation lives in a browser-native `title`.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('opens the histogram dialog on Enter keypress', () => {
-    render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    const btn = screen.getByRole('button');
-    fireEvent.keyDown(btn, { key: 'Enter', code: 'Enter' });
-    expect(btn).toHaveAttribute('aria-expanded', 'true');
+  it('exposes the plain-English headline as a `title` attribute on the row', () => {
+    const { container } = render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
+    const row = container.firstChild as HTMLElement;
+    expect(row.getAttribute('title')).toMatch(/8 in 10 simulations finish by/i);
   });
 
-  it('opens the histogram dialog on Space keypress', () => {
+  it('mirrors the headline as the row aria-label for screen readers', () => {
     render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    const btn = screen.getByRole('button');
-    fireEvent.keyDown(btn, { key: ' ', code: 'Space' });
-    expect(btn).toHaveAttribute('aria-expanded', 'true');
-  });
-
-  it('closes an open dialog on Escape keypress', () => {
-    render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    const btn = screen.getByRole('button');
-    fireEvent.keyDown(btn, { key: 'Enter', code: 'Enter' }); // open
-    fireEvent.keyDown(btn, { key: 'Escape', code: 'Escape' }); // close
-    expect(btn).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  it('toggles: second Enter press closes the dialog', () => {
-    render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    const btn = screen.getByRole('button');
-    fireEvent.keyDown(btn, { key: 'Enter', code: 'Enter' }); // open
-    fireEvent.keyDown(btn, { key: 'Enter', code: 'Enter' }); // close
-    expect(btn).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  it('opens the dialog on focus and closes on blur', () => {
-    render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    const btn = screen.getByRole('button');
-    fireEvent.focus(btn);
-    expect(btn).toHaveAttribute('aria-expanded', 'true');
-    fireEvent.blur(btn);
-    expect(btn).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  it('updates tooltip position on mouse move when dialog is open', () => {
-    render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    const btn = screen.getByRole('button');
-    // Open via hover
-    fireEvent.mouseEnter(btn, { clientX: 100, clientY: 200 });
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-    // Move mouse while open — should not throw
-    expect(() => {
-      fireEvent.mouseMove(btn, { clientX: 150, clientY: 220 });
-    }).not.toThrow();
-    // Dialog still open
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-  });
-
-  it('does not update position on mouse move when dialog is closed', () => {
-    render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    const btn = screen.getByRole('button');
-    // Mouse move while closed — isOpen is false, no state update
-    expect(() => {
-      fireEvent.mouseMove(btn, { clientX: 100, clientY: 200 });
-    }).not.toThrow();
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  });
-
-  it('opens on focus using showAtCenter with an attached element', () => {
-    render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    const btn = screen.getByRole('button');
-    // showAtCenter uses getBoundingClientRect — JSDOM returns zeroes
-    fireEvent.focus(btn);
-    expect(btn).toHaveAttribute('aria-expanded', 'true');
+    const row = screen.getByLabelText(/8 in 10 simulations finish by/i);
+    expect(row).toBeInTheDocument();
   });
 
   it('does not render the always-visible mini histogram strip', () => {
     // The strip was removed because real-world inputs (no PERT) collapse to a
     // single bar that misleads more than it informs. Distribution shape lives
-    // only in the hover/focus tooltip.
+    // in the dedicated MC views (MCResultPanel, MonteCarloSheet) — never here.
     const { container } = render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    // The previous strip used `bg-semantic-on-track/50` etc. as fill classes
-    // and lived inside the always-visible row. Confirm none survive there.
     expect(container.querySelector('.bg-semantic-on-track\\/50')).toBeNull();
     expect(container.querySelector('.bg-semantic-at-risk\\/50')).toBeNull();
     expect(container.querySelector('.bg-semantic-critical\\/50')).toBeNull();
   });
 
-  it('dialog renders with reduced motion class when prefersReducedMotion is false', () => {
-    render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    const btn = screen.getByRole('button');
-    fireEvent.mouseEnter(btn, { clientX: 100, clientY: 200 });
-    const dialog = screen.getByRole('dialog');
-    // In test environment prefersReducedMotion is false by default
-    expect(dialog.className).toContain('motion-safe:transition-opacity');
+  describe('collapse case — every simulation converged on one date', () => {
+    const COLLAPSED: typeof FIXTURE_MC_RESULT = {
+      ...FIXTURE_MC_RESULT,
+      p50: '2026-11-30',
+      p80: '2026-11-30',
+      p95: '2026-11-30',
+      buckets: [{ weekStart: '2026-11-30', count: 1000 }],
+    };
+
+    it('uses the converged-date title with a PERT-estimate hint', () => {
+      const { container } = render(<MonteCarloTimeline result={COLLAPSED} />);
+      const row = container.firstChild as HTMLElement;
+      expect(row.getAttribute('title')).toMatch(/Every simulation finished on/i);
+      expect(row.getAttribute('title')).toMatch(/Add PERT estimates/i);
+    });
+
+    it('still renders the three chips even when their dates are identical', () => {
+      // The user is meant to see "P50: Nov 30 / P80: Nov 30 / P95: Nov 30" —
+      // three identical chips are themselves the visual signal that the
+      // simulation produced no spread.
+      render(<MonteCarloTimeline result={COLLAPSED} />);
+      expect(screen.getByText(/^P50: /)).toBeInTheDocument();
+      expect(screen.getByText(/^P80: /)).toBeInTheDocument();
+      expect(screen.getByText(/^P95: /)).toBeInTheDocument();
+    });
   });
 });

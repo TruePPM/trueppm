@@ -58,12 +58,14 @@ describe('MonteCarloRow', () => {
     expect(screen.getByText('σ')).toBeInTheDocument();
   });
 
-  it('renders the timeline area with an accessible label', () => {
+  it('renders the timeline with the plain-English headline as its accessible label', () => {
+    // The timeline is no longer a button — explanation is carried by a `title`
+    // mirrored to `aria-label` on a static div, so the label-based query is
+    // the right way to find it.
     renderWithProviders(<MonteCarloRow engine={null} taskListWidth={364} />);
-    const timeline = screen.getByRole('button');
-    expect(timeline).toHaveAttribute('aria-label', expect.stringContaining('P50'));
-    expect(timeline).toHaveAttribute('aria-label', expect.stringContaining('P80'));
-    expect(timeline).toHaveAttribute('aria-label', expect.stringContaining('P95'));
+    expect(
+      screen.getByLabelText(/8 in 10 simulations finish by/i),
+    ).toBeInTheDocument();
   });
 
   describe('empty state — no simulation cached', () => {
