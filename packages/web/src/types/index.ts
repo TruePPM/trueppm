@@ -222,6 +222,8 @@ export interface MonteCarloResult {
   p95: string;
   /** Weekly bucket histogram of the full distribution */
   buckets: McBucket[];
+  /** ISO timestamp of when the simulation was run, captured at cache-write time. */
+  lastRunAt?: string;
 }
 
 // ---------------------------------------------------------------------------

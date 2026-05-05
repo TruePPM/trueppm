@@ -117,4 +117,62 @@ describe('MonteCarloRow', () => {
       expect(screen.getByText(/Could not run simulation\. Try again\./i)).toBeInTheDocument();
     });
   });
+
+  describe('populated state — Rerun affordance and freshness signal (issue #335)', () => {
+    it('renders a Rerun button alongside the chips when a result is cached', () => {
+      // Pre-#335: the run-MC button only appeared in the empty state. Once a
+      // result was cached, the row was read-only until the 24h cache expired.
+      mockResult = {
+        data: { ...FIXTURE_MC_RESULT, lastRunAt: '2026-05-05T10:00:00Z' },
+        isLoading: false,
+        error: null,
+      };
+      renderWithProviders(
+        <MonteCarloRow engine={null} projectId="proj-1" taskListWidth={364} />,
+      );
+      expect(
+        screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('clicking the populated-state Rerun button fires the run mutation', () => {
+      mockResult = {
+        data: { ...FIXTURE_MC_RESULT, lastRunAt: '2026-05-05T10:00:00Z' },
+        isLoading: false,
+        error: null,
+      };
+      renderWithProviders(
+        <MonteCarloRow engine={null} projectId="proj-1" taskListWidth={364} />,
+      );
+      fireEvent.click(screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i }));
+      expect(runMutate).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows "Rerunning…" and disables the button while the mutation is pending', () => {
+      mockResult = {
+        data: { ...FIXTURE_MC_RESULT, lastRunAt: '2026-05-05T10:00:00Z' },
+        isLoading: false,
+        error: null,
+      };
+      runState = { isPending: true, isError: false };
+      renderWithProviders(
+        <MonteCarloRow engine={null} projectId="proj-1" taskListWidth={364} />,
+      );
+      const btn = screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i });
+      expect(btn).toBeDisabled();
+      expect(btn).toHaveTextContent(/Rerunning…/);
+    });
+
+    it('omits the freshness label when lastRunAt is absent (legacy cached payload)', () => {
+      // Cached payloads written before #335 will not have lastRunAt. The row
+      // must still render and the Rerun button must still be present.
+      mockResult = { data: FIXTURE_MC_RESULT, isLoading: false, error: null };
+      renderWithProviders(
+        <MonteCarloRow engine={null} projectId="proj-1" taskListWidth={364} />,
+      );
+      expect(
+        screen.getByRole('button', { name: /Rerun Monte Carlo forecast/i }),
+      ).toBeInTheDocument();
+    });
+  });
 });

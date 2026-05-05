@@ -1,6 +1,7 @@
 import type { GanttEngine } from './engine';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
+import { formatRelative } from '@/lib/formatRelative';
 import { MC_ROW_HEIGHT } from './scheduleConstants';
 import { MonteCarloLabel } from './MonteCarloLabel';
 import { MonteCarloTimeline } from './MonteCarloTimeline';
@@ -72,6 +73,26 @@ export function MonteCarloRow({ engine: _engine, projectId, taskListWidth }: Pro
     >
       <MonteCarloLabel width={taskListWidth} />
       <MonteCarloTimeline result={result} />
+      <div className="flex items-center gap-3 px-3 shrink-0 border-l border-neutral-border">
+        {result.lastRunAt && (
+          <span className="text-xs text-neutral-text-disabled tppm-mono whitespace-nowrap">
+            {formatRelative(new Date(result.lastRunAt))}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => runMc.mutate({})}
+          disabled={runMc.isPending}
+          aria-label="Rerun Monte Carlo forecast"
+          title="Rerun Monte Carlo forecast"
+          className="inline-flex items-center h-7 px-3 rounded border border-neutral-border bg-neutral-surface
+            text-xs font-medium text-neutral-text-primary
+            hover:bg-neutral-surface-raised disabled:opacity-50 disabled:cursor-not-allowed
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          {runMc.isPending ? 'Rerunning…' : 'Rerun'}
+        </button>
+      </div>
     </div>
   );
 }

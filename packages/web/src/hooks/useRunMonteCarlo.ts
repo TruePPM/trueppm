@@ -9,12 +9,10 @@ interface RunOptions {
  * Trigger a Monte Carlo simulation run for a project.
  *
  * POSTs to `/projects/{pk}/monte-carlo/`, which executes synchronously
- * (~100 ms vectorised). On success, invalidates every cache key that holds
- * a latest-MC payload — both `monte-carlo-latest` (used by
- * `useMonteCarloResult` in the Schedule view, mobile card, and TopBar) and
- * `mc-latest` (used by the project Overview's Forecast widget). Without
- * invalidating both, running from the Schedule view leaves the Overview
- * stale, and vice versa.
+ * (~100 ms vectorised). On success, invalidates the `monte-carlo-latest`
+ * cache so every consumer of `useMonteCarloResult` (Project Overview's
+ * Forecast widget, the Schedule MC row, the mobile card, and the TopBar
+ * P80 pill) refetches in lockstep.
  */
 export function useRunMonteCarlo(projectId: string | undefined) {
   const qc = useQueryClient();
@@ -25,7 +23,6 @@ export function useRunMonteCarlo(projectId: string | undefined) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['monte-carlo-latest', projectId] });
-      void qc.invalidateQueries({ queryKey: ['mc-latest', projectId] });
     },
   });
 }

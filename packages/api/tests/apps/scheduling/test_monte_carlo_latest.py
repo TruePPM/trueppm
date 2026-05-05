@@ -140,3 +140,20 @@ class TestMonteCarloLatest:
 
         res = member_client.get(self.url(uuid.uuid4()))
         assert res.status_code == 404
+
+    def test_response_includes_last_run_at_iso_timestamp(
+        self, member_client: APIClient, project: Project, pert_task: Task
+    ) -> None:
+        """Issue #335 — surfaces forecast freshness on Overview / Schedule.
+
+        Captured at cache-write time so the timestamp always reflects the most
+        recent successful simulation, not the cache read.
+        """
+        from datetime import datetime
+
+        member_client.post(self.mc_url(project.pk), {"n_simulations": 100}, format="json")
+        data = member_client.get(self.url(project.pk)).json()
+        assert "last_run_at" in data
+        # ISO 8601 — fromisoformat tolerates both naive and tz-aware strings.
+        parsed = datetime.fromisoformat(data["last_run_at"])
+        assert parsed is not None

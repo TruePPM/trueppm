@@ -1,8 +1,12 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { apiClient } from '@/api/client';
 import type { PaginatedResponse } from '@/api/types';
+import type { MonteCarloResult } from '@/types';
+import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
+import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
+import { formatRelative } from '@/lib/formatRelative';
 
 // ---------------------------------------------------------------------------
 // API response types
@@ -46,15 +50,6 @@ interface MyTask {
   // older API responses. Falls back to a single-character "?" avatar.
   owner_name?: string | null;
   owner_initials?: string | null;
-}
-
-interface MCResult {
-  p50: string;
-  p80: string;
-  p95: string;
-  runs: number;
-  distribution: string[];
-  histogram_buckets: { date: string; count: number }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -126,25 +121,6 @@ function useMyTasks(projectId: string | undefined) {
       return res.data.tasks;
     },
     enabled: !!projectId,
-  });
-}
-
-function useMonteCarloLatest(projectId: string | undefined) {
-  return useQuery<MCResult | null>({
-    queryKey: ['mc-latest', projectId],
-    queryFn: async () => {
-      try {
-        const res = await apiClient.get<MCResult>(
-          `/projects/${projectId}/monte-carlo/latest/`,
-        );
-        return res.data;
-      } catch {
-        // 404 means no simulation has been run yet — treat as null
-        return null;
-      }
-    },
-    enabled: !!projectId,
-    retry: false,
   });
 }
 
@@ -507,23 +483,14 @@ interface MonteCarloWidgetProps {
 }
 
 function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
-  const qc = useQueryClient();
-  const { data: mc, isLoading } = useMonteCarloLatest(projectId);
-
-  const runMutation = useMutation({
-    mutationFn: async () => {
-      await apiClient.post(`/projects/${projectId}/monte-carlo/`);
-    },
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['mc-latest', projectId] });
-    },
-  });
+  const { data: mc, isLoading } = useMonteCarloResult(projectId);
+  const runMutation = useRunMonteCarlo(projectId);
 
   const svgWidth = 150;
   const svgHeight = 40;
 
-  const renderHistogram = (result: MCResult) => {
-    const buckets = result.histogram_buckets;
+  const renderHistogram = (result: MonteCarloResult) => {
+    const buckets = result.buckets;
     if (buckets.length === 0) return null;
     const maxCount = Math.max(...buckets.map((b) => b.count), 1);
     const barWidth = svgWidth / buckets.length;
@@ -540,8 +507,8 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
           const y = svgHeight - barH;
           // Color by percentile region: ≤P50 green, P50–P80 amber, >P80 red
           let fill = '#4ade80';
-          if (bucket.date > result.p80) fill = '#b91c1c';
-          else if (bucket.date > result.p50) fill = '#f59e0b';
+          if (bucket.weekStart > result.p80) fill = '#b91c1c';
+          else if (bucket.weekStart > result.p50) fill = '#f59e0b';
           return (
             <rect
               key={i}
@@ -557,6 +524,22 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
       </svg>
     );
   };
+
+  // Persistent rerun affordance — outline secondary, never the primary CTA
+  // (Janet's persona prefers a quiet button on Overview, #335).
+  const rerunButton = (
+    <button
+      type="button"
+      onClick={() => runMutation.mutate({})}
+      disabled={runMutation.isPending}
+      className="self-start text-xs border border-neutral-border bg-neutral-surface rounded px-3 h-7 font-medium
+        text-neutral-text-primary hover:bg-neutral-surface-raised disabled:opacity-50
+        focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+        focus-visible:outline-none"
+    >
+      {runMutation.isPending ? 'Rerunning…' : 'Rerun forecast'}
+    </button>
+  );
 
   return (
     <section aria-label="Monte Carlo forecast">
@@ -597,16 +580,30 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
                   P95 {formatIsoDate(mc.p95)}
                 </span>
               </div>
+              {mc.lastRunAt && (
+                <p className="text-xs text-neutral-text-disabled mt-1">
+                  Last run:{' '}
+                  <span className="tppm-mono">{formatRelative(new Date(mc.lastRunAt))}</span>
+                </p>
+              )}
             </div>
           </div>
-          <Link
-            to={`/projects/${projectId}/schedule`}
-            className="self-start text-xs text-brand-primary underline-offset-2 hover:underline
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-              focus-visible:outline-none rounded"
-          >
-            See full forecast
-          </Link>
+          <div className="flex items-center gap-3 flex-wrap">
+            {rerunButton}
+            {runMutation.isError && (
+              <span className="text-xs text-semantic-critical" role="alert">
+                Could not rerun. Try again.
+              </span>
+            )}
+            <Link
+              to={`/projects/${projectId}/schedule`}
+              className="ml-auto text-xs text-brand-primary underline-offset-2 hover:underline
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
+                focus-visible:outline-none rounded"
+            >
+              See full forecast
+            </Link>
+          </div>
         </div>
       ) : (
         <div className="flex flex-col gap-2 p-4 rounded border border-neutral-border bg-neutral-surface-raised">
@@ -615,7 +612,7 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
           </p>
           <button
             type="button"
-            onClick={() => runMutation.mutate()}
+            onClick={() => runMutation.mutate({})}
             disabled={runMutation.isPending}
             className="self-start text-xs bg-brand-primary text-white rounded px-3 h-7 font-medium
               hover:opacity-90 disabled:opacity-50
@@ -646,7 +643,7 @@ export function ProjectOverviewPage() {
   const { data: attention, isLoading: attentionLoading } = useProjectAttention(projectId);
   const { data: myTasks, isLoading: myTasksLoading } = useMyTasks(projectId);
   const { data: cpTasks, isLoading: cpTasksLoading } = useCriticalPathTasks(projectId);
-  const { data: mcData } = useMonteCarloLatest(projectId);
+  const { data: mcData } = useMonteCarloResult(projectId);
 
   const healthVariant = (() => {
     if (!overview) return 'neutral' as const;
