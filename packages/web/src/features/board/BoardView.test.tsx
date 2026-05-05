@@ -123,6 +123,24 @@ vi.mock('@/hooks/useBoardOverallocation', () => ({
   }),
 }));
 
+// Stub the heavy registry-driven drawer — popover-integration tests only need
+// to verify it mounts with a task name (issue #304); the section internals are
+// covered by TaskDetailDrawer's own tests.
+vi.mock('@/features/schedule/TaskDetailDrawer', () => ({
+  TaskDetailDrawer: ({ task, onClose }: { task: { id: string; name: string } | null; onClose: () => void }) =>
+    task ? (
+      <div role="dialog" aria-label={`Task drawer ${task.name}`}>
+        <button type="button" onClick={onClose}>Close drawer</button>
+      </div>
+    ) : null,
+}));
+
+// useSprints is invoked by the popover when a task has sprintId — return an
+// empty list so the chip renders as "Sprint: …" placeholder without an API hit.
+vi.mock('@/hooks/useSprints', () => ({
+  useSprints: () => ({ sprints: [], isLoading: false }),
+}));
+
 vi.mock('@/hooks/useTaskDependencies', () => ({
   useTaskDependencies: () => ({
     predecessors: [],
@@ -760,6 +778,54 @@ describe('BoardView', () => {
     await user.click(screen.getByLabelText('Show cost'));
     expect(screen.getByLabelText<HTMLInputElement>('Show cost').checked).toBe(true);
     expect(screen.getByText('TO DO')).toBeInTheDocument();
+  });
+
+  describe('card information popover (issue #304)', () => {
+    function getDraggableCardRoot(name: RegExp): HTMLElement {
+      // The card root carries `aria-roledescription="draggable"`; child buttons
+      // (chain icon, ··· menu) match by role but not by this attribute.
+      return screen
+        .getAllByRole('button', { name })
+        .find((el) => el.getAttribute('aria-roledescription') === 'draggable')!;
+    }
+
+    it('clicking a card opens the popover dialog and shows task metadata', () => {
+      renderBoard();
+      const card = getDraggableCardRoot(/Backend Implementation/);
+      fireEvent.click(card);
+      const popover = screen.getByRole('dialog', { name: /^Backend Implementation$/ });
+      expect(popover).toBeInTheDocument();
+      // Esc closes the popover via the shell's keydown listener.
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByRole('dialog', { name: /^Backend Implementation$/ })).not.toBeInTheDocument();
+    });
+
+    it('clicking "Open detail" closes the popover and mounts the task detail drawer', () => {
+      renderBoard();
+      const card = getDraggableCardRoot(/Backend Implementation/);
+      fireEvent.click(card);
+      fireEvent.click(screen.getByRole('button', { name: 'Open detail' }));
+      // Stubbed drawer mounts with `Task drawer <name>` accessible label.
+      expect(screen.getByRole('dialog', { name: /Task drawer Backend Implementation/ })).toBeInTheDocument();
+      expect(screen.queryByRole('dialog', { name: /^Backend Implementation$/ })).not.toBeInTheDocument();
+    });
+
+    it('clicking "Edit" routes to the same drawer (#305 swap target)', () => {
+      renderBoard();
+      const card = getDraggableCardRoot(/Backend Implementation/);
+      fireEvent.click(card);
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      expect(screen.getByRole('dialog', { name: /Task drawer Backend Implementation/ })).toBeInTheDocument();
+    });
+
+    it('drawer onClose unmounts the drawer (selectedTaskId reset)', () => {
+      renderBoard();
+      const card = getDraggableCardRoot(/Backend Implementation/);
+      fireEvent.click(card);
+      fireEvent.click(screen.getByRole('button', { name: 'Open detail' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Close drawer' }));
+      expect(screen.queryByRole('dialog', { name: /Task drawer/ })).not.toBeInTheDocument();
+    });
   });
 
 });

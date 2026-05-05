@@ -37,6 +37,13 @@ interface BoardCardProps {
   showEvm?: EvmMode;
   /** When true, show budget/cost chips when task has cost data (issue #189). */
   showCost?: boolean;
+  /**
+   * Card click handler (issue #304). Fires on the root only when no child
+   * (chain icon, risk icon, ··· menu) intercepts via `stopPropagation`. Mouse,
+   * keyboard (Enter/Space), and touch tap all flow through here. The anchor
+   * element is the card root — used by `BoardView` to position the popover.
+   */
+  onCardClick?: (task: Task, anchor: HTMLElement) => void;
 }
 
 /**
@@ -181,6 +188,7 @@ export function BoardCard({
   onChainHoverLeave,
   showEvm = 'off',
   showCost = false,
+  onCardClick,
 }: BoardCardProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
@@ -454,6 +462,13 @@ export function BoardCard({
         ref={measureCardRef}
         {...listeners}
         {...attributes}
+        onClick={(e) => onCardClick?.(task, e.currentTarget)}
+        onKeyDown={(e) => {
+          if ((e.key === 'Enter' || e.key === ' ') && e.currentTarget === e.target) {
+            e.preventDefault();
+            onCardClick?.(task, e.currentTarget);
+          }
+        }}
         className={containerClass}
         role="button"
         tabIndex={0}
@@ -520,6 +535,13 @@ export function BoardCard({
       ref={measureCardRef}
       {...listeners}
       {...attributes}
+      onClick={(e) => onCardClick?.(task, e.currentTarget)}
+      onKeyDown={(e) => {
+        if ((e.key === 'Enter' || e.key === ' ') && e.currentTarget === e.target) {
+          e.preventDefault();
+          onCardClick?.(task, e.currentTarget);
+        }
+      }}
       className={containerClass}
       role="button"
       tabIndex={0}

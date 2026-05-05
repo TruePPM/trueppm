@@ -63,6 +63,8 @@ import { KeyboardCheatsheet } from './KeyboardCheatsheet';
 import { BoardSettingsPanel } from './BoardSettingsPanel';
 import { DepPopover } from './DepPopover';
 import { RiskPopover } from './RiskPopover';
+import { BoardCardPopover } from './BoardCardPopover';
+import { TaskDetailDrawer } from '@/features/schedule/TaskDetailDrawer';
 import { phaseColor } from './phaseColors';
 
 // ---------------------------------------------------------------------------
@@ -307,6 +309,8 @@ interface BoardCellProps {
   onShowDeps: (task: Task) => void;
   onShowRisks: (task: Task) => void;
   onChainHover: (taskId: string | null) => void;
+  /** Card click → open the info popover (issue #304). */
+  onCardClick: (task: Task, anchor: HTMLElement) => void;
   showEvm: EvmMode;
   showCost: boolean;
 }
@@ -339,6 +343,7 @@ function BoardCell({
   onShowDeps,
   onShowRisks,
   onChainHover,
+  onCardClick,
   showEvm,
   showCost,
 }: BoardCellProps) {
@@ -383,6 +388,7 @@ function BoardCell({
             onShowRisks={() => onShowRisks(task)}
             onChainHoverEnter={() => onChainHover(task.id)}
             onChainHoverLeave={() => onChainHover(null)}
+            onCardClick={onCardClick}
             showEvm={showEvm}
             showCost={showCost}
           />
@@ -417,6 +423,7 @@ interface PhaseLaneProps {
   onShowDeps: (task: Task) => void;
   onShowRisks: (task: Task) => void;
   onChainHover: (taskId: string | null) => void;
+  onCardClick: (task: Task, anchor: HTMLElement) => void;
   onOpenMilestone: (task: Task) => void;
   showEvm: EvmMode;
   showCost: boolean;
@@ -447,6 +454,7 @@ function PhaseLane({
   onShowDeps,
   onShowRisks,
   onChainHover,
+  onCardClick,
   onOpenMilestone,
   showEvm,
   showCost,
@@ -568,6 +576,7 @@ function PhaseLane({
               onShowDeps={onShowDeps}
               onShowRisks={onShowRisks}
               onChainHover={onChainHover}
+              onCardClick={onCardClick}
               showEvm={showEvm}
               showCost={showCost}
             />
@@ -691,7 +700,7 @@ function useBoardDensity() {
     }
   }, [isMobile, storageKey]);
 
-  return { density, setDensity };
+  return { density, setDensity, isMobile };
 }
 
 // ---------------------------------------------------------------------------
@@ -748,6 +757,13 @@ export function BoardView() {
   const [showSettings, setShowSettings] = useState(false);
   const [depTask, setDepTask] = useState<Task | null>(null);
   const [riskTask, setRiskTask] = useState<Task | null>(null);
+  // Card popover (issue #304) — single instance at a time. Anchor is the
+  // originating card element; required for desktop placement and for
+  // returning focus on close. selectedTaskId drives the TaskDetailDrawer
+  // mount (folded #265 in via the popover's "Open detail" CTA).
+  const [popoverTask, setPopoverTask] = useState<Task | null>(null);
+  const [popoverAnchor, setPopoverAnchor] = useState<HTMLElement | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   // Dim non-connected cards (#182) — null means no highlight active.
   const [highlightedTaskIds, setHighlightedTaskIds] = useState<Set<string> | null>(null);
   const [chainHoverTaskId, setChainHoverTaskId] = useState<string | null>(null);
@@ -784,7 +800,7 @@ export function BoardView() {
   }, [setSearchParams]);
 
   const { collapsedIds, toggle: toggleCollapse, collapseAll, expandAll } = useBoardCollapsedLanes(projectId);
-  const { density, setDensity } = useBoardDensity();
+  const { density, setDensity, isMobile } = useBoardDensity();
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -1072,10 +1088,29 @@ export function BoardView() {
     setChainHoverTaskId(taskId);
   }, []);
 
+  // Card popover (issue #304) — opens on click (mouse/touch/keyboard parity
+  // is on the card root). Closes other overlays so only one popover is
+  // visible at a time, mirroring the depTask/riskTask exclusivity above.
+  const handleCardClick = useCallback((task: Task, anchor: HTMLElement) => {
+    setDepTask(null);
+    setRiskTask(null);
+    setShowCheatsheet(false);
+    setPopoverTask(task);
+    setPopoverAnchor(anchor);
+    handleCardFocus(task.id, task.status, task.parentId ?? 'root');
+  }, [handleCardFocus]);
+
+  const closeCardPopover = useCallback(() => {
+    setPopoverTask(null);
+    setPopoverAnchor(null);
+  }, []);
+
   const closeAllOverlays = useCallback(() => {
     setDepTask(null);
     setRiskTask(null);
     setShowCheatsheet(false);
+    setPopoverTask(null);
+    setPopoverAnchor(null);
   }, []);
 
   // Keyboard navigation — J/K within column (across phases), L/H across columns
@@ -1129,7 +1164,7 @@ export function BoardView() {
 
   // While any b3 overlay is open, only Esc → onCloseOverlay should fire; nav keys
   // are suppressed.  When AddTaskModal is open, the modal owns the keyboard.
-  const b3OverlayOpen = depTask !== null || riskTask !== null || showCheatsheet;
+  const b3OverlayOpen = depTask !== null || riskTask !== null || showCheatsheet || popoverTask !== null;
 
   useBoardKeyboard(
     {
@@ -1432,6 +1467,7 @@ export function BoardView() {
                 onShowDeps: handleShowDeps,
                 onShowRisks: handleShowRisks,
                 onChainHover: handleChainHover,
+                onCardClick: handleCardClick,
                 onOpenMilestone: (t: Task) => {
                   handleCardFocus(t.id, t.status, t.parentId ?? 'root');
                 },
@@ -1570,6 +1606,49 @@ export function BoardView() {
           projectId={projectId}
           task={riskTask}
           onClose={() => setRiskTask(null)}
+        />
+      )}
+
+      {/* Card information popover (issue #304) — primary card-click target.
+          "Open detail" hands off to TaskDetailDrawer below; "Edit" routes
+          there in edit mode (one-line swap target for #305 modal). */}
+      {popoverTask && projectId && (
+        <BoardCardPopover
+          task={popoverTask}
+          projectId={projectId}
+          anchor={popoverAnchor}
+          isMobile={isMobile}
+          onClose={() => {
+            // Return focus to the originating card on close (rule 4 / a11y).
+            const anchor = popoverAnchor;
+            closeCardPopover();
+            if (anchor && anchor.isConnected) anchor.focus();
+          }}
+          onOpenDetail={() => {
+            const id = popoverTask.id;
+            closeCardPopover();
+            setSelectedTaskId(id);
+          }}
+          onEdit={() => {
+            // Same drawer for now; #305 swaps to redesigned modal next batch.
+            const id = popoverTask.id;
+            closeCardPopover();
+            setSelectedTaskId(id);
+          }}
+        />
+      )}
+
+      {/* Task detail drawer — rendered from BoardView for the first time
+          (folds in #265). Driven by the popover's "Open detail" / "Edit"
+          actions; shares the same registry-backed entry path as the
+          Schedule view (ADR-0050). Conditionally mounted on selection so a
+          closed `role="dialog"` does not collide with the Workshop modal's
+          loose `getByRole('dialog')` locator (wave9-workshop e2e). */}
+      {projectId && selectedTaskId && (
+        <TaskDetailDrawer
+          task={taskIndex.get(selectedTaskId) ?? null}
+          projectId={projectId}
+          onClose={() => setSelectedTaskId(null)}
         />
       )}
 
