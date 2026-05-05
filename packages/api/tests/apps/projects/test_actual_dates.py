@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -243,3 +243,118 @@ def test_task_list_includes_actual_date_fields(
     assert "schedule_variance_days" in first
     assert first["actual_start"] is None
     assert first["actual_finish"] is None
+
+
+# ---------------------------------------------------------------------------
+# Date-gated NOT_STARTED → IN_PROGRESS auto-transition (#336).
+# Setting planned_start ≤ today on a NOT_STARTED task is the system-wide
+# signal that work has begun. The same rule fires for every entry point
+# (gutter promote, Gantt drag, drawer date edit, integration sync) because
+# it lives in the serializer, not in any one frontend hook.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_planned_start_today_promotes_not_started_to_in_progress(
+    client: APIClient, task: Task, membership: ProjectMembership
+) -> None:
+    today = timezone.localdate()
+    r = _patch(client, task, {"planned_start": today.isoformat()})
+    assert r.status_code == 200
+    task.refresh_from_db()
+    assert task.status == "IN_PROGRESS"
+    assert task.actual_start == today  # auto-set by existing IN_PROGRESS rule
+
+
+@pytest.mark.django_db
+def test_planned_start_past_promotes_and_pins_actual_start(
+    client: APIClient, task: Task, membership: ProjectMembership
+) -> None:
+    past = (timezone.localdate() - timedelta(days=14)).isoformat()
+    r = _patch(client, task, {"planned_start": past})
+    assert r.status_code == 200
+    task.refresh_from_db()
+    assert task.status == "IN_PROGRESS"
+    # Past date must be preserved, not overwritten by the auto-`actual_start = today`
+    assert task.actual_start == date.fromisoformat(past)
+
+
+@pytest.mark.django_db
+def test_planned_start_future_does_not_promote(
+    client: APIClient, task: Task, membership: ProjectMembership
+) -> None:
+    future = (timezone.localdate() + timedelta(days=14)).isoformat()
+    r = _patch(client, task, {"planned_start": future})
+    assert r.status_code == 200
+    task.refresh_from_db()
+    assert task.status == "NOT_STARTED"
+    assert task.actual_start is None
+
+
+@pytest.mark.django_db
+def test_explicit_status_takes_precedence_over_auto_promotion(
+    client: APIClient, task: Task, membership: ProjectMembership
+) -> None:
+    """A caller deliberately back-dating planned_start while keeping the card
+    in To Do (e.g. data correction) must not be overridden."""
+    today = timezone.localdate()
+    r = _patch(
+        client,
+        task,
+        {"planned_start": today.isoformat(), "status": "NOT_STARTED"},
+    )
+    assert r.status_code == 200
+    task.refresh_from_db()
+    assert task.status == "NOT_STARTED"
+    assert task.actual_start is None
+
+
+@pytest.mark.django_db
+def test_backlog_task_is_not_auto_promoted(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """BACKLOG → IN_PROGRESS is a separate transition (issue #318); the
+    date-gate only applies to NOT_STARTED ('To Do') tasks."""
+    backlog_task = Task.objects.create(
+        project=project, name="Backlog idea", duration=3, status="BACKLOG"
+    )
+    today = timezone.localdate()
+    r = _patch(client, backlog_task, {"planned_start": today.isoformat()})
+    assert r.status_code == 200
+    backlog_task.refresh_from_db()
+    assert backlog_task.status == "BACKLOG"
+    assert backlog_task.actual_start is None
+
+
+@pytest.mark.django_db
+def test_already_in_progress_task_is_not_re_promoted(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """Rescheduling an IN_PROGRESS task must not reset its actual_start."""
+    original_actual = timezone.localdate() - timedelta(days=7)
+    in_progress = Task.objects.create(
+        project=project,
+        name="Active work",
+        duration=10,
+        status="IN_PROGRESS",
+        actual_start=original_actual,
+    )
+    today = timezone.localdate()
+    r = _patch(client, in_progress, {"planned_start": today.isoformat()})
+    assert r.status_code == 200
+    in_progress.refresh_from_db()
+    assert in_progress.status == "IN_PROGRESS"
+    assert in_progress.actual_start == original_actual  # preserved
+
+
+@pytest.mark.django_db
+def test_complete_task_is_not_reopened(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    """Editing planned_start on a closed task must not reopen it."""
+    complete = Task.objects.create(project=project, name="Done", duration=2, status="COMPLETE")
+    today = timezone.localdate()
+    r = _patch(client, complete, {"planned_start": today.isoformat()})
+    assert r.status_code == 200
+    complete.refresh_from_db()
+    assert complete.status == "COMPLETE"

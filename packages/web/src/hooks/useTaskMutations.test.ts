@@ -126,6 +126,110 @@ describe('useRescheduleTask', () => {
       expect(cached?.[0].start).toBe('2026-01-01');
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Optimistic mirror of the server-side date-gated NOT_STARTED → IN_PROGRESS
+  // rule (#336). Without this the board card would flicker NOT_STARTED →
+  // IN_PROGRESS once the server response lands. Pinning Date is enough — we
+  // don't need fake timers for setTimeout because waitFor uses real time.
+  // -------------------------------------------------------------------------
+  describe('date-gated optimistic status promotion (#336)', () => {
+    const TODAY = '2026-05-05';
+
+    beforeEach(() => {
+      // Pin Date only — leave setTimeout real so waitFor can flush.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('promotes a NOT_STARTED task to IN_PROGRESS when dragged to today', async () => {
+      qc.setQueryData<Task[]>(['tasks', 'proj1'], [baseTask]);
+      const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
+
+      result.current.mutate({
+        id: 't1', projectId: 'proj1',
+        planned_start: TODAY,
+        optimistic: { start: TODAY },
+      });
+
+      await waitFor(() => {
+        const cached = qc.getQueryData<Task[]>(['tasks', 'proj1']);
+        expect(cached?.[0].status).toBe('IN_PROGRESS');
+        expect(cached?.[0].start).toBe(TODAY);
+      });
+    });
+
+    it('promotes when dragged to a past date', async () => {
+      qc.setQueryData<Task[]>(['tasks', 'proj1'], [baseTask]);
+      const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
+
+      result.current.mutate({
+        id: 't1', projectId: 'proj1',
+        planned_start: '2026-04-01',
+        optimistic: { start: '2026-04-01' },
+      });
+
+      await waitFor(() => {
+        const cached = qc.getQueryData<Task[]>(['tasks', 'proj1']);
+        expect(cached?.[0].status).toBe('IN_PROGRESS');
+      });
+    });
+
+    it('does not promote when dragged to a future date', async () => {
+      qc.setQueryData<Task[]>(['tasks', 'proj1'], [baseTask]);
+      const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
+
+      result.current.mutate({
+        id: 't1', projectId: 'proj1',
+        planned_start: '2026-06-01',
+        optimistic: { start: '2026-06-01' },
+      });
+
+      await waitFor(() => {
+        const cached = qc.getQueryData<Task[]>(['tasks', 'proj1']);
+        expect(cached?.[0].status).toBe('NOT_STARTED');
+      });
+    });
+
+    it('does not promote a BACKLOG or already-IN_PROGRESS task', async () => {
+      const backlog: Task = { ...baseTask, id: 't1', status: 'BACKLOG' };
+      const inProgress: Task = { ...baseTask, id: 't2', status: 'IN_PROGRESS' };
+      qc.setQueryData<Task[]>(['tasks', 'proj1'], [backlog, inProgress]);
+      const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
+
+      result.current.mutate({
+        id: 't1', projectId: 'proj1',
+        planned_start: TODAY,
+        optimistic: { start: TODAY },
+      });
+
+      await waitFor(() => {
+        const cached = qc.getQueryData<Task[]>(['tasks', 'proj1']);
+        expect(cached?.[0].status).toBe('BACKLOG');
+        expect(cached?.[1].status).toBe('IN_PROGRESS'); // untouched
+      });
+    });
+
+    it('respects an explicit status in the optimistic payload', async () => {
+      qc.setQueryData<Task[]>(['tasks', 'proj1'], [baseTask]);
+      const { result } = renderHook(() => useRescheduleTask(), { wrapper: makeWrapper(qc) });
+
+      result.current.mutate({
+        id: 't1', projectId: 'proj1',
+        planned_start: TODAY,
+        optimistic: { start: TODAY, status: 'NOT_STARTED' },
+      });
+
+      await waitFor(() => {
+        const cached = qc.getQueryData<Task[]>(['tasks', 'proj1']);
+        expect(cached?.[0].status).toBe('NOT_STARTED');
+      });
+    });
+  });
 });
 
 describe('useReparentTask', () => {
@@ -411,64 +515,28 @@ describe('useReorderTasks', () => {
 });
 
 // ---------------------------------------------------------------------------
-// usePromoteTask — date-conditional status transition (#336).
-// Drop-on-future = NOT_STARTED (committed but not started).
-// Drop-on-today  = IN_PROGRESS (work begins now; backend auto-sets actual_start).
-// Drop-on-past   = IN_PROGRESS + actual_start pinned to planned_start so the
-// backend's auto-actual_start = today doesn't overwrite the historical value.
+// usePromoteTask — sends only `planned_start`. The date-gated status
+// transition is enforced server-side in TaskSerializer.update so every
+// `planned_start` mutation path (gutter promote, Gantt drag, drawer date
+// edit, integration sync) behaves identically (#336).
 // ---------------------------------------------------------------------------
 describe('usePromoteTask', () => {
   let qc: QueryClient;
-  const TODAY = '2026-05-05';
 
   beforeEach(() => {
     qc = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
     vi.clearAllMocks();
-    // Pin only Date — leaving setTimeout/setInterval real so React Testing
-    // Library's waitFor() can still flush microtasks.
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('keeps status NOT_STARTED when scheduled for the future', async () => {
+  it('PATCHes only planned_start; status transition is decided server-side', async () => {
     const { result } = renderHook(() => usePromoteTask(), { wrapper: makeWrapper(qc) });
     result.current.mutate({ id: 't1', projectId: 'proj1', planned_start: '2026-06-15' });
 
     await waitFor(() =>
       expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', {
         planned_start: '2026-06-15',
-        status: 'NOT_STARTED',
-      }),
-    );
-  });
-
-  it('transitions to IN_PROGRESS when scheduled for today (no actual_start)', async () => {
-    const { result } = renderHook(() => usePromoteTask(), { wrapper: makeWrapper(qc) });
-    result.current.mutate({ id: 't1', projectId: 'proj1', planned_start: TODAY });
-
-    await waitFor(() =>
-      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', {
-        planned_start: TODAY,
-        status: 'IN_PROGRESS',
-      }),
-    );
-  });
-
-  it('transitions to IN_PROGRESS and pins actual_start when scheduled for the past', async () => {
-    const { result } = renderHook(() => usePromoteTask(), { wrapper: makeWrapper(qc) });
-    result.current.mutate({ id: 't1', projectId: 'proj1', planned_start: '2026-05-01' });
-
-    await waitFor(() =>
-      expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', {
-        planned_start: '2026-05-01',
-        status: 'IN_PROGRESS',
-        actual_start: '2026-05-01',
       }),
     );
   });
