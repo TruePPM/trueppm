@@ -59,6 +59,11 @@ const FIXTURE_TASKS = [
   {
     id: 'b5', wbs_path: '1.4', name: 'QA Gate',
     early_start: '2026-01-05', early_finish: '2026-01-20',
+    // PM-committed `planned_start` so the card renders scheduled-state UI
+    // (float chip, baseline variance chip, SPI chip) under the #332
+    // `isTaskScheduled` gate. Without it the card would be treated as
+    // uncommitted backlog work and these chips would be suppressed.
+    planned_start: '2026-01-05',
     duration: 12, percent_complete: 40, is_critical: false,
     is_milestone: false, is_summary: false, parent_id: 'b1',
     status: 'IN_PROGRESS', assignees: [],

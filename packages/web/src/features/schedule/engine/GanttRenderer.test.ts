@@ -56,6 +56,9 @@ const SUMMARY_TASK: Task = {
   id: 's1',
   name: 'Rollup',
   start: '2026-04-06',
+  // PM-committed; without plannedStart the drawSummaryBar gate (#332)
+  // suppresses the bar entirely.
+  plannedStart: '2026-04-06',
   finish: '2026-04-10',
   duration: 5,
   progress: 0,
@@ -297,6 +300,10 @@ function makeBarTask(overrides: Partial<Task> = {}): Task {
     id: 'b1',
     name: 'Design sprint',
     start: '2026-04-06',
+    // Default to a committed task so the drawTaskBar gate (#332) does not
+    // suppress the bar. Tests that exercise the unscheduled path override
+    // plannedStart: null explicitly.
+    plannedStart: '2026-04-06',
     finish: '2026-04-20',
     duration: 14,
     progress: 85,
@@ -381,5 +388,38 @@ describe('drawTaskBar — % chip and outside name (#212)', () => {
         (c.args[0] === 'rgba(255,255,255,0.22)' || c.args[0] === 'rgba(0,0,0,0.18)'),
     );
     expect(chipFill).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// drawTaskBar — uncommitted-task suppression (#332)
+// ---------------------------------------------------------------------------
+
+describe('drawTaskBar — uncommitted-task suppression (#332)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+  const VIEWPORT_W = 800;
+
+  it('skips drawing entirely when plannedStart is null and the task is not in a sprint', () => {
+    // CPM auto-fills early_start/finish on every dated task, so task.start is
+    // non-null even for backlog ideas. Without this gate every backlog card
+    // silently rendered as a Gantt bar (issue #332).
+    const { ctx, calls } = makeCtxSpy();
+    const uncommitted = makeBarTask({ plannedStart: null, sprintId: null });
+    drawTaskBar(ctx, uncommitted, 0, scales, 0, false, VIEWPORT_W);
+    expect(calls.filter((c) => c.name === 'roundRect')).toHaveLength(0);
+    expect(calls.filter((c) => c.name === 'fillText')).toHaveLength(0);
+  });
+
+  it('renders normally once the PM commits a plannedStart', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTaskBar(ctx, makeBarTask({ plannedStart: '2026-04-06' }), 0, scales, 0, false, VIEWPORT_W);
+    expect(calls.filter((c) => c.name === 'roundRect').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('renders when committed via sprint membership even with plannedStart null', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const sprintTask = makeBarTask({ plannedStart: null, sprintId: 'sprint-uuid' });
+    drawTaskBar(ctx, sprintTask, 0, scales, 0, false, VIEWPORT_W);
+    expect(calls.filter((c) => c.name === 'roundRect').length).toBeGreaterThanOrEqual(1);
   });
 });

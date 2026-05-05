@@ -40,6 +40,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
+import { isTaskScheduled } from '@/lib/task';
 import { useUpdateTaskStatus } from '@/hooks/useBoardTasks';
 import { useBoardConfig } from '@/hooks/useBoardConfig';
 import { useBoardKeyboard } from '@/hooks/useBoardKeyboard';
@@ -260,7 +261,10 @@ function confirmWipMove(
 // ---------------------------------------------------------------------------
 
 function PhaseSummaryChips({ phase }: { phase: Phase }) {
-  const cpCount = phase.tasks.filter((t) => t.isCritical).length;
+  // CP rollup excludes uncommitted tasks (issue #332). CPM marks every dated
+  // task as critical; without isTaskScheduled the rollup counts backlog ideas
+  // the PM hasn't committed to, which is the bug.
+  const cpCount = phase.tasks.filter((t) => t.isCritical && isTaskScheduled(t)).length;
   const doneCount = phase.tasks.filter((t) => t.status === 'COMPLETE').length;
   const allDone = doneCount === phase.tasks.length && phase.tasks.length > 0;
 
@@ -907,7 +911,10 @@ export function BoardView() {
       };
       for (const task of phase.tasks) {
         // Built-in view filters
-        if (cpOnly && !task.isCritical) continue;
+        // CP-only filter must also exclude uncommitted tasks (issue #332):
+        // CPM marks every dated task isCritical, so an unfiltered "CP only"
+        // view leaks backlog ideas into the visible set.
+        if (cpOnly && !(task.isCritical && isTaskScheduled(task))) continue;
         if (dueSoonDays !== null) {
           const finish = new Date(task.finish);
           const diffMs = finish.getTime() - today.getTime();

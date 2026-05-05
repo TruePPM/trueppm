@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * E2E for the Unscheduled gutter filter rules introduced in issue #317:
- * - BACKLOG cards never appear in the gutter (they live on the board)
- * - NOT_STARTED + no start + no sprint → in the gutter
+ * E2E for the Unscheduled gutter filter rules — originally introduced in
+ * issue #317 and updated for issue #332:
+ * - BACKLOG without planned_start → in the gutter (#332 — was excluded under #317)
+ * - BACKLOG with planned_start → excluded (PM has committed dates)
+ * - NOT_STARTED + no planned_start + no sprint → in the gutter
  * - NOT_STARTED + sprint → excluded (sprint is a scheduling commitment)
  * - IN_PROGRESS / REVIEW / COMPLETE without start → not in gutter, but render
  *   a `⚠ missing dates` data-integrity chip on the task list row
@@ -47,9 +49,15 @@ const FIXTURE_TASKS = [
     planned_start: '2026-04-07',
     early_start: '2026-04-07', early_finish: '2026-04-21', duration: 14,
     status: 'IN_PROGRESS', percent_complete: 30 }),
-  // BACKLOG idea — must NOT appear in the gutter.
+  // BACKLOG without planned_start — APPEARS in the gutter (#332). The
+  // original #317 implementation excluded BACKLOG; #332 reclassifies
+  // backlog ideas as work that needs scheduling.
   task({ id: 't-backlog', wbs_path: '2', name: 'Backlog Idea',
     status: 'BACKLOG' }),
+  // BACKLOG with a PM-committed planned_start — excluded (committed).
+  task({ id: 't-backlog-committed', wbs_path: '2.1', name: 'Backlog Committed',
+    status: 'BACKLOG', planned_start: '2026-04-15',
+    early_start: '2026-04-15', early_finish: '2026-04-22' }),
   // NOT_STARTED, no sprint, no dates — SHOULD appear in the gutter.
   task({ id: 't-todo', wbs_path: '3', name: 'Ready For Schedule',
     status: 'NOT_STARTED' }),
@@ -139,10 +147,16 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
 }
 
 test.describe('Unscheduled gutter — filter rules (#317)', () => {
-  test('BACKLOG ideas are excluded from the gutter', async ({ page }) => {
+  test('BACKLOG without planned_start appears in the gutter (#332)', async ({ page }) => {
     await gotoSchedule(page);
     const gutter = page.getByRole('region', { name: 'Unscheduled tasks' });
-    await expect(gutter.getByText('Backlog Idea')).toHaveCount(0);
+    await expect(gutter.getByText('Backlog Idea')).toBeVisible();
+  });
+
+  test('BACKLOG with a PM-committed planned_start is excluded from the gutter', async ({ page }) => {
+    await gotoSchedule(page);
+    const gutter = page.getByRole('region', { name: 'Unscheduled tasks' });
+    await expect(gutter.getByText('Backlog Committed')).toHaveCount(0);
   });
 
   test('NOT_STARTED with no sprint and no dates appears in the gutter', async ({ page }) => {
@@ -167,11 +181,12 @@ test.describe('Unscheduled gutter — filter rules (#317)', () => {
     await expect(gutter.getByText('Committed To Sprint')).toHaveCount(0);
   });
 
-  test('gutter count reflects only the eligible NOT_STARTED set', async ({ page }) => {
+  test('gutter count reflects the eligible BACKLOG + NOT_STARTED set', async ({ page }) => {
     await gotoSchedule(page);
-    // Eligible: t-todo and t-cpm-only (NOT_STARTED, no planned_start, no
-    // sprint). Excluded: scheduled, BACKLOG, sprint-committed, IN_PROGRESS.
-    await expect(page.getByText('(2)')).toBeVisible();
+    // Eligible: t-backlog (BACKLOG, no planned_start), t-todo and t-cpm-only
+    // (NOT_STARTED, no planned_start, no sprint). Excluded: t-scheduled,
+    // t-backlog-committed (BACKLOG with planned_start), t-sprint, t-broken.
+    await expect(page.getByText('(3)')).toBeVisible();
   });
 });
 
