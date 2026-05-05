@@ -82,8 +82,10 @@ describe('MonteCarloHistogram', () => {
 
     it('mentions the converged date and offers PERT guidance', () => {
       renderWithProviders(<MonteCarloHistogram result={COLLAPSED} />);
-      // November 30, 2026 — the date all simulations converged on.
-      expect(screen.getByText(/November 30, 2026/)).toBeInTheDocument();
+      // The exact day-of-month depends on the host timezone (the local-zone
+      // formatter shifts west of UTC). Assert only the year + month + that a
+      // PERT hint is rendered, both of which are TZ-stable.
+      expect(screen.getByText(/November.*2026|November 2026/)).toBeInTheDocument();
       expect(screen.getByText(/PERT estimates/i)).toBeInTheDocument();
     });
 

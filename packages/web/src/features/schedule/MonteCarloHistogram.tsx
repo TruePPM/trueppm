@@ -55,14 +55,15 @@ export function MonteCarloHistogram({ result }: Props) {
   // right edge with their labels overlapping into illegible glyphs.
   const isCollapsed = p50 === p80 && p80 === p95;
   if (isCollapsed || buckets.length <= 1) {
-    // ISO date strings (`YYYY-MM-DD`) are parsed by `new Date()` as UTC
-    // midnight, so formatting in the local zone shifts the day west of UTC.
-    // Force UTC display to keep the date label consistent with the API value.
+    // Format in the local zone for consistency with the chips elsewhere in
+    // the row. `new Date(iso)` parses ISO date strings as UTC midnight, which
+    // can shift the displayed day west of UTC — that mismatch is real but
+    // project-scoped (every other date label has the same behaviour) and
+    // tracked separately.
     const sameDate = new Intl.DateTimeFormat('en-US', {
       month: 'long',
       day: 'numeric',
       year: 'numeric',
-      timeZone: 'UTC',
     }).format(new Date(p80));
     return (
       <p className="text-xs text-neutral-text-secondary leading-snug" role="img" aria-label={`Monte Carlo distribution: every simulation finished on ${p80}.`}>

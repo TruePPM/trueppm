@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, type KeyboardEvent, type MouseEvent } from 'react';
 import type { MonteCarloResult } from '@/types';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
-import { MonteCarloHistogram } from './MonteCarloHistogram';
 
 interface Props {
   result: MonteCarloResult;
@@ -10,14 +9,18 @@ interface Props {
 /**
  * Timeline side of the Monte Carlo row.
  *
- * Renders three permanently-visible date chips — P50 (green), P80 (amber),
- * P95 (red). Hover or keyboard-focus opens a detailed histogram tooltip.
+ * Renders three permanently-visible date chips — `P50: {date}` (green),
+ * `P80: {date}` (amber), `P95: {date}` (red). Hover or keyboard-focus opens
+ * a small popover translating the P80 percentile into plain English ("8 in
+ * 10 simulations finish by …"), or — when every simulation converged on the
+ * same date — a one-paragraph hint that PERT estimates are required to see
+ * a distribution.
  *
- * Why chips-only (no inline mini histogram): real-world MC inputs frequently
- * have no PERT estimates, so every simulation collapses to a single end date
- * and the histogram strip degenerates to one bar. The dates are the
- * persona-aligned signal (PMs, PMO, execs all read a date and a percentile);
- * the distribution shape is power-user information and lives in the tooltip.
+ * Why no histogram in the popover: VoC review (2026-05-05) found the chart
+ * was decorative for every persona — Janet (COO) values only the plain-English
+ * headline; nobody else uses distribution shape at this surface. The full
+ * histogram lives in dedicated MC views (`MCResultPanel` from the TopBar P80
+ * pill, `MonteCarloSheet` on mobile) where the user explicitly asked for it.
  *
  * The chips satisfy WCAG 1.4.1 — percentile boundaries are expressed as
  * labelled text, not colour alone.
@@ -29,11 +32,18 @@ export function MonteCarloTimeline({ result }: Props) {
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const { p50, p80, p95 } = result;
+  const isCollapsed = p50 === p80 && p80 === p95;
 
-  const fmt = (iso: string) =>
+  const fmtShort = (iso: string) =>
     new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
       new Date(iso),
     );
+  const fmtLong = (iso: string) =>
+    new Intl.DateTimeFormat('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    }).format(new Date(iso));
 
   const openTooltip = useCallback((x: number, y: number) => {
     setTooltipPos({ x, y });
@@ -94,7 +104,7 @@ export function MonteCarloTimeline({ result }: Props) {
         tabIndex={0}
         aria-haspopup="dialog"
         aria-expanded={isOpen}
-        aria-label={`Monte Carlo: P50 ${fmt(p50)}, P80 ${fmt(p80)}, P95 ${fmt(p95)}. Press Enter for distribution.`}
+        aria-label={`Monte Carlo: P50 ${fmtShort(p50)}, P80 ${fmtShort(p80)}, P95 ${fmtShort(p95)}. Press Enter for details.`}
         className="flex-1 min-w-0 flex items-center justify-end gap-1.5 px-3 overflow-hidden border-t border-neutral-border bg-neutral-surface
           cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
         onMouseEnter={handleMouseEnter}
@@ -110,7 +120,7 @@ export function MonteCarloTimeline({ result }: Props) {
             key={label}
             className={`text-xs font-medium px-1.5 py-0.5 rounded border ${border} ${text} bg-transparent whitespace-nowrap`}
           >
-            {label} {fmt(iso)}
+            {label}: {fmtShort(iso)}
           </span>
         ))}
         <span className="ml-1 text-xs text-neutral-text-secondary" aria-hidden="true">
@@ -118,35 +128,36 @@ export function MonteCarloTimeline({ result }: Props) {
         </span>
       </div>
 
-      {/* Detailed histogram tooltip — fixed-position to escape overflow:hidden ancestors */}
+      {/* Plain-English popover — fixed-position to escape overflow:hidden ancestors. */}
       {isOpen && tooltipPos && (
         <div
           role="dialog"
           aria-modal="false"
-          aria-label="Monte Carlo distribution histogram"
-          className={`fixed z-50 w-60 p-3 rounded border border-neutral-border bg-neutral-surface pointer-events-none ${
+          aria-label="Monte Carlo confidence detail"
+          className={`fixed z-50 w-72 p-3 rounded border border-neutral-border bg-neutral-surface pointer-events-none ${
             prefersReducedMotion ? '' : 'motion-safe:transition-opacity motion-safe:duration-150'
           }`}
           style={{
-            left: Math.min(tooltipPos.x - 120, window.innerWidth - 256),
-            top: tooltipPos.y - 168 < 8 ? tooltipPos.y + 24 : tooltipPos.y - 168,
+            left: Math.min(tooltipPos.x - 144, window.innerWidth - 304),
+            top: tooltipPos.y - 120 < 8 ? tooltipPos.y + 24 : tooltipPos.y - 120,
           }}
         >
-          <p className="text-sm font-medium text-neutral-text-primary mb-2">
-            8 in 10 simulations finish by{' '}
-            <strong>
-              {new Intl.DateTimeFormat('en-US', {
-                month: 'long',
-                day: 'numeric',
-                year: 'numeric',
-              }).format(new Date(p80))}
-            </strong>
-            .
-          </p>
-          <p className="text-xs text-neutral-text-secondary mb-1.5">
-            Distribution of project end dates
-          </p>
-          <MonteCarloHistogram result={result} />
+          {isCollapsed ? (
+            <>
+              <p className="text-sm text-neutral-text-primary leading-snug">
+                Every simulation finished on{' '}
+                <strong>{fmtLong(p80)}</strong>.
+              </p>
+              <p className="mt-2 text-xs text-neutral-text-secondary leading-snug">
+                Add PERT estimates (optimistic / most-likely / pessimistic durations) on tasks to see a distribution.
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-neutral-text-primary leading-snug">
+              8 in 10 simulations finish by{' '}
+              <strong>{fmtLong(p80)}</strong>.
+            </p>
+          )}
         </div>
       )}
     </>

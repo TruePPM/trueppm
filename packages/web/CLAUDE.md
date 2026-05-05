@@ -53,7 +53,11 @@ These rules are enforced at review time. Violations block merge.
 19. **MC histogram SVG bars in the tooltip use `fill-neutral-text-disabled`** — distribution shape is neutral; semantic colours are reserved for the P50/P80/P95 vertical rule lines inside the tooltip. The same rule applies to the histogram inside `MonteCarloSheet` (mobile) and `MCResultPanel` (TopBar P80 click).
 20. **P50 / P80 / P95 date chips are permanently visible** in the `MonteCarloTimeline` row — outlined style (`bg-transparent border border-{semantic}/40 text-{semantic}`), not fill. Hover or keyboard-focus opens the detailed histogram tooltip; chip text is the WCAG 1.4.1 fallback so colour is never the sole signal.
 21. **P80 badge uses outlined style** — `bg-transparent border border-semantic-at-risk/40 text-semantic-at-risk`. Not `bg-semantic-at-risk/10` fill. Consistent with rule 39.
-22. **MC row (`MonteCarloRow`) is `hidden md:flex`** — suppressed below 768px. The P80 badge in `TopBar` is `hidden md:flex` (desktop only). Mobile surfaces P80 via a chip in `StatusBar` (`md:hidden`) — resolved by issue #33. `MonteCarloLabel` shows a persistent "P80: Mon D" chip at `md+` breakpoints.
+22. **MC row (`MonteCarloRow`) is `hidden md:flex`** — suppressed below 768px. The P80 badge in `TopBar` is `hidden md:flex` (desktop only). Mobile surfaces P80 via a chip in `StatusBar` (`md:hidden`) — resolved by issue #33. `MonteCarloLabel` is text-only (σ + "Monte Carlo") — the previous left-side P80 chip was a duplicate of the right-side P80 chip in the timeline and was VoC-flagged as noise.
+
+22a. **MC row hover popover is plain-English copy only** — no histogram chart. When percentiles span (real distribution) it reads `"8 in 10 simulations finish by {date}"`. When percentiles collapse (`p50 === p80 === p95`) it reads `"Every simulation finished on {date}. Add PERT estimates …"`. The full histogram lives in `MCResultPanel` (TopBar P80 click) and `MonteCarloSheet` (mobile) — surfaces where the user has explicitly asked for distribution shape. VoC review (2026-05-05) found the row-tooltip chart decorative for every persona; only Janet (COO) values the plain-English headline.
+
+22b. **MC chips use a colon separator** — `P50: Nov 30`, `P80: Nov 30`, `P95: Nov 30`. Consistent across `MonteCarloTimeline` and `MobileMonteCarloCard`. Never render the label and date with only a space.
 
 ## Drag Preview Rules (Issue #19)
 

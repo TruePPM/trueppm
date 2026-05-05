@@ -70,7 +70,7 @@ export function MonteCarloRow({ engine: _engine, projectId, taskListWidth }: Pro
       style={{ height: MC_ROW_HEIGHT }}
       aria-label="Monte Carlo confidence row"
     >
-      <MonteCarloLabel width={taskListWidth} p80Date={result.p80} />
+      <MonteCarloLabel width={taskListWidth} />
       <MonteCarloTimeline result={result} />
     </div>
   );
