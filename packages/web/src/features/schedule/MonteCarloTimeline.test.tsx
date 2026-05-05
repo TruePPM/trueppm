@@ -116,13 +116,16 @@ describe('MonteCarloTimeline', () => {
     expect(btn).toHaveAttribute('aria-expanded', 'true');
   });
 
-  it('renders histogram bar at minimum height when maxCount is 0', () => {
-    // Create a result where all simulations finish on the same day → one bucket has all count
-    // To get maxCount=0, we'd need empty buckets, but fixture always has data.
-    // Instead test the already-covered maxCount>0 branch by asserting bars are rendered.
-    render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
-    // Bars are aria-hidden and not accessible by role, but the button renders
-    expect(screen.getByRole('button')).toBeInTheDocument();
+  it('does not render the always-visible mini histogram strip', () => {
+    // The strip was removed because real-world inputs (no PERT) collapse to a
+    // single bar that misleads more than it informs. Distribution shape lives
+    // only in the hover/focus tooltip.
+    const { container } = render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} />);
+    // The previous strip used `bg-semantic-on-track/50` etc. as fill classes
+    // and lived inside the always-visible row. Confirm none survive there.
+    expect(container.querySelector('.bg-semantic-on-track\\/50')).toBeNull();
+    expect(container.querySelector('.bg-semantic-at-risk\\/50')).toBeNull();
+    expect(container.querySelector('.bg-semantic-critical\\/50')).toBeNull();
   });
 
   it('dialog renders with reduced motion class when prefersReducedMotion is false', () => {

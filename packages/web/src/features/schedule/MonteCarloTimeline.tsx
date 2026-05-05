@@ -3,27 +3,6 @@ import type { MonteCarloResult } from '@/types';
 import { usePrefersReducedMotion } from '@/hooks/usePrefersReducedMotion';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
 
-// Height of each mini-histogram bar in the permanent strip.
-const BAR_MAX_H = 24;
-const BAR_W = 4;
-
-/**
- * Clamp a date string to the bucket index that contains it.
- * Used to colour histogram bars by their percentile region.
- */
-function findBucketIdx(
-  buckets: MonteCarloResult['buckets'],
-  isoDate: string,
-): number {
-  const target = new Date(isoDate).getTime();
-  let best = 0;
-  for (let i = 0; i < buckets.length; i++) {
-    if (new Date(buckets[i].weekStart).getTime() <= target) best = i;
-    else break;
-  }
-  return best;
-}
-
 interface Props {
   result: MonteCarloResult;
 }
@@ -31,11 +10,15 @@ interface Props {
 /**
  * Timeline side of the Monte Carlo row.
  *
- * Renders a permanently-visible mini histogram strip coloured by percentile
- * region (green ≤ P50, amber P50–P80, red > P80) followed by outlined
- * P50 / P80 / P95 date chips.
+ * Renders three permanently-visible date chips — P50 (green), P80 (amber),
+ * P95 (red). Hover or keyboard-focus opens a detailed histogram tooltip.
  *
- * Hover or keyboard-focus opens a detailed histogram tooltip (rule 20).
+ * Why chips-only (no inline mini histogram): real-world MC inputs frequently
+ * have no PERT estimates, so every simulation collapses to a single end date
+ * and the histogram strip degenerates to one bar. The dates are the
+ * persona-aligned signal (PMs, PMO, execs all read a date and a percentile);
+ * the distribution shape is power-user information and lives in the tooltip.
+ *
  * The chips satisfy WCAG 1.4.1 — percentile boundaries are expressed as
  * labelled text, not colour alone.
  */
@@ -45,10 +28,7 @@ export function MonteCarloTimeline({ result }: Props) {
   const rowRef = useRef<HTMLDivElement>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
 
-  const { buckets, p50, p80, p95 } = result;
-  const maxCount = Math.max(...buckets.map((b) => b.count));
-  const p50Idx = findBucketIdx(buckets, p50);
-  const p80Idx = findBucketIdx(buckets, p80);
+  const { p50, p80, p95 } = result;
 
   const fmt = (iso: string) =>
     new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
@@ -115,7 +95,7 @@ export function MonteCarloTimeline({ result }: Props) {
         aria-haspopup="dialog"
         aria-expanded={isOpen}
         aria-label={`Monte Carlo: P50 ${fmt(p50)}, P80 ${fmt(p80)}, P95 ${fmt(p95)}. Press Enter for distribution.`}
-        className="flex-1 min-w-0 flex items-center gap-3 px-3 overflow-hidden border-t border-neutral-border bg-neutral-surface
+        className="flex-1 min-w-0 flex items-center justify-end gap-1.5 px-3 overflow-hidden border-t border-neutral-border bg-neutral-surface
           cursor-default focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
         onMouseEnter={handleMouseEnter}
         onMouseMove={handleMouseMove}
@@ -124,41 +104,18 @@ export function MonteCarloTimeline({ result }: Props) {
         onBlur={handleBlur}
         onKeyDown={handleKeyDown}
       >
-        {/* Mini histogram strip — coloured by percentile region, aria-hidden (chips carry the a11y meaning) */}
-        <div
-          className="flex-1 min-w-0 flex items-end gap-px overflow-hidden"
-          style={{ height: BAR_MAX_H }}
-          aria-hidden="true"
-        >
-          {buckets.map((b, i) => {
-            const h = maxCount > 0 ? Math.max(2, Math.round((b.count / maxCount) * BAR_MAX_H)) : 2;
-            const colorClass =
-              i <= p50Idx
-                ? 'bg-semantic-on-track/50'
-                : i <= p80Idx
-                  ? 'bg-semantic-at-risk/50'
-                  : 'bg-semantic-critical/50';
-            return (
-              <div
-                key={b.weekStart}
-                className={`flex-shrink-0 rounded-t-sm ${colorClass}`}
-                style={{ width: BAR_W, height: h }}
-              />
-            );
-          })}
-        </div>
-
         {/* P50 / P80 / P95 chips — always visible; outlined style per rule 21/39 */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          {chips.map(({ label, iso, border, text }) => (
-            <span
-              key={label}
-              className={`text-xs font-medium px-1.5 py-0.5 rounded border ${border} ${text} bg-transparent whitespace-nowrap`}
-            >
-              {label} {fmt(iso)}
-            </span>
-          ))}
-        </div>
+        {chips.map(({ label, iso, border, text }) => (
+          <span
+            key={label}
+            className={`text-xs font-medium px-1.5 py-0.5 rounded border ${border} ${text} bg-transparent whitespace-nowrap`}
+          >
+            {label} {fmt(iso)}
+          </span>
+        ))}
+        <span className="ml-1 text-xs text-neutral-text-secondary" aria-hidden="true">
+          Detail ›
+        </span>
       </div>
 
       {/* Detailed histogram tooltip — fixed-position to escape overflow:hidden ancestors */}
