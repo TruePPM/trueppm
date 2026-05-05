@@ -253,11 +253,11 @@ describe('TaskListRow', () => {
 
   describe('missing-dates warning chip (issue #317)', () => {
     it.each(['IN_PROGRESS', 'REVIEW', 'COMPLETE'] as const)(
-      'renders chip when status is %s and start is empty',
+      'renders chip when status is %s and plannedStart is null (CPM may have set start)',
       (status) => {
         renderWithRouter(
           <TaskListRow
-            task={{ ...base, status, start: '' }}
+            task={{ ...base, status, plannedStart: null }}
             level={1}
             widths={defaultWidths}
             visible={defaultVisible}
@@ -269,10 +269,10 @@ describe('TaskListRow', () => {
       },
     );
 
-    it('does not render chip when start is present', () => {
+    it('does not render chip when plannedStart is present (PM has committed)', () => {
       renderWithRouter(
         <TaskListRow
-          task={{ ...base, status: 'IN_PROGRESS', start: '2026-10-05' }}
+          task={{ ...base, status: 'IN_PROGRESS', plannedStart: '2026-10-05' }}
           level={1}
           widths={defaultWidths}
           visible={defaultVisible}
@@ -283,11 +283,11 @@ describe('TaskListRow', () => {
     });
 
     it.each(['BACKLOG', 'NOT_STARTED', 'ON_HOLD'] as const)(
-      'does not render chip for status %s without dates (those belong on the board / in the gutter)',
+      'does not render chip for status %s without committed dates (board / gutter handles them)',
       (status) => {
         renderWithRouter(
           <TaskListRow
-            task={{ ...base, status, start: '' }}
+            task={{ ...base, status, plannedStart: null }}
             level={1}
             widths={defaultWidths}
             visible={defaultVisible}
@@ -301,7 +301,7 @@ describe('TaskListRow', () => {
     it('does not render chip on summary tasks (rollup, not data-integrity)', () => {
       renderWithRouter(
         <TaskListRow
-          task={{ ...base, status: 'IN_PROGRESS', start: '', isSummary: true }}
+          task={{ ...base, status: 'IN_PROGRESS', plannedStart: null, isSummary: true }}
           level={1}
           widths={defaultWidths}
           visible={defaultVisible}

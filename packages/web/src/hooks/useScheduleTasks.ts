@@ -154,6 +154,7 @@ function mapTask(t: ApiTask): Task {
     assigneeIsOverallocated: t.assignee_is_overallocated ?? false,
     serverVersion: t.server_version,
     sprintId: t.sprint ?? null,
+    plannedStart: t.planned_start,
   };
 }
 

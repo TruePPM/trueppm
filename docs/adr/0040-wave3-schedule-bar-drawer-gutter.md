@@ -80,7 +80,12 @@ system events. Frontend: ensure the History tab renders change-type labels
 the gutter only when **all** of these hold:
 
 - `status === 'NOT_STARTED'` — the canonical "To Do" state
-- no start date (`early_start IS NULL` and `planned_start IS NULL`)
+- no PM-committed start (`planned_start IS NULL`). We deliberately do **not**
+  check `early_start`: CPM populates `early_start` for every task it
+  processes, so as soon as a card is promoted out of BACKLOG it has a
+  CPM-computed start even if the PM has never opened it. The gutter wants
+  "the PM hasn't committed yet" semantics, not "no row exists in the
+  scheduler"
 - not a summary task
 - not assigned to a sprint (`sprint IS NULL`) — sprint membership is itself a
   scheduling commitment

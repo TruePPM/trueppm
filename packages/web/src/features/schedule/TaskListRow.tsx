@@ -81,12 +81,12 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
 
   const isSummaryStyle = task.isSummary ? 'font-medium' : '';
 
-  // Data-integrity warning (issue #317): non-BACKLOG / non-NOT_STARTED tasks
-  // missing a start date are a data error, not "needs scheduling". The
-  // Unscheduled gutter excludes them; this inline chip surfaces them so they
-  // are not silently hidden.
+  // Data-integrity warning (issue #317): a task that has reached IN_PROGRESS /
+  // REVIEW / COMPLETE without a PM-committed `planned_start` is a data error,
+  // not "needs scheduling". We check `plannedStart`, not `start`, because CPM
+  // auto-fills `early_start` for every task — using `start` would never fire.
   const hasMissingDatesWarning =
-    !task.start &&
+    !task.plannedStart &&
     !task.isSummary &&
     (task.status === 'IN_PROGRESS' ||
       task.status === 'REVIEW' ||

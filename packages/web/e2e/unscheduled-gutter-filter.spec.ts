@@ -49,6 +49,14 @@ const FIXTURE_TASKS = [
   // NOT_STARTED, no sprint, no dates — SHOULD appear in the gutter.
   task({ id: 't-todo', wbs_path: '3', name: 'Ready For Schedule',
     status: 'NOT_STARTED' }),
+  // NOT_STARTED with a CPM-computed early_start but no planned_start — must
+  // STILL appear in the gutter. CPM auto-fills early_start for every task it
+  // processes, so a freshly-promoted BACKLOG → To Do card will hit this case.
+  // Tracked on !203 review (#317 follow-up).
+  task({ id: 't-cpm-only', wbs_path: '6', name: 'Promoted From Backlog',
+    status: 'NOT_STARTED',
+    early_start: '2026-04-01', early_finish: '2026-04-08',
+    planned_start: null }),
   // NOT_STARTED + sprint — sprint is the scheduling commitment; NOT in gutter.
   task({ id: 't-sprint', wbs_path: '4', name: 'Committed To Sprint',
     status: 'NOT_STARTED', sprint: 'sprint-uuid-1' }),
@@ -139,6 +147,16 @@ test.describe('Unscheduled gutter — filter rules (#317)', () => {
     await expect(gutter.getByText('Ready For Schedule')).toBeVisible();
   });
 
+  test('NOT_STARTED with CPM-only start (no planned_start) still appears in the gutter', async ({ page }) => {
+    // Regression guard for !203 review: previously the filter checked
+    // `!t.start`, which excluded any task CPM had touched. Now it checks
+    // `!t.plannedStart` — a card promoted from BACKLOG with no PM-committed
+    // date must remain visible until the PM commits.
+    await gotoSchedule(page);
+    const gutter = page.getByRole('region', { name: 'Unscheduled tasks' });
+    await expect(gutter.getByText('Promoted From Backlog')).toBeVisible();
+  });
+
   test('NOT_STARTED assigned to a sprint is excluded from the gutter', async ({ page }) => {
     await gotoSchedule(page);
     const gutter = page.getByRole('region', { name: 'Unscheduled tasks' });
@@ -147,8 +165,9 @@ test.describe('Unscheduled gutter — filter rules (#317)', () => {
 
   test('gutter count reflects only the eligible NOT_STARTED set', async ({ page }) => {
     await gotoSchedule(page);
-    // Of the 5 fixtures, only "Ready For Schedule" qualifies → count is 1.
-    await expect(page.getByText('(1)')).toBeVisible();
+    // Eligible: t-todo and t-cpm-only (NOT_STARTED, no planned_start, no
+    // sprint). Excluded: scheduled, BACKLOG, sprint-committed, IN_PROGRESS.
+    await expect(page.getByText('(2)')).toBeVisible();
   });
 });
 
