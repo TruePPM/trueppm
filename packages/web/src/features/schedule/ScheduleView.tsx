@@ -749,7 +749,7 @@ export function ScheduleView() {
         />
       )}
 
-      <MonteCarloRow engine={engine} taskListWidth={totalWidth} />
+      <MonteCarloRow engine={engine} projectId={projectId ?? undefined} taskListWidth={totalWidth} />
 
       {/* Mobile MC card — md:hidden; desktop uses MonteCarloRow above (issue #33) */}
       <MobileMonteCarloCard projectId={projectId ?? undefined} />
