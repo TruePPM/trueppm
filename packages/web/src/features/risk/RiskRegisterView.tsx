@@ -481,6 +481,21 @@ export function RiskRegisterView() {
             </>
           )}
         </div>
+
+        {/* Drawer — rendered as a flex sibling so the desktop variant
+            (`hidden md:flex w-[480px]`, RiskDrawer.tsx) lays out alongside
+            the table column instead of stacking below the page (rule 89).
+            The mobile bottom sheet uses `fixed` positioning so it is
+            unaffected by participation in this flex row. */}
+        {isDrawerOpen && (
+          <RiskDrawer
+            projectId={projectId}
+            risk={selectedRisk ?? null}
+            isOpen={isDrawerOpen}
+            onClose={closeDrawer}
+            initialEditing={editMode}
+          />
+        )}
       </div>
 
       {/* Mobile FAB (rule 90) */}
@@ -497,17 +512,6 @@ export function RiskRegisterView() {
       >
         <span className="text-neutral-text-inverse text-2xl leading-none" aria-hidden="true">+</span>
       </button>
-
-      {/* Drawer */}
-      {isDrawerOpen && (
-        <RiskDrawer
-          projectId={projectId}
-          risk={selectedRisk ?? null}
-          isOpen={isDrawerOpen}
-          onClose={closeDrawer}
-          initialEditing={editMode}
-        />
-      )}
     </div>
   );
 }
