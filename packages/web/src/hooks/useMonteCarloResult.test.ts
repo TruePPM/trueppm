@@ -1,0 +1,106 @@
+import { renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+import type { ReactNode } from 'react';
+import { createElement } from 'react';
+import { useMonteCarloResult } from './useMonteCarloResult';
+
+const getMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/api/client', () => ({ apiClient: { get: getMock } }));
+
+function makeWrapper(qc: QueryClient) {
+  function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client: qc }, children);
+  }
+  return Wrapper;
+}
+
+describe('useMonteCarloResult', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    vi.clearAllMocks();
+  });
+
+  it('is idle and not loading when projectId is undefined', () => {
+    const { result } = renderHook(() => useMonteCarloResult(undefined), {
+      wrapper: makeWrapper(qc),
+    });
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.data).toBeUndefined();
+    expect(getMock).not.toHaveBeenCalled();
+  });
+
+  it('fetches from /projects/{id}/monte-carlo/latest/ and maps the wire shape to MonteCarloResult', async () => {
+    getMock.mockResolvedValueOnce({
+      data: {
+        project_id: 'proj-1',
+        runs: 1000,
+        p50: '2026-10-05',
+        p80: '2026-11-03',
+        p95: '2026-11-30',
+        histogram_buckets: [
+          { date: '2026-10-05', count: 148 },
+          { date: '2026-11-03', count: 88 },
+        ],
+      },
+    });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(getMock).toHaveBeenCalledWith('/projects/proj-1/monte-carlo/latest/');
+    expect(result.current.data).toEqual({
+      projectId: 'proj-1',
+      runs: 1000,
+      p50: '2026-10-05',
+      p80: '2026-11-03',
+      p95: '2026-11-30',
+      buckets: [
+        { weekStart: '2026-10-05', count: 148 },
+        { weekStart: '2026-11-03', count: 88 },
+      ],
+    });
+    expect(result.current.error).toBeNull();
+  });
+
+  it('treats a 404 as the empty "no simulation run yet" state, not an error', async () => {
+    // axios.isAxiosError checks for `isAxiosError === true` on the thrown object.
+    const axiosError = Object.assign(new Error('not found'), {
+      isAxiosError: true,
+      response: { status: 404, data: { detail: 'No simulation result available.' } },
+    });
+    getMock.mockRejectedValueOnce(axiosError);
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.error).toBeNull();
+  });
+
+  it('propagates non-404 errors so callers can surface them', async () => {
+    const axiosError = Object.assign(new Error('server boom'), {
+      isAxiosError: true,
+      response: { status: 500, data: { detail: 'Internal server error' } },
+    });
+    getMock.mockRejectedValueOnce(axiosError);
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.error?.message).toBe('server boom');
+  });
+});
