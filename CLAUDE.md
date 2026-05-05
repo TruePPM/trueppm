@@ -27,9 +27,9 @@ trueppm-suite/
 |-------|-----------|---------|
 | API | Django + DRF | 5.1+ / 3.15+ |
 | Real-time | Django Channels | 4.x |
-| Queue | Celery + Redis | 5.4+ / 7+ |
+| Queue | Celery + Valkey (Redis-compatible) | 5.4+ / 8+ |
 | Database | PostgreSQL | 16+ |
-| Cache | Redis | 7+ |
+| Cache | Valkey (Redis-compatible) | 8+ |
 | Web UI | React + TypeScript + Vite | 19 / 5.x / 6 |
 | Schedule view | Custom canvas renderer (packages/web/src/features/schedule/engine/) | — |
 | E2E tests | Playwright | latest |
@@ -92,7 +92,7 @@ make up       # docker compose up -d
 # Web UI: http://localhost:5173
 # API:    http://localhost:8000
 # PostgreSQL: localhost:5432
-# Redis:      localhost:6379
+# Valkey:     localhost:6379  (Redis-compatible; container is named `valkey`)
 
 # Common tasks (Makefile wraps per-package commands)
 make lint         # ruff + eslint across all packages (incl. ruff format --check)

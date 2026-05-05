@@ -1,12 +1,13 @@
 # Overrides for production deployment.
-# postgresql and redis are managed externally (RDS, ElastiCache, etc.) and
-# their connection details are injected via Kubernetes Secrets / external-secrets.
+# postgresql and valkey are managed externally (RDS, ElastiCache, MemoryDB, or a
+# managed Valkey service) and their connection details are injected via
+# Kubernetes Secrets / external-secrets.
 replicaCount: 2
 
 postgresql:
   enabled: false
 
-redis:
+valkey:
   enabled: false
 
 ingress:

@@ -19,7 +19,7 @@ postgresql:
     password: trueppm
     database: trueppm
 
-redis:
+valkey:
   enabled: true
   auth:
     enabled: false
@@ -27,7 +27,10 @@ redis:
 env:
   DJANGO_SETTINGS_MODULE: trueppm_api.settings.production
   DATABASE_URL: postgres://trueppm:trueppm@trueppm-postgresql:5432/trueppm
-  REDIS_URL: redis://trueppm-redis-master:6379
+  # Valkey is wire-compatible with Redis 7.2; the `redis://` URL scheme works
+  # against the Valkey service. The env var name is intentionally kept as
+  # REDIS_URL (deferred to 1.0; see ADR-0040 / CHANGELOG #316).
+  REDIS_URL: redis://trueppm-valkey-primary:6379
 
 # Admin bootstrap settings.
 # The bootstrap init container runs `create_admin` once on first deploy and

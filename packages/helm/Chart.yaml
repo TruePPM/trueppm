@@ -9,7 +9,12 @@ dependencies:
     version: "15.x.x"
     repository: "https://charts.bitnami.com/bitnami"
     condition: postgresql.enabled
-  - name: redis
-    version: "19.x.x"
+  # Valkey is the BSD-licensed Linux Foundation fork of Redis (March 2024
+  # license change to SSPL/RSALv2). Wire-compatible with Redis 7.2 — django-redis,
+  # channels_redis, redis-py, and Celery work unchanged. Bitnami publishes a
+  # Valkey chart in the same repo; the env var name `REDIS_URL` is preserved
+  # to avoid breaking self-hosters' .env files (deferred to 1.0).
+  - name: valkey
+    version: "3.x.x"
     repository: "https://charts.bitnami.com/bitnami"
-    condition: redis.enabled
+    condition: valkey.enabled

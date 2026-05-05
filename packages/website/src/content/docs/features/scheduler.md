@@ -233,7 +233,7 @@ trueppm-scheduler monte-carlo --input project.json --json --distribution
 
 The `recalculate_schedule` Celery task fires automatically via `transaction.on_commit()` after every Task or Dependency write:
 
-1. Acquires a per-project Redis lock (`SET NX`) — prevents redundant concurrent recalculations
+1. Acquires a per-project Valkey lock (`SET NX`) — prevents redundant concurrent recalculations
 2. Fetches all live (non-deleted) tasks and dependencies for the project
 3. Calls `trueppm-scheduler`'s `schedule()` function
 4. Writes CPM output fields back to Task rows
