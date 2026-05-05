@@ -103,4 +103,109 @@ describe('useMonteCarloResult', () => {
     expect(result.current.data).toBeUndefined();
     expect(result.current.error?.message).toBe('server boom');
   });
+
+  it('propagates network errors (no response) — they are not silenced as 404', async () => {
+    // ECONNREFUSED / DNS failure / offline: axios throws an AxiosError with
+    // `response` undefined. The 404 branch must not swallow this.
+    const networkError = Object.assign(new Error('Network Error'), {
+      isAxiosError: true,
+      response: undefined,
+      code: 'ECONNREFUSED',
+    });
+    getMock.mockRejectedValueOnce(networkError);
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.error?.message).toBe('Network Error');
+  });
+
+  it('propagates non-axios thrown errors', async () => {
+    // Defence in depth: if the queryFn throws something that is not an
+    // AxiosError, it must not match the 404 short-circuit.
+    getMock.mockRejectedValueOnce(new Error('unexpected'));
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.error?.message).toBe('unexpected');
+  });
+
+  it('maps an empty histogram_buckets array to an empty buckets array', async () => {
+    // A simulation that produced no aggregated buckets (e.g. all runs landed
+    // on the same day, or the window was collapsed) must still resolve, not
+    // crash on `.map`.
+    getMock.mockResolvedValueOnce({
+      data: {
+        project_id: 'proj-empty',
+        runs: 0,
+        p50: '2026-10-05',
+        p80: '2026-10-05',
+        p95: '2026-10-05',
+        histogram_buckets: [],
+      },
+    });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-empty'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.data).toEqual({
+      projectId: 'proj-empty',
+      runs: 0,
+      p50: '2026-10-05',
+      p80: '2026-10-05',
+      p95: '2026-10-05',
+      buckets: [],
+    });
+    expect(result.current.error).toBeNull();
+  });
+
+  it('refetches when projectId changes (query key is keyed on projectId)', async () => {
+    getMock
+      .mockResolvedValueOnce({
+        data: {
+          project_id: 'proj-A',
+          runs: 100,
+          p50: '2026-10-05',
+          p80: '2026-10-10',
+          p95: '2026-10-15',
+          histogram_buckets: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          project_id: 'proj-B',
+          runs: 200,
+          p50: '2026-12-01',
+          p80: '2026-12-05',
+          p95: '2026-12-10',
+          histogram_buckets: [],
+        },
+      });
+
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string }) => useMonteCarloResult(id),
+      { wrapper: makeWrapper(qc), initialProps: { id: 'proj-A' } },
+    );
+
+    await waitFor(() => expect(result.current.data?.projectId).toBe('proj-A'));
+    expect(getMock).toHaveBeenLastCalledWith('/projects/proj-A/monte-carlo/latest/');
+
+    rerender({ id: 'proj-B' });
+
+    await waitFor(() => expect(result.current.data?.projectId).toBe('proj-B'));
+    expect(getMock).toHaveBeenLastCalledWith('/projects/proj-B/monte-carlo/latest/');
+    expect(getMock).toHaveBeenCalledTimes(2);
+  });
 });

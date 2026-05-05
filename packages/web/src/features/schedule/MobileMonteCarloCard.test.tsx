@@ -1,16 +1,23 @@
 import { screen, fireEvent } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
 
+const useMonteCarloResultSpy = vi.hoisted(() => vi.fn());
+
 vi.mock('@/hooks/useMonteCarloResult', () => ({
-  useMonteCarloResult: () => ({
+  useMonteCarloResult: (projectId?: string) => useMonteCarloResultSpy(projectId),
+}));
+
+beforeEach(() => {
+  useMonteCarloResultSpy.mockReset();
+  useMonteCarloResultSpy.mockReturnValue({
     data: FIXTURE_MC_RESULT,
     isLoading: false,
     error: null,
-  }),
-}));
+  });
+});
 
 describe('MobileMonteCarloCard (#33)', () => {
   it('renders P50/P80/P95 chips with dates', () => {
@@ -54,5 +61,30 @@ describe('MobileMonteCarloCard (#33)', () => {
     expect(
       screen.queryByRole('dialog', { name: /Monte Carlo confidence distribution/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it('renders nothing when the hook has no data (empty / not-run state)', () => {
+    useMonteCarloResultSpy.mockReturnValue({ data: undefined, isLoading: false, error: null });
+    const { container } = renderWithProviders(<MobileMonteCarloCard projectId="proj-1" />);
+    expect(container.firstChild).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: /Monte Carlo confidence/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('renders nothing while the hook is loading', () => {
+    useMonteCarloResultSpy.mockReturnValue({ data: undefined, isLoading: true, error: null });
+    const { container } = renderWithProviders(<MobileMonteCarloCard projectId="proj-1" />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('forwards projectId to useMonteCarloResult', () => {
+    renderWithProviders(<MobileMonteCarloCard projectId="proj-xyz" />);
+    expect(useMonteCarloResultSpy).toHaveBeenCalledWith('proj-xyz');
+  });
+
+  it('calls useMonteCarloResult with undefined when no projectId is provided', () => {
+    renderWithProviders(<MobileMonteCarloCard />);
+    expect(useMonteCarloResultSpy).toHaveBeenCalledWith(undefined);
   });
 });
