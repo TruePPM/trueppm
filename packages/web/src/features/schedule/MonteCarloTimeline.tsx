@@ -147,24 +147,6 @@ export function MonteCarloTimeline({ result }: Props) {
             Distribution of project end dates
           </p>
           <MonteCarloHistogram result={result} />
-          <div className="mt-2 flex items-center gap-4 text-xs text-neutral-text-secondary">
-            {[
-              { label: 'P50', iso: p50, cls: 'bg-semantic-on-track' },
-              { label: 'P80', iso: p80, cls: 'bg-semantic-at-risk' },
-              { label: 'P95', iso: p95, cls: 'bg-semantic-critical' },
-            ].map(({ label, iso, cls }) => (
-              <span key={label} className="flex items-center gap-1">
-                <span className={`inline-block w-2.5 h-1 ${cls} rounded-sm`} aria-hidden="true" />
-                <span className="font-medium">{label}</span>
-                <span>
-                  {new Date(iso).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: 'numeric',
-                  })}
-                </span>
-              </span>
-            ))}
-          </div>
         </div>
       )}
     </>

@@ -62,4 +62,47 @@ describe('MonteCarloHistogram', () => {
     expect(title).not.toBeNull();
     expect(title?.textContent).toContain('P50');
   });
+
+  describe('collapse case — single-bucket distribution', () => {
+    const COLLAPSED: typeof FIXTURE_MC_RESULT = {
+      ...FIXTURE_MC_RESULT,
+      p50: '2026-11-30',
+      p80: '2026-11-30',
+      p95: '2026-11-30',
+      buckets: [{ weekStart: '2026-11-30', count: 1000 }],
+    };
+
+    it('renders a prose summary instead of the SVG chart', () => {
+      const { container } = renderWithProviders(
+        <MonteCarloHistogram result={COLLAPSED} />,
+      );
+      expect(container.querySelector('svg')).toBeNull();
+      expect(screen.getByText(/Every simulation finished on/i)).toBeInTheDocument();
+    });
+
+    it('mentions the converged date and offers PERT guidance', () => {
+      renderWithProviders(<MonteCarloHistogram result={COLLAPSED} />);
+      // November 30, 2026 — the date all simulations converged on.
+      expect(screen.getByText(/November 30, 2026/)).toBeInTheDocument();
+      expect(screen.getByText(/PERT estimates/i)).toBeInTheDocument();
+    });
+
+    it('treats an empty buckets array the same as a single bucket', () => {
+      const empty = { ...COLLAPSED, buckets: [] };
+      const { container } = renderWithProviders(
+        <MonteCarloHistogram result={empty} />,
+      );
+      expect(container.querySelector('svg')).toBeNull();
+      expect(screen.getByText(/Every simulation finished on/i)).toBeInTheDocument();
+    });
+
+    it('exposes an accessible label on the prose summary', () => {
+      renderWithProviders(<MonteCarloHistogram result={COLLAPSED} />);
+      const region = screen.getByRole('img');
+      expect(region).toHaveAttribute(
+        'aria-label',
+        expect.stringContaining('every simulation finished on'),
+      );
+    });
+  });
 });
