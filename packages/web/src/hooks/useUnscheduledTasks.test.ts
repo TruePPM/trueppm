@@ -45,16 +45,30 @@ describe('useUnscheduledTasks', () => {
     expect(result.current.map((x) => x.id)).toEqual(['u1']);
   });
 
-  it('excludes BACKLOG ideas — they live on the board until promoted', () => {
+  it('includes BACKLOG ideas without a PM-committed start (issue #332)', () => {
+    // BACKLOG cards with no plannedStart used to be excluded as "pre-planning"
+    // but #332 reclassifies them: CPM gives them an early_start, so the
+    // Schedule view was rendering them as scheduled bars and the Unscheduled
+    // tray claimed "all tasks have planned dates" — both wrong. The gutter
+    // is the correct surface for both NOT_STARTED and BACKLOG without a
+    // committed date.
     const tasks = [
       t({ id: 'b1', status: 'BACKLOG', plannedStart: null }),
       t({ id: 'n1', status: 'NOT_STARTED', plannedStart: null }),
     ];
     const { result } = renderHook(() => useUnscheduledTasks(tasks));
-    expect(result.current.map((x) => x.id)).toEqual(['n1']);
+    expect(result.current.map((x) => x.id).sort()).toEqual(['b1', 'n1']);
   });
 
-  it('excludes ON_HOLD (legacy → BACKLOG-equivalent)', () => {
+  it('excludes BACKLOG tasks with a PM-committed planned start', () => {
+    // A backlog card the PM has committed to (via plannedStart) is scheduled
+    // — the bar renders on the timeline and it must not show up in the gutter.
+    const tasks = [t({ id: 'b1', status: 'BACKLOG', plannedStart: '2026-04-06' })];
+    const { result } = renderHook(() => useUnscheduledTasks(tasks));
+    expect(result.current).toHaveLength(0);
+  });
+
+  it('excludes ON_HOLD (legacy column not surfaced as unscheduled)', () => {
     const tasks = [t({ id: 'h1', status: 'ON_HOLD', plannedStart: null })];
     const { result } = renderHook(() => useUnscheduledTasks(tasks));
     expect(result.current).toHaveLength(0);

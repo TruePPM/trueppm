@@ -160,9 +160,11 @@ test.describe('Unscheduled gutter — header (#213)', () => {
     await expect(page.getByText('(2)')).toBeVisible();
   });
 
-  test('shows "All tasks have planned dates" when no unscheduled tasks', async ({ page }) => {
+  test('shows "All To Do and Backlog tasks have planned dates" when no unscheduled tasks', async ({ page }) => {
     await gotoSchedule(page, FIXTURE_API_TASKS_ALL_SCHEDULED);
-    await expect(page.getByText('All tasks have planned dates')).toBeVisible();
+    await expect(
+      page.getByText('All To Do and Backlog tasks have planned dates'),
+    ).toBeVisible();
   });
 
   test('shows "Unscheduled" section heading', async ({ page }) => {

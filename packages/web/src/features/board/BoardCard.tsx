@@ -4,6 +4,7 @@ import type { Task, TaskReadiness, TaskStatus } from '@/types';
 import { BoardProgressRing } from './BoardProgressRing';
 import { formatShortDate } from '@/features/schedule/scheduleUtils';
 import { severityRagBand } from '@/hooks/useTaskDependencies';
+import { isTaskScheduled } from '@/lib/task';
 
 export type BoardDensity = 'compact' | 'comfortable' | 'detailed';
 
@@ -130,8 +131,10 @@ function fmtCurrency(value: number): string {
 
 // Left accent bar color per readiness state (issue #179).
 // CP (critical) overrides all; at-risk overrides estimated/ready/baselined.
-function accentBarClass(task: Task): string {
-  if (task.isCritical) return 'bg-semantic-critical';
+// `showCriticalState` gates the red CP override so backlog/uncommitted tasks
+// don't display scheduled-state styling (issue #332).
+function accentBarClass(task: Task, showCriticalState: boolean): string {
+  if (showCriticalState) return 'bg-semantic-critical';
   const r = task.readiness ?? 'estimated';
   switch (r) {
     case 'idea':      return 'bg-transparent';
@@ -230,6 +233,14 @@ export function BoardCard({
   const isIdea = (task.readiness ?? 'estimated') === 'idea';
   const isCompact = density === 'compact';
   const isDetailed = density === 'detailed';
+
+  // CPM marks every dated task with isCritical/totalFloat, including backlog
+  // ideas the PM hasn't committed to. Suppress the red CP signal and float
+  // chip until the task is scheduled (plannedStart set or in a sprint) — see
+  // issue #332. The CPM data is still passed through unchanged; only the
+  // display gates on commitment.
+  const isScheduled = isTaskScheduled(task);
+  const showCriticalState = task.isCritical && isScheduled;
 
   // EVM indicators (issue #185): SPI computed client-side from baseline; CPI from API field.
   const spi = computeTaskSpi(task);
@@ -390,7 +401,7 @@ export function BoardCard({
     'bg-neutral-surface border rounded-md cursor-grab active:cursor-grabbing relative group',
     'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
     'transition-opacity duration-150',
-    task.isCritical
+    showCriticalState
       ? 'border-semantic-critical border-2'
       : isIdea
         ? 'border-dashed border-neutral-border'
@@ -410,7 +421,7 @@ export function BoardCard({
           w-[85vw] md:w-auto md:min-w-[200px]"
       >
         <div className="flex items-center gap-1.5">
-          <BoardProgressRing progress={task.progress} isCritical={task.isCritical} isStalled={isStalled} />
+          <BoardProgressRing progress={task.progress} isCritical={showCriticalState} isStalled={isStalled} />
           <p className="text-sm font-medium text-neutral-text-primary truncate">
             {task.name}
           </p>
@@ -433,7 +444,7 @@ export function BoardCard({
   // Compact density — title + CP chip + progress strip, ~36px (issue #193)
   if (isCompact) {
     const progressColor =
-      task.isCritical
+      showCriticalState
         ? 'bg-semantic-critical'
         : task.progress === 100
           ? 'bg-semantic-on-track'
@@ -446,24 +457,24 @@ export function BoardCard({
         className={containerClass}
         role="button"
         tabIndex={0}
-        aria-label={`${task.name}, ${task.progress}% complete${task.isCritical ? ', critical path' : ''}`}
+        aria-label={`${task.name}, ${task.progress}% complete${showCriticalState ? ', critical path' : ''}`}
       >
-        <div className={`absolute left-0 inset-y-0 w-1 rounded-l-md ${accentBarClass(task)}`} aria-hidden="true" />
+        <div className={`absolute left-0 inset-y-0 w-1 rounded-l-md ${accentBarClass(task, showCriticalState)}`} aria-hidden="true" />
         <div className="pl-2.5 pr-8 py-2 flex items-center gap-1 min-w-0">
           <span
             className={[
               'text-xs font-medium truncate flex-1 min-w-0',
-              task.isCritical
+              showCriticalState
                 ? 'text-semantic-critical font-semibold'
                 : isIdea
                   ? 'text-neutral-text-disabled italic'
                   : 'text-neutral-text-primary',
             ].join(' ')}
-            title={task.isCritical ? cpTooltip(task) : undefined}
+            title={showCriticalState ? cpTooltip(task) : undefined}
           >
             {task.name}
           </span>
-          {task.isCritical && (
+          {showCriticalState && (
             <span
               className="shrink-0 inline-block px-1 py-px rounded text-xs text-white bg-semantic-critical font-bold"
               aria-hidden="true"
@@ -489,7 +500,11 @@ export function BoardCard({
   const hiddenCount = isDetailed ? 0 : Math.max(0, task.assignees.length - 3);
 
   // Float chip (issue #183): CP tasks have 0d float by definition; non-CP shows totalFloat when set.
-  const hasFloatData = task.isCritical || (task.totalFloat !== undefined && task.totalFloat !== null);
+  // Suppressed entirely on unscheduled tasks — CPM produces float for every dated task,
+  // including backlog ideas, so reading totalFloat without an isScheduled gate is the bug
+  // behind issue #332.
+  const hasFloatData =
+    isScheduled && (task.isCritical || (task.totalFloat !== undefined && task.totalFloat !== null));
   const floatDays = task.isCritical ? 0 : (task.totalFloat as number);
 
   // Baseline variance hover panel (issue #186): calendar days between forecast finish and baseline.
@@ -508,11 +523,11 @@ export function BoardCard({
       className={containerClass}
       role="button"
       tabIndex={0}
-      aria-label={`${task.name}, ${task.progress}% complete${task.isCritical ? ', critical path' : ''}`}
+      aria-label={`${task.name}, ${task.progress}% complete${showCriticalState ? ', critical path' : ''}`}
     >
       {/* Left accent bar — rounded-l-md matches card's border-radius so the bar
           respects the card corners without needing overflow-hidden on the parent. */}
-      <div className={`absolute left-0 inset-y-0 w-1 rounded-l-md ${accentBarClass(task)}`} aria-hidden="true" />
+      <div className={`absolute left-0 inset-y-0 w-1 rounded-l-md ${accentBarClass(task, showCriticalState)}`} aria-hidden="true" />
 
       {/* Card content — left-padded to clear the accent bar */}
       <div className="pl-2.5 pr-2.5 pt-2.5 pb-2.5">
@@ -538,29 +553,29 @@ export function BoardCard({
           {!isIdea && (
             <BoardProgressRing
               progress={task.progress}
-              isCritical={task.isCritical}
+              isCritical={showCriticalState}
               isStalled={isStalled}
             />
           )}
           <span
             className={[
               'text-xs font-medium truncate min-w-0',
-              task.isCritical
+              showCriticalState
                 ? 'text-semantic-critical font-semibold'
                 : isIdea
                   ? 'text-neutral-text-disabled italic'
                   : 'text-neutral-text-primary',
             ].join(' ')}
-            title={task.isCritical ? cpTooltip(task) : undefined}
+            title={showCriticalState ? cpTooltip(task) : undefined}
           >
             {task.name}
           </span>
         </div>
 
         {/* Badge row — CP, assignee initials (or ? placeholder for idea cards) */}
-        {(task.isCritical || task.assignees.length > 0 || isIdea) && (
+        {(showCriticalState || task.assignees.length > 0 || isIdea) && (
           <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-            {task.isCritical && (
+            {showCriticalState && (
               <span
                 className="inline-block px-1 py-px rounded text-xs text-white bg-semantic-critical font-bold"
                 aria-hidden="true"

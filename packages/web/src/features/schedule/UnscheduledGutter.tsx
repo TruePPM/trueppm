@@ -164,7 +164,7 @@ export function UnscheduledGutter({
           </span>
           {tasks.length === 0 && (
             <span className="text-xs italic text-neutral-text-disabled ml-3">
-              All tasks have planned dates
+              All To Do and Backlog tasks have planned dates
             </span>
           )}
           <div className="flex-1" />

@@ -24,6 +24,10 @@ const baseTask: Task = {
   wbs: '1',
   name: 'Backend Implementation',
   start: '2026-01-01',
+  // plannedStart matches start so the task counts as scheduled — most tests
+  // exercise display behavior on a committed task. Unscheduled cases override
+  // plannedStart: null explicitly (issue #332).
+  plannedStart: '2026-01-01',
   finish: '2026-01-08',
   duration: 7,
   progress: 60,
@@ -672,6 +676,75 @@ describe('BoardCard', () => {
     it('hides cost chip in compact density', () => {
       renderCard({ task: taskWithCost, showCost: true, density: 'compact' });
       expect(screen.queryByText(/\$50K/)).not.toBeInTheDocument();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #332 — uncommitted (backlog) cards must not display scheduled-state
+  // signals. CPM marks every dated task as critical and computes totalFloat;
+  // without a plannedStart/sprint gate, backlog ideas falsely render with CP
+  // pills, 0d-float chips, and red borders.
+  // -------------------------------------------------------------------------
+
+  describe('uncommitted-task suppression (issue #332)', () => {
+    it('hides the CP pill on a backlog card with no plannedStart', () => {
+      const task: Task = {
+        ...baseTask,
+        status: 'BACKLOG',
+        isCritical: true,
+        plannedStart: null,
+      };
+      renderCard({ task });
+      expect(screen.queryByText('CP')).not.toBeInTheDocument();
+    });
+
+    it('renders the CP pill on a backlog card once plannedStart is set', () => {
+      // A PM committing a backlog idea (without yet promoting it) should
+      // unlock the scheduled-state styling — the gate is plannedStart, not
+      // status.
+      const task: Task = {
+        ...baseTask,
+        status: 'BACKLOG',
+        isCritical: true,
+        plannedStart: '2026-01-01',
+      };
+      renderCard({ task });
+      expect(screen.getByText('CP')).toBeInTheDocument();
+    });
+
+    it('renders the CP pill on a backlog card committed via sprint membership', () => {
+      const task: Task = {
+        ...baseTask,
+        status: 'BACKLOG',
+        isCritical: true,
+        plannedStart: null,
+        sprintId: 'sprint-uuid',
+      };
+      renderCard({ task });
+      expect(screen.getByText('CP')).toBeInTheDocument();
+    });
+
+    it('hides the float chip on an uncommitted task even when CPM has computed totalFloat', () => {
+      const task: Task = {
+        ...baseTask,
+        status: 'BACKLOG',
+        plannedStart: null,
+        totalFloat: 0,
+        isCritical: true,
+      };
+      renderCard({ task, density: 'comfortable' });
+      expect(screen.queryByText(/d float/)).not.toBeInTheDocument();
+    });
+
+    it('renders the float chip on an uncommitted task once plannedStart is set', () => {
+      const task: Task = {
+        ...baseTask,
+        status: 'BACKLOG',
+        plannedStart: '2026-01-01',
+        totalFloat: 5,
+      };
+      renderCard({ task, density: 'comfortable' });
+      expect(screen.getByText('5d float')).toBeInTheDocument();
     });
   });
 });

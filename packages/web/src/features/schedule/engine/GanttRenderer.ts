@@ -470,6 +470,12 @@ export function drawTaskBar(
 ): void {
   // Defense-in-depth: _paintTaskAt already guards, but protect against direct callers too
   if (!task.start || !task.finish) return;
+  // Issue #332: do not render a bar when the PM has not committed dates.
+  // CPM auto-fills early_start/early_finish for every dated task (so task.start
+  // is non-null even for backlog ideas), and these tasks belong in the
+  // Unscheduled gutter instead of on the timeline. Sprint membership counts
+  // as a commitment.
+  if (!task.plannedStart && !task.sprintId) return;
   const barLeft = dateToLeft(task.start, scales) - scrollLeft;
   const barRight = dateToLeft(task.finish, scales) - scrollLeft;
   const barWidth = Math.max(2, barRight - barLeft);
@@ -666,6 +672,8 @@ export function drawSummaryBar(
   isSelected: boolean,
 ): void {
   if (!task.start || !task.finish) return;
+  // Issue #332: skip uncommitted summaries — same gate as drawTaskBar.
+  if (!task.plannedStart && !task.sprintId) return;
   const barLeft = dateToLeft(task.start, scales) - scrollLeft;
   const barRight = dateToLeft(task.finish, scales) - scrollLeft;
   const barWidth = Math.max(2, barRight - barLeft);
@@ -717,6 +725,8 @@ export function drawMilestone(
   isSelected: boolean,
 ): void {
   if (!task.start) return;
+  // Issue #332: skip uncommitted milestones — same gate as drawTaskBar.
+  if (!task.plannedStart && !task.sprintId) return;
   const centerX = dateToLeft(task.start, scales) - scrollLeft;
   const centerY = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2;
   const half = MILESTONE_SIZE / 2;
@@ -773,6 +783,10 @@ export function drawDependencyArrows(
   for (let i = 0; i < tasks.length; i++) {
     const t = tasks[i];
     if (!t.start || !t.finish) continue;
+    // Issue #332: dependency arrows must not anchor on uncommitted tasks —
+    // those tasks have no rendered bar (drawTaskBar/drawMilestone skip them),
+    // so an arrow would point at empty space.
+    if (!t.plannedStart && !t.sprintId) continue;
     taskMap.set(t.id, {
       rowIndex: i,
       barLeft: dateToLeft(t.start, scales) - scrollLeft,
