@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { Task } from '@/types';
 import { isTaskScheduled } from '@/lib/task';
 import { formatShortDate } from '@/features/schedule/scheduleUtils';
@@ -44,7 +45,7 @@ function initials(name: string): string {
 
 interface MetaRowProps {
   label: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 function MetaRow({ label, children }: MetaRowProps) {
