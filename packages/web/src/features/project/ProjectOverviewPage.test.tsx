@@ -164,6 +164,7 @@ describe('ProjectOverviewPage', () => {
 
   it('shows P50/P80/P95 pills when MC result available', async () => {
     const mcResult = {
+      project_id: 'proj-1',
       p50: '2026-06-01',
       p80: '2026-06-15',
       p95: '2026-06-30',
@@ -183,6 +184,38 @@ describe('ProjectOverviewPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/8 in 10 simulations finish by/i)).toBeInTheDocument();
     });
+  });
+
+  it('shows the Rerun forecast button when a result is cached (issue #335 regression guard)', async () => {
+    // Pre-#335: the Rerun button only appeared in the empty state. Once a
+    // result was cached, users had no in-product way to refresh after editing
+    // task durations — they had to wait 24h for the cache to expire.
+    const mcResult = {
+      project_id: 'proj-1',
+      p50: '2026-06-01',
+      p80: '2026-06-15',
+      p95: '2026-06-30',
+      runs: 1000,
+      distribution: [],
+      histogram_buckets: [],
+      last_run_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+    };
+    mockedGet.mockImplementation((url: string) => {
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.resolve({ data: mcResult });
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+    renderPage();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /rerun forecast/i })).toBeInTheDocument();
+    });
+    // Last-run freshness signal is visible alongside the chips
+    expect(screen.getByText(/last run/i)).toBeInTheDocument();
+    expect(screen.getByText(/2h ago/)).toBeInTheDocument();
   });
 
   it('renders attention items when present', async () => {

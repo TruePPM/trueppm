@@ -19,6 +19,9 @@ interface MonteCarloLatestResponse {
   p80: string;
   p95: string;
   histogram_buckets: { date: string; count: number }[];
+  // Captured at cache-write time on the backend (#335). Optional for
+  // resilience against older cached payloads written before the field existed.
+  last_run_at?: string;
 }
 
 function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
@@ -29,6 +32,7 @@ function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
     p80: api.p80,
     p95: api.p95,
     buckets: api.histogram_buckets.map((b) => ({ weekStart: b.date, count: b.count })),
+    lastRunAt: api.last_run_at,
   };
 }
 

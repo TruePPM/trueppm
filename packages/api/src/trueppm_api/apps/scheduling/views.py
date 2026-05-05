@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
@@ -202,7 +203,15 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
     else:
         histogram = []
 
-    result_dict = {**mc_result.to_dict(), "histogram_buckets": histogram}
+    # `last_run_at` lets the frontend surface a "Last run: 2h ago" freshness
+    # signal and decide whether to nudge a rerun (#335). Captured at cache-write
+    # time so it always tracks the most recent successful simulation, never the
+    # cache read.
+    result_dict = {
+        **mc_result.to_dict(),
+        "histogram_buckets": histogram,
+        "last_run_at": timezone.now().isoformat(),
+    }
     cache.set(f"mc_latest:{pk}", result_dict, timeout=86400)
     return Response(result_dict)
 

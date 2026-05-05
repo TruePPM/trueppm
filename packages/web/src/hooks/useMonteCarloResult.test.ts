@@ -45,6 +45,7 @@ describe('useMonteCarloResult', () => {
           { date: '2026-10-05', count: 148 },
           { date: '2026-11-03', count: 88 },
         ],
+        last_run_at: '2026-05-05T10:30:00Z',
       },
     });
 
@@ -65,8 +66,32 @@ describe('useMonteCarloResult', () => {
         { weekStart: '2026-10-05', count: 148 },
         { weekStart: '2026-11-03', count: 88 },
       ],
+      lastRunAt: '2026-05-05T10:30:00Z',
     });
     expect(result.current.error).toBeNull();
+  });
+
+  it('leaves lastRunAt undefined when the wire payload omits last_run_at (legacy cached entries)', async () => {
+    // Cached payloads written before #335 will not have the field. The hook
+    // must tolerate this without crashing or throwing — `lastRunAt` is
+    // optional and consumers gate the freshness UI on its presence.
+    getMock.mockResolvedValueOnce({
+      data: {
+        project_id: 'proj-legacy',
+        runs: 100,
+        p50: '2026-10-05',
+        p80: '2026-11-03',
+        p95: '2026-11-30',
+        histogram_buckets: [],
+      },
+    });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-legacy'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.data?.lastRunAt).toBeUndefined();
   });
 
   it('treats a 404 as the empty "no simulation run yet" state, not an error', async () => {

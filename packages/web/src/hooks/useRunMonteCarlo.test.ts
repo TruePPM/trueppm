@@ -50,7 +50,12 @@ describe('useRunMonteCarlo', () => {
     expect(postMock).toHaveBeenCalledWith('/projects/proj-1/monte-carlo/', { n_simulations: 250 });
   });
 
-  it('invalidates both monte-carlo-latest and mc-latest cache keys on success', async () => {
+  it('invalidates the unified monte-carlo-latest cache key on success', async () => {
+    // Pre-#335 there were two parallel hooks with separate cache keys
+    // (`mc-latest` for the Overview, `monte-carlo-latest` for the Schedule
+    // strip + TopBar). The Overview now consumes the shared
+    // `useMonteCarloResult` hook, so a single invalidation propagates to
+    // every surface.
     postMock.mockResolvedValueOnce({ data: {} });
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
 
@@ -62,10 +67,11 @@ describe('useRunMonteCarlo', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    // Both consumer-side caches must be invalidated so the Schedule view and
-    // the Overview Forecast widget re-fetch in lockstep.
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['monte-carlo-latest', 'proj-1'] });
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['mc-latest', 'proj-1'] });
+    // The legacy `mc-latest` key must NOT be invalidated — it no longer
+    // exists, and an unnecessary invalidation would silently mask future
+    // regressions where someone re-introduces a parallel hook.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['mc-latest', 'proj-1'] });
   });
 
   it('rejects without making a request when projectId is undefined', async () => {
