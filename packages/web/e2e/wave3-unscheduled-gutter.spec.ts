@@ -289,10 +289,16 @@ test.describe('Unscheduled gutter — overflow menu promote (#213)', () => {
     await dateInput.fill('2026-05-12');
     await page.getByRole('button', { name: 'Promote to schedule' }).click();
 
-    // Verify the PATCH was issued with the correct fields
+    // Verify the PATCH was issued with the correct fields. The frontend now
+    // sends only planned_start; the date-gated NOT_STARTED → IN_PROGRESS
+    // transition is enforced server-side in TaskSerializer.update so it
+    // applies uniformly across gutter promote, Gantt drag, drawer date edits,
+    // and integration sync (#336). pytest covers the server-side branches
+    // exhaustively; this E2E only confirms the wire shape.
     await page.waitForTimeout(500);
     expect(patchBody).not.toBeNull();
     expect(patchBody!['planned_start']).toBe('2026-05-12');
-    expect(patchBody!['status']).toBe('NOT_STARTED');
+    expect(patchBody!['status']).toBeUndefined();
+    expect(patchBody!['actual_start']).toBeUndefined();
   });
 });

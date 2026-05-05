@@ -281,6 +281,14 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         - Any → IN_PROGRESS: set actual_start = today if currently null
         - Any → COMPLETE: set actual_finish = today; also set actual_start if null
         - COMPLETE → reopened (any non-COMPLETE status): clear actual_finish
+        - NOT_STARTED + planned_start ≤ today (no explicit status): auto-promote
+          to IN_PROGRESS. The unified Schedule/Board data-model rule (#336) says
+          IN_PROGRESS means "actual work has begun" in both views; setting a
+          today-or-past planned_start is the system-wide signal that work has
+          started, regardless of which UI affordance the caller used (gutter
+          promote, Gantt drag, drawer date edit, integration sync). Past dates
+          also pin actual_start to planned_start so the historical start isn't
+          overwritten by the auto-`actual_start = today` rule below.
         - Explicit values in the payload always take precedence over auto-set
 
         Also resets early_start when planned_start changes so the frontend's
@@ -302,6 +310,25 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             and "early_start" not in validated_data
         ):
             validated_data["early_start"] = validated_data["planned_start"]
+
+        # Date-gated NOT_STARTED → IN_PROGRESS auto-transition (#336).
+        # Runs before the status-transition block below so the injected status
+        # is treated as a normal transition (auto-`actual_start = today` for
+        # today's drops; explicit `actual_start = planned_start` for past drops
+        # is set here so the IN_PROGRESS block at L317 doesn't overwrite it).
+        if (
+            "planned_start" in validated_data
+            and validated_data["planned_start"] is not None
+            and "status" not in validated_data
+            and instance.status == TaskStatus.NOT_STARTED
+            and validated_data["planned_start"] <= timezone.localdate()
+        ):
+            validated_data["status"] = TaskStatus.IN_PROGRESS
+            if (
+                validated_data["planned_start"] < timezone.localdate()
+                and "actual_start" not in validated_data
+            ):
+                validated_data["actual_start"] = validated_data["planned_start"]
 
         new_status = validated_data.get("status")
         old_status = instance.status

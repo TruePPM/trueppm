@@ -117,12 +117,28 @@ export function useRescheduleTask() {
     }: RescheduleTaskPayload) => {
       await apiClient.patch(`/tasks/${id}/`, data);
     },
-    onMutate: async ({ id, projectId, optimistic }) => {
+    onMutate: async ({ id, projectId, planned_start, optimistic }) => {
       // Cancel any in-flight fetches so they don't overwrite our optimistic data
       await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
       const snapshot = queryClient.getQueryData<Task[]>(['tasks', projectId]);
+      const todayIso = new Date().toISOString().slice(0, 10);
       queryClient.setQueryData<Task[]>(['tasks', projectId], (old) =>
-        old?.map((t) => (t.id === id ? { ...t, ...optimistic } : t)) ?? [],
+        old?.map((t) => {
+          if (t.id !== id) return t;
+          // Mirror the server's date-gated NOT_STARTED → IN_PROGRESS rule (#336)
+          // so the board doesn't flicker after a today-drag round-trip. Applied
+          // only when the caller didn't explicitly include a status of its own.
+          const willPromote =
+            t.status === 'NOT_STARTED' &&
+            optimistic.status === undefined &&
+            planned_start != null &&
+            planned_start <= todayIso;
+          return {
+            ...t,
+            ...optimistic,
+            ...(willPromote ? { status: 'IN_PROGRESS' as const } : {}),
+          };
+        }) ?? [],
       );
       return { snapshot };
     },
@@ -224,19 +240,18 @@ export interface PromoteTaskPayload {
 /**
  * PATCH /api/v1/tasks/{id}/ to promote an unscheduled task onto the timeline.
  *
- * Sets planned_start to the dropped date and transitions status from BACKLOG to
- * NOT_STARTED.  Invalidates the task cache so the gutter empties and the canvas
- * renders the task in its new position once CPM re-runs.
+ * Sends only `planned_start`; the server (`TaskSerializer.update`) applies the
+ * date-gated NOT_STARTED → IN_PROGRESS rule consistently across every
+ * planned_start mutation path (#336). Keeping the rule server-side means
+ * Gantt drag, drawer date edits, and integration sync all behave identically —
+ * and the rule is auditable in one place rather than replicated per hook.
  */
 export function usePromoteTask() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ id, planned_start }: PromoteTaskPayload) => {
-      await apiClient.patch(`/tasks/${id}/`, {
-        planned_start,
-        status: 'NOT_STARTED',
-      });
+      await apiClient.patch(`/tasks/${id}/`, { planned_start });
     },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });
