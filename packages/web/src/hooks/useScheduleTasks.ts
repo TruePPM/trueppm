@@ -48,6 +48,8 @@ interface ApiTask {
   // Wave 3 (#210) — passive overalloc indicator in task drawer.
   assignee_is_overallocated?: boolean;
   server_version?: number;
+  // Sprint membership (issue #317) — null/absent when not in a sprint.
+  sprint?: string | null;
   assignments?: Array<{
     resource_id: string;
     resource_name: string;
@@ -151,6 +153,8 @@ function mapTask(t: ApiTask): Task {
     readiness: (t.readiness as TaskReadiness | undefined) ?? undefined,
     assigneeIsOverallocated: t.assignee_is_overallocated ?? false,
     serverVersion: t.server_version,
+    sprintId: t.sprint ?? null,
+    plannedStart: t.planned_start,
   };
 }
 

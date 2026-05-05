@@ -76,9 +76,36 @@ system events. Frontend: ensure the History tab renders change-type labels
 
 ### #213 — Unscheduled gutter
 
-**What "unscheduled" means**: `Task.early_start IS NULL`. This covers:
-- Tasks in BACKLOG status (no CPM input)
-- Tasks with broken predecessor chains that CPM cannot resolve
+**What "unscheduled" means** *(refined by #317, 2026-05-04)*: a task appears in
+the gutter only when **all** of these hold:
+
+- `status === 'NOT_STARTED'` — the canonical "To Do" state
+- no PM-committed start (`planned_start IS NULL`). We deliberately do **not**
+  check `early_start`: CPM populates `early_start` for every task it
+  processes, so as soon as a card is promoted out of BACKLOG it has a
+  CPM-computed start even if the PM has never opened it. The gutter wants
+  "the PM hasn't committed yet" semantics, not "no row exists in the
+  scheduler"
+- not a summary task
+- not assigned to a sprint (`sprint IS NULL`) — sprint membership is itself a
+  scheduling commitment
+
+This deliberately **excludes**:
+
+- `BACKLOG` ideas (live on the board until promoted to `NOT_STARTED`)
+- `IN_PROGRESS` / `REVIEW` / `COMPLETE` tasks without dates — those are a data
+  integrity bug, not "needs scheduling"; they render an inline `⚠ missing dates`
+  chip on the task list row instead (`text-semantic-at-risk` per design rule 7)
+- Sprint-committed `NOT_STARTED` tasks — the sprint is the container
+
+**Promotion path BACKLOG → schedule**:
+
+1. PM transitions a BACKLOG card to `NOT_STARTED` on the Board view.
+2. Card now appears in the Unscheduled gutter on the Schedule view.
+3. PM drags the card from the gutter onto the timeline to set dates (or uses the
+   row overflow menu's "Set planned start" affordance).
+
+A drag-direct-from-Board promotion gesture is a follow-up (separate 0.2 issue).
 
 **Canvas layout**: the gutter is a separate DOM section (not on the canvas) rendered
 below `CanvasScheduleTimeline`. It shares the same horizontal scroll container and

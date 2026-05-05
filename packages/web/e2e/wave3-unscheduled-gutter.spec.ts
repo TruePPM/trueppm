@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 /**
  * E2E tests for wave 3 unscheduled gutter (#213):
  * - Gutter renders below the Gantt with count badge
- * - Task rows appear for tasks with no start date (BACKLOG / early_start = null)
+ * - Task rows appear for NOT_STARTED tasks with no start date and no sprint (#317)
  * - Collapse / expand toggle persists
  * - "All tasks have planned dates" message when no unscheduled tasks
  * - Overflow menu → "Set planned start" → submit → PATCH sent with planned_start
@@ -42,7 +42,7 @@ const FIXTURE_API_TASKS = [
     early_start: null, early_finish: null,
     planned_start: null, duration: 5, percent_complete: 0,
     is_critical: false, is_milestone: false, is_summary: false,
-    parent_id: null, status: 'BACKLOG',
+    parent_id: null, status: 'NOT_STARTED',
     actual_start: null, actual_finish: null, schedule_variance_days: null,
     baseline_start: null, baseline_finish: null,
     optimistic_duration: null, most_likely_duration: null, pessimistic_duration: null,
@@ -55,7 +55,7 @@ const FIXTURE_API_TASKS = [
     early_start: null, early_finish: null,
     planned_start: null, duration: 3, percent_complete: 0,
     is_critical: false, is_milestone: false, is_summary: false,
-    parent_id: null, status: 'BACKLOG',
+    parent_id: null, status: 'NOT_STARTED',
     actual_start: null, actual_finish: null, schedule_variance_days: null,
     baseline_start: null, baseline_finish: null,
     optimistic_duration: null, most_likely_duration: null, pessimistic_duration: null,

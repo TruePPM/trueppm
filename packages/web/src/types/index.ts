@@ -22,10 +22,19 @@ export interface Task {
   id: string;
   wbs: string;
   name: string;
-  /** ISO date string */
+  /** ISO date string — `max(planned_start, early_start)`. CPM fills in
+   * `early_start` for every task, so this is rarely empty in production —
+   * it's "where the bar paints", not "what the PM committed to". Use
+   * `plannedStart` to check whether the PM has actually committed a date. */
   start: string;
   /** ISO date string */
   finish: string;
+  /** ISO date string — the PM-committed start (SNET constraint). Distinct
+   * from `start`: CPM auto-computes `early_start` for every task it
+   * processes, so `start` is rarely empty in production. `plannedStart`
+   * stays null until a PM (or a drag-to-promote gesture) sets a date.
+   * The Unscheduled gutter filter (#317) uses this. */
+  plannedStart?: string | null;
   duration: number;
   /** 0–100 */
   progress: number;
@@ -84,6 +93,12 @@ export interface Task {
   assigneeIsOverallocated?: boolean;
   /** Monotonically increasing version counter — used for optimistic locking on phase reorder. */
   serverVersion?: number;
+  /**
+   * Sprint membership: when set, the task is committed to a sprint and is treated
+   * as scheduled — it must not appear in the Schedule view's Unscheduled gutter
+   * (issue #317). Null/undefined for tasks not assigned to a sprint.
+   */
+  sprintId?: string | null;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */

@@ -250,4 +250,65 @@ describe('TaskListRow', () => {
     expect(screen.queryByLabelText(/Expand/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Collapse/i)).not.toBeInTheDocument();
   });
+
+  describe('missing-dates warning chip (issue #317)', () => {
+    it.each(['IN_PROGRESS', 'REVIEW', 'COMPLETE'] as const)(
+      'renders chip when status is %s and plannedStart is null (CPM may have set start)',
+      (status) => {
+        renderWithRouter(
+          <TaskListRow
+            task={{ ...base, status, plannedStart: null }}
+            level={1}
+            widths={defaultWidths}
+            visible={defaultVisible}
+            {...defaultTreeProps}
+          />,
+        );
+        expect(screen.getByTestId('missing-dates-chip')).toBeInTheDocument();
+        expect(screen.getByLabelText('Missing schedule dates')).toBeInTheDocument();
+      },
+    );
+
+    it('does not render chip when plannedStart is present (PM has committed)', () => {
+      renderWithRouter(
+        <TaskListRow
+          task={{ ...base, status: 'IN_PROGRESS', plannedStart: '2026-10-05' }}
+          level={1}
+          widths={defaultWidths}
+          visible={defaultVisible}
+          {...defaultTreeProps}
+        />,
+      );
+      expect(screen.queryByTestId('missing-dates-chip')).not.toBeInTheDocument();
+    });
+
+    it.each(['BACKLOG', 'NOT_STARTED', 'ON_HOLD'] as const)(
+      'does not render chip for status %s without committed dates (board / gutter handles them)',
+      (status) => {
+        renderWithRouter(
+          <TaskListRow
+            task={{ ...base, status, plannedStart: null }}
+            level={1}
+            widths={defaultWidths}
+            visible={defaultVisible}
+            {...defaultTreeProps}
+          />,
+        );
+        expect(screen.queryByTestId('missing-dates-chip')).not.toBeInTheDocument();
+      },
+    );
+
+    it('does not render chip on summary tasks (rollup, not data-integrity)', () => {
+      renderWithRouter(
+        <TaskListRow
+          task={{ ...base, status: 'IN_PROGRESS', plannedStart: null, isSummary: true }}
+          level={1}
+          widths={defaultWidths}
+          visible={defaultVisible}
+          {...defaultTreeProps}
+        />,
+      );
+      expect(screen.queryByTestId('missing-dates-chip')).not.toBeInTheDocument();
+    });
+  });
 });
