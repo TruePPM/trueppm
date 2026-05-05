@@ -36,7 +36,7 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 | **Real-time** | Stable | WebSocket broadcasts for every mutation, deferred to transaction commit. |
 | **Offline sync** | Stable | WatermelonDB-compatible delta protocol with soft-delete tombstones. |
 | **Web UI** | Early | Application shell, Gantt view (split-pane, 6 bar types, 4 dependency types, zoom levels). Currently renders fixture data — live API wiring is in progress. |
-| **Helm chart** | Draft | Kubernetes deployment with Bitnami sub-charts for PostgreSQL and Redis. |
+| **Helm chart** | Draft | Kubernetes deployment with Bitnami sub-charts for PostgreSQL and Valkey (BSD-licensed Redis fork; wire-compatible). |
 
 ### What's Not Built Yet
 

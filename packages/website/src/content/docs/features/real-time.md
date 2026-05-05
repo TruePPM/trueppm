@@ -60,7 +60,7 @@ All broadcasts are deferred inside `transaction.on_commit()` — events only fir
 
 ## Channel layer
 
-Uses Redis (configured via `REDIS_URL`). All `api` and `celery` containers share the same Redis instance, so Celery-originated broadcasts (e.g. `schedule_updated`) reach WebSocket clients connected to any API container — safe for horizontal scaling.
+Uses [Valkey](https://valkey.io) (the BSD-licensed Linux Foundation fork of Redis; wire-compatible) configured via `REDIS_URL`. All `api` and `celery` containers share the same Valkey instance, so Celery-originated broadcasts (e.g. `schedule_updated`) reach WebSocket clients connected to any API container — safe for horizontal scaling. Existing Redis-compatible managed services (ElastiCache, Memorystore, Azure Cache for Redis) work as drop-in alternatives.
 
 ## JavaScript example
 

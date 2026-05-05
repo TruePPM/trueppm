@@ -1,5 +1,11 @@
 # ADR-0018: Idempotent Task Execution Framework
 
+> **Note (2026-05-04, #316):** Throughout this ADR, "Redis" should be read as
+> "Redis-compatible". TruePPM 0.1+ ships with [Valkey](https://valkey.io) (the
+> BSD-licensed Linux Foundation fork of Redis); the `SET NX`-based lock,
+> `redis-py` driver, and all timing arguments work unchanged because Valkey is
+> wire-compatible with Redis 7.2.
+
 ## Status
 Proposed
 

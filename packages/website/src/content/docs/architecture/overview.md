@@ -28,9 +28,9 @@ This page describes the architecture of TruePPM as it exists today. The scheduli
 │  └────────────────────────────────────────────────┘ │
 │                                                     │
 │  ┌──────────────────────┐  ┌──────────────────────┐ │
-│  │  Celery worker       │  │  Redis               │ │
+│  │  Celery worker       │  │  Valkey              │ │
 │  │  CPM auto-scheduler  │◄─┤  broker + channel    │ │
-│  │  (trueppm-scheduler) │  │  layer               │ │
+│  │  (trueppm-scheduler) │  │  layer (Redis-compat)│ │
 │  └──────────────────────┘  └──────────────────────┘ │
 └─────────────────────────────────────────────────────┘
 ```
@@ -85,13 +85,13 @@ Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo). Ships on P
 React 19 + TypeScript + Vite 6. Tailwind CSS with Design System v1.0 tokens (WCAG 2.1 AA). TanStack Query for server state, Zustand for client state, React Router v7. The Schedule view (Gantt-style) uses a purpose-built canvas renderer in `src/features/schedule/engine/` (no third-party Gantt library; see ADR-0040 for the rationale). The application shell, Schedule, Board, Sprints, and supporting views are wired against the live API.
 
 ### packages/api
-Django 5.1 + DRF 3.15. Django Channels 4 (ASGI). Celery 5.4 + Redis. django-allauth + simplejwt. drf-spectacular (OpenAPI 3.1). PostgreSQL 16 with `ltree` for WBS hierarchy.
+Django 5.1 + DRF 3.15. Django Channels 4 (ASGI). Celery 5.4 + Valkey (BSD-licensed Redis fork; wire-compatible). django-allauth + simplejwt. drf-spectacular (OpenAPI 3.1). PostgreSQL 16 with `ltree` for WBS hierarchy.
 
 ### packages/website
 This Astro Starlight site. Built with `npx astro build`; deploys to GitLab Pages.
 
 ### packages/helm
-Helm 3 chart with Bitnami sub-charts for PostgreSQL and Redis. Separate `values-dev.yaml` and `values-prod.yaml` overlays.
+Helm 3 chart with Bitnami sub-charts for PostgreSQL and Valkey. Separate `values-dev.yaml` and `values-prod.yaml` overlays.
 
 ## OSS / Enterprise boundary
 

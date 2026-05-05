@@ -1,5 +1,11 @@
 # ADR-0017: Celery Task Hardening — Retry Policies, Time Limits, and Dead-Letter Tracking
 
+> **Note (2026-05-04, #316):** Throughout this ADR, "Redis" should be read as
+> "Redis-compatible". TruePPM 0.1+ ships with [Valkey](https://valkey.io) (the
+> BSD-licensed Linux Foundation fork of Redis); `redis.ConnectionError` and
+> `redis-py` references are unchanged because Valkey is wire-compatible with
+> Redis 7.2 and the same Python driver is used.
+
 ## Status
 Proposed
 

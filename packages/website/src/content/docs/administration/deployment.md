@@ -20,7 +20,7 @@ docker compose up -d
 | Service | Port | Purpose |
 |---------|------|---------|
 | `db` | 5432 | PostgreSQL 16 |
-| `redis` | 6379 | Celery broker + Django Channels layer |
+| `valkey` | 6379 | Celery broker + Django Channels layer ([Valkey](https://valkey.io) — BSD-licensed Redis fork, wire-compatible) |
 | `api` | 8000 | Django ASGI (uvicorn) |
 | `celery` | — | CPM auto-scheduling worker |
 | `web` | 5173 | React frontend (nginx) |
@@ -36,7 +36,7 @@ docker compose exec api python manage.py createsuperuser
 
 ## Kubernetes with Helm
 
-The Helm chart in `packages/helm/` deploys TruePPM on Kubernetes with Bitnami sub-charts for PostgreSQL and Redis.
+The Helm chart in `packages/helm/` deploys TruePPM on Kubernetes with Bitnami sub-charts for PostgreSQL and Valkey (the BSD-licensed Linux Foundation fork of Redis; wire-compatible). Existing managed Redis services (AWS ElastiCache, GCP Memorystore, Azure Cache, etc.) work as drop-in alternatives — just point `REDIS_URL` at them.
 
 ```bash
 helm lint packages/helm
@@ -60,24 +60,24 @@ TruePPM runs as a set of cooperating services:
 | **API** | Django 5.1 (ASGI via uvicorn) | REST API, WebSocket connections, authentication |
 | **Celery worker** | Celery 5.4 | Background CPM scheduling, async task processing |
 | **PostgreSQL** | PostgreSQL 16 | Primary data store, ltree WBS hierarchy |
-| **Redis** | Redis 7 | Celery task broker, Django Channels layer, scheduling locks |
+| **Valkey** | Valkey 8 (Redis-compatible) | Celery task broker, Django Channels layer, scheduling locks |
 | **Web** | React 19 (Vite build, served via nginx) | Browser-based user interface |
 
-All services share the same Redis instance. Celery-originated broadcasts (e.g., `schedule_updated`) reach WebSocket clients connected to any API container, making horizontal scaling of the API safe.
+All services share the same Valkey instance. Celery-originated broadcasts (e.g., `schedule_updated`) reach WebSocket clients connected to any API container, making horizontal scaling of the API safe.
 
 ## Backups
 
 PostgreSQL is the only stateful service. Back up the `trueppm` database on your preferred schedule.
 
-Redis is a broker and cache — it does not store persistent data. Losing Redis state means in-flight Celery tasks are lost (they'll be re-triggered by the next write) and WebSocket connections will drop and reconnect.
+Valkey is a broker and cache — it does not store persistent data. Losing Valkey state means in-flight Celery tasks are lost (they'll be re-triggered by the next write) and WebSocket connections will drop and reconnect.
 
 ## Monitoring
 
 ### Auto-scheduling health
 
-The Celery worker runs CPM recalculation automatically after every task or dependency write. It uses a per-project Redis lock to prevent redundant concurrent recalculations. If the lock is held, the task re-queues with a 10-second countdown.
+The Celery worker runs CPM recalculation automatically after every task or dependency write. It uses a per-project Valkey lock to prevent redundant concurrent recalculations. If the lock is held, the task re-queues with a 10-second countdown.
 
-Monitor the Celery worker logs for scheduling errors. If Redis becomes unavailable, scheduling updates will queue and retry when the connection is restored.
+Monitor the Celery worker logs for scheduling errors. If Valkey becomes unavailable, scheduling updates will queue and retry when the connection is restored.
 
 ### WebSocket connections
 

@@ -11,7 +11,7 @@ All configuration is via environment variables. For local development, `docker-c
 |----------|-------------|---------|
 | `SECRET_KEY` | Django secret key. Use a long random string. | `$(python -c "import secrets; print(secrets.token_urlsafe(50))")` |
 | `DATABASE_URL` | PostgreSQL connection string. | `postgres://trueppm:password@db:5432/trueppm` |
-| `REDIS_URL` | Redis connection string. Used for Celery and Channels. | `redis://redis:6379` |
+| `REDIS_URL` | Connection string for the Celery broker / Channels layer. TruePPM ships with [Valkey](https://valkey.io) (BSD-licensed Redis fork, wire-compatible); the `redis://` scheme works against either. | `redis://valkey:6379` |
 | `DJANGO_SETTINGS_MODULE` | Settings module to load. | `trueppm_api.settings.prod` |
 | `ALLOWED_HOSTS` | Comma-separated list of allowed hostnames. | `trueppm.example.com` |
 
@@ -21,7 +21,7 @@ All configuration is via environment variables. For local development, `docker-c
 |----------|---------|
 | `SECRET_KEY` | `dev-secret-key-change-in-prod` |
 | `DATABASE_URL` | `postgres://trueppm:trueppm@db:5432/trueppm` |
-| `REDIS_URL` | `redis://redis:6379` |
+| `REDIS_URL` | `redis://valkey:6379` |
 | `DJANGO_SETTINGS_MODULE` | `trueppm_api.settings.dev` |
 | `ALLOWED_HOSTS` | `*` |
 

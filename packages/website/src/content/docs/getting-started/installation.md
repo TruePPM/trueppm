@@ -35,7 +35,7 @@ This starts five services:
 | Service | Port | Purpose |
 |---------|------|---------|
 | `db` | 5432 | PostgreSQL 16 |
-| `redis` | 6379 | Celery broker + Django Channels layer |
+| `valkey` | 6379 | Celery broker + Django Channels layer (BSD-licensed Redis fork; wire-compatible) |
 | `api` | 8000 | Django ASGI (uvicorn) |
 | `celery` | — | CPM auto-scheduling worker |
 | `web` | 5173 | React frontend (nginx, serves the Vite build) |
@@ -103,6 +103,6 @@ For local development, `docker-compose.yml` sets sensible defaults. For producti
 |----------|-------------|
 | `SECRET_KEY` | Django secret key — use a long random string |
 | `DATABASE_URL` | `postgres://user:password@host:5432/dbname` |
-| `REDIS_URL` | `redis://host:6379` |
+| `REDIS_URL` | `redis://host:6379` (Valkey accepts the `redis://` scheme; the env var name is unchanged) |
 | `DJANGO_SETTINGS_MODULE` | `trueppm_api.settings.prod` |
 | `ALLOWED_HOSTS` | Comma-separated list of allowed hostnames |

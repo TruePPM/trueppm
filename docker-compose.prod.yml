@@ -37,17 +37,21 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:7-alpine
+  # Valkey is the BSD-licensed Linux Foundation fork of Redis (March 2024
+  # license change). Wire-compatible with Redis 7 — REDIS_URL stays as-is.
+  # The .env variable name (REDIS_PASSWORD) is preserved to avoid breaking
+  # existing self-hosters' .env files (deferred to 1.0).
+  valkey:
+    image: valkey/valkey:8-alpine
     restart: unless-stopped
     read_only: true
     security_opt:
       - no-new-privileges:true
     tmpfs:
       - /data
-    command: redis-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
+    command: valkey-server --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $$REDIS_PASSWORD --no-auth-warning ping"]
+      test: ["CMD-SHELL", "valkey-cli -a $$REDIS_PASSWORD --no-auth-warning ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -64,7 +68,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgres://trueppm:${DB_PASSWORD:?DB_PASSWORD must be set in .env}@db:5432/trueppm
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@valkey:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
       TRUEPPM_ADMIN_PASSWORD_FILE: /run/trueppm/admin_password
       STATIC_ROOT: /app/staticfiles
@@ -74,7 +78,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      valkey:
         condition: service_healthy
 
   api:
@@ -89,7 +93,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgres://trueppm:${DB_PASSWORD:?DB_PASSWORD must be set in .env}@db:5432/trueppm
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@valkey:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
       TRUEPPM_ADMIN_PASSWORD_FILE: /run/trueppm/admin_password
     volumes:
@@ -117,7 +121,7 @@ services:
       - .env
     environment:
       DATABASE_URL: postgres://trueppm:${DB_PASSWORD:?DB_PASSWORD must be set in .env}@db:5432/trueppm
-      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}@valkey:6379
       DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
     depends_on:
       api-init:

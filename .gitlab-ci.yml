@@ -128,7 +128,8 @@ workflow:
   before_script:
     - pip install -e "packages/scheduler[dev]" --quiet
 
-# Full API template — postgres + redis services, used by api:test only.
+# Full API template — postgres + valkey services, used by api:test only.
+# Valkey is the BSD-licensed Redis fork; wire-compatible, REDIS_URL unchanged.
 .api:
   image: python:3.11-slim
   cache: &api-cache
@@ -141,20 +142,20 @@ workflow:
   services:
     - name: postgres:16-alpine
       alias: postgres
-    - name: redis:7-alpine
-      alias: redis
+    - name: valkey/valkey:8-alpine
+      alias: valkey
   variables:
     DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
     TRUEPPM_ALLOW_DEV_SETTINGS: "1"
     DATABASE_URL: "postgres://trueppm:trueppm@postgres/trueppm_test"
-    REDIS_URL: "redis://redis:6379"
+    REDIS_URL: "redis://valkey:6379"
   before_script:
     - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
     - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e "packages/api[dev]" --quiet
     - pip install pytest pytest-django pytest-asyncio --quiet
 
-# Lean API template — no DB/Redis, for jobs that only need Django importable
+# Lean API template — no DB/Valkey, for jobs that only need Django importable
 # (type-check, migration check, schema generation). DATABASE_URL is set so
 # django-environ parses cleanly; no actual connection is made.
 .api-no-db:
