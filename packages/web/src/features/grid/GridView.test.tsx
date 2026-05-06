@@ -385,3 +385,83 @@ describe('GridView — toolbar actions', () => {
     expect(exportTasksToCsv).toHaveBeenCalledWith(expect.any(Array), expect.stringContaining('proj-1'));
   });
 });
+
+describe('GridView — extra coverage', () => {
+  beforeEach(() => {
+    projectMethodology = 'AGILE';
+    scheduleTasksMockReturn = { tasks: mockTasks, links: [], isLoading: false, error: null };
+    bulkDeleteMutate.mockReset();
+  });
+
+  it('confirms bulk delete and dispatches the mutation on success', async () => {
+    bulkDeleteMutate.mockImplementation((_ids: string[], opts?: { onSuccess?: () => void }) => {
+      opts?.onSuccess?.();
+    });
+    const user = userEvent.setup();
+    await renderGrid();
+    const checkboxes = screen.getAllByLabelText(/^Select /);
+    await user.click(checkboxes[0]);
+    await user.click(await screen.findByRole('button', { name: /^delete$/i }));
+    await user.click(await screen.findByRole('button', { name: /confirm delete/i }));
+    expect(bulkDeleteMutate).toHaveBeenCalled();
+    expect(await screen.findByText(/task.* deleted/i)).toBeInTheDocument();
+  });
+
+  it('shows the error toast when bulk delete fails', async () => {
+    bulkDeleteMutate.mockImplementation((_ids: string[], opts?: { onError?: () => void }) => {
+      opts?.onError?.();
+    });
+    const user = userEvent.setup();
+    await renderGrid();
+    const checkboxes = screen.getAllByLabelText(/^Select /);
+    await user.click(checkboxes[0]);
+    await user.click(await screen.findByRole('button', { name: /^delete$/i }));
+    await user.click(await screen.findByRole('button', { name: /confirm delete/i }));
+    expect(await screen.findByText(/couldn't delete tasks/i)).toBeInTheDocument();
+  });
+
+  it('cancelling the bulk-delete confirm strip restores the toolbar', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    const checkboxes = screen.getAllByLabelText(/^Select /);
+    await user.click(checkboxes[0]);
+    await user.click(await screen.findByRole('button', { name: /^delete$/i }));
+    await user.click(await screen.findByRole('button', { name: /^cancel$/i }));
+    expect(await screen.findByRole('searchbox', { name: /search tasks/i })).toBeInTheDocument();
+  });
+
+  it('clearing chips via × removes the corresponding filter', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    await user.type(screen.getByLabelText('Search tasks'), 'design');
+    const removeBtn = await screen.findByLabelText(/Remove "design" filter/i);
+    await user.click(removeBtn);
+    // Chip strip is gone; full task list returns.
+    expect(screen.queryByLabelText(/Remove "design" filter/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the empty-state CTA when project has zero tasks', async () => {
+    scheduleTasksMockReturn = { tasks: [], links: [], isLoading: false, error: null };
+    await renderGrid();
+    expect(screen.getByText(/no tasks yet/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /\+ add task/i })).toBeInTheDocument();
+  });
+
+  it('clicking + Add task in the empty state opens the form modal', async () => {
+    const user = userEvent.setup();
+    scheduleTasksMockReturn = { tasks: [], links: [], isLoading: false, error: null };
+    await renderGrid();
+    await user.click(screen.getByRole('button', { name: /\+ add task/i }));
+    expect(await screen.findByRole('dialog', { name: /task form/i })).toBeInTheDocument();
+  });
+
+  it('clicking the search-chip × clears the chip', async () => {
+    const user = userEvent.setup();
+    await renderGrid();
+    const search = screen.getByLabelText('Search tasks');
+    await user.type(search, 'planning');
+    const chipRemove = await screen.findByLabelText(/Remove "planning" filter/i);
+    await user.click(chipRemove);
+    expect(screen.queryByLabelText(/Remove "planning" filter/i)).not.toBeInTheDocument();
+  });
+});
