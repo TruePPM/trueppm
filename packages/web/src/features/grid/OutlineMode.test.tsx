@@ -1,9 +1,43 @@
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Task } from '@/types';
+import type { DragEndEvent, DragOverEvent } from '@dnd-kit/core';
 import { OutlineMode } from './OutlineMode';
 import { emptyFilters } from './filters';
 import { useWbsStore } from '@/stores/wbsStore';
+
+// Capture the DndContext callbacks so individual tests can fire synthetic
+// drag events without going through the real PointerSensor / KeyboardSensor
+// pipeline. The reparent + reorder paths in handleDragEnd are 38% covered by
+// rendering alone; firing the captured callbacks lets us hit every branch.
+const capturedHandlers: {
+  onDragOver?: (e: DragOverEvent) => void;
+  onDragEnd?: (e: DragEndEvent) => void;
+  onDragCancel?: () => void;
+} = {};
+
+vi.mock('@dnd-kit/core', async () => {
+  const actual = await vi.importActual<typeof import('@dnd-kit/core')>('@dnd-kit/core');
+  return {
+    ...actual,
+    DndContext: ({
+      children,
+      onDragOver,
+      onDragEnd,
+      onDragCancel,
+    }: {
+      children: React.ReactNode;
+      onDragOver?: (e: DragOverEvent) => void;
+      onDragEnd?: (e: DragEndEvent) => void;
+      onDragCancel?: () => void;
+    }) => {
+      capturedHandlers.onDragOver = onDragOver;
+      capturedHandlers.onDragEnd = onDragEnd;
+      capturedHandlers.onDragCancel = onDragCancel;
+      return <>{children}</>;
+    },
+  };
+});
 
 const mockTasks: Task[] = [
   {
@@ -24,6 +58,14 @@ const mockTasks: Task[] = [
     isCritical: true, isComplete: false, isSummary: false, isMilestone: false,
     status: 'NOT_STARTED', assignees: [],
   },
+  // A second top-level summary so we can test reparenting a leaf into a
+  // *different* summary than its current parent.
+  {
+    id: 'p2', wbs: '2', name: 'Phase 2', start: '2026-06-01', finish: '2026-06-30',
+    duration: 30, progress: 0, parentId: null,
+    isCritical: false, isComplete: false, isSummary: true, isMilestone: false,
+    status: 'NOT_STARTED', assignees: [],
+  },
 ];
 
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));
@@ -32,10 +74,10 @@ vi.mock('@/hooks/useScheduleTasks', () => ({
   useScheduleTasks: () => ({ tasks: mockTasks, links: [], isLoading: false, error: null }),
 }));
 
-const indentMutate = vi.fn((_id: string, opts?: { onSuccess?: (data: unknown) => void; onError?: () => void }) => {
+const indentMutate = vi.fn((_id: string, opts?: { onSuccess?: (data: { warning: string | null }) => void; onError?: () => void }) => {
   opts?.onSuccess?.({ warning: null });
 });
-const outdentMutate = vi.fn((_id: string, opts?: { onSuccess?: (data: unknown) => void; onError?: () => void }) => {
+const outdentMutate = vi.fn((_id: string, opts?: { onSuccess?: (data: { warning: string | null }) => void; onError?: () => void }) => {
   opts?.onSuccess?.({ warning: 'has_assignments' });
 });
 const reorderMutate = vi.fn(
@@ -46,13 +88,14 @@ const reorderMutate = vi.fn(
     opts?.onSuccess?.();
   },
 );
+const reparentMutate = vi.fn();
 
 vi.mock('@/hooks/useTaskMutations', () => ({
   useUpdateTask: () => ({ mutate: vi.fn(), isPending: false }),
   useReorderTasks: () => ({ mutate: reorderMutate, isPending: false }),
   useIndentTask: () => ({ mutate: indentMutate, isPending: false }),
   useOutdentTask: () => ({ mutate: outdentMutate, isPending: false }),
-  useReparentTask: () => ({ mutate: vi.fn(), isPending: false }),
+  useReparentTask: () => ({ mutate: reparentMutate, isPending: false }),
 }));
 
 beforeEach(() => {
@@ -61,6 +104,10 @@ beforeEach(() => {
   indentMutate.mockClear();
   outdentMutate.mockClear();
   reorderMutate.mockClear();
+  reparentMutate.mockClear();
+  capturedHandlers.onDragOver = undefined;
+  capturedHandlers.onDragEnd = undefined;
+  capturedHandlers.onDragCancel = undefined;
 });
 
 function renderOutline() {
@@ -148,5 +195,142 @@ describe('OutlineMode — rendering', () => {
       />,
     );
     expect(screen.getByText(/no tasks match these filters/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drag handlers — invoked via the captured @dnd-kit/core callbacks
+// ---------------------------------------------------------------------------
+
+function dragEvent(activeId: string, overId: string | null): DragEndEvent {
+  return {
+    active: { id: activeId, data: { current: undefined }, rect: { current: { initial: null, translated: null } } },
+    over: overId ? { id: overId, data: { current: undefined }, rect: {} as DOMRect, disabled: false } : null,
+    collisions: null,
+    delta: { x: 0, y: 0 },
+    activatorEvent: new MouseEvent('pointerdown'),
+  } as unknown as DragEndEvent;
+}
+
+describe('OutlineMode — handleDragOver', () => {
+  it('marks a different summary as the reparent target when dragging a leaf onto it', () => {
+    renderOutline();
+    // t1's parent is p1; drag onto p2 (a *different* summary) should reparent.
+    act(() => capturedHandlers.onDragOver?.(dragEvent('t1', 'p2') as DragOverEvent));
+    expect(screen.getByLabelText(/will become child of Phase 2/i)).toBeInTheDocument();
+  });
+
+  it('clears the reparent target when "over" is null after a previous match', () => {
+    renderOutline();
+    act(() => capturedHandlers.onDragOver?.(dragEvent('t1', 'p2') as DragOverEvent));
+    act(() => capturedHandlers.onDragOver?.(dragEvent('t1', null) as DragOverEvent));
+    expect(capturedHandlers.onDragOver).toBeDefined();
+  });
+
+  it('does NOT mark a leaf row as a reparent target', () => {
+    renderOutline();
+    act(() => capturedHandlers.onDragOver?.(dragEvent('t1', 't2') as DragOverEvent));
+    expect(screen.queryByLabelText(/will become child of/i)).not.toBeInTheDocument();
+  });
+
+  it('does NOT mark a row as reparent when dragged onto its CURRENT parent', () => {
+    renderOutline();
+    // t1's current parent is p1 — over=p1 should NOT be a reparent.
+    act(() => capturedHandlers.onDragOver?.(dragEvent('t1', 'p1') as DragOverEvent));
+    expect(screen.queryByLabelText(/will become child of/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('OutlineMode — handleDragEnd reparent path', () => {
+  it('dispatches reparentTask.mutate when a leaf is dropped onto a different summary', () => {
+    renderOutline();
+    // Set up: drop t1 onto p2 (a different summary). p1 is t1's current parent.
+    act(() => capturedHandlers.onDragEnd?.(dragEvent('t1', 'p2')));
+    expect(reparentMutate).toHaveBeenCalledTimes(1);
+    expect(reparentMutate.mock.calls[0]?.[0]).toEqual({ taskId: 't1', newParentId: 'p2' });
+  });
+
+  it('reparent onSuccess (no warning) announces the move', () => {
+    reparentMutate.mockImplementation(
+      (
+        _payload: { taskId: string; newParentId: string },
+        opts?: { onSuccess?: (data: { warning: string | null }) => void; onError?: () => void },
+      ) => {
+        opts?.onSuccess?.({ warning: null });
+      },
+    );
+    renderOutline();
+    act(() => capturedHandlers.onDragEnd?.(dragEvent('t1', 'p2')));
+    expect(reparentMutate).toHaveBeenCalled();
+  });
+
+  it('reparent onSuccess with has_assignments warning is announced', () => {
+    reparentMutate.mockImplementation(
+      (
+        _payload: { taskId: string; newParentId: string },
+        opts?: { onSuccess?: (data: { warning: string | null }) => void; onError?: () => void },
+      ) => {
+        opts?.onSuccess?.({ warning: 'has_assignments' });
+      },
+    );
+    renderOutline();
+    act(() => capturedHandlers.onDragEnd?.(dragEvent('t1', 'p2')));
+    expect(reparentMutate).toHaveBeenCalled();
+  });
+
+  it('reparent onError announces a failure', () => {
+    reparentMutate.mockImplementation(
+      (
+        _payload: { taskId: string; newParentId: string },
+        opts?: { onSuccess?: (data: { warning: string | null }) => void; onError?: () => void },
+      ) => {
+        opts?.onError?.();
+      },
+    );
+    renderOutline();
+    act(() => capturedHandlers.onDragEnd?.(dragEvent('t1', 'p2')));
+    expect(reparentMutate).toHaveBeenCalled();
+  });
+});
+
+describe('OutlineMode — handleDragEnd reorder path', () => {
+  it('dispatches reorderTasks.mutate when dropped on a sibling', () => {
+    renderOutline();
+    // t1 and t2 are siblings under p1.
+    act(() => capturedHandlers.onDragEnd?.(dragEvent('t1', 't2')));
+    expect(reorderMutate).toHaveBeenCalledTimes(1);
+    const payload = reorderMutate.mock.calls[0]?.[0] as { parent_path: string; ordered_ids: string[] };
+    expect(payload.parent_path).toBe('1');
+    expect(payload.ordered_ids).toEqual(['t2', 't1']);
+  });
+
+  it('does nothing when active and over are the same id', () => {
+    renderOutline();
+    act(() => capturedHandlers.onDragEnd?.(dragEvent('t1', 't1')));
+    expect(reorderMutate).not.toHaveBeenCalled();
+    expect(reparentMutate).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when over is null', () => {
+    renderOutline();
+    act(() => capturedHandlers.onDragEnd?.(dragEvent('t1', null)));
+    expect(reorderMutate).not.toHaveBeenCalled();
+    expect(reparentMutate).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when the target task is unknown', () => {
+    renderOutline();
+    act(() => capturedHandlers.onDragEnd?.(dragEvent('t1', 'unknown-id')));
+    expect(reorderMutate).not.toHaveBeenCalled();
+  });
+});
+
+describe('OutlineMode — onDragCancel', () => {
+  it('clears the reparent target without dispatching any mutation', () => {
+    renderOutline();
+    act(() => capturedHandlers.onDragOver?.(dragEvent('t1', 'p1') as DragOverEvent));
+    act(() => capturedHandlers.onDragCancel?.());
+    expect(reparentMutate).not.toHaveBeenCalled();
+    expect(reorderMutate).not.toHaveBeenCalled();
   });
 });
