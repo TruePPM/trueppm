@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
+import type { TaskStatus } from '@/types';
 import { ChipStrip } from './ChipStrip';
 
 describe('ChipStrip', () => {
@@ -49,8 +50,7 @@ describe('ChipStrip', () => {
       <ChipStrip
         search=""
         ownerFilter=""
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        statusFilter={'UNKNOWN' as any}
+        statusFilter={'UNKNOWN' as unknown as TaskStatus}
         onRemove={vi.fn()}
       />,
     );

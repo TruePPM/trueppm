@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { render, screen, act, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Task } from '@/types';
@@ -26,7 +27,7 @@ vi.mock('@dnd-kit/core', async () => {
       onDragEnd,
       onDragCancel,
     }: {
-      children: React.ReactNode;
+      children: ReactNode;
       onDragOver?: (e: DragOverEvent) => void;
       onDragEnd?: (e: DragEndEvent) => void;
       onDragCancel?: () => void;
