@@ -1,3 +1,4 @@
+import type { KeyboardEvent } from 'react';
 import type { GridMode } from './persistence';
 
 const MODE_ORDER: readonly GridMode[] = ['flat', 'outline', 'grouped'] as const;
@@ -23,7 +24,7 @@ interface ModeToggleProps {
  * because the modes re-shape the same data — they aren't independent tab panels.
  */
 export function ModeToggle({ mode, onChange }: ModeToggleProps) {
-  const handleKeyDown = (e: React.KeyboardEvent, current: GridMode) => {
+  const handleKeyDown = (e: KeyboardEvent, current: GridMode) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
     const idx = MODE_ORDER.indexOf(current);

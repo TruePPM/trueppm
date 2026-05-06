@@ -75,7 +75,11 @@ vi.mock('@/hooks/useSprints', () => ({
 }));
 
 const exportTasksToCsv = vi.fn();
-vi.mock('@/utils/exportCsv', () => ({ exportTasksToCsv: (...args: unknown[]) => exportTasksToCsv(...args) }));
+vi.mock('@/utils/exportCsv', () => ({
+  exportTasksToCsv: (...args: unknown[]) => {
+    exportTasksToCsv(...args);
+  },
+}));
 
 vi.mock('@/features/board/TaskFormModal', () => ({
   TaskFormModal: ({ onClose, parentId }: { onClose: () => void; parentId?: string }) => (
