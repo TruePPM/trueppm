@@ -318,4 +318,90 @@ describe('TaskFormModal (issue #305)', () => {
     // Full-screen sheets use inset-0; the modal-shell parent is hidden at md.
     expect(dialog.className).toContain('inset-0');
   });
+
+  it('renders the destructive confirm dialog inside the mobile shell as well', () => {
+    mockUserRole = 4;
+    renderModal({ task: baseTask({ name: 'Mobile delete' }), isMobile: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    expect(screen.getByText(/“Mobile delete”/)).toBeInTheDocument();
+  });
+
+  // ----- Dirty-check escape paths ------------------------------------------
+
+  it('prompts for confirmation on Cancel when the form is dirty and closes only when confirmed', () => {
+    const onClose = vi.fn();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderModal({ phaseName: 'Alpha', onClose });
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'dirty' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(confirmSpy).toHaveBeenCalledWith('Discard unsaved changes?');
+    expect(onClose).toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('keeps the modal open if the user declines the discard prompt on Cancel', () => {
+    const onClose = vi.fn();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderModal({ phaseName: 'Alpha', onClose });
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'dirty' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onClose).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('Esc closes the modal directly when the form is pristine', () => {
+    const onClose = vi.fn();
+    renderModal({ phaseName: 'Alpha', onClose });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('Esc prompts before closing when the form is dirty', () => {
+    const onClose = vi.fn();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderModal({ phaseName: 'Alpha', onClose });
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'dirty' } });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('Esc is a no-op while the destructive confirm dialog is open (the dialog handles its own Esc)', () => {
+    mockUserRole = 4;
+    const onClose = vi.fn();
+    renderModal({ task: baseTask(), onClose });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
+    onClose.mockClear();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    // Modal's onKey returns early when the confirm dialog is mounted.
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the create error message and keeps the modal open when mutateAsync rejects', async () => {
+    createMutate.mockRejectedValueOnce(new Error('Server exploded'));
+    const onClose = vi.fn();
+    renderModal({ phaseName: 'Alpha', onClose });
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'X' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    // Microtasks for createMutate + state set.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(await screen.findByText('Server exploded')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the delete error and keeps the modal open when deleteMutate rejects', async () => {
+    mockUserRole = 4;
+    deleteMutate.mockRejectedValueOnce(new Error('Forbidden'));
+    const onClose = vi.fn();
+    renderModal({ task: baseTask(), onClose });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(await screen.findByText('Forbidden')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
