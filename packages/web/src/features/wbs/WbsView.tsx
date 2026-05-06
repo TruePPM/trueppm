@@ -16,11 +16,11 @@ import {
   sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
-import { useCreateTask, useUpdateTask, useReorderTasks, useIndentTask, useOutdentTask, useReparentTask } from '@/hooks/useTaskMutations';
+import { useUpdateTask, useReorderTasks, useIndentTask, useOutdentTask, useReparentTask } from '@/hooks/useTaskMutations';
 import { useWbsStore } from '@/stores/wbsStore';
 import { buildWbsTree, flattenVisible, collectAllIds } from './buildWbsTree';
 import { WbsRow } from './WbsRow';
-import { AddTaskForm } from '@/features/project/AddTaskForm';
+import { TaskFormModal } from '@/features/board/TaskFormModal';
 import { formatPredecessors } from './formatPredecessor';
 import type { Task } from '@/types';
 
@@ -90,10 +90,20 @@ export function WbsView() {
   const { expandedIds, toggle, expandAll, collapseAll, selectedTaskId, setSelectedTaskId } = useWbsStore();
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  // Mobile breakpoint detection for the unified task form modal — same
+  // pattern as BoardView's useBoardDensity (matchMedia at < md / 768px).
+  const [isMobile, setIsMobile] = useState<boolean>(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
   // When set, the add-form creates a child under this task id rather than at root.
   const [addFormParentId, setAddFormParentId] = useState<string | null>(null);
   const [liveAnnouncement, setLiveAnnouncement] = useState('');
-  const createTask = useCreateTask(projectId);
   const updateTask = useUpdateTask();
   const reorderTasks = useReorderTasks(projectId);
   const indentTask = useIndentTask(projectId);
@@ -418,17 +428,18 @@ export function WbsView() {
         </button>
       </div>
 
-      {/* Inline task-creation form */}
-      {showAddForm && (
-        <AddTaskForm
-          isPending={createTask.isPending}
-          onSubmit={(name, duration) => {
-            createTask.mutate(
-              { name, duration, parent_id: addFormParentId ?? undefined },
-              { onSuccess: () => { setShowAddForm(false); setAddFormParentId(null); } },
-            );
+      {/* Task creation modal — replaces the inline AddTaskForm strip
+          (issue #305 / ADR-0052). Always opens in create mode here. */}
+      {showAddForm && projectId && (
+        <TaskFormModal
+          projectId={projectId}
+          task={null}
+          parentId={addFormParentId ?? undefined}
+          isMobile={isMobile}
+          onClose={() => {
+            setShowAddForm(false);
+            setAddFormParentId(null);
           }}
-          onCancel={() => { setShowAddForm(false); setAddFormParentId(null); }}
         />
       )}
 

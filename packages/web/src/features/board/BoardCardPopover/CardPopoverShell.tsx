@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useCardPopoverPosition } from './useCardPopoverPosition';
+import { BottomSheet } from '@/components/ui/BottomSheet';
 
 export interface CardPopoverShellProps {
   /** Anchor element on desktop — the originating board card. */
@@ -58,7 +59,8 @@ export function CardPopoverShell({
   }, [onClose]);
 
   // Click outside (desktop): close when pointerdown lands outside the
-  // popover AND outside the anchor card. Mobile uses the explicit scrim.
+  // popover AND outside the anchor card. Mobile uses the explicit scrim
+  // owned by `<BottomSheet>`.
   useEffect(() => {
     if (isMobile) return undefined;
     function onPointerDown(e: PointerEvent) {
@@ -72,51 +74,15 @@ export function CardPopoverShell({
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   }, [anchor, isMobile, onClose]);
 
-  // Focus trap (mobile only — desktop popover is non-modal).
-  useEffect(() => {
-    if (!isMobile) return undefined;
-    function onTab(e: KeyboardEvent) {
-      if (e.key !== 'Tab' || !popoverRef.current) return;
-      const focusable = popoverRef.current.querySelectorAll<HTMLElement>(
-        'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
-      );
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-    document.addEventListener('keydown', onTab);
-    return () => document.removeEventListener('keydown', onTab);
-  }, [isMobile]);
+  // Focus trap, scrim, and Escape on mobile are owned by `<BottomSheet>` —
+  // see `components/ui/BottomSheet.tsx`. This component owns only the
+  // desktop anchored variant.
 
   if (isMobile) {
     return (
-      <>
-        <div
-          aria-hidden="true"
-          className="md:hidden fixed inset-0 z-40 bg-black/40 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150"
-          onPointerDown={onClose}
-        />
-        <div
-          ref={popoverRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-          className="md:hidden fixed inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-y-auto rounded-t-xl bg-neutral-surface border-t border-neutral-border motion-safe:transition-transform motion-safe:duration-200 motion-safe:ease-out"
-        >
-          <div
-            aria-hidden="true"
-            className="w-8 h-1 rounded-full bg-neutral-border mx-auto mt-2.5 mb-1.5 shrink-0"
-          />
-          <div className="relative pb-2">{children}</div>
-        </div>
-      </>
+      <BottomSheet isOpen onClose={onClose} titleId={titleId}>
+        <div className="relative pb-2">{children}</div>
+      </BottomSheet>
     );
   }
 

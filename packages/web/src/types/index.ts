@@ -99,6 +99,12 @@ export interface Task {
    * (issue #317). Null/undefined for tasks not assigned to a sprint.
    */
   sprintId?: string | null;
+  /**
+   * Long-form description / notes. Maps to the API's `Task.notes` field.
+   * Empty string when unset. Read by the task create/edit modal (#305) for
+   * the description textarea; not displayed elsewhere on board cards.
+   */
+  notes?: string;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */

@@ -9,6 +9,17 @@ interface TokenResponse {
   refresh: string;
 }
 
+/**
+ * Post-login destination. Prefer Overview (ADR-0030 canonical landing) when
+ * the captured `next` param is a project's `/board` route — the common case
+ * of "logged out from board, log back in" should land on Overview instead.
+ * Other deep links (risk, schedule, sprints, resources, etc.) pass through
+ * untouched so shared URLs still work after a re-auth.
+ */
+export function loginRedirectDest(next: string): string {
+  return next.replace(/^(\/projects\/[^/]+)\/board(\/.*)?$/, '$1/overview');
+}
+
 // Decorative mini-Gantt rows for the marketing panel.
 const GANTT_ROWS = [
   { label: 'Engine integration', widthPct: 70, offsetPct: 10, variant: 'critical' as const },
@@ -106,7 +117,7 @@ export function LoginPage() {
       setTokens(response.data.access, response.data.refresh);
       queryClient.clear();
       const next = searchParams.get('next') ?? '/';
-      void navigate(next, { replace: true });
+      void navigate(loginRedirectDest(next), { replace: true });
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && err.response?.status === 401) {
         setError('Invalid email or password.');

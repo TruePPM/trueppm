@@ -672,8 +672,14 @@ export function drawSummaryBar(
   isSelected: boolean,
 ): void {
   if (!task.start || !task.finish) return;
-  // Issue #332: skip uncommitted summaries — same gate as drawTaskBar.
-  if (!task.plannedStart && !task.sprintId) return;
+  // The original #332 fix gated summaries on `plannedStart || sprintId`, the
+  // same heuristic used for leaf tasks. That was incorrect for summaries: a
+  // PM never sets `planned_start` on a phase row — its dates are CPM rollups
+  // from children, and dropping the bar whenever the *phase itself* is
+  // uncommitted hid every phase rollup whose children were committed.
+  // Summaries should render whenever CPM has produced rollup dates; the
+  // `!task.start || !task.finish` guard above already covers the "no
+  // children scheduled yet, rollup empty" case.
   const barLeft = dateToLeft(task.start, scales) - scrollLeft;
   const barRight = dateToLeft(task.finish, scales) - scrollLeft;
   const barWidth = Math.max(2, barRight - barLeft);
@@ -783,10 +789,13 @@ export function drawDependencyArrows(
   for (let i = 0; i < tasks.length; i++) {
     const t = tasks[i];
     if (!t.start || !t.finish) continue;
-    // Issue #332: dependency arrows must not anchor on uncommitted tasks —
-    // those tasks have no rendered bar (drawTaskBar/drawMilestone skip them),
-    // so an arrow would point at empty space.
-    if (!t.plannedStart && !t.sprintId) continue;
+    // Issue #332 / #305 follow-up: dependency arrows must not anchor on
+    // uncommitted *leaf* tasks — those have no rendered bar (drawTaskBar /
+    // drawMilestone skip them) so an arrow would point at empty space.
+    // Summaries are exempt: drawSummaryBar always renders the rollup when
+    // CPM dates exist, regardless of phase plannedStart, so arrows pointing
+    // to/from a phase row remain valid.
+    if (!t.isSummary && !t.plannedStart && !t.sprintId) continue;
     taskMap.set(t.id, {
       rowIndex: i,
       barLeft: dateToLeft(t.start, scales) - scrollLeft,

@@ -4,7 +4,7 @@ import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate } from './engine';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
-import { useCreateTask, useRescheduleTask } from '@/hooks/useTaskMutations';
+import { useRescheduleTask } from '@/hooks/useTaskMutations';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { useWbsStore } from '@/stores/wbsStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
@@ -20,7 +20,7 @@ import { MonteCarloRow } from './MonteCarloRow';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
 import { MilestoneDeltaTooltip } from './MilestoneDeltaTooltip';
 import { DateInputPopover } from './DateInputPopover';
-import { AddTaskForm, type AddTaskFormHandle } from '@/features/project/AddTaskForm';
+import { TaskFormModal } from '@/features/board/TaskFormModal';
 import { RecalculatingBadge } from '@/features/project/RecalculatingBadge';
 import { TaskDetailDrawer } from './TaskDetailDrawer';
 import { UnscheduledGutter } from './UnscheduledGutter';
@@ -275,10 +275,20 @@ export function ScheduleView() {
   }, [focusModeEnabled, selectedTaskId, allLinks]);
 
   const [showAddForm, setShowAddForm] = useState(false);
-  const addFormRef = useRef<AddTaskFormHandle>(null);
   const [showColMenu, setShowColMenu] = useState(false);
   const colMenuRef = useRef<HTMLDivElement>(null);
-  const createTask = useCreateTask(projectId);
+
+  // Mobile breakpoint detection for the unified task form modal — matches the
+  // pattern in BoardView's useBoardDensity (matchMedia at < md / 768px).
+  const [isMobile, setIsMobile] = useState<boolean>(() =>
+    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
 
   // Tracks tasks created but not yet scheduled (null dates filtered from Gantt).
   // Entries are removed when the task appears in the scheduled tasks list.
@@ -646,28 +656,15 @@ export function ScheduleView() {
         <ZoomControl />
       </div>
 
-      {/* Inline task-creation form — stays open for rapid entry; closed by Cancel/Escape */}
-      {showAddForm && (
-        <AddTaskForm
-          ref={addFormRef}
-          isPending={createTask.isPending}
-          onSubmit={(name, duration) => {
-            createTask.mutate(
-              { name, duration },
-              {
-                onSuccess: (data) => {
-                  // Keep form open, clear fields, track as pending until scheduler assigns dates
-                  addFormRef.current?.reset();
-                  setPendingTaskIds((prev) => new Map(prev).set(data.id, data.name));
-                  if (ariaLiveRef.current) {
-                    ariaLiveRef.current.textContent =
-                      `Task "${data.name}" added — recalculating schedule.`;
-                  }
-                },
-              },
-            );
-          }}
-          onCancel={() => setShowAddForm(false)}
+      {/* Task creation modal — replaces the inline AddTaskForm strip
+          (issue #305 / ADR-0052). The unified TaskFormModal handles both
+          create and edit flows; here it always opens in create mode. */}
+      {showAddForm && projectId && (
+        <TaskFormModal
+          projectId={projectId}
+          task={null}
+          isMobile={isMobile}
+          onClose={() => setShowAddForm(false)}
         />
       )}
 

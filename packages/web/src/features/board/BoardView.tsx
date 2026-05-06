@@ -57,7 +57,7 @@ import { BoardCard, type BoardDensity, type EvmMode } from './BoardCard';
 import { BoardViewDropdown } from './BoardViewDropdown';
 import { LaneMeta } from './LaneMeta';
 import { WorkshopBanner } from './WorkshopBanner';
-import { AddTaskModal } from './AddTaskModal';
+import { TaskFormModal } from './TaskFormModal';
 import { PhaseMilestoneRail } from './PhaseMilestoneRail';
 import { KeyboardCheatsheet } from './KeyboardCheatsheet';
 import { BoardSettingsPanel } from './BoardSettingsPanel';
@@ -764,6 +764,9 @@ export function BoardView() {
   const [popoverTask, setPopoverTask] = useState<Task | null>(null);
   const [popoverAnchor, setPopoverAnchor] = useState<HTMLElement | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  // editTaskId opens the unified TaskFormModal in edit mode (issue #305).
+  // The popover's "Edit" footer action sets this; the modal owns the rest.
+  const [editTaskId, setEditTaskId] = useState<string | null>(null);
   // Dim non-connected cards (#182) — null means no highlight active.
   const [highlightedTaskIds, setHighlightedTaskIds] = useState<Set<string> | null>(null);
   const [chainHoverTaskId, setChainHoverTaskId] = useState<string | null>(null);
@@ -1164,7 +1167,7 @@ export function BoardView() {
 
   // While any b3 overlay is open, only Esc → onCloseOverlay should fire; nav keys
   // are suppressed.  When AddTaskModal is open, the modal owns the keyboard.
-  const b3OverlayOpen = depTask !== null || riskTask !== null || showCheatsheet || popoverTask !== null;
+  const b3OverlayOpen = depTask !== null || riskTask !== null || showCheatsheet || popoverTask !== null || editTaskId !== null;
 
   useBoardKeyboard(
     {
@@ -1569,11 +1572,14 @@ export function BoardView() {
         +
       </button>
 
-      {/* Per-phase add task modal (issue #208) */}
-      {addTaskPhase && (
-        <AddTaskModal
-          phaseId={addTaskPhase.id}
+      {/* Per-phase task create modal (issue #305 — replaced AddTaskModal) */}
+      {addTaskPhase && projectId && (
+        <TaskFormModal
+          projectId={projectId}
+          task={null}
           phaseName={addTaskPhase.name}
+          parentId={addTaskPhase.id}
+          isMobile={isMobile}
           onClose={() => setAddTaskPhase(null)}
         />
       )}
@@ -1630,25 +1636,41 @@ export function BoardView() {
             setSelectedTaskId(id);
           }}
           onEdit={() => {
-            // Same drawer for now; #305 swaps to redesigned modal next batch.
+            // #305 wired: Edit opens the unified TaskFormModal in edit mode.
             const id = popoverTask.id;
             closeCardPopover();
-            setSelectedTaskId(id);
+            setEditTaskId(id);
           }}
         />
       )}
 
       {/* Task detail drawer — rendered from BoardView for the first time
-          (folds in #265). Driven by the popover's "Open detail" / "Edit"
-          actions; shares the same registry-backed entry path as the
-          Schedule view (ADR-0050). Conditionally mounted on selection so a
-          closed `role="dialog"` does not collide with the Workshop modal's
-          loose `getByRole('dialog')` locator (wave9-workshop e2e). */}
+          (folds in #265). Driven by the popover's "Open detail" action;
+          shares the same registry-backed entry path as the Schedule view
+          (ADR-0050). Conditionally mounted on selection so a closed
+          `role="dialog"` does not collide with the Workshop modal's loose
+          `getByRole('dialog')` locator (wave9-workshop e2e). */}
       {projectId && selectedTaskId && (
         <TaskDetailDrawer
           task={taskIndex.get(selectedTaskId) ?? null}
           projectId={projectId}
           onClose={() => setSelectedTaskId(null)}
+        />
+      )}
+
+      {/* Task edit modal (issue #305) — opened by the popover's "Edit"
+          action. Same component handles create/edit; mode is inferred from
+          `task` (null = create, set = edit). */}
+      {projectId && editTaskId && (
+        <TaskFormModal
+          projectId={projectId}
+          task={taskIndex.get(editTaskId) ?? null}
+          isMobile={isMobile}
+          onClose={() => setEditTaskId(null)}
+          onDeleted={() => {
+            setEditTaskId(null);
+            setSelectedTaskId(null);
+          }}
         />
       )}
 

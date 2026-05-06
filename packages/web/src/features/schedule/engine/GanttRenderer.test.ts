@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+  drawDependencyArrows,
   drawSummaryBar,
   drawActualDateBar,
   drawScheduleVarianceBadge,
@@ -421,5 +422,135 @@ describe('drawTaskBar — uncommitted-task suppression (#332)', () => {
     const sprintTask = makeBarTask({ plannedStart: null, sprintId: 'sprint-uuid' });
     drawTaskBar(ctx, sprintTask, 0, scales, 0, false, VIEWPORT_W);
     expect(calls.filter((c) => c.name === 'roundRect').length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// drawSummaryBar — phase rollup must render regardless of phase plannedStart
+// ---------------------------------------------------------------------------
+
+describe('drawSummaryBar — rollup renders without phase plannedStart (#305 follow-up)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+
+  it('renders the rollup bar when CPM has produced summary dates even if plannedStart is null', () => {
+    // The original #332 fix gated drawSummaryBar on plannedStart, the same
+    // heuristic used for leaf tasks. That hid every phase rollup whose
+    // phase row didn't have its own planned_start — but PMs never set
+    // planned_start on phases. Summaries are containers; their dates are
+    // CPM rollups from children. The corrected gate is just
+    // `!task.start || !task.finish` (covers the "no children scheduled
+    // yet" case naturally).
+    const { ctx, calls } = makeCtxSpy();
+    const phase = {
+      ...SUMMARY_TASK,
+      plannedStart: null,
+      sprintId: null,
+    } as unknown as Task;
+    drawSummaryBar(ctx, phase, 0, scales, 0, false);
+    // Both diamond endpoint translates and the body roundRect should be drawn.
+    expect(calls.filter((c) => c.name === 'translate')).toHaveLength(2);
+    expect(calls.filter((c) => c.name === 'roundRect').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('still skips the rollup when CPM has not produced any dates yet', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const empty = {
+      ...SUMMARY_TASK,
+      start: '',
+      finish: '',
+      plannedStart: null,
+      sprintId: null,
+    } as unknown as Task;
+    drawSummaryBar(ctx, empty, 0, scales, 0, false);
+    expect(calls.filter((c) => c.name === 'roundRect')).toHaveLength(0);
+    expect(calls.filter((c) => c.name === 'translate')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// drawDependencyArrows — phase summaries are anchorable even without
+// plannedStart (#305 follow-up to #332)
+// ---------------------------------------------------------------------------
+
+describe('drawDependencyArrows — summary tasks are anchorable without plannedStart (#305 follow-up)', () => {
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+
+  // drawDependencyArrows reads ctx.canvas.width / .height + uses bezierCurveTo;
+  // augment the shared spy so its calls path through the recorder.
+  function makeArrowCtxSpy() {
+    const { ctx, calls } = makeCtxSpy();
+    const augmented = ctx as unknown as Record<string, unknown>;
+    augmented.canvas = { width: 800, height: 600 };
+    augmented.bezierCurveTo = vi.fn((...args: unknown[]) => {
+      calls.push({ name: 'bezierCurveTo', args });
+    });
+    augmented.closePath = vi.fn(() => calls.push({ name: 'closePath', args: [] }));
+    return { ctx, calls };
+  }
+
+  function leafTask(id: string, plannedStart: string | null): Task {
+    return {
+      id,
+      wbs: id,
+      name: `Leaf ${id}`,
+      start: '2026-04-08',
+      finish: '2026-04-12',
+      plannedStart,
+      duration: 5,
+      progress: 0,
+      isSummary: false,
+      isMilestone: false,
+      isCritical: false,
+      parentId: null,
+    } as unknown as Task;
+  }
+
+  function phase(id: string, plannedStart: string | null): Task {
+    return {
+      id,
+      wbs: id,
+      name: `Phase ${id}`,
+      start: '2026-04-06',
+      finish: '2026-04-15',
+      plannedStart,
+      duration: 10,
+      progress: 0,
+      isSummary: true,
+      isMilestone: false,
+      isCritical: false,
+      parentId: null,
+    } as unknown as Task;
+  }
+
+  it('renders an arrow when the source is an uncommitted phase summary (plannedStart=null)', () => {
+    // Pre-fix: drawDependencyArrows gated all tasks on
+    // `!plannedStart && !sprintId`, so an arrow from an uncommitted phase
+    // (PMs never set plannedStart on phases) silently disappeared even
+    // when both endpoints had CPM rollup dates. Same root cause as the
+    // drawSummaryBar over-broad gate.
+    const { ctx, calls } = makeArrowCtxSpy();
+    const tasks: Task[] = [
+      phase('phase-1', null),
+      leafTask('leaf-1', '2026-04-12'),
+    ];
+    const links = [
+      { id: 'l1', sourceId: 'phase-1', targetId: 'leaf-1', type: 'FS' as const, lag: 0, isCritical: false },
+    ];
+    drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
+    // bezierCurveTo is the dedicated arrow draw call.
+    expect(calls.filter((c) => c.name === 'bezierCurveTo').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('still skips arrows anchored to uncommitted leaf tasks (the original #332 case)', () => {
+    const { ctx, calls } = makeArrowCtxSpy();
+    const tasks: Task[] = [
+      leafTask('leaf-source', '2026-04-08'),
+      leafTask('leaf-uncommitted', null),
+    ];
+    const links = [
+      { id: 'l1', sourceId: 'leaf-source', targetId: 'leaf-uncommitted', type: 'FS' as const, lag: 0, isCritical: false },
+    ];
+    drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
+    expect(calls.filter((c) => c.name === 'bezierCurveTo')).toHaveLength(0);
   });
 });
