@@ -31,7 +31,11 @@ export default defineConfig({
       // all:true (the default) would instrument every file in src/ outside the
       // module graph and inflate the coverage denominator with uncollected files.
       all: false,
-      reporter: ['text'],
+      // 'text' prints to stdout for the package-total CI gate; 'lcov' writes
+      // coverage/lcov.info which `diff-cover` consumes for the diff-coverage
+      // gate (see Makefile coverage-diff-web).
+      reporter: ['text', 'lcov'],
+      reportsDirectory: './coverage',
       include: ['src/**/*.{ts,tsx}'],
       // Merge with the vitest defaults so node_modules, dist, etc. stay excluded.
       // A custom exclude list replaces (not extends) the defaults, so we must
