@@ -11,7 +11,7 @@ import { useDragCpm } from '@/hooks/useDragCpm';
 import { useKeyboardReschedule } from '@/hooks/useKeyboardReschedule';
 import { useDragStore } from '@/stores/dragStore';
 import { useColumnWidths } from '@/hooks/useColumnWidths';
-import { buildWbsTree, flattenVisible, collectAllIds } from '@/features/wbs/buildWbsTree';
+import { buildWbsTree, flattenVisible, collectAllIds } from '@/features/grid/buildWbsTree';
 import { formatToggleAnnouncement } from './wbsAnnouncement';
 import { TaskListPanel, type TaskDepChips } from './TaskListPanel';
 import { CanvasScheduleTimeline } from './CanvasScheduleTimeline';

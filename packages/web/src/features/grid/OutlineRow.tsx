@@ -2,22 +2,9 @@ import { useRef, useEffect, type KeyboardEvent } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { WbsNode } from './buildWbsTree';
+import { fmtDate, initials } from './ui';
 
-/** Format an ISO date string ("2026-04-28") as "Apr 28". */
-function fmtDate(iso: string | undefined): string {
-  if (!iso) return '—';
-  const d = new Date(`${iso}T00:00:00Z`);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-}
-
-/** Initials from a name, max 2 chars. */
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return (parts[0]?.[0] ?? '').toUpperCase();
-  return ((parts[0]?.[0] ?? '') + (parts[parts.length - 1]?.[0] ?? '')).toUpperCase();
-}
-
-interface WbsRowProps {
+interface OutlineRowProps {
   node: WbsNode;
   isExpanded: boolean;
   isRenaming: boolean;
@@ -33,7 +20,13 @@ interface WbsRowProps {
   onCancelRename: () => void;
 }
 
-export function WbsRow({
+/**
+ * Tree row used by Outline mode. Includes drag handle, expand/collapse
+ * affordance, depth-based indent, predecessors column, and inline rename.
+ * Renamed from `WbsRow` (former `features/wbs/WbsRow.tsx`); behaviour is
+ * unchanged.
+ */
+export function OutlineRow({
   node,
   isExpanded,
   isRenaming,
@@ -45,7 +38,7 @@ export function WbsRow({
   onStartRename,
   onRename,
   onCancelRename,
-}: WbsRowProps) {
+}: OutlineRowProps) {
   const { task, depth, children } = node;
   const hasChildren = children.length > 0;
   const inputRef = useRef<HTMLInputElement>(null);
@@ -59,7 +52,6 @@ export function WbsRow({
     isDragging,
   } = useSortable({
     id: task.id,
-    // Summary rows are drop targets (for reparent) but not draggable.
     disabled: { draggable: task.isSummary, droppable: false },
   });
 
@@ -84,7 +76,6 @@ export function WbsRow({
     if (e.key === 'F2') { e.preventDefault(); onStartRename(); }
   };
 
-  // Row variant: project (no parent, is_summary) > summary > milestone > task
   const isProject = task.isSummary && !task.parentId;
   const rowHeight = isProject ? 'h-11' : 'h-9';
 
@@ -98,9 +89,8 @@ export function WbsRow({
     : 'border-l-2 border-transparent';
 
   const nameWeight = (isProject || task.isSummary) ? 'font-semibold' : 'font-normal';
-  const indent = depth * 16; // 16px per level per spec
+  const indent = depth * 16;
 
-  // First assignee avatar (initials)
   const firstAssignee = task.assignees[0];
 
   return (
@@ -127,7 +117,6 @@ export function WbsRow({
       onKeyDown={handleNameKeyDown}
       tabIndex={isSelected ? 0 : -1}
     >
-      {/* Drag handle — hidden on summary/project rows */}
       <span
         {...attributes}
         {...listeners}
@@ -142,16 +131,14 @@ export function WbsRow({
         ⠿
       </span>
 
-      {/* Indentation */}
       <span style={{ width: indent, flexShrink: 0 }} aria-hidden="true" />
 
-      {/* Expand/collapse toggle or leaf indicator */}
       {hasChildren ? (
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onToggle(); }}
           aria-expanded={isExpanded}
-          aria-controls={`wbs-subtree-${task.id}`}
+          aria-controls={`grid-subtree-${task.id}`}
           aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
           className="
             w-4 h-4 flex items-center justify-center flex-shrink-0
@@ -174,7 +161,6 @@ export function WbsRow({
         </span>
       )}
 
-      {/* WBS code */}
       <span
         role="gridcell"
         className="w-14 flex-shrink-0 text-right pr-3 tppm-mono text-xs text-neutral-text-secondary"
@@ -182,7 +168,6 @@ export function WbsRow({
         {task.wbs}
       </span>
 
-      {/* Name — editable inline, with CP/risk badges */}
       <span role="gridcell" className="flex-1 min-w-0 pr-2 flex items-center gap-1.5">
         {task.isCritical && (
           <span
@@ -218,7 +203,6 @@ export function WbsRow({
         )}
       </span>
 
-      {/* Owner avatar */}
       <span role="gridcell" className="w-12 flex-shrink-0 flex items-center justify-center">
         {firstAssignee ? (
           <span
@@ -234,7 +218,6 @@ export function WbsRow({
         ) : null}
       </span>
 
-      {/* % Progress */}
       <span role="gridcell" className="w-24 flex-shrink-0 flex items-center gap-1.5 pr-2">
         <span className="flex-1 h-1.5 rounded-full bg-neutral-border" aria-hidden="true">
           <span
@@ -247,7 +230,6 @@ export function WbsRow({
         </span>
       </span>
 
-      {/* Start */}
       <span
         role="gridcell"
         className="w-20 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2"
@@ -255,7 +237,6 @@ export function WbsRow({
         {fmtDate(task.start)}
       </span>
 
-      {/* Finish */}
       <span
         role="gridcell"
         className="w-20 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2"
@@ -263,7 +244,6 @@ export function WbsRow({
         {fmtDate(task.finish)}
       </span>
 
-      {/* Duration */}
       <span
         role="gridcell"
         className="w-10 flex-shrink-0 text-right tppm-mono text-xs text-neutral-text-secondary"
@@ -271,7 +251,6 @@ export function WbsRow({
         {task.duration}d
       </span>
 
-      {/* Predecessors */}
       <span
         role="gridcell"
         className="w-36 flex-shrink-0 tppm-mono text-xs text-neutral-text-disabled truncate pl-2"

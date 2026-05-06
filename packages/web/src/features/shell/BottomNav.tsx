@@ -15,13 +15,14 @@ interface NavItem {
 
 // Bottom navigation rail — shown at < md (768px) in place of view tabs in the top bar.
 // Order mirrors ViewTabs: Overview first (orientation), Board second (execution).
-// Risks and WBS omitted at mobile breakpoint — infrequent access; reachable via desktop tabs.
+// Risks omitted at mobile breakpoint — infrequent access; reachable via desktop tabs.
+// Grid replaces the previous Table entry (issue #334, ADR-0053).
 const NAV_ITEMS: NavItem[] = [
   { view: 'overview',  label: 'Overview', Icon: OverviewIcon },
   { view: 'board',     label: 'Board',    Icon: BoardIcon },
   { view: 'sprints',   label: 'Sprints',  Icon: SprintIcon },
   { view: 'schedule',  label: 'Schedule', Icon: GanttIcon },
-  { view: 'list',      label: 'Table',    Icon: ListIcon },
+  { view: 'grid',      label: 'Grid',     Icon: ListIcon },
   { view: 'calendar',  label: 'Calendar', Icon: CalendarIcon },
   { view: 'resources', label: 'Team',     Icon: ResourcesIcon },
 ];

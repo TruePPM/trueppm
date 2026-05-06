@@ -2,7 +2,7 @@
 
 **v0.2 · 2026-04-14**
 
-Revised after reviewing the live Gantt build. The proposal now uses the shipping chrome conventions — **tabbed view-switcher** (Gantt / WBS / Board / Table / Calendar / Resources / Risks), **Monte Carlo P80 chip** + **footer distribution strip**, inline **resource pills** on tasks, red-text critical path, and a live-collab status bar. The OSS single-program view is the _project page_. The Enterprise P3M view is the _portfolio page_ — same shell, new tabs and widgets registered via extension hooks.
+Revised after reviewing the live Gantt build. The proposal now uses the shipping chrome conventions — **tabbed view-switcher** (Gantt / Board / Grid / Calendar / Resources / Risks), **Monte Carlo P80 chip** + **footer distribution strip**, inline **resource pills** on tasks, red-text critical path, and a live-collab status bar. The OSS single-program view is the _project page_. The Enterprise P3M view is the _portfolio page_ — same shell, new tabs and widgets registered via extension hooks.
 
 - `OSS · Apache 2.0 · packages/web`
 - `Enterprise · proprietary overlay · trueppm-enterprise`
@@ -18,7 +18,7 @@ The PM opens TruePPM, picks a project, and lands here. Overview answers _"is thi
 
 ### Shell chrome
 
-**Top bar tabs (view switcher):** Overview (active) · Gantt · WBS · Board · Table · Calendar · Resources · Risks
+**Top bar tabs (view switcher):** Overview (active) · Gantt · Board · Grid · Calendar · Resources · Risks
 
 **Top bar right-side chips:** P80: Nov 2 · ⚠ 2 · 🔔 1 · user avatar (KW)
 
@@ -136,7 +136,7 @@ Right legend: Healthy · At risk · Critical
 
 - **5-second scan:** status chip, P80, tasks late, next milestone, utilization — all above the fold.
 - **Burn-up chart** shows planned / actual / forecast cone — a single chart that tells the whole story.
-- **Every widget links out:** burn-up → Gantt; risks → Risks tab; my tasks → Table filtered by assignee.
+- **Every widget links out:** burn-up → Gantt; risks → Risks tab; my tasks → Grid filtered by assignee.
 - **Mobile:** KPIs horizontal scroll · Attention/My tasks stack first · chart collapses to sparklines.
 
 ---
@@ -147,7 +147,7 @@ Right legend: Healthy · At risk · Critical
 
 ### Shell chrome
 
-**Top bar tabs:** Overview · **Gantt** (active) · WBS · Board · Table · Calendar · Resources · Risks
+**Top bar tabs:** Overview · **Gantt** (active) · Board · Grid · Calendar · Resources · Risks
 
 **Top bar right:** P80: Nov 2 (clickable, pins distribution to footer strip) · ⚠ 2 · 🔔 1 · user avatar (KW)
 
@@ -297,7 +297,7 @@ The Board's rows are **phases** (Discovery / Design / Build / Test / Launch) by 
 
 ### Top bar tabs
 
-Overview · Gantt · WBS · **Board** (active) · Table · Calendar · Resources · Risks
+Overview · Gantt · **Board** (active) · Grid · Calendar · Resources · Risks
 
 ### Board toolbar
 
