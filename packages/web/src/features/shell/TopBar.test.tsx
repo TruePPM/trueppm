@@ -64,14 +64,16 @@ describe('TopBar', () => {
     expect(screen.getByText('TruePPM')).toBeInTheDocument();
   });
 
-  it('renders view tabs navigation with all views including WBS', () => {
+  it('renders view tabs navigation with the canonical view set', () => {
     renderWithRouter(<TopBar onHamburgerClick={vi.fn()} />);
     expect(screen.getByRole('navigation', { name: /view/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Overview' })).toBeInTheDocument();
-    // "Gantt" renamed to "Schedule" per design handoff (issue #204)
+    // "Gantt" renamed to "Schedule" per design handoff (issue #204).
     expect(screen.getByRole('link', { name: 'Schedule' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'WBS' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Table' })).toBeInTheDocument();
+    // WBS + Table consolidated into the single Grid entry (issue #334).
+    expect(screen.getByRole('link', { name: 'Grid' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'WBS' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Table' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Board' })).toBeInTheDocument();
   });
 

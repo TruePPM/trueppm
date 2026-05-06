@@ -1,12 +1,13 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * View-switching E2E flows — navigate between Schedule, WBS, Table, and Board views.
+ * View-switching E2E flows — navigate between Schedule, Grid, and Board views.
  *
  * Extends the view-mode switching covered in schedule.spec.ts with:
  * - Board view navigation and column rendering
- * - Round-trip switching (Schedule → WBS → Board → Table → Schedule)
+ * - Round-trip switching (Schedule → Grid → Board → Schedule)
  * - URL reflects the active view so deep links work
+ * - Legacy `/wbs` and `/list` URLs redirect to `/grid` (issue #334, ADR-0053)
  *
  * These run against the production build with intercepted API routes.
  */
@@ -159,11 +160,13 @@ test.describe('View switching', () => {
     expect(page.url()).toMatch(/\/schedule$/);
   });
 
-  test('navigate to WBS — treegrid renders and URL updates', async ({ page }) => {
+  test('navigate to Grid — Outline mode treegrid renders by default and URL updates', async ({ page }) => {
+    // Grid replaces WBS + Table (issue #334, ADR-0053). HYBRID methodology
+    // (the test fixture default) defaults to Outline mode.
     const nav = page.getByRole('navigation', { name: 'View' });
-    await nav.getByRole('link', { name: 'WBS' }).click();
-    await expect(page).toHaveURL(/\/wbs$/);
-    await expect(page.getByRole('treegrid', { name: 'WBS task tree' })).toBeVisible();
+    await nav.getByRole('link', { name: 'Grid' }).click();
+    await expect(page).toHaveURL(/\/grid$/);
+    await expect(page.getByRole('treegrid', { name: 'Outline task tree' })).toBeVisible();
   });
 
   test('navigate to Board — columns render and URL updates', async ({ page }) => {
@@ -174,34 +177,41 @@ test.describe('View switching', () => {
     await expect(page.locator('[aria-label*="To Do"]').first()).toBeVisible({ timeout: 5_000 });
   });
 
-  test('navigate to Table — task grid renders and URL updates', async ({ page }) => {
+  test('Grid mode toggle switches between Outline and Flat without changing the URL', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
-    await nav.getByRole('link', { name: 'Table' }).click();
-    await expect(page).toHaveURL(/\/list$/);
+    await nav.getByRole('link', { name: 'Grid' }).click();
+    await expect(page).toHaveURL(/\/grid$/);
+    // Switch to Flat — the segmented control labels each button with its
+    // descriptive name (per UX spec § 9 accessibility).
+    await page.getByRole('button', { name: 'Flat list' }).click();
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
+    // URL is unchanged — modes are component state, not routes (ADR-0053 § 2).
+    await expect(page).toHaveURL(/\/grid$/);
   });
 
-  test('round-trip Schedule → WBS → Board → Table → Schedule', async ({ page }) => {
+  test('round-trip Schedule → Grid → Board → Schedule', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
 
-    await nav.getByRole('link', { name: 'WBS' }).click();
-    await expect(page.getByRole('treegrid', { name: 'WBS task tree' })).toBeVisible();
+    await nav.getByRole('link', { name: 'Grid' }).click();
+    await expect(page.getByRole('treegrid', { name: 'Outline task tree' })).toBeVisible();
 
     await nav.getByRole('link', { name: 'Board' }).click();
     await expect(page.locator('[aria-label*="To Do"]').first()).toBeVisible({ timeout: 5_000 });
-
-    await nav.getByRole('link', { name: 'Table' }).click();
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
 
     await nav.getByRole('link', { name: 'Schedule' }).click();
     await expect(page).toHaveURL(/\/schedule$/);
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
   });
 
-  test('deep-link to WBS view renders without visiting Schedule first', async ({ page }) => {
-    // Navigate directly to /wbs path — must render without round-tripping through Schedule.
+  test('legacy /wbs URL redirects to /grid (issue #334 redirect)', async ({ page }) => {
     await page.goto(`${BASE_URL}/wbs`);
-    await expect(page.getByRole('treegrid', { name: 'WBS task tree' })).toBeVisible({ timeout: 10_000 });
+    await expect(page).toHaveURL(/\/grid$/, { timeout: 10_000 });
+    await expect(page.getByRole('treegrid', { name: 'Outline task tree' })).toBeVisible();
+  });
+
+  test('legacy /list URL redirects to /grid (issue #334 redirect)', async ({ page }) => {
+    await page.goto(`${BASE_URL}/list`);
+    await expect(page).toHaveURL(/\/grid$/, { timeout: 10_000 });
   });
 
   test('navigating to /projects/:id with no view segment redirects to Overview (ADR-0030)', async ({ page }) => {

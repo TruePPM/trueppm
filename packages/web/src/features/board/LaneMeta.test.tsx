@@ -159,4 +159,42 @@ describe('LaneMeta', () => {
     textbox.textContent = 'Whatever';
     expect(() => fireEvent.blur(textbox)).not.toThrow();
   });
+
+  describe('budget display', () => {
+    it('formats large budgets in millions ($1.5M)', () => {
+      render(
+        <LaneMeta
+          {...BASE_PROPS}
+          showCost
+          phaseBudgetAtCompletion={1_500_000}
+          phaseActualCost={null}
+        />,
+      );
+      expect(screen.getByText(/\$1\.5M/)).toBeInTheDocument();
+    });
+
+    it('formats mid-size budgets in thousands ($45K)', () => {
+      render(
+        <LaneMeta
+          {...BASE_PROPS}
+          showCost
+          phaseBudgetAtCompletion={45_000}
+          phaseActualCost={null}
+        />,
+      );
+      expect(screen.getByText(/\$45K/)).toBeInTheDocument();
+    });
+
+    it('formats small budgets in dollars ($250)', () => {
+      render(
+        <LaneMeta
+          {...BASE_PROPS}
+          showCost
+          phaseBudgetAtCompletion={250}
+          phaseActualCost={null}
+        />,
+      );
+      expect(screen.getByText(/\$250/)).toBeInTheDocument();
+    });
+  });
 });

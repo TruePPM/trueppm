@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router';
-import { GanttIcon, WbsIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon, SprintIcon } from '@/components/Icons';
+import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon, SprintIcon } from '@/components/Icons';
 import { OverviewIcon } from '@/components/Icons';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
@@ -16,13 +16,14 @@ interface Tab {
 // Overview is first — it is the project landing/orientation surface (ADR-0030).
 // Board is second — the execution surface for task planning and status.
 // Sprints is third — between Board and Schedule, paired with execution surfaces (ADR-0041).
+// Grid replaces the previous WBS + Table entries (issue #334, ADR-0053). Hierarchy
+// is now a display mode inside Grid, not a separate top-level view.
 const TABS: Tab[] = [
   { view: 'overview',   label: 'Overview',   Icon: OverviewIcon },
   { view: 'board',      label: 'Board',      Icon: BoardIcon },
   { view: 'sprints',    label: 'Sprints',    Icon: SprintIcon },
   { view: 'schedule',   label: 'Schedule',   Icon: GanttIcon },
-  { view: 'wbs',        label: 'WBS',        Icon: WbsIcon },
-  { view: 'list',       label: 'Table',      Icon: ListIcon },
+  { view: 'grid',       label: 'Grid',       Icon: ListIcon },
   { view: 'calendar',   label: 'Calendar',   Icon: CalendarIcon },
   { view: 'resources',  label: 'Team',       Icon: ResourcesIcon },
   { view: 'risk',       label: 'Risks',      Icon: RiskIcon },

@@ -49,8 +49,10 @@ describe('ViewTabs', () => {
     expect(screen.getByRole('link', { name: /Board/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Sprints/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Schedule/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /WBS/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Table/i })).toBeInTheDocument();
+    // WBS + Table consolidated into a single Grid entry (issue #334).
+    expect(screen.getByRole('link', { name: /Grid/i })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /WBS/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Table/i })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Calendar/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Overview/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Team/i })).toBeInTheDocument();
@@ -68,11 +70,13 @@ describe('ViewTabs', () => {
     renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
     expect(screen.queryByRole('link', { name: /Sprints/i })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Schedule/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /WBS/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Grid/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Calendar/i })).toBeInTheDocument();
   });
 
-  it('hides Schedule, WBS, and Calendar when methodology is AGILE', () => {
+  it('hides Schedule and Calendar when methodology is AGILE — Grid stays visible', () => {
+    // ADR-0053 amendment: Grid replaces WBS+Table and is visible in all
+    // methodologies. AGILE now shows Grid (defaults to Flat mode internally).
     mockUseProjectId.mockReturnValue('proj-1');
     mockUseProject.mockReturnValueOnce({
       data: { id: 'proj-1', methodology: 'AGILE' },
@@ -82,8 +86,8 @@ describe('ViewTabs', () => {
     renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
     expect(screen.getByRole('link', { name: /Sprints/i })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Schedule/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /WBS/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Calendar/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Grid/i })).toBeInTheDocument();
   });
 
   it('shows all tabs while project is loading (HYBRID fallback)', () => {
@@ -96,7 +100,7 @@ describe('ViewTabs', () => {
     renderWithRouter(<ViewTabs />, { initialEntries: ['/projects/proj-1/board'] });
     expect(screen.getByRole('link', { name: /Sprints/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Schedule/i })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /WBS/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Grid/i })).toBeInTheDocument();
   });
 
   it('marks the board tab as active when on /board route', () => {

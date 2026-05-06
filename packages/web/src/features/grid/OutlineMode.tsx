@@ -1,5 +1,4 @@
 import { useEffect, useCallback, useState, useMemo, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { useProjectId } from '@/hooks/useProjectId';
 import {
   DndContext,
   closestCenter,
@@ -18,57 +17,41 @@ import {
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask, useReorderTasks, useIndentTask, useOutdentTask, useReparentTask } from '@/hooks/useTaskMutations';
 import { useWbsStore } from '@/stores/wbsStore';
+import { useProjectId } from '@/hooks/useProjectId';
 import { buildWbsTree, flattenVisible, collectAllIds } from './buildWbsTree';
-import { WbsRow } from './WbsRow';
-import { TaskFormModal } from '@/features/board/TaskFormModal';
+import { OutlineRow } from './OutlineRow';
 import { formatPredecessors } from './formatPredecessor';
+import { GridFilteredEmptyState } from './GridEmptyState';
 import type { Task } from '@/types';
+import type { GridFilterState } from './filters';
+import { matchesFilters, hasAnyFilter } from './filters';
 
-// ---------------------------------------------------------------------------
-// Empty state
-// ---------------------------------------------------------------------------
-
-function WbsEmptyState() {
-  return (
-    <div
-      role="status"
-      className="flex h-full flex-col items-center justify-center gap-3 bg-neutral-surface"
-    >
-      <svg
-        aria-hidden="true"
-        className="w-12 h-12 text-neutral-border"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={1.5}
-          d="M3 7h4m0 0V5m0 2v2m4-2h10M3 12h4m0 0v-2m0 2v2m4-2h10M3 17h4m0 0v-2m0 2v2m4-2h10"
-        />
-      </svg>
-      <p className="text-sm text-neutral-text-primary font-medium">No tasks yet</p>
-      <p className="text-xs text-neutral-text-secondary text-center max-w-xs">
-        Add your first task to build your work breakdown structure.
-      </p>
-    </div>
-  );
+interface OutlineModeProps {
+  filters: GridFilterState;
+  onClearFilters: () => void;
+  /** Imperative trigger for "Expand all" — increments to force expand. */
+  expandAllCounter: number;
+  /** Imperative trigger for "Collapse all". */
+  collapseAllCounter: number;
 }
 
-// ---------------------------------------------------------------------------
-// WbsView
-// ---------------------------------------------------------------------------
-
-export function WbsView() {
+/**
+ * Outline mode adapter — tree view with drag-to-reparent, indent/outdent,
+ * and predecessors column. Mirrors the legacy `WbsView` body without its
+ * toolbar (the shell now owns toolbar chrome).
+ *
+ * Filters applied: a task is visible if it matches OR has a matching
+ * descendant. Ancestors of matches stay visible to preserve tree integrity.
+ */
+export function OutlineMode({
+  filters, onClearFilters, expandAllCounter, collapseAllCounter,
+}: OutlineModeProps) {
   const projectId = useProjectId() ?? null;
-  const { tasks, links, isLoading, error } = useScheduleTasks();
+  const { tasks, links } = useScheduleTasks();
 
-  // Build predecessor display strings keyed by task id.
   const predecessorTextById = useMemo(() => {
     if (!tasks || !links) return new Map<string, string>();
     const wbsById = new Map(tasks.map((t) => [t.id, t.wbs]));
-    // Group incoming links by successor id
     const bySuccessor = new Map<string, typeof links>();
     for (const link of links) {
       const list = bySuccessor.get(link.targetId) ?? [];
@@ -87,22 +70,9 @@ export function WbsView() {
     }
     return result;
   }, [tasks, links]);
+
   const { expandedIds, toggle, expandAll, collapseAll, selectedTaskId, setSelectedTaskId } = useWbsStore();
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [showAddForm, setShowAddForm] = useState(false);
-  // Mobile breakpoint detection for the unified task form modal — same
-  // pattern as BoardView's useBoardDensity (matchMedia at < md / 768px).
-  const [isMobile, setIsMobile] = useState<boolean>(() =>
-    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-  // When set, the add-form creates a child under this task id rather than at root.
-  const [addFormParentId, setAddFormParentId] = useState<string | null>(null);
   const [liveAnnouncement, setLiveAnnouncement] = useState('');
   const updateTask = useUpdateTask();
   const reorderTasks = useReorderTasks(projectId);
@@ -111,23 +81,53 @@ export function WbsView() {
   const reparentTask = useReparentTask(projectId);
   const [reparentTargetId, setReparentTargetId] = useState<string | null>(null);
 
-  // Expand all root-level summary nodes on first load
+  // Filter tasks down to matches + their ancestors so the tree stays valid
+  // even when a leaf matches but its parent doesn't.
+  const visibleTasks = useMemo(() => {
+    const base = tasks ?? [];
+    if (!hasAnyFilter(filters)) return base;
+    const byId = new Map(base.map((t) => [t.id, t]));
+    const keep = new Set<string>();
+    for (const task of base) {
+      if (matchesFilters(task, filters)) {
+        let current: Task | undefined = task;
+        while (current) {
+          if (keep.has(current.id)) break;
+          keep.add(current.id);
+          current = current.parentId ? byId.get(current.parentId) : undefined;
+        }
+      }
+    }
+    return base.filter((t) => keep.has(t.id));
+  }, [tasks, filters]);
+
+  // Expand all root-level summaries on first load.
   useEffect(() => {
     if (!tasks) return;
     const tree = buildWbsTree(tasks);
     const summaryIds = tree.filter((n) => n.task.isSummary).map((n) => n.task.id);
-    if (summaryIds.length > 0) {
-      expandAll(summaryIds);
-    }
+    if (summaryIds.length > 0) expandAll(summaryIds);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasks?.length]);
+
+  // Imperative expand-all / collapse-all from the toolbar.
+  useEffect(() => {
+    if (!tasks || expandAllCounter === 0) return;
+    const tree = buildWbsTree(tasks);
+    expandAll(collectAllIds(tree));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expandAllCounter]);
+  useEffect(() => {
+    if (collapseAllCounter === 0) return;
+    collapseAll();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapseAllCounter]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  // Track reparent drop target during drag — announces via aria-live on transition.
   const handleDragOver = useCallback(
     (event: DragOverEvent) => {
       const { active, over } = event;
@@ -164,7 +164,6 @@ export function WbsView() {
       const overTask = tasks.find((t) => t.id === over.id);
       if (!activeTask || !overTask) return;
 
-      // Drop onto a summary re-parents the task — unless it's already that parent.
       if (overTask.isSummary && overTask.id !== activeTask.parentId) {
         if (!projectId) return;
         reparentTask.mutate(
@@ -187,7 +186,6 @@ export function WbsView() {
 
       if (activeTask.parentId !== overTask.parentId) return;
 
-      // Get the sibling list for this parent
       const siblings = tasks
         .filter((t) => t.parentId === activeTask.parentId)
         .sort((a, b) => {
@@ -204,25 +202,19 @@ export function WbsView() {
       const newIndex = siblings.findIndex((t) => t.id === over.id);
       if (oldIndex === newIndex) return;
 
-      // Build new order
       const reordered = [...siblings];
       reordered.splice(oldIndex, 1);
       reordered.splice(newIndex, 0, activeTask);
 
-      // Announce via live region
       setLiveAnnouncement(
         `${activeTask.name} moved to position ${newIndex + 1} under ${activeTask.parentId ? tasks.find((t) => t.id === activeTask.parentId)?.name ?? 'root' : 'root'}`,
       );
 
-      // Derive parent_path: the wbs_path of the parent task, or "" for root
       const parentTask = activeTask.parentId ? tasks.find((t) => t.id === activeTask.parentId) : null;
       const parent_path = parentTask?.wbs ?? '';
 
       if (projectId) {
-        reorderTasks.mutate({
-          parent_path,
-          ordered_ids: reordered.map((t) => t.id),
-        });
+        reorderTasks.mutate({ parent_path, ordered_ids: reordered.map((t) => t.id) });
       }
     },
     [tasks, projectId, reorderTasks, reparentTask],
@@ -232,28 +224,23 @@ export function WbsView() {
     (task: Task, newName: string) => {
       setRenamingId(null);
       if (newName.trim() === '' || newName === task.name) return;
-      if (projectId) {
-        updateTask.mutate({ id: task.id, projectId, name: newName.trim() });
-      }
+      if (projectId) updateTask.mutate({ id: task.id, projectId, name: newName.trim() });
     },
     [projectId, updateTask],
   );
 
-  // Keyboard shortcuts: Tab=indent, Shift+Tab=outdent, Alt+Up/Down=reorder, Up/Down=navigate
   const handleTreeKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>) => {
       if (!tasks || renamingId) return;
 
-      const tree = buildWbsTree(tasks);
+      const tree = buildWbsTree(visibleTasks);
       const visible = flattenVisible(tree, expandedIds);
       const currentIdx = visible.findIndex((n) => n.task.id === selectedTaskId);
 
-      // Tab = indent, Shift+Tab = outdent
       if (e.key === 'Tab') {
         e.preventDefault();
         if (!selectedTaskId) return;
         if (e.shiftKey) {
-          // Outdent
           outdentTask.mutate(selectedTaskId, {
             onSuccess: (data) => {
               const warning = data.warning === 'has_assignments'
@@ -264,7 +251,6 @@ export function WbsView() {
             onError: () => setLiveAnnouncement('Cannot outdent: task is already at root level'),
           });
         } else {
-          // Indent
           indentTask.mutate(selectedTaskId, {
             onSuccess: (data) => {
               const warning = data.warning === 'has_assignments'
@@ -278,7 +264,6 @@ export function WbsView() {
         return;
       }
 
-      // Alt+Up/Down = reorder within siblings
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.altKey) {
         e.preventDefault();
         if (!selectedTaskId || currentIdx === -1) return;
@@ -316,7 +301,6 @@ export function WbsView() {
         return;
       }
 
-      // Up/Down = navigate rows
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault();
         const newIdx = e.key === 'ArrowUp'
@@ -331,127 +315,28 @@ export function WbsView() {
         return;
       }
     },
-    [tasks, renamingId, expandedIds, selectedTaskId, setSelectedTaskId, projectId,
+    [tasks, visibleTasks, renamingId, expandedIds, selectedTaskId, setSelectedTaskId, projectId,
       indentTask, outdentTask, reorderTasks, setLiveAnnouncement],
   );
 
-  const handleExpandAll = useCallback(() => {
-    if (!tasks) return;
-    const tree = buildWbsTree(tasks);
-    expandAll(collectAllIds(tree));
-  }, [tasks, expandAll]);
-
-  if (error) {
-    return (
-      <div className="flex h-full items-center justify-center bg-neutral-surface">
-        <p className="text-sm text-semantic-critical">
-          Couldn&apos;t load tasks.{' '}
-          <button
-            type="button"
-            className="underline focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
-            onClick={() => window.location.reload()}
-          >
-            Retry
-          </button>
-        </p>
-      </div>
-    );
+  if (visibleTasks.length === 0 && hasAnyFilter(filters)) {
+    return <GridFilteredEmptyState onClear={onClearFilters} />;
   }
 
-  if (isLoading || !tasks) {
-    return (
-      <div className="flex h-full flex-col bg-neutral-surface p-3 gap-1" aria-busy="true">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={i}
-            className="h-11 rounded animate-pulse bg-neutral-surface-sunken"
-            style={{ marginLeft: `${(i % 3) * 16}px` }}
-          />
-        ))}
-      </div>
-    );
-  }
-
-  if (tasks.length === 0) return <WbsEmptyState />;
-
-  const tree = buildWbsTree(tasks);
+  const tree = buildWbsTree(visibleTasks);
   const visible = flattenVisible(tree, expandedIds);
-  // Sortable IDs are all visible IDs (drag is within siblings only)
   const sortableIds = visible.map((n) => n.task.id);
 
   return (
-    <div className="flex flex-col h-full bg-neutral-surface overflow-hidden">
-      {/* Toolbar row */}
-      <div className="flex items-center gap-2 px-3 h-9 border-b border-neutral-border flex-shrink-0">
-        {projectId && (
-          <>
-            <button
-              type="button"
-              onClick={() => { setAddFormParentId(null); setShowAddForm(true); }}
-              aria-label="Add root-level task"
-              className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-                focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none px-1"
-            >
-              + Task
-            </button>
-            {selectedTaskId && (
-              <button
-                type="button"
-                onClick={() => { setAddFormParentId(selectedTaskId); setShowAddForm(true); }}
-                aria-label="Add child task under selected"
-                className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-                  focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none px-1"
-              >
-                + Child
-              </button>
-            )}
-          </>
-        )}
-        <div className="flex-1" />
-        <button
-          type="button"
-          onClick={handleExpandAll}
-          className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-            focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none px-1"
-          aria-label="Expand all"
-        >
-          + All
-        </button>
-        <button
-          type="button"
-          onClick={collapseAll}
-          className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
-            focus-visible:ring-1 focus-visible:ring-brand-primary focus-visible:outline-none px-1"
-          aria-label="Collapse all"
-        >
-          − All
-        </button>
-      </div>
-
-      {/* Task creation modal — replaces the inline AddTaskForm strip
-          (issue #305 / ADR-0052). Always opens in create mode here. */}
-      {showAddForm && projectId && (
-        <TaskFormModal
-          projectId={projectId}
-          task={null}
-          parentId={addFormParentId ?? undefined}
-          isMobile={isMobile}
-          onClose={() => {
-            setShowAddForm(false);
-            setAddFormParentId(null);
-          }}
-        />
-      )}
-
-      {/* Column headers */}
+    <>
       <div
         className="flex items-center h-9 border-b border-neutral-border px-2 flex-shrink-0
           bg-neutral-surface-sunken tppm-mono text-xs font-semibold tracking-widest uppercase
           text-neutral-text-secondary"
         aria-hidden="true"
       >
-        <span className="w-4 flex-shrink-0" /> {/* drag handle */}
-        <span className="w-4 flex-shrink-0" /> {/* expand toggle */}
+        <span className="w-4 flex-shrink-0" />
+        <span className="w-4 flex-shrink-0" />
         <span className="w-14 flex-shrink-0 text-right pr-3">WBS</span>
         <span className="flex-1 min-w-0">Name</span>
         <span className="w-12 flex-shrink-0 text-center">Owner</span>
@@ -462,11 +347,10 @@ export function WbsView() {
         <span className="w-36 flex-shrink-0 pl-2">Predecessors</span>
       </div>
 
-      {/* Tree */}
       {/* eslint-disable-next-line jsx-a11y/interactive-supports-focus -- roving tabindex on rows */}
       <div
         role="treegrid"
-        aria-label="WBS task tree"
+        aria-label="Outline task tree"
         className="flex-1 overflow-y-auto"
         onKeyDown={handleTreeKeyDown}
       >
@@ -479,7 +363,7 @@ export function WbsView() {
         >
           <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
             {visible.map((node) => (
-              <WbsRow
+              <OutlineRow
                 key={node.task.id}
                 node={node}
                 isExpanded={expandedIds.has(node.task.id)}
@@ -498,13 +382,12 @@ export function WbsView() {
         </DndContext>
       </div>
 
-      {/* Accessible live region for drag announcements */}
       <div
         aria-live="polite"
         aria-atomic="true"
         className="sr-only"
         aria-label={liveAnnouncement}
       />
-    </div>
+    </>
   );
 }

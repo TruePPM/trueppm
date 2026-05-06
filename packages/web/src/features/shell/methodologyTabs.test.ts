@@ -2,15 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { isTabVisibleForMethodology } from './methodologyTabs';
 
 // Encodes the ADR-0041 visibility matrix as a single source of truth.
-// If this matrix changes, update the ADR first and then this fixture.
+// Amended by ADR-0053: `wbs` and `list` consolidated into `grid`, visible in
+// all three methodologies. Outline mode (formerly WBS) is the default for
+// WATERFALL/HYBRID; Flat mode is the default for AGILE.
 const MATRIX: Record<'WATERFALL' | 'AGILE' | 'HYBRID', Record<string, boolean>> = {
   WATERFALL: {
     overview: true,
     board: true,
     sprints: false,
     schedule: true,
-    wbs: true,
-    list: true,
+    grid: true,
     calendar: true,
     resources: true,
     risk: true,
@@ -20,8 +21,7 @@ const MATRIX: Record<'WATERFALL' | 'AGILE' | 'HYBRID', Record<string, boolean>> 
     board: true,
     sprints: true,
     schedule: false,
-    wbs: false,
-    list: true,
+    grid: true,
     calendar: false,
     resources: true,
     risk: true,
@@ -31,8 +31,7 @@ const MATRIX: Record<'WATERFALL' | 'AGILE' | 'HYBRID', Record<string, boolean>> 
     board: true,
     sprints: true,
     schedule: true,
-    wbs: true,
-    list: true,
+    grid: true,
     calendar: true,
     resources: true,
     risk: true,

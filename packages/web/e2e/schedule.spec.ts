@@ -108,38 +108,32 @@ test.describe('Schedule toolbar', () => {
     ).toBeVisible({ timeout: 10_000 });
   });
 
-  test('view-mode switcher has Schedule active; WBS and Table are present', async ({ page }) => {
+  test('view-mode switcher has Schedule active; Grid is present', async ({ page }) => {
     // ViewTabs renders as <nav aria-label="View"> with <Link> children (role="link").
     // Active state is indicated by aria-current="page" (not aria-pressed).
+    // Grid replaces WBS + Table (issue #334, ADR-0053).
     const nav = page.getByRole('navigation', { name: 'View' });
     await expect(nav).toBeVisible();
 
     const scheduleLink = nav.getByRole('link', { name: 'Schedule' });
-    const wbsLink = nav.getByRole('link', { name: 'WBS' });
-    const tableLink = nav.getByRole('link', { name: 'Table' });
+    const gridLink = nav.getByRole('link', { name: 'Grid' });
 
     await expect(scheduleLink).toBeVisible();
     await expect(scheduleLink).toHaveAttribute('aria-current', 'page');
 
-    await expect(wbsLink).toBeVisible();
-    await expect(wbsLink).not.toHaveAttribute('aria-current', 'page');
+    await expect(gridLink).toBeVisible();
+    await expect(gridLink).not.toHaveAttribute('aria-current', 'page');
 
-    await expect(tableLink).toBeVisible();
-    await expect(tableLink).not.toHaveAttribute('aria-current', 'page');
+    await expect(nav.getByRole('link', { name: 'WBS' })).toHaveCount(0);
+    await expect(nav.getByRole('link', { name: 'Table' })).toHaveCount(0);
   });
 
-  test('switching to WBS view shows the treegrid', async ({ page }) => {
+  test('switching to Grid view shows the unified Grid surface', async ({ page }) => {
     const nav = page.getByRole('navigation', { name: 'View' });
-    await nav.getByRole('link', { name: 'WBS' }).click();
-    await expect(page).toHaveURL(/\/wbs$/);
-    await expect(page.getByRole('treegrid', { name: 'WBS task tree' })).toBeVisible();
-  });
-
-  test('switching to Table view shows the task grid', async ({ page }) => {
-    const nav = page.getByRole('navigation', { name: 'View' });
-    await nav.getByRole('link', { name: 'Table' }).click();
-    await expect(page).toHaveURL(/\/list$/);
-    await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible();
+    await nav.getByRole('link', { name: 'Grid' }).click();
+    await expect(page).toHaveURL(/\/grid$/);
+    // HYBRID methodology defaults to Outline mode → role="treegrid".
+    await expect(page.getByRole('treegrid', { name: 'Outline task tree' })).toBeVisible();
   });
 
   test('Today button is present and focusable', async ({ page }) => {

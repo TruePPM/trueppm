@@ -115,6 +115,14 @@ describe('generateRisksCSV — row content', () => {
     expect(row({ short_id: '00000001' })[0]).toBe('R-001');
   });
 
+  it('formats a non-numeric short_id by upper-casing the first 4 chars', () => {
+    expect(row({ short_id: 'ab12cd34' })[0]).toBe('R-AB12');
+  });
+
+  it('returns an empty string when short_id is missing', () => {
+    expect(row({ short_id: '' })[0]).toBe('');
+  });
+
   it('translates status to human label', () => {
     expect(row({ status: 'MITIGATING' })[2]).toBe('Mitigating');
   });

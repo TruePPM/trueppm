@@ -17,7 +17,7 @@
     "typecheck": "tsc --noEmit",
     "test": "NODE_OPTIONS=--max-old-space-size=4096 vitest run",
     "test:ui": "NODE_OPTIONS=--max-old-space-size=4096 vitest --ui",
-    "test:coverage": "NODE_OPTIONS=--max-old-space-size=4096 vitest run src/api src/features src/hooks src/stores --coverage",
+    "test:coverage": "NODE_OPTIONS=--max-old-space-size=4096 vitest run src/api src/features src/hooks src/lib src/stores --coverage",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "generate:types": "openapi-typescript http://localhost:8000/api/schema/ -o src/api/types.ts"

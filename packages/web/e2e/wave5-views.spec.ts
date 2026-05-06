@@ -1,10 +1,12 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * E2E tests for wave 5 views (#206 Calendar, #207 Table, #209 WBS):
+ * E2E tests for wave 5 views — Calendar (#206) plus the unified Grid view
+ * (issue #334, ADR-0053) which replaces the former Table (#207) and WBS
+ * (#209) entries.
  * - Calendar: legend visible; milestone diamond marker renders; month nav works
- * - Table: filter rail search input; status pills; group-by toggle cycles
- * - WBS: Predecessors column header; milestone ◆ glyph
+ * - Grid Flat mode (former Table): toolbar search input; status pills; mode toggle
+ * - Grid Outline mode (former WBS): Predecessors column header; milestone ◆ glyph
  */
 
 const FIXTURE_PROJECT_ID = 'e2e-wave5-00000000-0000-0000-0000-000000000005';
@@ -126,17 +128,20 @@ async function setup(page: import('@playwright/test').Page) {
 }
 
 // ---------------------------------------------------------------------------
-// Table view (#207)
+// Grid view — Flat mode (replaces #207 Table; issue #334, ADR-0053)
 // ---------------------------------------------------------------------------
 
-test.describe('Table view (#207)', () => {
+test.describe('Grid view — Flat mode (#334)', () => {
   test.beforeEach(async ({ page }) => {
     await setup(page);
-    await page.goto(`${BASE_URL}/list`);
+    // /list redirects to /grid; switch to Flat via the segmented control to
+    // exercise the former Table-view behaviour.
+    await page.goto(`${BASE_URL}/grid`);
+    await page.getByRole('button', { name: 'Flat list' }).click();
     await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 10_000 });
   });
 
-  test('renders filter rail with search input', async ({ page }) => {
+  test('renders search input in the toolbar', async ({ page }) => {
     await expect(page.getByRole('searchbox', { name: 'Search tasks' })).toBeVisible();
   });
 
@@ -147,11 +152,9 @@ test.describe('Table view (#207)', () => {
     await expect(page.getByText('Not started')).toHaveCount(2);
   });
 
-  test('group-by button cycles through phase grouping', async ({ page }) => {
-    const btn = page.getByRole('button', { name: /Group: None/i });
-    await expect(btn).toBeVisible();
-    await btn.click();
-    await expect(page.getByRole('button', { name: /Group: Phase/i })).toBeVisible();
+  test('switching to Grouped mode reveals the group-by selector', async ({ page }) => {
+    await page.getByRole('button', { name: 'Grouped' }).click();
+    await expect(page.getByLabel('Group by dimension')).toBeVisible();
   });
 
   test('search filters rows by task name', async ({ page }) => {
@@ -163,14 +166,17 @@ test.describe('Table view (#207)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// WBS view (#209)
+// Grid view — Outline mode (replaces #209 WBS; issue #334, ADR-0053)
 // ---------------------------------------------------------------------------
 
-test.describe('WBS view (#209)', () => {
+test.describe('Grid view — Outline mode (#334)', () => {
   test.beforeEach(async ({ page }) => {
     await setup(page);
-    await page.goto(`${BASE_URL}/wbs`);
-    await expect(page.getByRole('treegrid')).toBeVisible({ timeout: 10_000 });
+    // HYBRID methodology defaults to Outline mode; the legacy /wbs URL
+    // redirects to /grid, so navigate directly to /grid.
+    await page.goto(`${BASE_URL}/grid`);
+    await expect(page.getByRole('treegrid', { name: 'Outline task tree' }))
+      .toBeVisible({ timeout: 10_000 });
   });
 
   test('renders Predecessors column header', async ({ page }) => {

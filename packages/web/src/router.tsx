@@ -7,8 +7,7 @@ import { LoginPage } from '@/features/auth/LoginPage';
 import { RequireAuth } from '@/features/auth/RequireAuth';
 import { ProjectOverviewPage } from '@/features/project/ProjectOverviewPage';
 import { ScheduleView } from '@/features/schedule/ScheduleView';
-import { WbsView } from '@/features/wbs/WbsView';
-import { TaskListView } from '@/features/tasklist/TaskListView';
+import { GridView } from '@/features/grid/GridView';
 import { BoardView } from '@/features/board/BoardView';
 import { SprintsView } from '@/features/sprints/SprintsView';
 import { CalendarView } from '@/features/calendar/CalendarView';
@@ -65,10 +64,13 @@ export const router = createBrowserRouter([
               { index: true, element: <Navigate to="overview" replace /> },
               { path: 'overview', element: <ProjectOverviewPage /> },
               { path: 'schedule', element: <ScheduleView /> },
-              { path: 'wbs', element: <WbsView /> },
+              { path: 'grid', element: <GridView /> },
+              // Legacy routes — redirect to /grid so old bookmarks and shared
+              // links keep working after the WBS / Table consolidation (#334).
+              { path: 'wbs', element: <Navigate to="../grid" replace /> },
+              { path: 'list', element: <Navigate to="../grid" replace /> },
               { path: 'board', element: <BoardView /> },
               { path: 'sprints', element: <SprintsView /> },
-              { path: 'list', element: <TaskListView /> },
               { path: 'calendar', element: <CalendarView /> },
               {
                 path: 'resources',

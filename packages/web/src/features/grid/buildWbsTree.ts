@@ -26,7 +26,6 @@ export function buildWbsTree(tasks: Task[]): WbsNode[] {
     childrenOf.get(parentKey)!.push(task);
   }
 
-  // Sort siblings by wbs path numerically at each segment
   const wbsCompare = (a: Task, b: Task): number => {
     const aParts = (a.wbs || '0').split('.').map(Number);
     const bParts = (b.wbs || '0').split('.').map(Number);
@@ -73,9 +72,7 @@ export function flattenVisible(nodes: WbsNode[], expandedIds: Set<string>): WbsN
   return result;
 }
 
-/**
- * Collect all node IDs in the tree (for expand-all).
- */
+/** Collect all node IDs in the tree (for expand-all). */
 export function collectAllIds(nodes: WbsNode[]): string[] {
   const ids: string[] = [];
   for (const node of nodes) {
