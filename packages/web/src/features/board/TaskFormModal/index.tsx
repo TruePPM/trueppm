@@ -238,7 +238,7 @@ export function TaskFormModal({
       if (e.key === 'Escape') {
         if (showDeleteConfirm) return; // confirm dialog handles its own Esc
         if (isDirty) {
-          // eslint-disable-next-line no-alert
+           
           if (window.confirm('Discard unsaved changes?')) onClose();
         } else {
           onClose();
@@ -699,7 +699,7 @@ export function TaskFormModal({
             type="button"
             onClick={() => {
               if (isDirty) {
-                // eslint-disable-next-line no-alert
+                 
                 if (window.confirm('Discard unsaved changes?')) onClose();
               } else {
                 onClose();
@@ -744,7 +744,7 @@ export function TaskFormModal({
             taskName={task.name}
             isPending={deleteTask.isPending}
             onCancel={() => setShowDeleteConfirm(false)}
-            onConfirm={handleDelete}
+            onConfirm={() => { void handleDelete(); }}
           />
         )}
       </>
@@ -759,7 +759,7 @@ export function TaskFormModal({
         className="hidden md:block fixed inset-0 z-40 bg-black/40 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150"
         onPointerDown={() => {
           if (isDirty) {
-            // eslint-disable-next-line no-alert
+             
             if (window.confirm('Discard unsaved changes?')) onClose();
           } else {
             onClose();
@@ -783,7 +783,7 @@ export function TaskFormModal({
           taskName={task.name}
           isPending={deleteTask.isPending}
           onCancel={() => setShowDeleteConfirm(false)}
-          onConfirm={handleDelete}
+          onConfirm={() => { void handleDelete(); }}
         />
       )}
     </>

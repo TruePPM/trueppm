@@ -138,7 +138,7 @@ describe('TaskFormModal (issue #305)', () => {
     renderModal({ phaseName: 'Alpha Phase' });
     expect(screen.getByText('NEW TASK')).toBeInTheDocument();
     expect(screen.getByRole('dialog', { name: /Add to Alpha Phase/ })).toBeInTheDocument();
-    const name = screen.getByLabelText('Task name *') as HTMLInputElement;
+    const name = screen.getByLabelText<HTMLInputElement>('Task name *');
     expect(name.value).toBe('');
     // Progress slider is suppressed in create mode (Priya-priority spec).
     expect(screen.queryByLabelText('Progress')).not.toBeInTheDocument();
@@ -147,11 +147,11 @@ describe('TaskFormModal (issue #305)', () => {
   it('prefills from the task in edit mode and shows the progress slider near the top', () => {
     renderModal({ task: baseTask({ name: 'Prefilled', progress: 42, notes: 'My notes' }) });
     expect(screen.getByText('EDIT TASK')).toBeInTheDocument();
-    const name = screen.getByLabelText('Task name *') as HTMLInputElement;
+    const name = screen.getByLabelText<HTMLInputElement>('Task name *');
     expect(name.value).toBe('Prefilled');
-    const progress = screen.getByLabelText('Progress') as HTMLInputElement;
+    const progress = screen.getByLabelText<HTMLInputElement>('Progress');
     expect(progress.value).toBe('42');
-    const notes = screen.getByLabelText('Description') as HTMLTextAreaElement;
+    const notes = screen.getByLabelText<HTMLTextAreaElement>('Description');
     expect(notes.value).toBe('My notes');
   });
 
