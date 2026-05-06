@@ -589,6 +589,9 @@ scheduler:diff-coverage:
         - packages/scheduler/**/*
         - .gitlab-ci.yml
   script:
+    # python:3.11-slim ships without git; required by `git fetch` and by
+    # diff-cover internally (it shells out to `git diff`).
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
     - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
     - cd packages/scheduler
     - diff-cover coverage.xml
@@ -610,6 +613,9 @@ api:diff-coverage:
     <<: *api-cache
     policy: pull
   before_script:
+    # python:3.11-slim ships without git; required by `git fetch` and by
+    # diff-cover internally (it shells out to `git diff`).
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
     - pip install diff-cover --quiet
   script:
     - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
@@ -632,6 +638,9 @@ web:diff-coverage:
         - packages/web/**/*
         - .gitlab-ci.yml
   before_script:
+    # python:3.11-slim ships without git; required by `git fetch` and by
+    # diff-cover internally (it shells out to `git diff`).
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
     - pip install diff-cover --quiet
   script:
     - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
