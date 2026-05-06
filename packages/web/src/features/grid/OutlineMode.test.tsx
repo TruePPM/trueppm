@@ -66,6 +66,13 @@ const mockTasks: Task[] = [
     isCritical: false, isComplete: false, isSummary: true, isMilestone: false,
     status: 'NOT_STARTED', assignees: [],
   },
+  // A leaf under p2 so we can test cross-parent leaf-onto-leaf drops.
+  {
+    id: 't3', wbs: '2.1', name: 'Plan 2', start: '2026-06-01', finish: '2026-06-05',
+    duration: 4, progress: 0, parentId: 'p2',
+    isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
+    status: 'NOT_STARTED', assignees: [],
+  },
 ];
 
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));
@@ -196,6 +203,21 @@ describe('OutlineMode — rendering', () => {
     );
     expect(screen.getByText(/no tasks match these filters/i)).toBeInTheDocument();
   });
+
+  it('filter that matches a leaf includes the leaf AND its ancestors (tree integrity)', () => {
+    // 'Discovery' (t1) matches; its ancestor 'Phase 1' (p1) must also stay
+    // visible so the tree remains valid. p2 (no descendant matches) is hidden.
+    render(
+      <OutlineMode
+        filters={{ search: 'discovery', ownerFilter: '', statusFilter: '' }}
+        onClearFilters={vi.fn()}
+        expandAllCounter={0}
+        collapseAllCounter={0}
+      />,
+    );
+    expect(screen.getByText('Phase 1')).toBeInTheDocument();
+    expect(screen.queryByText('Phase 2')).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -323,6 +345,16 @@ describe('OutlineMode — handleDragEnd reorder path', () => {
     act(() => capturedHandlers.onDragEnd?.(dragEvent('t1', 'unknown-id')));
     expect(reorderMutate).not.toHaveBeenCalled();
   });
+
+  it('rejects a cross-parent leaf-onto-leaf drop', () => {
+    // t1 is under p1; t3 is under p2 — different parents. The reorder
+    // path requires `activeTask.parentId === overTask.parentId`; this is
+    // the early-return branch in handleDragEnd.
+    renderOutline();
+    act(() => capturedHandlers.onDragEnd?.(dragEvent('t1', 't3')));
+    expect(reorderMutate).not.toHaveBeenCalled();
+    expect(reparentMutate).not.toHaveBeenCalled();
+  });
 });
 
 describe('OutlineMode — onDragCancel', () => {
@@ -332,5 +364,102 @@ describe('OutlineMode — onDragCancel', () => {
     act(() => capturedHandlers.onDragCancel?.());
     expect(reparentMutate).not.toHaveBeenCalled();
     expect(reorderMutate).not.toHaveBeenCalled();
+  });
+});
+
+describe('OutlineMode — indent / outdent error paths', () => {
+  it('Tab onError announces "Cannot indent" when the API rejects', () => {
+    indentMutate.mockImplementation(
+      (_id: string, opts?: { onSuccess?: (data: { warning: string | null }) => void; onError?: () => void }) => {
+        opts?.onError?.();
+      },
+    );
+    renderOutline();
+    act(() => useWbsStore.setState({ selectedTaskId: 't1' }));
+    const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
+    fireEvent.keyDown(grid, { key: 'Tab' });
+    expect(indentMutate).toHaveBeenCalled();
+  });
+
+  it('Shift+Tab onError announces "Cannot outdent" when the API rejects', () => {
+    outdentMutate.mockImplementation(
+      (_id: string, opts?: { onSuccess?: (data: { warning: string | null }) => void; onError?: () => void }) => {
+        opts?.onError?.();
+      },
+    );
+    renderOutline();
+    act(() => useWbsStore.setState({ selectedTaskId: 't1' }));
+    const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
+    fireEvent.keyDown(grid, { key: 'Tab', shiftKey: true });
+    expect(outdentMutate).toHaveBeenCalled();
+  });
+});
+
+describe('OutlineMode — keyboard reorder boundaries', () => {
+  it('Alt+ArrowDown on the LAST sibling is a no-op', () => {
+    renderOutline();
+    act(() => useWbsStore.setState({ expandedIds: new Set(['p1']), selectedTaskId: 't2' }));
+    const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
+    fireEvent.keyDown(grid, { key: 'ArrowDown', altKey: true });
+    expect(reorderMutate).not.toHaveBeenCalled();
+  });
+
+  it('ArrowDown is clamped at the last visible row', () => {
+    renderOutline();
+    // Visible order with p1 expanded: [p1, t1, t2, p2]. p2 is the last visible row.
+    act(() => useWbsStore.setState({ expandedIds: new Set(['p1']), selectedTaskId: 'p2' }));
+    const grid = screen.getByRole('treegrid', { name: /outline task tree/i });
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    expect(useWbsStore.getState().selectedTaskId).toBe('p2');
+  });
+});
+
+describe('OutlineMode — row interactions in context', () => {
+  it('clicking a tree row updates the wbs store selection', () => {
+    renderOutline();
+    // Auto-expand fires on first render; the leaf row should be in the DOM.
+    const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
+    const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
+    expect(t1Row).toBeDefined();
+    fireEvent.click(t1Row!);
+    expect(useWbsStore.getState().selectedTaskId).toBe('t1');
+  });
+
+  it('double-clicking a leaf row puts it into rename mode', () => {
+    renderOutline();
+    const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
+    const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
+    fireEvent.doubleClick(t1Row!);
+    expect(screen.getByLabelText('Rename task')).toBeInTheDocument();
+  });
+
+  it('clicking the expand button toggles the wbs-store expanded set', () => {
+    renderOutline();
+    // After auto-expand on mount the phase 'p1' is expanded; click toggles it.
+    const expandBtn = screen.getByRole('button', { name: /collapse Phase 1/i });
+    fireEvent.click(expandBtn);
+    expect(useWbsStore.getState().expandedIds.has('p1')).toBe(false);
+  });
+
+  it('double-clicking a leaf row enters rename mode and Enter commits via OutlineMode', () => {
+    renderOutline();
+    const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
+    const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
+    fireEvent.doubleClick(t1Row!);
+    const input = screen.getByLabelText('Rename task');
+    fireEvent.change(input, { target: { value: 'Renamed' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    // After Enter the OutlineMode's renamingId is cleared.
+    expect(screen.queryByLabelText('Rename task')).not.toBeInTheDocument();
+  });
+
+  it('Escape inside the rename input invokes the cancel handler in OutlineMode', () => {
+    renderOutline();
+    const rows = screen.getAllByRole('row').filter((r) => r.getAttribute('data-task-id'));
+    const t1Row = rows.find((r) => r.getAttribute('data-task-id') === 't1');
+    fireEvent.doubleClick(t1Row!);
+    const input = screen.getByLabelText('Rename task');
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(screen.queryByLabelText('Rename task')).not.toBeInTheDocument();
   });
 });

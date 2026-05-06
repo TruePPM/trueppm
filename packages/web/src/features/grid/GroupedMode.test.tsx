@@ -139,4 +139,31 @@ describe('GroupedMode — group key resolution', () => {
     fireEvent.click(wbsHeader.querySelector('button')!);
     expect(wbsHeader).toHaveAttribute('aria-sort', 'descending');
   });
+
+  it('Enter on a column header button activates sort via keyboard', () => {
+    renderGrouped('phase');
+    const nameHeader = screen.getByRole('columnheader', { name: /^Name$/i });
+    fireEvent.keyDown(nameHeader.querySelector('button')!, { key: 'Enter' });
+    expect(nameHeader).toHaveAttribute('aria-sort', 'ascending');
+  });
+
+  it('Space on a column header button also activates sort', () => {
+    renderGrouped('phase');
+    const nameHeader = screen.getByRole('columnheader', { name: /^Name$/i });
+    fireEvent.keyDown(nameHeader.querySelector('button')!, { key: ' ' });
+    expect(nameHeader).toHaveAttribute('aria-sort', 'ascending');
+  });
+
+  it('double-click on a leaf row enters rename mode and Enter commits', () => {
+    renderGrouped('phase');
+    // Pick the row for 'Discover' (a leaf) — double-click on a summary is a no-op.
+    const discoverRow = screen.getByLabelText('Select Discover').closest('[role="row"]') as HTMLElement;
+    fireEvent.doubleClick(discoverRow);
+    const input = screen.getByLabelText('Rename task');
+    expect(input).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: 'New name' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    // After Enter, the input is removed from the DOM (handleRename clears renamingId).
+    expect(screen.queryByLabelText('Rename task')).not.toBeInTheDocument();
+  });
 });

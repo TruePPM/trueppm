@@ -42,4 +42,18 @@ describe('ChipStrip', () => {
     fireEvent.click(screen.getByLabelText('Remove Status: Done filter'));
     expect(onRemove).toHaveBeenCalledWith('status');
   });
+
+  it('falls back to the raw status string when the status is unknown', () => {
+    // Forces the `STATUS_LABEL[statusFilter] ?? statusFilter` fallback branch.
+    render(
+      <ChipStrip
+        search=""
+        ownerFilter=""
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        statusFilter={'UNKNOWN' as any}
+        onRemove={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Status: UNKNOWN')).toBeInTheDocument();
+  });
 });

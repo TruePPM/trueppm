@@ -134,4 +134,53 @@ describe('TaskRow', () => {
     const { container } = render(<TaskRow {...baseProps} task={task} phase="—" rowIndex={1} />);
     expect(container.querySelector('.bg-neutral-surface-raised')).not.toBeNull();
   });
+
+  it('blur with relatedTarget OUTSIDE the row commits the rename', () => {
+    const onRename = vi.fn();
+    const task = makeTask({ id: 't1', wbs: '1.1' });
+    const { unmount } = render(
+      <>
+        <TaskRow {...baseProps} task={task} phase="—" isRenaming onRename={onRename} />
+        <button type="button" data-testid="outside">elsewhere</button>
+      </>,
+    );
+    const input = screen.getByLabelText('Rename task');
+    const outside = screen.getByTestId('outside');
+    fireEvent.change(input, { target: { value: 'Renamed' } });
+    fireEvent.blur(input, { relatedTarget: outside });
+    expect(onRename).toHaveBeenCalledWith('Renamed');
+    unmount();
+  });
+
+  it('blur with relatedTarget INSIDE the same row does NOT commit', () => {
+    const onRename = vi.fn();
+    const task = makeTask({ id: 't1', wbs: '1.1' });
+    render(
+      <TaskRow {...baseProps} task={task} phase="—" isRenaming onRename={onRename} />,
+    );
+    const input = screen.getByLabelText('Rename task');
+    const checkbox = screen.getByLabelText(`Select ${task.name}`);
+    fireEvent.change(input, { target: { value: 'Renamed' } });
+    fireEvent.blur(input, { relatedTarget: checkbox });
+    expect(onRename).not.toHaveBeenCalled();
+  });
+
+  it('keys other than Enter/Escape inside the rename input are ignored', () => {
+    const onRename = vi.fn();
+    const onCancelRename = vi.fn();
+    const task = makeTask({ id: 't1', wbs: '1.1' });
+    render(
+      <TaskRow
+        {...baseProps}
+        task={task}
+        phase="—"
+        isRenaming
+        onRename={onRename}
+        onCancelRename={onCancelRename}
+      />,
+    );
+    fireEvent.keyDown(screen.getByLabelText('Rename task'), { key: 'a' });
+    expect(onRename).not.toHaveBeenCalled();
+    expect(onCancelRename).not.toHaveBeenCalled();
+  });
 });

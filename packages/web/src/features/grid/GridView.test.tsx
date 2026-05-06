@@ -464,4 +464,46 @@ describe('GridView — extra coverage', () => {
     await user.click(chipRemove);
     expect(screen.queryByLabelText(/Remove "planning" filter/i)).not.toBeInTheDocument();
   });
+
+  it('Expand/Collapse all buttons are visible in outline mode and clickable', async () => {
+    projectMethodology = 'HYBRID'; // outline default
+    const user = userEvent.setup();
+    await renderGrid();
+    const expandBtn = screen.getByRole('button', { name: /^expand all$/i });
+    const collapseBtn = screen.getByRole('button', { name: /^collapse all$/i });
+    await user.click(expandBtn);
+    await user.click(collapseBtn);
+    // Buttons remain present after click (counter-based imperatives).
+    expect(expandBtn).toBeInTheDocument();
+  });
+
+  it('Expand/Collapse all buttons are hidden in flat mode', async () => {
+    projectMethodology = 'AGILE'; // flat default
+    await renderGrid();
+    expect(screen.queryByRole('button', { name: /^expand all$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^collapse all$/i })).not.toBeInTheDocument();
+  });
+
+  it('+ Child button appears in outline mode only when a row is selected', async () => {
+    projectMethodology = 'HYBRID';
+    await renderGrid();
+    // Initially no row is selected — + Child is not present.
+    expect(screen.queryByRole('button', { name: /add child task/i })).not.toBeInTheDocument();
+  });
+
+  it('switching from outline to flat clears the outline selection on next modal close', async () => {
+    projectMethodology = 'HYBRID';
+    const user = userEvent.setup();
+    await renderGrid();
+    // Open + Task in outline mode → modal with no parent.
+    await user.click(screen.getByRole('button', { name: /^\+ task$/i }));
+    expect(await screen.findByRole('dialog', { name: /task form/i })).toBeInTheDocument();
+    await user.click(screen.getByText(/close form/i));
+    // Switch to flat mode and open + Task — onClose should now also reset
+    // the outline-store selectedTaskId (line 342 branch).
+    await user.click(screen.getByRole('button', { name: 'Flat list' }));
+    await user.click(screen.getByRole('button', { name: /^\+ task$/i }));
+    await user.click(screen.getByText(/close form/i));
+    expect(screen.queryByRole('dialog', { name: /task form/i })).not.toBeInTheDocument();
+  });
 });

@@ -150,4 +150,21 @@ describe('FlatMode — rename', () => {
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(updateMutate).not.toHaveBeenCalled();
   });
+
+  it('Enter on a column header button activates sort via keyboard', () => {
+    renderFlat();
+    const nameHeader = screen.getByRole('columnheader', { name: /^Name$/i });
+    const btn = nameHeader.querySelector('button')!;
+    fireEvent.keyDown(btn, { key: 'Enter' });
+    // After keyboard activation, Name column becomes the sorted column ascending.
+    expect(nameHeader).toHaveAttribute('aria-sort', 'ascending');
+  });
+
+  it('Space on a column header button also activates sort', () => {
+    renderFlat();
+    const nameHeader = screen.getByRole('columnheader', { name: /^Name$/i });
+    const btn = nameHeader.querySelector('button')!;
+    fireEvent.keyDown(btn, { key: ' ' });
+    expect(nameHeader).toHaveAttribute('aria-sort', 'ascending');
+  });
 });

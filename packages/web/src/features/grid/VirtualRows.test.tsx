@@ -13,6 +13,9 @@ beforeEach(() => {
 });
 
 vi.mock('@tanstack/react-virtual', () => ({
+  // The mock honours the `count` arg from VirtualRows (which is `items.length`)
+  // for the typical case, but rowCount > items.length is what triggers the
+  // out-of-range guard tested below.
   useVirtualizer: ({ count, estimateSize }: { count: number; estimateSize: (i: number) => number }) => ({
     getVirtualItems: () => Array.from({ length: count }, (_, index) => ({
       index, key: index,
@@ -67,6 +70,31 @@ describe('VirtualRows', () => {
     expect(screen.getByText('Phase B')).toBeInTheDocument();
     expect(screen.getByText('Task 1')).toBeInTheDocument();
     expect(screen.getByText('Task 2')).toBeInTheDocument();
+  });
+
+  it('returns null gracefully for an item index that is out of range', () => {
+    // Forces the `if (!item) return null` branch — VirtualRows guards against
+    // virtualizer overshoot during a measurement race.
+    const items: ListItem[] = [
+      { kind: 'task', task: makeTask({ id: 't1', wbs: '1.1', name: 'Only Task' }), phase: '—', rowIndex: 0 },
+    ];
+    // Pass rowCount=2 to force the virtualizer mock to emit 2 vRow entries
+    // while items[] only has 1 element — index 1 is out of range and the
+    // guard `if (!item) return null` in VirtualRows must skip it without throwing.
+    const { container } = render(
+      <VirtualRows
+        items={items}
+        rowCount={2}
+        selectedIds={new Set()}
+        renamingId={null}
+        onToggleSelect={vi.fn()}
+        onStartRename={vi.fn()}
+        onRename={vi.fn()}
+        onCancelRename={vi.fn()}
+      />,
+    );
+    // Only one task row is rendered; no exception thrown.
+    expect(container.querySelectorAll('[role="row"]').length).toBe(1);
   });
 
   it('uses a unique key per row even when the same task appears in multiple groups', () => {
