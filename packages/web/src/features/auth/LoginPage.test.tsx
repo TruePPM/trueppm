@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 import { renderWithRouter } from '@/test/utils';
-import { LoginPage } from './LoginPage';
+import { LoginPage, loginRedirectDest } from './LoginPage';
 
 vi.mock('axios');
 const mockedAxios = vi.mocked(axios, true);
@@ -118,5 +118,37 @@ describe('LoginPage', () => {
     // We can still assert on its text content.
     expect(screen.getByText('Schedules that hold under pressure.')).toBeInTheDocument();
     expect(screen.getByText(/CPM v.*live/)).toBeInTheDocument();
+  });
+});
+
+describe('loginRedirectDest — post-login destination transform', () => {
+  it('redirects /projects/{id}/board to /projects/{id}/overview', () => {
+    expect(loginRedirectDest('/projects/abc-123/board')).toBe('/projects/abc-123/overview');
+  });
+
+  it('redirects nested board paths (e.g. /board?view=foo) to overview, dropping board children', () => {
+    expect(loginRedirectDest('/projects/abc-123/board/anything')).toBe('/projects/abc-123/overview');
+  });
+
+  it('preserves the project id with hyphens and uuids', () => {
+    const id = 'e2e-332-00000000-0000-0000-0000-000000000332';
+    expect(loginRedirectDest(`/projects/${id}/board`)).toBe(`/projects/${id}/overview`);
+  });
+
+  it('passes through non-board project routes untouched (deep-link preservation)', () => {
+    expect(loginRedirectDest('/projects/abc-123/risk')).toBe('/projects/abc-123/risk');
+    expect(loginRedirectDest('/projects/abc-123/schedule')).toBe('/projects/abc-123/schedule');
+    expect(loginRedirectDest('/projects/abc-123/sprints')).toBe('/projects/abc-123/sprints');
+    expect(loginRedirectDest('/projects/abc-123/resources/roster')).toBe('/projects/abc-123/resources/roster');
+  });
+
+  it('passes through the root path untouched', () => {
+    expect(loginRedirectDest('/')).toBe('/');
+  });
+
+  it('does not match unrelated paths that contain the substring "board"', () => {
+    // "/dashboard" or "/projects/abc/dashboards" must not be rewritten.
+    expect(loginRedirectDest('/dashboard')).toBe('/dashboard');
+    expect(loginRedirectDest('/projects/abc/dashboards')).toBe('/projects/abc/dashboards');
   });
 });

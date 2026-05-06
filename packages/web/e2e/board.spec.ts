@@ -255,33 +255,32 @@ test.describe('Board view', () => {
     await expect(page.getByText('4 tasks')).toBeVisible();
   });
 
-  test('per-phase + button opens AddTaskModal with phase pre-selected (issue #208)', async ({ page }) => {
+  test('per-phase + button opens TaskFormModal with phase pre-selected (issue #305)', async ({ page }) => {
     const addBtn = page.getByRole('button', { name: /Add task to Alpha Phase/ });
     await expect(addBtn).toBeVisible();
     await addBtn.click();
 
-    const dialog = page.getByRole('dialog', { name: /Add task to Alpha Phase/ });
+    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText('Alpha Phase')).toBeVisible();
-    await expect(dialog.getByRole('textbox')).toBeVisible();
+    await expect(dialog.getByLabel('Task name *')).toBeVisible();
   });
 
-  test('AddTaskModal submits and closes on save', async ({ page }) => {
+  test('TaskFormModal submits and closes on save', async ({ page }) => {
     await page.getByRole('button', { name: /Add task to Alpha Phase/ }).click();
-    const dialog = page.getByRole('dialog', { name: /Add task to Alpha Phase/ });
-    await dialog.getByRole('textbox').fill('My new task');
-    await dialog.getByRole('button', { name: 'Add task' }).click();
+    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
+    await dialog.getByLabel('Task name *').fill('My new task');
+    await dialog.getByRole('button', { name: 'Create task' }).click();
     await expect(dialog).not.toBeVisible({ timeout: 5_000 });
   });
 
-  test('AddTaskModal closes on Cancel', async ({ page }) => {
+  test('TaskFormModal closes on Cancel', async ({ page }) => {
     await page.getByRole('button', { name: /Add task to Alpha Phase/ }).click();
-    const dialog = page.getByRole('dialog', { name: /Add task to Alpha Phase/ });
+    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await expect(dialog).not.toBeVisible();
   });
 
-  test('AddTaskModal closes on Escape', async ({ page }) => {
+  test('TaskFormModal closes on Escape', async ({ page }) => {
     await page.getByRole('button', { name: /Add task to Alpha Phase/ }).click();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).not.toBeVisible();

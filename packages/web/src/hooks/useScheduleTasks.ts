@@ -50,6 +50,8 @@ interface ApiTask {
   server_version?: number;
   // Sprint membership (issue #317) — null/absent when not in a sprint.
   sprint?: string | null;
+  // Long-form description (issue #305) — Task.notes field on the model.
+  notes?: string;
   assignments?: Array<{
     resource_id: string;
     resource_name: string;
@@ -155,6 +157,7 @@ function mapTask(t: ApiTask): Task {
     serverVersion: t.server_version,
     sprintId: t.sprint ?? null,
     plannedStart: t.planned_start,
+    notes: t.notes ?? '',
   };
 }
 

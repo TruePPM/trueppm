@@ -27,6 +27,13 @@ export interface CreateTaskPayload {
   parent_id?: string | null;
   /** Initial board status. Defaults to NOT_STARTED if omitted. */
   status?: string;
+  /** SNET planned start date (ISO `YYYY-MM-DD`). Optional. */
+  planned_start?: string | null;
+  /** Long-form description / notes. Stored as Task.notes. */
+  notes?: string;
+  /** Sprint UUID — null leaves the task unassigned. Only writable when
+   *  the project has agile features enabled (ADR-0037). */
+  sprint?: string | null;
 }
 
 /** POST /api/v1/tasks/ — create a new task in the given project. */
@@ -41,6 +48,9 @@ export function useCreateTask(projectId: string | null) {
         duration: payload.duration,
         ...(payload.parent_id != null ? { parent_id: payload.parent_id } : {}),
         ...(payload.status != null ? { status: payload.status } : {}),
+        ...(payload.planned_start !== undefined ? { planned_start: payload.planned_start } : {}),
+        ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
+        ...(payload.sprint !== undefined ? { sprint: payload.sprint } : {}),
       });
       return res.data;
     },
@@ -64,6 +74,10 @@ export interface UpdateTaskPayload {
   status?: string;
   actual_start?: string | null;
   actual_finish?: string | null;
+  /** Long-form description / notes. Stored as Task.notes. */
+  notes?: string;
+  /** Sprint UUID — null removes the task from any sprint. */
+  sprint?: string | null;
 }
 
 /** PATCH /api/v1/tasks/{id}/ — update task fields; immediately invalidates the task cache. */
@@ -321,6 +335,88 @@ export function useReorderTasks(projectId: string | null) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Dependency mutations (issue #305 / ADR-0052 §8)
+// ---------------------------------------------------------------------------
+
+export type DependencyType = 'FS' | 'SS' | 'FF' | 'SF';
+
+export interface AddDependencyPayload {
+  /** UUID of the predecessor task. */
+  predecessor: string;
+  /** UUID of the successor task. */
+  successor: string;
+  /** Defaults to 'FS' per ADR-0052 §8 — the modal's predecessor editor does
+   *  not expose type/lag controls; deeper editing lives in the drawer. */
+  dep_type?: DependencyType;
+  /** Calendar-day lag. Default 0. */
+  lag?: number;
+}
+
+interface ApiDependencyResponse {
+  id: string;
+  predecessor: string;
+  successor: string;
+  dep_type: DependencyType;
+  lag: number;
+}
+
+/**
+ * POST /api/v1/dependencies/ — add a predecessor/successor edge.
+ *
+ * Invalidates `['task-dependencies', successor]` and
+ * `['task-dependencies', predecessor]` so both endpoints of the edge see
+ * the new connection. Cycles are not validated client- or server-side
+ * today (ADR-0052 §8 — file follow-up); CPM recalculation handles them.
+ */
+export function useAddDependency() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: AddDependencyPayload) => {
+      const res = await apiClient.post<ApiDependencyResponse>('/dependencies/', {
+        predecessor: payload.predecessor,
+        successor: payload.successor,
+        dep_type: payload.dep_type ?? 'FS',
+        lag: payload.lag ?? 0,
+      });
+      return res.data;
+    },
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ['task-dependencies', variables.successor] });
+      void queryClient.invalidateQueries({ queryKey: ['task-dependencies', variables.predecessor] });
+    },
+  });
+}
+
+export interface RemoveDependencyPayload {
+  /** UUID of the dependency edge to delete. */
+  id: string;
+  /** Both endpoints — needed only to invalidate their dependency caches. */
+  predecessor: string;
+  successor: string;
+}
+
+/**
+ * DELETE /api/v1/dependencies/{id}/ — remove a predecessor/successor edge.
+ *
+ * The viewset enqueues a CPM recalc on commit, so cache invalidation is
+ * sufficient on the client side; the next poll picks up updated dates.
+ */
+export function useRemoveDependency() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: RemoveDependencyPayload) => {
+      await apiClient.delete(`/dependencies/${payload.id}/`);
+    },
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ['task-dependencies', variables.successor] });
+      void queryClient.invalidateQueries({ queryKey: ['task-dependencies', variables.predecessor] });
     },
   });
 }

@@ -69,8 +69,34 @@ vi.mock('@/hooks/useBoardConfig', () => ({
 }));
 
 vi.mock('@/hooks/useTaskMutations', () => ({
-  useCreateTask: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
-  useUpdateTask: () => ({ mutate: vi.fn(), isPending: false }),
+  useCreateTask: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false, isError: false }),
+  useUpdateTask: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useDeleteTask: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useAddDependency: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useRemoveDependency: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+}));
+
+// TaskFormModal (#305) hooks beyond useTaskMutations — stub for BoardView tests.
+vi.mock('@/hooks/useAssignmentMutations', () => ({
+  useAddAssignment: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useUpdateAssignment: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  useRemoveAssignment: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+}));
+
+vi.mock('@/hooks/useProjectResourcePool', () => ({
+  useProjectResourcePool: () => ({ data: [], isLoading: false }),
+}));
+
+vi.mock('@/hooks/useProject', () => ({
+  useProject: () => ({ data: { agile_features: false }, isLoading: false }),
+}));
+
+vi.mock('@/hooks/useTaskHistory', () => ({
+  useTaskHistory: () => ({ data: { pages: [] }, isLoading: false }),
+}));
+
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({ role: 3, isLoading: false }),
 }));
 
 // Workshop hooks — mutable so individual tests can simulate an active session
@@ -422,11 +448,12 @@ describe('BoardView', () => {
     expect(screen.getByRole('button', { name: /Add task to Project Tasks/ })).toBeInTheDocument();
   });
 
-  it('opens AddTaskModal when phase + button is clicked (issue #208)', async () => {
+  it('opens the unified task form modal when phase + button is clicked (issue #208 / #305)', async () => {
     const user = (await import('@testing-library/user-event')).default.setup();
     renderBoard();
     await user.click(screen.getByRole('button', { name: /Add task to Alpha Platform Upgrade/ }));
-    expect(screen.getByRole('dialog', { name: /Add task to Alpha Platform Upgrade/ })).toBeInTheDocument();
+    // The redesigned TaskFormModal (#305) titles its header "Add to {phase}".
+    expect(screen.getByRole('dialog', { name: /Add to Alpha Platform Upgrade/ })).toBeInTheDocument();
   });
 
   it('renders "Column tints" toggle in toolbar (issue #211)', () => {
@@ -810,12 +837,14 @@ describe('BoardView', () => {
       expect(screen.queryByRole('dialog', { name: /^Backend Implementation$/ })).not.toBeInTheDocument();
     });
 
-    it('clicking "Edit" routes to the same drawer (#305 swap target)', () => {
+    it('clicking "Edit" opens the unified TaskFormModal in edit mode (#305)', () => {
       renderBoard();
       const card = getDraggableCardRoot(/Backend Implementation/);
       fireEvent.click(card);
       fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-      expect(screen.getByRole('dialog', { name: /Task drawer Backend Implementation/ })).toBeInTheDocument();
+      // The redesigned modal header surfaces the task name as the dialog's
+      // accessible name in edit mode (eyebrow `EDIT TASK` + title = task.name).
+      expect(screen.getByRole('dialog', { name: /^Backend Implementation$/ })).toBeInTheDocument();
     });
 
     it('drawer onClose unmounts the drawer (selectedTaskId reset)', () => {
