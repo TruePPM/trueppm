@@ -1,6 +1,6 @@
 ---
 name: enterprise-check
-model: opus
+model: sonnet
 description: >
   OSS vs Enterprise boundary classification for TruePPM features. Use when a new
   feature's classification is unclear before architecture is decided. Moving a feature

@@ -1,5 +1,6 @@
 ---
 name: data-model
+model: sonnet
 description: >
   Design Django data models for TruePPM. Use when adding new entities, modifying
   existing models, planning migrations, or optimizing query patterns. Enforces

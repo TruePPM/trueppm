@@ -1,5 +1,6 @@
 ---
 name: devops
+model: sonnet
 description: >
   Infrastructure, deployment, CI/CD, and Kubernetes operations for TruePPM. Use when
   working on Helm charts, Docker configuration, GitHub Actions / GitLab CI pipelines,

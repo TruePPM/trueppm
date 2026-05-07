@@ -1,5 +1,6 @@
 ---
 name: performance
+model: sonnet
 description: >
   Performance auditing and optimization for TruePPM. Use when investigating slow
   endpoints, optimizing database queries, improving Gantt rendering performance,

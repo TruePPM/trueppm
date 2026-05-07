@@ -1,6 +1,6 @@
 ---
 name: voice-of-customer
-model: opus
+model: sonnet
 description: >
   Simulate feedback from TruePPM's six core personas: Project Manager, PMO Director /
   Portfolio Manager, Team Member / Contributor, Resource Manager, Executive Sponsor
@@ -12,71 +12,105 @@ description: >
 # Voice of Customer Skill
 
 **Before producing any output, read `.claude/personas.md`** — that file is the single
-source of truth for all six persona definitions, P3M layer mappings, and feature
-resonance rules. Do not use any persona content defined outside that file.
+source of truth for all six persona definitions, P3M layer mappings, feature
+resonance rules, and the VoC scoring rubric. Do not use any persona content defined
+outside that file.
 
-## How to Use This Skill
+## How to use this skill
 
-When invoked with a feature or design for feedback:
+The 6 personas are independent — there is no reason to evaluate them serially. This
+skill **delegates each persona to a parallel Sonnet sub-agent** and aggregates the
+verdicts in the main context. Same total cost as serial inline evaluation, ~6× faster
+wall-time, and the main conversation context stays clean.
 
-1. **Read `.claude/personas.md`** to load persona definitions, P3M layer, and resonance rules
-2. **Rate the feature** from each persona's perspective (1–10)
-3. **Quote what each persona would say** in their voice, using their priorities and language
-4. **Identify who loves it, who tolerates it, and who objects**
-5. **Suggest modifications** to increase appeal to the weakest persona
-6. **Flag** if the feature solves a problem none of the personas actually have
-7. **Apply the feature resonance rule** to call out OSS vs. Enterprise alignment
+### Step 1 — Spawn 6 parallel Sonnet sub-agents
 
-### Example Invocation
+Using the `Agent` tool, in a **single message** with **6 tool calls in parallel**, spawn
+one sub-agent per persona. Each sub-agent receives:
 
-```
-/voice-of-customer Review the resource conflict heat map feature
-```
+- The full persona definition (the relevant section from `.claude/personas.md`)
+- The shared rubric and severity tags (the "VoC Scoring Rubric" section)
+- The feature or design under review (the user's `$ARGUMENTS`)
+- A directive to return its verdict in the exact output format below
 
-### Output Format
-
-One section per persona in P3M layer order (Janet → Marcus → David → Sarah → Alex → Priya),
-followed by a panel verdict table:
+Sub-agent prompt template (substitute `<PERSONA_NAME>` and `<FEATURE>`):
 
 ```
-## Sarah (PM): 7/10
-"This is useful for my 3–5 projects but I'd rather see it on my phone."
-→ Suggestion: Add a simplified mobile view showing just MY resources' conflicts.
+You are simulating <PERSONA_NAME> reviewing a TruePPM feature. Use ONLY this persona's
+goals, pain points, evaluation criteria, and hard NOs. Do not mix personas.
 
-## Alex (Scrum Master): 5/10
-"I want this at sprint level. When two sprints compete for the same developers,
-that's my problem and I can't see it here."
-→ Suggestion: Sprint-scoped allocation view alongside the project view.
+Persona definition:
+<paste the persona's full section from .claude/personas.md>
 
-## Marcus (PMO Director): 10/10
-"This is exactly what I've been building in Excel. Real-time with drill-down?
-I'll buy 200 seats tomorrow."
-→ This is Marcus's hero feature. Prioritize the drill-down interaction.
+Scoring rubric (use exactly this scale, do not invent ad-hoc criteria):
+<paste the VoC Scoring Rubric section from .claude/personas.md>
 
-## Priya (Team Member): 3/10
-"I don't care about resource utilization. That's my manager's problem."
-→ Priya should never see this screen unless she's also a team lead.
+Feature under review:
+<FEATURE>
 
-## David (Resource Manager): 9/10
-...
+Return your response in this exact format and nothing else:
 
-## Janet (Executive Sponsor): 6/10
-...
+## <PERSONA_NAME>: N/10 [optional 🔴 / 🟡 / 🟢]
+"<one-sentence quote in this persona's voice, using their priorities and language>"
+
+→ Suggestion: <single concrete change that would raise this persona's score>
+
+Top concerns: <bullet list of any hard-NOs triggered or evaluation criteria missed>
 ```
 
-### Panel Verdict (required at end of every response)
+Spawn the sub-agents in P3M layer order so their results arrive in a sensible order:
+Janet → Marcus → David → Sarah → Alex → Priya. The Agent tool handles parallelism
+when calls are issued in a single message.
+
+### Step 2 — Aggregate in main context
+
+Once all six sub-agents return, write the panel verdict in the main context. Do not
+delegate aggregation — synthesizing across personas is the value-add of this skill.
 
 ```
 ### Panel Verdict
 | Persona | Score | Verdict |
 |---|---|---|
-| Sarah (PM) | 7/10 | ... |
-| Alex (Scrum Master) | 5/10 | ... |
-| Marcus (PMO) | 10/10 | ... |
-| Priya (Team Member) | 3/10 | ... |
-| David (Resource Manager) | 9/10 | ... |
-| Janet (Executive Sponsor) | 6/10 | ... |
+| Janet (COO) | N/10 | … |
+| Marcus (PMO) | N/10 | … |
+| David (Resource Manager) | N/10 | … |
+| Sarah (PM) | N/10 | … |
+| Alex (Scrum Master) | N/10 | … |
+| Priya (Team Member) | N/10 | … |
 
-**Average**: X.X/10 | **OSS/Enterprise signal**: [who loves it most → layer]
-**Key design constraints surfaced**: [bullet list of blockers or requirements from the panel]
+**Average**: X.X/10 | **OSS/Enterprise signal**: [who loves it most → which P3M layer]
+
+**Key constraints surfaced**:
+- 🔴 <any hard-NO triggered>
+- 🟡 <any concern that lowers the score>
+- <cross-persona tensions that the feature ignores or resolves cleanly>
+
+**Recommendation**: ship / iterate / rethink — with one-sentence justification.
 ```
+
+### Panel-average heuristics (from personas.md, kept here for the synthesis step)
+
+- Average ≥ 8: ship with confidence
+- Average 6–7: ship if no 🔴 blockers; address 🟡 concerns in the same milestone
+- Average < 6: rethink scope before invoking architect
+
+A single 🔴 blocker outweighs a high panel average. Do not average away a hard NO.
+
+## Example invocation
+
+```
+/voice-of-customer Review the resource conflict heat map feature
+```
+
+## When to skip parallelization
+
+Skip the parallel pattern and run serially in main context if **fewer than 3 personas
+are relevant** to the feature (e.g., a backend-only refactor that only meaningfully
+affects Sarah and Priya). For ≥3 personas, parallel is always faster and not more
+expensive.
+
+## What this skill does NOT do
+
+- It does not commit to a build decision — that's the architect's call after VoC + UX design
+- It does not generate user stories — use the architect or a dedicated story-writing pass
+- It does not weight persona scores by market size or revenue — those are GTM decisions, not product decisions

@@ -235,6 +235,5 @@ Run `/skills` to see all available skills. Key ones:
 - `/scheduler-engine` — CPM/Monte Carlo algorithm work
 - `/test-scaffold` — Scaffold the three-layer test pattern (pytest / vitest / Playwright) for a new feature
 - `/threat-model` — STRIDE threat model at architecture stage; pairs with `/architect` on auth, sync, or boundary-crossing features
-- `/compliance` — SOC 2 Type 2 evidence collection and control-to-implementation drift check
 - `/mobile-design` — UI/UX design for the React Native mobile app (offline-first, touch-primary)
 - `/mobile-review` — Review React Native code against mobile-specific requirements (touch targets, offline, platform conventions)
