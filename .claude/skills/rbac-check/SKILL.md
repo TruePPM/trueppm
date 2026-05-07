@@ -1,6 +1,6 @@
 ---
 name: rbac-check
-model: sonnet
+model: opus
 description: >
   Role-based access control audit for TruePPM API endpoints. Use when adding or
   modifying any viewset, view, or serializer to verify authentication is required,

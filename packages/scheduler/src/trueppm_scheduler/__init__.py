@@ -8,6 +8,7 @@ from trueppm_scheduler.engine import (
     ScheduleResult,
     SimulationCapExceeded,
     expand_summary_dependencies,
+    find_cycle,
     monte_carlo,
     schedule,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "SimulationCapExceeded",
     "Task",
     "expand_summary_dependencies",
+    "find_cycle",
     "monte_carlo",
     "schedule",
 ]

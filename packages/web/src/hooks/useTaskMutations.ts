@@ -345,6 +345,63 @@ export function useReorderTasks(projectId: string | null) {
 
 export type DependencyType = 'FS' | 'SS' | 'FF' | 'SF';
 
+/**
+ * Server-side cycle-detection error payload (ADR-0055).
+ *
+ * Issued by `POST /dependencies/` and `PATCH /dependencies/{id}/` when the
+ * proposed edge would close a logical cycle on the expanded leaf graph.
+ * Each `cycle` entry carries the task name + hex_id so the toast can render
+ * a path like `A → B → A` without needing to look the task up in cache.
+ */
+export interface CyclicDependencyError {
+  detail: 'cyclic_dependency';
+  cycle: { id: string; name: string; hex_id: string }[];
+}
+
+/**
+ * Render a {@link CyclicDependencyError} as a single-line user-facing string.
+ *
+ * Joins the cycle path with `→`. Cycles longer than four nodes get the middle
+ * truncated with `…` while preserving the first and last (closing) nodes —
+ * the issue spec's threshold for keeping the offending edge visible without
+ * overwhelming the toast (#356 AC).
+ */
+export function formatCycleMessage(err: CyclicDependencyError): string {
+  const names = err.cycle.map((node) => node.name || node.hex_id || node.id);
+  const path =
+    names.length <= 4
+      ? names.join(' → ')
+      : `${names[0]} → ${names[1]} → … → ${names[names.length - 1]}`;
+  return `This would create a circular dependency: ${path}. Remove one of these edges first.`;
+}
+
+/**
+ * Narrow an unknown caught error to a {@link CyclicDependencyError} payload.
+ *
+ * Returns the parsed payload or `null` for any other error shape so callers
+ * can branch on cycle vs. generic failure without `as` casts.
+ */
+export function parseCyclicDependencyError(err: unknown): CyclicDependencyError | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const data = (err as { response?: { data?: unknown } }).response?.data;
+  if (typeof data !== 'object' || data === null) return null;
+  const detail = (data as { detail?: unknown }).detail;
+  const cycle = (data as { cycle?: unknown }).cycle;
+  if (detail !== 'cyclic_dependency' || !Array.isArray(cycle)) return null;
+  for (const node of cycle) {
+    if (
+      typeof node !== 'object' ||
+      node === null ||
+      typeof (node as { id?: unknown }).id !== 'string' ||
+      typeof (node as { name?: unknown }).name !== 'string' ||
+      typeof (node as { hex_id?: unknown }).hex_id !== 'string'
+    ) {
+      return null;
+    }
+  }
+  return data as CyclicDependencyError;
+}
+
 export interface AddDependencyPayload {
   /** UUID of the predecessor task. */
   predecessor: string;
@@ -370,8 +427,10 @@ interface ApiDependencyResponse {
  *
  * Invalidates `['task-dependencies', successor]` and
  * `['task-dependencies', predecessor]` so both endpoints of the edge see
- * the new connection. Cycles are not validated client- or server-side
- * today (ADR-0052 §8 — file follow-up); CPM recalculation handles them.
+ * the new connection. Cycle detection is enforced server-side at create
+ * time (ADR-0055); a 400 with `{detail: "cyclic_dependency", cycle: [...]}`
+ * surfaces to callers via the mutation's `onError` and is parseable with
+ * {@link parseCyclicDependencyError}.
  */
 export function useAddDependency() {
   const queryClient = useQueryClient();
