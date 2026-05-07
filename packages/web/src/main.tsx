@@ -2,7 +2,9 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles/globals.css';
 import { App } from './App';
+import { applyFeatureFlagsFromUrl } from './lib/featureFlags';
 
+applyFeatureFlagsFromUrl();
 
 const root = document.getElementById('root');
 if (!root) {
