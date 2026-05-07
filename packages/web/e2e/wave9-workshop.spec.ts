@@ -7,8 +7,11 @@
  *
  * Error / empty state: workshop toggle is absent for unauthenticated views
  * (not tested here — the auth guard is covered in auth.spec.ts).
+ *
+ * Reference migration to the shared `e2e/fixtures/` helpers — see #348.
  */
 import { test, expect } from '@playwright/test';
+import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-workshop-00000000-0000-0000-0000-000000000099';
 const BASE_URL = `/projects/${PROJECT_ID}`;
@@ -63,121 +66,27 @@ const ENDED_SESSION = {
 };
 
 async function setup(page: import('@playwright/test').Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'trueppm-auth',
-      JSON.stringify({
-        state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
-        version: 0,
-      }),
-    );
+  await setupAuth(page);
+  await setupCatchAll(page);
+  await setupApiMocks(page, {
+    projects: FIXTURE_PROJECTS,
+    projectId: PROJECT_ID,
+    tasks: FIXTURE_TASKS,
+    statusSummary: { task_count: 2 },
+    overview: { total_tasks: 2 },
   });
-
-  // Standard project/task fixtures
-  await page.route('**/api/v1/projects/', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_PROJECTS }),
-    }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ schedule_health: 'unknown', spi: null, tasks_late_count: 0, critical_task_count: 0, total_tasks: 2, complete_tasks: 0, next_milestone: null, team_utilization_pct: null, owner_name: null, start_date: '2026-01-01' }),
-    }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/attention/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/my-tasks/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
-  );
-  await page.route('**/api/v1/projects/*/presence/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
-  );
-  await page.route('**/api/v1/projects/*/status-summary/', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        task_count: 2, critical_path_count: 0, monte_carlo_p80: null,
-        at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [],
-        last_saved: null, recalculated_at: null,
-      }),
-    }),
-  );
-  await page.route('**/api/v1/tasks/**', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ count: FIXTURE_TASKS.length, next: null, previous: null, results: FIXTURE_TASKS }),
-    }),
-  );
-  await page.route('**/api/v1/calendars/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
-  );
-  await page.route('**/api/v1/dependencies/**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/board-config/`, (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        columns: [
-          { status: 'BACKLOG',      label: 'Backlog',      visible: true, wip_limit: null, color: '#94A3B8' },
-          { status: 'NOT_STARTED',  label: 'To Do',        visible: true, wip_limit: null, color: '#64748B' },
-          { status: 'IN_PROGRESS',  label: 'In Progress',  visible: true, wip_limit: 5,    color: '#3B82F6' },
-          { status: 'REVIEW',       label: 'Review',       visible: true, wip_limit: 3,    color: '#A855F7' },
-          { status: 'COMPLETE',     label: 'Done',         visible: true, wip_limit: null, color: '#22C55E' },
-        ],
-      }),
-    }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/board-views/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
-  );
-  await page.route('**/api/v1/edition/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ edition: 'community' }) }),
-  );
-  // Prevent real backend 401s from clearing auth state
-  await page.route('**/api/v1/auth/me/', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ id: 'e2e-user', username: 'e2euser', display_name: 'E2E User', initials: 'EU', email: 'e2e@example.com' }),
-    }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([{ id: 'mem-admin', role: 3 }]) }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/risks/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
-  );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/resource-allocation/**`, (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ project_id: PROJECT_ID, window_start: '2026-01-01', window_end: '2026-03-01', resources: [] }),
-    }),
-  );
-  await page.route('**/api/v1/monte-carlo/**', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ runs: 0, p50: null, p80: null, p95: null, buckets: [] }),
-    }),
-  );
-
-  // Workshop: no active session initially
+  // Workshop spec specifics — register AFTER setupApiMocks so they win.
+  // Default workshop/current to 404 (no active session). Tests that need an
+  // active session override this route inside the test body.
   await page.route(`**/api/v1/projects/${PROJECT_ID}/workshop/current/`, (route) => {
     if (route.request().method() === 'GET') {
-      route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No active session.' }) });
-    } else {
-      route.continue();
+      return route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'No active session.' }),
+      });
     }
+    return route.continue();
   });
 }
 

@@ -1,7 +1,10 @@
 /**
  * Board view E2E — phase swimlanes, LaneMeta, per-phase add task (issue #208 #211).
+ *
+ * Reference migration to the shared `e2e/fixtures/` helpers — see #348.
  */
 import { test, expect } from '@playwright/test';
+import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-board-00000000-0000-0000-0000-000000000010';
 const BASE_URL = `/projects/${FIXTURE_PROJECT_ID}`;
@@ -77,62 +80,19 @@ const FIXTURE_TASKS = [
 ];
 
 async function setup(page: import('@playwright/test').Page) {
-  await page.addInitScript(() => {
-    localStorage.setItem(
-      'trueppm-auth',
-      JSON.stringify({
-        state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
-        version: 0,
-      }),
-    );
+  await setupAuth(page);
+  await setupCatchAll(page);
+  await setupApiMocks(page, {
+    projects: FIXTURE_PROJECTS,
+    projectId: FIXTURE_PROJECT_ID,
+    tasks: FIXTURE_TASKS,
+    statusSummary: { task_count: 3 },
   });
-
-  await page.route('**/api/v1/projects/', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_PROJECTS }),
-    }),
-  );
-  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/overview/`, (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ schedule_health: 'unknown', spi: null, tasks_late_count: 0, critical_task_count: 0, total_tasks: 0, complete_tasks: 0, next_milestone: null, team_utilization_pct: null, owner_name: null, start_date: '2026-01-01' }),
-    }),
-  );
-  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/attention/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [] }) }),
-  );
-  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
-  );
-  await page.route('**/api/v1/projects/*/presence/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
-  );
-  await page.route('**/api/v1/projects/*/workshop/current/', (route) =>
-    route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No active workshop session.' }) }),
-  );
-  await page.route('**/api/v1/projects/*/status-summary/', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        task_count: 3,
-        critical_path_count: 0,
-        monte_carlo_p80: null,
-        at_risk_count: 0,
-        critical_count: 0,
-        at_risk_tasks: [],
-        critical_tasks: [],
-        last_saved: null,
-        recalculated_at: null,
-      }),
-    }),
-  );
+  // Board-spec specifics that override setupApiMocks defaults — must register
+  // AFTER setupApiMocks so they win (last-registered wins per Playwright).
   await page.route('**/api/v1/tasks/**', (route) => {
     if (route.request().method() === 'POST') {
-      route.fulfill({
+      return route.fulfill({
         status: 201,
         contentType: 'application/json',
         body: JSON.stringify({
@@ -143,18 +103,17 @@ async function setup(page: import('@playwright/test').Page) {
           status: 'NOT_STARTED', assignees: [],
         }),
       });
-    } else {
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ count: FIXTURE_TASKS.length, next: null, previous: null, results: FIXTURE_TASKS }),
-      });
     }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: FIXTURE_TASKS.length, next: null, previous: null, results: FIXTURE_TASKS }),
+    });
   });
+  // Dependencies — task=b3 has predecessors/successors; everything else empty.
   await page.route('**/api/v1/dependencies/**', (route) => {
-    const url = route.request().url();
-    if (url.includes('task=b3')) {
-      route.fulfill({
+    if (route.request().url().includes('task=b3')) {
+      return route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
@@ -167,71 +126,11 @@ async function setup(page: import('@playwright/test').Page) {
           ],
         }),
       });
-      return;
     }
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) });
-  });
-  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/risks/**`, (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
-  );
-  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/resource-allocation/**`, (route) =>
-    route.fulfill({
+    return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        project_id: FIXTURE_PROJECT_ID,
-        window_start: '2026-01-01',
-        window_end: '2026-03-01',
-        resources: [],
-      }),
-    }),
-  );
-  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/board-views/`, (route) => {
-    if (route.request().method() === 'GET') {
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
-      return;
-    }
-    if (route.request().method() === 'POST') {
-      const body = route.request().postDataJSON() as { name: string; config: unknown };
-      route.fulfill({
-        status: 201,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          id: 'sv-e2e-1',
-          name: body.name,
-          config: body.config,
-          created_by: 'e2e-user',
-          server_version: 1,
-          created_at: '2026-01-01T00:00:00Z',
-          updated_at: '2026-01-01T00:00:00Z',
-        }),
-      });
-      return;
-    }
-    route.continue();
-  });
-  await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/board-config/`, (route) => {
-    if (route.request().method() === 'PUT') {
-      const body = route.request().postDataJSON() as { columns: unknown[] };
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ columns: body.columns }),
-      });
-      return;
-    }
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        columns: [
-          { status: 'BACKLOG',     label: 'Backlog',     visible: true, wip_limit: null, color: '#94A3B8' },
-          { status: 'NOT_STARTED', label: 'To Do',       visible: true, wip_limit: null, color: '#64748B' },
-          { status: 'IN_PROGRESS', label: 'In Progress', visible: true, wip_limit: 5,    color: '#3B82F6' },
-          { status: 'REVIEW',      label: 'Review',      visible: true, wip_limit: 3,    color: '#A855F7' },
-          { status: 'COMPLETE',    label: 'Done',        visible: true, wip_limit: null, color: '#22C55E' },
-        ],
-      }),
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
     });
   });
 }
