@@ -257,6 +257,25 @@ changelog:check:
       echo "OK: Changelog fragment(s) found:"
       echo "$FRAGMENTS"
 
+boundary:check:
+  # Detect open OSS issues that describe enterprise functionality (labeled
+  # `enterprise` or `portfolio`) and therefore violate the Two-Repo Rule
+  # (CLAUDE.md). Two GitLab API calls; ~2s. Runs on main pushes (catches
+  # the moment a violation lands) and on schedule (catches violations that
+  # were created via the GitLab UI without an MR).
+  #
+  # An optional BOUNDARY_CHECK_TOKEN (project- or group-level access token)
+  # can be set in CI/CD variables; otherwise CI_JOB_TOKEN is used.
+  stage: lint
+  image: alpine:latest
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache curl jq bash
+  script:
+    - bash scripts/check-issue-boundary.sh
+
 scheduler:lint:
   extends: .scheduler
   stage: lint
