@@ -595,18 +595,33 @@ export function ScheduleView() {
   );
 
   // View-scoped keyboard bindings (#340 + A1's `?` migration).
+  // Parent inference uses build-mode focus when active, otherwise the row the
+  // user clicked (selectedTaskId). Either way the new row lands inside the
+  // nearest enclosing summary so "+ Task / + Milestone under the highlighted
+  // phase" matches user intent rather than always appending at root.
   const buildModeFocusedRowId = focus.state.rowId;
+  const insertParentSourceId = buildModeFocusedRowId ?? selectedTaskId;
+  const inferredParentId = useMemo(
+    () => inferNearestSummaryParent(insertParentSourceId, visibleTasks),
+    [insertParentSourceId, visibleTasks],
+  );
+  const inferredParentName = useMemo(
+    () => (inferredParentId ? (allTasks.find((t) => t.id === inferredParentId)?.name ?? null) : null),
+    [inferredParentId, allTasks],
+  );
   const handleAddMilestone = useCallback(() => {
     if (!projectId || createTaskMut.isPending) return;
     const today = new Date().toISOString().slice(0, 10);
-    const parentId = inferNearestSummaryParent(buildModeFocusedRowId, visibleTasks);
     createTaskMut.mutate(
       {
-        name: '',
+        // Server requires non-blank `name` (Task.name is a CharField with no
+        // allow_blank). Seed a placeholder; build-mode then drops focus into
+        // the cell editor so the user types over it before commit.
+        name: 'New milestone',
         duration: 0,
         planned_start: today,
         is_milestone: true,
-        ...(parentId ? { parent_id: parentId } : {}),
+        ...(inferredParentId ? { parent_id: inferredParentId } : {}),
       },
       {
         onSuccess: (data) => {
@@ -637,7 +652,7 @@ export function ScheduleView() {
   }, [
     projectId,
     createTaskMut,
-    buildModeFocusedRowId,
+    inferredParentId,
     visibleTasks,
     scheduleScales,
     buildModeActive,
@@ -666,8 +681,10 @@ export function ScheduleView() {
     // Per ux-design: the new row enters RowFocused immediately, then auto-
     // transitions to CellEdit on the Name column — saves the user one keystroke
     // vs. requiring F2 after the row appears.
+    // Placeholder `name` matches the milestone path; the server CharField does
+    // not allow blank, and the cell editor opens immediately for overwrite.
     createTaskMut.mutate(
-      { name: '', duration: 1 },
+      { name: 'New task', duration: 1 },
       {
         onSuccess: (data) => {
           focus.focusRow(data.id);
@@ -866,6 +883,8 @@ export function ScheduleView() {
         <TaskFormModal
           projectId={projectId}
           task={null}
+          parentId={inferredParentId}
+          phaseName={inferredParentName ?? undefined}
           isMobile={isMobile}
           onClose={() => setShowAddForm(false)}
         />
