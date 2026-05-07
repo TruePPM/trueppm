@@ -300,11 +300,16 @@ def _run_schedule(
     )
 
     # Convert Django Task objects to scheduler dataclasses.
+    # Milestones are zero-duration single-point gates regardless of any non-zero
+    # duration that may have been imported (MS Project allows non-zero milestone
+    # durations) or persisted before the serializer invariant was enforced. The
+    # scheduler engine "operates on duration only" (see Task.is_milestone docstring)
+    # so we normalise here at the boundary.
     sched_tasks = [
         SchedTask(
             id=str(t.id),
             name=t.name,
-            duration=timedelta(days=t.duration),
+            duration=timedelta(days=0) if t.is_milestone else timedelta(days=t.duration),
             planned_start=t.planned_start,
             percent_complete=t.percent_complete,
             optimistic_duration=timedelta(days=t.optimistic_duration)
@@ -462,6 +467,13 @@ def _run_schedule(
         db_task.total_float = sched.total_float.days if sched.total_float else None
         db_task.free_float = sched.free_float.days if sched.free_float else None
         db_task.is_critical = sched.is_critical
+        # Belt-and-suspenders: milestones are single-point gates. Even if the
+        # boundary normalisation above is bypassed (e.g. future direct CPM calls),
+        # a milestone's finish must equal its start so client-facing rows never
+        # render a date range.
+        if db_task.is_milestone:
+            db_task.early_finish = db_task.early_start
+            db_task.late_finish = db_task.late_start
         # For summary tasks, overwrite duration with the calendar-day span so the
         # API returns a meaningful value for the Gantt duration column. The CPM
         # engine never reads duration on summary tasks (they are excluded from the

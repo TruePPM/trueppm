@@ -572,9 +572,18 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
             text-right text-neutral-text-secondary tabular-nums pr-2"
           style={{ width: widths.finish }}
           role="gridcell"
-          aria-label={task.finish ? `finishes ${formatDate(task.finish)}` : 'unscheduled'}
+          aria-label={
+            task.isMilestone
+              ? 'milestone — single date in Start column'
+              : task.finish
+              ? `finishes ${formatDate(task.finish)}`
+              : 'unscheduled'
+          }
         >
-          {task.finish ? formatDate(task.finish) : '—'}
+          {/* Milestones are single-point gates: render an em-dash so the row
+              never displays a date range that contradicts the diamond marker.
+              The single date is shown in the Start column (line 564). */}
+          {task.isMilestone ? '—' : task.finish ? formatDate(task.finish) : '—'}
         </div>
       )}
 

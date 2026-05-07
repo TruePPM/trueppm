@@ -156,6 +156,34 @@ describe('TaskListRow', () => {
     expect(screen.getByLabelText('milestone')).toBeInTheDocument();
   });
 
+  it('milestone Finish column renders em-dash and never a date range', () => {
+    // Regression for !221: even if the API returns a finish date that differs from start
+    // (e.g. legacy data where the milestone invariant was bypassed), the row must not
+    // render a span — it would contradict the diamond marker and be a credibility risk
+    // when a PM shows the Schedule to a client.
+    renderWithRouter(
+      <TaskListRow
+        task={{
+          ...base,
+          isMilestone: true,
+          duration: 0,
+          progress: 0,
+          start: '2026-10-05',
+          finish: '2026-10-25',
+        }}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+      />,
+    );
+    // Finish column has the milestone aria-label and renders em-dash, not the (wrong) finish date.
+    const finishCell = screen.getByLabelText(/milestone — single date/i);
+    expect(finishCell).toHaveTextContent('—');
+    // The bogus finish date must not leak into the row text — no "25" anywhere.
+    expect(finishCell.textContent).not.toMatch(/25/);
+  });
+
   it('clicking row selects it in the store', async () => {
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />);
     await userEvent.click(screen.getByRole('row'));
