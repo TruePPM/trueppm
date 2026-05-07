@@ -21,6 +21,7 @@ const base: Task = {
   isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
   status: 'NOT_STARTED',
   assignees: [],
+  notes: '',
 };
 
 const defaultTreeProps = {

@@ -46,6 +46,8 @@ export interface Risk {
   mitigation_due_date?: string | null;
   trigger?: string;
   contingency?: string;
+  /** Long-form PM annotations (ADR-0048). Empty string when unset. */
+  notes: string;
 }
 
 // Risk comments — append-only discussion thread (ADR-0044, issue #244)

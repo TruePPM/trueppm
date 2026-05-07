@@ -91,7 +91,7 @@ class ProjectResource(VersionedModel):
     )
     role_title = models.CharField(max_length=120, blank=True)
     units_override = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
-    notes = models.CharField(max_length=500, blank=True)
+    notes = models.TextField(blank=True, default="")
 
     class Meta:
         db_table = "resources_project_resource"

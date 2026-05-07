@@ -340,7 +340,7 @@ class Task(VersionedModel):
         db_index=True,
     )
     percent_complete = models.FloatField(default=0.0)
-    notes = models.TextField(blank=True)
+    notes = models.TextField(blank=True, default="")
 
     # SNET constraint — set by the PM (e.g. via Gantt drag-to-reschedule).
     # The CPM forward pass applies this as a floor:
@@ -712,6 +712,7 @@ class Risk(VersionedModel):
     mitigation_due_date = models.DateField(null=True, blank=True)
     trigger = models.TextField(blank=True, default="")
     contingency = models.TextField(blank=True, default="")
+    notes = models.TextField(blank=True, default="")
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -956,6 +957,7 @@ class Sprint(VersionedModel):
     short_id = models.CharField(max_length=8, editable=False, blank=True)
     name = models.CharField(max_length=255)
     goal = models.TextField(blank=True, default="")
+    notes = models.TextField(blank=True, default="")
     start_date = models.DateField()
     finish_date = models.DateField()
     state = models.CharField(

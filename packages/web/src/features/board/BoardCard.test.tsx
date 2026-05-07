@@ -38,6 +38,7 @@ const baseTask: Task = {
   isMilestone: false,
   status: 'IN_PROGRESS',
   assignees: [],
+  notes: '',
 };
 
 function renderCard(props: Partial<ComponentProps<typeof BoardCard>>) {

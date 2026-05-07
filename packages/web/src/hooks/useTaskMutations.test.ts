@@ -40,6 +40,7 @@ const baseTask: Task = {
   isSummary: false, isMilestone: false,
   status: 'NOT_STARTED',
   assignees: [],
+  notes: '',
 };
 
 function makeWrapper(qc: QueryClient) {

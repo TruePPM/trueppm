@@ -20,6 +20,7 @@ function makeTask(overrides: Partial<Task> & Pick<Task, 'id' | 'wbs'>): Task {
     isMilestone: false,
     status: 'IN_PROGRESS',
     assignees: [],
+    notes: '',
     ...overrides,
   };
 }

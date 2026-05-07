@@ -12,7 +12,7 @@ const baseTask = (overrides: Partial<Task> = {}): Task => ({
   id: 't1', wbs: '1', name: 'Integration Test', start: '2026-05-05', finish: '2026-05-08',
   duration: 4, progress: 0, parentId: null,
   isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
-  status: 'NOT_STARTED', assignees: [],
+  status: 'NOT_STARTED', assignees: [], notes: '',
   ...overrides,
 });
 
@@ -20,7 +20,7 @@ const milestoneTask = (overrides: Partial<Task> = {}): Task => ({
   id: 'm1', wbs: '2', name: 'Launch Milestone', start: '2026-05-07', finish: '2026-05-07',
   duration: 0, progress: 0, parentId: null,
   isCritical: false, isComplete: false, isSummary: false, isMilestone: true,
-  status: 'NOT_STARTED', assignees: [],
+  status: 'NOT_STARTED', assignees: [], notes: '',
   ...overrides,
 });
 

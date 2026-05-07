@@ -26,6 +26,7 @@ function makeTask(id: string, start: string, finish: string): Task {
     isMilestone: false,
     status: 'NOT_STARTED',
     assignees: [],
+    notes: '',
   };
 }
 

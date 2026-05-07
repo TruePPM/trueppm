@@ -166,6 +166,33 @@ def test_member_can_create_sprint(member_client: APIClient, project: Project) ->
     assert resp.status_code == 201, resp.content
     assert resp.json()["short_id_display"].startswith("SP-")
     assert resp.json()["state"] == SprintState.PLANNED
+    # ADR-0048: notes is exposed and defaults to empty string.
+    assert resp.json()["notes"] == ""
+
+
+def test_create_sprint_with_notes(member_client: APIClient, project: Project) -> None:
+    resp = member_client.post(
+        f"/api/v1/projects/{project.pk}/sprints/",
+        {
+            "name": "S1",
+            "start_date": "2026-04-01",
+            "finish_date": "2026-04-14",
+            "notes": "Carry-over from S0; revisit capacity after retro.",
+        },
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+    assert resp.json()["notes"].startswith("Carry-over from S0")
+
+
+def test_active_sprint_accepts_notes_patch(client: APIClient, project: Project) -> None:
+    # notes are PM annotations and remain editable past the PLANNED state —
+    # only name/goal/dates are frozen on activation.
+    s = _make_sprint(project, name="Active sprint", state=SprintState.ACTIVE)
+    resp = client.patch(f"/api/v1/sprints/{s.pk}/", {"notes": "Mid-sprint update"}, format="json")
+    assert resp.status_code == 200, resp.content
+    s.refresh_from_db()
+    assert s.notes == "Mid-sprint update"
 
 
 def test_viewer_cannot_create(viewer_client: APIClient, project: Project) -> None:

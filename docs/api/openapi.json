@@ -8515,8 +8515,7 @@
                         "nullable": true
                     },
                     "notes": {
-                        "type": "string",
-                        "maxLength": 500
+                        "type": "string"
                     }
                 }
             },
@@ -8637,6 +8636,9 @@
                     "contingency": {
                         "type": "string"
                     },
+                    "notes": {
+                        "type": "string"
+                    },
                     "owner": {
                         "type": "integer",
                         "nullable": true
@@ -8675,6 +8677,9 @@
                         "maxLength": 255
                     },
                     "goal": {
+                        "type": "string"
+                    },
+                    "notes": {
                         "type": "string"
                     },
                     "start_date": {
@@ -9104,8 +9109,7 @@
                         "readOnly": true
                     },
                     "notes": {
-                        "type": "string",
-                        "maxLength": 500
+                        "type": "string"
                     }
                 },
                 "required": [
@@ -9140,8 +9144,7 @@
                         "nullable": true
                     },
                     "notes": {
-                        "type": "string",
-                        "maxLength": 500
+                        "type": "string"
                     }
                 },
                 "required": [
@@ -9398,6 +9401,9 @@
                     "contingency": {
                         "type": "string"
                     },
+                    "notes": {
+                        "type": "string"
+                    },
                     "owner": {
                         "type": "integer",
                         "nullable": true
@@ -9591,6 +9597,9 @@
                         "type": "string"
                     },
                     "contingency": {
+                        "type": "string"
+                    },
+                    "notes": {
                         "type": "string"
                     },
                     "owner": {
@@ -9809,6 +9818,9 @@
                     "goal": {
                         "type": "string"
                     },
+                    "notes": {
+                        "type": "string"
+                    },
                     "start_date": {
                         "type": "string",
                         "format": "date"
@@ -9932,6 +9944,9 @@
                         "maxLength": 255
                     },
                     "goal": {
+                        "type": "string"
+                    },
+                    "notes": {
                         "type": "string"
                     },
                     "start_date": {

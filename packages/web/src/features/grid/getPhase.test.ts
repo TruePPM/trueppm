@@ -16,6 +16,7 @@ function makeTask(overrides: Partial<Task> & Pick<Task, 'id' | 'wbs'>): Task {
     isMilestone: false,
     status: 'NOT_STARTED',
     assignees: [],
+    notes: '',
     ...overrides,
   };
 }

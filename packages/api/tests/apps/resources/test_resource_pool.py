@@ -296,6 +296,27 @@ class TestProjectResourceViewSet:
         assert res.status_code == 201
         assert res.data["effective_max_units"] == "0.50"
 
+    def test_notes_accepts_long_text(
+        self,
+        scheduler_client: APIClient,
+        project: Project,
+        resource: Resource,
+        scheduler_membership: ProjectMembership,
+    ) -> None:
+        # ADR-0048: ProjectResource.notes was tightened from CharField(max_length=500)
+        # to TextField, so long PM notes (e.g. >500 chars) are now accepted.
+        long_notes = "A" * 2000
+        res = scheduler_client.post(
+            "/api/v1/project-resources/",
+            {
+                "project": str(project.pk),
+                "resource": str(resource.pk),
+                "notes": long_notes,
+            },
+        )
+        assert res.status_code == 201
+        assert res.data["notes"] == long_notes
+
     def test_duplicate_returns_400(
         self,
         scheduler_client: APIClient,

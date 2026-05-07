@@ -26,6 +26,7 @@ const FIXTURE_RISK: Risk = {
   mitigation_due_date: null,
   trigger: '',
   contingency: '',
+  notes: '',
 };
 
 const HIGH_RISK: Risk = {

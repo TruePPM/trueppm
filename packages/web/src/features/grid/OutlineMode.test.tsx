@@ -45,19 +45,19 @@ const mockTasks: Task[] = [
     id: 'p1', wbs: '1', name: 'Phase 1', start: '2026-05-01', finish: '2026-05-30',
     duration: 30, progress: 0, parentId: null,
     isCritical: false, isComplete: false, isSummary: true, isMilestone: false,
-    status: 'IN_PROGRESS', assignees: [],
+    status: 'IN_PROGRESS', assignees: [], notes: '',
   },
   {
     id: 't1', wbs: '1.1', name: 'Discovery', start: '2026-05-01', finish: '2026-05-10',
     duration: 10, progress: 30, parentId: 'p1',
     isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
-    status: 'IN_PROGRESS', assignees: [{ resourceId: 'r1', name: 'Alice', units: 100 }],
+    status: 'IN_PROGRESS', assignees: [{ resourceId: 'r1', name: 'Alice', units: 100 }], notes: '',
   },
   {
     id: 't2', wbs: '1.2', name: 'Build', start: '2026-05-11', finish: '2026-05-20',
     duration: 10, progress: 0, parentId: 'p1',
     isCritical: true, isComplete: false, isSummary: false, isMilestone: false,
-    status: 'NOT_STARTED', assignees: [],
+    status: 'NOT_STARTED', assignees: [], notes: '',
   },
   // A second top-level summary so we can test reparenting a leaf into a
   // *different* summary than its current parent.
@@ -65,14 +65,14 @@ const mockTasks: Task[] = [
     id: 'p2', wbs: '2', name: 'Phase 2', start: '2026-06-01', finish: '2026-06-30',
     duration: 30, progress: 0, parentId: null,
     isCritical: false, isComplete: false, isSummary: true, isMilestone: false,
-    status: 'NOT_STARTED', assignees: [],
+    status: 'NOT_STARTED', assignees: [], notes: '',
   },
   // A leaf under p2 so we can test cross-parent leaf-onto-leaf drops.
   {
     id: 't3', wbs: '2.1', name: 'Plan 2', start: '2026-06-01', finish: '2026-06-05',
     duration: 4, progress: 0, parentId: 'p2',
     isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
-    status: 'NOT_STARTED', assignees: [],
+    status: 'NOT_STARTED', assignees: [], notes: '',
   },
 ];
 

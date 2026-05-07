@@ -10,6 +10,7 @@ function sprint(overrides: Partial<ApiSprint>): ApiSprint {
     short_id_display: 'SP-A1B2',
     name: 'Sprint',
     goal: '',
+    notes: '',
     start_date: '2026-04-01',
     finish_date: '2026-04-14',
     state: 'PLANNED',

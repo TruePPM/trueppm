@@ -30,6 +30,7 @@ const baseTask: Task = {
   isMilestone: false,
   status: 'NOT_STARTED',
   assignees: [],
+  notes: '',
   optimisticDuration: null,
   mostLikelyDuration: null,
   pessimisticDuration: null,

@@ -22,7 +22,7 @@ const mockTasks: Task[] = [
     id: 't1', wbs: '1', name: 'Planning', start: '2026-05-01', finish: '2026-05-10',
     duration: 10, progress: 50, parentId: null,
     isCritical: false, isComplete: false, isSummary: true, isMilestone: false,
-    status: 'IN_PROGRESS', assignees: [{ resourceId: 'r1', name: 'Alice Smith', units: 100 }],
+    status: 'IN_PROGRESS', assignees: [{ resourceId: 'r1', name: 'Alice Smith', units: 100 }], notes: '',
   },
   {
     id: 't2', wbs: '1.1', name: 'Requirements', start: '2026-05-01', finish: '2026-05-05',
@@ -31,13 +31,13 @@ const mockTasks: Task[] = [
     status: 'COMPLETE', assignees: [
       { resourceId: 'r1', name: 'Alice Smith', units: 100 },
       { resourceId: 'r2', name: 'Bob Jones', units: 50 },
-    ],
+    ], notes: '',
   },
   {
     id: 't3', wbs: '2', name: 'Design', start: '2026-05-11', finish: '2026-05-20',
     duration: 10, progress: 0, parentId: null,
     isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
-    status: 'NOT_STARTED', assignees: [{ resourceId: 'r2', name: 'Bob Jones', units: 100 }],
+    status: 'NOT_STARTED', assignees: [{ resourceId: 'r2', name: 'Bob Jones', units: 100 }], notes: '',
   },
 ];
 
