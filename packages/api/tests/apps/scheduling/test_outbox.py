@@ -20,6 +20,7 @@ from django.utils import timezone
 
 from trueppm_api.apps.scheduling.models import (
     ScheduleRequest,
+    ScheduleRequestReason,
     ScheduleRequestStatus,
 )
 
@@ -119,6 +120,54 @@ class TestEnqueueRecalculate:
         req = ScheduleRequest.objects.get(project=project)
         assert req.status == ScheduleRequestStatus.PENDING
         assert req.celery_task_id == ""
+
+    def test_default_reason_is_task_change(self, project) -> None:
+        """Calling without `reason=` records TASK_CHANGE on the outbox row (#355)."""
+        mock_result = MagicMock()
+        mock_result.id = "celery-task-default"
+        with patch(
+            "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+            return_value=mock_result,
+        ):
+            self._call(str(project.pk))
+        req = ScheduleRequest.objects.get(project=project)
+        assert req.reason == ScheduleRequestReason.TASK_CHANGE
+
+    def test_explicit_reason_is_recorded(self, project) -> None:
+        """Caller-supplied `reason=` is persisted on the outbox row (#355)."""
+        from trueppm_api.apps.scheduling.services import enqueue_recalculate
+
+        mock_result = MagicMock()
+        mock_result.id = "celery-task-explicit"
+        with patch(
+            "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+            return_value=mock_result,
+        ):
+            enqueue_recalculate(str(project.pk), reason=ScheduleRequestReason.DEPENDENCY_CHANGE)
+        req = ScheduleRequest.objects.get(project=project)
+        assert req.reason == ScheduleRequestReason.DEPENDENCY_CHANGE
+
+    def test_adopting_pending_row_preserves_original_reason(self, project) -> None:
+        """When a PENDING row exists, the adopt path keeps its original reason.
+
+        Forensics value: the first event that queued a recalc is the most
+        useful debugging signal. Letting later edits overwrite the reason
+        would mask the real trigger.
+        """
+        from trueppm_api.apps.scheduling.services import enqueue_recalculate
+
+        existing = ScheduleRequest.objects.create(
+            project=project, reason=ScheduleRequestReason.DEPENDENCY_CHANGE
+        )
+        mock_result = MagicMock()
+        mock_result.id = "celery-task-adopt"
+        with patch(
+            "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+            return_value=mock_result,
+        ):
+            enqueue_recalculate(str(project.pk), reason=ScheduleRequestReason.TASK_CHANGE)
+        existing.refresh_from_db()
+        assert existing.reason == ScheduleRequestReason.DEPENDENCY_CHANGE
 
     def test_duplicate_adopts_existing_pending_row(self, project) -> None:
         """A second call adopts the existing pending row and dispatches it.

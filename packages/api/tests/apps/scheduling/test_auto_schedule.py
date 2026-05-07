@@ -123,6 +123,83 @@ def test_schedule_lock_collision_requeues(project: Project) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Reason plumbing (#355) — outbox row must record what triggered the recalc
+# so "why did this fire?" debugging doesn't require correlating timestamps.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dependency_create_records_dependency_change_reason(
+    user: object, project: Project, task: Task
+) -> None:
+    """Creating a Dependency via the API tags the outbox row as DEPENDENCY_CHANGE."""
+    from trueppm_api.apps.projects.models import Dependency
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestReason
+
+    Dependency.objects.all().delete()  # ensure a clean slate
+    ScheduleRequest.objects.all().delete()
+
+    ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
+    c = APIClient()
+    c.force_authenticate(user=user)
+    successor = Task.objects.create(project=project, name="T2", duration=2)
+
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
+        mock_task.delay = MagicMock(return_value=MagicMock(id="celery-id"))
+        resp = c.post(
+            "/api/v1/dependencies/",
+            {"predecessor": str(task.pk), "successor": str(successor.pk), "dep_type": "FS"},
+        )
+        assert resp.status_code == 201
+
+    req = ScheduleRequest.objects.get(project=project)
+    assert req.reason == ScheduleRequestReason.DEPENDENCY_CHANGE
+
+
+@pytest.mark.django_db(transaction=True)
+def test_manual_trigger_records_manual_reason(user: object, project: Project) -> None:
+    """The manual /schedule/ endpoint tags the outbox row as MANUAL."""
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestReason
+
+    ScheduleRequest.objects.all().delete()
+    ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
+    c = APIClient()
+    c.force_authenticate(user=user)
+
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
+        mock_task.delay = MagicMock(return_value=MagicMock(id="celery-id"))
+        resp = c.post(f"/api/v1/projects/{project.pk}/schedule/")
+        assert resp.status_code == 202
+
+    req = ScheduleRequest.objects.get(project=project)
+    assert req.reason == ScheduleRequestReason.MANUAL
+
+
+@pytest.mark.django_db(transaction=True)
+def test_task_create_records_task_change_reason(
+    user: object, project: Project, calendar: Calendar
+) -> None:
+    """Creating a Task (non-dependency edit) keeps the default TASK_CHANGE reason."""
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestReason
+
+    ScheduleRequest.objects.all().delete()
+    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    c = APIClient()
+    c.force_authenticate(user=user)
+
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule") as mock_task:
+        mock_task.delay = MagicMock(return_value=MagicMock(id="celery-id"))
+        resp = c.post(
+            "/api/v1/tasks/",
+            {"project": str(project.pk), "name": "Build", "duration": 2},
+        )
+        assert resp.status_code == 201
+
+    req = ScheduleRequest.objects.get(project=project)
+    assert req.reason == ScheduleRequestReason.TASK_CHANGE
+
+
+# ---------------------------------------------------------------------------
 # Manual trigger endpoint
 # ---------------------------------------------------------------------------
 

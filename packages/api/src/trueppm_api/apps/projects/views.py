@@ -82,6 +82,7 @@ from trueppm_api.apps.projects.serializers import (
     TaskReorderSerializer,
     TaskSerializer,
 )
+from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
 
 logger = logging.getLogger(__name__)
@@ -1138,7 +1139,9 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         instance = serializer.save()
         project_id = str(instance.predecessor.project_id)
         dep_id = str(instance.pk)
-        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+        transaction.on_commit(
+            lambda: _enqueue_recalculate(project_id, reason=ScheduleRequestReason.DEPENDENCY_CHANGE)
+        )
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_created", {"id": dep_id})
         )
@@ -1159,7 +1162,9 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         instance = serializer.save()
         project_id = str(instance.predecessor.project_id)
         dep_id = str(instance.pk)
-        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+        transaction.on_commit(
+            lambda: _enqueue_recalculate(project_id, reason=ScheduleRequestReason.DEPENDENCY_CHANGE)
+        )
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_updated", {"id": dep_id})
         )
@@ -1170,7 +1175,9 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         project_id = str(instance.predecessor.project_id)
         dep_id = str(instance.pk)
         instance.soft_delete()
-        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+        transaction.on_commit(
+            lambda: _enqueue_recalculate(project_id, reason=ScheduleRequestReason.DEPENDENCY_CHANGE)
+        )
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "dependency_deleted", {"id": dep_id})
         )
