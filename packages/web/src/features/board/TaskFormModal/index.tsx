@@ -174,7 +174,11 @@ export function TaskFormModal({
   const { data: projectDetail } = useProject(projectId);
   const { role } = useCurrentUserRole(projectId);
   const { data: resourcePool } = useProjectResourcePool(projectId);
-  const { predecessors: serverPredecessors } = useTaskDependencies(task?.id ?? null);
+  const {
+    predecessors: serverPredecessors,
+    hasResolved: predsHaveResolved,
+    error: predsError,
+  } = useTaskDependencies(task?.id ?? null);
   const taskHistory = useTaskHistory(projectId, task?.id ?? '');
 
   // Mutations
@@ -184,19 +188,37 @@ export function TaskFormModal({
   const addAssignment = useAddAssignment(projectId);
   const updateAssignment = useUpdateAssignment(task?.id ?? '', projectId);
   const removeAssignment = useRemoveAssignment(task?.id ?? '', projectId);
-  const addDependency = useAddDependency();
-  const removeDependency = useRemoveDependency();
+  const addDependency = useAddDependency(projectId);
+  const removeDependency = useRemoveDependency(projectId);
 
   // Hydrate predecessors once the dependency query resolves (edit mode only).
   // Comparing length + first id stabilises the effect against React Query's
   // identity-changing list: only re-seed the working copy when the *content*
   // changes, not on every render.
+  //
+  // Two stale-pristine guards (#354):
+  //   1. Refuse to hydrate while the query is unresolved (initial load OR
+  //      error state). `serverPredecessors` is `[]` in both cases, so the
+  //      previous code would silently overwrite a populated `pristine` —
+  //      and any subsequent Save would diff `working` against an empty
+  //      pristine and soft-delete every real predecessor.
+  //   2. Refuse to hydrate to empty when `pristine` already contains rows.
+  //      A 401 refetch arriving after a successful add resolves to `[]` for
+  //      a request that was rejected before the server saw it; treating
+  //      that as "no predecessors" loses the user's saved edges.
   const hydratedPredKey = useRef<string | null>(null);
   useEffect(() => {
     if (!isEdit) return;
-    if (!serverPredecessors || !allTasks) return;
+    if (!allTasks) return;
+    if (!predsHaveResolved) return;
     const key = serverPredecessors.map((e) => e.id).join('|');
     if (hydratedPredKey.current === key) return;
+    if (serverPredecessors.length === 0 && pristine.predecessors.length > 0) {
+      // Suspected transient failure: server returned empty but we already
+      // had populated pristine (a successful previous hydration). Skip the
+      // overwrite; the next non-empty resolve will re-hydrate normally.
+      return;
+    }
     const tasksById = new Map(allTasks.map((t) => [t.id, t]));
     const rows: PredecessorWorkingRow[] = serverPredecessors.map((edge) => {
       const predTask = tasksById.get(edge.predecessorId);
@@ -210,7 +232,7 @@ export function TaskFormModal({
     setForm((s) => ({ ...s, predecessors: rows }));
     setPristine((s) => ({ ...s, predecessors: rows }));
     hydratedPredKey.current = key;
-  }, [isEdit, serverPredecessors, allTasks]);
+  }, [isEdit, serverPredecessors, allTasks, predsHaveResolved, pristine.predecessors.length]);
 
   // Permission gate for Delete action — PM+ only. Members with task ownership
   // can still delete via existing surfaces (board card menu); the modal
@@ -324,6 +346,17 @@ export function TaskFormModal({
   }
 
   async function syncPredecessors(taskId: string) {
+    // Stale-pristine guard (#354). If the dependency query is in error
+    // state, `pristine` may not reflect the server's true edge set — diffing
+    // against it and firing removes risks soft-deleting real predecessors.
+    // Bail out and surface a recoverable message; the task itself has
+    // already been saved by `handleSubmit`'s outer try.
+    if (predsError) {
+      throw new Error(
+        "Couldn't sync predecessors right now — your task was saved, but the dependency list is out of date. Reopen the task to retry.",
+      );
+    }
+
     const pristineIds = new Set(pristine.predecessors.map((p) => p.predecessorId));
     const workingIds = new Set(form.predecessors.map((p) => p.predecessorId));
 

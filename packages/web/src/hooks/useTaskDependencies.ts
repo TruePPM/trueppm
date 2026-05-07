@@ -23,6 +23,11 @@ export interface TaskDependenciesResult {
   predecessors: TaskDependencyEdge[];
   successors: TaskDependencyEdge[];
   isLoading: boolean;
+  isFetching: boolean;
+  /** True when the underlying query has data (success state). False during
+   *  the initial load AND while in an error state. Callers use this to
+   *  decide whether `predecessors`/`successors` reflect server truth (#354). */
+  hasResolved: boolean;
   error: Error | null;
 }
 
@@ -55,6 +60,8 @@ export function useTaskDependencies(taskId: string | null): TaskDependenciesResu
     predecessors: edges.filter((e) => e.successorId === taskId),
     successors: edges.filter((e) => e.predecessorId === taskId),
     isLoading: query.isLoading,
+    isFetching: query.isFetching,
+    hasResolved: query.isSuccess,
     error: query.error,
   };
 }

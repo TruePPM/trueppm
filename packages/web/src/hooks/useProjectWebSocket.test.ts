@@ -136,3 +136,60 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     });
   });
 });
+
+describe('useProjectWebSocket — auth close-code handling (#352)', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    MockWebSocket.instances = [];
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({
+        accessToken: 'tok-abc',
+        refreshToken: 'r-abc',
+        isAuthenticated: true,
+        sessionExpired: false,
+      });
+    });
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+  });
+
+  afterEach(() => {
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({
+        accessToken: null,
+        refreshToken: null,
+        isAuthenticated: false,
+        sessionExpired: false,
+      });
+    });
+  });
+
+  it('marks the session expired and dispatches the auth event on WS close 4001', () => {
+    const eventSpy = vi.fn();
+    window.addEventListener('auth:sessionExpired', eventSpy);
+    try {
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+      act(() => {
+        MockWebSocket.instances[0].dispatch('close', { code: 4001 });
+      });
+      expect(useAuthStore.getState().sessionExpired).toBe(true);
+      expect(eventSpy).toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('auth:sessionExpired', eventSpy);
+    }
+  });
+
+  it('does not mark the session expired on a normal close (network drop)', () => {
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+    act(() => {
+      MockWebSocket.instances[0].dispatch('close', { code: 1006 });
+    });
+    expect(useAuthStore.getState().sessionExpired).toBe(false);
+  });
+});

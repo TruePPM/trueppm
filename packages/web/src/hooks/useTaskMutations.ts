@@ -428,14 +428,23 @@ interface ApiDependencyResponse {
 /**
  * POST /api/v1/dependencies/ — add a predecessor/successor edge.
  *
- * Invalidates `['task-dependencies', successor]` and
- * `['task-dependencies', predecessor]` so both endpoints of the edge see
- * the new connection. Cycle detection is enforced server-side at create
- * time (ADR-0055); a 400 with `{detail: "cyclic_dependency", cycle: [...]}`
- * surfaces to callers via the mutation's `onError` and is parseable with
- * {@link parseCyclicDependencyError}.
+ * Invalidates four cache keys on success:
+ *   - `['task-dependencies', successor]` and `['task-dependencies', predecessor]`
+ *     for the per-task drawer / modal predecessor lists.
+ *   - `['tasks', projectId]` so post-CPM `early_start` / `early_finish`
+ *     refetches into the Schedule list.
+ *   - `['dependencies', projectId]` so the Schedule canvas redraws the new
+ *     arrow without waiting on the next 2 s poll.
+ *
+ * The project-scoped keys matter because the WebSocket `dependency_created`
+ * event is the only other invalidation path, and the WS goes silent under
+ * auth expiry, dev StrictMode races, or any network hiccup (#353).
+ *
+ * Cycle detection is enforced server-side at create time (ADR-0055); a 400
+ * with `{detail: "cyclic_dependency", cycle: [...]}` surfaces to callers via
+ * the mutation's `onError` and is parseable with {@link parseCyclicDependencyError}.
  */
-export function useAddDependency() {
+export function useAddDependency(projectId: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -451,6 +460,8 @@ export function useAddDependency() {
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['task-dependencies', variables.successor] });
       void queryClient.invalidateQueries({ queryKey: ['task-dependencies', variables.predecessor] });
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      void queryClient.invalidateQueries({ queryKey: ['dependencies', projectId ?? undefined] });
     },
   });
 }
@@ -466,10 +477,12 @@ export interface RemoveDependencyPayload {
 /**
  * DELETE /api/v1/dependencies/{id}/ — remove a predecessor/successor edge.
  *
- * The viewset enqueues a CPM recalc on commit, so cache invalidation is
- * sufficient on the client side; the next poll picks up updated dates.
+ * Invalidates the per-task and project-level dep + task caches for the same
+ * reasons as {@link useAddDependency}: the Schedule list and arrow canvas
+ * must refresh without waiting on the WebSocket broadcast, which can be
+ * silently dead (#353).
  */
-export function useRemoveDependency() {
+export function useRemoveDependency(projectId: string | null) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -479,6 +492,8 @@ export function useRemoveDependency() {
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['task-dependencies', variables.successor] });
       void queryClient.invalidateQueries({ queryKey: ['task-dependencies', variables.predecessor] });
+      void queryClient.invalidateQueries({ queryKey: ['tasks', projectId ?? undefined] });
+      void queryClient.invalidateQueries({ queryKey: ['dependencies', projectId ?? undefined] });
     },
   });
 }

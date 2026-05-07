@@ -15,6 +15,8 @@ let mockResourcePool: Array<{ resource: { id: string; name: string }; roleTitle:
 let mockSprints: Array<{ id: string; name: string; state: string }> = [];
 let mockHistory: Array<{ history_date: string; history_user: string | null; diff: unknown[] }> = [];
 let mockServerPredecessors: Array<{ id: string; predecessorId: string; successorId: string }> = [];
+let mockPredsResolved = true;
+let mockPredsError: Error | null = null;
 
 const createMutate = vi.fn().mockResolvedValue({ id: 'new-task-id' });
 const updateMutate = vi.fn().mockResolvedValue({});
@@ -62,7 +64,9 @@ vi.mock('@/hooks/useTaskDependencies', () => ({
     predecessors: mockServerPredecessors,
     successors: [],
     isLoading: false,
-    error: null,
+    isFetching: false,
+    hasResolved: mockPredsResolved,
+    error: mockPredsError,
   }),
 }));
 
@@ -72,6 +76,10 @@ vi.mock('@/hooks/useTaskMutations', () => ({
   useDeleteTask: () => ({ mutate: vi.fn(), mutateAsync: deleteMutate, isPending: false }),
   useAddDependency: () => ({ mutate: vi.fn(), mutateAsync: addDependencyMutate, isPending: false }),
   useRemoveDependency: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
+  // Identity passthrough — the cycle-error helpers are not exercised by the
+  // bulk of these tests; the cycle-specific spec covers their behavior.
+  parseCyclicDependencyError: () => null,
+  formatCycleMessage: () => '',
 }));
 
 vi.mock('@/hooks/useAssignmentMutations', () => ({
@@ -130,6 +138,8 @@ describe('TaskFormModal (issue #305)', () => {
     mockSprints = [];
     mockHistory = [];
     mockServerPredecessors = [];
+    mockPredsResolved = true;
+    mockPredsError = null;
   });
 
   // ----- Mode + header -----------------------------------------------------
@@ -421,6 +431,42 @@ describe('TaskFormModal (issue #305)', () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(await screen.findByText('Forbidden')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // ----- Predecessor hydration / save guards (#354) ------------------------
+  //
+  // The modal's `useTaskDependencies` query can return an empty predecessor
+  // list for non-truth reasons: a 401 mid-modal, the initial loading window,
+  // a transient network error. Without guards, the hydration effect would
+  // overwrite a populated `pristine.predecessors` with [], and the next
+  // Save would diff `working` against [] and silently soft-delete every
+  // real predecessor. Two guards prevent this:
+
+  it('skips hydration while the dependency query is unresolved', () => {
+    mockPredsResolved = false;
+    mockServerPredecessors = [
+      { id: 'dep-1', predecessorId: 'parent-task-id', successorId: 'edit-task-id' },
+    ];
+    renderModal({ task: baseTask() });
+    // The PredecessorsEditor renders an empty-state until hydration runs;
+    // verify no row was rendered for the unresolved-yet server data.
+    expect(screen.queryByText(/Sibling one|Parent task/)).not.toBeInTheDocument();
+  });
+
+  it('does not save through `syncPredecessors` when the dependency query is in error state', async () => {
+    mockPredsError = new Error('network');
+    addDependencyMutate.mockClear();
+    const onClose = vi.fn();
+    renderModal({ task: baseTask(), onClose });
+    // Dirty the name so the form has something to save (and isDirty=true).
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Renamed' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/dependency list is out of date/);
+    expect(updateMutate).toHaveBeenCalled();
+    expect(addDependencyMutate).not.toHaveBeenCalled();
+    // Modal stays open so the user can retry once the query recovers.
     expect(onClose).not.toHaveBeenCalled();
   });
 });
