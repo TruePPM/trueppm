@@ -162,6 +162,11 @@ export function TaskFormModal({
   const [pristine, setPristine] = useState<FormState>(() => initialState(task, defaultStatus));
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Selected parent in create mode. Seeded from prop (the inferred phase from
+  // the highlighted Schedule row) but user-overridable via the picker below
+  // so they can move the new task into a different phase before save.
+  const [selectedParentId, setSelectedParentId] = useState<string | null>(parentId ?? null);
+  const [parentQuery, setParentQuery] = useState<string>('');
 
   // Dependent queries
   const { tasks: allTasks } = useScheduleTasks(projectId);
@@ -217,6 +222,27 @@ export function TaskFormModal({
     // server is the source of truth — if PATCH fails with 403 we surface it).
     () => false,
   ) === true);
+
+  // Candidate parents for create mode — summary tasks (phases) only, sorted
+  // by WBS so the picker order matches the Schedule's outline. The label
+  // includes the WBS path because phase names are not always unique
+  // ("Design" can appear in multiple programs).
+  const parentOptions = useMemo(() => {
+    if (mode !== 'create' || !allTasks) return [];
+    return allTasks
+      .filter((t) => t.isSummary)
+      .map((t) => ({ id: t.id, name: t.name, wbs: t.wbs, label: `${t.wbs} · ${t.name}` }))
+      .sort((a, b) => a.wbs.localeCompare(b.wbs, undefined, { numeric: true }));
+  }, [mode, allTasks]);
+
+  // Keep the visible input text in sync with selectedParentId — when the
+  // caller seeds an inferred parent, the picker should display its label
+  // immediately rather than waiting for the user to type.
+  useEffect(() => {
+    if (mode !== 'create') return;
+    const match = parentOptions.find((o) => o.id === selectedParentId);
+    setParentQuery(match ? match.label : '');
+  }, [mode, selectedParentId, parentOptions]);
 
   // Dirty check — by-value comparison.
   const isDirty = useMemo(() => {
@@ -330,7 +356,7 @@ export function TaskFormModal({
         const created = await createTask.mutateAsync({
           name: form.name.trim(),
           duration: form.duration,
-          parent_id: parentId ?? null,
+          parent_id: selectedParentId,
           status: form.status,
           planned_start: form.plannedStart || null,
           notes: form.notes,
@@ -483,6 +509,51 @@ export function TaskFormModal({
             ))}
           </select>
         </div>
+
+        {/* Parent phase — create mode only, when there is at least one summary
+            task in the project. Native datalist gives free typeahead with no
+            additional combobox dependency; the value field carries the
+            human-readable label, which we map back to the task UUID on commit.
+            "No parent" leaves the task at root. */}
+        {mode === 'create' && parentOptions.length > 0 && (
+          <div>
+            <label htmlFor="task-parent" className="block text-xs font-medium text-neutral-text-secondary mb-1">
+              Parent phase <span className="text-neutral-text-disabled">(optional)</span>
+            </label>
+            <input
+              id="task-parent"
+              type="text"
+              list="task-parent-options"
+              disabled={isReadOnly}
+              value={parentQuery}
+              onChange={(e) => {
+                const next = e.target.value;
+                setParentQuery(next);
+                // Resolve label → id. Empty string clears the parent (root).
+                if (!next.trim()) {
+                  setSelectedParentId(null);
+                  return;
+                }
+                const match = parentOptions.find((o) => o.label === next);
+                setSelectedParentId(match?.id ?? null);
+              }}
+              placeholder="Search phases…"
+              autoComplete="off"
+              aria-describedby="task-parent-hint"
+              className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-disabled disabled:opacity-60"
+            />
+            <datalist id="task-parent-options">
+              {parentOptions.map((opt) => (
+                <option key={opt.id} value={opt.label} />
+              ))}
+            </datalist>
+            <p id="task-parent-hint" className="mt-1 text-[11px] text-neutral-text-secondary">
+              {selectedParentId
+                ? 'New task will be added as a child of this phase.'
+                : 'Leave blank to add at the project root.'}
+            </p>
+          </div>
+        )}
 
         {/* Sprint — only when project.agile_features */}
         {projectDetail?.agile_features && (

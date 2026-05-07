@@ -273,6 +273,60 @@ describe('TaskListRow', () => {
     expect(useScheduleStore.getState().selectedTaskId).toBeNull();
   });
 
+  it('ArrowDown moves selection to the next visible row (#360)', async () => {
+    // Render two rows so the second can be queried by data-row-id and
+    // become the destination of the arrow-key traversal.
+    const next: Task = { ...base, id: 't2', wbs: '1.2', name: 'Build Phase' };
+    renderWithRouter(
+      <>
+        <TaskListRow
+          task={base}
+          level={1}
+          widths={defaultWidths}
+          visible={defaultVisible}
+          nextTaskId={next.id}
+        />
+        <TaskListRow
+          task={next}
+          level={1}
+          widths={defaultWidths}
+          visible={defaultVisible}
+          prevTaskId={base.id}
+        />
+      </>,
+    );
+    const rows = screen.getAllByRole('row');
+    rows[0].focus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(useScheduleStore.getState().selectedTaskId).toBe('t2');
+  });
+
+  it('ArrowUp moves selection to the previous visible row (#360)', async () => {
+    const prev: Task = { ...base, id: 't0', wbs: '1.0', name: 'Discover' };
+    renderWithRouter(
+      <>
+        <TaskListRow
+          task={prev}
+          level={1}
+          widths={defaultWidths}
+          visible={defaultVisible}
+          nextTaskId={base.id}
+        />
+        <TaskListRow
+          task={base}
+          level={1}
+          widths={defaultWidths}
+          visible={defaultVisible}
+          prevTaskId={prev.id}
+        />
+      </>,
+    );
+    const rows = screen.getAllByRole('row');
+    rows[1].focus();
+    await userEvent.keyboard('{ArrowUp}');
+    expect(useScheduleStore.getState().selectedTaskId).toBe('t0');
+  });
+
   it('keyboard events are ignored during edit mode', async () => {
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     await userEvent.dblClick(screen.getByRole('row'));
