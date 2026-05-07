@@ -34,6 +34,8 @@ export interface CreateTaskPayload {
   /** Sprint UUID — null leaves the task unassigned. Only writable when
    *  the project has agile features enabled (ADR-0037). */
   sprint?: string | null;
+  /** Mark the task as a milestone (server requires duration=0 alongside). */
+  is_milestone?: boolean;
 }
 
 /** POST /api/v1/tasks/ — create a new task in the given project. */
@@ -51,6 +53,7 @@ export function useCreateTask(projectId: string | null) {
         ...(payload.planned_start !== undefined ? { planned_start: payload.planned_start } : {}),
         ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
         ...(payload.sprint !== undefined ? { sprint: payload.sprint } : {}),
+        ...(payload.is_milestone ? { is_milestone: true } : {}),
       });
       return res.data;
     },

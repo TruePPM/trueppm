@@ -50,6 +50,13 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 | Delete / Backspace | Delete the row (no confirm — undo via re-adding) |
 | Esc | Clear selection |
 
+### Schedule-wide shortcuts (always on, regardless of row focus)
+
+| Key | Action |
+|---|---|
+| ⌘ M / Ctrl + M | Insert a new milestone at today's date |
+| ? | Open the keyboard shortcut cheatsheet (build mode only) |
+
 ### When a cell is being edited (CellEdit)
 
 | Key | Action |

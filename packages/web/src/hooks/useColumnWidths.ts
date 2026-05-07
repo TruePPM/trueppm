@@ -1,34 +1,40 @@
 import { useState, useCallback } from 'react';
 
-// v4: split Dur·Start into Dur / Start / Finish columns
-const WIDTHS_KEY = 'trueppm.schedule.columnWidths.v4';
+// v5: add wbs (#248) and owner (#248) columns
+const WIDTHS_KEY = 'trueppm.schedule.columnWidths.v5';
 // v1: per-column visibility (task is always locked visible)
 const VISIBILITY_KEY = 'trueppm.schedule.columnVisibility.v1';
 
 export const MIN_COL_WIDTHS = {
+  wbs: 40,
   task: 120,
   dur: 40,
   start: 60,
   finish: 60,
   progress: 40,
+  owner: 40,
 } as const;
 
 export type ColumnKey = keyof typeof MIN_COL_WIDTHS;
 
 const DEFAULTS: Record<ColumnKey, number> = {
+  wbs: 48,
   task: 220,
   dur: 52,
   start: 74,
   finish: 74,
   progress: 44,
+  owner: 72,
 };
 
 const DEFAULT_VISIBILITY: Record<ColumnKey, boolean> = {
+  wbs: true,
   task: true,
   dur: true,
   start: true,
   finish: true,
   progress: true,
+  owner: true,
 };
 
 function loadWidths(): Record<ColumnKey, number> {

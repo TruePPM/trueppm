@@ -16,6 +16,13 @@ import { formatToggleAnnouncement } from './wbsAnnouncement';
 import { TaskListPanel, type TaskDepChips } from './TaskListPanel';
 import { CanvasScheduleTimeline } from './CanvasScheduleTimeline';
 import { ZoomControl } from './ZoomControl';
+import { ScheduleToolbarToggle } from './ScheduleToolbarToggle';
+import { ScheduleSummaryChip } from './ScheduleSummaryChip';
+import { ScheduleAddMilestoneButton } from './ScheduleAddMilestoneButton';
+import { MilestonePulseOverlay } from './MilestonePulseOverlay';
+import { useScheduleKeyboard } from './useScheduleKeyboard';
+import { inferNearestSummaryParent } from './inferMilestoneParent';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { MonteCarloRow } from './MonteCarloRow';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
 import { MilestoneDeltaTooltip } from './MilestoneDeltaTooltip';
@@ -165,6 +172,11 @@ export function ScheduleView() {
   const [focusModeEnabled, setFocusModeEnabled] = useState(false);
   const [showCpOnly, setShowCpOnly] = useState(false);
 
+  // Render filters (#248) — toggle which bar types are drawn on the canvas.
+  // Both keep summary tasks visible so the WBS hierarchy doesn't collapse.
+  const [showCriticalOnly, setShowCriticalOnly] = useState(false);
+  const [showMilestonesOnly, setShowMilestonesOnly] = useState(false);
+
   // Filter links to critical-path only when showCpOnly is active
   const links = useMemo(
     () => (showCpOnly ? allLinks.filter((l) => l.isCritical) : allLinks),
@@ -199,8 +211,19 @@ export function ScheduleView() {
       return total;
     };
     walk(tree);
-    return { visibleTasks: visible, summaryIds: sIds, childCountById: counts };
-  }, [allTasks, expandedIds]);
+    // Render filters (#248) — keep summaries so the WBS hierarchy stays intact;
+    // only filter leaf rows. When both toggles are on we OR (matching either).
+    let filtered = visible;
+    if (showCriticalOnly || showMilestonesOnly) {
+      filtered = visible.filter((t) => {
+        if (t.isSummary) return true;
+        if (showCriticalOnly && t.isCritical) return true;
+        if (showMilestonesOnly && t.isMilestone) return true;
+        return false;
+      });
+    }
+    return { visibleTasks: filtered, summaryIds: sIds, childCountById: counts };
+  }, [allTasks, expandedIds, showCriticalOnly, showMilestonesOnly]);
 
   // Wrap toggle to announce the new state to the polite aria-live region.
   // Written via DOM ref (rule 30) — avoids a state-driven re-render on every toggle.
@@ -530,6 +553,10 @@ export function ScheduleView() {
   // ──────────────────────────────────────────────────────────────────────
   const buildModeFlag = useFeatureFlag('schedule_build_mode_v1');
   const buildModeActive = buildModeFlag && !isMobile;
+
+  // Role gate for milestone insert (#340) — VIEWER (0) cannot author.
+  const { role: currentRole } = useCurrentUserRole(projectId ?? undefined);
+  const readOnly = currentRole !== null && currentRole < 1;
   const focus = useScheduleFocus();
   const indentTask = useIndentTask(projectId ?? null);
   const outdentTask = useOutdentTask(projectId ?? null);
@@ -560,23 +587,79 @@ export function ScheduleView() {
       (outdentTask.isPending && outdentTask.variables === taskId),
   }), [focus, indentTask, outdentTask, updateTaskMut, deleteTaskMut, createTaskMut, projectId]);
 
-  // Global `?` keypress opens the cheatsheet (build-mode only). Skipped while
-  // an input or contenteditable element has focus so it does not eat the
-  // user's literal `?` keystroke when typing in a text field.
-  useEffect(() => {
-    if (!buildModeActive) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== '?') return;
-      const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
-        return;
-      }
+  // Pulse trigger for the most recently inserted milestone (#340). Cleared
+  // automatically by MilestonePulseOverlay after 1.5 s.
+  const [pulsingMilestoneId, setPulsingMilestoneId] = useState<string | null>(null);
+  const [pulsingMilestoneAt, setPulsingMilestoneAt] = useState<{ x: number; y: number }>(
+    { x: 0, y: 0 },
+  );
+
+  // View-scoped keyboard bindings (#340 + A1's `?` migration).
+  const buildModeFocusedRowId = focus.state.rowId;
+  const handleAddMilestone = useCallback(() => {
+    if (!projectId || createTaskMut.isPending) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const parentId = inferNearestSummaryParent(buildModeFocusedRowId, visibleTasks);
+    createTaskMut.mutate(
+      {
+        name: '',
+        duration: 0,
+        planned_start: today,
+        is_milestone: true,
+        ...(parentId ? { parent_id: parentId } : {}),
+      },
+      {
+        onSuccess: (data) => {
+          // Live-region announce (#340)
+          if (ariaLiveRef.current) {
+            ariaLiveRef.current.textContent = `Milestone ${data.name || 'untitled'} inserted at ${today}`;
+          }
+          // Pulse the new diamond on the canvas
+          if (scheduleScales) {
+            try {
+              const x = dateToLeft(today, scheduleScales);
+              const newRowIdx = visibleTasks.length; // appended at end of current view
+              const y = HEADER_HEIGHT + newRowIdx * ROW_HEIGHT + ROW_HEIGHT / 2;
+              setPulsingMilestoneAt({ x, y });
+            } catch {
+              // dateToLeft can throw on out-of-range dates — silently skip pulse.
+            }
+          }
+          setPulsingMilestoneId(data.id);
+          // Build-mode bonus: focus the new row + drop into name cell-edit
+          if (buildModeActive) {
+            focus.focusRow(data.id);
+            focus.enterCellEdit(data.id, 'name');
+          }
+        },
+      },
+    );
+  }, [
+    projectId,
+    createTaskMut,
+    buildModeFocusedRowId,
+    visibleTasks,
+    scheduleScales,
+    buildModeActive,
+    focus,
+  ]);
+
+  const keyBindings = useMemo<Record<string, (e: KeyboardEvent) => void>>(() => {
+    const out: Record<string, (e: KeyboardEvent) => void> = {};
+    out['mod+m'] = (e) => {
+      if (!projectId || readOnly) return;
       e.preventDefault();
-      setCheatsheetOpen((open) => !open);
+      handleAddMilestone();
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [buildModeActive]);
+    if (buildModeActive) {
+      out['?'] = (e) => {
+        e.preventDefault();
+        setCheatsheetOpen((open) => !open);
+      };
+    }
+    return out;
+  }, [projectId, readOnly, handleAddMilestone, buildModeActive]);
+  useScheduleKeyboard(keyBindings);
 
   const handleAddFirstTask = useCallback(() => {
     if (!projectId) return;
@@ -669,34 +752,63 @@ export function ScheduleView() {
             + Task
           </button>
         )}
+        {/* "+ Milestone" peer button (#340) — same gate as "+ Task" */}
+        {projectId && (
+          <ScheduleAddMilestoneButton
+            onAddMilestone={handleAddMilestone}
+            disabled={readOnly}
+            pending={createTaskMut.isPending}
+          />
+        )}
         {buildModeActive && (
           <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />
         )}
         <RecalculatingBadge isVisible={pendingTaskIds.size > 0} />
 
-        {/* Focus-mode controls — CP-only filter + chain-dim toggle (issue #131) */}
-        <label className="flex items-center gap-1.5 text-xs text-neutral-text-secondary cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={showCpOnly}
-            onChange={(e) => setShowCpOnly(e.target.checked)}
-            className="accent-brand-primary"
-            aria-label="Show critical path only"
+        {/* View filter group (#248) — restyled from plain checkboxes */}
+        <div
+          role="group"
+          aria-label="Schedule view filters"
+          className="flex items-center rounded border border-neutral-border overflow-hidden"
+        >
+          <ScheduleToolbarToggle
+            pressed={showCpOnly}
+            onToggle={setShowCpOnly}
+            label="CP only"
+            ariaLabel="Show critical path only"
           />
-          CP only
-        </label>
-        <label className="flex items-center gap-1.5 text-xs text-neutral-text-secondary cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={focusModeEnabled}
-            onChange={(e) => setFocusModeEnabled(e.target.checked)}
-            className="accent-brand-primary"
-            aria-label="Focus chain on selected task"
+          <ScheduleToolbarToggle
+            pressed={focusModeEnabled}
+            onToggle={setFocusModeEnabled}
+            label="Focus chain"
+            ariaLabel="Focus chain on selected task"
           />
-          Focus chain
-        </label>
+        </div>
+
+        {/* Render filter group (#248) — filter what bars draw on the canvas */}
+        <div
+          role="group"
+          aria-label="Schedule render filters"
+          className="flex items-center rounded border border-neutral-border overflow-hidden"
+        >
+          <ScheduleToolbarToggle
+            pressed={showCriticalOnly}
+            onToggle={setShowCriticalOnly}
+            label="Critical path"
+            ariaLabel="Show only critical-path tasks"
+          />
+          <ScheduleToolbarToggle
+            pressed={showMilestonesOnly}
+            onToggle={setShowMilestonesOnly}
+            label="Milestones"
+            ariaLabel="Show only milestones"
+          />
+        </div>
 
         <div className="flex-1" />
+
+        {/* Project-health summary chip (#248) */}
+        <ScheduleSummaryChip visibleTasks={visibleTasks} />
 
         {/* Column visibility toggle */}
         <div className="relative" ref={colMenuRef}>
@@ -855,6 +967,17 @@ export function ScheduleView() {
 
       {/* Milestone delta tooltip — at ScheduleView level to escape overflow:hidden (rule 31) */}
       <MilestoneDeltaTooltip milestoneLeft={null} timelineTop={timelineTop} />
+
+      {/* Milestone pulse animation (#340) — fires after a successful insert.
+          dateToLeft returns canvas-origin coordinates (renderer rule §57); the
+          overlay is positioned in viewport space, so subtract scrollLeft to
+          keep the pulse anchored on the actual diamond when the timeline has
+          been scrolled away from origin. */}
+      <MilestonePulseOverlay
+        x={pulsingMilestoneAt.x + totalWidth - (canvasScrollRef.current?.scrollLeft ?? 0)}
+        y={pulsingMilestoneAt.y + (timelineTop ?? 0)}
+        triggerId={pulsingMilestoneId}
+      />
 
       {/* Date input popover for keyboard reschedule (issue #34, rule 31 pattern) */}
       <DateInputPopover

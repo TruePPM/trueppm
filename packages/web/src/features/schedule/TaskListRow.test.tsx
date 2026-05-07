@@ -3,16 +3,16 @@ import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { useScheduleStore } from '@/stores/scheduleStore';
-import { TaskListRow } from './TaskListRow';
+import { TaskListRow, truncateWbsPath } from './TaskListRow';
 import type { Task } from '@/types';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 
 const defaultWidths: ColumnWidths['widths'] = {
-  task: 180, dur: 52, start: 74, finish: 74, progress: 52,
+  wbs: 48, task: 180, dur: 52, start: 74, finish: 74, progress: 52, owner: 72,
 };
 
 const defaultVisible: ColumnWidths['visible'] = {
-  task: true, dur: true, start: true, finish: true, progress: true,
+  wbs: true, task: true, dur: true, start: true, finish: true, progress: true, owner: true,
 };
 
 const base: Task = {
@@ -28,6 +28,92 @@ const defaultTreeProps = {
   isExpanded: false,
   onToggle: vi.fn(),
 };
+
+describe('truncateWbsPath', () => {
+  it('returns paths that fit unchanged', () => {
+    expect(truncateWbsPath('1.2.3', 6)).toBe('1.2.3');
+    expect(truncateWbsPath('10', 6)).toBe('10');
+  });
+
+  it('truncates with mid-string ellipsis preserving leaf segment', () => {
+    expect(truncateWbsPath('1.10.5.2', 6)).toBe('1.…2');
+    expect(truncateWbsPath('a.b.c.d.e', 6)).toBe('a.…e');
+  });
+
+  it('falls back to end-truncate for two-segment paths', () => {
+    expect(truncateWbsPath('1234.5678', 5)).toBe('1234…');
+  });
+
+  it('handles tiny budgets safely', () => {
+    expect(truncateWbsPath('1.2.3', 2)).toBe('…');
+    expect(truncateWbsPath('1.2.3', 0)).toBe('…');
+  });
+});
+
+describe('TaskListRow — WBS column (#248)', () => {
+  it('renders the WBS path in the wbs column', () => {
+    renderWithRouter(
+      <TaskListRow task={base} level={2} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    expect(screen.getByLabelText('WBS 1.1')).toBeInTheDocument();
+  });
+
+  it('hides the WBS column when not visible', () => {
+    const visible = { ...defaultVisible, wbs: false };
+    renderWithRouter(
+      <TaskListRow task={base} level={2} widths={defaultWidths} visible={visible} {...defaultTreeProps} />,
+    );
+    expect(screen.queryByLabelText('WBS 1.1')).toBeNull();
+  });
+});
+
+describe('TaskListRow — Owner column (#248)', () => {
+  it('shows assignees in the Owner column when task has them', () => {
+    const taskWithAssignees = {
+      ...base,
+      assignees: [
+        { resourceId: 'r1', name: 'Alice', units: 1 },
+        { resourceId: 'r2', name: 'Bob', units: 0.5 },
+      ],
+    };
+    renderWithRouter(
+      <TaskListRow task={taskWithAssignees} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    expect(screen.getByLabelText(/Owner: Alice, Bob/i)).toBeInTheDocument();
+  });
+
+  it('shows "Owner: none" when task has no assignees', () => {
+    renderWithRouter(
+      <TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    expect(screen.getByLabelText('Owner: none')).toBeInTheDocument();
+  });
+
+  it('renders empty Owner cell for summary tasks', () => {
+    const summary = { ...base, isSummary: true, assignees: [{ resourceId: 'r1', name: 'Alice', units: 1 }] };
+    renderWithRouter(
+      <TaskListRow task={summary} level={1} widths={defaultWidths} visible={defaultVisible} />,
+    );
+    expect(screen.getByLabelText('Summary task — owner column empty')).toBeInTheDocument();
+  });
+
+  it('renders +N overflow when more than 3 assignees', () => {
+    const fiveAssignees = {
+      ...base,
+      assignees: [
+        { resourceId: 'r1', name: 'Alice', units: 1 },
+        { resourceId: 'r2', name: 'Bob', units: 1 },
+        { resourceId: 'r3', name: 'Carol', units: 1 },
+        { resourceId: 'r4', name: 'Dan', units: 1 },
+        { resourceId: 'r5', name: 'Eve', units: 1 },
+      ],
+    };
+    renderWithRouter(
+      <TaskListRow task={fiveAssignees} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />,
+    );
+    expect(screen.getByText('+2')).toBeInTheDocument();
+  });
+});
 
 describe('TaskListRow', () => {
   beforeEach(() => {
