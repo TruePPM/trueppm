@@ -17,6 +17,7 @@ from trueppm_scheduler import (
     ScheduleResult,
     SimulationCapExceeded,
     Task,
+    find_cycle,
     monte_carlo,
     schedule,
 )
@@ -359,6 +360,79 @@ class TestScheduleCycleDetection:
         )
         with pytest.raises(ValueError, match="unknown task"):
             schedule(p)
+
+
+# ---------------------------------------------------------------------------
+# find_cycle() — public helper used by the API to validate dep creates
+# before they hit the DB. Documented in ADR-0055.
+# ---------------------------------------------------------------------------
+
+
+class TestFindCycle:
+    def test_no_cycle_returns_none(self) -> None:
+        assert find_cycle([("A", "B"), ("B", "C"), ("C", "D")]) is None
+
+    def test_empty_edges_returns_none(self) -> None:
+        assert find_cycle([]) is None
+
+    def test_self_loop_returned(self) -> None:
+        result = find_cycle([("A", "A")])
+        assert result == ["A", "A"]
+
+    def test_two_cycle_returned_in_order(self) -> None:
+        result = find_cycle([("A", "B"), ("B", "A")])
+        assert result is not None
+        # Cycle wraps back to start; networkx may begin at any node but the
+        # path must close on its first node.
+        assert result[0] == result[-1]
+        assert set(result) == {"A", "B"}
+        assert len(result) == 3
+
+    def test_three_cycle_returned(self) -> None:
+        result = find_cycle([("A", "B"), ("B", "C"), ("C", "A")])
+        assert result is not None
+        assert result[0] == result[-1]
+        assert set(result) == {"A", "B", "C"}
+        assert len(result) == 4
+
+    def test_diamond_dag_no_false_positive(self) -> None:
+        # A → B → D and A → C → D — classic diamond, acyclic.
+        edges = [("A", "B"), ("A", "C"), ("B", "D"), ("C", "D")]
+        assert find_cycle(edges) is None
+
+    def test_long_chain_no_false_positive(self) -> None:
+        edges = [("A", "B"), ("B", "C"), ("C", "D"), ("D", "E")]
+        assert find_cycle(edges) is None
+
+    def test_cycle_through_summary_expansion(self) -> None:
+        # Eng is a summary task containing leaf Validate.
+        # Edge: Validate → Eng creates a logical cycle (Eng waits for Validate
+        # which is one of Eng's leaves). Without expansion this would look
+        # acyclic at the edge level.
+        edges = [("Validate", "Eng")]
+        children_map = {"Eng": ["Validate", "Implement"]}
+        result = find_cycle(edges, children_map=children_map)
+        assert result is not None
+        # After expansion the cycle is Validate → Validate (a self-loop on
+        # the leaf), which find_cycle returns as ['Validate', 'Validate'].
+        assert result[0] == result[-1]
+        assert "Validate" in result
+
+    def test_summary_to_summary_cycle(self) -> None:
+        # Eng (containing E1) → Procurement (containing P1, P2)
+        # Procurement → Eng would close a cycle through the leaves.
+        edges = [("Eng", "Procurement"), ("Procurement", "Eng")]
+        children_map = {"Eng": ["E1"], "Procurement": ["P1", "P2"]}
+        result = find_cycle(edges, children_map=children_map)
+        assert result is not None
+        assert result[0] == result[-1]
+
+    def test_summary_expansion_no_false_positive_on_dag(self) -> None:
+        # Eng (E1) → Procurement (P1) is a normal edge between two summaries,
+        # acyclic at the leaf level (E1 → P1).
+        edges = [("Eng", "Procurement")]
+        children_map = {"Eng": ["E1"], "Procurement": ["P1"]}
+        assert find_cycle(edges, children_map=children_map) is None
 
 
 # ---------------------------------------------------------------------------

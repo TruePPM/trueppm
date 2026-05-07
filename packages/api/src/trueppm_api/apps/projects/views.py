@@ -70,6 +70,7 @@ from trueppm_api.apps.projects.serializers import (
     BoardColumnConfigSerializer,
     BoardSavedViewSerializer,
     CalendarSerializer,
+    CycleDetectedError,
     DependencySerializer,
     ProjectSerializer,
     RiskCommentSerializer,
@@ -1090,6 +1091,24 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     queryset = Dependency.objects.select_related("predecessor", "successor").filter(
         is_deleted=False
     )
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            return super().create(request, *args, **kwargs)
+        except CycleDetectedError as exc:
+            return Response(
+                {"detail": "cyclic_dependency", "cycle": exc.cycle},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            return super().update(request, *args, **kwargs)
+        except CycleDetectedError as exc:
+            return Response(
+                {"detail": "cyclic_dependency", "cycle": exc.cycle},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     def get_queryset(self) -> QuerySet[Dependency]:
         qs = super().get_queryset()

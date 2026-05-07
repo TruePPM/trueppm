@@ -195,6 +195,74 @@ def _check_cycles(g: nx.DiGraph[str]) -> None:
         pass
 
 
+def find_cycle(
+    edges: list[tuple[str, str]],
+    children_map: dict[str, list[str]] | None = None,
+) -> list[str] | None:
+    """Detect a cycle in a dependency graph; return ordered task IDs or None.
+
+    Operates on raw ``(predecessor_id, successor_id)`` tuples so callers do
+    not need to construct full :class:`Task` / :class:`Dependency` model
+    objects just to validate a single proposed edge.
+
+    When ``children_map`` is provided, summary→X and X→summary edges are
+    expanded to their leaf descendants before detection so logical cycles
+    through summary tasks are caught (e.g. ``Eng (summary) → Validate`` where
+    ``Validate`` is one of ``Eng``'s leaves is a cycle).
+
+    Args:
+        edges: All ``(predecessor_id, successor_id)`` edges in the proposed
+            graph, including the new edge being validated.
+        children_map: Optional mapping of summary task ID to list of direct
+            child IDs. Tasks not in the mapping are treated as leaves.
+
+    Returns:
+        The cycle as an ordered list of task IDs with the first repeated at
+        the end (e.g. ``['A', 'B', 'C', 'A']``) so callers can render an
+        unambiguous path. Returns ``None`` if the graph is acyclic.
+    """
+    if children_map:
+        edges = _expand_edges_for_cycle_check(edges, children_map)
+    g: nx.DiGraph[str] = nx.DiGraph()
+    g.add_edges_from(edges)
+    try:
+        cycle = nx.find_cycle(g)
+    except nx.NetworkXNoCycle:
+        return None
+    return [u for u, _ in cycle] + [cycle[-1][1]]
+
+
+def _expand_edges_for_cycle_check(
+    edges: list[tuple[str, str]],
+    children_map: dict[str, list[str]],
+) -> list[tuple[str, str]]:
+    """Expand summary↔leaf edges to leaf-level tuples for cycle detection.
+
+    Operates on raw edge tuples — no :class:`Dependency` objects required.
+    Deduplicates the result. Unlike :func:`expand_summary_dependencies`
+    (which drops self-loops because the CPM engine cannot consume them),
+    self-loops *produced by expansion* are kept here: a summary→its-own-leaf
+    edge expands to a self-loop on the leaf, and that self-loop is precisely
+    the logical cycle this function exists to surface.
+    """
+    summary_ids = set(children_map.keys())
+    if not summary_ids:
+        return edges
+    seen: set[tuple[str, str]] = set()
+    expanded: list[tuple[str, str]] = []
+    for pred_id, succ_id in edges:
+        preds = _collect_leaves(pred_id, children_map) if pred_id in summary_ids else [pred_id]
+        succs = _collect_leaves(succ_id, children_map) if succ_id in summary_ids else [succ_id]
+        for p in preds:
+            for s in succs:
+                key = (p, s)
+                if key in seen:
+                    continue
+                seen.add(key)
+                expanded.append(key)
+    return expanded
+
+
 # ---------------------------------------------------------------------------
 # CPM: forward and backward passes
 # ---------------------------------------------------------------------------

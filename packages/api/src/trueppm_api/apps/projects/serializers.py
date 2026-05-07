@@ -8,6 +8,7 @@ from typing import Any
 
 from django.utils import timezone
 from rest_framework import serializers
+from trueppm_scheduler import find_cycle
 
 from trueppm_api.apps.projects.models import (
     _VALID_EVM_MODES,
@@ -487,11 +488,64 @@ class BaselineDetailSerializer(BaselineSerializer):
         fields = [*BaselineSerializer.Meta.fields, "tasks"]
 
 
+class CycleDetectedError(Exception):
+    """Internal signal raised by ``DependencySerializer.validate`` when a proposed
+    edge would close a cycle on the expanded leaf graph.
+
+    Caught by ``DependencyViewSet.create`` / ``update`` and converted to a
+    structured ``400 {"detail": "cyclic_dependency", "cycle": [...]}`` response.
+    Bypasses DRF's :class:`serializers.ValidationError` because that class wraps
+    string fields in ``ErrorDetail`` lists, which mangles the shape the
+    frontend expects (see ADR-0055).
+    """
+
+    def __init__(self, cycle: list[dict[str, str]]) -> None:
+        self.cycle = cycle
+        super().__init__("Cyclic dependency detected.")
+
+
+def _load_project_tasks_and_children_map(
+    project_id: Any,
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Load task IDs and the WBS children-map for a project in one query.
+
+    Returns ``(task_ids, children_map)`` where ``task_ids`` is every non-deleted
+    task in the project (string UUIDs) and ``children_map`` is the
+    ``{parent_task_id: [child_id, ...]}`` mapping derived from ``wbs_path``.
+    Combined into one helper because every cycle-check call needs both, and we
+    want a single bulk query rather than two scans of the task table.
+    """
+    rows = list(
+        Task.objects.filter(project_id=project_id, is_deleted=False).values("id", "wbs_path")
+    )
+    task_ids: list[str] = [str(r["id"]) for r in rows]
+    path_to_id: dict[str, str] = {}
+    for r in rows:
+        wbs = r["wbs_path"]
+        if wbs:
+            path_to_id[str(wbs)] = str(r["id"])
+    children_map: dict[str, list[str]] = {}
+    for r in rows:
+        wbs = r["wbs_path"]
+        if not wbs:
+            continue
+        parent_path, _, _ = str(wbs).rpartition(".")
+        if not parent_path:
+            continue
+        parent_id = path_to_id.get(parent_path)
+        if parent_id:
+            children_map.setdefault(parent_id, []).append(str(r["id"]))
+    return task_ids, children_map
+
+
 class DependencySerializer(serializers.ModelSerializer[Dependency]):
     """Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).
 
     Cross-project edges are rejected in validate() because the CPM engine
-    assumes a single-project DAG.
+    assumes a single-project DAG. Edges that would close a cycle on the
+    expanded leaf graph are also rejected at create/update time with a
+    structured 400 ``{"detail": "cyclic_dependency", "cycle": [...]}`` so the
+    frontend can surface the offending path to the user; see ADR-0055.
     """
 
     class Meta:
@@ -510,7 +564,92 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
             raise serializers.ValidationError(
                 "Predecessor and successor must belong to the same project."
             )
+        if predecessor and successor:
+            # Enforce per-project membership before running cycle detection.
+            # `IsProjectScheduler.has_permission` short-circuits to True for the
+            # top-level /dependencies/ route (no project_pk in view kwargs);
+            # the H1 fix in perform_create runs `check_object_permissions` —
+            # but only AFTER validate. Without this check at validate time the
+            # structured 400 cycle response would leak task names / short_ids
+            # from a project the caller is not a member of (ADR-0055 / RBAC
+            # finding for #356).
+            request = self.context.get("request")
+            view = self.context.get("view")
+            if request is not None and view is not None:
+                view.check_object_permissions(request, predecessor)
+            self._check_no_cycle(predecessor, successor)
         return attrs
+
+    def _check_no_cycle(self, predecessor: Task, successor: Task) -> None:
+        """Reject the proposed edge if it would close a logical cycle.
+
+        Builds the project's existing dep graph (excluding the current row on
+        update), appends the proposed edge, expands summary→leaf edges, and
+        runs cycle detection. On a hit, raises a structured ValidationError
+        with the cycle path resolved to ``{id, name, hex_id}`` objects so the
+        client can render task names without an extra round trip.
+        """
+        # Self-loop short-circuits the full graph check — networkx would catch
+        # it but doing it here saves a DB roundtrip for the common typo case.
+        if predecessor.id == successor.id:
+            self._raise_cycle_error([predecessor, predecessor])
+            return
+
+        project_id = predecessor.project_id
+
+        # Single bulk pull of the project's tasks gives us both the children_map
+        # for summary expansion AND the FK list to scope the dependency edge
+        # query. Querying `Dependency.objects.filter(predecessor__project_id=...)`
+        # would force a JOIN through the FK and cost more on cold cache; using
+        # `predecessor_id__in=task_ids` hits the FK index directly. Perf review
+        # for #356.
+        task_ids, children_map = _load_project_tasks_and_children_map(project_id)
+
+        existing_qs = Dependency.objects.filter(
+            is_deleted=False,
+            predecessor_id__in=task_ids,
+        ).values_list("predecessor_id", "successor_id")
+        if self.instance is not None:
+            existing_qs = existing_qs.exclude(pk=self.instance.pk)
+
+        edges: list[tuple[str, str]] = [(str(p), str(s)) for p, s in existing_qs]
+        edges.append((str(predecessor.id), str(successor.id)))
+
+        cycle_ids = find_cycle(edges, children_map=children_map)
+        if cycle_ids is None:
+            return
+
+        # Resolve to rich objects so the toast can render task names without
+        # racing the frontend's task cache (a freshly created task may not be
+        # there yet); see ADR-0055 §7.
+        unique_ids = set(cycle_ids)
+        tasks_by_id = {
+            str(t.id): t
+            for t in Task.objects.filter(project_id=project_id, id__in=unique_ids).only(
+                "id", "name", "short_id"
+            )
+        }
+        ordered_tasks = [tasks_by_id.get(tid) for tid in cycle_ids]
+        # If any id failed to resolve (deleted concurrently?), fall back to a
+        # stub so the response shape stays consistent.
+        ordered: list[Task | None] = ordered_tasks
+        self._raise_cycle_error(ordered, fallback_ids=cycle_ids)
+
+    def _raise_cycle_error(
+        self,
+        tasks: list[Task] | list[Task | None],
+        fallback_ids: list[str] | None = None,
+    ) -> None:
+        ids = fallback_ids or [str(t.id) if t is not None else "" for t in tasks]
+        cycle_payload = [
+            {
+                "id": str(t.id) if t is not None else (ids[i] if i < len(ids) else ""),
+                "name": t.name if t is not None else "",
+                "hex_id": t.short_id if t is not None else "",
+            }
+            for i, t in enumerate(tasks)
+        ]
+        raise CycleDetectedError(cycle_payload)
 
 
 # 5-column model per Claude Design handoff (issue #178).  Per ADR-0039 the

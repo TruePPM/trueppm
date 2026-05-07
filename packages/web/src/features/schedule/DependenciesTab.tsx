@@ -5,6 +5,7 @@ import {
   useUpdateDependency,
   useDeleteDependency,
 } from '@/hooks/useDependencyMutations';
+import { parseCyclicDependencyError, formatCycleMessage } from '@/hooks/useTaskMutations';
 
 const DEP_TYPES: { value: LinkType; label: string }[] = [
   { value: 'FS', label: 'FS — Finish to Start' },
@@ -29,12 +30,14 @@ export function DependenciesTab({ task, tasks, links, projectId }: DependenciesT
   const [addPredType, setAddPredType] = useState<LinkType>('FS');
   const [addSuccId, setAddSuccId] = useState('');
   const [addSuccType, setAddSuccType] = useState<LinkType>('FS');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setAddPredId('');
     setAddPredType('FS');
     setAddSuccId('');
     setAddSuccType('FS');
+    setErrorMessage(null);
   }, [task.id]);
 
   const predecessorLinks = links.filter((l) => l.targetId === task.id);
@@ -48,17 +51,33 @@ export function DependenciesTab({ task, tasks, links, projectId }: DependenciesT
 
   function handleAddPred() {
     if (!addPredId) return;
+    setErrorMessage(null);
     createDep.mutate(
       { predecessor: addPredId, successor: taskId, dep_type: addPredType },
-      { onSuccess: () => { setAddPredId(''); setAddPredType('FS'); } },
+      {
+        onSuccess: () => { setAddPredId(''); setAddPredType('FS'); },
+        // Cycle errors keep the predecessor selection intact so the user can
+        // adjust without re-picking from the dropdown (#356 AC).
+        onError: (err) => {
+          const cycle = parseCyclicDependencyError(err);
+          setErrorMessage(cycle ? formatCycleMessage(cycle) : 'Couldn’t add dependency. Try again.');
+        },
+      },
     );
   }
 
   function handleAddSucc() {
     if (!addSuccId) return;
+    setErrorMessage(null);
     createDep.mutate(
       { predecessor: taskId, successor: addSuccId, dep_type: addSuccType },
-      { onSuccess: () => { setAddSuccId(''); setAddSuccType('FS'); } },
+      {
+        onSuccess: () => { setAddSuccId(''); setAddSuccType('FS'); },
+        onError: (err) => {
+          const cycle = parseCyclicDependencyError(err);
+          setErrorMessage(cycle ? formatCycleMessage(cycle) : 'Couldn’t add dependency. Try again.');
+        },
+      },
     );
   }
 
@@ -127,6 +146,15 @@ export function DependenciesTab({ task, tasks, links, projectId }: DependenciesT
           addLabel="Add successor"
         />
       </section>
+
+      {errorMessage && (
+        <div
+          role="alert"
+          className="bg-semantic-critical-bg border border-semantic-critical/30 text-semantic-critical text-xs px-3 py-2 rounded"
+        >
+          {errorMessage}
+        </div>
+      )}
 
       <p className="text-xs text-neutral-text-disabled border-t border-neutral-border pt-4">
         Successors are automatically rescheduled by the CPM engine after dependency changes.

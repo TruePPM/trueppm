@@ -7563,7 +7563,7 @@
             },
             "Dependency": {
                 "type": "object",
-                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nCross-project edges are rejected in validate() because the CPM engine\nassumes a single-project DAG.",
+                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nCross-project edges are rejected in validate() because the CPM engine\nassumes a single-project DAG. Edges that would close a cycle on the\nexpanded leaf graph are also rejected at create/update time with a\nstructured 400 ``{\"detail\": \"cyclic_dependency\", \"cycle\": [...]}`` so the\nfrontend can surface the offending path to the user; see ADR-0055.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -7601,7 +7601,7 @@
             },
             "DependencyRequest": {
                 "type": "object",
-                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nCross-project edges are rejected in validate() because the CPM engine\nassumes a single-project DAG.",
+                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nCross-project edges are rejected in validate() because the CPM engine\nassumes a single-project DAG. Edges that would close a cycle on the\nexpanded leaf graph are also rejected at create/update time with a\nstructured 400 ``{\"detail\": \"cyclic_dependency\", \"cycle\": [...]}`` so the\nfrontend can surface the offending path to the user; see ADR-0055.",
                 "properties": {
                     "predecessor": {
                         "type": "string",
@@ -8416,7 +8416,7 @@
             },
             "PatchedDependencyRequest": {
                 "type": "object",
-                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nCross-project edges are rejected in validate() because the CPM engine\nassumes a single-project DAG.",
+                "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nCross-project edges are rejected in validate() because the CPM engine\nassumes a single-project DAG. Edges that would close a cycle on the\nexpanded leaf graph are also rejected at create/update time with a\nstructured 400 ``{\"detail\": \"cyclic_dependency\", \"cycle\": [...]}`` so the\nfrontend can surface the offending path to the user; see ADR-0055.",
                 "properties": {
                     "predecessor": {
                         "type": "string",

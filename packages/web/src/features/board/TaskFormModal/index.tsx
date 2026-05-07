@@ -13,6 +13,8 @@ import {
   useDeleteTask,
   useAddDependency,
   useRemoveDependency,
+  parseCyclicDependencyError,
+  formatCycleMessage,
 } from '@/hooks/useTaskMutations';
 import {
   useAddAssignment,
@@ -356,6 +358,13 @@ export function TaskFormModal({
         await syncAssignments(savedTaskId);
         await syncPredecessors(savedTaskId);
       } catch (assignErr) {
+        // Cycle errors from POST /dependencies/ get a structured message so
+        // the user can see the offending path and act on it (ADR-0055).
+        const cycle = parseCyclicDependencyError(assignErr);
+        if (cycle) {
+          setSubmitError(formatCycleMessage(cycle));
+          return;
+        }
         // Task saved, but the secondary writes failed. Keep modal open so
         // the user can retry.
         setSubmitError(
