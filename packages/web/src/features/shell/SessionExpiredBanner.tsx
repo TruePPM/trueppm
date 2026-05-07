@@ -61,8 +61,8 @@ export function SessionExpiredBanner() {
           id="session-expired-body"
           className="text-sm text-neutral-text-secondary m-0 mb-5"
         >
-          For your security, you've been signed out. Recent unsaved edits may
-          not have been saved. Sign in again to continue.
+          For your security, you&apos;ve been signed out. Recent unsaved edits
+          may not have been saved. Sign in again to continue.
         </p>
         <div className="flex justify-end">
           <button
