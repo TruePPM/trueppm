@@ -447,8 +447,13 @@ scheduler:test:
   <<: *rules-scheduler
   script:
     - cd packages/scheduler
-    - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-fail-under=80
+    - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-report=xml --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+%)/'
+  artifacts:
+    paths:
+      - packages/scheduler/coverage.xml
+    expire_in: 7 days
+    when: always
 
 scheduler:bench:
   # Performance regression guard for the CPM engine.
@@ -532,8 +537,13 @@ api:test:
   script:
     - cd packages/api
     - python -m pytest tests/ --tb=short -q
-        --cov=trueppm_api --cov-report=term-missing --cov-fail-under=80
+        --cov=trueppm_api --cov-report=term-missing --cov-report=xml --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+%)/'
+  artifacts:
+    paths:
+      - packages/api/coverage.xml
+    expire_in: 7 days
+    when: always
 
 web:test:
   extends: .web
@@ -543,6 +553,101 @@ web:test:
   script:
     - npm run test:coverage
   coverage: '/^All files\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*([\d.]+)/'
+  artifacts:
+    paths:
+      - packages/web/coverage/lcov.info
+    expire_in: 7 days
+    when: always
+
+# ---------------------------------------------------------------------------
+# DIFF COVERAGE — gate on lines changed vs the MR target branch.
+# Enforces ≥ $COVERAGE_DIFF_MIN% line coverage on new/changed code, regardless
+# of whether the package total moves. This is the primary "new feature must
+# have tests" gate; the package-total --cov-fail-under flag stays as a soft
+# floor against legacy regressions.
+#
+# Bump COVERAGE_DIFF_MIN to 90 post-beta. MR-only — there's no diff to
+# measure on main.
+# ---------------------------------------------------------------------------
+
+.diff-coverage:
+  stage: test
+  variables:
+    GIT_DEPTH: "0"
+    COVERAGE_DIFF_MIN: "80"
+
+scheduler:diff-coverage:
+  extends:
+    - .scheduler
+    - .diff-coverage
+  needs:
+    - job: scheduler:test
+      artifacts: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/scheduler/**/*
+        - .gitlab-ci.yml
+  script:
+    # python:3.11-slim ships without git; required by `git fetch` and by
+    # diff-cover internally (it shells out to `git diff`).
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    - cd packages/scheduler
+    - diff-cover coverage.xml
+        --compare-branch="origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+        --fail-under="$COVERAGE_DIFF_MIN"
+
+api:diff-coverage:
+  extends: .diff-coverage
+  image: python:3.11-slim
+  needs:
+    - job: api:test
+      artifacts: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/api/**/*
+        - .gitlab-ci.yml
+  cache:
+    <<: *api-cache
+    policy: pull
+  before_script:
+    # python:3.11-slim ships without git; required by `git fetch` and by
+    # diff-cover internally (it shells out to `git diff`).
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+    - pip install diff-cover --quiet
+  script:
+    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    - cd packages/api
+    - diff-cover coverage.xml
+        --compare-branch="origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+        --fail-under="$COVERAGE_DIFF_MIN"
+
+web:diff-coverage:
+  extends: .diff-coverage
+  # Use a python image (not node) — diff-cover is a pip tool but reads lcov
+  # natively. Avoids npm install just to run diff-cover.
+  image: python:3.11-slim
+  needs:
+    - job: web:test
+      artifacts: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/web/**/*
+        - .gitlab-ci.yml
+  before_script:
+    # python:3.11-slim ships without git; required by `git fetch` and by
+    # diff-cover internally (it shells out to `git diff`).
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+    - pip install diff-cover --quiet
+  script:
+    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    - cd packages/web
+    - diff-cover coverage/lcov.info
+        --compare-branch="origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+        --fail-under="$COVERAGE_DIFF_MIN"
 
 web:e2e:
   # End-to-end Playwright tests against the production build.

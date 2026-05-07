@@ -2,7 +2,13 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
-        migrations-check schema-check pre-push
+        migrations-check schema-check pre-push \
+        coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web
+
+# Diff-coverage gate config. New code on this branch (vs $(COVERAGE_DIFF_BASE))
+# must hit at least $(COVERAGE_DIFF_MIN)% line coverage. Bump to 90 post-beta.
+COVERAGE_DIFF_MIN ?= 80
+COVERAGE_DIFF_BASE ?= origin/main
 
 # ─── Help ──────────────────────────────────────────────────────────────────────
 help:
@@ -64,7 +70,49 @@ migrations-check: ## Verify no missing Django migrations (requires `make up`)
 schema-check: ## Verify docs/api/openapi.json matches the live DRF schema
 	bash scripts/export-openapi.sh --check
 
-pre-push: migrations-check schema-check ## Run pre-push CI gates (lint/typecheck run at commit time via hooks)
+# ─── Diff coverage ────────────────────────────────────────────────────────────
+# Enforces ≥ $(COVERAGE_DIFF_MIN)% coverage on lines changed vs $(COVERAGE_DIFF_BASE).
+# Each per-package target skips itself if no files in that package changed,
+# so a docs-only branch finishes in seconds.
+
+coverage-diff: coverage-diff-scheduler coverage-diff-api coverage-diff-web ## Diff-coverage gate (≥ $(COVERAGE_DIFF_MIN)% on changed lines)
+
+coverage-diff-scheduler: ## Diff coverage for packages/scheduler
+	@if git diff --name-only $(COVERAGE_DIFF_BASE)...HEAD | grep -q '^packages/scheduler/'; then \
+	  echo "→ scheduler diff coverage"; \
+	  cd packages/scheduler && \
+	    pytest --cov=trueppm_scheduler --cov-report=xml --tb=short -q && \
+	    diff-cover coverage.xml --compare-branch=$(COVERAGE_DIFF_BASE) --fail-under=$(COVERAGE_DIFF_MIN); \
+	else \
+	  echo "→ scheduler diff coverage: no changes — skipped"; \
+	fi
+
+# api tests run inside the api container (testcontainers + Postgres). The
+# container mounts only ./packages/api/src, so coverage.xml is extracted with
+# `docker compose cp`. diff-cover runs from packages/api so XML paths
+# (src/trueppm_api/...) resolve to git-toplevel paths correctly.
+coverage-diff-api: ## Diff coverage for packages/api (requires `make up`)
+	@if git diff --name-only $(COVERAGE_DIFF_BASE)...HEAD | grep -q '^packages/api/'; then \
+	  echo "→ api diff coverage"; \
+	  docker compose exec -T api pytest --cov=trueppm_api --cov-report=xml --tb=short -q && \
+	  docker compose cp api:/app/coverage.xml packages/api/coverage.xml && \
+	  cd packages/api && \
+	    diff-cover coverage.xml --compare-branch=$(COVERAGE_DIFF_BASE) --fail-under=$(COVERAGE_DIFF_MIN); \
+	else \
+	  echo "→ api diff coverage: no changes — skipped"; \
+	fi
+
+coverage-diff-web: ## Diff coverage for packages/web
+	@if git diff --name-only $(COVERAGE_DIFF_BASE)...HEAD | grep -q '^packages/web/'; then \
+	  echo "→ web diff coverage"; \
+	  cd packages/web && \
+	    npm run test:coverage && \
+	    diff-cover coverage/lcov.info --compare-branch=$(COVERAGE_DIFF_BASE) --fail-under=$(COVERAGE_DIFF_MIN); \
+	else \
+	  echo "→ web diff coverage: no changes — skipped"; \
+	fi
+
+pre-push: migrations-check schema-check coverage-diff ## Run pre-push CI gates (lint/typecheck run at commit time via hooks)
 	@echo ""
 	@echo "✅ Pre-push checks passed. Safe to git push."
 
