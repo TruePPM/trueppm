@@ -197,6 +197,25 @@ describe('TaskFormModal (issue #305)', () => {
     }));
   });
 
+  it('renders the parent picker seeded from the inferred parentId, and posts the chosen id (#360)', async () => {
+    renderModal({ parentId: 'parent-task-id' });
+    const picker = screen.getByLabelText<HTMLInputElement>(/Parent phase/);
+    // Seeded from prop — label combines WBS + name.
+    expect(picker.value).toBe('1 · Parent task');
+    // Clearing the input drops back to root parent.
+    fireEvent.change(picker, { target: { value: '' } });
+    expect(screen.getByText(/add at the project root/)).toBeInTheDocument();
+    // Re-typing a known label re-resolves to the matching id.
+    fireEvent.change(picker, { target: { value: '1 · Parent task' } });
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Child' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await Promise.resolve();
+    expect(createMutate).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Child',
+      parent_id: 'parent-task-id',
+    }));
+  });
+
   it('Cmd+S submits when the form is valid', async () => {
     const onClose = vi.fn();
     renderModal({ phaseName: 'Alpha', onClose });

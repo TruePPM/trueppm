@@ -78,7 +78,7 @@ describe('PredecessorsEditor', () => {
     expect(screen.getByText('Foo')).toBeInTheDocument();
   });
 
-  it('excludes the current task, summary tasks, and already-assigned predecessors from the picker', () => {
+  it('excludes the current task and already-assigned predecessors, but includes summary tasks (#360)', () => {
     const allTasks = [
       makeTask({ id: 'self', name: 'Self', wbs: '1' }),
       makeTask({ id: 'summary', name: 'Roll-up', wbs: '2', isSummary: true }),
@@ -101,8 +101,10 @@ describe('PredecessorsEditor', () => {
     const listbox = screen.getByRole('listbox');
     expect(listbox).toBeInTheDocument();
     expect(screen.getByText('Available')).toBeInTheDocument();
+    // Phase / summary task is now offered — server accepts summary predecessors
+    // and the CPM engine expands them to their leaves on commit.
+    expect(screen.getByText('Roll-up')).toBeInTheDocument();
     expect(screen.queryByText('Self')).not.toBeInTheDocument();
-    expect(screen.queryByText('Roll-up')).not.toBeInTheDocument();
     // The chip row still shows the already-linked entry, but the picker
     // listbox does not.
     expect(listbox.textContent).not.toContain('Already linked');

@@ -228,6 +228,26 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "assignee_is_overallocated",
         ]
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Enforce the milestone invariant: is_milestone=True implies duration=0.
+
+        Milestones are single-point gates (permits, inspections, sprint reviews,
+        contract dates). A milestone with a non-zero duration produces a Gantt row
+        whose Start and Finish render different dates, which contradicts the
+        diamond marker and the "—" duration display. This invariant is enforced
+        here so the contradiction can never reach the database from the API.
+
+        On partial updates the resulting state is computed from instance + attrs
+        so toggling is_milestone=True without sending duration still zeroes it,
+        and editing duration on an existing milestone gets clamped back to zero.
+        """
+        is_milestone = attrs.get("is_milestone")
+        if is_milestone is None and self.instance is not None:
+            is_milestone = self.instance.is_milestone
+        if is_milestone:
+            attrs["duration"] = 0
+        return attrs
+
     def get_schedule_variance_days(self, obj: Task) -> int | None:
         """Compute schedule variance: actual_finish - early_finish in calendar days."""
         if obj.actual_finish and obj.early_finish:

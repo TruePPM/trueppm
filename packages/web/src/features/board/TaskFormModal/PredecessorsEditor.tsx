@@ -57,7 +57,9 @@ export function PredecessorsEditor({
     return allTasks
       .filter((t) => t.id !== currentTaskId)
       .filter((t) => !assignedIds.has(t.id))
-      .filter((t) => !t.isSummary) // dependencies on summary tasks are server-rejected
+      // Summary tasks (phases) are valid predecessors: "Phase 2 starts after
+      // Phase 1 finishes" is a standard scheduling pattern. The CPM engine
+      // expands summary→leaf edges server-side via children_map (#360).
       .filter((t) => q === '' || t.name.toLowerCase().includes(q) || t.wbs.includes(q))
       .slice(0, 12);
   }, [allTasks, rows, currentTaskId, search]);

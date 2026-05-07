@@ -326,6 +326,51 @@ class TestSchedulePlannedStart:
         assert r.tasks[0].early_start == date(2026, 3, 2)
 
 
+class TestScheduleZeroDurationMilestone:
+    """Zero-duration tasks are CPM milestones: a single point in time.
+
+    The API layer flags milestones via Task.is_milestone, but the scheduler
+    library operates purely on duration; the API normalises is_milestone=True
+    to duration=timedelta(days=0) at the boundary. These tests cover the
+    contract the API depends on.
+    """
+
+    def test_zero_duration_task_finish_equals_start(self) -> None:
+        """A zero-duration task finishes the same day it starts."""
+        p = make_project(tasks=[task("M", "Milestone", 0)])
+        r = schedule(p)
+        m = r.tasks[0]
+        assert m.early_start == m.early_finish == date(2026, 3, 2)
+        assert m.late_start == m.late_finish == date(2026, 3, 2)
+
+    def test_zero_duration_with_predecessor_and_successor(self) -> None:
+        """A milestone in the middle of a chain stays a single point.
+
+        Reproduces the failure mode reported on MR !221: a milestone with both
+        a predecessor and a successor must not stretch across a date range.
+        """
+        p = make_project(
+            tasks=[
+                task("A", "A", 3),  # finishes 2026-03-04
+                task("M", "Milestone", 0),
+                task("B", "B", 2),
+            ],
+            dependencies=[
+                Dependency("A", "M"),
+                Dependency("M", "B"),
+            ],
+        )
+        r = schedule(p)
+        by_id = {t.id: t for t in r.tasks}
+        m = by_id["M"]
+        # Predecessor finish 2026-03-04 → successor's ES is 2026-03-05.
+        # Milestone sits at the gate between A and B as a single point.
+        assert m.early_start == m.early_finish == date(2026, 3, 5)
+        assert m.late_start == m.late_finish == date(2026, 3, 5)
+        # B starts the day after the milestone (FS dependency, EF inclusive).
+        assert by_id["B"].early_start == date(2026, 3, 6)
+
+
 class TestScheduleCycleDetection:
     def test_direct_cycle_raises(self) -> None:
         p = make_project(

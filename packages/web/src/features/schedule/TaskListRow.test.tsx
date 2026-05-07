@@ -156,6 +156,34 @@ describe('TaskListRow', () => {
     expect(screen.getByLabelText('milestone')).toBeInTheDocument();
   });
 
+  it('milestone Finish column renders em-dash and never a date range', () => {
+    // Regression for !221: even if the API returns a finish date that differs from start
+    // (e.g. legacy data where the milestone invariant was bypassed), the row must not
+    // render a span — it would contradict the diamond marker and be a credibility risk
+    // when a PM shows the Schedule to a client.
+    renderWithRouter(
+      <TaskListRow
+        task={{
+          ...base,
+          isMilestone: true,
+          duration: 0,
+          progress: 0,
+          start: '2026-10-05',
+          finish: '2026-10-25',
+        }}
+        level={1}
+        widths={defaultWidths}
+        visible={defaultVisible}
+        {...defaultTreeProps}
+      />,
+    );
+    // Finish column has the milestone aria-label and renders em-dash, not the (wrong) finish date.
+    const finishCell = screen.getByLabelText(/milestone — single date/i);
+    expect(finishCell).toHaveTextContent('—');
+    // The bogus finish date must not leak into the row text — no "25" anywhere.
+    expect(finishCell.textContent).not.toMatch(/25/);
+  });
+
   it('clicking row selects it in the store', async () => {
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} {...defaultTreeProps} />);
     await userEvent.click(screen.getByRole('row'));
@@ -271,6 +299,60 @@ describe('TaskListRow', () => {
     await userEvent.dblClick(screen.getByRole('row'));
     // Now in edit mode — click should not toggle selection
     expect(useScheduleStore.getState().selectedTaskId).toBeNull();
+  });
+
+  it('ArrowDown moves selection to the next visible row (#360)', async () => {
+    // Render two rows so the second can be queried by data-row-id and
+    // become the destination of the arrow-key traversal.
+    const next: Task = { ...base, id: 't2', wbs: '1.2', name: 'Build Phase' };
+    renderWithRouter(
+      <>
+        <TaskListRow
+          task={base}
+          level={1}
+          widths={defaultWidths}
+          visible={defaultVisible}
+          nextTaskId={next.id}
+        />
+        <TaskListRow
+          task={next}
+          level={1}
+          widths={defaultWidths}
+          visible={defaultVisible}
+          prevTaskId={base.id}
+        />
+      </>,
+    );
+    const rows = screen.getAllByRole('row');
+    rows[0].focus();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(useScheduleStore.getState().selectedTaskId).toBe('t2');
+  });
+
+  it('ArrowUp moves selection to the previous visible row (#360)', async () => {
+    const prev: Task = { ...base, id: 't0', wbs: '1.0', name: 'Discover' };
+    renderWithRouter(
+      <>
+        <TaskListRow
+          task={prev}
+          level={1}
+          widths={defaultWidths}
+          visible={defaultVisible}
+          nextTaskId={base.id}
+        />
+        <TaskListRow
+          task={base}
+          level={1}
+          widths={defaultWidths}
+          visible={defaultVisible}
+          prevTaskId={prev.id}
+        />
+      </>,
+    );
+    const rows = screen.getAllByRole('row');
+    rows[1].focus();
+    await userEvent.keyboard('{ArrowUp}');
+    expect(useScheduleStore.getState().selectedTaskId).toBe('t0');
   });
 
   it('keyboard events are ignored during edit mode', async () => {

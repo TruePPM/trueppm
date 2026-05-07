@@ -157,6 +157,8 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visibl
                   hasChildren={summaryIds.has(task.id)}
                   isExpanded={expandedIds.has(task.id)}
                   onToggle={() => onToggle(task.id)}
+                  prevTaskId={virtualRow.index > 0 ? tasks[virtualRow.index - 1].id : null}
+                  nextTaskId={virtualRow.index < tasks.length - 1 ? tasks[virtualRow.index + 1].id : null}
                   dimmed={focusChainIds !== undefined && focusChainIds.size > 0 && !focusChainIds.has(task.id)}
                   depChips={depChipsById?.get(task.id)}
                 />

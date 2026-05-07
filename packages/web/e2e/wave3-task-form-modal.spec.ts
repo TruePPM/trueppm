@@ -155,7 +155,7 @@ test.describe('Task create/edit modal (#305)', () => {
 
     const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByText('NEW TASK')).toBeVisible();
+    await expect(dialog.getByText('NEW TASK', { exact: true })).toBeVisible();
     await expect(dialog.getByLabel('Task name *')).toBeVisible();
     // Progress slider should NOT show in create mode (Priya-priority spec).
     await expect(dialog.getByLabel('Progress')).toHaveCount(0);

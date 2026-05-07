@@ -181,6 +181,98 @@ describe('TaskListRow — build-mode keyboard', () => {
     expect(c.current.focus.state.column).toBe('name');
   });
 
+  it('ArrowDown on focused row moves focus to nextTaskId (#360)', () => {
+    const capture: { current: Captured | null } = { current: null };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function Wrapper() {
+      const focus = useScheduleFocus();
+      const api = useMemo<BuildModeApi>(
+        () => ({
+          focus,
+          indent: stableSpies.indent,
+          outdent: stableSpies.outdent,
+          insertBelow: stableSpies.insertBelow,
+          convertToMilestone: stableSpies.convertToMilestone,
+          deleteTask: stableSpies.deleteTask,
+          isMutationPending: () => false,
+        }),
+        [focus],
+      );
+      capture.current = {
+        api, focus,
+        indent: stableSpies.indent,
+        outdent: stableSpies.outdent,
+        insertBelow: stableSpies.insertBelow,
+        convertToMilestone: stableSpies.convertToMilestone,
+        deleteTask: stableSpies.deleteTask,
+      };
+      const second: Task = { ...baseTask, id: 't-build-2', wbs: '1.3', name: 'Roof' };
+      return (
+        <BuildModeProvider api={api}>
+          <TaskListRow task={baseTask} level={2} widths={widths} visible={visible} nextTaskId="t-build-2" />
+          <TaskListRow task={second} level={2} widths={widths} visible={visible} prevTaskId="t-build-1" />
+        </BuildModeProvider>
+      );
+    }
+    render(
+      <MemoryRouter initialEntries={['/projects/p1/schedule']}>
+        <QueryClientProvider client={qc}>
+          <Wrapper />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    const c = capture as { current: Captured };
+    act(() => c.current.focus.focusRow('t-build-1'));
+    fireEvent.keyDown(screen.getAllByRole('row')[0], { key: 'ArrowDown' });
+    expect(c.current.focus.state.rowId).toBe('t-build-2');
+  });
+
+  it('ArrowUp on focused row moves focus to prevTaskId (#360)', () => {
+    const capture: { current: Captured | null } = { current: null };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function Wrapper() {
+      const focus = useScheduleFocus();
+      const api = useMemo<BuildModeApi>(
+        () => ({
+          focus,
+          indent: stableSpies.indent,
+          outdent: stableSpies.outdent,
+          insertBelow: stableSpies.insertBelow,
+          convertToMilestone: stableSpies.convertToMilestone,
+          deleteTask: stableSpies.deleteTask,
+          isMutationPending: () => false,
+        }),
+        [focus],
+      );
+      capture.current = {
+        api, focus,
+        indent: stableSpies.indent,
+        outdent: stableSpies.outdent,
+        insertBelow: stableSpies.insertBelow,
+        convertToMilestone: stableSpies.convertToMilestone,
+        deleteTask: stableSpies.deleteTask,
+      };
+      const first: Task = { ...baseTask, id: 't-build-0', wbs: '1.1', name: 'Site prep' };
+      return (
+        <BuildModeProvider api={api}>
+          <TaskListRow task={first} level={2} widths={widths} visible={visible} nextTaskId="t-build-1" />
+          <TaskListRow task={baseTask} level={2} widths={widths} visible={visible} prevTaskId="t-build-0" />
+        </BuildModeProvider>
+      );
+    }
+    render(
+      <MemoryRouter initialEntries={['/projects/p1/schedule']}>
+        <QueryClientProvider client={qc}>
+          <Wrapper />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    const c = capture as { current: Captured };
+    act(() => c.current.focus.focusRow('t-build-1'));
+    fireEvent.keyDown(screen.getAllByRole('row')[1], { key: 'ArrowUp' });
+    expect(c.current.focus.state.rowId).toBe('t-build-0');
+  });
+
   it('Ctrl+letter is NOT treated as letter-key entry (modifier check)', () => {
     const c = renderHarness();
     act(() => c.current.focus.focusRow('t-build-1'));

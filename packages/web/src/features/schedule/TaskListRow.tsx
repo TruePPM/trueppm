@@ -22,6 +22,10 @@ interface Props {
   hasChildren?: boolean;
   isExpanded?: boolean;
   onToggle?: () => void;
+  /** Previous visible task id — null at the top. Drives ArrowUp navigation. */
+  prevTaskId?: string | null;
+  /** Next visible task id — null at the bottom. Drives ArrowDown navigation. */
+  nextTaskId?: string | null;
   /**
    * When focus mode is active and this task is NOT in the focused chain,
    * the row is dimmed to ~22% opacity (spec: focus mode § ④).
@@ -60,7 +64,7 @@ export function truncateWbsPath(path: string, maxChars: number): string {
   return `${parts[0]}.…${parts[parts.length - 1]}`;
 }
 
-export function TaskListRow({ task, level, widths, visible, hasChildren = false, isExpanded = false, onToggle, dimmed = false, depChips }: Props) {
+export function TaskListRow({ task, level, widths, visible, hasChildren = false, isExpanded = false, onToggle, prevTaskId = null, nextTaskId = null, dimmed = false, depChips }: Props) {
   const projectId = useProjectId() ?? '';
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
@@ -114,8 +118,32 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
   const anyCellInEdit =
     editingColumnName || editingColumnDuration || editingColumnProgress;
 
+  // Move keyboard focus to a sibling row by data-row-id selector. Used by both
+  // the build-mode and flag-off arrow-key handlers so the destination row
+  // becomes the active element and subsequent arrows continue to traverse.
+  const focusRowDom = useCallback((id: string) => {
+    requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(`[data-row-id="${id}"]`);
+      el?.focus();
+    });
+  }, []);
+
   const handleBuildKeyDown = (e: React.KeyboardEvent) => {
     if (!buildMode || anyCellInEdit) return;
+    // Arrow up/down — move row focus to the previous/next visible row.
+    // Documented in useScheduleFocus's docstring; previously unimplemented (#340 follow-up).
+    if (e.key === 'ArrowDown' && nextTaskId) {
+      e.preventDefault();
+      buildMode.focus.focusRow(nextTaskId);
+      focusRowDom(nextTaskId);
+      return;
+    }
+    if (e.key === 'ArrowUp' && prevTaskId) {
+      e.preventDefault();
+      buildMode.focus.focusRow(prevTaskId);
+      focusRowDom(prevTaskId);
+      return;
+    }
     // Tab on a focused row → indent (Shift-Tab → outdent). The focus reducer
     // ignores Tab in RowFocused — caller (this) handles the structural action.
     if (e.key === 'Tab') {
@@ -247,6 +275,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
   return (
     <div
       role="row"
+      data-row-id={task.id}
       aria-selected={buildMode ? isBuildSelected : isSelected}
       tabIndex={isEditing || anyCellInEdit ? -1 : 0}
       style={{ height: ROW_HEIGHT }}
@@ -285,6 +314,19 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
           if (e.defaultPrevented) return;
         }
         if (isEditing || anyCellInEdit) return;
+        // Arrow up/down — flag-off path. Build-mode path is handled above.
+        if (!buildMode && e.key === 'ArrowDown' && nextTaskId) {
+          e.preventDefault();
+          setSelectedTaskId(nextTaskId);
+          focusRowDom(nextTaskId);
+          return;
+        }
+        if (!buildMode && e.key === 'ArrowUp' && prevTaskId) {
+          e.preventDefault();
+          setSelectedTaskId(prevTaskId);
+          focusRowDom(prevTaskId);
+          return;
+        }
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           if (buildMode) {
@@ -530,9 +572,18 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
             text-right text-neutral-text-secondary tabular-nums pr-2"
           style={{ width: widths.finish }}
           role="gridcell"
-          aria-label={task.finish ? `finishes ${formatDate(task.finish)}` : 'unscheduled'}
+          aria-label={
+            task.isMilestone
+              ? 'milestone — single date in Start column'
+              : task.finish
+              ? `finishes ${formatDate(task.finish)}`
+              : 'unscheduled'
+          }
         >
-          {task.finish ? formatDate(task.finish) : '—'}
+          {/* Milestones are single-point gates: render an em-dash so the row
+              never displays a date range that contradicts the diamond marker.
+              The single date is shown in the Start column (line 564). */}
+          {task.isMilestone ? '—' : task.finish ? formatDate(task.finish) : '—'}
         </div>
       )}
 
