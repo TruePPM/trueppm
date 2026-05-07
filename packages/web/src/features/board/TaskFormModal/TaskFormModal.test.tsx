@@ -199,7 +199,7 @@ describe('TaskFormModal (issue #305)', () => {
 
   it('renders the parent picker seeded from the inferred parentId, and posts the chosen id (#360)', async () => {
     renderModal({ parentId: 'parent-task-id' });
-    const picker = screen.getByLabelText(/Parent phase/) as HTMLInputElement;
+    const picker = screen.getByLabelText<HTMLInputElement>(/Parent phase/);
     // Seeded from prop — label combines WBS + name.
     expect(picker.value).toBe('1 · Parent task');
     // Clearing the input drops back to root parent.
