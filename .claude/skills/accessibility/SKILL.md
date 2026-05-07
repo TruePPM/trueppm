@@ -1,5 +1,6 @@
 ---
 name: accessibility
+model: sonnet
 description: >
   WCAG 2.1 AA compliance review for TruePPM web and mobile interfaces. Use when
   auditing components for accessibility, adding ARIA attributes, or ensuring keyboard

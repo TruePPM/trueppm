@@ -1,5 +1,6 @@
 ---
 name: docs-writer
+model: sonnet
 description: >
   Documentation generation for TruePPM. Use when writing API docs, user guides,
   developer guides, architecture docs, or changelog entries. Produces content for

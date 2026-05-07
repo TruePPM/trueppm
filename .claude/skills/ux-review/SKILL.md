@@ -1,6 +1,6 @@
 ---
 name: ux-review
-model: opus
+model: sonnet
 description: >
   Review existing UI/UX implementations for usability, accessibility, consistency,
   performance, and adherence to TruePPM design principles. Use when reviewing

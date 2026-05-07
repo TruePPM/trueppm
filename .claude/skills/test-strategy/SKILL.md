@@ -1,6 +1,6 @@
 ---
 name: test-strategy
-model: opus
+model: sonnet
 description: >
   Design test strategies for TruePPM features. Use when planning tests for new features,
   reviewing test coverage, or creating test fixtures. Covers unit tests (pytest, vitest,

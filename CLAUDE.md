@@ -148,6 +148,12 @@ Ask: "Would an individual PM or small team need this?" If yes → OSS. "Does thi
 - Extension points (settings includes, URL patterns, signal hooks) must remain stable — enterprise code registers against them; changing their shape is a breaking change for enterprise customers
 - Verify with: `grep -r "trueppm_enterprise" packages/` — must return zero results in OSS code
 
+### Issues are part of the boundary
+- An issue describing enterprise functionality (cross-project, portfolio, SSO, audit trail, approval workflows, multi-tenancy, AI scheduling) must be filed in `trueppm-enterprise` from the start — not in the OSS tracker
+- The OSS `enterprise` and `portfolio` labels are reserved for **OSS-side extension-point work** that enterprise registers against (slot registration per ADR-0029, edition-based routing per ADR-0030) — not for enterprise features themselves
+- Before opening an OSS issue with cross-project, portfolio, SSO, audit-trail, or approval-workflow scope, run the `enterprise-check` agent
+- Enforced by CI: `boundary:check` runs on main pushes and on schedule; it fails the pipeline if any open OSS issue carries the `enterprise` or `portfolio` label. See `scripts/check-issue-boundary.sh`
+
 ## Documentation Discipline
 
 ### Code documentation
@@ -227,3 +233,7 @@ Run `/skills` to see all available skills. Key ones:
 - `/mr` — Open a GitLab MR for the current branch (pre-flight checks, structured description, creates via glab)
 - `/fix-mr` — Watch and fix a failing MR pipeline until green
 - `/scheduler-engine` — CPM/Monte Carlo algorithm work
+- `/test-scaffold` — Scaffold the three-layer test pattern (pytest / vitest / Playwright) for a new feature
+- `/threat-model` — STRIDE threat model at architecture stage; pairs with `/architect` on auth, sync, or boundary-crossing features
+- `/mobile-design` — UI/UX design for the React Native mobile app (offline-first, touch-primary)
+- `/mobile-review` — Review React Native code against mobile-specific requirements (touch targets, offline, platform conventions)
