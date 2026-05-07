@@ -191,9 +191,19 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
 
       ws.addEventListener('message', handleMessage);
 
-      ws.addEventListener('close', () => {
+      ws.addEventListener('close', (event) => {
         if (!mountedRef.current) return;
-        // Exponential backoff reconnect
+        // Server-side auth rejection (Channels closes with 4001 when the
+        // token in the connect URL is invalid/expired). Without this branch
+        // the socket would silently retry forever while the cache stayed
+        // alive and the user kept editing into a void (#352).
+        if (event.code === 4001) {
+          useAuthStore.getState().markSessionExpired();
+          window.dispatchEvent(new CustomEvent('auth:sessionExpired'));
+          return;
+        }
+        // Exponential backoff reconnect for any other close cause
+        // (network drop, server restart, idle timeout).
         retryTimer = setTimeout(() => {
           backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
           connect();

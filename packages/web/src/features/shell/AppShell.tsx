@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Outlet, useNavigate } from 'react-router';
+import { Outlet } from 'react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { queryClient } from '@/lib/queryClient';
@@ -7,11 +7,11 @@ import { TopBar } from './TopBar';
 import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
 import { BottomNav } from './BottomNav';
+import { SessionExpiredBanner } from './SessionExpiredBanner';
 
 export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const hamburgerRef = useRef<HTMLButtonElement>(null);
-  const navigate = useNavigate();
 
   const openDrawer = useCallback(() => setDrawerOpen(true), []);
   const closeDrawer = useCallback(() => {
@@ -20,16 +20,19 @@ export function AppShell() {
     hamburgerRef.current?.focus();
   }, []);
 
-  // Redirect to /login when the Axios interceptor gives up refreshing the session.
-  // Without this listener the user stays on a broken screen seeing "Failed to load".
+  // When the API or WS interceptors mark the session expired, cancel any
+  // in-flight queries so they don't continue to populate the cache after
+  // the tokens were cleared. The actual UI surface (banner + Sign-in CTA)
+  // is rendered by `<SessionExpiredBanner>`; we deliberately do NOT
+  // auto-navigate to `/login` because that drops the user into a screen
+  // with no explanation of why they were logged out (#352).
   useEffect(() => {
     const handler = () => {
-      queryClient.clear();
-      void navigate('/login', { replace: true });
+      void queryClient.cancelQueries();
     };
     window.addEventListener('auth:sessionExpired', handler);
     return () => window.removeEventListener('auth:sessionExpired', handler);
-  }, [navigate]);
+  }, []);
 
   // Close drawer on viewport resize to ≥ md
   useEffect(() => {
@@ -83,6 +86,8 @@ export function AppShell() {
           </div>
         </>
       )}
+
+      <SessionExpiredBanner />
 
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>

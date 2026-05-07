@@ -16,6 +16,8 @@ const mockDepsResult: TaskDependenciesResult = {
   predecessors: [],
   successors: [],
   isLoading: false,
+  isFetching: false,
+  hasResolved: true,
   error: null,
 };
 

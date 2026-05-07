@@ -9,11 +9,30 @@ export const apiClient = axios.create({
   },
 });
 
-// Attach JWT access token to every request
+/**
+ * Mark the session as expired and notify listeners.
+ *
+ * Single helper so every 401-recovery failure path clears tokens, flips the
+ * `sessionExpired` store flag, and dispatches the legacy DOM event in one
+ * step. The store flag drives the SessionExpiredBanner render; the event
+ * survives for tests / non-React code that listens for it.
+ */
+function expireSession(): void {
+  useAuthStore.getState().markSessionExpired();
+  window.dispatchEvent(new CustomEvent('auth:sessionExpired'));
+}
+
+// Attach JWT access token to every request — and short-circuit when the
+// session has already been marked expired so queued mutations don't burn
+// retry budget bouncing through the 401 → refresh → fail → expire loop (#352).
 apiClient.interceptors.request.use((config) => {
-  const token = useAuthStore.getState().accessToken;
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+  const { accessToken, sessionExpired } = useAuthStore.getState();
+  if (sessionExpired) {
+    // Synchronous abort: surface as a generic error to the caller's onError.
+    return Promise.reject(new Error('Session expired'));
+  }
+  if (accessToken) {
+    config.headers.Authorization = `Bearer ${accessToken}`;
   }
   return config;
 });
@@ -22,11 +41,10 @@ apiClient.interceptors.request.use((config) => {
 let refreshPromise: Promise<string> | null = null;
 
 async function refreshAccessToken(): Promise<string> {
-  const { refreshToken, setTokens, clearTokens } = useAuthStore.getState();
+  const { refreshToken, setTokens } = useAuthStore.getState();
 
   if (!refreshToken) {
-    clearTokens();
-    window.dispatchEvent(new CustomEvent('auth:sessionExpired'));
+    expireSession();
     throw new Error('No refresh token available');
   }
 
@@ -54,8 +72,7 @@ apiClient.interceptors.response.use(
 
     // Prevent infinite retry loops
     if (originalRequest._retried) {
-      useAuthStore.getState().clearTokens();
-      window.dispatchEvent(new CustomEvent('auth:sessionExpired'));
+      expireSession();
       return Promise.reject(new Error('Session expired'));
     }
 
@@ -80,8 +97,7 @@ apiClient.interceptors.response.use(
 
       return await apiClient(originalRequest);
     } catch {
-      useAuthStore.getState().clearTokens();
-      window.dispatchEvent(new CustomEvent('auth:sessionExpired'));
+      expireSession();
       return Promise.reject(new Error('Session expired'));
     }
   },
