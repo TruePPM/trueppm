@@ -20,8 +20,8 @@ export function coerceFlagMap(raw: unknown): FlagMap {
 }
 
 function parseEnvDefaults(): FlagMap {
-  const raw = import.meta.env.VITE_FEATURE_FLAGS;
-  if (!raw || typeof raw !== 'string') return {};
+  const raw: unknown = import.meta.env.VITE_FEATURE_FLAGS;
+  if (typeof raw !== 'string' || !raw) return {};
   try {
     return coerceFlagMap(JSON.parse(raw));
   } catch {

@@ -138,7 +138,7 @@ describe('BuildModeRowMenu — viewport overflow', () => {
         onClose={vi.fn()}
       />,
     );
-    const menu = screen.getByRole('menu') as HTMLElement;
+    const menu = screen.getByRole('menu');
     // anchor.y (180) + menuHeight (4 items × 32 + 8 = 136) = 316 > 200, so flip up.
     // The menu top is set to max(0, 180 - 136) = 44.
     expect(menu.style.top).toBe('44px');
@@ -153,7 +153,7 @@ describe('BuildModeRowMenu — viewport overflow', () => {
         onClose={vi.fn()}
       />,
     );
-    const menu = screen.getByRole('menu') as HTMLElement;
+    const menu = screen.getByRole('menu');
     // anchor.x (200) + MENU_WIDTH (200) = 400 > 250, so flip left.
     // The menu left is set to max(0, 200 - 200) = 0.
     expect(menu.style.left).toBe('0px');

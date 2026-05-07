@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import type React from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import type { Task } from '@/types';
 import { ROW_HEIGHT, WBS_INDENT } from './scheduleConstants';

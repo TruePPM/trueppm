@@ -76,7 +76,7 @@ describe('EditableCell — static state', () => {
 describe('EditableCell — editing state', () => {
   it('renders an input with the current value', () => {
     render(<EditableCell {...baseProps} isEditing={true} />);
-    const input = screen.getByLabelText('Task name') as HTMLInputElement;
+    const input = screen.getByLabelText<HTMLInputElement>('Task name');
     expect(input.tagName).toBe('INPUT');
     expect(input.value).toBe('Initial name');
   });
@@ -84,7 +84,7 @@ describe('EditableCell — editing state', () => {
   it('Enter commits the draft and reports parsed value', () => {
     const onCommit = vi.fn();
     render(<EditableCell {...baseProps} isEditing={true} onCommit={onCommit} />);
-    const input = screen.getByLabelText('Task name') as HTMLInputElement;
+    const input = screen.getByLabelText('Task name');
     fireEvent.change(input, { target: { value: 'Renamed' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onCommit).toHaveBeenCalledWith('Renamed');
@@ -93,7 +93,7 @@ describe('EditableCell — editing state', () => {
   it('Enter on unchanged value does not call onCommit', () => {
     const onCommit = vi.fn();
     render(<EditableCell {...baseProps} isEditing={true} onCommit={onCommit} />);
-    const input = screen.getByLabelText('Task name') as HTMLInputElement;
+    const input = screen.getByLabelText('Task name');
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onCommit).not.toHaveBeenCalled();
   });
@@ -101,7 +101,7 @@ describe('EditableCell — editing state', () => {
   it('Esc rolls back and reports rollback', () => {
     const onRollback = vi.fn();
     render(<EditableCell {...baseProps} isEditing={true} onRollback={onRollback} />);
-    const input = screen.getByLabelText('Task name') as HTMLInputElement;
+    const input = screen.getByLabelText('Task name');
     fireEvent.change(input, { target: { value: 'Discarded' } });
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(onRollback).toHaveBeenCalledOnce();
@@ -118,7 +118,7 @@ describe('EditableCell — editing state', () => {
         onTabForward={onTabForward}
       />,
     );
-    const input = screen.getByLabelText('Task name') as HTMLInputElement;
+    const input = screen.getByLabelText('Task name');
     fireEvent.change(input, { target: { value: 'Tabbed' } });
     fireEvent.keyDown(input, { key: 'Tab' });
     expect(onCommit).toHaveBeenCalledWith('Tabbed');
@@ -130,7 +130,7 @@ describe('EditableCell — editing state', () => {
     render(
       <EditableCell {...baseProps} isEditing={true} onTabBackward={onTabBackward} />,
     );
-    const input = screen.getByLabelText('Task name') as HTMLInputElement;
+    const input = screen.getByLabelText('Task name');
     fireEvent.keyDown(input, { key: 'Tab', shiftKey: true });
     expect(onTabBackward).toHaveBeenCalledOnce();
   });
@@ -138,7 +138,7 @@ describe('EditableCell — editing state', () => {
   it('blur with changed value commits silently', () => {
     const onCommit = vi.fn();
     render(<EditableCell {...baseProps} isEditing={true} onCommit={onCommit} />);
-    const input = screen.getByLabelText('Task name') as HTMLInputElement;
+    const input = screen.getByLabelText('Task name');
     fireEvent.change(input, { target: { value: 'Lost focus' } });
     fireEvent.blur(input);
     expect(onCommit).toHaveBeenCalledWith('Lost focus');
@@ -162,7 +162,7 @@ describe('EditableCell — editing state', () => {
         onCommit={onCommit}
       />,
     );
-    const input = screen.getByLabelText('Task name') as HTMLInputElement;
+    const input = screen.getByLabelText('Task name');
     fireEvent.change(input, { target: { value: 'garbage' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onCommit).not.toHaveBeenCalled();
@@ -179,7 +179,7 @@ describe('EditableCell — editing state', () => {
         onCommit={onCommit}
       />,
     );
-    const input = screen.getByLabelText('Task name') as HTMLInputElement;
+    const input = screen.getByLabelText('Task name');
     fireEvent.change(input, { target: { value: '2w' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onCommit).toHaveBeenCalledWith(10);
@@ -196,7 +196,7 @@ describe('EditableCell — editing state', () => {
         onCommit={onCommit}
       />,
     );
-    const input = screen.getByLabelText('Task name') as HTMLInputElement;
+    const input = screen.getByLabelText('Task name');
     fireEvent.change(input, { target: { value: '150' } });
     fireEvent.keyDown(input, { key: 'Enter' });
     expect(onCommit).not.toHaveBeenCalled();
@@ -212,7 +212,7 @@ describe('EditableCell — outside-driven value updates', () => {
 
   it('does NOT update draft mid-edit when value changes externally', () => {
     const { rerender } = render(<EditableCell {...baseProps} isEditing={true} />);
-    const input = screen.getByLabelText('Task name') as HTMLInputElement;
+    const input = screen.getByLabelText<HTMLInputElement>('Task name');
     fireEvent.change(input, { target: { value: 'Local edit in progress' } });
     rerender(<EditableCell {...baseProps} value="WS push" isEditing={true} />);
     expect(input.value).toBe('Local edit in progress');

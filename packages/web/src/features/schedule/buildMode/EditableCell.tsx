@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { EditableColumn } from './useScheduleFocus';
 
 export type EditableCellInputType = 'text' | 'number' | 'duration';
@@ -17,7 +17,7 @@ export interface EditableCellProps {
   /** Tailwind classes for the static cell wrapper. */
   className?: string;
   /** Inline style for the static cell (used for column width). */
-  style?: React.CSSProperties;
+  style?: CSSProperties;
   /** Cell role — defaults to "gridcell". */
   role?: string;
   /** Which column this cell represents. Forwarded to focus actions. */
@@ -165,6 +165,13 @@ export function EditableCell({
           // does not re-read `anyCellInEdit` between the two handlers.
           e.stopPropagation();
           onStartEdit();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            onStartEdit();
+          }
         }}
       >
         {display ?? value}

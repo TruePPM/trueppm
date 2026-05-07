@@ -7,32 +7,22 @@ export interface BuildModeEmptyStateProps {
 
 /**
  * Empty-state shown inside TaskListPanel when build-mode is on and the project
- * has zero tasks. Single primary CTA. Pressing Enter inside the panel container
- * is equivalent to clicking the CTA — the empty-state container is focused
- * on mount so the keyboard path works without an extra click.
+ * has zero tasks. Single primary CTA. The CTA button auto-focuses on mount so
+ * Enter triggers the action immediately without an extra click — buttons emit
+ * a synthetic click on Enter natively, no extra keyboard handler needed.
  */
 export function BuildModeEmptyState({ onAddFirstTask }: BuildModeEmptyStateProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    containerRef.current?.focus();
+    buttonRef.current?.focus();
   }, []);
 
   return (
     <div
-      ref={containerRef}
       role="region"
-      aria-label="No tasks yet — press Enter or click the button to add the first task"
-      tabIndex={0}
-      className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-        focus-visible:ring-inset"
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          onAddFirstTask();
-        }
-      }}
+      aria-label="No tasks yet"
+      className="flex-1 flex flex-col items-center justify-center px-6 py-10 text-center"
     >
       <div
         className="text-2xl text-neutral-text-disabled mb-4 tracking-widest"
@@ -47,6 +37,7 @@ export function BuildModeEmptyState({ onAddFirstTask }: BuildModeEmptyStateProps
         Press Enter, or click below to add the first task.
       </p>
       <button
+        ref={buttonRef}
         type="button"
         onClick={onAddFirstTask}
         className="inline-flex h-9 px-4 items-center gap-2 rounded

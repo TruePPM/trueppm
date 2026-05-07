@@ -16,20 +16,18 @@ describe('BuildModeEmptyState', () => {
     expect(onAdd).toHaveBeenCalledOnce();
   });
 
-  it('Enter inside the panel calls onAddFirstTask', () => {
-    const onAdd = vi.fn();
-    render(<BuildModeEmptyState onAddFirstTask={onAdd} />);
-    const region = screen.getByRole('region');
-    fireEvent.keyDown(region, { key: 'Enter' });
-    expect(onAdd).toHaveBeenCalledOnce();
+  it('auto-focuses the CTA so Enter triggers the action natively', () => {
+    render(<BuildModeEmptyState onAddFirstTask={vi.fn()} />);
+    const button = screen.getByRole('button', { name: /Add first task/i });
+    expect(document.activeElement).toBe(button);
   });
 
   it('non-Enter keys do not trigger the CTA', () => {
     const onAdd = vi.fn();
     render(<BuildModeEmptyState onAddFirstTask={onAdd} />);
-    const region = screen.getByRole('region');
-    fireEvent.keyDown(region, { key: 'a' });
-    fireEvent.keyDown(region, { key: 'Tab' });
+    const button = screen.getByRole('button', { name: /Add first task/i });
+    fireEvent.keyDown(button, { key: 'a' });
+    fireEvent.keyDown(button, { key: 'Tab' });
     expect(onAdd).not.toHaveBeenCalled();
   });
 
