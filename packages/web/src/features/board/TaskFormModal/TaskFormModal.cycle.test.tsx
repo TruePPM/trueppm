@@ -70,7 +70,7 @@ vi.mock('@/hooks/useTaskDependencies', () => ({
 // and formatter are pure and we want the integration test to exercise the
 // actual logic, not a mocked shape.
 vi.mock('@/hooks/useTaskMutations', async (orig) => {
-  const actual = (await orig()) as Record<string, unknown>;
+  const actual = await orig<typeof import('@/hooks/useTaskMutations')>();
   return {
     ...actual,
     useCreateTask: () => ({
