@@ -46,6 +46,20 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+/**
+ * Truncate a long WBS path with a middle ellipsis so the leaf number (most
+ * relevant) stays visible. "1.10.5.2" with budget 6 → "1.…2".
+ * Returns the full path unchanged when it already fits.
+ */
+export function truncateWbsPath(path: string, maxChars: number): string {
+  if (path.length <= maxChars) return path;
+  if (maxChars < 3) return '…';
+  // Keep first segment + ellipsis + last segment, padded to maxChars budget.
+  const parts = path.split('.');
+  if (parts.length <= 2) return path.slice(0, maxChars - 1) + '…';
+  return `${parts[0]}.…${parts[parts.length - 1]}`;
+}
+
 export function TaskListRow({ task, level, widths, visible, hasChildren = false, isExpanded = false, onToggle, dimmed = false, depChips }: Props) {
   const projectId = useProjectId() ?? '';
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
@@ -290,6 +304,20 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
         }
       }}
     >
+      {/* ── WBS column (#248) ───────────────────────────────────────────────── */}
+      {visible.wbs && (
+        <div
+          className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
+            text-right text-neutral-text-secondary tppm-mono pr-2 text-xs"
+          style={{ width: widths.wbs }}
+          role="gridcell"
+          aria-label={`WBS ${task.wbs}`}
+          title={task.wbs}
+        >
+          {truncateWbsPath(task.wbs, Math.max(3, Math.floor(widths.wbs / 8) - 1))}
+        </div>
+      )}
+
       {/* ── Task column ─────────────────────────────────────────────────────── */}
       {/* Positioned wrapper carries the WBS indent. Properties button lives here
           so it never overlaps the Dur·Start or % columns. */}
@@ -537,7 +565,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
         ) : (
           <div
             className="flex items-center justify-end shrink-0
-              text-right text-neutral-text-secondary tabular-nums pr-2"
+              text-right text-neutral-text-secondary tabular-nums pr-2 border-r border-neutral-border/20"
             style={{ width: widths.progress }}
             role="gridcell"
             aria-label={`${task.progress}% complete`}
@@ -545,6 +573,27 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
             {!task.isMilestone && `${task.progress}%`}
           </div>
         )
+      )}
+
+      {/* ── Owner column (#248) ─────────────────────────────────────────────── */}
+      {/* Summary tasks: empty cell (assignees roll up implicitly, not authored). */}
+      {!isEditing && visible.owner && (
+        <div
+          className="flex items-center shrink-0 pl-2"
+          style={{ width: widths.owner }}
+          role="gridcell"
+          aria-label={
+            task.isSummary
+              ? 'Summary task — owner column empty'
+              : task.assignees.length === 0
+                ? 'Owner: none'
+                : `Owner: ${task.assignees.map((a) => a.name).join(', ')}`
+          }
+        >
+          {!task.isSummary && (
+            <AssigneeChips assignees={task.assignees} size="md" max={3} />
+          )}
+        </div>
       )}
       {buildMode && menuAnchor && (
         <BuildModeRowMenu

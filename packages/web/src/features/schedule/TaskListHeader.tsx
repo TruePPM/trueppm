@@ -58,6 +58,19 @@ export function TaskListHeader({ widths, visible, setWidth }: Props) {
       role="row"
       aria-label="Task list columns"
     >
+      {/* WBS column (#248) — leftmost; right-aligned dot-path numbering */}
+      {visible.wbs && (
+        <span
+          className="relative text-right shrink-0 pr-2 border-r border-neutral-border/20"
+          style={{ width: widths.wbs }}
+          role="columnheader"
+          aria-label="Work breakdown structure"
+        >
+          WBS
+          <ResizeHandle colKey="wbs" setWidth={setWidth} currentWidth={widths.wbs} />
+        </span>
+      )}
+
       {/* Task column — always visible; pl-2 keeps text inset from the left edge */}
       <span
         className="relative pl-2 truncate shrink-0"
@@ -106,12 +119,26 @@ export function TaskListHeader({ widths, visible, setWidth }: Props) {
 
       {visible.progress && (
         <span
-          className="text-right shrink-0 pr-2"
+          className="relative text-right shrink-0 pr-2"
           style={{ width: widths.progress }}
           role="columnheader"
           aria-label="Progress"
         >
           %
+          <ResizeHandle colKey="progress" setWidth={setWidth} currentWidth={widths.progress} />
+        </span>
+      )}
+
+      {/* Owner avatar column (#248) — rightmost; left-aligned for vertical scan */}
+      {visible.owner && (
+        <span
+          className="relative pl-2 shrink-0"
+          style={{ width: widths.owner }}
+          role="columnheader"
+          aria-label="Owner"
+        >
+          Owner
+          <ResizeHandle colKey="owner" setWidth={setWidth} currentWidth={widths.owner} />
         </span>
       )}
     </div>
