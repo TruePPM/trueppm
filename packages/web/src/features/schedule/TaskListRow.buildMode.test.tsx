@@ -31,7 +31,7 @@ const baseTask: Task = {
   start: '2026-04-05', finish: '2026-04-09',
   duration: 5, progress: 0, parentId: 't-build-0',
   isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
-  status: 'NOT_STARTED', assignees: [],
+  status: 'NOT_STARTED', assignees: [], notes: '',
 };
 
 interface Captured {

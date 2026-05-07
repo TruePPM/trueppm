@@ -25,6 +25,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     isMilestone: true,
     status: 'NOT_STARTED',
     assignees: [],
+    notes: '',
     ...overrides,
   };
 }

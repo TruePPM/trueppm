@@ -12,6 +12,7 @@ export function makeSprint(overrides: Partial<ApiSprint> = {}): ApiSprint {
     short_id_display: 'SP-A1B2',
     name: 'Telemetry & FAT prep',
     goal: 'Close out telemetry firmware channel sweep and prep FAT review.',
+    notes: '',
     start_date: '2026-04-01',
     finish_date: '2026-04-14',
     state: 'PLANNED',

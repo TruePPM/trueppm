@@ -540,6 +540,7 @@ class TestRiskPMIFields:
                     "mitigation_due_date": "2026-06-15",
                     "trigger": "Vendor confirms delivery slip",
                     "contingency": "Pre-source backup vendor; reserve $20k",
+                    "notes": "Discussed in 2026-05-07 standup; revisit after vendor call.",
                 },
                 format="json",
             )
@@ -549,6 +550,7 @@ class TestRiskPMIFields:
         assert r.data["mitigation_due_date"] == "2026-06-15"
         assert r.data["trigger"] == "Vendor confirms delivery slip"
         assert r.data["contingency"].startswith("Pre-source backup vendor")
+        assert r.data["notes"].startswith("Discussed in 2026-05-07 standup")
 
     def test_create_without_pmi_fields_uses_defaults(
         self,
@@ -569,6 +571,7 @@ class TestRiskPMIFields:
         assert r.data["mitigation_due_date"] is None
         assert r.data["trigger"] == ""
         assert r.data["contingency"] == ""
+        assert r.data["notes"] == ""
 
     def test_invalid_category_choice_rejected(
         self,

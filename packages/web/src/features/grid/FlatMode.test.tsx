@@ -21,13 +21,13 @@ const mockTasks: Task[] = [
     id: 't2', wbs: '2', name: 'Build', start: '2026-05-11', finish: '2026-05-20',
     duration: 9, progress: 25, parentId: null,
     isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
-    status: 'NOT_STARTED', assignees: [{ resourceId: 'r1', name: 'Alice', units: 100 }],
+    status: 'NOT_STARTED', assignees: [{ resourceId: 'r1', name: 'Alice', units: 100 }], notes: '',
   },
   {
     id: 't1', wbs: '1', name: 'Discover', start: '2026-05-01', finish: '2026-05-05',
     duration: 4, progress: 100, parentId: null,
     isCritical: false, isComplete: true, isSummary: false, isMilestone: false,
-    status: 'COMPLETE', assignees: [{ resourceId: 'r2', name: 'Bob', units: 100 }],
+    status: 'COMPLETE', assignees: [{ resourceId: 'r2', name: 'Bob', units: 100 }], notes: '',
   },
 ];
 

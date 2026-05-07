@@ -18,19 +18,19 @@ const mockTasks: Task[] = [
     id: 'p1', wbs: '1', name: 'Phase 1', start: '2026-05-01', finish: '2026-05-30',
     duration: 30, progress: 0, parentId: null,
     isCritical: false, isComplete: false, isSummary: true, isMilestone: false,
-    status: 'IN_PROGRESS', assignees: [],
+    status: 'IN_PROGRESS', assignees: [], notes: '',
   },
   {
     id: 't1', wbs: '1.1', name: 'Discover', start: '2026-05-01', finish: '2026-05-05',
     duration: 4, progress: 100, parentId: 'p1', sprintId: 's1',
     isCritical: false, isComplete: true, isSummary: false, isMilestone: false,
-    status: 'COMPLETE', assignees: [{ resourceId: 'r1', name: 'Alice', units: 100 }],
+    status: 'COMPLETE', assignees: [{ resourceId: 'r1', name: 'Alice', units: 100 }], notes: '',
   },
   {
     id: 't2', wbs: '1.2', name: 'Build', start: '2026-05-06', finish: '2026-05-15',
     duration: 9, progress: 25, parentId: 'p1',
     isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
-    status: 'NOT_STARTED', assignees: [],
+    status: 'NOT_STARTED', assignees: [], notes: '',
   },
   {
     id: 't3', wbs: '1.3', name: 'Review', start: '2026-05-16', finish: '2026-05-20',
@@ -40,7 +40,7 @@ const mockTasks: Task[] = [
     assignees: [
       { resourceId: 'r1', name: 'Alice', units: 50 },
       { resourceId: 'r2', name: 'Bob', units: 50 },
-    ],
+    ], notes: '',
   },
 ];
 

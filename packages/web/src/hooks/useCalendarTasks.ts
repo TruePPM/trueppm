@@ -28,6 +28,7 @@ interface ApiTask {
   parent_id: string | null;
   actual_start: string | null;
   actual_finish: string | null;
+  notes?: string;
   assignments?: Array<{
     resource_id: string;
     resource_name: string;
@@ -57,6 +58,7 @@ function mapTask(t: ApiTask): Task {
     isMilestone: t.is_milestone,
     status: t.status,
     assignees,
+    notes: t.notes ?? '',
   };
 }
 

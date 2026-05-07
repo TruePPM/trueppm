@@ -101,10 +101,10 @@ export interface Task {
   sprintId?: string | null;
   /**
    * Long-form description / notes. Maps to the API's `Task.notes` field.
-   * Empty string when unset. Read by the task create/edit modal (#305) for
-   * the description textarea; not displayed elsewhere on board cards.
+   * Empty string when unset (ADR-0048). Read by the task create/edit modal
+   * (#305) for the description textarea; not displayed elsewhere on board cards.
    */
-  notes?: string;
+  notes: string;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */
@@ -183,6 +183,8 @@ export interface ApiSprint {
   short_id_display: string;
   name: string;
   goal: string;
+  /** Long-form PM annotations (ADR-0048). Empty string when unset. */
+  notes: string;
   /** ISO date — sprint window start (inclusive). */
   start_date: string;
   /** ISO date — sprint window finish (inclusive). */

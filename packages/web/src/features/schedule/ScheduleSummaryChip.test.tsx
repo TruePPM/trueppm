@@ -9,7 +9,7 @@ const baseTask: Omit<Task, 'id' | 'wbs' | 'name'> = {
   duration: 5, progress: 0,
   parentId: null,
   isCritical: false, isComplete: false, isSummary: false, isMilestone: false,
-  status: 'NOT_STARTED', assignees: [],
+  status: 'NOT_STARTED', assignees: [], notes: '',
 };
 
 function makeTask(id: string, overrides: Partial<Task> = {}): Task {

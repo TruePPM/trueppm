@@ -18,6 +18,7 @@ function makeTask(id: string, wbs: string, parentId: string | null = null): Task
     isMilestone: false,
     status: 'NOT_STARTED',
     assignees: [],
+    notes: '',
   };
 }
 

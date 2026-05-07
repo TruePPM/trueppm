@@ -31,6 +31,7 @@ function baseTask(over: Partial<Task> = {}): Task {
     status: 'IN_PROGRESS',
     assignees: [],
     readiness: 'ready',
+    notes: '',
     ...over,
   };
 }

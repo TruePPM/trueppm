@@ -18,6 +18,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     isMilestone: false,
     status: 'IN_PROGRESS',
     assignees: [],
+    notes: '',
     ...overrides,
   };
 }
