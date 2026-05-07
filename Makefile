@@ -107,7 +107,9 @@ coverage-diff-web: ## Diff coverage for packages/web
 	  echo "→ web diff coverage"; \
 	  cd packages/web && \
 	    npm run test:coverage && \
-	    diff-cover coverage/lcov.info --compare-branch=$(COVERAGE_DIFF_BASE) --fail-under=$(COVERAGE_DIFF_MIN); \
+	    cd ../.. && \
+	    sed 's|^SF:|SF:packages/web/|' packages/web/coverage/lcov.info > packages/web/coverage/lcov.diffcover.info && \
+	    diff-cover packages/web/coverage/lcov.diffcover.info --compare-branch=$(COVERAGE_DIFF_BASE) --fail-under=$(COVERAGE_DIFF_MIN); \
 	else \
 	  echo "→ web diff coverage: no changes — skipped"; \
 	fi

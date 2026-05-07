@@ -26,6 +26,23 @@ import { TaskDetailDrawer } from './TaskDetailDrawer';
 import { UnscheduledGutter } from './UnscheduledGutter';
 import { useUnscheduledTasks } from '@/hooks/useUnscheduledTasks';
 import type { Task } from '@/types';
+import { useFeatureFlag } from '@/lib/featureFlags';
+import {
+  useScheduleFocus,
+  BuildModeProvider,
+  BuildModeHintStrip,
+  BuildModeCheatsheet,
+  BuildModeEmptyState,
+  BuildModePill,
+  type BuildModeApi,
+} from './buildMode';
+import {
+  useIndentTask,
+  useOutdentTask,
+  useUpdateTask,
+  useDeleteTask,
+  useCreateTask,
+} from '@/hooks/useTaskMutations';
 
 // ---------------------------------------------------------------------------
 // ScheduleEmptyState — shown when tasks.length === 0 (rule 78)
@@ -506,6 +523,77 @@ export function ScheduleView() {
   // Canvas support check (rule 79)
   const canvasSupported = typeof document !== 'undefined' ? canvasIsSupported() : true;
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Build-mode (issues #338/#339/#341/#342, gated by #349)
+  // Hooks must be declared above all early returns. The provider + UI only
+  // mount when the flag is on AND we are on the desktop happy path.
+  // ──────────────────────────────────────────────────────────────────────
+  const buildModeFlag = useFeatureFlag('schedule_build_mode_v1');
+  const buildModeActive = buildModeFlag && !isMobile;
+  const focus = useScheduleFocus();
+  const indentTask = useIndentTask(projectId ?? null);
+  const outdentTask = useOutdentTask(projectId ?? null);
+  const updateTaskMut = useUpdateTask();
+  const deleteTaskMut = useDeleteTask(projectId ?? null);
+  const createTaskMut = useCreateTask(projectId ?? null);
+  const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
+
+  const buildModeApi = useMemo<BuildModeApi>(() => ({
+    focus,
+    indent: (taskId) => indentTask.mutate(taskId),
+    outdent: (taskId) => outdentTask.mutate(taskId),
+    insertBelow: (_taskId) => {
+      // Sibling-of insert is a server-side concern (parent inferred from current
+      // row's parent_id, position from current row's position + 1). For v1, fall
+      // back to "create at root" — the user can indent the new row immediately.
+      // Tracked as a follow-up: a positioned-insert API needs `parent_id` + `after_id`.
+      if (!projectId) return;
+      createTaskMut.mutate({ name: '', duration: 1 });
+    },
+    convertToMilestone: (taskId) => {
+      if (!projectId) return;
+      updateTaskMut.mutate({ id: taskId, projectId, duration: 0 });
+    },
+    deleteTask: (taskId) => deleteTaskMut.mutate(taskId),
+    isMutationPending: (taskId) =>
+      (indentTask.isPending && indentTask.variables === taskId) ||
+      (outdentTask.isPending && outdentTask.variables === taskId),
+  }), [focus, indentTask, outdentTask, updateTaskMut, deleteTaskMut, createTaskMut, projectId]);
+
+  // Global `?` keypress opens the cheatsheet (build-mode only). Skipped while
+  // an input or contenteditable element has focus so it does not eat the
+  // user's literal `?` keystroke when typing in a text field.
+  useEffect(() => {
+    if (!buildModeActive) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== '?') return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+      e.preventDefault();
+      setCheatsheetOpen((open) => !open);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [buildModeActive]);
+
+  const handleAddFirstTask = useCallback(() => {
+    if (!projectId) return;
+    // Per ux-design: the new row enters RowFocused immediately, then auto-
+    // transitions to CellEdit on the Name column — saves the user one keystroke
+    // vs. requiring F2 after the row appears.
+    createTaskMut.mutate(
+      { name: '', duration: 1 },
+      {
+        onSuccess: (data) => {
+          focus.focusRow(data.id);
+          focus.enterCellEdit(data.id, 'name');
+        },
+      },
+    );
+  }, [projectId, createTaskMut, focus]);
+
   if (error) {
     return (
       <div className="flex h-full items-center justify-center bg-neutral-surface">
@@ -563,7 +651,7 @@ export function ScheduleView() {
 
   const totalCanvasWidth = scheduleScales?.totalWidth ?? 0;
 
-  return (
+  const mainView = (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Gantt-specific toolbar — Today + Zoom + Add Task */}
       <div className="flex items-center gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
@@ -580,6 +668,9 @@ export function ScheduleView() {
           >
             + Task
           </button>
+        )}
+        {buildModeActive && (
+          <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />
         )}
         <RecalculatingBadge isVisible={pendingTaskIds.size > 0} />
 
@@ -687,7 +778,11 @@ export function ScheduleView() {
         <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
 
         {visibleTasks.length === 0 ? (
-          <ScheduleEmptyState />
+          buildModeActive ? (
+            <BuildModeEmptyState onAddFirstTask={handleAddFirstTask} />
+          ) : (
+            <ScheduleEmptyState />
+          )
         ) : (
           <div
             ref={canvasScrollRef}
@@ -746,6 +841,13 @@ export function ScheduleView() {
         />
       )}
 
+      {buildModeActive && (
+        <BuildModeHintStrip
+          mode={focus.state.mode}
+          onShowCheatsheet={() => setCheatsheetOpen(true)}
+        />
+      )}
+
       <MonteCarloRow engine={engine} projectId={projectId ?? undefined} taskListWidth={totalWidth} />
 
       {/* Mobile MC card — md:hidden; desktop uses MonteCarloRow above (issue #33) */}
@@ -785,7 +887,20 @@ export function ScheduleView() {
           onClose={() => setSelectedTaskId(null)}
         />
       )}
+
+      {buildModeActive && (
+        <BuildModeCheatsheet
+          open={cheatsheetOpen}
+          onClose={() => setCheatsheetOpen(false)}
+        />
+      )}
     </div>
+  );
+
+  return buildModeActive ? (
+    <BuildModeProvider api={buildModeApi}>{mainView}</BuildModeProvider>
+  ) : (
+    mainView
   );
 }
 
