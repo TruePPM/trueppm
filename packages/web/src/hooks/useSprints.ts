@@ -120,6 +120,31 @@ interface CloseSprintResponse {
   request_id: string;
 }
 
+export interface UpdateSprintPayload {
+  name?: string;
+  goal?: string;
+  start_date?: string;
+  finish_date?: string;
+  target_milestone?: string | null;
+}
+
+export interface CapacityWarning {
+  resource_id: string;
+  resource_name: string;
+  load_factor: number;
+  message: string;
+}
+
+/**
+ * Activate response is the SprintSerializer payload plus a non-blocking
+ * `warnings` array enumerating any capacity overruns at activation time
+ * (ADR-0037 Q2 amendment). Callers surface the warnings inline; they do
+ * not block the activation.
+ */
+export interface ActivateSprintResponse extends ApiSprint {
+  warnings?: CapacityWarning[];
+}
+
 /**
  * Sprint write mutations: create a planned sprint and close the active
  * sprint via the outbox endpoint. Both invalidate the sprint list cache so
@@ -162,7 +187,46 @@ export function useSprintMutations(projectId: string | null | undefined) {
     },
   });
 
-  return { createSprint, closeSprint };
+  // POST /api/v1/sprints/{id}/activate/ — PLANNED → ACTIVE.
+  // The API enforces the single-active-sprint constraint (409 on conflict)
+  // and returns the updated sprint plus a non-blocking capacity warnings
+  // array; the caller renders them inline (issue #299).
+  const activateSprint = useMutation({
+    mutationFn: async (sprintId: string) => {
+      const res = await apiClient.post<ActivateSprintResponse>(
+        `/sprints/${sprintId}/activate/`,
+        {},
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sprints', projectId] });
+    },
+  });
+
+  // PATCH /api/v1/sprints/{id}/ — edit a PLANNED sprint's name, goal, or
+  // window. The serializer marks state / committed_* / activated_at as
+  // read-only so this endpoint cannot transition a sprint by accident.
+  const updateSprint = useMutation({
+    mutationFn: async ({
+      sprintId,
+      payload,
+    }: {
+      sprintId: string;
+      payload: UpdateSprintPayload;
+    }) => {
+      const res = await apiClient.patch<ApiSprint>(
+        `/sprints/${sprintId}/`,
+        payload,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sprints', projectId] });
+    },
+  });
+
+  return { createSprint, closeSprint, activateSprint, updateSprint };
 }
 
 // ---------------------------------------------------------------------------

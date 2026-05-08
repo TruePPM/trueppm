@@ -1,13 +1,26 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useSprintMutations } from '@/hooks/useSprints';
 
+export interface ExistingSprintForEdit {
+  id: string;
+  name: string;
+  goal?: string;
+  start_date: string;
+  finish_date: string;
+}
+
 interface Props {
   projectId: string;
-  /** Suggested start date in ISO form — defaults to today. */
+  /** Suggested start date in ISO form — defaults to today. Ignored in edit mode. */
   defaultStart?: string;
   onClose: () => void;
   /** Called after the sprint is created. Closes the modal automatically. */
   onCreated?: (sprintId: string) => void;
+  /** When set, the modal opens in edit mode and PATCHes this sprint
+   *  instead of creating a new one (issue #299). */
+  existingSprint?: ExistingSprintForEdit;
+  /** Optional callback after a successful edit. */
+  onUpdated?: (sprintId: string) => void;
 }
 
 function getFocusable(container: HTMLElement): HTMLElement[] {
@@ -44,18 +57,23 @@ export function PlanSprintModal({
   defaultStart,
   onClose,
   onCreated,
+  existingSprint,
+  onUpdated,
 }: Props) {
-  const initialStart = defaultStart ?? todayIso();
-  const [name, setName] = useState('');
-  const [goal, setGoal] = useState('');
+  const isEdit = existingSprint !== undefined;
+  const initialStart = existingSprint?.start_date ?? defaultStart ?? todayIso();
+  const initialFinish = existingSprint?.finish_date ?? addDaysIso(initialStart, 13);
+  const [name, setName] = useState(existingSprint?.name ?? '');
+  const [goal, setGoal] = useState(existingSprint?.goal ?? '');
   const [startDate, setStartDate] = useState(initialStart);
-  const [finishDate, setFinishDate] = useState(addDaysIso(initialStart, 13));
+  const [finishDate, setFinishDate] = useState(initialFinish);
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<Element | null>(null);
 
-  const { createSprint } = useSprintMutations(projectId);
+  const { createSprint, updateSprint } = useSprintMutations(projectId);
+  const activeMutation = isEdit ? updateSprint : createSprint;
 
   // Capture trigger before opening; restore focus on unmount.
   useEffect(() => {
@@ -97,11 +115,31 @@ export function PlanSprintModal({
     startDate.length > 0 &&
     finishDate.length > 0 &&
     finishDate > startDate;
-  const canSubmit = trimmedName.length > 0 && datesValid && !createSprint.isPending;
+  const canSubmit = trimmedName.length > 0 && datesValid && !activeMutation.isPending;
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!canSubmit) return;
+    if (isEdit && existingSprint) {
+      updateSprint.mutate(
+        {
+          sprintId: existingSprint.id,
+          payload: {
+            name: trimmedName,
+            goal: goal.trim(),
+            start_date: startDate,
+            finish_date: finishDate,
+          },
+        },
+        {
+          onSuccess: (data) => {
+            onUpdated?.(data.id);
+            onClose();
+          },
+        },
+      );
+      return;
+    }
     createSprint.mutate(
       {
         name: trimmedName,
@@ -132,11 +170,11 @@ export function PlanSprintModal({
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
-          aria-label="Plan next sprint"
+          aria-label={isEdit ? 'Edit planned sprint' : 'Plan next sprint'}
           className="w-full max-w-md rounded-lg border border-neutral-border bg-neutral-surface p-6 pointer-events-auto"
         >
           <h2 className="text-base font-semibold text-neutral-text-primary mb-4">
-            Plan next sprint
+            {isEdit ? 'Edit planned sprint' : 'Plan next sprint'}
           </h2>
 
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -213,9 +251,11 @@ export function PlanSprintModal({
               />
             </label>
 
-            {createSprint.isError && (
+            {activeMutation.isError && (
               <p role="alert" className="text-xs text-semantic-critical">
-                Failed to create sprint. Please try again.
+                {isEdit
+                  ? 'Failed to update sprint. Please try again.'
+                  : 'Failed to create sprint. Please try again.'}
               </p>
             )}
 
@@ -223,7 +263,7 @@ export function PlanSprintModal({
               <button
                 type="button"
                 onClick={onClose}
-                disabled={createSprint.isPending}
+                disabled={activeMutation.isPending}
                 className="h-9 px-4 rounded text-sm font-medium border border-neutral-border
                   text-neutral-text-secondary hover:text-neutral-text-primary
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
@@ -238,7 +278,13 @@ export function PlanSprintModal({
                   focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
                   focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
               >
-                {createSprint.isPending ? 'Creating…' : 'Plan sprint'}
+                {activeMutation.isPending
+                  ? isEdit
+                    ? 'Saving…'
+                    : 'Creating…'
+                  : isEdit
+                    ? 'Save changes'
+                    : 'Plan sprint'}
               </button>
             </div>
           </form>

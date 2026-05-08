@@ -1,11 +1,20 @@
 import type { ApiSprint } from '@/types';
-import { formatDateRange } from './sprintMath';
+import { formatDateRange, daysUntil } from './sprintMath';
+
+/** Threshold (in days) at which the planned card flips from `Edit` → `Activate →`. */
+const ACTIVATE_THRESHOLD_DAYS = 3;
 
 interface Props {
   closed: ApiSprint[];
   active: ApiSprint | null;
   planned: ApiSprint[];
   onPlanNext: () => void;
+  /** Activate the given planned sprint (issue #299). When omitted, the
+   *  Activate→ button on the last-planned card is hidden. */
+  onActivate?: (sprintId: string) => void;
+  /** Edit the given planned sprint (issue #299). When omitted, the Edit
+   *  button on planned cards is hidden. */
+  onEditPlanned?: (sprintId: string) => void;
   /** Iteration length in weeks, derived from the median sprint width. */
   iterationWeeks?: number;
   /** Milestone the cadence is targeting; rendered into the caption. */
@@ -26,6 +35,8 @@ export function SprintTimelineStrip({
   active,
   planned,
   onPlanNext,
+  onActivate,
+  onEditPlanned,
   iterationWeeks,
   milestoneName,
 }: Props) {
@@ -52,15 +63,27 @@ export function SprintTimelineStrip({
         {active && (
           <SprintCard sprint={active} variant="active" data-testid="active-sprint-card" />
         )}
-        {planned.map((s, idx) => (
-          <SprintCard
-            key={s.id}
-            sprint={s}
-            variant="planned"
-            isLast={idx === planned.length - 1}
-            onPlanNext={onPlanNext}
-          />
-        ))}
+        {planned.map((s, idx) => {
+          const isLast = idx === planned.length - 1;
+          // Only the last-planned card carries an action — the user advances
+          // sprints in cadence, never out of order. Pre-active window:
+          // start_date is within ACTIVATE_THRESHOLD_DAYS → Activate →.
+          // Otherwise → Edit (PATCH via PlanSprintModal in edit mode).
+          const daysToStart = daysUntil(s.start_date);
+          const isReadyToActivate = isLast && daysToStart <= ACTIVATE_THRESHOLD_DAYS;
+          return (
+            <SprintCard
+              key={s.id}
+              sprint={s}
+              variant="planned"
+              isLast={isLast}
+              isReadyToActivate={isReadyToActivate}
+              onActivate={onActivate}
+              onEditPlanned={onEditPlanned}
+              onPlanNext={onPlanNext}
+            />
+          );
+        })}
         {showPlanSlot && (
           <button
             type="button"
@@ -99,11 +122,23 @@ interface SprintCardProps {
   sprint: ApiSprint;
   variant: 'closed' | 'active' | 'planned';
   isLast?: boolean;
+  isReadyToActivate?: boolean;
   onPlanNext?: () => void;
+  onActivate?: (sprintId: string) => void;
+  onEditPlanned?: (sprintId: string) => void;
   'data-testid'?: string;
 }
 
-function SprintCard({ sprint, variant, isLast, onPlanNext, ...rest }: SprintCardProps) {
+function SprintCard({
+  sprint,
+  variant,
+  isLast,
+  isReadyToActivate,
+  onPlanNext,
+  onActivate,
+  onEditPlanned,
+  ...rest
+}: SprintCardProps) {
   const tone =
     variant === 'active'
       ? 'border-brand-primary ring-2 ring-brand-primary/30 bg-semantic-on-track-bg sticky left-0 z-10'
@@ -158,16 +193,88 @@ function SprintCard({ sprint, variant, isLast, onPlanNext, ...rest }: SprintCard
         </p>
       )}
 
-      {variant === 'planned' && isLast && onPlanNext && (
-        <button
-          type="button"
-          onClick={onPlanNext}
-          className="self-start text-xs font-medium text-brand-primary hover:text-brand-primary-dark
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
-        >
-          Plan →
-        </button>
+      {variant === 'planned' && (
+        <PlannedCardAction
+          sprint={sprint}
+          isLast={isLast ?? false}
+          isReadyToActivate={isReadyToActivate ?? false}
+          onActivate={onActivate}
+          onEditPlanned={onEditPlanned}
+          onPlanNext={onPlanNext}
+        />
       )}
     </article>
   );
+}
+
+/**
+ * Action button on a planned-sprint card. Three rendering modes:
+ *  - last-planned + ready (≤ 3d before start): "Activate →" (filled, brand)
+ *  - last-planned otherwise: "Edit" (ghost, neutral)
+ *  - non-last planned: nothing — user advances the cadence in order, not
+ *    out of order (no premature activation jumps allowed).
+ *
+ * Falls back to `onPlanNext` (legacy "Plan →" affordance) when neither
+ * `onActivate` nor `onEditPlanned` is wired — preserves the old behavior
+ * for any caller that hasn't migrated yet.
+ */
+function PlannedCardAction({
+  sprint,
+  isLast,
+  isReadyToActivate,
+  onActivate,
+  onEditPlanned,
+  onPlanNext,
+}: {
+  sprint: ApiSprint;
+  isLast: boolean;
+  isReadyToActivate: boolean;
+  onActivate?: (sprintId: string) => void;
+  onEditPlanned?: (sprintId: string) => void;
+  onPlanNext?: () => void;
+}) {
+  if (!isLast) return null;
+
+  if (isReadyToActivate && onActivate) {
+    return (
+      <button
+        type="button"
+        onClick={() => onActivate(sprint.id)}
+        className="self-start h-7 px-2 rounded text-xs font-medium
+          bg-brand-primary text-white hover:bg-brand-primary-dark
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      >
+        Activate →
+      </button>
+    );
+  }
+
+  if (onEditPlanned) {
+    return (
+      <button
+        type="button"
+        onClick={() => onEditPlanned(sprint.id)}
+        className="self-start text-xs font-medium text-neutral-text-secondary
+          hover:text-brand-primary
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+      >
+        Edit
+      </button>
+    );
+  }
+
+  // Legacy fallback while callers migrate to the new handlers.
+  if (onPlanNext) {
+    return (
+      <button
+        type="button"
+        onClick={onPlanNext}
+        className="self-start text-xs font-medium text-brand-primary hover:text-brand-primary-dark
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+      >
+        Plan →
+      </button>
+    );
+  }
+  return null;
 }
