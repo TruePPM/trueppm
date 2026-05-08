@@ -260,31 +260,29 @@ export function SprintsView() {
         </main>
       ) : (
         <>
-      <div className="relative">
-        <SprintHeader
-          sprint={activeSprint}
-          sprintNumber={
-            activeSprint ? (sprintNumberByID.get(activeSprint.id) ?? 1) : 0
-          }
-          hasPlannedSprint={hasPlannedSprint}
-          onPlanNext={handlePlanNext}
-          onCloseSprint={handleCloseSprint}
-          onFilter={handleFilter}
-          filterButtonRef={filterAnchorRef}
+      <SprintHeader
+        sprint={activeSprint}
+        sprintNumber={
+          activeSprint ? (sprintNumberByID.get(activeSprint.id) ?? 1) : 0
+        }
+        hasPlannedSprint={hasPlannedSprint}
+        onPlanNext={handlePlanNext}
+        onCloseSprint={handleCloseSprint}
+        onFilter={handleFilter}
+        filterButtonRef={filterAnchorRef}
+      />
+      {/* Popover places itself in fixed coords from the Filter button so it
+          stays anchored regardless of horizontal layout overflow. */}
+      {activeSprint && (
+        <SprintFilterPopover
+          open={filterOpen}
+          anchorRef={filterAnchorRef}
+          value={filter}
+          onChange={handleFilterChange}
+          tasks={backlogTasks}
+          onClose={() => setFilterOpen(false)}
         />
-        {activeSprint && (
-          <div className="absolute right-6 top-full">
-            <SprintFilterPopover
-              open={filterOpen}
-              anchorRef={filterAnchorRef}
-              value={filter}
-              onChange={handleFilterChange}
-              tasks={backlogTasks}
-              onClose={() => setFilterOpen(false)}
-            />
-          </div>
-        )}
-      </div>
+      )}
 
       {capacityWarnings.length > 0 && (
         <div
@@ -319,7 +317,8 @@ export function SprintsView() {
         </div>
       )}
 
-      <main className="flex-1 overflow-y-auto px-6 pb-6 flex flex-col gap-4">
+      <main className="flex-1 overflow-y-auto pb-6 flex flex-col gap-4">
+        <div className="px-6 flex flex-col gap-4">
         {isLoading && (
           <p className="text-sm text-neutral-text-secondary">Loading sprints…</p>
         )}
@@ -381,43 +380,44 @@ export function SprintsView() {
             </div>
           </>
         )}
-      </main>
+        </div>
 
-      {!isLoading && !error && sprints.length > 0 && (
-        <SprintTimelineStrip
-          closed={buckets.closed}
-          active={buckets.active}
-          planned={buckets.planned}
-          onPlanNext={handlePlanNext}
-          onActivate={handleActivateSprint}
-          onEditPlanned={handleEditPlanned}
-          iterationWeeks={iterationWeeks}
-          milestoneName={activeSprint?.target_milestone_detail?.name ?? null}
-        />
-      )}
-
-      {!isLoading && !error && activeSprint && projectId && (
-        <SprintBacklogTable
-          projectId={projectId}
-          sprintId={activeSprint.id}
-          tasks={filteredBacklog}
-        />
-      )}
-
-      {!isLoading && !error && (() => {
-        // Retro panel attaches to the active sprint while one is running,
-        // otherwise to the most-recently-closed sprint so the team can
-        // amend the retro after close. Hidden when neither exists.
-        const target = activeSprint ?? buckets.closed[buckets.closed.length - 1] ?? null;
-        if (!target) return null;
-        return (
-          <RetroPanel
-            sprintId={target.id}
-            isClosed={target.state === 'COMPLETED'}
-            promoteToSprintId={buckets.planned[0]?.id ?? null}
+        {!isLoading && !error && sprints.length > 0 && (
+          <SprintTimelineStrip
+            closed={buckets.closed}
+            active={buckets.active}
+            planned={buckets.planned}
+            onPlanNext={handlePlanNext}
+            onActivate={handleActivateSprint}
+            onEditPlanned={handleEditPlanned}
+            iterationWeeks={iterationWeeks}
+            milestoneName={activeSprint?.target_milestone_detail?.name ?? null}
           />
-        );
-      })()}
+        )}
+
+        {!isLoading && !error && activeSprint && projectId && (
+          <SprintBacklogTable
+            projectId={projectId}
+            sprintId={activeSprint.id}
+            tasks={filteredBacklog}
+          />
+        )}
+
+        {!isLoading && !error && (() => {
+          // Retro panel attaches to the active sprint while one is running,
+          // otherwise to the most-recently-closed sprint so the team can
+          // amend the retro after close. Hidden when neither exists.
+          const target = activeSprint ?? buckets.closed[buckets.closed.length - 1] ?? null;
+          if (!target) return null;
+          return (
+            <RetroPanel
+              sprintId={target.id}
+              isClosed={target.state === 'COMPLETED'}
+              promoteToSprintId={buckets.planned[0]?.id ?? null}
+            />
+          );
+        })()}
+      </main>
         </>
       )}
 

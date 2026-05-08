@@ -1,6 +1,13 @@
-import { useEffect, useMemo, useRef, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import type { TaskStatus } from '@/types';
 import type { SprintBacklogTask } from '@/hooks/useSprintBacklog';
+
+/** Approximate popover width — kept in sync with `w-72` (288px) below. */
+const POPOVER_WIDTH = 288;
+/** Vertical gap between the anchor button and the popover. */
+const POPOVER_GAP = 8;
+/** Minimum margin from the viewport's left edge so the popover never clips. */
+const VIEWPORT_MARGIN = 8;
 
 /**
  * 'me' selects tasks assigned to the current user; 'anyone' clears the filter;
@@ -43,6 +50,31 @@ interface Props {
  */
 export function SprintFilterPopover({ open, anchorRef, value, onChange, tasks, onClose }: Props) {
   const popoverRef = useRef<HTMLDivElement>(null);
+  // Fixed-position coordinates derived from the anchor button so the popover
+  // hugs the Filter button regardless of the surrounding flex layout — fixes
+  // the off-screen render when the parent container extends past the viewport.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    function place() {
+      const rect = anchorRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      // Right-align the popover under the button, then clamp to the viewport
+      // so it never spills past the left or right edge.
+      let left = rect.right - POPOVER_WIDTH;
+      const maxLeft = window.innerWidth - POPOVER_WIDTH - VIEWPORT_MARGIN;
+      left = Math.max(VIEWPORT_MARGIN, Math.min(left, maxLeft));
+      setPos({ top: rect.bottom + POPOVER_GAP, left });
+    }
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open, anchorRef]);
 
   // Close on Escape and on outside-click.
   useEffect(() => {
@@ -98,7 +130,8 @@ export function SprintFilterPopover({ open, anchorRef, value, onChange, tasks, o
       ref={popoverRef}
       role="dialog"
       aria-label="Filter sprint backlog"
-      className="absolute z-30 mt-2 w-72 rounded-md border border-neutral-border bg-neutral-surface
+      style={pos ? { top: pos.top, left: pos.left } : { visibility: 'hidden' }}
+      className="fixed z-30 w-72 rounded-md border border-neutral-border bg-neutral-surface
         text-neutral-text-primary text-xs"
     >
       <div className="flex flex-col gap-3 p-3">
