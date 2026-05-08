@@ -1,0 +1,1 @@
+**Web — login screen** moved the *Forgot?* recovery link from the Password label row to a right-aligned position below the password input. Keyboard tab order now flows Email → Password → Forgot? → Keep me signed in → Sign in, removing the unwanted detour through the recovery link between the Email and Password fields.
