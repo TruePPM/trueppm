@@ -210,7 +210,10 @@ describe('PlanSprintModal', () => {
       await userEvent.type(name, 'Sprint Echo (renamed)');
       await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
       expect(updateMutateMock).toHaveBeenCalledTimes(1);
-      const call = updateMutateMock.mock.calls[0][0];
+      const call = updateMutateMock.mock.calls[0][0] as {
+        sprintId: string;
+        payload: Record<string, unknown>;
+      };
       expect(call.sprintId).toBe('sp-edit');
       expect(call.payload.name).toBe('Sprint Echo (renamed)');
       expect(call.payload.start_date).toBe('2026-05-01');

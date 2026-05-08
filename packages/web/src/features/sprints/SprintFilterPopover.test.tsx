@@ -118,7 +118,7 @@ describe('SprintFilterPopover', () => {
       />,
     );
     await user.click(screen.getByRole('button', { name: 'In Progress' }));
-    const lastCall = onChange.mock.calls.at(-1)?.[0];
+    const lastCall = onChange.mock.calls.at(-1)?.[0] as SprintFilterValue;
     expect(lastCall.statuses.has('IN_PROGRESS')).toBe(true);
   });
 
@@ -135,7 +135,7 @@ describe('SprintFilterPopover', () => {
       />,
     );
     await user.click(screen.getByRole('button', { name: 'Reset' }));
-    const lastCall = onChange.mock.calls.at(-1)?.[0];
+    const lastCall = onChange.mock.calls.at(-1)?.[0] as SprintFilterValue;
     expect(lastCall.assignee).toBe('anyone');
     expect(lastCall.statuses.size).toBe(0);
   });

@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, type RefObject } from 'react';
 import type { TaskStatus } from '@/types';
 import type { SprintBacklogTask } from '@/hooks/useSprintBacklog';
 
+/**
+ * 'me' selects tasks assigned to the current user; 'anyone' clears the filter;
+ * any other string is treated as a Resource id.
+ */
+export type SprintFilterAssignee = 'me' | 'anyone' | (string & {});
+
 export interface SprintFilterValue {
-  /** 'me' selects tasks assigned to the current user; 'anyone' clears the filter;
-   *  any other string is treated as a Resource id. */
-  assignee: 'me' | 'anyone' | string;
+  assignee: SprintFilterAssignee;
   /** Empty Set means "all statuses" (no filter). */
   statuses: Set<TaskStatus>;
 }
@@ -20,7 +24,7 @@ const STATUS_CHIPS: ReadonlyArray<{ status: TaskStatus; label: string; tone: str
 
 interface Props {
   open: boolean;
-  anchorRef: React.RefObject<HTMLElement | null>;
+  anchorRef: RefObject<HTMLElement | null>;
   value: SprintFilterValue;
   onChange: (next: SprintFilterValue) => void;
   /** Backlog rows currently in scope — used to derive the assignee picker

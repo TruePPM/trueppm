@@ -96,8 +96,9 @@ export function CloseSprintDialog({
             Carry over incomplete work to
           </legend>
           {nextPlannedSprintId && (
-            <label className="flex items-start gap-2 cursor-pointer">
+            <label htmlFor="close-sprint-carryover-next" className="flex items-start gap-2 cursor-pointer">
               <input
+                id="close-sprint-carryover-next"
                 type="radio"
                 name="close-sprint-carryover"
                 checked={choice === 'next'}
@@ -114,8 +115,10 @@ export function CloseSprintDialog({
               </span>
             </label>
           )}
-          <label className="flex items-start gap-2 cursor-pointer">
+          <label htmlFor="close-sprint-carryover-backlog" className="flex items-start gap-2 cursor-pointer">
             <input
+              id="close-sprint-carryover-backlog"
+              aria-label="Project backlog"
               type="radio"
               name="close-sprint-carryover"
               checked={choice === 'backlog'}
@@ -129,8 +132,10 @@ export function CloseSprintDialog({
               </span>
             </span>
           </label>
-          <label className="flex items-start gap-2 cursor-pointer">
+          <label htmlFor="close-sprint-carryover-none" className="flex items-start gap-2 cursor-pointer">
             <input
+              id="close-sprint-carryover-none"
+              aria-label="Leave on this sprint"
               type="radio"
               name="close-sprint-carryover"
               checked={choice === 'none'}
@@ -140,7 +145,7 @@ export function CloseSprintDialog({
             <span>
               <span className="font-medium">Leave on this sprint</span>
               <span className="block text-xs text-neutral-text-secondary">
-                Preserves the sprint's history for retrospectives.
+                Preserves the sprint&apos;s history for retrospectives.
               </span>
             </span>
           </label>

@@ -41,10 +41,8 @@ function readStoredFilter(sprintId: string): SprintFilterValue | null {
     const raw = window.sessionStorage.getItem(sprintFilterKey(sprintId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { assignee?: unknown; statuses?: unknown };
-    const assignee =
-      typeof parsed.assignee === 'string'
-        ? (parsed.assignee as SprintFilterValue['assignee'])
-        : 'anyone';
+    const assignee: SprintFilterValue['assignee'] =
+      typeof parsed.assignee === 'string' ? parsed.assignee : 'anyone';
     const statuses = Array.isArray(parsed.statuses)
       ? new Set(parsed.statuses.filter((s): s is string => typeof s === 'string'))
       : new Set<string>();
