@@ -43,6 +43,8 @@ import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { isTaskScheduled } from '@/lib/task';
 import { useUpdateTaskStatus } from '@/hooks/useBoardTasks';
 import { useBoardConfig } from '@/hooks/useBoardConfig';
+import { useMyTasksFilter } from '@/hooks/useMyTasksFilter';
+import { useCurrentUserResourceId } from '@/hooks/useCurrentUserResourceId';
 import { useBoardKeyboard } from '@/hooks/useBoardKeyboard';
 import { useBoardOverallocation } from '@/hooks/useBoardOverallocation';
 import { type BoardSortKey, type BoardViewConfig } from '@/hooks/useBoardSavedViews';
@@ -744,6 +746,14 @@ export function BoardView() {
   // Built-in view filter state (issue #191)
   const [cpOnly, setCpOnly] = useState(false);
   const [dueSoonDays, setDueSoonDays] = useState<number | null>(null);
+  // "My tasks" filter (issue #198) — default by role, persisted per-user-per-project.
+  const myTasksFilter = useMyTasksFilter(projectId || undefined);
+  const { resourceId: myResourceId } = useCurrentUserResourceId(projectId || undefined);
+  // Active when the user has opted in AND has a resource on the project. If the
+  // user has no resource and no email match, mineActive is true but myResourceId
+  // is null — phaseTaskMap below resolves that to "zero matches" so the
+  // dedicated empty state renders.
+  const mineActive = myTasksFilter.enabled && !myTasksFilter.isLoading;
   // Active saved/built-in view ID — synced to ?view= URL param
   const [activeViewId, setActiveViewId] = useState<string | null>(
     () => searchParams.get('view')
@@ -939,6 +949,13 @@ export function BoardView() {
           const diffMs = finish.getTime() - today.getTime();
           if (diffMs < 0 || diffMs > dueSoonDays * 86_400_000) continue;
         }
+        // "My tasks" filter (issue #198): only tasks assigned to the current
+        // user's resource. When mineActive but myResourceId is null, drop
+        // every task — the empty state below explains why.
+        if (mineActive) {
+          if (myResourceId === null) continue;
+          if (!task.assignees.some((a) => a.resourceId === myResourceId)) continue;
+        }
         byStatus[task.status]?.push(task);
       }
       // Apply sort within each status cell
@@ -948,7 +965,7 @@ export function BoardView() {
       result.set(phase.id, byStatus);
     }
     return result;
-  }, [phases, sort, cpOnly, dueSoonDays]);
+  }, [phases, sort, cpOnly, dueSoonDays, mineActive, myResourceId]);
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(String(event.active.id));
@@ -1329,6 +1346,26 @@ export function BoardView() {
               <span aria-hidden="true">⚠</span>
               Risk-linked only
             </button>
+            {/* "My tasks" filter pill — issue #198. Default by role: on for
+                Team Member, off for SCHEDULER+. Persisted per-user per-project. */}
+            <button
+              type="button"
+              onClick={() => myTasksFilter.setEnabled(!myTasksFilter.enabled)}
+              aria-pressed={myTasksFilter.enabled}
+              disabled={myTasksFilter.isLoading}
+              title="Show only tasks assigned to you"
+              className={[
+                'border rounded px-2 py-0.5 inline-flex items-center gap-1',
+                'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
+                'disabled:opacity-50 disabled:cursor-wait',
+                myTasksFilter.enabled
+                  ? 'bg-brand-primary/10 border-brand-primary/40 text-brand-primary-dark dark:text-brand-primary'
+                  : 'border-neutral-border text-neutral-text-primary hover:bg-neutral-surface-raised',
+              ].join(' ')}
+            >
+              <span aria-hidden="true">★</span>
+              My tasks
+            </button>
             {/* Column settings — issue #170 */}
             <button
               type="button"
@@ -1388,6 +1425,28 @@ export function BoardView() {
             />
           )}
 
+          {/* "My tasks" active chip (issue #198) — keeps the filter state
+              inescapable so users don't think the board has lost data. */}
+          {mineActive && (
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 text-xs
+                bg-brand-primary/5 border-b border-brand-primary/20
+                text-brand-primary-dark dark:text-brand-primary"
+              role="status"
+            >
+              <span aria-hidden="true">★</span>
+              <span>Filter: My tasks</span>
+              <button
+                type="button"
+                onClick={() => myTasksFilter.setEnabled(false)}
+                className="ml-1 underline hover:no-underline
+                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none rounded"
+              >
+                Show all →
+              </button>
+            </div>
+          )}
+
           {/* Board grid — scrollable */}
           <div className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken">
             {/* Sticky column headers */}
@@ -1436,8 +1495,11 @@ export function BoardView() {
             {(() => {
               const filteredPhases = sortedPhases.filter((phase) => {
                 const phaseCells = phaseTaskMap.get(phase.id);
-                // After cpOnly/dueSoonDays filtering, hide phases with no visible tasks.
-                if (cpOnly || dueSoonDays !== null) {
+                // After cpOnly / dueSoonDays / mineActive filtering, hide
+                // phases with no visible tasks. Without this the empty-state
+                // branch below can never render — phases would stay even when
+                // every cell has been emptied by the filter.
+                if (cpOnly || dueSoonDays !== null || mineActive) {
                   const visibleCount = Object.values(phaseCells ?? {}).reduce(
                     (s: number, arr) => s + (arr as unknown[]).length, 0,
                   );
@@ -1529,6 +1591,26 @@ export function BoardView() {
               }
 
               if (filteredPhases.length === 0) {
+                if (mineActive) {
+                  return (
+                    <div
+                      className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-text-secondary text-sm"
+                      role="status"
+                    >
+                      <p>No tasks assigned to you in this project yet.</p>
+                      <button
+                        type="button"
+                        onClick={() => myTasksFilter.setEnabled(false)}
+                        className="border border-brand-primary/40 rounded px-3 py-1.5 text-xs
+                          text-brand-primary-dark dark:text-brand-primary font-medium
+                          hover:bg-brand-primary/10
+                          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                      >
+                        Show all tasks
+                      </button>
+                    </div>
+                  );
+                }
                 return (
                   <div
                     className="flex items-center justify-center py-16 text-neutral-text-secondary text-sm"

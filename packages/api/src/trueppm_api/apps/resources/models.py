@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+from django.conf import settings
 from django.db import models
 
 from trueppm_api.apps.projects.models import Calendar, Project, Task, VersionedModel
@@ -24,6 +25,17 @@ class Resource(VersionedModel):
     )
     # Maximum availability as a fraction of full-time (1.0 = 100%, 0.5 = 50%)
     max_units = models.DecimalField(max_digits=4, decimal_places=2, default=1.0)
+    # Optional link to the User this resource represents. Drives the
+    # "My tasks" filter on the Board (issue #198) without relying on email
+    # matching. Nullable so non-human resources (teams, equipment) and
+    # legacy rows (created before this FK existed) remain valid.
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="resources",
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         db_table = "resources_resource"
