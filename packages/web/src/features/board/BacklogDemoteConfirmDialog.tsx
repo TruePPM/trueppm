@@ -12,7 +12,7 @@
  * is captured automatically by django-simple-history (the `status` field is in
  * `_HISTORY_DIFF_FIELDS`); this dialog does not currently persist a reason.
  */
-import { useEffect, useRef, type KeyboardEvent } from 'react';
+import { useEffect, useRef } from 'react';
 import type { Task } from '@/types';
 
 export interface BacklogDemoteConfirmDialogProps {
@@ -30,14 +30,15 @@ export function BacklogDemoteConfirmDialog({
 
   useEffect(() => {
     confirmRef.current?.focus();
-  }, []);
-
-  const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      onCancel();
-    }
-  };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onCancel();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onCancel]);
 
   return (
     <div
@@ -45,13 +46,14 @@ export function BacklogDemoteConfirmDialog({
       aria-modal="true"
       aria-labelledby="backlog-demote-heading"
       aria-describedby="backlog-demote-body"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4"
-      onKeyDown={handleKeyDown}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onCancel();
-      }}
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
     >
-      <div className="bg-neutral-surface border border-neutral-border rounded-lg max-w-md w-full p-5">
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 bg-black/30"
+        onClick={onCancel}
+      />
+      <div className="relative bg-neutral-surface border border-neutral-border rounded-lg max-w-md w-full p-5">
         <h2
           id="backlog-demote-heading"
           className="text-sm font-semibold text-neutral-text-primary"
