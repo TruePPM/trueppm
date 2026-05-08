@@ -1,3 +1,4 @@
+import type { Ref } from 'react';
 import type { ApiSprint, SprintState } from '@/types';
 
 interface Props {
@@ -10,6 +11,8 @@ interface Props {
   onPlanNext: () => void;
   onCloseSprint: () => void;
   onFilter: () => void;
+  /** Optional ref forwarded to the Filter button — anchor for the popover (#299). */
+  filterButtonRef?: Ref<HTMLButtonElement>;
 }
 
 const STATE_PILL_STYLE: Record<SprintState, string> = {
@@ -42,6 +45,7 @@ export function SprintHeader({
   onPlanNext,
   onCloseSprint,
   onFilter,
+  filterButtonRef,
 }: Props) {
   const isActive = sprint?.state === 'ACTIVE';
 
@@ -63,8 +67,10 @@ export function SprintHeader({
 
       <div className="flex items-center gap-2 shrink-0 pt-1">
         <button
+          ref={filterButtonRef}
           type="button"
           onClick={onFilter}
+          aria-haspopup="dialog"
           className="h-8 px-3 rounded text-xs font-medium border border-neutral-border
             text-neutral-text-secondary hover:text-neutral-text-primary
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"

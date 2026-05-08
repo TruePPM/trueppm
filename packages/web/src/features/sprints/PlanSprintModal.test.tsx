@@ -5,8 +5,14 @@ import { renderWithProviders } from '@/test/utils';
 import { PlanSprintModal } from './PlanSprintModal';
 
 const mutateMock = vi.fn();
+const updateMutateMock = vi.fn();
 const mockMutation = {
   mutate: mutateMock,
+  isPending: false,
+  isError: false,
+};
+const mockUpdateMutation = {
+  mutate: updateMutateMock,
   isPending: false,
   isError: false,
 };
@@ -15,13 +21,18 @@ vi.mock('@/hooks/useSprints', () => ({
   useSprintMutations: () => ({
     createSprint: mockMutation,
     closeSprint: { mutate: vi.fn(), isPending: false, isError: false },
+    activateSprint: { mutate: vi.fn(), isPending: false, isError: false },
+    updateSprint: mockUpdateMutation,
   }),
 }));
 
 beforeEach(() => {
   mutateMock.mockReset();
+  updateMutateMock.mockReset();
   mockMutation.isPending = false;
   mockMutation.isError = false;
+  mockUpdateMutation.isPending = false;
+  mockUpdateMutation.isError = false;
 });
 
 describe('PlanSprintModal', () => {
@@ -153,5 +164,71 @@ describe('PlanSprintModal', () => {
     );
     await userEvent.keyboard('{Escape}');
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #299 — Edit mode
+  // -------------------------------------------------------------------------
+
+  describe('edit mode (#299)', () => {
+    const existing = {
+      id: 'sp-edit',
+      name: 'Sprint Echo',
+      goal: 'Telemetry retrofit',
+      start_date: '2026-05-01',
+      finish_date: '2026-05-14',
+    };
+
+    it('renders with the edit-mode title and prefilled fields', () => {
+      renderWithProviders(
+        <PlanSprintModal
+          projectId="proj-1"
+          existingSprint={existing}
+          onClose={() => undefined}
+        />,
+      );
+      expect(
+        screen.getByRole('dialog', { name: /Edit planned sprint/i }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('textbox', { name: /Name/i })).toHaveValue('Sprint Echo');
+      expect(screen.getByLabelText(/^Start/i)).toHaveValue('2026-05-01');
+      expect(screen.getByLabelText(/^Finish/i)).toHaveValue('2026-05-14');
+      expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+    });
+
+    it('submits via updateSprint with the edited values', async () => {
+      const onClose = vi.fn();
+      renderWithProviders(
+        <PlanSprintModal
+          projectId="proj-1"
+          existingSprint={existing}
+          onClose={onClose}
+        />,
+      );
+      const name = screen.getByRole('textbox', { name: /Name/i });
+      await userEvent.clear(name);
+      await userEvent.type(name, 'Sprint Echo (renamed)');
+      await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+      expect(updateMutateMock).toHaveBeenCalledTimes(1);
+      const call = updateMutateMock.mock.calls[0][0];
+      expect(call.sprintId).toBe('sp-edit');
+      expect(call.payload.name).toBe('Sprint Echo (renamed)');
+      expect(call.payload.start_date).toBe('2026-05-01');
+      expect(call.payload.finish_date).toBe('2026-05-14');
+      // createSprint should NOT have been called.
+      expect(mutateMock).not.toHaveBeenCalled();
+    });
+
+    it('CTA shows "Saving…" while the update is pending', () => {
+      mockUpdateMutation.isPending = true;
+      renderWithProviders(
+        <PlanSprintModal
+          projectId="proj-1"
+          existingSprint={existing}
+          onClose={() => undefined}
+        />,
+      );
+      expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+    });
   });
 });

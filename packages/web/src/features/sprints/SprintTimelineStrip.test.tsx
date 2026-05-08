@@ -93,6 +93,105 @@ describe('SprintTimelineStrip', () => {
     expect(onPlanNext).toHaveBeenCalledOnce();
   });
 
+  // -------------------------------------------------------------------------
+  // Issue #299 — Activate / Edit variants on the last planned card
+  // -------------------------------------------------------------------------
+
+  it('renders Activate → on the last planned card when start date is within 3 days', () => {
+    const today = new Date();
+    const start = new Date(today.getTime() + 2 * 86_400_000).toISOString().slice(0, 10);
+    const finish = new Date(today.getTime() + 16 * 86_400_000).toISOString().slice(0, 10);
+    render(
+      <SprintTimelineStrip
+        closed={[]}
+        active={null}
+        planned={[makeSprint({ id: 'p-ready', state: 'PLANNED', start_date: start, finish_date: finish })]}
+        onPlanNext={noop}
+        onActivate={noop}
+        onEditPlanned={noop}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Activate →' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Edit' })).not.toBeInTheDocument();
+  });
+
+  it('renders Edit on the last planned card when start date is more than 3 days out', () => {
+    const today = new Date();
+    const start = new Date(today.getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
+    const finish = new Date(today.getTime() + 44 * 86_400_000).toISOString().slice(0, 10);
+    render(
+      <SprintTimelineStrip
+        closed={[]}
+        active={null}
+        planned={[makeSprint({ id: 'p-future', state: 'PLANNED', start_date: start, finish_date: finish })]}
+        onPlanNext={noop}
+        onActivate={noop}
+        onEditPlanned={noop}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Activate →' })).not.toBeInTheDocument();
+  });
+
+  it('Activate → button calls onActivate with the sprint id', async () => {
+    const today = new Date();
+    const start = new Date(today.getTime() + 1 * 86_400_000).toISOString().slice(0, 10);
+    const finish = new Date(today.getTime() + 15 * 86_400_000).toISOString().slice(0, 10);
+    const onActivate = vi.fn();
+    render(
+      <SprintTimelineStrip
+        closed={[]}
+        active={null}
+        planned={[makeSprint({ id: 'p-ready', state: 'PLANNED', start_date: start, finish_date: finish })]}
+        onPlanNext={noop}
+        onActivate={onActivate}
+        onEditPlanned={noop}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Activate →' }));
+    expect(onActivate).toHaveBeenCalledWith('p-ready');
+  });
+
+  it('Edit button calls onEditPlanned with the sprint id', async () => {
+    const today = new Date();
+    const start = new Date(today.getTime() + 30 * 86_400_000).toISOString().slice(0, 10);
+    const finish = new Date(today.getTime() + 44 * 86_400_000).toISOString().slice(0, 10);
+    const onEdit = vi.fn();
+    render(
+      <SprintTimelineStrip
+        closed={[]}
+        active={null}
+        planned={[makeSprint({ id: 'p-future', state: 'PLANNED', start_date: start, finish_date: finish })]}
+        onPlanNext={noop}
+        onActivate={noop}
+        onEditPlanned={onEdit}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(onEdit).toHaveBeenCalledWith('p-future');
+  });
+
+  it('non-last planned cards have no action button', () => {
+    const today = new Date();
+    const start = new Date(today.getTime() + 1 * 86_400_000).toISOString().slice(0, 10);
+    const finish = new Date(today.getTime() + 15 * 86_400_000).toISOString().slice(0, 10);
+    render(
+      <SprintTimelineStrip
+        closed={[]}
+        active={null}
+        planned={[
+          makeSprint({ id: 'p1', state: 'PLANNED', start_date: start, finish_date: finish }),
+          makeSprint({ id: 'p2', state: 'PLANNED', start_date: start, finish_date: finish }),
+        ]}
+        onPlanNext={noop}
+        onActivate={noop}
+        onEditPlanned={noop}
+      />,
+    );
+    // Exactly one Activate button — for p2, the last in the list.
+    expect(screen.getAllByRole('button', { name: 'Activate →' })).toHaveLength(1);
+  });
+
   it('renders the cadence caption with milestone name and iteration weeks', () => {
     render(
       <SprintTimelineStrip
