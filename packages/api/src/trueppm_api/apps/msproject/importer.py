@@ -32,7 +32,7 @@ def import_project(
     from django.db.models import F
 
     from trueppm_api.apps.projects.models import Dependency, Project, Task
-    from trueppm_api.apps.resources.models import Resource, TaskResource
+    from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
     def _update(pct: int, msg: str) -> None:
         if tracker is not None:
@@ -165,6 +165,25 @@ def import_project(
     if assignment_objects:
         TaskResource.objects.bulk_create(assignment_objects, ignore_conflicts=True)
         summary["assignments_created"] = len(assignment_objects)
+
+        # Auto-roster every assigned resource so they appear in Team → Roster /
+        # Heatmap / Allocation views after import (#241). Bulk-builds the rows
+        # because bulk_create skipped the per-row signal path used by the API
+        # ViewSet.
+        rostered_resource_pks = {a.resource_id for a in assignment_objects}
+        existing_pairs = set(
+            ProjectResource.objects.filter(
+                project_id=project_id,
+                resource_id__in=rostered_resource_pks,
+            ).values_list("resource_id", flat=True)
+        )
+        new_roster = [
+            ProjectResource(project_id=project_id, resource_id=pk)
+            for pk in rostered_resource_pks
+            if pk not in existing_pairs
+        ]
+        if new_roster:
+            ProjectResource.objects.bulk_create(new_roster, ignore_conflicts=True)
 
     _update(90, "Import complete, triggering schedule recalculation...")
     return summary

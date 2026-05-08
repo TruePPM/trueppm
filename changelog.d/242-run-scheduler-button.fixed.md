@@ -1,0 +1,1 @@
+- **Run scheduler button now triggers a recalculation**: the `Run scheduler` button on the Allocation timeline unscheduled-assignments banner and the Heatmap 409 empty state now POSTs to `/projects/{id}/schedule/` and refreshes the affected views. Previously wired but untested; the new vitest coverage prevents regression on the invalidated query keys (#242).

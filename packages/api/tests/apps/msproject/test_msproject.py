@@ -29,7 +29,7 @@ from trueppm_api.apps.msproject.parser import (
     parse_xml,
 )
 from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
-from trueppm_api.apps.resources.models import Resource, TaskResource
+from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 
 User = get_user_model()
 
@@ -601,6 +601,39 @@ class TestImporter:
         data = ProjectData(tasks=[TaskData(uid=1, name="Task A")])
         import_project(str(project.pk), data, tracker=tracker)
         assert tracker.update.call_count >= 3
+
+    def test_import_auto_rosters_assigned_resources(self, project: Project) -> None:
+        """Importing assignments must auto-add resources to ProjectResource (#241)."""
+        data = ProjectData(
+            tasks=[
+                TaskData(
+                    uid=1,
+                    name="Task A",
+                    resource_assignments=[AssignmentData(task_uid=1, resource_uid=10, units=1.0)],
+                ),
+                TaskData(
+                    uid=2,
+                    name="Task B",
+                    resource_assignments=[
+                        AssignmentData(task_uid=2, resource_uid=10, units=0.5),
+                        AssignmentData(task_uid=2, resource_uid=11, units=1.0),
+                    ],
+                ),
+            ],
+            resources=[
+                ResourceData(uid=10, name="Alice", max_units=1.0),
+                ResourceData(uid=11, name="Bob", max_units=1.0),
+            ],
+        )
+        import_project(str(project.pk), data)
+
+        rostered = set(
+            ProjectResource.objects.filter(project=project).values_list("resource__name", flat=True)
+        )
+        assert rostered == {"Alice", "Bob"}
+        # Idempotent — re-running the import does not duplicate roster rows.
+        import_project(str(project.pk), data)
+        assert ProjectResource.objects.filter(project=project).count() == 2
 
 
 # ---------------------------------------------------------------------------
