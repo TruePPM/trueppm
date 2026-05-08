@@ -43,10 +43,37 @@ test.describe('Wave 8 — Login screen', () => {
     await expect(checkbox).toBeChecked();
   });
 
-  test('Forgot? link is present next to the password label', async ({ page }) => {
+  test('Forgot? link is present below the password input', async ({ page }) => {
     await page.goto('/login');
 
     await expect(page.getByRole('link', { name: 'Forgot?' })).toBeVisible();
+  });
+
+  test('Tab order goes Email → Password → Forgot? → Keep me signed in → Sign in (Forgot? does not interrupt the credentials)', async ({ page }) => {
+    await page.goto('/login');
+
+    // Fill the form so the Sign in button isn't disabled (disabled buttons
+    // aren't focusable, which would mask whether tab actually reached them).
+    const email = page.getByLabel('Email');
+    await email.fill('user@example.com');
+    await page.getByLabel('Password').fill('password123');
+
+    await email.focus();
+    await expect(email).toBeFocused();
+
+    await page.keyboard.press('Tab');
+    await expect(page.getByLabel('Password')).toBeFocused();
+
+    // The link sits below the password input — Forgot? comes AFTER the
+    // password in the tab order, not between Email and Password.
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('link', { name: 'Forgot?' })).toBeFocused();
+
+    await page.keyboard.press('Tab');
+    await expect(page.getByLabel(/Keep me signed in/)).toBeFocused();
+
+    await page.keyboard.press('Tab');
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeFocused();
   });
 
   test('SSO button shows enterprise tooltip on click', async ({ page }) => {

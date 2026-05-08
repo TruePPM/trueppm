@@ -185,19 +185,13 @@ export function LoginPage() {
             />
           </div>
 
-          {/* Password */}
+          {/* Password — Forgot? link sits below the input so the keyboard tab
+              order goes Email → Password → checkbox → Sign in without a detour
+              through the recovery link in the middle of the credentials. */}
           <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between">
-              <label htmlFor={passwordId} className="text-sm font-medium text-neutral-text-primary">
-                Password
-              </label>
-              <a
-                href="/forgot-password"
-                className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark"
-              >
-                Forgot?
-              </a>
-            </div>
+            <label htmlFor={passwordId} className="text-sm font-medium text-neutral-text-primary">
+              Password
+            </label>
             <input
               id={passwordId}
               type="password"
@@ -214,6 +208,14 @@ export function LoginPage() {
                 disabled:opacity-50 disabled:cursor-not-allowed
               "
             />
+            <div className="flex justify-end">
+              <a
+                href="/forgot-password"
+                className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark"
+              >
+                Forgot?
+              </a>
+            </div>
           </div>
 
           {/* Remember me */}
