@@ -21,7 +21,13 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 
 from trueppm_api.apps.access.permissions import IsProjectMember, IsProjectScheduler
-from trueppm_api.apps.projects.models import Dependency, EstimateStatus, EstimationMode, Project
+from trueppm_api.apps.projects.models import (
+    Dependency,
+    EstimateStatus,
+    EstimationMode,
+    Project,
+    Task,
+)
 from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus, ScheduleRequestReason
 from trueppm_api.apps.scheduling.serializers import FailedTaskSerializer
 from trueppm_api.apps.scheduling.services import enqueue_recalculate
@@ -114,7 +120,9 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         timezone=cal.timezone if cal else "UTC",
     )
 
-    db_tasks = list(project.tasks.filter(is_deleted=False))
+    # Monte Carlo simulates committed delivery only — BACKLOG cards are not
+    # part of the forecast. ADR-0057 / Task.committed.
+    db_tasks = list(Task.committed.filter(project=project))
 
     # Gate: in suggest_approve mode, pending estimates are excluded from MC.
     # The scheduler's all-or-none rule means passing None for any field is

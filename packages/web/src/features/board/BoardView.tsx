@@ -68,6 +68,8 @@ import { RiskPopover } from './RiskPopover';
 import { BoardCardPopover } from './BoardCardPopover';
 import { TaskDetailDrawer } from '@/features/schedule/TaskDetailDrawer';
 import { phaseColor } from './phaseColors';
+import { BacklogBand, BACKLOG_BAND_DROPPABLE_ID } from './BacklogBand';
+import { BacklogDemoteConfirmDialog } from './BacklogDemoteConfirmDialog';
 
 // ---------------------------------------------------------------------------
 // Sort helper
@@ -720,7 +722,11 @@ export function BoardView() {
   const startWorkshop = useStartWorkshop(projectId || null);
   const endWorkshop = useEndWorkshop(projectId || null);
   const phaseReorder = usePhaseReorder(projectId || null);
-  const COLUMNS = rawColumns.filter((c) => c.visible);
+  // BACKLOG cards live in the band above the phase grid (ADR-0057), not in an
+  // inline column inside each phase. The visible-column list excludes BACKLOG
+  // even when the saved board config marks it visible — that flag governs the
+  // (now-deprecated) inline column, not the band.
+  const COLUMNS = rawColumns.filter((c) => c.visible && c.status !== 'BACKLOG');
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -822,7 +828,32 @@ export function BoardView() {
   );
 
   const createTask = useCreateTask(projectId || null);
-  const phases = useMemo(() => buildPhases(tasks ?? [], workshopMode), [tasks, workshopMode]);
+
+  // Partition BACKLOG cards out of the phase tree (ADR-0057). Summary tasks
+  // never have BACKLOG status, so the isSummary check is defensive — it would
+  // otherwise be unreachable. The committed half drives buildPhases; the
+  // backlog half drives the BacklogBand above the grid.
+  const { committedTasks, backlogTasks } = useMemo(() => {
+    const committed: Task[] = [];
+    const backlog: Task[] = [];
+    for (const t of tasks ?? []) {
+      if (t.status === 'BACKLOG' && !t.isSummary) {
+        backlog.push(t);
+      } else {
+        committed.push(t);
+      }
+    }
+    return { committedTasks: committed, backlogTasks: backlog };
+  }, [tasks]);
+
+  const phases = useMemo(
+    () => buildPhases(committedTasks, workshopMode),
+    [committedTasks, workshopMode],
+  );
+
+  // Demotion confirmation candidate (ADR-0057, Option C) — set by handleDragEnd
+  // when a NOT_STARTED card is dropped on the band; cleared on confirm/cancel.
+  const [backlogDemoteCandidate, setBacklogDemoteCandidate] = useState<Task | null>(null);
 
   // Hoisted ahead of `handleDragEnd` / `handleMenuMove` so the WIP-limit
   // guard can read live counts before issuing the move mutation (#232).
@@ -975,7 +1006,13 @@ export function BoardView() {
     (event: DragOverEvent) => {
       const overId = event.over?.id;
       if (!overId) { setOverCell(null); return; }
-      const cellId = String(overId); // `${phaseId}:${status}`
+      const cellId = String(overId); // `${phaseId}:${status}` or BACKLOG_BAND_DROPPABLE_ID
+      // Backlog band: highlight unless the dragged card is already in backlog.
+      if (cellId === BACKLOG_BAND_DROPPABLE_ID) {
+        if (activeTask?.status === 'BACKLOG') setOverCell(null);
+        else setOverCell(cellId);
+        return;
+      }
       const [, newStatus] = cellId.split(':');
       // Don't highlight source cell (rule 103)
       if (newStatus === activeTask?.status) {
@@ -1021,6 +1058,41 @@ export function BoardView() {
       // Card status change (and optional phase move in workshop mode)
       const overId = over?.id;
       if (!overId || !activeTask) return;
+
+      // Drop onto the BACKLOG band above the phase grid (ADR-0057).
+      if (String(overId) === BACKLOG_BAND_DROPPABLE_ID) {
+        // No-op when already in backlog — drag dropped back onto the band.
+        if (activeTask.status === 'BACKLOG') return;
+        // Lock at IN_PROGRESS+: work has begun (or finished), demoting back to
+        // BACKLOG would erase momentum/history. The card simply doesn't move;
+        // we announce via the live region so the keyboard/SR path isn't silent.
+        if (
+          activeTask.status === 'IN_PROGRESS' ||
+          activeTask.status === 'REVIEW' ||
+          activeTask.status === 'COMPLETE'
+        ) {
+          if (ariaLiveRef.current) {
+            ariaLiveRef.current.textContent =
+              `${activeTask.name} cannot move to backlog — work has already started.`;
+          }
+          return;
+        }
+        // NOT_STARTED (TO DO): committed but not started — open the deliberate-
+        // decision dialog (VoC outcome, Option C). Sarah's mobile concern is
+        // mitigated by a focus-first confirm button + Esc-to-cancel.
+        if (activeTask.status === 'NOT_STARTED') {
+          setBacklogDemoteCandidate(activeTask);
+          return;
+        }
+        // ON_HOLD (legacy) follows the same guard pattern as a backlog item —
+        // it's not a committed delivery, so demote it without confirmation.
+        updateStatus.mutate({ projectId, taskId: activeTask.id, status: 'BACKLOG' });
+        if (ariaLiveRef.current) {
+          ariaLiveRef.current.textContent = `${activeTask.name} moved to Backlog`;
+        }
+        return;
+      }
+
       const [newPhaseId, newStatus] = String(overId).split(':');
       if (!newStatus) return;
       const currentPhaseId = activeTask.parentId ?? 'root';
@@ -1447,8 +1519,25 @@ export function BoardView() {
             </div>
           )}
 
-          {/* Board grid — scrollable */}
-          <div className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken">
+          {/* Body — backlog rail (left) + scrolling phase grid. The rail
+              owns its own scroll so the phase grid can be paged without
+              dragging the inbox along. ADR-0057 / epic #361 child A. */}
+          <div className="flex-1 flex flex-row min-h-0">
+
+            <BacklogBand
+              tasks={backlogTasks}
+              isDragActive={activeId !== null}
+              isOver={overCell === BACKLOG_BAND_DROPPABLE_ID}
+              phaseColorFor={(parentId) =>
+                parentId ? phaseColor(parentId) : phaseColor('root')
+              }
+              focusedCardId={focusedCardId}
+              onCardFocus={handleCardFocus}
+              onCardClick={handleCardClick}
+            />
+
+            {/* Board grid — scrollable */}
+            <div className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken">
             {/* Sticky column headers */}
             <div
               className="grid gap-2 px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10"
@@ -1625,6 +1714,7 @@ export function BoardView() {
                 <PhaseLane key={phase.id} {...laneProps(phase)} />
               ));
             })()}
+            </div>
           </div>
         </div>
 
@@ -1653,6 +1743,28 @@ export function BoardView() {
       >
         +
       </button>
+
+      {/* Backlog demote confirm — opens when a NOT_STARTED card drops on the
+          band (ADR-0057, Option C). Audit row is captured automatically by
+          simple_history on the status field change. */}
+      {backlogDemoteCandidate && (
+        <BacklogDemoteConfirmDialog
+          task={backlogDemoteCandidate}
+          onCancel={() => setBacklogDemoteCandidate(null)}
+          onConfirm={() => {
+            const target = backlogDemoteCandidate;
+            setBacklogDemoteCandidate(null);
+            updateStatus.mutate({
+              projectId,
+              taskId: target.id,
+              status: 'BACKLOG',
+            });
+            if (ariaLiveRef.current) {
+              ariaLiveRef.current.textContent = `${target.name} moved to Backlog`;
+            }
+          }}
+        />
+      )}
 
       {/* Per-phase task create modal (issue #305 — replaced AddTaskModal) */}
       {addTaskPhase && projectId && (

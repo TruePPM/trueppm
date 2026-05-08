@@ -244,9 +244,12 @@ describe('BoardView', () => {
     resetMocks();
   });
 
-  it('renders column headers', () => {
+  it('renders column headers (BACKLOG lifted to the rail per ADR-0057)', () => {
     renderBoard();
-    expect(screen.getByText('BACKLOG')).toBeInTheDocument();
+    // BACKLOG is no longer an inline column — it lives in the left-side rail
+    // header rendered as the "Inbox · backlog" eyebrow (#361 / ADR-0057).
+    expect(screen.queryByText('BACKLOG')).not.toBeInTheDocument();
+    expect(screen.getByText(/Inbox · backlog/i)).toBeInTheDocument();
     expect(screen.getByText('TO DO')).toBeInTheDocument();
     expect(screen.getByText('IN PROGRESS')).toBeInTheDocument();
     expect(screen.getByText('REVIEW')).toBeInTheDocument();

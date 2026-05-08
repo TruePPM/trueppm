@@ -300,6 +300,20 @@ class TaskStatus(models.TextChoices):
     COMPLETE = "COMPLETE", "Complete"
 
 
+class CommittedTaskManager(models.Manager["Task"]):
+    """Tasks that represent committed delivery: not BACKLOG and not soft-deleted.
+
+    Use this for any aggregate where BACKLOG cards would distort the picture —
+    capacity heat maps, Schedule/Gantt view, Monte Carlo input, client PDF
+    export, Board phase progress. Default ``Task.objects`` is intentionally
+    unfiltered so the Board can still render BACKLOG cards inside the
+    band-above-grid layout (ADR-0057).
+    """
+
+    def get_queryset(self) -> models.QuerySet[Task]:
+        return super().get_queryset().exclude(status=TaskStatus.BACKLOG).filter(is_deleted=False)
+
+
 class Task(VersionedModel):
     """A schedulable unit of work within a project.
 
@@ -428,6 +442,13 @@ class Task(VersionedModel):
     story_points = models.PositiveSmallIntegerField(null=True, blank=True)
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_TASK)
+
+    # Default manager — unfiltered. Listed first so it remains _default_manager
+    # (Board view depends on seeing BACKLOG cards).
+    objects: models.Manager[Task] = models.Manager()
+    # Aggregate manager — filters out BACKLOG and soft-deleted. Used by Schedule
+    # view, capacity, Monte Carlo, PDF export. See CommittedTaskManager docstring.
+    committed: CommittedTaskManager = CommittedTaskManager()
 
     class Meta:
         db_table = "projects_task"
