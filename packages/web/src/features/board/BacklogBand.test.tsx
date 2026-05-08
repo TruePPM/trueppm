@@ -166,4 +166,125 @@ describe('BacklogBand (rail)', () => {
     const cta = screen.getByRole('button', { name: /Capture idea/i });
     expect(cta).toBeDisabled();
   });
+
+  it('renders compact density without phase line and shows phase dot + initials', () => {
+    render(
+      <DndContext>
+        <BacklogBand
+          {...BASE_PROPS}
+          density="compact"
+          tasks={[
+            makeTask({
+              name: 'Triage requests',
+              assignees: [{ id: 'r1', name: 'Sarah Lee', avatarUrl: null }],
+              priorityRank: 4,
+            }),
+          ]}
+        />
+      </DndContext>,
+    );
+    expect(screen.getByText('Triage requests')).toBeInTheDocument();
+    expect(screen.queryByText(/Phase|Project/)).not.toBeInTheDocument();
+  });
+
+  it('full density renders priority + duration + age, "Phase" when parentId is set', () => {
+    render(
+      <DndContext>
+        <BacklogBand
+          {...BASE_PROPS}
+          density="full"
+          tasks={[
+            makeTask({
+              parentId: 'phase-a',
+              priorityRank: 5,
+              duration: 3,
+              statusEnteredAt: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+            }),
+          ]}
+        />
+      </DndContext>,
+    );
+    expect(screen.getByText('Phase')).toBeInTheDocument();
+    expect(screen.getByText(/^P5$/)).toBeInTheDocument();
+    expect(screen.getByText(/3d$/)).toBeInTheDocument();
+    expect(screen.getByText(/2d ago/)).toBeInTheDocument();
+  });
+
+  it('full density labels stalled cards distinctly and shows "Project" when ungrouped', () => {
+    render(
+      <DndContext>
+        <BacklogBand
+          {...BASE_PROPS}
+          density="full"
+          tasks={[
+            makeTask({
+              parentId: null,
+              priorityRank: undefined,
+              statusEnteredAt: new Date(Date.now() - 8 * 86_400_000).toISOString(),
+            }),
+          ]}
+        />
+      </DndContext>,
+    );
+    expect(screen.getByText('Project')).toBeInTheDocument();
+    expect(screen.getByText(/^P—$/)).toBeInTheDocument();
+    expect(screen.getByText(/8d · stalled/)).toBeInTheDocument();
+  });
+
+  it('renders the linked-dependency icon when predecessorCount > 0', () => {
+    renderBand({
+      tasks: [makeTask({ predecessorCount: 2, readiness: 'ready' })],
+    });
+    expect(screen.getByLabelText('Linked dependency')).toBeInTheDocument();
+  });
+
+  it('renders readiness "estimated" when an owner is set without dependencies', () => {
+    renderBand({
+      tasks: [
+        makeTask({
+          readiness: 'estimated',
+          assignees: [{ id: 'r1', name: 'Marcus Chen', avatarUrl: null }],
+        }),
+      ],
+    });
+    // Readiness chip text matches the variant name.
+    expect(screen.getByText(/^estimated$/)).toBeInTheDocument();
+  });
+
+  it('auto-expands a collapsed rail when a drag becomes active', () => {
+    localStorage.setItem('trueppm.board.backlogBand.collapsed', '1');
+    const { rerender } = render(
+      <DndContext>
+        <BacklogBand
+          {...BASE_PROPS}
+          tasks={[makeTask({ name: 'Card A' })]}
+          isDragActive={false}
+          isOver={false}
+        />
+      </DndContext>,
+    );
+    expect(screen.getByRole('button', { name: /Expand backlog rail/i })).toBeInTheDocument();
+    expect(screen.queryByText('Card A')).not.toBeInTheDocument();
+
+    rerender(
+      <DndContext>
+        <BacklogBand
+          {...BASE_PROPS}
+          tasks={[makeTask({ name: 'Card A' })]}
+          isDragActive
+          isOver={false}
+        />
+      </DndContext>,
+    );
+    expect(screen.getByText('Card A')).toBeInTheDocument();
+  });
+
+  it('shows the stalled-count badge on the collapsed strip', () => {
+    localStorage.setItem('trueppm.board.backlogBand.collapsed', '1');
+    const old = new Date(Date.now() - 9 * 86_400_000).toISOString();
+    renderBand({
+      tasks: [makeTask({ statusEnteredAt: old })],
+    });
+    expect(screen.getByLabelText(/^1 stalled$/i)).toBeInTheDocument();
+  });
 });
