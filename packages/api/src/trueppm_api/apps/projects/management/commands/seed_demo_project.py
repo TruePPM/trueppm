@@ -452,6 +452,7 @@ class Command(BaseCommand):
 
     def _assign_resources(self, phase_tasks: dict[str, Any], resources: dict[str, Any]) -> None:
         from trueppm_api.apps.resources.models import TaskResource
+        from trueppm_api.apps.resources.services import ensure_project_resource
 
         # Spread assignments across the in-flight work packages. Cleo is the
         # over-allocated member — pinned to two simultaneous packages at full
@@ -466,11 +467,11 @@ class Command(BaseCommand):
         ]
         for pkg_name, res_name, units in assignments:
             if pkg_name in phase_tasks and res_name in resources:
-                TaskResource.objects.create(
-                    task=phase_tasks[pkg_name],
-                    resource=resources[res_name],
-                    units=units,
-                )
+                task = phase_tasks[pkg_name]
+                resource = resources[res_name]
+                TaskResource.objects.create(task=task, resource=resource, units=units)
+                # Mirror the API auto-roster behaviour so demo Team views are populated (#241).
+                ensure_project_resource(task.project, resource)
 
     # ------------------------------------------------------------------
     # Sprints (history → active → planned)

@@ -40,6 +40,7 @@ from trueppm_api.apps.resources.serializers import (
     TaskResourceSerializer,
     TaskSkillRequirementSerializer,
 )
+from trueppm_api.apps.resources.services import ensure_project_resource
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
 
 # ---------------------------------------------------------------------------
@@ -622,12 +623,8 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         assignment_id = str(obj.pk)
 
         # Auto-roster: assigning a resource to a task implicitly adds them to
-        # the project roster so they appear in Team → Roster / Heatmap. Safe to
-        # call unconditionally — get_or_create is idempotent.
-        ProjectResource.objects.get_or_create(
-            project_id=obj.task.project_id,
-            resource=obj.resource,
-        )
+        # the project roster so they appear in Team → Roster / Heatmap.
+        ensure_project_resource(obj.task.project, obj.resource)
 
         def _on_commit() -> None:
             from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -647,6 +644,10 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         project_id = str(obj.task.project_id)
         task_id = str(obj.task.pk)
         assignment_id = str(obj.pk)
+
+        # Re-pointing an assignment to a different resource must roster the new
+        # one — otherwise editing assignee leaves them invisible in Team views (#241).
+        ensure_project_resource(obj.task.project, obj.resource)
 
         def _on_commit() -> None:
             from trueppm_api.apps.sync.broadcast import broadcast_board_event

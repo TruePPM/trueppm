@@ -370,3 +370,51 @@ class TestAutoRosterOnAssignment:
         )
         assert r.status_code == 201
         assert ProjectResource.objects.filter(project=project, resource=resource).count() == 1
+
+    def test_clearing_assignment_does_not_remove_roster(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        task: Task,
+        resource: Resource,
+        project: Project,
+    ) -> None:
+        """Deleting a TaskResource leaves the resource on the project roster.
+
+        Roster removal is an explicit PM action (via the roster UI); a single
+        unassign should not silently drop the resource from Team views.
+        """
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(task.pk), "resource": str(resource.pk), "units": "1.0"},
+        )
+        assert r.status_code == 201
+        assignment_id = r.data["id"]
+        del_r = client.delete(f"/api/v1/task-resources/{assignment_id}/")
+        assert del_r.status_code == 204
+        assert ProjectResource.objects.filter(project=project, resource=resource).exists()
+
+    def test_repointing_assignment_rosters_new_resource(
+        self,
+        client: APIClient,
+        membership: ProjectMembership,
+        task: Task,
+        resource: Resource,
+        resource_50: Resource,
+        project: Project,
+    ) -> None:
+        """PATCHing a TaskResource onto a different resource auto-rosters that resource (#241)."""
+        r = client.post(
+            "/api/v1/task-resources/",
+            {"task": str(task.pk), "resource": str(resource.pk), "units": "1.0"},
+        )
+        assert r.status_code == 201
+        assignment_id = r.data["id"]
+
+        assert not ProjectResource.objects.filter(project=project, resource=resource_50).exists()
+        patch_r = client.patch(
+            f"/api/v1/task-resources/{assignment_id}/",
+            {"resource": str(resource_50.pk)},
+        )
+        assert patch_r.status_code == 200
+        assert ProjectResource.objects.filter(project=project, resource=resource_50).exists()
