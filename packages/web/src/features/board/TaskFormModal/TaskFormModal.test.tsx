@@ -27,8 +27,10 @@ const addDependencyMutate = vi.fn().mockResolvedValue({});
 vi.mock('@/hooks/useScheduleTasks', () => ({
   useScheduleTasks: () => ({
     tasks: [
-      { id: 'parent-task-id', wbs: '1', name: 'Parent task', isSummary: true } as Partial<Task>,
-      { id: 'sibling-1', wbs: '2', name: 'Sibling one', isSummary: false } as Partial<Task>,
+      { id: 'parent-task-id', wbs: '1', name: 'Parent task', isSummary: true, isMilestone: false } as Partial<Task>,
+      { id: 'sibling-1', wbs: '2', name: 'Sibling one', isSummary: false, isMilestone: false } as Partial<Task>,
+      { id: 'leaf-phase-id', wbs: '3', name: 'Phase 4', isSummary: false, isMilestone: false } as Partial<Task>,
+      { id: 'milestone-1', wbs: '4', name: 'Launch GA', isSummary: false, isMilestone: true } as Partial<Task>,
     ] as Task[],
     links: [],
     isLoading: false,
@@ -204,6 +206,46 @@ describe('TaskFormModal (issue #305)', () => {
       parent_id: 'phase-uuid',
       duration: 1,
       status: 'NOT_STARTED',
+    }));
+  });
+
+  it('parent picker includes leaf tasks and excludes milestones (#378)', () => {
+    renderModal();
+    const datalist = document.getElementById('task-parent-options') as HTMLDataListElement;
+    expect(datalist).not.toBeNull();
+    const labels = Array.from(datalist.options).map((o) => o.value);
+    // Summary phase + both leaf tasks are valid parents.
+    expect(labels).toContain('1 · Parent task');
+    expect(labels).toContain('2 · Sibling one');
+    expect(labels).toContain('3 · Phase 4');
+    // Milestones can't host children — never offered as a parent.
+    expect(labels).not.toContain('4 · Launch GA');
+  });
+
+  it('shows leaf-promotion hint copy when a leaf task is selected as parent (#378)', async () => {
+    renderModal();
+    const picker = screen.getByLabelText<HTMLInputElement>(/Parent phase/);
+    fireEvent.change(picker, { target: { value: '2 · Sibling one' } });
+    expect(
+      await screen.findByText('Adding a task here will turn this task into a phase.'),
+    ).toBeInTheDocument();
+    // Switching back to a real summary phase reverts to the regular hint.
+    fireEvent.change(picker, { target: { value: '1 · Parent task' } });
+    expect(
+      await screen.findByText('New task will be added as a child of this phase.'),
+    ).toBeInTheDocument();
+  });
+
+  it('posts the leaf parent id on create — server promotes it to a summary on next read (#378)', async () => {
+    renderModal();
+    const picker = screen.getByLabelText<HTMLInputElement>(/Parent phase/);
+    fireEvent.change(picker, { target: { value: '3 · Phase 4' } });
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Child of leaf' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await Promise.resolve();
+    expect(createMutate).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Child of leaf',
+      parent_id: 'leaf-phase-id',
     }));
   });
 

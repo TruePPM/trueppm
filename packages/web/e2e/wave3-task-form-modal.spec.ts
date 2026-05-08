@@ -163,6 +163,31 @@ test.describe('Task create/edit modal (#305)', () => {
     await expect(dialog.getByText(/to save/)).toBeVisible();
   });
 
+  test('Parent phase picker resolves a leaf task label and shows the promotion hint (#378)', async ({ page }) => {
+    await setup(page);
+    await page.goto(`${BASE_URL}/board`);
+    const addButton = page.getByRole('button', { name: /Add task to Alpha Phase/ });
+    await expect(addButton).toBeVisible({ timeout: 10_000 });
+    await addButton.click();
+
+    const dialog = page.getByRole('dialog', { name: /Add to Alpha Phase/ });
+    await expect(dialog).toBeVisible();
+    const picker = dialog.getByLabel(/Parent phase/);
+    await expect(picker).toBeVisible();
+
+    // Default hint surfaces the seeded summary parent (Alpha Phase / `p1`).
+    await expect(
+      dialog.getByText('New task will be added as a child of this phase.'),
+    ).toBeVisible();
+
+    // Typing the leaf task's WBS label resolves the picker to its task id and
+    // swaps the hint to the leaf-promotion copy. Before #378 the leaf was
+    // filtered out of `parentOptions` entirely, so the hint never matched.
+    await picker.fill('1.1 · Build feature');
+    await expect(
+      dialog.getByText('Adding a task here will turn this task into a phase.'),
+    ).toBeVisible();
+  });
 });
 
 // Edit-mode integration (popover → modal) and the destructive Delete confirm

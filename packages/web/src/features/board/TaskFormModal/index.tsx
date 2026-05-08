@@ -245,17 +245,31 @@ export function TaskFormModal({
     () => false,
   ) === true);
 
-  // Candidate parents for create mode — summary tasks (phases) only, sorted
-  // by WBS so the picker order matches the Schedule's outline. The label
-  // includes the WBS path because phase names are not always unique
-  // ("Design" can appear in multiple programs).
+  // Candidate parents for create mode — every task that can author a child:
+  // existing summaries AND leaf tasks. Picking a leaf parent will turn it
+  // into a summary as soon as the new child is saved (the API derives
+  // `is_summary` from `EXISTS(child)` — see views.py annotate). Milestones
+  // are excluded because a milestone is a zero-duration marker, not a
+  // container. Sorted by WBS so the picker order matches the Schedule's
+  // outline. The label includes the WBS path because names are not always
+  // unique ("Design" can appear in multiple programs). #378.
   const parentOptions = useMemo(() => {
     if (mode !== 'create' || !allTasks) return [];
     return allTasks
-      .filter((t) => t.isSummary)
-      .map((t) => ({ id: t.id, name: t.name, wbs: t.wbs, label: `${t.wbs} · ${t.name}` }))
+      .filter((t) => !t.isMilestone)
+      .map((t) => ({
+        id: t.id,
+        name: t.name,
+        wbs: t.wbs,
+        isSummary: t.isSummary,
+        label: `${t.wbs} · ${t.name}`,
+      }))
       .sort((a, b) => a.wbs.localeCompare(b.wbs, undefined, { numeric: true }));
   }, [mode, allTasks]);
+
+  const selectedParentIsLeaf =
+    selectedParentId !== null &&
+    parentOptions.find((o) => o.id === selectedParentId)?.isSummary === false;
 
   // Keep the visible input text in sync with selectedParentId — when the
   // caller seeds an inferred parent, the picker should display its label
@@ -582,7 +596,9 @@ export function TaskFormModal({
             </datalist>
             <p id="task-parent-hint" className="mt-1 text-[11px] text-neutral-text-secondary">
               {selectedParentId
-                ? 'New task will be added as a child of this phase.'
+                ? selectedParentIsLeaf
+                  ? 'Adding a task here will turn this task into a phase.'
+                  : 'New task will be added as a child of this phase.'
                 : 'Leave blank to add at the project root.'}
             </p>
           </div>
