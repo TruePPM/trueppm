@@ -98,9 +98,13 @@ export function SprintHeader({
           onClick={onCloseSprint}
           disabled={!isActive}
           aria-label={isActive ? 'Close active sprint' : 'Close sprint (no active sprint)'}
-          className="h-8 px-3 rounded text-xs font-medium border border-semantic-critical/40
-            text-semantic-critical bg-transparent hover:bg-semantic-critical-bg
-            disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent
+          // Disabled state drops to neutral disabled styling so it reads as
+          // "unavailable" rather than "faded red". A 50%-opacity red button
+          // still parses as a clickable destructive action — too subtle.
+          className="h-8 px-3 rounded text-xs font-medium border bg-transparent
+            border-semantic-critical/40 text-semantic-critical hover:bg-semantic-critical-bg
+            disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent
+            disabled:border-neutral-border disabled:text-neutral-text-disabled
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
         >
           Close sprint
