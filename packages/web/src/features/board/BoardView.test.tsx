@@ -83,8 +83,21 @@ vi.mock('@/hooks/useAssignmentMutations', () => ({
   useRemoveAssignment: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
 }));
 
+let mockProjectResourcePool: { id: string; resourceId: string; resource: { id: string; name: string; isMe?: boolean } }[] = [];
 vi.mock('@/hooks/useProjectResourcePool', () => ({
-  useProjectResourcePool: () => ({ data: [], isLoading: false }),
+  useProjectResourcePool: () => ({ data: mockProjectResourcePool, isLoading: false }),
+}));
+
+// useMyTasksFilter (#198) — module-scope mock so individual tests can flip
+// the filter on/off and verify the BoardView wiring without exercising
+// localStorage + role-default plumbing (covered by the hook's own tests).
+let mockMyTasksFilter = {
+  enabled: false,
+  isLoading: false,
+  setEnabled: vi.fn() as (next: boolean) => void,
+};
+vi.mock('@/hooks/useMyTasksFilter', () => ({
+  useMyTasksFilter: () => mockMyTasksFilter,
 }));
 
 vi.mock('@/hooks/useProject', () => ({
@@ -210,6 +223,12 @@ function resetMocks() {
   endWorkshopMutate.mockReset();
   mockWorkshopSession = null;
   mockEndWorkshopPending = false;
+  mockProjectResourcePool = [];
+  mockMyTasksFilter = {
+    enabled: false,
+    isLoading: false,
+    setEnabled: vi.fn(),
+  };
   localStorage.clear(); // reset persisted board prefs (density, collapsedLanes) between tests
   // Reset matchMedia to desktop default between tests (issue #224)
   (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(false));
@@ -854,6 +873,94 @@ describe('BoardView', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Open detail' }));
       fireEvent.click(screen.getByRole('button', { name: 'Close drawer' }));
       expect(screen.queryByRole('dialog', { name: /Task drawer/ })).not.toBeInTheDocument();
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Issue #198 — "My tasks" filter
+  // -------------------------------------------------------------------------
+
+  describe('My tasks filter (#198)', () => {
+    it('renders the My tasks pill', () => {
+      renderBoard();
+      expect(screen.getByRole('button', { name: 'My tasks' })).toBeInTheDocument();
+    });
+
+    it('toggling the pill calls setEnabled with the inverted value', async () => {
+      const user = userEvent.setup();
+      renderBoard();
+      await user.click(screen.getByRole('button', { name: 'My tasks' }));
+      expect(mockMyTasksFilter.setEnabled).toHaveBeenCalledWith(true);
+    });
+
+    it('shows the "Filter: My tasks" chip when active', () => {
+      // Provide a matching resource so the chip renders on top of a
+      // non-empty board (the empty state would also expose a "Show all"
+      // button and ambiguate the assertion).
+      mockProjectResourcePool = [
+        { id: 'pr-1', resourceId: 'r1', resource: { id: 'r1', name: 'Alice', isMe: true } },
+      ];
+      mockMyTasksFilter = { ...mockMyTasksFilter, enabled: true };
+      renderBoard();
+      expect(screen.getByText('Filter: My tasks')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Show all →' })).toBeInTheDocument();
+    });
+
+    it('does NOT show the chip when filter is off', () => {
+      renderBoard();
+      expect(screen.queryByText('Filter: My tasks')).not.toBeInTheDocument();
+    });
+
+    it('hides tasks not assigned to the current user when filter is active', () => {
+      // Resource r1 == current user. In FIXTURE_TASKS "Discovery & Design"
+      // and "Backend Implementation" include r1; tasks without r1 must
+      // disappear with the filter on.
+      mockProjectResourcePool = [
+        { id: 'pr-1', resourceId: 'r1', resource: { id: 'r1', name: 'Alice Chen', isMe: true } },
+      ];
+      mockMyTasksFilter = { ...mockMyTasksFilter, enabled: true };
+      renderBoard();
+      // Alice-assigned tasks remain visible.
+      expect(screen.getByText('Backend Implementation')).toBeInTheDocument();
+      // A task we know is not assigned to r1 — pick one with empty assignees
+      // (Project Plan / Frontend MVP per FIXTURE_TASKS). Both should be gone.
+      expect(screen.queryByText('Project Plan')).not.toBeInTheDocument();
+    });
+
+    it('renders dedicated empty state when filter is on and no tasks match', () => {
+      // Pool is empty → resourceId is null → mineActive drops every task.
+      mockMyTasksFilter = { ...mockMyTasksFilter, enabled: true };
+      renderBoard();
+      expect(screen.getByText('No tasks assigned to you in this project yet.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Show all tasks' })).toBeInTheDocument();
+    });
+
+    it('"Show all tasks" empty-state button calls setEnabled(false)', async () => {
+      const user = userEvent.setup();
+      mockMyTasksFilter = { ...mockMyTasksFilter, enabled: true };
+      renderBoard();
+      await user.click(screen.getByRole('button', { name: 'Show all tasks' }));
+      expect(mockMyTasksFilter.setEnabled).toHaveBeenCalledWith(false);
+    });
+
+    it('"Show all →" chip button calls setEnabled(false)', async () => {
+      const user = userEvent.setup();
+      // Need a matching resource so the empty state doesn't render — chip
+      // appears on top of a non-empty board.
+      mockProjectResourcePool = [
+        { id: 'pr-1', resourceId: 'r1', resource: { id: 'r1', name: 'Alice', isMe: true } },
+      ];
+      mockMyTasksFilter = { ...mockMyTasksFilter, enabled: true };
+      renderBoard();
+      await user.click(screen.getByRole('button', { name: /Show all/ }));
+      expect(mockMyTasksFilter.setEnabled).toHaveBeenCalledWith(false);
+    });
+
+    it('pill is disabled while filter state is hydrating', () => {
+      mockMyTasksFilter = { ...mockMyTasksFilter, isLoading: true };
+      renderBoard();
+      const pill = screen.getByRole('button', { name: 'My tasks' });
+      expect(pill).toBeDisabled();
     });
   });
 

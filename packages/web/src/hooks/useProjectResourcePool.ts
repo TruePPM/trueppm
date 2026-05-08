@@ -19,6 +19,7 @@ interface ApiResourceDetail {
   max_units: string;
   calendar: string | null;
   skills: ApiResourceSkill[];
+  is_me?: boolean;
 }
 
 interface ApiProjectResource {
@@ -51,6 +52,7 @@ function mapProjectResource(r: ApiProjectResource): ProjectResource {
         skill: { id: s.skill, name: s.skill_name, normalizedName: '', category: '' },
         proficiency: s.proficiency,
       })),
+      isMe: r.resource_detail.is_me,
     },
     roleTitle: r.role_title,
     unitsOverride: r.units_override !== null ? parseFloat(r.units_override) : null,

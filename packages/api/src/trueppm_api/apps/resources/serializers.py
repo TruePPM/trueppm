@@ -62,9 +62,13 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
     calendar is optional — when null the resource inherits the project's calendar
     for utilization calculations. skills is read-only nested; writes use
     /api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).
+    is_me is a request-scoped boolean — true when the resource is linked to the
+    current user (Resource.user FK or, for legacy rows, an exact email match).
+    Drives the "My tasks" Board filter (#198) without leaking other users' IDs.
     """
 
     skills = ResourceSkillSerializer(many=True, read_only=True)
+    is_me = serializers.SerializerMethodField()
 
     class Meta:
         model = Resource
@@ -77,8 +81,22 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
             "calendar",
             "max_units",
             "skills",
+            "is_me",
         ]
-        read_only_fields = ["id", "server_version", "skills"]
+        read_only_fields = ["id", "server_version", "skills", "is_me"]
+
+    def get_is_me(self, obj: Resource) -> bool:
+        request = self.context.get("request")
+        if request is None or not request.user.is_authenticated:
+            return False
+        if obj.user_id is not None and obj.user_id == request.user.pk:
+            return True
+        # Email fallback for legacy resources whose user FK has not been set.
+        # iexact-style comparison via casefold to match the queryset filter.
+        if obj.user_id is None and obj.email:
+            user_email = (getattr(request.user, "email", "") or "").strip().lower()
+            return bool(user_email) and obj.email.strip().lower() == user_email
+        return False
 
 
 class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):

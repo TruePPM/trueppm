@@ -268,6 +268,9 @@ export interface ResourceDetail {
   maxUnits: number;
   calendarId: string | null;
   skills: ResourceSkill[];
+  /** True when this resource represents the requesting user — populated
+   * server-side from `Resource.user` FK with email fallback (issue #198). */
+  isMe?: boolean;
 }
 
 export interface ProjectResource {

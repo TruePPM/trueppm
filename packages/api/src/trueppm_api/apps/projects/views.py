@@ -648,6 +648,24 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         status = self.request.query_params.get("status")
         if status:
             qs = qs.filter(status=status)
+
+        # "My tasks" filter (issue #198): tasks the requesting user is
+        # assigned to via Resource.user. Falls back to email match for
+        # legacy resources whose user FK has not been backfilled — keeps
+        # pre-#198 fixtures working without a data migration. Distinct
+        # collapses the M2M-through join into one row per task.
+        mine = self.request.query_params.get("mine")
+        if mine and mine.lower() in ("true", "1"):
+            user = self.request.user
+            user_email = (getattr(user, "email", "") or "").strip().lower()
+            mine_q = Q(assignments__resource__user=user)
+            if user_email:
+                mine_q |= Q(
+                    assignments__resource__user__isnull=True,
+                    assignments__resource__email__iexact=user_email,
+                )
+            qs = qs.filter(mine_q).distinct()
+
         # Sprint membership filter (ADR-0037 Q5):
         #   ?sprint=<uuid>  — only tasks in that sprint
         #   ?sprint=none    — only sprint-less tasks (project backlog)
