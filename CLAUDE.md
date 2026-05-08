@@ -128,6 +128,7 @@ cd packages/web && npm test         # web (vitest)
 - **Every new or modified feature must include test cases and documentation updates in the same MR** — do not ship a feature without both
 - Use **US English** in all code, comments, documentation, commit messages, MR descriptions, and UI copy (e.g. "color" not "colour", "canceled" not "cancelled")
 - For complex business logic (model methods, serializer behaviour, transaction sequences, permission checks), add a docstring or inline comment explaining **why** — the intent or constraint, not what the code does
+- **No `STUB:` or `WIP:` markers in shipped code** — these never merge. For tracked follow-up work use `TODO(#NNN)` linked to an open issue; the CI `lint:todo-grep` job fails on `STUB:`/`WIP:` and on `TODO(#NNN)` references that point at closed issues. Bare `TODO` (no issue reference) is warning-only.
 - Follow **semantic versioning** for all releases
 
 ## Two-Repo Rule

@@ -19,15 +19,26 @@ import logging
 
 from django.db import IntegrityError, transaction
 
+from trueppm_api.apps.scheduling.models import ScheduleRequestReason
+
 logger = logging.getLogger(__name__)
 
 
-def enqueue_recalculate(project_id: str) -> None:
+def enqueue_recalculate(
+    project_id: str,
+    reason: ScheduleRequestReason = ScheduleRequestReason.TASK_CHANGE,
+) -> None:
     """Insert a ScheduleRequest outbox row and attempt immediate dispatch.
 
     Safe to call from:
       - ``transaction.on_commit()`` callbacks (HTTP request context)
       - Celery task bodies (no ambient transaction; ``atomic()`` opens its own)
+
+    The ``reason`` is recorded on the outbox row purely for forensics — it does
+    not change dispatch behavior. When the same project already has a PENDING
+    row, the existing row's reason is preserved (whatever triggered the queue
+    first wins) so debugging "why did this recalc fire?" still points at the
+    initial cause rather than the last edit to pile on.
 
     If a pending row already exists for the project we adopt it — coalescing
     every edit that happened while it was waiting into a single CPM run — and
@@ -44,7 +55,7 @@ def enqueue_recalculate(project_id: str) -> None:
     req: ScheduleRequest
     try:
         with transaction.atomic():
-            req = ScheduleRequest.objects.create(project_id=project_id)
+            req = ScheduleRequest.objects.create(project_id=project_id, reason=reason)
     except IntegrityError:
         # A pending row already exists. Adopt it instead of returning — the
         # existing row may be stranded (the request that created it failed to

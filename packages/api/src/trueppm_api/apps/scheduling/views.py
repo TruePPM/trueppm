@@ -22,7 +22,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from trueppm_api.apps.access.permissions import IsProjectMember, IsProjectScheduler
 from trueppm_api.apps.projects.models import Dependency, EstimateStatus, EstimationMode, Project
-from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
+from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus, ScheduleRequestReason
 from trueppm_api.apps.scheduling.serializers import FailedTaskSerializer
 from trueppm_api.apps.scheduling.services import enqueue_recalculate
 
@@ -51,7 +51,9 @@ def trigger_schedule(request: Request, pk: str) -> Response:
     # Defer until any outer transaction commits so the ScheduleRequest row is
     # never visible to the drain before its parent write lands.
     project_id = str(project.pk)
-    transaction.on_commit(lambda: enqueue_recalculate(project_id))
+    transaction.on_commit(
+        lambda: enqueue_recalculate(project_id, reason=ScheduleRequestReason.MANUAL)
+    )
     return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
 
 

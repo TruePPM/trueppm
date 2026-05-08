@@ -276,6 +276,23 @@ boundary:check:
   script:
     - bash scripts/check-issue-boundary.sh
 
+lint:todo-grep:
+  # Stale stub-marker gate (#350). STUB:/WIP: never ship; TODO(#NNN) must
+  # point at an open issue. Bare TODOs warn only. Excludes packages/web/e2e
+  # (Playwright follow-up TODOs are valid), docs/, and *.md.
+  #
+  # Runs on every MR pipeline. ~5–10s incl. issue-state lookups.
+  stage: lint
+  image: alpine:latest
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  before_script:
+    - apk add --no-cache bash curl jq grep git
+  script:
+    - bash scripts/check-todo-grep.sh
+    - bash scripts/check-todo-grep.sh --self-test
+
 scheduler:lint:
   extends: .scheduler
   stage: lint

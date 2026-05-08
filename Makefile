@@ -94,7 +94,7 @@ coverage-diff-scheduler: ## Diff coverage for packages/scheduler
 coverage-diff-api: ## Diff coverage for packages/api (requires `make up`)
 	@if git diff --name-only $(COVERAGE_DIFF_BASE)...HEAD | grep -q '^packages/api/'; then \
 	  echo "→ api diff coverage"; \
-	  docker compose exec -T api pytest --cov=trueppm_api --cov-report=xml --tb=short -q && \
+	  docker compose exec -T -e CI=1 api pytest --cov=trueppm_api --cov-report=xml --tb=short -q && \
 	  docker compose cp api:/app/coverage.xml packages/api/coverage.xml && \
 	  cd packages/api && \
 	    diff-cover coverage.xml --compare-branch=$(COVERAGE_DIFF_BASE) --fail-under=$(COVERAGE_DIFF_MIN); \
