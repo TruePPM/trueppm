@@ -86,6 +86,20 @@ describe('BacklogDemoteConfirmDialog', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
+  it('ignores non-Escape keydowns', () => {
+    const onCancel = vi.fn();
+    render(
+      <BacklogDemoteConfirmDialog
+        task={makeTask()}
+        onConfirm={vi.fn()}
+        onCancel={onCancel}
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter' });
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'a' });
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
   it('focuses the confirm button on mount (so Enter commits without tabbing)', () => {
     render(
       <BacklogDemoteConfirmDialog
