@@ -140,7 +140,7 @@ describe('DepRow per-row error on cycle 400 — #249', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('shows cycle error alert when onError fires with cycle payload', async () => {
+  it('shows cycle error alert when onError fires with cycle payload', () => {
     renderTab('task-b', [FS_LINK], [TASK_A, TASK_B]);
 
     const depTypeSelect = screen.getByRole('combobox', { name: 'Dependency type' });
@@ -161,7 +161,7 @@ describe('DepRow per-row error on cycle 400 — #249', () => {
       },
     };
 
-    await act(async () => {
+    act(() => {
       capturedUpdateOpts?.onError?.(cycleError);
     });
 
@@ -171,12 +171,12 @@ describe('DepRow per-row error on cycle 400 — #249', () => {
     expect(alert.textContent).toMatch(/Task A/);
   });
 
-  it('clears row error when dep type is changed again', async () => {
+  it('clears row error when dep type is changed again', () => {
     renderTab('task-b', [FS_LINK], [TASK_A, TASK_B]);
 
     const depTypeSelect = screen.getByRole('combobox', { name: 'Dependency type' });
     fireEvent.change(depTypeSelect, { target: { value: 'SS' } });
-    await act(async () => {
+    act(() => {
       capturedUpdateOpts?.onError?.({
         response: {
           data: {
@@ -199,13 +199,13 @@ describe('DepRow per-row error on cycle 400 — #249', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('shows generic error message when 400 is not a cycle error', async () => {
+  it('shows generic error message when 400 is not a cycle error', () => {
     renderTab('task-b', [FS_LINK], [TASK_A, TASK_B]);
 
     const depTypeSelect = screen.getByRole('combobox', { name: 'Dependency type' });
     fireEvent.change(depTypeSelect, { target: { value: 'SS' } });
 
-    await act(async () => {
+    act(() => {
       capturedUpdateOpts?.onError?.({ response: { data: { detail: 'unknown' }, status: 400 } });
     });
 
