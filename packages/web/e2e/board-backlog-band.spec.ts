@@ -5,7 +5,7 @@
  * events go to the canvas surrounded by sortable contexts), so this spec
  * focuses on the structural / configurational claims:
  *   - BACKLOG cards render in the left rail, not in a phase column
- *   - Header eyebrow + count + stalled badge reflect the data
+ *   - Header eyebrow + count reflect the data (no stalled treatment — see #381)
  *   - Collapse toggle hides the body and reveals the 44px vertical strip
  *   - Empty state copy renders with no backlog cards
  *
@@ -138,14 +138,18 @@ test.describe('Board BACKLOG rail (ADR-0057, epic #361 child A)', () => {
     await expect(rail.getByText(/No backlog yet/)).toBeVisible();
   });
 
-  test('shows the stalled badge when at least one card is older than 5d', async ({ page }) => {
+  test('does not surface a stalled signal even when an idea has been sitting for days', async ({ page }) => {
+    // Stalled is a commitment-progression concept — it does not apply to
+    // BACKLOG ideas. An old idea in the inbox isn't a problem; that's
+    // literally what the inbox is for. Guards against the badge accidentally
+    // re-leaking onto rail cards (#381 follow-up).
     await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_TASK_A, BACKLOG_TASK_B]);
     await page.goto(`${BASE_URL}/board`);
 
     const rail = page.getByTestId('backlog-band');
-    await expect(
-      rail.locator('[aria-label="1 stalled"]'),
-    ).toBeVisible({ timeout: 10_000 });
+    await expect(rail.getByText(/Inbox · backlog/i)).toBeVisible({ timeout: 10_000 });
+    await expect(rail.locator('[aria-label*="stalled" i]')).toHaveCount(0);
+    await expect(rail.getByText(/stalled/i)).toHaveCount(0);
   });
 
   test('collapses to a 44px vertical strip and re-expands via the toggle', async ({ page }) => {

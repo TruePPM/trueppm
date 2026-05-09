@@ -11,17 +11,19 @@ forecasts.
 
 from __future__ import annotations
 
+from typing import Any
+
 from django.db import migrations
 
 
-def coerce_review_to_full_progress(apps, schema_editor):
+def coerce_review_to_full_progress(apps: Any, schema_editor: Any) -> None:
     Task = apps.get_model("projects", "Task")
     Task.objects.filter(status="REVIEW").exclude(percent_complete=100).update(
         percent_complete=100.0,
     )
 
 
-def noop_reverse(apps, schema_editor):
+def noop_reverse(apps: Any, schema_editor: Any) -> None:
     return
 
 

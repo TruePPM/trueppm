@@ -9,17 +9,19 @@ treating finished work as partially done.
 
 from __future__ import annotations
 
+from typing import Any
+
 from django.db import migrations
 
 
-def coerce_complete_to_full_progress(apps, schema_editor):
+def coerce_complete_to_full_progress(apps: Any, schema_editor: Any) -> None:
     Task = apps.get_model("projects", "Task")
     Task.objects.filter(status="COMPLETE").exclude(percent_complete=100).update(
         percent_complete=100.0,
     )
 
 
-def noop_reverse(apps, schema_editor):
+def noop_reverse(apps: Any, schema_editor: Any) -> None:
     # Reverse is intentionally a no-op: we cannot reconstruct the prior
     # sub-100 values, and rolling back to a state where status=COMPLETE
     # disagrees with progress is the bug we just fixed.
