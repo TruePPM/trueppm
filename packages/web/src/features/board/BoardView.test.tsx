@@ -1027,4 +1027,51 @@ describe('BoardView', () => {
     });
   });
 
+  // -------------------------------------------------------------------------
+  // Phase-grid quieting (epic #361 child E, issue #385)
+  // -------------------------------------------------------------------------
+  describe('phase-grid quieting (issue #385)', () => {
+    it('renders empty status cells as a 16px tick at rest, not a full-height slot', () => {
+      renderBoard();
+      // The "Alpha Platform Upgrade" phase has no REVIEW cards in the fixture,
+      // so its REVIEW cell should collapse to a tick at rest (no drag active).
+      const tickCells = document.querySelectorAll('[data-empty-cell="true"]');
+      expect(tickCells.length).toBeGreaterThan(0);
+      // The tick wrapper is a 16px (h-4) row with no min-height, no card outline.
+      const wrapper = tickCells[0] as HTMLElement;
+      expect(wrapper.className).toContain('h-4');
+      expect(wrapper.className).not.toMatch(/min-h-\[120px\]/);
+    });
+
+    it('column header renders a status dot prefix per status', () => {
+      renderBoard();
+      // The dot is `aria-hidden`; query by class on the header row that
+      // contains each label so the structural assertion is grounded.
+      const todoHeader = screen.getByText('TO DO').closest('div');
+      expect(todoHeader?.querySelector('span[aria-hidden="true"]')?.className).toContain(
+        'bg-neutral-text-disabled',
+      );
+      const inProgressHeader = screen.getByText('IN PROGRESS').closest('div');
+      expect(inProgressHeader?.querySelector('span[aria-hidden="true"]')?.className).toContain(
+        'bg-brand-primary',
+      );
+      const reviewHeader = screen.getByText('REVIEW').closest('div');
+      expect(reviewHeader?.querySelector('span[aria-hidden="true"]')?.className).toContain(
+        'bg-brand-accent',
+      );
+      const doneHeader = screen.getByText('DONE').closest('div');
+      expect(doneHeader?.querySelector('span[aria-hidden="true"]')?.className).toContain(
+        'bg-semantic-on-track',
+      );
+    });
+
+    it('column count chip uses tppm-mono', () => {
+      renderBoard();
+      // Pick the IN PROGRESS column header — its count chip is the second
+      // child after the dot+label combo.
+      const inProgressHeader = screen.getByText('IN PROGRESS').closest('div');
+      const monoCount = inProgressHeader?.querySelector('.tppm-mono');
+      expect(monoCount).toBeTruthy();
+    });
+  });
 });

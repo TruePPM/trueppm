@@ -198,6 +198,35 @@ test.describe('Board view', () => {
     await expect(page.getByText(/Inbox · backlog/i)).toBeVisible();
   });
 
+  test('phase-grid quieting: lane meta + column dots + empty ticks (issue #385)', async ({ page }) => {
+    // Lane meta — the inline 4px progress bar replaces the old ProgressRing.
+    // The lane meta div is `role="progressbar"` with aria-label / aria-valuenow.
+    const laneBar = page.locator('[role="progressbar"][aria-label*="Phase progress"]').first();
+    await expect(laneBar).toBeVisible();
+
+    // Column status dots are aria-hidden; assert via a class probe scoped to
+    // the column header row (the heading carries the accessible label).
+    const todoHeader = page.getByRole('heading', { name: /^To Do,/ }).locator('..');
+    await expect(todoHeader.locator('span[aria-hidden="true"]').first()).toHaveClass(
+      /bg-neutral-text-disabled/,
+    );
+    const inProgressHeader = page.getByRole('heading', { name: /^In Progress,/ }).locator('..');
+    await expect(inProgressHeader.locator('span[aria-hidden="true"]').first()).toHaveClass(
+      /bg-brand-primary/,
+    );
+    const reviewHeader = page.getByRole('heading', { name: /^Review,/ }).locator('..');
+    await expect(reviewHeader.locator('span[aria-hidden="true"]').first()).toHaveClass(
+      /bg-brand-accent/,
+    );
+    const doneHeader = page.getByRole('heading', { name: /^Done,/ }).locator('..');
+    await expect(doneHeader.locator('span[aria-hidden="true"]').first()).toHaveClass(
+      /bg-semantic-on-track/,
+    );
+
+    // Empty cells render as a 16px tick at rest — no card-shaped slot.
+    await expect(page.locator('[data-empty-cell="true"]').first()).toBeVisible();
+  });
+
   test('column tints toggle is visible and on by default (issue #211)', async ({ page }) => {
     // CalmToolbar (#382) moves Column tints behind the More⋯ overflow.
     await page.getByRole('button', { name: 'More board controls' }).click();

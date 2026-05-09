@@ -196,7 +196,7 @@ interface WipBadgeProps {
 function WipBadge({ count, limit }: WipBadgeProps) {
   if (limit == null) {
     return (
-      <span className="ml-1.5 text-xs text-neutral-text-disabled font-medium">
+      <span className="ml-1.5 text-xs text-neutral-text-disabled font-medium tppm-mono">
         {count}
       </span>
     );
@@ -204,7 +204,7 @@ function WipBadge({ count, limit }: WipBadgeProps) {
   if (count > limit) {
     return (
       <span
-        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-semantic-critical/10 border-semantic-critical/40 text-semantic-critical"
+        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-semantic-critical/10 border-semantic-critical/40 text-semantic-critical tppm-mono"
         aria-label={`${count} of ${limit} WIP limit, over limit`}
       >
         {count}/{limit} — over WIP limit
@@ -214,7 +214,7 @@ function WipBadge({ count, limit }: WipBadgeProps) {
   if (count >= limit) {
     return (
       <span
-        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-semantic-at-risk/10 border-semantic-at-risk/40 text-semantic-at-risk"
+        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-semantic-at-risk/10 border-semantic-at-risk/40 text-semantic-at-risk tppm-mono"
         aria-label={`${count} of ${limit} WIP limit, at limit`}
       >
         {count}/{limit} WIP
@@ -223,7 +223,7 @@ function WipBadge({ count, limit }: WipBadgeProps) {
   }
   return (
     <span
-      className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary"
+      className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary tppm-mono"
       aria-label={`${count} of ${limit} WIP limit`}
     >
       {count}/{limit}
@@ -325,11 +325,29 @@ interface BoardCellProps {
 
 // Subtle status tints per column (issue #211).
 // Applied to the resting state only — drag-over overrides with brand-primary/5.
-// Done=green/4%, Review=amber/5%, Backlog=disabled-grey/5% (spec: mockups-pages.jsx lines 1095–1108).
+// Done is quieted to /[0.025] in epic #361 child E (issue #385): the new
+// status-dot in the column header carries enough signal that the cell tint can
+// step back toward neutral without losing the "this is the close-out column"
+// affordance. Review and Backlog are left at /5 — they don't get a status-dot
+// equivalent yet (Backlog is in the band; Review is still loud-by-design).
 const COLUMN_TINT: Partial<Record<TaskStatus, string>> = {
-  COMPLETE: 'bg-semantic-on-track/5',
+  COMPLETE: 'bg-semantic-on-track/[0.025]',
   REVIEW:   'bg-brand-accent/5',
   BACKLOG:  'bg-neutral-text-disabled/5',
+};
+
+// Status-dot color per column (epic #361 child E, issue #385).
+// Drives the 6px dot prefix on each column header — a non-color label is
+// always present, so the dot is `aria-hidden`. BACKLOG is mapped for
+// completeness but never renders in the current grid (ADR-0057 lifted it
+// into the band).
+const COLUMN_DOT_CLASS: Record<TaskStatus, string> = {
+  BACKLOG:     'bg-neutral-text-disabled',
+  NOT_STARTED: 'bg-neutral-text-disabled',
+  IN_PROGRESS: 'bg-brand-primary',
+  REVIEW:      'bg-brand-accent',
+  ON_HOLD:     'bg-neutral-text-disabled',
+  COMPLETE:    'bg-semantic-on-track',
 };
 
 function BoardCell({
@@ -362,6 +380,30 @@ function BoardCell({
   const restingBg = showColTints
     ? (COLUMN_TINT[status] ?? 'bg-neutral-surface-sunken')
     : 'bg-neutral-surface-sunken';
+
+  // Phase-grid quieting (epic #361 child E, issue #385). At rest with no
+  // committed cards, the cell collapses to a 16px tick — no card outline,
+  // no surface fill, no "drop here" hint. The droppable is still wired up,
+  // so during drag (`isDragActive`) the cell expands back to a full slot
+  // so the user has a target. The tick line is `aria-hidden`; the column
+  // header's count chip already announces "0 tasks" to assistive tech.
+  const isEmpty = tasks.length === 0;
+  const showRestingTick = isEmpty && !isDragActive;
+
+  if (showRestingTick) {
+    return (
+      <div
+        ref={setNodeRef}
+        data-empty-cell="true"
+        className="h-4 flex items-center justify-center"
+      >
+        <div
+          aria-hidden="true"
+          className="w-8 h-px bg-neutral-border/60"
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -1474,30 +1516,39 @@ export function BoardView() {
               {COLUMNS.map((col) => {
                 const count = totalByStatus[col.status];
                 const state = showWip ? wipState(count, col.wipLimit) : 'none';
-                // Header band tint matches the WIP state per #232 spec.
+                // WIP-state band tint kept on at/over states (issue #232) but
+                // dropped on `none` — epic #361 child E (#385) introduced the
+                // status-dot prefix as the resting signal, so a tint at rest
+                // would compete with the dot.
                 const headerTint =
                   state === 'over'
                     ? 'bg-semantic-critical/5 border-l-2 border-semantic-critical'
                     : state === 'at'
                       ? 'bg-semantic-at-risk/5 border-l-2 border-semantic-at-risk'
                       : '';
+                const dotClass = COLUMN_DOT_CLASS[col.status] ?? 'bg-neutral-text-disabled';
                 return (
                   <div
                     key={col.status}
-                    className={`flex items-center px-2 ${headerTint}`}
+                    className={`flex items-center gap-2 px-2 ${headerTint}`}
                     data-wip-state={state}
                   >
+                    <span
+                      aria-hidden="true"
+                      className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`}
+                    />
                     <h2
                       className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
                       aria-label={`${col.label}, ${count} task${count !== 1 ? 's' : ''}`}
                     >
                       {col.label}
                     </h2>
-                    {showWip ? (
-                      <WipBadge count={count} limit={col.wipLimit} />
-                    ) : (
-                      <span className="ml-1.5 text-xs text-neutral-text-disabled">
-                        {count}
+                    <span className="text-xs text-neutral-text-disabled tppm-mono">
+                      {count}
+                    </span>
+                    {showWip && col.wipLimit != null && (
+                      <span className="ml-auto">
+                        <WipBadge count={count} limit={col.wipLimit} />
                       </span>
                     )}
                   </div>

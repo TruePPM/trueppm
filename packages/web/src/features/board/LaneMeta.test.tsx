@@ -48,22 +48,30 @@ describe('LaneMeta', () => {
     expect(onAddTask).toHaveBeenCalledTimes(1);
   });
 
-  it('progress ring uses semantic-on-track stroke at avg ≥ 50', () => {
+  it('progress bar fill uses semantic-on-track at avg ≥ 50 (issue #385)', () => {
     const { container } = render(<LaneMeta {...BASE_PROPS} avgProgress={50} />);
-    const arcs = container.querySelectorAll('circle');
-    const progressArc = Array.from(arcs).find(
-      (c) => c.classList.contains('stroke-semantic-on-track'),
-    );
-    expect(progressArc).toBeTruthy();
+    const bar = container.querySelector('[role="progressbar"] > div');
+    expect(bar?.className).toContain('bg-semantic-on-track');
   });
 
-  it('progress ring uses brand-accent stroke at avg < 50', () => {
+  it('progress bar fill uses brand-accent at avg < 50 (issue #385)', () => {
     const { container } = render(<LaneMeta {...BASE_PROPS} avgProgress={49} />);
-    const arcs = container.querySelectorAll('circle');
-    const progressArc = Array.from(arcs).find(
-      (c) => c.classList.contains('stroke-brand-accent'),
-    );
-    expect(progressArc).toBeTruthy();
+    const bar = container.querySelector('[role="progressbar"] > div');
+    expect(bar?.className).toContain('bg-brand-accent');
+  });
+
+  it('progress bar width matches avgProgress (issue #385)', () => {
+    const { container } = render(<LaneMeta {...BASE_PROPS} avgProgress={42} />);
+    const bar = container.querySelector<HTMLElement>('[role="progressbar"] > div');
+    expect(bar?.style.width).toBe('42%');
+  });
+
+  it('progress bar exposes aria-valuenow with the percent (issue #385)', () => {
+    const { container } = render(<LaneMeta {...BASE_PROPS} avgProgress={37} />);
+    const bar = container.querySelector('[role="progressbar"]');
+    expect(bar?.getAttribute('aria-valuenow')).toBe('37');
+    expect(bar?.getAttribute('aria-valuemin')).toBe('0');
+    expect(bar?.getAttribute('aria-valuemax')).toBe('100');
   });
 
   it('renders em-dash instead of 0% when there are no committed tasks (ADR-0057)', () => {
@@ -72,15 +80,24 @@ describe('LaneMeta', () => {
     expect(screen.queryByText('0%')).not.toBeInTheDocument();
   });
 
-  it('progress ring uses neutral-border stroke at 0%', () => {
-    const { container } = render(<LaneMeta {...BASE_PROPS} avgProgress={0} />);
-    const circles = container.querySelectorAll('circle');
-    const hasAccentOrTrack = Array.from(circles).some(
-      (c) =>
-        c.classList.contains('stroke-semantic-on-track') ||
-        c.classList.contains('stroke-brand-accent'),
+  it('progress bar drops aria-valuenow when there are no committed tasks (issue #385)', () => {
+    const { container } = render(
+      <LaneMeta {...BASE_PROPS} taskCount={0} avgProgress={0} />,
     );
-    expect(hasAccentOrTrack).toBe(false);
+    const bar = container.querySelector('[role="progressbar"]');
+    expect(bar?.getAttribute('aria-valuenow')).toBe(null);
+    expect(bar?.getAttribute('aria-label')).toMatch(/No committed tasks/i);
+  });
+
+  it('renders no SVG circle (ProgressRing replaced by inline bar in #385)', () => {
+    const { container } = render(<LaneMeta {...BASE_PROPS} avgProgress={55} />);
+    expect(container.querySelector('circle')).toBeNull();
+  });
+
+  it('percent label uses tppm-mono (issue #385)', () => {
+    render(<LaneMeta {...BASE_PROPS} avgProgress={55} />);
+    const pct = screen.getByText('55%');
+    expect(pct.className).toContain('tppm-mono');
   });
 
   it('renders workshop variant with contentEditable name', () => {
