@@ -1,113 +1,41 @@
 /**
- * Tests for the useScheduleTasks API mapper (mapTask / mapDependency).
+ * Tests for the useScheduleTasks API mapper (mapTask).
  *
- * The hook itself is tested via integration — here we verify the data
- * transformation from API snake_case to the frontend Task / TaskLink types.
+ * mapTask and ApiTask are exported for testing — the hook wraps them in
+ * TanStack Query calls that are integration-tested elsewhere.
  */
 import { describe, expect, it } from 'vitest';
+import { mapTask, type ApiTask } from './useScheduleTasks';
 
-// Re-export the private mapper via a module-level cast — vitest resolves
-// the same module instance so we can reach the unexported symbols via
-// the hook's side effects. Instead, we test the hook contract by checking
-// that the returned query keys and shapes are correct when mocked.
-//
-// For mapper-level correctness, test the observable output contract:
-// the mapTask function must produce a Task with all required fields.
-
-interface ApiTask {
-  id: string;
-  wbs_path: string | null;
-  name: string;
-  early_start: string | null;
-  early_finish: string | null;
-  planned_start: string | null;
-  duration: number;
-  percent_complete: number;
-  is_critical: boolean;
-  status: string;
-  is_milestone: boolean;
-  is_summary: boolean;
-  parent_id: string | null;
-  actual_start: string | null;
-  actual_finish: string | null;
-  schedule_variance_days: number | null;
-  baseline_start: string | null;
-  baseline_finish: string | null;
-  total_float: number | null;
-}
-
-/** Inline mapper mirror — must stay in sync with useScheduleTasks.ts mapTask(). */
-function mapTask(t: ApiTask) {
-  const p = t.planned_start;
-  const e = t.early_start;
-  const start = (p && e) ? (p >= e ? p : e) : (p ?? e ?? '');
-
-  const finish = t.is_summary
-    ? (t.early_finish ?? '')
-    : t.early_finish
-      ?? ((start && t.duration > 0)
-        ? new Date(
-            new Date(start + 'T00:00:00Z').getTime() + t.duration * 86_400_000,
-          ).toISOString().slice(0, 10)
-        : '');
-
-  const displayDuration =
-    t.is_summary && t.early_start && t.early_finish
-      ? Math.max(
-          1,
-          Math.round(
-            (new Date(t.early_finish).getTime() - new Date(t.early_start).getTime()) /
-              86_400_000,
-          ),
-        )
-      : t.duration;
-
-  return {
-    id: t.id,
-    wbs: t.wbs_path ?? '',
-    name: t.name,
-    start,
-    finish,
-    duration: displayDuration,
-    progress: t.percent_complete,
-    parentId: t.parent_id,
-    isCritical: t.is_critical,
-    isComplete: t.percent_complete >= 100,
-    isSummary: t.is_summary,
-    isMilestone: t.is_milestone,
-    status: t.status,
-    actualStart: t.actual_start ?? undefined,
-    actualFinish: t.actual_finish ?? undefined,
-    scheduleVarianceDays: t.schedule_variance_days,
-    baselineStart: t.baseline_start ?? undefined,
-    baselineFinish: t.baseline_finish ?? undefined,
-    totalFloat: t.total_float,
-  };
-}
+const base: ApiTask = {
+  id: 'abc',
+  wbs_path: '1.2',
+  name: 'Backend work',
+  early_start: '2026-10-05',
+  early_finish: '2026-10-15',
+  planned_start: null,
+  duration: 10,
+  percent_complete: 60,
+  status: 'IN_PROGRESS',
+  is_critical: true,
+  is_milestone: false,
+  is_summary: false,
+  parent_id: null,
+  actual_start: null,
+  actual_finish: null,
+  schedule_variance_days: null,
+  baseline_start: null,
+  baseline_finish: null,
+  optimistic_duration: null,
+  most_likely_duration: null,
+  pessimistic_duration: null,
+  estimate_status: null,
+  total_float: null,
+  story_points: null,
+  remaining_points: null,
+};
 
 describe('useScheduleTasks mapper', () => {
-  const base: ApiTask = {
-    id: 'abc',
-    wbs_path: '1.2',
-    name: 'Backend work',
-    early_start: '2026-10-05',
-    early_finish: '2026-10-15',
-    planned_start: null,
-    duration: 10,
-    percent_complete: 60,
-    status: 'IN_PROGRESS',
-    is_critical: true,
-    is_milestone: false,
-    is_summary: false,
-    parent_id: null,
-    actual_start: null,
-    actual_finish: null,
-    schedule_variance_days: null,
-    baseline_start: null,
-    baseline_finish: null,
-    total_float: null,
-  };
-
   it('maps a normal API task to Task shape', () => {
     const task = mapTask(base);
     expect(task.id).toBe('abc');
@@ -121,31 +49,22 @@ describe('useScheduleTasks mapper', () => {
   });
 
   it('uses early_finish for leaf tasks once CPM has produced it', () => {
-    // CPM has run (early_finish present) — use the working-day-correct value
-    // straight from the API rather than re-deriving with calendar arithmetic.
-    // This keeps leaf bars aligned with summary roll-ups, which use early_finish.
     const task = mapTask(base);
     expect(task.finish).toBe('2026-10-15');
   });
 
   it('falls back to start + duration when early_finish is missing (pre-CPM)', () => {
-    // Immediately after a duration drag the API may return null early_finish until
-    // CPM completes. Fall back to a calendar-day estimate so the bar still moves.
     const task = mapTask({ ...base, early_finish: null });
     // 2026-10-05 + 10 calendar days = 2026-10-15
     expect(task.finish).toBe('2026-10-15');
   });
 
   it('summary leaf parity: leaf finish matches early_finish so summary roll-up does not visibly extend past its widest child', () => {
-    // Regression for #314: leaf used start+duration*calendar-day-ms while summary
-    // used early_finish (working-day-correct). Every weekend inside a leaf made
-    // the summary look 1+ days longer than its widest child. Both must use the
-    // same authoritative value once CPM has run.
     const validate = mapTask({
       ...base,
       id: 'validate',
       early_start: '2026-05-28',
-      early_finish: '2026-06-10', // 10 working days against a M–F calendar
+      early_finish: '2026-06-10',
       planned_start: null,
       duration: 10,
     });
@@ -248,7 +167,7 @@ describe('useScheduleTasks mapper', () => {
       is_summary: true,
       early_start: '2026-01-06',
       early_finish: '2026-02-06',
-      duration: 1, // stale stored value — must be ignored for bar width
+      duration: 1,
     });
     expect(task.finish).toBe('2026-02-06');
   });
@@ -270,7 +189,7 @@ describe('useScheduleTasks mapper', () => {
       ...base,
       is_summary: true,
       early_start: '2026-01-06',
-      early_finish: '2026-02-06', // 31 calendar days
+      early_finish: '2026-02-06',
       duration: 1,
     });
     expect(task.duration).toBe(31);
@@ -293,11 +212,6 @@ describe('useScheduleTasks mapper', () => {
   });
 
   it('leaf task: finish prefers early_finish (working-day-correct) over start + duration', () => {
-    // After CPM, early_finish is the calendar date that corresponds to
-    // (working-day) duration applied against the project calendar. Re-deriving
-    // from start + duration*calendar-day-ms underestimates by the number of
-    // weekends inside the span, which made summary roll-ups visibly extend
-    // past their widest child (#314).
     const task = mapTask({
       ...base,
       is_summary: false,
@@ -306,5 +220,25 @@ describe('useScheduleTasks mapper', () => {
       duration: 10,
     });
     expect(task.finish).toBe('2026-10-20');
+  });
+
+  // ---- sprint effort fields (issue #366) ----
+
+  it('maps story_points and remaining_points to camelCase', () => {
+    const task = mapTask({ ...base, story_points: 8, remaining_points: 5 });
+    expect(task.storyPoints).toBe(8);
+    expect(task.remainingPoints).toBe(5);
+  });
+
+  it('maps null story_points and remaining_points to null', () => {
+    const task = mapTask({ ...base, story_points: null, remaining_points: null });
+    expect(task.storyPoints).toBeNull();
+    expect(task.remainingPoints).toBeNull();
+  });
+
+  it('maps absent story_points and remaining_points to null', () => {
+    const task = mapTask({ ...base });
+    expect(task.storyPoints).toBeNull();
+    expect(task.remainingPoints).toBeNull();
   });
 });

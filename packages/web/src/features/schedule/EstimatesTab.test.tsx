@@ -356,6 +356,18 @@ describe('EstimatesTab — sprint effort section', () => {
     expect(screen.getByLabelText(/Committed story points \(read-only\)/i)).toHaveTextContent('8');
   });
 
+  it('shows em-dash when storyPoints is null', () => {
+    renderWithProviders(
+      <EstimatesTab
+        task={{ ...sprintTask, storyPoints: null }}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+      />,
+    );
+    expect(screen.getByLabelText(/Committed story points \(read-only\)/i)).toHaveTextContent('—');
+  });
+
   it('shows remaining-points field disabled when sprint is not active', () => {
     renderWithProviders(
       <EstimatesTab

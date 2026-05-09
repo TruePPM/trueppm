@@ -12,7 +12,7 @@ export interface UseScheduleTasksResult {
   error: Error | null;
 }
 
-interface ApiTask {
+export interface ApiTask {
   id: string;
   wbs_path: string | null;
   name: string;
@@ -72,7 +72,7 @@ interface ApiDependency {
   is_critical: boolean;
 }
 
-function mapTask(t: ApiTask): Task {
+export function mapTask(t: ApiTask): Task {
   // Use the later of planned_start (SNET constraint) and early_start (CPM result).
   //
   // CPM guarantees early_start = max(forward-pass result, planned_start), so after
