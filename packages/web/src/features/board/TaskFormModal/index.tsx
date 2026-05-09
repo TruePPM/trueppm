@@ -58,6 +58,8 @@ export interface TaskFormModalProps {
   onCreated?: (taskId: string) => void;
   /** When true, mobile shell is rendered (caller passes the existing `isMobile` from useBoardDensity). */
   isMobile: boolean;
+  /** Pre-populate the sprint selector in create mode (e.g. when opening from SprintsView). */
+  defaultSprintId?: string | null;
 }
 
 const TITLE_ID = 'task-form-modal-title';
@@ -167,6 +169,7 @@ export function TaskFormModal({
   onDeleted,
   onCreated,
   isMobile,
+  defaultSprintId,
 }: TaskFormModalProps) {
   const mode: TaskFormMode = task === null ? 'create' : 'edit';
   const isEdit = mode === 'edit';
@@ -176,8 +179,16 @@ export function TaskFormModal({
   // doesn't accidentally hide the Duration field on a normal task.
   const isMilestoneCreate = isMilestone && !isEdit;
 
-  const [form, setForm] = useState<FormState>(() => initialState(task, defaultStatus));
-  const [pristine, setPristine] = useState<FormState>(() => initialState(task, defaultStatus));
+  const [form, setForm] = useState<FormState>(() => {
+    const s = initialState(task, defaultStatus);
+    if (task === null && defaultSprintId !== undefined) s.sprintId = defaultSprintId ?? null;
+    return s;
+  });
+  const [pristine, setPristine] = useState<FormState>(() => {
+    const s = initialState(task, defaultStatus);
+    if (task === null && defaultSprintId !== undefined) s.sprintId = defaultSprintId ?? null;
+    return s;
+  });
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   // Selected parent in create mode. Seeded from prop (the inferred phase from

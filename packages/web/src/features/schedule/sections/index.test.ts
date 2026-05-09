@@ -21,11 +21,19 @@ beforeEach(() => {
 const regularTask = {
   id: 't1',
   isMilestone: false,
+  isSummary: false,
 } as unknown as Task;
 
 const milestoneTask = {
   id: 't2',
   isMilestone: true,
+  isSummary: false,
+} as unknown as Task;
+
+const summaryTask = {
+  id: 't3',
+  isMilestone: false,
+  isSummary: true,
 } as unknown as Task;
 
 describe('registerOssDrawerSections — Estimates canRender', () => {
@@ -50,5 +58,35 @@ describe('registerOssDrawerSections — Estimates canRender', () => {
     const overview = sections.find((s) => s.id === 'overview');
     expect(overview).toBeDefined();
     expect(overview!.canRender).toBeUndefined();
+  });
+});
+
+describe('registerOssDrawerSections — Sprint canRender', () => {
+  it('Sprint section renders for regular leaf tasks', () => {
+    const sections = registry.get('task_detail.section');
+    const sprint = sections.find((s) => s.id === 'sprint');
+    expect(sprint).toBeDefined();
+    expect(sprint!.canRender!({ task: regularTask })).toBe(true);
+  });
+
+  it('Sprint section is hidden for milestone tasks', () => {
+    const sections = registry.get('task_detail.section');
+    const sprint = sections.find((s) => s.id === 'sprint');
+    expect(sprint!.canRender!({ task: milestoneTask })).toBe(false);
+  });
+
+  it('Sprint section is hidden for summary tasks', () => {
+    const sections = registry.get('task_detail.section');
+    const sprint = sections.find((s) => s.id === 'sprint');
+    expect(sprint!.canRender!({ task: summaryTask })).toBe(false);
+  });
+
+  it('Sprint section is registered at priority 150 (between Overview and Dependencies)', () => {
+    const sections = registry.get('task_detail.section');
+    const sprint = sections.find((s) => s.id === 'sprint');
+    const overview = sections.find((s) => s.id === 'overview');
+    const dependencies = sections.find((s) => s.id === 'dependencies');
+    expect(sprint!.priority).toBeGreaterThan(overview!.priority);
+    expect(sprint!.priority).toBeLessThan(dependencies!.priority);
   });
 });

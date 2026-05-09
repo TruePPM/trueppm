@@ -1,6 +1,6 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { SprintBacklogTable } from './SprintBacklogTable';
 import type { SprintBacklogTask } from '@/hooks/useSprintBacklog';
@@ -112,11 +112,37 @@ describe('SprintBacklogTable', () => {
     ).toBe('1');
   });
 
-  it('renders the ⌘K keyboard hint for adding a task', () => {
+  it('shows + Add task button in header when onAddTask is provided', () => {
+    const onAddTask = vi.fn();
+    renderWithRouter(
+      <SprintBacklogTable projectId="proj-1" sprintId="sp-1" tasks={[task({ id: '1', status: 'NOT_STARTED' })]} onAddTask={onAddTask} />,
+    );
+    expect(screen.getByRole('button', { name: /\+ Add task/i })).toBeInTheDocument();
+  });
+
+  it('calls onAddTask when header button is clicked', async () => {
+    const onAddTask = vi.fn();
+    renderWithRouter(
+      <SprintBacklogTable projectId="proj-1" sprintId="sp-1" tasks={[task({ id: '1', status: 'NOT_STARTED' })]} onAddTask={onAddTask} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /\+ Add task/i }));
+    expect(onAddTask).toHaveBeenCalledOnce();
+  });
+
+  it('shows + Add task button in empty state when onAddTask is provided', () => {
+    renderWithRouter(
+      <SprintBacklogTable projectId="proj-1" sprintId="sp-1" tasks={[]} onAddTask={vi.fn()} />,
+    );
+    // Empty state renders an Add task button (no header button since no tasks)
+    const buttons = screen.getAllByRole('button', { name: /\+ Add task/i });
+    expect(buttons.length).toBeGreaterThan(0);
+  });
+
+  it('does not show + Add task button when onAddTask is omitted', () => {
     renderWithRouter(
       <SprintBacklogTable projectId="proj-1" sprintId="sp-1" tasks={[]} />,
     );
-    expect(screen.getByLabelText(/Press cmd-K to add a task/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /\+ Add task/i })).not.toBeInTheDocument();
   });
 
   it('shows initials avatars (truncated to 3 + overflow chip)', () => {
