@@ -21,7 +21,6 @@ import { useDraggable, useDroppable } from '@dnd-kit/core';
 import type { Task, TaskStatus, TaskReadiness } from '@/types';
 
 const STORAGE_KEY = 'trueppm.board.backlogBand.collapsed';
-const STALLED_AGE_DAYS = 5;
 
 /** Persist collapsed state per-user across sessions. The rail exists on every
  * project board, so the preference is a personal habit rather than per-project
@@ -216,7 +215,6 @@ function BacklogCard({
   onFocus,
   onClick,
 }: BacklogCardProps) {
-  const isStalled = ageDays !== null && ageDays >= STALLED_AGE_DAYS;
   const initials = ownerInitialsFromTask(task);
   const readiness: TaskReadiness = task.readiness ?? 'idea';
   const isIdeaTone = readiness === 'idea';
@@ -311,25 +309,10 @@ function BacklogCard({
           )}
           <span className="flex-1" />
           {ageDays !== null && (
-            <span
-              className={`tppm-mono ${
-                isStalled
-                  ? 'text-semantic-critical font-medium'
-                  : 'text-neutral-text-disabled'
-              }`}
-            >
-              {isStalled ? `${ageDays}d · stalled` : `${ageDays}d ago`}
+            <span className="tppm-mono text-neutral-text-disabled">
+              {ageDays}d ago
             </span>
           )}
-        </div>
-      )}
-
-      {density === 'comfortable' && isStalled && (
-        <div
-          className="text-[10px] font-medium uppercase tracking-wider text-semantic-critical"
-          aria-label={`Stalled for ${ageDays} days`}
-        >
-          ● stalled · {ageDays}d
         </div>
       )}
     </button>
@@ -398,12 +381,7 @@ export function BacklogBand({
     return at < bt ? 1 : -1;
   });
 
-  const stalledCount = sortedTasks.reduce(
-    (n, t) => n + ((ageInDays(t.statusEnteredAt) ?? 0) >= STALLED_AGE_DAYS ? 1 : 0),
-    0,
-  );
-
-  // Collapsed: 44px vertical strip with rotated text + stalled badge.
+  // Collapsed: 44px vertical strip with rotated count.
   if (!isExpanded) {
     return (
       <button
@@ -412,9 +390,7 @@ export function BacklogBand({
         onClick={() => setCollapsed(false)}
         aria-expanded={false}
         aria-controls="backlog-rail-body"
-        aria-label={`Expand backlog rail, ${tasks.length} ${tasks.length === 1 ? 'idea' : 'ideas'}${
-          stalledCount > 0 ? `, ${stalledCount} stalled` : ''
-        }`}
+        aria-label={`Expand backlog rail, ${tasks.length} ${tasks.length === 1 ? 'idea' : 'ideas'}`}
         data-testid="backlog-band"
         className={[
           'flex flex-col items-center gap-3 py-4 cursor-pointer',
@@ -433,15 +409,6 @@ export function BacklogBand({
         >
           Backlog · {tasks.length}
         </span>
-        {stalledCount > 0 && (
-          <span
-            className="inline-flex items-center justify-center rounded-full bg-semantic-critical text-white tppm-mono font-bold"
-            style={{ width: 18, height: 18, fontSize: 10 }}
-            aria-label={`${stalledCount} stalled`}
-          >
-            {stalledCount}
-          </span>
-        )}
       </button>
     );
   }
@@ -457,7 +424,7 @@ export function BacklogBand({
       ].join(' ')}
       style={{ width: density === 'compact' ? 280 : 320 }}
     >
-      {/* Header — eyebrow + count + stalled badge + collapse toggle */}
+      {/* Header — eyebrow + count + collapse toggle */}
       <div className="flex items-center gap-2 px-4 pt-3.5 pb-2.5">
         <div className="flex-1 min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-widest text-neutral-text-secondary">
@@ -474,19 +441,6 @@ export function BacklogBand({
             <span className="text-xs text-neutral-text-secondary">
               {tasks.length === 1 ? 'idea' : 'ideas'}
             </span>
-            {stalledCount > 0 && (
-              <span
-                className="ml-auto inline-flex items-center gap-1 text-[11px] text-semantic-critical"
-                aria-label={`${stalledCount} stalled`}
-              >
-                <span
-                  aria-hidden="true"
-                  className="inline-block rounded-full bg-semantic-critical"
-                  style={{ width: 6, height: 6 }}
-                />
-                {stalledCount} stalled
-              </span>
-            )}
           </div>
         </div>
         <button

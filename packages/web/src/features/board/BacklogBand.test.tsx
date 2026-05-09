@@ -100,20 +100,16 @@ describe('BacklogBand (rail)', () => {
     expect(screen.getByText('Audit links')).toBeInTheDocument();
   });
 
-  it('shows the stalled badge when any card is at least 5 days old', () => {
-    const old = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  it('does not surface a stalled signal — backlog ideas are not committed work', () => {
+    // Stalled is a commitment-progression concept (TO DO / IN PROGRESS / REVIEW
+    // sitting too long). Backlog cards are uncommitted ideas; an old idea is
+    // not a problem. Guards against the badge accidentally re-leaking.
+    const old = new Date(Date.now() - 14 * 86_400_000).toISOString();
     renderBand({
-      tasks: [
-        makeTask({ id: '1', name: 'Stale', statusEnteredAt: old }),
-        makeTask({ id: '2', name: 'Fresh', statusEnteredAt: new Date().toISOString() }),
-      ],
+      tasks: [makeTask({ id: '1', name: 'Stale', statusEnteredAt: old })],
     });
-    expect(screen.getByLabelText(/^1 stalled$/i)).toBeInTheDocument();
-  });
-
-  it('does not show the stalled badge when nothing is older than 5 days', () => {
-    renderBand({ tasks: [makeTask({ statusEnteredAt: new Date().toISOString() })] });
-    expect(screen.queryByLabelText(/stalled$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/stalled/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/stalled/i)).not.toBeInTheDocument();
   });
 
   it('collapses to the 44px vertical strip and hides cards', () => {
@@ -210,7 +206,7 @@ describe('BacklogBand (rail)', () => {
     expect(screen.getByText(/2d ago/)).toBeInTheDocument();
   });
 
-  it('full density labels stalled cards distinctly and shows "Project" when ungrouped', () => {
+  it('full density renders age in plain "Nd ago" form (no stalled label) and shows "Project" when ungrouped', () => {
     render(
       <DndContext>
         <BacklogBand
@@ -228,7 +224,8 @@ describe('BacklogBand (rail)', () => {
     );
     expect(screen.getByText('Project')).toBeInTheDocument();
     expect(screen.getByText(/^P—$/)).toBeInTheDocument();
-    expect(screen.getByText(/8d · stalled/)).toBeInTheDocument();
+    expect(screen.getByText(/8d ago/)).toBeInTheDocument();
+    expect(screen.queryByText(/stalled/i)).not.toBeInTheDocument();
   });
 
   it('renders the linked-dependency icon when predecessorCount > 0', () => {
@@ -279,13 +276,14 @@ describe('BacklogBand (rail)', () => {
     expect(screen.getByText('Card A')).toBeInTheDocument();
   });
 
-  it('shows the stalled-count badge on the collapsed strip', () => {
+  it('collapsed strip shows the rotated count without any stalled badge', () => {
     localStorage.setItem('trueppm.board.backlogBand.collapsed', '1');
     const old = new Date(Date.now() - 9 * 86_400_000).toISOString();
     renderBand({
       tasks: [makeTask({ statusEnteredAt: old })],
     });
-    expect(screen.getByLabelText(/^1 stalled$/i)).toBeInTheDocument();
+    expect(screen.getByText(/Backlog · 1/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/stalled/i)).not.toBeInTheDocument();
   });
 
   it('focusing a card fires onCardFocus, clicking fires onCardClick with the task', () => {
