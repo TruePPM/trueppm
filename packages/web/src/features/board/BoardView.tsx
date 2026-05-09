@@ -69,6 +69,7 @@ import { TaskDetailDrawer } from '@/features/schedule/TaskDetailDrawer';
 import { phaseColor } from './phaseColors';
 import { BacklogBand, BACKLOG_BAND_DROPPABLE_ID } from './BacklogBand';
 import { BacklogDrawer } from './BacklogDrawer';
+import { QueueLayout } from './QueueLayout';
 import { BacklogDemoteConfirmDialog } from './BacklogDemoteConfirmDialog';
 import { CalmToolbar } from './CalmToolbar';
 import { useBoardToolbarPrefs } from '@/hooks/useBoardToolbarPrefs';
@@ -960,6 +961,40 @@ export function BoardView() {
 
   const focusedTask = focusedCardId ? taskIndex.get(focusedCardId) : null;
 
+  // Phase-name + phase-color lookups for the queue layout (#384). Keyed by
+  // summary-task id with 'root' as the sentinel for parentless tasks.
+  const phaseNameMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const phase of phases) m.set(phase.id, phase.name);
+    return m;
+  }, [phases]);
+
+  // Tasks visible in the queue: applies the same task-level filters as the
+  // phase-grid path so layout switching doesn't reveal hidden work. Phase-level
+  // filters (e.g. workshop empty-phase preservation) don't apply — the queue
+  // is a flat list, not a grid.
+  const queueTasks = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const out: Task[] = [];
+    for (const t of tasks ?? []) {
+      if (t.isSummary) continue;
+      if (cpOnly && !(t.isCritical && isTaskScheduled(t))) continue;
+      if (dueSoonDays !== null) {
+        const finish = new Date(t.finish);
+        const diffMs = finish.getTime() - today.getTime();
+        if (diffMs < 0 || diffMs > dueSoonDays * 86_400_000) continue;
+      }
+      if (mineActive) {
+        if (myResourceId === null) continue;
+        if (!t.assignees.some((a) => a.resourceId === myResourceId)) continue;
+      }
+      if (riskLinkedOnly && (t.linkedRisksCount ?? 0) === 0) continue;
+      out.push(t);
+    }
+    return out;
+  }, [tasks, cpOnly, dueSoonDays, mineActive, myResourceId, riskLinkedOnly]);
+
   // Per-phase, per-status task groupings — applies active sort order.
   const phaseTaskMap = useMemo(() => {
     const today = new Date();
@@ -1378,8 +1413,22 @@ export function BoardView() {
 
           {/* Body — backlog surface (rail | drawer | queue) + scrolling phase
               grid. The rail sits left of the grid (flex-row); the drawer sits
-              above it (flex-col, full width). Layout is persisted via
-              `useBoardToolbarPrefs` (ADR-0057 / epic #361). */}
+              above it (flex-col, full width); the queue replaces both.
+              Layout is persisted via `useBoardToolbarPrefs` (ADR-0057 / epic #361). */}
+          {toolbarPrefs.layout === 'queue' && (
+            <QueueLayout
+              tasks={queueTasks}
+              phaseNameFor={(parentId) =>
+                phaseNameMap.get(parentId ?? 'root') ?? 'Project'
+              }
+              phaseColorFor={(parentId) =>
+                parentId ? phaseColor(parentId) : phaseColor('root')
+              }
+              focusedCardId={focusedCardId}
+              onCardFocus={handleCardFocus}
+              onCardClick={handleCardClick}
+            />
+          )}
           {toolbarPrefs.layout === 'drawer' && (
             <BacklogDrawer
               tasks={backlogTasks}
@@ -1394,6 +1443,7 @@ export function BoardView() {
               onCardClick={handleCardClick}
             />
           )}
+          {toolbarPrefs.layout !== 'queue' && (
           <div className="flex-1 flex flex-row min-h-0">
 
             {toolbarPrefs.layout === 'rail' && (
@@ -1591,6 +1641,7 @@ export function BoardView() {
             })()}
             </div>
           </div>
+          )}
         </div>
 
         {/* Drag overlay — floating card follows the pointer */}

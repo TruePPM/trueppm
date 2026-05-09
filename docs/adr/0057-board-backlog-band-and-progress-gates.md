@@ -132,8 +132,8 @@ stays reviewable. All target milestone 0.1.
 |---|---|---|
 | #381 | Backlog rail + new card style + drag rules | merged |
 | #382 | Calm toolbar (chips / pill toggles / layout switcher / `More⋯`) | merged |
-| #383 | Drawer layout variant | queued |
-| #384 | Queue layout variant | queued |
+| #383 | Drawer layout variant | merged |
+| #384 | Queue layout variant | merged |
 | #385 | Phase-grid quieting (empty-cell ticks, `LaneMeta` inline progress, `ColHeader` redesign) | queued |
 
 Children B–E will amend this ADR as they land.
@@ -149,6 +149,41 @@ The 14-control toolbar row collapses into:
 - **`More⋯` overflow popover** — secondary controls cut from the primary row: Collapse all, Expand all, Show WIP, Column tints, EVM, Columns, Keyboard shortcuts, Workshop. The popover persists open across button-clicks inside it so a user can collapse-then-expand without re-opening.
 
 No behaviour changes: every control delegates to the same setters previously wired in `BoardView.tsx`. The change is a pure surface refactor scoped to `packages/web/src/features/board/CalmToolbar.tsx` and a new `useBoardToolbarPrefs` hook.
+
+### Child D addendum (#384) — Queue layout
+
+When `toolbarPrefs.layout === 'queue'`, `BoardView` renders `QueueLayout` in
+place of *both* the rail/drawer surface *and* the phase grid. The queue is a
+single flat priority-ordered list grouped into four sections:
+
+| Section | Status filter | Sort |
+|---|---|---|
+| **Next up · ready to pull** | `NOT_STARTED` | `priorityRank` asc |
+| **In flight** | `IN_PROGRESS` + `REVIEW` | `priorityRank` asc |
+| **Backlog · needs decision** | `BACKLOG` | `statusEnteredAt` desc |
+| **Recently done** | `COMPLETE` within 14 days | `actualFinish` desc |
+
+`ON_HOLD` is intentionally inert (legacy status). Summary tasks are excluded.
+The recently-done window is fixed at 14 days — long enough to anchor a "what
+shipped lately" mental model, short enough to prevent the section from
+growing unboundedly on long-running projects.
+
+`QueueRow` is a table-style row with a fixed grid:
+*priority histogram · phase tag · name + CP/risk/milestone affordances ·
+readiness chip OR status dot+name+pct · duration + owner avatar · overflow*.
+BACKLOG rows render the readiness chip and use italic + secondary tone for
+the name (idea treatment); committed rows render a status dot + label + %
+complete. The CP affordance is a "CP" badge per rule 26 (color alone is
+insufficient); risk is a `⚠` glyph; milestone is a `◆` diamond.
+
+Drag from queue rows is intentionally out of scope for v1 — the queue is a
+read/sort surface. Promote/demote via row overflow menu lands in a
+follow-up; for now the `⋯` button renders as a disabled placeholder so
+keyboard tab order is preserved.
+
+The same task-level filters (`cpOnly`, `dueSoonDays`, `mineActive`,
+`riskLinkedOnly`) that apply to the phase grid apply to the queue, so
+switching layouts never reveals hidden work.
 
 ## Out of scope (split to #362, milestone 0.2)
 
