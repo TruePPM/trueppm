@@ -287,4 +287,38 @@ describe('BacklogBand (rail)', () => {
     });
     expect(screen.getByLabelText(/^1 stalled$/i)).toBeInTheDocument();
   });
+
+  it('clicking a card fires onCardFocus and onCardClick with the task', () => {
+    const onCardFocus = vi.fn();
+    const onCardClick = vi.fn();
+    renderBand({
+      tasks: [makeTask({ id: 'idea-1', name: 'Spike auth flow', parentId: 'phase-x' })],
+      onCardFocus,
+      onCardClick,
+    });
+    const card = screen.getByRole('button', { name: /Spike auth flow, backlog idea/i });
+    fireEvent.pointerDown(card);
+    expect(onCardFocus).toHaveBeenCalledWith('idea-1', 'BACKLOG', 'phase-x');
+    fireEvent.click(card);
+    expect(onCardClick).toHaveBeenCalledTimes(1);
+    expect(onCardClick.mock.calls[0][0]).toMatchObject({ id: 'idea-1' });
+  });
+
+  it('clicking the collapsed strip re-expands the rail', () => {
+    localStorage.setItem('trueppm.board.backlogBand.collapsed', '1');
+    renderBand({ tasks: [makeTask({ name: 'Idea card' })] });
+    expect(screen.queryByText('Idea card')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Expand backlog rail/i }));
+    expect(screen.getByText('Idea card')).toBeInTheDocument();
+  });
+
+  it('falls back to "root" phase id when a backlog card has no parent', () => {
+    const onCardFocus = vi.fn();
+    renderBand({
+      tasks: [makeTask({ id: 'free-idea', parentId: null })],
+      onCardFocus,
+    });
+    fireEvent.pointerDown(screen.getByRole('button', { name: /backlog idea/i }));
+    expect(onCardFocus).toHaveBeenCalledWith('free-idea', 'BACKLOG', 'root');
+  });
 });
