@@ -368,6 +368,42 @@ describe('BoardView', () => {
     expect(screen.getByText(/No tasks yet/)).toBeInTheDocument();
   });
 
+  // -------------------------------------------------------------------------
+  // No-phases backlog drop target (issue #386)
+  // Phase-less projects with at least one BACKLOG card must still render the
+  // four status columns + Project Tasks lane so the rail/drawer's promote-by-
+  // drag affordance has a target.
+  // -------------------------------------------------------------------------
+  it('renders the Project Tasks lane on a phase-less project that has BACKLOG cards (issue #386)', () => {
+    const backlogTask: Task = {
+      ...FIXTURE_TASKS[1],
+      id: 'idea-1',
+      name: 'Polish onboarding copy',
+      isSummary: false,
+      isMilestone: false,
+      parentId: null,
+      status: 'BACKLOG',
+      progress: 0,
+    };
+    mockTasks = [backlogTask];
+    renderBoard();
+    // Empty-state copy must NOT render — there's a backlog card to promote.
+    expect(screen.queryByText(/No tasks yet/)).not.toBeInTheDocument();
+    // Project Tasks lane appears with the four status columns.
+    expect(screen.getByText('Project Tasks')).toBeInTheDocument();
+    expect(screen.getByText('TO DO')).toBeInTheDocument();
+    expect(screen.getByText('IN PROGRESS')).toBeInTheDocument();
+    expect(screen.getByText('REVIEW')).toBeInTheDocument();
+    expect(screen.getByText('DONE')).toBeInTheDocument();
+  });
+
+  it('does NOT render the Project Tasks lane when there are no tasks at all (issue #386)', () => {
+    mockTasks = [];
+    renderBoard();
+    expect(screen.queryByText('Project Tasks')).not.toBeInTheDocument();
+    expect(screen.getByText(/No tasks yet/)).toBeInTheDocument();
+  });
+
   it('replaces the WIP badge with a plain count when "Show WIP limits" is off', async () => {
     const user = userEvent.setup();
     renderBoard();

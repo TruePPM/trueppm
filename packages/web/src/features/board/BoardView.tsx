@@ -894,10 +894,26 @@ export function BoardView() {
     return { committedTasks: committed, backlogTasks: backlog };
   }, [tasks]);
 
-  const phases = useMemo(
-    () => buildPhases(committedTasks, workshopMode),
-    [committedTasks, workshopMode],
-  );
+  const phases = useMemo(() => {
+    const built = buildPhases(committedTasks, workshopMode);
+    // #386: phase-less projects with at least one backlog card need a drop
+    // target so the rail/drawer's "Drag right onto a phase" affordance works.
+    // The synthetic 'root' lane already covers parentless committed tasks
+    // (`buildPhases` injects it when rootTasks.length > 0); extend the same
+    // injection to "has backlog but nothing committed" so promote-from-band
+    // lands on `parent_id = null`. Workshop mode is a separate path (it
+    // already shows + Add Phase as the empty CTA), so skip there.
+    const hasRootLane = built.some((p) => p.id === 'root');
+    if (
+      !workshopMode &&
+      !hasRootLane &&
+      built.length === 0 &&
+      backlogTasks.length > 0
+    ) {
+      built.push({ id: 'root', name: 'Project Tasks', summaryTask: undefined, tasks: [] });
+    }
+    return built;
+  }, [committedTasks, workshopMode, backlogTasks.length]);
 
   // Demotion confirmation candidate (ADR-0057, Option C) — set by handleDragEnd
   // when a NOT_STARTED card is dropped on the band; cleared on confirm/cancel.
