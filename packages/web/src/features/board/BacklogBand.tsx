@@ -17,7 +17,7 @@
  * same `BACKLOG_BAND_DROPPABLE_ID`.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { useDroppable } from '@dnd-kit/core';
+import { useDraggable, useDroppable } from '@dnd-kit/core';
 import type { Task, TaskStatus, TaskReadiness } from '@/types';
 
 const STORAGE_KEY = 'trueppm.board.backlogBand.collapsed';
@@ -222,15 +222,26 @@ function BacklogCard({
   const isIdeaTone = readiness === 'idea';
   const focusRing = isFocused ? 'ring-2 ring-brand-primary' : '';
 
+  // Drag source — the card is grabbable into a phase column (BoardView's
+  // handleDragEnd reads active.id == task.id). The pointer activation here
+  // is what BoardCard uses too; dnd-kit owns pointerDown, so the focus
+  // tracker rides on the React onFocus event instead of onPointerDown.
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: task.id,
+  });
+  const dragOpacity = isDragging ? 'opacity-60' : '';
+
   if (density === 'compact') {
     return (
       <button
+        ref={setNodeRef}
         type="button"
         aria-label={`${task.name}, backlog idea`}
-        onPointerDown={onFocus}
         onFocus={onFocus}
         onClick={(e) => onClick(e.currentTarget)}
-        className={`flex items-center gap-2 rounded-sm border border-neutral-border bg-neutral-surface px-2.5 py-1.5 text-left cursor-grab focus-visible:outline-none ${focusRing}`}
+        {...attributes}
+        {...listeners}
+        className={`flex items-center gap-2 rounded-sm border border-neutral-border bg-neutral-surface px-2.5 py-1.5 text-left cursor-grab focus-visible:outline-none ${focusRing} ${dragOpacity}`}
       >
         <PriorityDot rank={task.priorityRank} />
         <span
@@ -248,12 +259,14 @@ function BacklogCard({
 
   return (
     <button
+      ref={setNodeRef}
       type="button"
       aria-label={`${task.name}, backlog idea`}
-      onPointerDown={onFocus}
       onFocus={onFocus}
       onClick={(e) => onClick(e.currentTarget)}
-      className={`flex flex-col gap-1.5 rounded-md border border-neutral-border bg-neutral-surface px-3 py-2.5 text-left cursor-grab focus-visible:outline-none ${focusRing}`}
+      {...attributes}
+      {...listeners}
+      className={`flex flex-col gap-1.5 rounded-md border border-neutral-border bg-neutral-surface px-3 py-2.5 text-left cursor-grab focus-visible:outline-none ${focusRing} ${dragOpacity}`}
       style={{ borderLeft: `3px solid ${phaseColor}` }}
     >
       <div className="flex items-center gap-1.5">

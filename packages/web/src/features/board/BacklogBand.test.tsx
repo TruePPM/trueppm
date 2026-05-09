@@ -288,7 +288,7 @@ describe('BacklogBand (rail)', () => {
     expect(screen.getByLabelText(/^1 stalled$/i)).toBeInTheDocument();
   });
 
-  it('clicking a card fires onCardFocus and onCardClick with the task', () => {
+  it('focusing a card fires onCardFocus, clicking fires onCardClick with the task', () => {
     const onCardFocus = vi.fn();
     const onCardClick = vi.fn();
     renderBand({
@@ -297,7 +297,9 @@ describe('BacklogBand (rail)', () => {
       onCardClick,
     });
     const card = screen.getByRole('button', { name: /Spike auth flow, backlog idea/i });
-    fireEvent.pointerDown(card);
+    // Card is now @dnd-kit draggable, so pointer events belong to the drag
+    // sensor. Keyboard-active tracking rides on the React focus event.
+    fireEvent.focus(card);
     expect(onCardFocus).toHaveBeenCalledWith('idea-1', 'BACKLOG', 'phase-x');
     fireEvent.click(card);
     expect(onCardClick).toHaveBeenCalledTimes(1);
@@ -318,7 +320,7 @@ describe('BacklogBand (rail)', () => {
       tasks: [makeTask({ id: 'free-idea', parentId: null })],
       onCardFocus,
     });
-    fireEvent.pointerDown(screen.getByRole('button', { name: /backlog idea/i }));
+    fireEvent.focus(screen.getByRole('button', { name: /backlog idea/i }));
     expect(onCardFocus).toHaveBeenCalledWith('free-idea', 'BACKLOG', 'root');
   });
 });
