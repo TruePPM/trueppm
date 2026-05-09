@@ -176,7 +176,7 @@ describe('BacklogBand (rail)', () => {
           tasks={[
             makeTask({
               name: 'Triage requests',
-              assignees: [{ id: 'r1', name: 'Sarah Lee', avatarUrl: null }],
+              assignees: [{ resourceId: 'r1', name: 'Sarah Lee', units: 1 }],
               priorityRank: 4,
             }),
           ]}
@@ -243,7 +243,7 @@ describe('BacklogBand (rail)', () => {
       tasks: [
         makeTask({
           readiness: 'estimated',
-          assignees: [{ id: 'r1', name: 'Marcus Chen', avatarUrl: null }],
+          assignees: [{ resourceId: 'r1', name: 'Marcus Chen', units: 1 }],
         }),
       ],
     });
