@@ -25,13 +25,26 @@ interface MonteCarloLatestResponse {
 }
 
 function mapResponse(api: MonteCarloLatestResponse): MonteCarloResult {
+  // Dedupe and sort histogram buckets by date. The API occasionally returns
+  // multiple bucket entries for the same week (e.g. when the simulator emits
+  // partial buckets that the aggregator was meant to merge), and the order is
+  // not guaranteed to be ascending. Without this normalization the
+  // MonteCarloDetailPanel "Confidence by date" rows show repeated dates and
+  // out-of-sequence rows, and React warns about duplicate child keys.
+  const merged = new Map<string, number>();
+  for (const b of api.histogram_buckets) {
+    merged.set(b.date, (merged.get(b.date) ?? 0) + b.count);
+  }
+  const buckets = Array.from(merged.entries())
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([weekStart, count]) => ({ weekStart, count }));
   return {
     projectId: api.project_id,
     runs: api.runs,
     p50: api.p50,
     p80: api.p80,
     p95: api.p95,
-    buckets: api.histogram_buckets.map((b) => ({ weekStart: b.date, count: b.count })),
+    buckets,
     lastRunAt: api.last_run_at,
   };
 }

@@ -118,6 +118,71 @@ describe('MonteCarloRow', () => {
     });
   });
 
+  describe('Details button and panel (#333)', () => {
+    it('renders a Details button when a result is cached', () => {
+      mockResult = { data: FIXTURE_MC_RESULT, isLoading: false, error: null };
+      renderWithProviders(
+        <MonteCarloRow engine={null} projectId="proj-1" taskListWidth={364} />,
+      );
+      expect(
+        screen.getByRole('button', { name: /Open Monte Carlo detail panel/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('clicking Details opens the detail panel dialog', () => {
+      mockResult = { data: FIXTURE_MC_RESULT, isLoading: false, error: null };
+      renderWithProviders(
+        <MonteCarloRow engine={null} projectId="proj-1" taskListWidth={364} />,
+      );
+      fireEvent.click(screen.getByRole('button', { name: /Open Monte Carlo detail panel/i }));
+      expect(screen.getAllByRole('dialog')[0]).toHaveAttribute(
+        'aria-label',
+        'Monte Carlo forecast detail',
+      );
+    });
+  });
+
+  describe('recomputing state (#333)', () => {
+    it('shows recomputing text and data-testid when Rerun is pending', () => {
+      mockResult = { data: { ...FIXTURE_MC_RESULT, lastRunAt: '2026-05-05T10:00:00Z' }, isLoading: false, error: null };
+      runState = { isPending: true, isError: false };
+      renderWithProviders(
+        <MonteCarloRow engine={null} projectId="proj-1" taskListWidth={364} />,
+      );
+      expect(screen.getByTestId('mc-recomputing')).toBeInTheDocument();
+      expect(screen.getByTestId('mc-recomputing')).toHaveTextContent('Recomputing…');
+    });
+
+    it('does not show recomputing state when idle', () => {
+      mockResult = { data: FIXTURE_MC_RESULT, isLoading: false, error: null };
+      renderWithProviders(
+        <MonteCarloRow engine={null} projectId="proj-1" taskListWidth={364} />,
+      );
+      expect(screen.queryByTestId('mc-recomputing')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('P80 delta vs CPM finish (#333)', () => {
+    it('shows +Nd delta suffix on P80 chip when cpmFinish is earlier', () => {
+      // FIXTURE_MC_RESULT.p80 = '2026-11-03'; CPM finish = '2026-10-05' → +29d
+      mockResult = { data: FIXTURE_MC_RESULT, isLoading: false, error: null };
+      renderWithProviders(
+        <MonteCarloRow engine={null} projectId="proj-1" taskListWidth={364} cpmFinish="2026-10-05" />,
+      );
+      expect(screen.getByText(/P80:.*\(\+29d\)/)).toBeInTheDocument();
+    });
+
+    it('omits delta suffix when cpmFinish is not provided', () => {
+      mockResult = { data: FIXTURE_MC_RESULT, isLoading: false, error: null };
+      renderWithProviders(
+        <MonteCarloRow engine={null} projectId="proj-1" taskListWidth={364} />,
+      );
+      // P80 chip should not contain a delta suffix
+      const p80Chip = screen.getByText(/^P80: /);
+      expect(p80Chip.textContent).not.toContain('(+');
+    });
+  });
+
   describe('populated state — Rerun affordance and freshness signal (issue #335)', () => {
     it('renders a Rerun button alongside the chips when a result is cached', () => {
       // Pre-#335: the run-MC button only appeared in the empty state. Once a

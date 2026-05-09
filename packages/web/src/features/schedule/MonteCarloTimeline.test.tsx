@@ -42,6 +42,31 @@ describe('MonteCarloTimeline', () => {
     expect(container.querySelector('.bg-semantic-critical\\/50')).toBeNull();
   });
 
+  describe('P80 delta suffix (#333)', () => {
+    it('appends (+Nd) to P80 chip when p80DeltaDays is positive', () => {
+      render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} p80DeltaDays={14} />);
+      expect(screen.getByText(/^P80:.*\(\+14d\)/)).toBeInTheDocument();
+    });
+
+    it('does not append delta when p80DeltaDays is zero', () => {
+      render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} p80DeltaDays={0} />);
+      const p80 = screen.getByText(/^P80: /);
+      expect(p80.textContent).not.toContain('(+');
+    });
+
+    it('does not append delta when p80DeltaDays is null', () => {
+      render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} p80DeltaDays={null} />);
+      const p80 = screen.getByText(/^P80: /);
+      expect(p80.textContent).not.toContain('(+');
+    });
+
+    it('does not append delta when p80DeltaDays is negative (MC earlier than CPM)', () => {
+      render(<MonteCarloTimeline result={FIXTURE_MC_RESULT} p80DeltaDays={-5} />);
+      const p80 = screen.getByText(/^P80: /);
+      expect(p80.textContent).not.toContain('(+');
+    });
+  });
+
   describe('collapse case — every simulation converged on one date', () => {
     const COLLAPSED: typeof FIXTURE_MC_RESULT = {
       ...FIXTURE_MC_RESULT,

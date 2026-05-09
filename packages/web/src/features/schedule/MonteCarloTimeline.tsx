@@ -2,6 +2,12 @@ import type { MonteCarloResult } from '@/types';
 
 interface Props {
   result: MonteCarloResult;
+  /**
+   * Risk delta for P80 vs deterministic CPM finish in calendar days.
+   * When positive, renders "(+Nd)" suffix on the P80 chip.
+   * Omit or pass null/0 to suppress the suffix.
+   */
+  p80DeltaDays?: number | null;
 }
 
 /**
@@ -19,14 +25,14 @@ interface Props {
  * native `title` attribute carries the same plain-English explanation on
  * lingering hover without intercepting cursor traffic.
  *
- * The full distribution histogram lives in dedicated MC views
- * (`MCResultPanel` from the TopBar P80 pill, `MonteCarloSheet` on mobile)
- * — surfaces where the user has explicitly asked for it.
+ * The full distribution histogram lives in the `MonteCarloDetailPanel` (opened via the
+ * "Details" button in MonteCarloRow), `MCResultPanel` (TopBar P80 pill), and
+ * `MonteCarloSheet` (mobile).
  *
  * Chip text satisfies WCAG 1.4.1 — percentile boundaries are expressed as
  * labelled text, not colour alone.
  */
-export function MonteCarloTimeline({ result }: Props) {
+export function MonteCarloTimeline({ result, p80DeltaDays }: Props) {
   const { p50, p80, p95 } = result;
   const isCollapsed = p50 === p80 && p80 === p95;
 
@@ -45,10 +51,12 @@ export function MonteCarloTimeline({ result }: Props) {
     ? `Every simulation finished on ${fmtLong(p80)}. Add PERT estimates (optimistic / most-likely / pessimistic durations) on tasks to see a distribution.`
     : `8 in 10 simulations finish by ${fmtLong(p80)}.`;
 
+  const showDelta = typeof p80DeltaDays === 'number' && p80DeltaDays > 0;
+
   const chips = [
-    { label: 'P50', iso: p50, border: 'border-semantic-on-track/40', text: 'text-semantic-on-track' },
-    { label: 'P80', iso: p80, border: 'border-semantic-at-risk/40',  text: 'text-semantic-at-risk'  },
-    { label: 'P95', iso: p95, border: 'border-semantic-critical/40', text: 'text-semantic-critical' },
+    { label: 'P50', iso: p50, border: 'border-semantic-on-track/40', text: 'text-semantic-on-track', suffix: null },
+    { label: 'P80', iso: p80, border: 'border-semantic-at-risk/40',  text: 'text-semantic-at-risk',  suffix: showDelta ? `(+${p80DeltaDays}d)` : null },
+    { label: 'P95', iso: p95, border: 'border-semantic-critical/40', text: 'text-semantic-critical', suffix: null },
   ] as const;
 
   return (
@@ -57,12 +65,12 @@ export function MonteCarloTimeline({ result }: Props) {
       aria-label={title}
       className="flex-1 min-w-0 flex items-center justify-end gap-1.5 px-3 overflow-hidden border-t border-neutral-border bg-neutral-surface"
     >
-      {chips.map(({ label, iso, border, text }) => (
+      {chips.map(({ label, iso, border, text, suffix }) => (
         <span
           key={label}
           className={`text-xs font-medium px-1.5 py-0.5 rounded border ${border} ${text} bg-transparent whitespace-nowrap`}
         >
-          {label}: {fmtShort(iso)}
+          {label}: {fmtShort(iso)}{suffix ? ` ${suffix}` : ''}
         </span>
       ))}
     </div>

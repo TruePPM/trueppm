@@ -71,6 +71,42 @@ describe('useMonteCarloResult', () => {
     expect(result.current.error).toBeNull();
   });
 
+  it('dedupes and sorts histogram buckets by date', async () => {
+    // The simulator occasionally emits multiple bucket entries for the same
+    // week and the order is not guaranteed ascending. The hook must collapse
+    // duplicates (summing counts) and sort ascending so downstream renderers
+    // (Confidence by date, histogram) do not produce repeated keys / rows.
+    getMock.mockResolvedValueOnce({
+      data: {
+        project_id: 'proj-1',
+        runs: 100,
+        p50: '2026-06-21',
+        p80: '2026-06-24',
+        p95: '2026-06-28',
+        histogram_buckets: [
+          { date: '2026-06-21', count: 10 },
+          { date: '2026-05-31', count: 5 },
+          { date: '2026-06-21', count: 7 },
+          { date: '2026-06-07', count: 8 },
+          { date: '2026-06-24', count: 4 },
+          { date: '2026-06-24', count: 6 },
+        ],
+      },
+    });
+
+    const { result } = renderHook(() => useMonteCarloResult('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.data?.buckets).toEqual([
+      { weekStart: '2026-05-31', count: 5 },
+      { weekStart: '2026-06-07', count: 8 },
+      { weekStart: '2026-06-21', count: 17 },
+      { weekStart: '2026-06-24', count: 10 },
+    ]);
+  });
+
   it('leaves lastRunAt undefined when the wire payload omits last_run_at (legacy cached entries)', async () => {
     // Cached payloads written before #335 will not have the field. The hook
     // must tolerate this without crashing or throwing — `lastRunAt` is
