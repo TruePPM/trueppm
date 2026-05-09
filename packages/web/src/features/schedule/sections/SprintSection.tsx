@@ -1,3 +1,4 @@
+import { type ChangeEvent } from 'react';
 import { useSprints } from '@/hooks/useSprints';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
@@ -33,7 +34,7 @@ export function SprintSection({ taskId, projectId }: DrawerSectionProps) {
 
   const currentSprint = sprints.find((s) => s.id === task.sprintId);
 
-  function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
+  function handleChange(e: ChangeEvent<HTMLSelectElement>) {
     const value = e.target.value || null;
     updateTask({ id: taskId, projectId, sprint: value });
   }

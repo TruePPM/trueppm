@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type ChangeEvent, useState } from 'react';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
@@ -54,7 +54,7 @@ export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
   const progressDisplay =
     localProgress !== null ? localProgress : String(Math.round(task.progress));
 
-  function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
+  function handleStatusChange(e: ChangeEvent<HTMLSelectElement>) {
     const next = e.target.value as TaskStatus;
     if (next === 'BACKLOG' && DEMOTION_GUARD.has(task!.status)) {
       setPendingBacklog(true);
