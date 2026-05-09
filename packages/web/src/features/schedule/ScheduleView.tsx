@@ -24,7 +24,9 @@ import { useScheduleKeyboard } from './useScheduleKeyboard';
 import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { MonteCarloRow } from './MonteCarloRow';
+import { MonteCarloGanttMarkers } from './MonteCarloGanttMarkers';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
+import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { MilestoneDeltaTooltip } from './MilestoneDeltaTooltip';
 import { DateInputPopover } from './DateInputPopover';
 import { TaskFormModal } from '@/features/board/TaskFormModal';
@@ -164,6 +166,7 @@ function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
 export function ScheduleView() {
   const projectId = useProjectId() ?? null;
   const { tasks: rawTasks, links: rawLinks, isLoading, error } = useScheduleTasks();
+  const { data: mcResult } = useMonteCarloResult(projectId ?? undefined);
   const allTasks          = useMemo(() => rawTasks ?? [], [rawTasks]);
   const allLinks          = useMemo(() => rawLinks ?? [], [rawLinks]);
   const { expandedIds, toggle: toggleExpandRaw, expandAll } = useWbsStore();
@@ -368,6 +371,18 @@ export function ScheduleView() {
   // Task shown in the date input popover (null = popover closed)
   const [datePopoverTask, setDatePopoverTask] = useState<Task | null>(null);
 
+  // Increments on any successful task reschedule/resize — signals MonteCarloRow to show stale state.
+  const [mcMutationVersion, setMcMutationVersion] = useState(0);
+
+  // CPM finish for Monte Carlo delta — max finish across all scheduled non-milestone tasks.
+  const cpmFinish = useMemo<string | null>(() => {
+    const finishes = allTasks
+      .filter((t) => !t.isMilestone && t.finish)
+      .map((t) => t.finish);
+    if (finishes.length === 0) return null;
+    return finishes.reduce((a, b) => (a > b ? a : b));
+  }, [allTasks]);
+
   // Sync vertical scroll between task list and canvas container
   const isSyncingRef = useRef(false);
 
@@ -456,12 +471,10 @@ export function ScheduleView() {
       const newFinishIso = new Date(
         new Date(newStartIso + 'T00:00:00Z').getTime() + task.duration * 86_400_000,
       ).toISOString().slice(0, 10);
-      rescheduleTask.mutate({
-        id,
-        projectId,
-        planned_start: newStartIso,
-        optimistic: { start: newStartIso, finish: newFinishIso },
-      });
+      rescheduleTask.mutate(
+        { id, projectId, planned_start: newStartIso, optimistic: { start: newStartIso, finish: newFinishIso } },
+        { onSuccess: () => setMcMutationVersion((v) => v + 1) },
+      );
     });
   }, [engine, projectId, allTasks, rescheduleTask]);
 
@@ -479,12 +492,10 @@ export function ScheduleView() {
       const startMs = new Date(task.start + 'T00:00:00Z').getTime();
       const newDuration = Math.max(1, Math.round((newFinish.getTime() - startMs) / 86_400_000));
       if (newDuration === task.duration) return;
-      rescheduleTask.mutate({
-        id,
-        projectId,
-        duration: newDuration,
-        optimistic: { finish: newFinishIso, duration: newDuration },
-      });
+      rescheduleTask.mutate(
+        { id, projectId, duration: newDuration, optimistic: { finish: newFinishIso, duration: newDuration } },
+        { onSuccess: () => setMcMutationVersion((v) => v + 1) },
+      );
     });
   }, [engine, projectId, allTasks, rescheduleTask]);
 
@@ -963,6 +974,12 @@ export function ScheduleView() {
                   containerRef={canvasScrollRef}
                   onEngineReady={handleEngineReady}
                 />
+                {/* P50/P80/P95 vertical markers — scroll-synced via DOM ref writes (#333) */}
+                <MonteCarloGanttMarkers
+                  result={mcResult ?? null}
+                  scaleData={scheduleScales}
+                  canvasScrollRef={canvasScrollRef}
+                />
               </div>
             </div>
 
@@ -988,7 +1005,14 @@ export function ScheduleView() {
         />
       )}
 
-      <MonteCarloRow engine={engine} projectId={projectId ?? undefined} taskListWidth={totalWidth} />
+      <MonteCarloRow
+        engine={engine}
+        projectId={projectId ?? undefined}
+        taskListWidth={totalWidth}
+        cpmFinish={cpmFinish}
+        mutationVersion={mcMutationVersion}
+        tasks={allTasks}
+      />
 
       {/* Mobile MC card — md:hidden; desktop uses MonteCarloRow above (issue #33) */}
       <MobileMonteCarloCard projectId={projectId ?? undefined} />
