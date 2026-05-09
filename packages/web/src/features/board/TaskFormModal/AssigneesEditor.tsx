@@ -71,7 +71,11 @@ export function AssigneesEditor({
       .slice(0, 8);
   }, [pool, rows, search]);
 
-  const total = rows.reduce((s, r) => s + r.units, 0);
+  // DRF serializes DecimalField as a string ("0.50"), so the row units may
+  // arrive as a string at runtime even though the TS type is `number`.
+  // Coerce so the running total stays numeric — otherwise reduce concatenates
+  // the strings and total.toFixed throws.
+  const total = rows.reduce((s, r) => s + Number(r.units), 0);
   const totalClass = total > 1.0001
     ? 'text-semantic-at-risk'
     : 'text-neutral-text-secondary';
