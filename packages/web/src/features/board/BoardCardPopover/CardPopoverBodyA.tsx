@@ -121,21 +121,27 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
         </h3>
       </div>
 
-      {/* Progress */}
-      <div className="px-4 pb-3.5 pl-[18px]">
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-xs text-neutral-text-secondary">Progress</span>
-          <span className="tppm-mono text-xs font-medium text-neutral-text-primary">
-            {task.progress}%
-          </span>
-        </div>
-        <div className="h-1 rounded-full bg-neutral-surface-sunken overflow-hidden" aria-hidden="true">
-          <div
-            className={`h-full ${showCp ? 'bg-semantic-critical' : 'bg-brand-primary'}`}
-            style={{ width: `${task.progress}%` }}
-          />
-        </div>
-      </div>
+      {/* Progress — COMPLETE clamps the displayed value to 100 so the popover
+          stays consistent with the column the card lives in (mirrors BoardCard). */}
+      {(() => {
+        const effectiveProgress = task.status === 'COMPLETE' ? 100 : task.progress;
+        return (
+          <div className="px-4 pb-3.5 pl-[18px]">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs text-neutral-text-secondary">Progress</span>
+              <span className="tppm-mono text-xs font-medium text-neutral-text-primary">
+                {effectiveProgress}%
+              </span>
+            </div>
+            <div className="h-1 rounded-full bg-neutral-surface-sunken overflow-hidden" aria-hidden="true">
+              <div
+                className={`h-full ${showCp ? 'bg-semantic-critical' : 'bg-brand-primary'}`}
+                style={{ width: `${effectiveProgress}%` }}
+              />
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Meta rows */}
       <div className="px-4 pb-2 pl-[18px]">
