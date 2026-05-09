@@ -511,4 +511,108 @@ describe('TaskFormModal (issue #305)', () => {
     // Modal stays open so the user can retry once the query recovers.
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  // ----- Milestone-create mode --------------------------------------------
+  // Reaches the dialog from ScheduleView's "+ Milestone" button (was: insert
+  // immediately + edit name inline). Validates the field shape so the user
+  // can pick a date and parent before commit, and that the submit payload
+  // carries is_milestone: true with duration: 0.
+
+  it('milestone mode: header + name copy switch to "milestone"', () => {
+    renderModal({ isMilestone: true });
+    expect(screen.getByText('NEW MILESTONE')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /New milestone/ })).toBeInTheDocument();
+    expect(screen.getByLabelText('Milestone name *')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Task name *')).not.toBeInTheDocument();
+  });
+
+  it('milestone mode: Duration field is hidden and Date label replaces "Planned start"', () => {
+    renderModal({ isMilestone: true });
+    expect(screen.queryByLabelText(/Duration/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Date')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Planned start')).not.toBeInTheDocument();
+  });
+
+  it('milestone mode: name alone is enough to enable submit (no duration validation)', () => {
+    renderModal({ isMilestone: true });
+    const submit = screen.getByRole('button', { name: 'Create milestone' });
+    expect(submit).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Milestone name *'), {
+      target: { value: 'Phase 1 sign-off' },
+    });
+    expect(submit).not.toBeDisabled();
+  });
+
+  it('milestone mode: submit posts is_milestone:true with duration:0 and the chosen date + parent', async () => {
+    renderModal({ isMilestone: true, parentId: 'parent-task-id' });
+    fireEvent.change(screen.getByLabelText('Milestone name *'), {
+      target: { value: 'GA cutover' },
+    });
+    fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2026-09-15' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create milestone' }));
+    await Promise.resolve();
+    expect(createMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'GA cutover',
+        duration: 0,
+        is_milestone: true,
+        planned_start: '2026-09-15',
+        parent_id: 'parent-task-id',
+      }),
+    );
+  });
+
+  it('milestone mode: parent picker hint reads "milestone" when a leaf is chosen', async () => {
+    renderModal({ isMilestone: true });
+    const picker = screen.getByLabelText<HTMLInputElement>(/Parent phase/);
+    fireEvent.change(picker, { target: { value: '2 · Sibling one' } });
+    expect(
+      await screen.findByText('Adding a milestone here will turn this task into a phase.'),
+    ).toBeInTheDocument();
+    fireEvent.change(picker, { target: { value: '1 · Parent task' } });
+    expect(
+      await screen.findByText('New milestone will be added as a child of this phase.'),
+    ).toBeInTheDocument();
+  });
+
+  it('milestone mode: onCreated fires with the saved task id before onClose', async () => {
+    const onCreated = vi.fn();
+    const onClose = vi.fn();
+    renderModal({ isMilestone: true, onCreated, onClose });
+    fireEvent.change(screen.getByLabelText('Milestone name *'), {
+      target: { value: 'Drop-dead date' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create milestone' }));
+    // Two microtasks: createTask.mutateAsync, then sync passes (assignments + predecessors are no-ops here).
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(onCreated).toHaveBeenCalledWith('new-task-id');
+    expect(onClose).toHaveBeenCalled();
+    // Order: onCreated runs before onClose so the caller can use the new id
+    // while the modal is still rendered (e.g. focus, pulse).
+    expect(onCreated.mock.invocationCallOrder[0]).toBeLessThan(
+      onClose.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('non-milestone mode: onCreated fires on plain task create too', async () => {
+    const onCreated = vi.fn();
+    renderModal({ onCreated });
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Plain task' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(onCreated).toHaveBeenCalledWith('new-task-id');
+  });
+
+  it('isMilestone is ignored in edit mode (Duration stays visible)', () => {
+    renderModal({ isMilestone: true, task: baseTask() });
+    // Edit-mode milestones are handled by MetaRail, not this modal — so
+    // passing isMilestone with a non-null task must not strip the Duration
+    // field from a normal task being edited.
+    expect(screen.getByLabelText(/Duration/)).toBeInTheDocument();
+    expect(screen.getByText('EDIT TASK')).toBeInTheDocument();
+  });
 });

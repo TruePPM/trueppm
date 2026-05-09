@@ -41,10 +41,21 @@ export interface TaskFormModalProps {
   parentId?: string | null;
   /** Default initial status for create mode. Defaults to 'NOT_STARTED' if omitted. */
   defaultStatus?: TaskStatus;
+  /** When true, the modal renders in milestone-create mode: title becomes
+   *  "New milestone", "Planned start" relabels to "Date", the Duration field
+   *  is hidden (milestones are zero-duration), and the submit payload includes
+   *  `is_milestone: true, duration: 0`. Only valid when `task` is null
+   *  (create-mode); ignored in edit mode. */
+  isMilestone?: boolean;
   /** Close handler — fires on Cancel, Esc (if not dirty), close button, or after a successful save/delete. */
   onClose: () => void;
   /** Optional notification when a task is deleted; caller can clear popover state, etc. */
   onDeleted?: (taskId: string) => void;
+  /** Optional notification when create-mode save succeeds. Fires before
+   *  onClose so the caller can run side effects keyed to the new task id
+   *  (e.g. canvas pulse, aria-live announce). Edit-mode saves do not fire
+   *  this callback. */
+  onCreated?: (taskId: string) => void;
   /** When true, mobile shell is rendered (caller passes the existing `isMobile` from useBoardDensity). */
   isMobile: boolean;
 }
@@ -151,12 +162,19 @@ export function TaskFormModal({
   phaseName,
   parentId,
   defaultStatus = 'NOT_STARTED',
+  isMilestone = false,
   onClose,
   onDeleted,
+  onCreated,
   isMobile,
 }: TaskFormModalProps) {
   const mode: TaskFormMode = task === null ? 'create' : 'edit';
   const isEdit = mode === 'edit';
+  // Milestone mode is only meaningful at create time. Edit-mode milestones
+  // already render through MetaRail's milestone-aware section list, not this
+  // modal — guard so an edit-mode caller passing isMilestone by mistake
+  // doesn't accidentally hide the Duration field on a normal task.
+  const isMilestoneCreate = isMilestone && !isEdit;
 
   const [form, setForm] = useState<FormState>(() => initialState(task, defaultStatus));
   const [pristine, setPristine] = useState<FormState>(() => initialState(task, defaultStatus));
@@ -285,7 +303,9 @@ export function TaskFormModal({
     return JSON.stringify(form) !== JSON.stringify(pristine);
   }, [form, pristine]);
 
-  const formIsValid = form.name.trim().length > 0 && form.duration >= 1;
+  // Milestones are zero-duration markers; only the name is required.
+  const formIsValid =
+    form.name.trim().length > 0 && (isMilestoneCreate || form.duration >= 1);
 
   const isPending = createTask.isPending || updateTask.isPending;
 
@@ -402,11 +422,12 @@ export function TaskFormModal({
       if (mode === 'create') {
         const created = await createTask.mutateAsync({
           name: form.name.trim(),
-          duration: form.duration,
+          duration: isMilestoneCreate ? 0 : form.duration,
           parent_id: selectedParentId,
           status: form.status,
           planned_start: form.plannedStart || null,
           notes: form.notes,
+          ...(isMilestoneCreate ? { is_milestone: true } : {}),
           ...(projectDetail?.agile_features ? { sprint: form.sprintId } : {}),
         });
         savedTaskId = created.id;
@@ -446,6 +467,9 @@ export function TaskFormModal({
             : 'Saved task, but updating assignments or dependencies failed.',
         );
         return;
+      }
+      if (mode === 'create') {
+        onCreated?.(savedTaskId);
       }
       onClose();
     } catch (err) {
@@ -496,7 +520,7 @@ export function TaskFormModal({
         {/* Name — always first */}
         <div>
           <label htmlFor="task-name" className="block text-xs font-medium text-neutral-text-secondary mb-1">
-            Task name <span className="text-semantic-critical" aria-hidden="true">*</span>
+            {isMilestoneCreate ? 'Milestone name' : 'Task name'} <span className="text-semantic-critical" aria-hidden="true">*</span>
           </label>
           <input
             id="task-name"
@@ -506,7 +530,7 @@ export function TaskFormModal({
             disabled={isReadOnly}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="What needs doing?"
+            placeholder={isMilestoneCreate ? 'e.g. Phase 1 sign-off' : 'What needs doing?'}
             className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-disabled disabled:opacity-60"
           />
         </div>
@@ -597,8 +621,12 @@ export function TaskFormModal({
             <p id="task-parent-hint" className="mt-1 text-[11px] text-neutral-text-secondary">
               {selectedParentId
                 ? selectedParentIsLeaf
-                  ? 'Adding a task here will turn this task into a phase.'
-                  : 'New task will be added as a child of this phase.'
+                  ? isMilestoneCreate
+                    ? 'Adding a milestone here will turn this task into a phase.'
+                    : 'Adding a task here will turn this task into a phase.'
+                  : isMilestoneCreate
+                    ? 'New milestone will be added as a child of this phase.'
+                    : 'New task will be added as a child of this phase.'
                 : 'Leave blank to add at the project root.'}
             </p>
           </div>
@@ -629,11 +657,14 @@ export function TaskFormModal({
           </div>
         )}
 
-        {/* Planned start + Duration — 2-col on desktop, stacked on mobile */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* Planned start + Duration — 2-col on desktop, stacked on mobile.
+            Milestones are zero-duration markers, so the Duration column is
+            suppressed and the date label switches from "Planned start" to
+            "Date" (matches the MetaRail rename in MR !239 / #253). */}
+        <div className={`grid grid-cols-1 ${isMilestoneCreate ? '' : 'md:grid-cols-2'} gap-3`}>
           <div>
             <label htmlFor="task-start" className="block text-xs font-medium text-neutral-text-secondary mb-1">
-              Planned start
+              {isMilestoneCreate ? 'Date' : 'Planned start'}
             </label>
             <input
               id="task-start"
@@ -644,24 +675,26 @@ export function TaskFormModal({
               className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
             />
           </div>
-          <div>
-            <label htmlFor="task-duration" className="block text-xs font-medium text-neutral-text-secondary mb-1">
-              Duration <span className="text-neutral-text-disabled">(working days)</span>
-            </label>
-            <input
-              id="task-duration"
-              type="number"
-              min={1}
-              step={1}
-              disabled={isReadOnly}
-              value={form.duration}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                setForm({ ...form, duration: Number.isFinite(n) && n >= 1 ? n : 1 });
-              }}
-              className="w-full h-9 px-3 text-sm text-neutral-text-primary tppm-mono bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
-            />
-          </div>
+          {!isMilestoneCreate && (
+            <div>
+              <label htmlFor="task-duration" className="block text-xs font-medium text-neutral-text-secondary mb-1">
+                Duration <span className="text-neutral-text-disabled">(working days)</span>
+              </label>
+              <input
+                id="task-duration"
+                type="number"
+                min={1}
+                step={1}
+                disabled={isReadOnly}
+                value={form.duration}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  setForm({ ...form, duration: Number.isFinite(n) && n >= 1 ? n : 1 });
+                }}
+                className="w-full h-9 px-3 text-sm text-neutral-text-primary tppm-mono bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+              />
+            </div>
+          )}
         </div>
 
         {/* Assignees */}
@@ -756,12 +789,20 @@ export function TaskFormModal({
   }
 
   // Header eyebrow + title.
-  const eyebrow = isReadOnly ? 'VIEW TASK' : isEdit ? 'EDIT TASK' : 'NEW TASK';
+  const eyebrow = isReadOnly
+    ? 'VIEW TASK'
+    : isEdit
+      ? 'EDIT TASK'
+      : isMilestoneCreate
+        ? 'NEW MILESTONE'
+        : 'NEW TASK';
   const headerTitle = isEdit
     ? task?.name ?? ''
-    : phaseName
-      ? `Add to ${phaseName}`
-      : 'Add task';
+    : isMilestoneCreate
+      ? 'New milestone'
+      : phaseName
+        ? `Add to ${phaseName}`
+        : 'Add task';
 
   function renderHeader() {
     return (
@@ -771,7 +812,7 @@ export function TaskFormModal({
             {eyebrow}
           </div>
           <h2 id={TITLE_ID} className="text-base font-semibold text-neutral-text-primary line-clamp-2 m-0" title={headerTitle}>
-            {headerTitle || 'Add task'}
+            {headerTitle || (isMilestoneCreate ? 'New milestone' : 'Add task')}
           </h2>
         </div>
         <button
@@ -850,7 +891,9 @@ export function TaskFormModal({
               ? (isEdit ? 'Saving…' : 'Creating…')
               : isEdit
                 ? 'Save changes'
-                : 'Create task'}
+                : isMilestoneCreate
+                  ? 'Create milestone'
+                  : 'Create task'}
           </button>
         </div>
       </div>
