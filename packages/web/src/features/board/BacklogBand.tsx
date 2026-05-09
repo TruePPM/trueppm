@@ -187,7 +187,7 @@ function PhaseDot({ color, size = 6 }: PhaseDotProps) {
 
 export type BacklogCardDensity = 'compact' | 'comfortable' | 'full';
 
-interface BacklogCardProps {
+export interface BacklogCardProps {
   task: Task;
   density: BacklogCardDensity;
   phaseColor: string;
@@ -206,7 +206,7 @@ function ownerInitialsFromTask(task: Task): string | null {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function BacklogCard({
+export function BacklogCard({
   task,
   density,
   phaseColor,
@@ -341,7 +341,7 @@ export interface BacklogBandProps {
   onCardClick: (task: Task, anchor: HTMLElement) => void;
 }
 
-function ageInDays(iso: string | undefined): number | null {
+export function ageInDays(iso: string | undefined): number | null {
   if (!iso) return null;
   const ms = Date.now() - Date.parse(iso);
   if (!Number.isFinite(ms) || ms < 0) return null;
