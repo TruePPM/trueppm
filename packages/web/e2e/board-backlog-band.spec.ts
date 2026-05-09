@@ -152,6 +152,36 @@ test.describe('Board BACKLOG rail (ADR-0057, epic #361 child A)', () => {
     await expect(rail.getByText(/stalled/i)).toHaveCount(0);
   });
 
+  test('synthetic Project Tasks lane defaults task creation to BACKLOG (issue #387)', async ({ page }) => {
+    // #387 — Option C from the VoC panel. On a phase-less project the
+    // Project Tasks lane is intake scaffolding, so its "+" button reads
+    // "Add to backlog" and TaskFormModal opens with status pre-set to
+    // BACKLOG. Phase lanes are unaffected (covered by board.spec.ts).
+    const PHASE_LESS_BACKLOG = {
+      id: 'idea-387',
+      wbs_path: '1',
+      name: 'Refine landing copy',
+      parent_id: null,
+      status: 'BACKLOG',
+      ...commonTaskShape(),
+      status_changed_at: new Date().toISOString(),
+    };
+    await setup(page, [PHASE_LESS_BACKLOG]);
+    await page.goto(`${BASE_URL}/board`);
+
+    const addBtn = page.getByRole('button', { name: 'Add to backlog' });
+    await expect(addBtn).toBeVisible({ timeout: 10_000 });
+    await addBtn.click();
+
+    const dialog = page.getByRole('dialog', { name: /Add to backlog/i });
+    await expect(dialog).toBeVisible();
+
+    // Status selector must default to "Backlog" so the user doesn't have to
+    // override every time on a phase-less project.
+    const statusSelect = dialog.getByLabel(/Status/i);
+    await expect(statusSelect).toHaveValue('BACKLOG');
+  });
+
   test('phase-less project still renders Project Tasks lane as a drop target (issue #386)', async ({ page }) => {
     // Fixture: ONE backlog card, NO summary tasks, NO committed cards.
     // Without #386 the grid renders the empty-state copy and the rail's

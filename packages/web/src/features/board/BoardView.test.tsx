@@ -404,6 +404,66 @@ describe('BoardView', () => {
     expect(screen.getByText(/No tasks yet/)).toBeInTheDocument();
   });
 
+  // -------------------------------------------------------------------------
+  // Synthetic Project Tasks lane intake-default (issue #387, VoC consensus
+  // resolution to the BACKLOG-vs-TO-DO question raised by #386).
+  // -------------------------------------------------------------------------
+  it('renames the + button to "Add to backlog" on the synthetic Project Tasks lane (issue #387)', () => {
+    const backlogTask: Task = {
+      ...FIXTURE_TASKS[1],
+      id: 'idea-1',
+      name: 'Polish onboarding copy',
+      isSummary: false,
+      isMilestone: false,
+      parentId: null,
+      status: 'BACKLOG',
+      progress: 0,
+    };
+    mockTasks = [backlogTask];
+    renderBoard();
+    // The lane is intake scaffolding; the "+ Add task" affordance is renamed
+    // so the user can see where the new card is going before they click.
+    expect(
+      screen.getByRole('button', { name: 'Add to backlog' }),
+    ).toBeInTheDocument();
+    // The default per-phase label must NOT be present on the synthetic lane.
+    expect(
+      screen.queryByRole('button', { name: /Add task to Project Tasks/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('keeps the default "+ Add task" label on real phase lanes (issue #387)', () => {
+    // FIXTURE_TASKS contains a real summary task ("Alpha Platform Upgrade")
+    // with committed children; that lane is a real phase, not synthetic.
+    renderBoard();
+    expect(
+      screen.getByRole('button', { name: 'Add task to Alpha Platform Upgrade' }),
+    ).toBeInTheDocument();
+  });
+
+  it('opens TaskFormModal with status pre-set to BACKLOG when added from the synthetic lane (issue #387)', async () => {
+    const user = userEvent.setup();
+    const backlogTask: Task = {
+      ...FIXTURE_TASKS[1],
+      id: 'idea-2',
+      name: 'Customer-onboarding rough notes',
+      isSummary: false,
+      isMilestone: false,
+      parentId: null,
+      status: 'BACKLOG',
+      progress: 0,
+    };
+    mockTasks = [backlogTask];
+    renderBoard();
+    await user.click(screen.getByRole('button', { name: 'Add to backlog' }));
+    // Dialog opens with the synthetic-lane title and a status select pre-set
+    // to BACKLOG — exercises the `isSynthetic` branch through to the modal.
+    const dialog = await screen.findByRole('dialog', { name: /Add to backlog/i });
+    expect(dialog).toBeInTheDocument();
+    const statusSelect = screen.getByLabelText<HTMLSelectElement>(/Status/i);
+    expect(statusSelect.value).toBe('BACKLOG');
+  });
+
   it('replaces the WIP badge with a plain count when "Show WIP limits" is off', async () => {
     const user = userEvent.setup();
     renderBoard();
