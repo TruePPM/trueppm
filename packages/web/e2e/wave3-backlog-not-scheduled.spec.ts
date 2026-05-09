@@ -176,12 +176,19 @@ test.describe('Backlog cards must not display as scheduled (#332)', () => {
     await expect(page.getByText(/0d float/)).toHaveCount(0);
   });
 
-  test('CP pill appears once the same backlog card has a PM-committed plannedStart', async ({ page }) => {
+  test('CP pill is suppressed on backlog cards in the rail even with a committed plannedStart (#381)', async ({ page }) => {
+    // Pre-#381 behavior: a BACKLOG card with PM-committed plannedStart
+    // surfaced the CP pill on the BoardCard to signal "now scheduled". After
+    // #381 the rail's BacklogCard is a distinct visual language with no
+    // CP/SPI/EVM signals — backlog = idea, not scheduled work, regardless
+    // of plannedStart. Promotion to NOT_STARTED is the path that exposes
+    // CP. This guards against accidentally re-introducing scheduled-state
+    // chrome onto rail cards.
     await setup(page, '2026-04-05');
     await page.goto(`${BASE_URL}/board`);
     await expect(page.getByText('Backlog Idea')).toBeVisible({ timeout: 10_000 });
     const card = page.getByText('Backlog Idea').locator('..').locator('..');
-    await expect(card.getByText('CP', { exact: true })).toBeVisible();
+    await expect(card.getByText('CP', { exact: true })).toHaveCount(0);
   });
 
   test('Schedule view: uncommitted backlog task surfaces in the Unscheduled gutter', async ({ page }) => {

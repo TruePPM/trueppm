@@ -48,13 +48,18 @@ const FIXTURE_TASKS = [
     linked_risks_count: 0, linked_risks_max_severity: null,
     server_version: 1,
   },
-  // One BACKLOG task to drag/move into IN_PROGRESS.
+  // One TO DO task to move-to IN_PROGRESS (which is at WIP limit). This
+  // used to be a BACKLOG fixture; after #381 BACKLOG cards live in the
+  // BacklogBand rail and have no overflow menu, so the move-to confirm
+  // dialog can't be triggered from there. NOT_STARTED preserves the test
+  // intent (WIP-limit confirm prompt + cancel) without depending on the
+  // old BACKLOG column.
   {
     id: 'task-c', wbs_path: '1.3', name: 'Draft FAT plan',
     early_start: '2026-04-11', early_finish: '2026-04-15',
     duration: 5, percent_complete: 0, is_critical: false,
     is_milestone: false, is_summary: false, parent_id: 'phase-1',
-    status: 'BACKLOG', assignees: [], total_float: null,
+    status: 'NOT_STARTED', assignees: [], total_float: null,
     predecessor_count: 0, is_blocked: false,
     linked_risks_count: 0, linked_risks_max_severity: null,
     server_version: 1,
@@ -190,7 +195,7 @@ test.describe('Wave 10 — WIP-limit overload detection', () => {
 
     await page.goto(BASE_URL);
 
-    // Open the BACKLOG card's overflow menu and try to move it to IN PROGRESS.
+    // Open the TO DO card's overflow menu and try to move it to IN PROGRESS.
     const trigger = page.getByLabel(/Actions for Draft FAT plan/i);
     await trigger.click();
     await page.getByRole('menuitem', { name: /^Move to/i }).click();
