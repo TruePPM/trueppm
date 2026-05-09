@@ -641,11 +641,13 @@ export function ScheduleView() {
             }
           }
           setPulsingMilestoneId(data.id);
-          // Build-mode bonus: focus the new row + drop into name cell-edit
-          if (buildModeActive) {
-            focus.focusRow(data.id);
-            focus.enterCellEdit(data.id, 'name');
-          }
+          // Focus the new row + drop into name cell-edit so the user can
+          // type the milestone name immediately. Also open the drawer so
+          // the Date field is visible — planned_start is not in
+          // EDITABLE_COLUMNS so it can only be set via the drawer.
+          focus.focusRow(data.id);
+          focus.enterCellEdit(data.id, 'name');
+          setSelectedTaskId(data.id);
         },
       },
     );
@@ -655,8 +657,8 @@ export function ScheduleView() {
     inferredParentId,
     visibleTasks,
     scheduleScales,
-    buildModeActive,
     focus,
+    setSelectedTaskId,
   ]);
 
   const keyBindings = useMemo<Record<string, (e: KeyboardEvent) => void>>(() => {

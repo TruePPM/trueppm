@@ -8,10 +8,10 @@ import {
 import { parseCyclicDependencyError, formatCycleMessage } from '@/hooks/useTaskMutations';
 
 const DEP_TYPES: { value: LinkType; label: string }[] = [
-  { value: 'FS', label: 'FS — Finish to Start' },
-  { value: 'SS', label: 'SS — Start to Start' },
-  { value: 'FF', label: 'FF — Finish to Finish' },
-  { value: 'SF', label: 'SF — Start to Finish' },
+  { value: 'FS', label: 'Finish → Start' },
+  { value: 'SS', label: 'Start → Start' },
+  { value: 'FF', label: 'Finish → Finish' },
+  { value: 'SF', label: 'Start → Finish' },
 ];
 
 interface DependenciesTabProps {
@@ -98,7 +98,7 @@ export function DependenciesTab({ task, tasks, links, projectId }: DependenciesT
               key={link.id}
               link={link}
               relatedTask={srcTask}
-              onUpdate={(patch) => updateDep.mutate({ id: link.id, ...patch })}
+              onUpdate={(patch, opts) => updateDep.mutate({ id: link.id, ...patch }, opts)}
               onDelete={() => deleteDep.mutate(link.id)}
             />
           );
@@ -130,7 +130,7 @@ export function DependenciesTab({ task, tasks, links, projectId }: DependenciesT
               key={link.id}
               link={link}
               relatedTask={tgtTask}
-              onUpdate={(patch) => updateDep.mutate({ id: link.id, ...patch })}
+              onUpdate={(patch, opts) => updateDep.mutate({ id: link.id, ...patch }, opts)}
               onDelete={() => deleteDep.mutate(link.id)}
             />
           );
@@ -170,59 +170,88 @@ export function DependenciesTab({ task, tasks, links, projectId }: DependenciesT
 interface DepRowProps {
   link: TaskLink;
   relatedTask: Task;
-  onUpdate: (patch: { dep_type?: LinkType; lag?: number }) => void;
+  onUpdate: (
+    patch: { dep_type?: LinkType; lag?: number },
+    opts?: { onError?: (err: unknown) => void },
+  ) => void;
   onDelete: () => void;
 }
 
 function DepRow({ link, relatedTask, onUpdate, onDelete }: DepRowProps) {
+  const [rowError, setRowError] = useState<string | null>(null);
   const label = relatedTask.wbs
     ? `${relatedTask.wbs} — ${relatedTask.name}`
     : relatedTask.name;
 
   return (
-    <div className="flex items-center gap-2 py-1.5 border-b border-neutral-border/40 last:border-b-0">
-      <span className="flex-1 text-sm text-neutral-text-primary truncate" title={label}>
-        {label}
-      </span>
-      <select
-        value={link.type}
-        onChange={(e) => onUpdate({ dep_type: e.target.value as LinkType })}
-        aria-label="Dependency type"
-        className="text-xs border border-neutral-border rounded px-1.5 py-1
-          bg-neutral-surface text-neutral-text-primary
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-      >
-        {DEP_TYPES.map((dt) => (
-          <option key={dt.value} value={dt.value}>{dt.value}</option>
-        ))}
-      </select>
-      <input
-        key={`${link.id}-lag-${link.lag}`}
-        type="number"
-        defaultValue={link.lag}
-        min={-365}
-        max={365}
-        aria-label="Lag days"
-        title="Lag in days (negative = lead)"
-        onBlur={(e) => {
-          const newLag = parseInt(e.target.value, 10);
-          if (!isNaN(newLag) && newLag !== link.lag) onUpdate({ lag: newLag });
-        }}
-        className="w-14 text-xs border border-neutral-border rounded px-1.5 py-1 text-center
-          bg-neutral-surface text-neutral-text-primary
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-      />
-      <span className="text-xs text-neutral-text-disabled shrink-0">d lag</span>
-      <button
-        type="button"
-        onClick={onDelete}
-        aria-label={`Remove dependency on ${relatedTask.name}`}
-        className="w-6 h-6 flex items-center justify-center rounded text-neutral-text-disabled
-          hover:text-semantic-critical
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-      >
-        ×
-      </button>
+    <div className="border-b border-neutral-border/40 last:border-b-0">
+      <div className="flex items-center gap-2 py-1.5">
+        <span className="flex-1 text-sm text-neutral-text-primary truncate" title={label}>
+          {label}
+        </span>
+        <select
+          value={link.type}
+          onChange={(e) => {
+            setRowError(null);
+            onUpdate(
+              { dep_type: e.target.value as LinkType },
+              {
+                onError: (err) => {
+                  const cycle = parseCyclicDependencyError(err);
+                  setRowError(
+                    cycle
+                      ? formatCycleMessage(cycle)
+                      : 'Couldn’t update dependency. Try again.',
+                  );
+                },
+              },
+            );
+          }}
+          aria-label="Dependency type"
+          className="text-xs border border-neutral-border rounded px-1.5 py-1
+            bg-neutral-surface text-neutral-text-primary
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          {DEP_TYPES.map((dt) => (
+            <option key={dt.value} value={dt.value}>{dt.label}</option>
+          ))}
+        </select>
+        <input
+          key={`${link.id}-lag-${link.lag}`}
+          type="number"
+          defaultValue={link.lag}
+          min={-365}
+          max={365}
+          aria-label="Lag days"
+          title="Lag in days (negative = lead)"
+          onBlur={(e) => {
+            const newLag = parseInt(e.target.value, 10);
+            if (!isNaN(newLag) && newLag !== link.lag) {
+              setRowError(null);
+              onUpdate({ lag: newLag });
+            }
+          }}
+          className="w-14 text-xs border border-neutral-border rounded px-1.5 py-1 text-center
+            bg-neutral-surface text-neutral-text-primary
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        />
+        <span className="text-xs text-neutral-text-disabled shrink-0">d lag</span>
+        <button
+          type="button"
+          onClick={onDelete}
+          aria-label={`Remove dependency on ${relatedTask.name}`}
+          className="w-6 h-6 flex items-center justify-center rounded text-neutral-text-disabled
+            hover:text-semantic-critical
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        >
+          ×
+        </button>
+      </div>
+      {rowError && (
+        <span role="alert" className="block text-xs text-semantic-critical pb-1.5">
+          {rowError}
+        </span>
+      )}
     </div>
   );
 }
@@ -278,7 +307,7 @@ function AddDepRow({
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         {DEP_TYPES.map((dt) => (
-          <option key={dt.value} value={dt.value}>{dt.value}</option>
+          <option key={dt.value} value={dt.value}>{dt.label}</option>
         ))}
       </select>
       <button
