@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
-        migrations-check schema-check pre-push \
+        migrations-check schema-check web-lint web-typecheck pre-push \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web
 
 # Diff-coverage gate config. New code on this branch (vs $(COVERAGE_DIFF_BASE))
@@ -71,6 +71,12 @@ migrations-check: ## Verify no missing Django migrations (requires `make up`)
 schema-check: ## Verify docs/api/openapi.json matches the live DRF schema
 	bash scripts/export-openapi.sh --check
 
+web-lint: ## Run the web:lint CI job locally (eslint on packages/web/src)
+	cd packages/web && npm run lint
+
+web-typecheck: ## Run the web:type-check CI job locally (tsc --noEmit)
+	cd packages/web && npx tsc --noEmit
+
 # ─── Diff coverage ────────────────────────────────────────────────────────────
 # Enforces ≥ $(COVERAGE_DIFF_MIN)% coverage on lines changed vs $(COVERAGE_DIFF_BASE).
 # Each per-package target skips itself if no files in that package changed,
@@ -118,7 +124,7 @@ coverage-diff-web: ## Diff coverage for packages/web
 	  echo "→ web diff coverage: no changes — skipped"; \
 	fi
 
-pre-push: migrations-check schema-check coverage-diff ## Run pre-push CI gates (lint/typecheck run at commit time via hooks)
+pre-push: web-lint web-typecheck migrations-check schema-check coverage-diff ## Run pre-push CI gates (web lint/typecheck, migrations, schema, diff-coverage)
 	@echo ""
 	@echo "✅ Pre-push checks passed. Safe to git push."
 
