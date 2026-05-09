@@ -10,6 +10,7 @@ from django.utils import timezone
 from rest_framework import serializers
 from trueppm_scheduler import find_cycle
 
+from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     _VALID_EVM_MODES,
     _VALID_SORT_KEYS,
@@ -351,6 +352,34 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             ):
                 validated_data["actual_start"] = validated_data["planned_start"]
 
+        # Option E auto-status on percent_complete=100 (#381 follow-up, VoC
+        # 2026-05-08).  Contributors (role < ADMIN) drop work into REVIEW so a
+        # PM/PMO sign-off step is preserved; PMs and above flip straight to
+        # COMPLETE.  The Review *column* is the governance gate — there is no
+        # separate "review pending" tag (Priya hard-NO'd that as distrust
+        # theater).  Skipped when status is explicitly set in the same
+        # payload, when the card is already past sign-off (REVIEW/COMPLETE),
+        # or when the card is still BACKLOG (an idea jumping straight to
+        # done is an edge case that requires a manual promotion).
+        if (
+            validated_data.get("percent_complete") == 100
+            and "status" not in validated_data
+            and instance.status not in (TaskStatus.COMPLETE, TaskStatus.REVIEW, TaskStatus.BACKLOG)
+        ):
+            request = self.context.get("request")
+            user = getattr(request, "user", None) if request else None
+            role: int | None = None
+            if user is not None and getattr(user, "is_authenticated", False):
+                role = (
+                    ProjectMembership.objects.filter(project=instance.project, user=user)
+                    .values_list("role", flat=True)
+                    .first()
+                )
+            if role is not None and role >= Role.ADMIN:
+                validated_data["status"] = TaskStatus.COMPLETE
+            else:
+                validated_data["status"] = TaskStatus.REVIEW
+
         new_status = validated_data.get("status")
         old_status = instance.status
 
@@ -363,6 +392,14 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 validated_data["actual_finish"] = None
 
             if new_status == TaskStatus.IN_PROGRESS:
+                if "actual_start" not in validated_data and not instance.actual_start:
+                    validated_data["actual_start"] = today
+
+            elif new_status == TaskStatus.REVIEW:
+                # REVIEW means "work is done, awaiting sign-off."  Set
+                # actual_start if missing so capacity reporting reflects when
+                # the work was actually performed; do NOT set actual_finish —
+                # that's reserved for the COMPLETE transition that follows.
                 if "actual_start" not in validated_data and not instance.actual_start:
                     validated_data["actual_start"] = today
 

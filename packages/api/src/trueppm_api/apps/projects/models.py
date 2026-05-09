@@ -495,13 +495,15 @@ class Task(VersionedModel):
             self.status_changed_at = timezone.now()
             if _update_fields is not None and "status_changed_at" not in _update_fields:
                 kwargs = {**kwargs, "update_fields": (*_update_fields, "status_changed_at")}
-        # COMPLETE coerces percent_complete to 100 — a card in DONE is finished
-        # by definition, regardless of what percent the caller passed. Without
-        # this the popover, ring, strip, and SPI math all disagree with the
-        # column the card lives in.  Inverse coupling (progress=100 → status=
-        # COMPLETE) is intentionally NOT enforced; the UI shows a "mark
-        # complete" nudge instead so the PM makes that call explicitly.
-        if self.status == TaskStatus.COMPLETE and self.percent_complete != 100:
+        # REVIEW and COMPLETE both coerce percent_complete to 100 — a card in
+        # the Review column is "work done, awaiting sign-off" and DONE is
+        # finished by definition; both states imply 100% delivered work. The
+        # only difference between them is whether the PM has signed off yet.
+        # Without this, the popover/ring/strip/SPI math disagree with the
+        # column the card lives in. The inverse direction (progress=100 →
+        # auto-flip status) lives in TaskSerializer.update() where actor role
+        # can be inspected: contributor → REVIEW, PM/PMO → COMPLETE.
+        if self.status in (TaskStatus.REVIEW, TaskStatus.COMPLETE) and self.percent_complete != 100:
             self.percent_complete = 100.0
             _update_fields = kwargs.get("update_fields")
             if _update_fields is not None and "percent_complete" not in _update_fields:
