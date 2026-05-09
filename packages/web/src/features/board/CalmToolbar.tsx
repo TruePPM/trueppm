@@ -30,6 +30,8 @@ interface ToolbarChipProps {
   isOpen: boolean;
   onToggle: () => void;
   children: ReactNode;
+  /** Anchor edge for the popover. 'right' keeps the rightmost chip inside the viewport. */
+  align?: 'left' | 'right';
 }
 
 /** Primary toolbar chip — rounded-full pill that opens a popover. */
@@ -40,6 +42,7 @@ export function ToolbarChip({
   isOpen,
   onToggle,
   children,
+  align = 'left',
 }: ToolbarChipProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -85,7 +88,10 @@ export function ToolbarChip({
           ref={popoverRef}
           role="dialog"
           aria-label={ariaLabel}
-          className="absolute left-0 top-full z-20 mt-1 min-w-[220px] rounded-md border border-neutral-border bg-neutral-surface p-2"
+          className={[
+            'absolute top-full z-20 mt-1 min-w-[220px] rounded-md border border-neutral-border bg-neutral-surface p-2',
+            align === 'right' ? 'right-0' : 'left-0',
+          ].join(' ')}
         >
           {children}
         </div>
@@ -446,6 +452,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
           ariaLabel="More board controls"
           isOpen={openChip === 'more'}
           onToggle={() => toggle('more')}
+          align="right"
         >
           <div className="flex flex-col gap-1 min-w-[240px]">
             <MoreItem onClick={props.onCollapseAll}>Collapse all lanes</MoreItem>
