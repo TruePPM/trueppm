@@ -134,7 +134,7 @@ stays reviewable. All target milestone 0.1.
 | #382 | Calm toolbar (chips / pill toggles / layout switcher / `More⋯`) | merged |
 | #383 | Drawer layout variant | merged |
 | #384 | Queue layout variant | merged |
-| #385 | Phase-grid quieting (empty-cell ticks, `LaneMeta` inline progress, `ColHeader` redesign) | queued |
+| #385 | Phase-grid quieting (empty-cell ticks, `LaneMeta` inline progress, `ColHeader` redesign) | merged |
 
 Children B–E will amend this ADR as they land.
 
@@ -184,6 +184,48 @@ keyboard tab order is preserved.
 The same task-level filters (`cpOnly`, `dueSoonDays`, `mineActive`,
 `riskLinkedOnly`) that apply to the phase grid apply to the queue, so
 switching layouts never reveals hidden work.
+
+### Child E addendum (#385) — phase-grid quieting
+
+Once children B–D shipped, the phase grid was the loudest surface left in
+the board: empty cells rendered as full card-shaped slots, and the column
+header relied on a band tint that competed with the new toolbar's calm
+palette. Child E quiets all three column-grid atoms.
+
+**Empty cells** — when `tasks.length === 0` and no drag is active, the cell
+collapses to a 16px-tall row containing a 32×1px tick on
+`bg-neutral-border/60`. No card outline, no surface fill, no "drop here"
+hint. The droppable is still wired up; during drag (`isDragActive`) the
+cell expands back to its full `min-h-[120px]` slot so the user has a clear
+target. The tick is `aria-hidden="true"` — the column header's accessible
+count chip already announces "0 tasks" to assistive tech, so a tick with
+its own announcement would be redundant.
+
+**LaneMeta** — the row-2 layout drops `ProgressRing` (a 36×36 SVG arc)
+in favour of an inline 4px `role="progressbar"` bar with a mono percent
+label and the existing task count. The bar uses `bg-semantic-on-track`
+above 50% and `bg-brand-accent` below — same colour story as the prior
+ring. ADR-0057's em-dash empty state continues to apply (no committed
+tasks → bar empty, percent reads `—`); the bar drops `aria-valuenow` in
+that case and reports `aria-label="No committed tasks"` instead.
+
+**ColHeader** — the inline column header (`BoardView.tsx`) gains a 6px
+status dot prefix per status: `NOT_STARTED` → `bg-neutral-text-disabled`,
+`IN_PROGRESS` → `bg-brand-primary`, `REVIEW` → `bg-brand-accent`,
+`COMPLETE` → `bg-semantic-on-track`. The dot is `aria-hidden`; the label
+already carries `aria-label="${col.label}, ${count} tasks"`. The count
+chip moves to `tppm-mono`, and the WIP fraction (when `wipLimit` is set)
+is right-aligned via `ml-auto`. The earlier WIP-state band tint is kept
+on `at` and `over` states only — the dot prefix carries the resting
+signal, so a tint at rest would compete.
+
+**Done column tint** — `COLUMN_TINT.COMPLETE` drops from
+`bg-semantic-on-track/5` to `bg-semantic-on-track/[0.025]`. The status
+dot already labels the column as the close-out lane, so the cell tint
+can step back toward neutral without losing the affordance.
+
+The workshop variant of `LaneMeta` is unchanged (contentEditable name +
+drag handle); the inline bar applies in workshop mode as well.
 
 ## Out of scope (split to #362, milestone 0.2)
 

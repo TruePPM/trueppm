@@ -1,70 +1,20 @@
 /**
  * LaneMeta — left-rail atom for each phase swimlane on the Board (issue #208).
  *
- * Anatomy (188px wide):
+ * Anatomy (188px wide, two rows + optional cost row):
  *   ▌  Phase name                          [+]
- *   ▌  ⊕ 55%
- *   ▌    8 tasks
+ *   ▌  ━━━━━━━━━━━ 55%   8 tasks
  *
  * Workshop variant (`workshop={true}`): background tinted with phase color,
  * phase name becomes contentEditable, drag handle rendered (ADR-0046).
  * Escape reverts to the saved name; Enter/blur commits by calling onPhaseRename.
+ *
+ * The earlier ProgressRing layout was replaced in epic #361 child E
+ * (issue #385) — an inline 4px bar carries the same signal in less vertical
+ * real estate, and it composes cleanly with the new phase-grid quieting (empty
+ * cells render as 16px ticks instead of card-shaped slots).
  */
 import { type ReactNode, type KeyboardEvent, useRef, useCallback } from 'react';
-
-const SIZE = 36;
-const STROKE_WIDTH = 3;
-const RADIUS = (SIZE - STROKE_WIDTH) / 2;
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-
-interface RingProps {
-  avg: number;
-}
-
-function ProgressRing({ avg }: RingProps) {
-  const pct = Math.max(0, Math.min(100, avg));
-  const dashOffset = CIRCUMFERENCE * (1 - pct / 100);
-
-  const strokeClass =
-    pct === 0
-      ? 'stroke-neutral-border'
-      : pct >= 50
-        ? 'stroke-semantic-on-track'
-        : 'stroke-brand-accent';
-
-  return (
-    <svg
-      aria-hidden="true"
-      width={SIZE}
-      height={SIZE}
-      viewBox={`0 0 ${SIZE} ${SIZE}`}
-      className="flex-shrink-0"
-    >
-      <circle
-        cx={SIZE / 2}
-        cy={SIZE / 2}
-        r={RADIUS}
-        fill="none"
-        strokeWidth={STROKE_WIDTH}
-        className="stroke-neutral-surface-sunken"
-      />
-      {pct > 0 && (
-        <circle
-          cx={SIZE / 2}
-          cy={SIZE / 2}
-          r={RADIUS}
-          fill="none"
-          strokeWidth={STROKE_WIDTH}
-          strokeLinecap="round"
-          strokeDasharray={CIRCUMFERENCE}
-          strokeDashoffset={dashOffset}
-          transform={`rotate(-90 ${SIZE / 2} ${SIZE / 2})`}
-          className={strokeClass}
-        />
-      )}
-    </svg>
-  );
-}
 
 export interface LaneMetaProps {
   phaseId: string;
@@ -144,6 +94,16 @@ export function LaneMeta({
     [phaseName],
   );
 
+  // No committed tasks → bar empty, percent reads as em-dash (ADR-0057).
+  // Below 50% the fill is brand-accent (in-flight signal); at/above 50% it
+  // shifts to semantic-on-track (closing in on done). Mirrors the prior ring.
+  const hasCommitted = taskCount > 0;
+  const fillClass = !hasCommitted
+    ? 'bg-transparent'
+    : pct >= 50
+      ? 'bg-semantic-on-track'
+      : 'bg-brand-accent';
+
   return (
     <div
       className="relative"
@@ -157,7 +117,7 @@ export function LaneMeta({
       />
 
       {/* Content — inset from rail */}
-      <div className="pl-[11px] pr-[14px] pt-[14px] pb-[14px] flex flex-col gap-2" style={{ minHeight: 88 }}>
+      <div className="pl-[11px] pr-[14px] pt-[14px] pb-[14px] flex flex-col gap-2">
 
         {/* Header row: name + add button */}
         <div className="flex items-center gap-2 min-w-0">
@@ -217,24 +177,36 @@ export function LaneMeta({
           </button>
         </div>
 
-        {/* Progress block — em-dash empty state when no committed tasks
-            (ADR-0057). After BACKLOG was lifted into the band above the grid,
-            a phase whose only cards are backlog ideas has zero committed
-            delivery. "0%" would imply "0% done"; "—" reads as
-            "not applicable yet" — which is the truth. */}
-        <div className="flex items-center gap-2">
-          <ProgressRing avg={taskCount === 0 ? 0 : pct} />
-          <div className="flex flex-col min-w-0">
-            <span
-              className="text-sm font-semibold text-neutral-text-primary font-mono leading-none"
-              aria-label={taskCount === 0 ? 'No committed tasks' : `${pct} percent complete`}
-            >
-              {taskCount === 0 ? '—' : `${pct}%`}
-            </span>
-            <span className="text-xs text-neutral-text-secondary leading-tight mt-0.5">
-              {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
-            </span>
+        {/* Progress row — 4px inline bar + mono percent + task count.
+            Em-dash empty state when no committed tasks (ADR-0057). After
+            BACKLOG was lifted into the band above the grid, a phase whose
+            only cards are backlog ideas has zero committed delivery.
+            "0%" would imply "0% done"; "—" reads as "not applicable yet". */}
+        <div className="flex items-center gap-2 min-w-0">
+          <div
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={hasCommitted ? pct : undefined}
+            aria-label={
+              hasCommitted ? `Phase progress ${pct} percent` : 'No committed tasks'
+            }
+            className="flex-1 h-1 rounded-full bg-neutral-surface-sunken overflow-hidden"
+          >
+            <div
+              aria-hidden="true"
+              className={`h-full ${fillClass} transition-[width] duration-150`}
+              style={{ width: hasCommitted ? `${pct}%` : 0 }}
+            />
           </div>
+          <span
+            className="tppm-mono text-xs font-semibold text-neutral-text-primary leading-none flex-shrink-0"
+          >
+            {hasCommitted ? `${pct}%` : '—'}
+          </span>
+          <span className="text-xs text-neutral-text-secondary leading-none flex-shrink-0">
+            {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
+          </span>
         </div>
 
         {/* Cost row — shown when showCost toggle is on and phase has budget data (issue #189). */}
