@@ -71,6 +71,18 @@ migrations-check: ## Verify no missing Django migrations (requires `make up`)
 schema-check: ## Verify docs/api/openapi.json matches the live DRF schema
 	bash scripts/export-openapi.sh --check
 
+api-lint: ## Run the api:lint CI job locally (ruff check + format --check)
+	cd packages/api && ruff check src/ tests/ && ruff format --check src/ tests/
+
+api-typecheck: ## Run the api:type-check CI job locally (mypy)
+	cd packages/api && mypy src/trueppm_api
+
+scheduler-lint: ## Run the scheduler:lint CI job locally (ruff check + format --check)
+	cd packages/scheduler && ruff check src/ tests/ && ruff format --check src/ tests/
+
+scheduler-typecheck: ## Run the scheduler:type-check CI job locally (mypy)
+	cd packages/scheduler && mypy
+
 web-lint: ## Run the web:lint CI job locally (eslint on packages/web/src)
 	cd packages/web && npm run lint
 
@@ -124,7 +136,7 @@ coverage-diff-web: ## Diff coverage for packages/web
 	  echo "→ web diff coverage: no changes — skipped"; \
 	fi
 
-pre-push: web-lint web-typecheck migrations-check schema-check coverage-diff ## Run pre-push CI gates (web lint/typecheck, migrations, schema, diff-coverage)
+pre-push: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check schema-check coverage-diff ## Run pre-push CI gates (all lint+typecheck, migrations, schema, diff-coverage)
 	@echo ""
 	@echo "✅ Pre-push checks passed. Safe to git push."
 
