@@ -68,6 +68,7 @@ import { BoardCardPopover } from './BoardCardPopover';
 import { TaskDetailDrawer } from '@/features/schedule/TaskDetailDrawer';
 import { phaseColor } from './phaseColors';
 import { BacklogBand, BACKLOG_BAND_DROPPABLE_ID } from './BacklogBand';
+import { BacklogDrawer } from './BacklogDrawer';
 import { BacklogDemoteConfirmDialog } from './BacklogDemoteConfirmDialog';
 import { CalmToolbar } from './CalmToolbar';
 import { useBoardToolbarPrefs } from '@/hooks/useBoardToolbarPrefs';
@@ -1375,12 +1376,12 @@ export function BoardView() {
             </div>
           )}
 
-          {/* Body — backlog rail (left) + scrolling phase grid. The rail
-              owns its own scroll so the phase grid can be paged without
-              dragging the inbox along. ADR-0057 / epic #361 child A. */}
-          <div className="flex-1 flex flex-row min-h-0">
-
-            <BacklogBand
+          {/* Body — backlog surface (rail | drawer | queue) + scrolling phase
+              grid. The rail sits left of the grid (flex-row); the drawer sits
+              above it (flex-col, full width). Layout is persisted via
+              `useBoardToolbarPrefs` (ADR-0057 / epic #361). */}
+          {toolbarPrefs.layout === 'drawer' && (
+            <BacklogDrawer
               tasks={backlogTasks}
               isDragActive={activeId !== null}
               isOver={overCell === BACKLOG_BAND_DROPPABLE_ID}
@@ -1392,6 +1393,23 @@ export function BoardView() {
               onCardFocus={handleCardFocus}
               onCardClick={handleCardClick}
             />
+          )}
+          <div className="flex-1 flex flex-row min-h-0">
+
+            {toolbarPrefs.layout === 'rail' && (
+              <BacklogBand
+                tasks={backlogTasks}
+                isDragActive={activeId !== null}
+                isOver={overCell === BACKLOG_BAND_DROPPABLE_ID}
+                density={toolbarPrefs.backlogDensity}
+                phaseColorFor={(parentId) =>
+                  parentId ? phaseColor(parentId) : phaseColor('root')
+                }
+                focusedCardId={focusedCardId}
+                onCardFocus={handleCardFocus}
+                onCardClick={handleCardClick}
+              />
+            )}
 
             {/* Board grid — scrollable */}
             <div className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken">
