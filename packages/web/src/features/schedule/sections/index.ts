@@ -17,6 +17,7 @@
  */
 
 import { registry } from '@/lib/widget-registry';
+import type { Task } from '@/types';
 import { OverviewSection } from './OverviewSection';
 import { DependenciesSection } from './DependenciesSection';
 import { EstimatesSection } from './EstimatesSection';
@@ -53,6 +54,9 @@ export function registerOssDrawerSections(): void {
     title: 'Estimates',
     component: EstimatesSection,
     priority: 800,
+    // Milestones have no PERT estimates — duration is always 0 and
+    // the three-point fields are meaningless (ADR-0058).
+    canRender: (ctx) => !((ctx as { task: Task }).task.isMilestone),
   });
 
   registry.register('task_detail.section', {
