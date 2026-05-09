@@ -12,7 +12,7 @@
  * wired in BoardView.tsx. Sibling MRs #383 (drawer) and #384 (queue) will plug
  * their layout components into the rail/drawer/queue selector wired here.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { BoardSortKey } from '@/hooks/useBoardSavedViews';
 import type { BoardDensity, EvmMode } from './BoardCard';
 import type { BoardLayoutVariant, BacklogDensity } from '@/hooks/useBoardToolbarPrefs';
@@ -237,7 +237,7 @@ export interface CalmToolbarProps {
   workshopMode: boolean;
   onWorkshopToggle: () => void;
   workshopDisabled: boolean;
-  workshopButtonRef: React.RefObject<HTMLButtonElement | null>;
+  workshopButtonRef: RefObject<HTMLButtonElement | null>;
 }
 
 const SORT_LABELS: Record<BoardSortKey, string> = {

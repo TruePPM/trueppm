@@ -17,7 +17,9 @@ describe('useBoardToolbarPrefs', () => {
     const { result } = renderHook(() => useBoardToolbarPrefs());
     act(() => result.current.setLayout('drawer'));
     expect(result.current.layout).toBe('drawer');
-    const stored = JSON.parse(localStorage.getItem('trueppm.board.toolbarPrefs.v1') ?? '{}');
+    const stored = JSON.parse(
+      localStorage.getItem('trueppm.board.toolbarPrefs.v1') ?? '{}',
+    ) as { layout?: string; backlogDensity?: string };
     expect(stored.layout).toBe('drawer');
   });
 
@@ -25,7 +27,9 @@ describe('useBoardToolbarPrefs', () => {
     const { result } = renderHook(() => useBoardToolbarPrefs());
     act(() => result.current.setBacklogDensity('full'));
     expect(result.current.backlogDensity).toBe('full');
-    const stored = JSON.parse(localStorage.getItem('trueppm.board.toolbarPrefs.v1') ?? '{}');
+    const stored = JSON.parse(
+      localStorage.getItem('trueppm.board.toolbarPrefs.v1') ?? '{}',
+    ) as { layout?: string; backlogDensity?: string };
     expect(stored.backlogDensity).toBe('full');
   });
 
