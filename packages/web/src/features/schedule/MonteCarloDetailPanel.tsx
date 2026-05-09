@@ -122,17 +122,25 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
     .sort((a, b) => b.spread - a.spread)
     .slice(0, 5);
 
-  // Confidence-by-date: cumulative sum over buckets
-  const total = result.buckets.reduce((s, b) => s + b.count, 0);
+  // Confidence-by-date: sort + dedupe buckets, accumulate over all of them,
+  // then sample every other row for display. Wire payload occasionally repeats
+  // weekStart and is not guaranteed sorted, which would otherwise show
+  // out-of-order or duplicated dates with identical percentages.
+  const mergedByDate = new Map<string, number>();
+  for (const b of result.buckets) {
+    mergedByDate.set(b.weekStart, (mergedByDate.get(b.weekStart) ?? 0) + b.count);
+  }
+  const sortedBuckets = Array.from(mergedByDate.entries())
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const total = sortedBuckets.reduce((s, [, count]) => s + count, 0);
   let cumulative = 0;
-  const confidenceRows = result.buckets
-    .filter((_, i) => i % 2 === 0 || i === result.buckets.length - 1) // every other week
-    .map((b) => {
-      cumulative += b.count;
-      const pct = total > 0 ? Math.round((cumulative / total) * 100) : 0;
-      const isP80 = b.weekStart <= result.p80 && result.p80 <= b.weekStart;
-      return { date: b.weekStart, pct, isP80 };
-    })
+  const allRows = sortedBuckets.map(([date, count]) => {
+    cumulative += count;
+    const pct = total > 0 ? Math.round((cumulative / total) * 100) : 0;
+    return { date, pct, isP80: date === result.p80 };
+  });
+  const confidenceRows = allRows
+    .filter((_, i) => i % 2 === 0 || i === allRows.length - 1)
     .filter((r) => r.pct > 5 && r.pct < 100);
 
   const drawerContent = (
@@ -251,18 +259,23 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
         />
       )}
 
-      {/* Desktop: 480px right-side slide-in */}
+      {/* Desktop: 480px right-side slide-in.
+          `invisible` when closed so the offscreen-translated drawer is not
+          a hit target and Playwright's toBeVisible() reflects the closed state. */}
       <div
         ref={drawerRef}
         role="dialog"
         aria-modal="true"
         aria-label="Monte Carlo forecast detail"
         data-testid="mc-detail-panel"
+        aria-hidden={!isOpen}
         className={[
           'hidden md:flex fixed inset-y-0 right-0 w-[480px] flex-col',
           'bg-neutral-surface border-l border-neutral-border z-40',
           'transition-transform duration-200',
-          isOpen ? 'translate-x-0' : 'translate-x-full',
+          isOpen
+            ? 'translate-x-0'
+            : 'translate-x-full invisible pointer-events-none',
         ].join(' ')}
       >
         {drawerContent}
@@ -273,12 +286,15 @@ export function MonteCarloDetailPanel({ result, cpmFinish, tasks, isOpen, onClos
         role="dialog"
         aria-modal="true"
         aria-label="Monte Carlo forecast detail"
+        aria-hidden={!isOpen}
         className={[
           'md:hidden fixed inset-x-0 bottom-0 z-40',
           'rounded-t-xl bg-neutral-surface border-t border-neutral-border',
           'h-[85vh] flex flex-col',
           'transition-transform duration-200',
-          isOpen ? 'translate-y-0' : 'translate-y-full',
+          isOpen
+            ? 'translate-y-0'
+            : 'translate-y-full invisible pointer-events-none',
         ].join(' ')}
       >
         <div className="w-8 h-1 rounded-full bg-neutral-border mx-auto mt-3 mb-2 shrink-0" aria-hidden="true" />

@@ -937,6 +937,7 @@ export function ScheduleView() {
         ) : (
           <div
             ref={canvasScrollRef}
+            data-testid="schedule-canvas-scroll"
             className="flex-1 min-w-0 overflow-auto relative z-0"
             onScroll={handleCanvasScroll}
           >

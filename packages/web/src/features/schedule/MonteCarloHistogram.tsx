@@ -102,7 +102,7 @@ export function MonteCarloHistogram({ result }: Props) {
         const barH = maxCount > 0 ? (b.count / maxCount) * CHART_H : 0;
         return (
           <rect
-            key={b.weekStart}
+            key={`${b.weekStart}-${i}`}
             x={PADDING.left + i * (BAR_W + BAR_GAP)}
             y={PADDING.top + CHART_H - barH}
             width={BAR_W}

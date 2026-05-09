@@ -141,8 +141,20 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
   test('P50/P80/P95 markers are visible on the Gantt timeline', async ({ page }) => {
     await gotoScheduleWithMC(page);
 
-    // Wait for schedule view to render
-    await page.waitForSelector('[data-testid="mc-marker-p50"]', { timeout: 10_000 });
+    // Markers mount once the canvas engine is ready. They self-hide when
+    // scrolled off-screen, so wait for DOM attach (not visibility) and then
+    // scroll the canvas to the right edge so the future-dated MC percentiles
+    // (Nov-Dec 2026) come into view from the today-default scroll position.
+    await page.waitForSelector('[data-testid="mc-marker-p50"]', {
+      state: 'attached',
+      timeout: 10_000,
+    });
+    await page.evaluate(() => {
+      const scroller = document.querySelector(
+        '[data-testid="schedule-canvas-scroll"]',
+      ) as HTMLElement | null;
+      if (scroller) scroller.scrollLeft = scroller.scrollWidth;
+    });
 
     await expect(page.locator('[data-testid="mc-marker-p50"]')).toBeVisible();
     await expect(page.locator('[data-testid="mc-marker-p80"]')).toBeVisible();

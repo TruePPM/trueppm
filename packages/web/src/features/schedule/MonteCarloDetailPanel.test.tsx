@@ -50,10 +50,12 @@ describe('MonteCarloDetailPanel', () => {
         onClose={() => {}}
       />,
     );
-    // Panel is in DOM but translated off-screen. Role is still accessible.
-    // The translate-x-full class applies — just verify no focus was captured.
-    const dialogs = screen.getAllByRole('dialog');
-    expect(dialogs.length).toBeGreaterThan(0);
+    // Panel stays in the DOM for the slide-out transition but is set to
+    // aria-hidden + invisible so AT and Playwright agree it is closed.
+    const panel = screen.getByTestId('mc-detail-panel');
+    expect(panel).toHaveAttribute('aria-hidden', 'true');
+    expect(panel.className).toMatch(/invisible/);
+    expect(panel.className).toMatch(/translate-x-full/);
   });
 
   it('fires onClose when the close button is clicked', () => {
@@ -161,6 +163,46 @@ describe('MonteCarloDetailPanel', () => {
     expect(within(desktopPanel).getByText('User testing')).toBeInTheDocument();
     // Summary task excluded
     expect(within(desktopPanel).queryByText('Phase 1')).not.toBeInTheDocument();
+  });
+
+  it('Confidence by date dedupes repeated dates and sorts ascending', () => {
+    // Crafted result with: out-of-order dates, repeated weekStart values.
+    // Expected: each date appears at most once, in ascending order.
+    const result = {
+      ...FIXTURE_MC_RESULT,
+      buckets: [
+        { weekStart: '2026-06-21', count: 10 },
+        { weekStart: '2026-05-31', count: 5 },
+        { weekStart: '2026-06-21', count: 10 },
+        { weekStart: '2026-06-21', count: 10 },
+        { weekStart: '2026-06-07', count: 8 },
+        { weekStart: '2026-06-24', count: 12 },
+        { weekStart: '2026-06-24', count: 12 },
+      ],
+    };
+    render(
+      <MonteCarloDetailPanel
+        result={result}
+        cpmFinish="2026-06-01"
+        tasks={[]}
+        isOpen
+        onClose={() => {}}
+      />,
+    );
+    const desktopPanel = screen.getByTestId('mc-detail-panel');
+    const section = within(desktopPanel).getByText(/Confidence by date/i)
+      .parentElement!;
+    const dateLabels = within(section)
+      .getAllByText(/^[A-Z][a-z]{2} \d{1,2}$/)
+      .map((el) => el.textContent ?? '');
+    // No duplicates
+    expect(new Set(dateLabels).size).toBe(dateLabels.length);
+    // Ascending order — convert "Mon DD" to a sortable index against the
+    // unique input dates (May 31, Jun 7, Jun 21, Jun 24).
+    const order = ['May 31', 'Jun 7', 'Jun 21', 'Jun 24'];
+    const indices = dateLabels.map((d) => order.indexOf(d)).filter((i) => i >= 0);
+    const sorted = [...indices].sort((a, b) => a - b);
+    expect(indices).toEqual(sorted);
   });
 
   it('shows PERT hint when no leaf tasks have estimates', () => {
