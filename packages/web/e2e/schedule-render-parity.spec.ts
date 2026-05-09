@@ -160,16 +160,22 @@ test.describe('Schedule milestone toolbar — +Milestone (#340)', () => {
     ).toBeVisible();
   });
 
-  test('clicking + Milestone POSTs to /tasks/ with is_milestone=true', async ({ page }) => {
+  test('clicking + Milestone opens the milestone-create dialog (no eager POST)', async ({ page }) => {
+    // Updated for the milestone-add dialog (issue #240 follow-up). The
+    // button now opens TaskFormModal in milestone mode so the user can pick
+    // name + date + parent up front; no /tasks/ POST fires until the user
+    // submits the form. Submit-payload shape is covered by
+    // schedule-milestone-add.spec.ts.
     await page.goto(BASE_URL);
-    const requestPromise = page.waitForRequest(
-      (req) => req.url().endsWith('/api/v1/tasks/') && req.method() === 'POST',
-    );
+    let postCount = 0;
+    await page.route('**/api/v1/tasks/', (route) => {
+      if (route.request().method() === 'POST') {
+        postCount += 1;
+      }
+      route.continue();
+    });
     await page.getByTestId('add-milestone-button').click();
-    const req = await requestPromise;
-    const body = req.postDataJSON() as Record<string, unknown>;
-    expect(body.is_milestone).toBe(true);
-    expect(body.duration).toBe(0);
-    expect(typeof body.planned_start).toBe('string');
+    await expect(page.getByRole('dialog', { name: 'New milestone' })).toBeVisible();
+    expect(postCount).toBe(0);
   });
 });

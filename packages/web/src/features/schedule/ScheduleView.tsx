@@ -315,6 +315,7 @@ export function ScheduleView() {
   }, [focusModeEnabled, selectedTaskId, allLinks]);
 
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showAddMilestone, setShowAddMilestone] = useState(false);
   const [showColMenu, setShowColMenu] = useState(false);
   const colMenuRef = useRef<HTMLDivElement>(null);
 
@@ -609,57 +610,47 @@ export function ScheduleView() {
     () => (inferredParentId ? (allTasks.find((t) => t.id === inferredParentId)?.name ?? null) : null),
     [inferredParentId, allTasks],
   );
+  // Open the milestone-create dialog. The dialog handles the actual POST and
+  // calls handleMilestoneCreated via TaskFormModal's onCreated callback once
+  // the milestone is in the cache, which is when the pulse/announce should
+  // run. Keeping that side-effect path off the eager-create path means it
+  // stays correct regardless of which date or parent the user picks.
   const handleAddMilestone = useCallback(() => {
-    if (!projectId || createTaskMut.isPending) return;
-    const today = new Date().toISOString().slice(0, 10);
-    createTaskMut.mutate(
-      {
-        // Server requires non-blank `name` (Task.name is a CharField with no
-        // allow_blank). Seed a placeholder; build-mode then drops focus into
-        // the cell editor so the user types over it before commit.
-        name: 'New milestone',
-        duration: 0,
-        planned_start: today,
-        is_milestone: true,
-        ...(inferredParentId ? { parent_id: inferredParentId } : {}),
-      },
-      {
-        onSuccess: (data) => {
-          // Live-region announce (#340)
-          if (ariaLiveRef.current) {
-            ariaLiveRef.current.textContent = `Milestone ${data.name || 'untitled'} inserted at ${today}`;
-          }
-          // Pulse the new diamond on the canvas
-          if (scheduleScales) {
-            try {
-              const x = dateToLeft(today, scheduleScales);
-              const newRowIdx = visibleTasks.length; // appended at end of current view
-              const y = HEADER_HEIGHT + newRowIdx * ROW_HEIGHT + ROW_HEIGHT / 2;
-              setPulsingMilestoneAt({ x, y });
-            } catch {
-              // dateToLeft can throw on out-of-range dates — silently skip pulse.
-            }
-          }
-          setPulsingMilestoneId(data.id);
-          // Focus the new row + drop into name cell-edit so the user can
-          // type the milestone name immediately. Also open the drawer so
-          // the Date field is visible — planned_start is not in
-          // EDITABLE_COLUMNS so it can only be set via the drawer.
-          focus.focusRow(data.id);
-          focus.enterCellEdit(data.id, 'name');
-          setSelectedTaskId(data.id);
-        },
-      },
-    );
-  }, [
-    projectId,
-    createTaskMut,
-    inferredParentId,
-    visibleTasks,
-    scheduleScales,
-    focus,
-    setSelectedTaskId,
-  ]);
+    if (!projectId || readOnly) return;
+    setShowAddMilestone(true);
+  }, [projectId, readOnly]);
+
+  // Fired by TaskFormModal.onCreated after a milestone is successfully saved.
+  // Replays the pre-#240 side effects: pulse the diamond on the canvas and
+  // announce the insertion to the aria-live region. The new task is already
+  // in the React Query cache (createTask invalidates `tasks` on success), so
+  // we look up the saved task by id to read its actual planned_start — the
+  // user may have picked a date other than today.
+  const handleMilestoneCreated = useCallback(
+    (taskId: string) => {
+      const created = allTasks.find((t) => t.id === taskId);
+      const dateIso = created?.plannedStart ?? new Date().toISOString().slice(0, 10);
+      if (ariaLiveRef.current) {
+        ariaLiveRef.current.textContent = `Milestone ${created?.name || 'untitled'} inserted at ${dateIso}`;
+      }
+      if (scheduleScales) {
+        try {
+          const x = dateToLeft(dateIso, scheduleScales);
+          const rowIdx = visibleTasks.findIndex((t) => t.id === taskId);
+          const idx = rowIdx >= 0 ? rowIdx : visibleTasks.length;
+          const y = HEADER_HEIGHT + idx * ROW_HEIGHT + ROW_HEIGHT / 2;
+          setPulsingMilestoneAt({ x, y });
+        } catch {
+          // dateToLeft can throw on out-of-range dates — silently skip pulse.
+        }
+      }
+      setPulsingMilestoneId(taskId);
+      if (buildModeActive) {
+        focus.focusRow(taskId);
+      }
+    },
+    [allTasks, scheduleScales, visibleTasks, buildModeActive, focus],
+  );
 
   const keyBindings = useMemo<Record<string, (e: KeyboardEvent) => void>>(() => {
     const out: Record<string, (e: KeyboardEvent) => void> = {};
@@ -889,6 +880,22 @@ export function ScheduleView() {
           phaseName={inferredParentName ?? undefined}
           isMobile={isMobile}
           onClose={() => setShowAddForm(false)}
+        />
+      )}
+
+      {/* Milestone creation modal — same TaskFormModal in milestone mode.
+          The user picks name, date, and parent up front instead of editing
+          a placeholder row in the drawer (was: insert-then-edit-name path). */}
+      {showAddMilestone && projectId && (
+        <TaskFormModal
+          projectId={projectId}
+          task={null}
+          parentId={inferredParentId}
+          phaseName={inferredParentName ?? undefined}
+          isMilestone
+          isMobile={isMobile}
+          onCreated={handleMilestoneCreated}
+          onClose={() => setShowAddMilestone(false)}
         />
       )}
 
