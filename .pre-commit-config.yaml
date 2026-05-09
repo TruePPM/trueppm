@@ -23,10 +23,11 @@ repos:
         # only. Match that here; tests are checked by the pytest run, not mypy.
         files: ^packages/scheduler/src/
         stages: [pre-commit]
-  # Pre-push gate — only checks that require the full codebase state and are
-  # NOT covered by the commit-time hooks above: missing migrations and stale
-  # openapi.json. Lint and typecheck are intentionally omitted here — they run
-  # at commit time on the diff. Requires `make up` (migrations needs a live DB).
+  # Pre-push gate — checks that require the full codebase state and are NOT
+  # covered by the per-file commit hooks above: web eslint and tsc (no
+  # commit-time hook because cross-file TS errors need a project-wide pass),
+  # missing migrations, and stale openapi.json. Requires `make up` (migrations
+  # needs a live DB).
   - repo: local
     hooks:
       - id: pre-push-ci-gates
