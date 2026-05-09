@@ -152,6 +152,38 @@ test.describe('Board BACKLOG rail (ADR-0057, epic #361 child A)', () => {
     await expect(rail.getByText(/stalled/i)).toHaveCount(0);
   });
 
+  test('phase-less project still renders Project Tasks lane as a drop target (issue #386)', async ({ page }) => {
+    // Fixture: ONE backlog card, NO summary tasks, NO committed cards.
+    // Without #386 the grid renders the empty-state copy and the rail's
+    // "Drag right onto a phase" affordance has no target; with the fix
+    // the synthetic Project Tasks lane appears with the four status columns.
+    const PHASE_LESS_BACKLOG = {
+      id: 'idea-phaseless',
+      wbs_path: '1',
+      name: 'Polish onboarding copy',
+      parent_id: null,
+      status: 'BACKLOG',
+      ...commonTaskShape(),
+      status_changed_at: new Date().toISOString(),
+    };
+    await setup(page, [PHASE_LESS_BACKLOG]);
+    await page.goto(`${BASE_URL}/board`);
+
+    // Rail still shows the idea so it can be dragged.
+    const rail = page.getByTestId('backlog-band');
+    await expect(rail.getByText('Polish onboarding copy')).toBeVisible({ timeout: 10_000 });
+
+    // Empty-state copy must NOT render — the synthetic lane keeps the grid alive.
+    await expect(page.getByText(/No tasks yet\. Create tasks to see them on the board/)).toHaveCount(0);
+
+    // Project Tasks lane appears with the four status columns to drop onto.
+    await expect(page.getByText('Project Tasks')).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^To Do,/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^In Progress,/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Review,/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Done,/ })).toBeVisible();
+  });
+
   test('collapses to a 44px vertical strip and re-expands via the toggle', async ({ page }) => {
     await setup(page, [SUMMARY_TASK, COMMITTED_TASK, BACKLOG_TASK_A]);
     await page.goto(`${BASE_URL}/board`);
