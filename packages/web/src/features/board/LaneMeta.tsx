@@ -22,6 +22,13 @@ export interface LaneMetaProps {
   /** 0–100 average progress across all tasks in this phase. */
   avgProgress: number;
   taskCount: number;
+  /**
+   * Count of *committed* tasks (plannedStart set or sprint-assigned). Drives
+   * the em-dash empty state on the percent display: a phase whose only cards
+   * are uncommitted ideas has no delivery to roll up. Falls back to taskCount
+   * when omitted (backwards compat for callers that don't separate the two).
+   */
+  committedTaskCount?: number;
   /** Hex color for the 3px left rail; use phaseColor() helper to derive. */
   railColor: string;
   /** Workshop mode: tinted bg, editable name, drag handle. */
@@ -63,6 +70,7 @@ export function LaneMeta({
   phaseName,
   avgProgress,
   taskCount,
+  committedTaskCount,
   railColor,
   workshop = false,
   onPhaseRename,
@@ -106,7 +114,10 @@ export function LaneMeta({
   // No committed tasks → bar empty, percent reads as em-dash (ADR-0057).
   // Below 50% the fill is brand-accent (in-flight signal); at/above 50% it
   // shifts to semantic-on-track (closing in on done). Mirrors the prior ring.
-  const hasCommitted = taskCount > 0;
+  // committedTaskCount distinguishes "has cards but none committed" (idea
+  // inbox) from "has committed delivery"; legacy callers that pass only
+  // taskCount fall through to the prior behavior.
+  const hasCommitted = (committedTaskCount ?? taskCount) > 0;
   const fillClass = !hasCommitted
     ? 'bg-transparent'
     : pct >= 50

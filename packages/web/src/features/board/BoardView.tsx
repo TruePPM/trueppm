@@ -169,8 +169,13 @@ function buildPhases(allTasks: Task[], workshopMode = false): Phase[] {
 // ---------------------------------------------------------------------------
 
 function avgProgress(tasks: Task[]): number {
-  if (tasks.length === 0) return 0;
-  return Math.round(tasks.reduce((s, t) => s + t.progress, 0) / tasks.length);
+  // Match the CP rollup in PhaseSummaryChips: only scheduled (committed) tasks
+  // count. An unscheduled To Do is a 0%-progress task in the data but
+  // represents work the PM hasn't committed to yet — including it drags the
+  // rollup down by counting backlog ideas against delivery.
+  const committed = tasks.filter(isTaskScheduled);
+  if (committed.length === 0) return 0;
+  return Math.round(committed.reduce((s, t) => s + t.progress, 0) / committed.length);
 }
 
 // ---------------------------------------------------------------------------
@@ -513,6 +518,7 @@ function PhaseLane({
   dragHandleListeners,
 }: PhaseLaneProps) {
   const avg = avgProgress(phase.tasks);
+  const committedTaskCount = phase.tasks.filter(isTaskScheduled).length;
   const color = phaseColor(phase.id);
   const colCount = columns.length;
   // Synthetic phase-less Project Tasks lane (#386 / #387): the only way the
@@ -582,6 +588,7 @@ function PhaseLane({
             phaseName={phase.name}
             avgProgress={avg}
             taskCount={phase.tasks.length}
+            committedTaskCount={committedTaskCount}
             railColor={color}
             workshop={workshop}
             onPhaseRename={onPhaseRename ? (name) => onPhaseRename(phase.id, name) : undefined}

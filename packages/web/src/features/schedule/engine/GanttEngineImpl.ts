@@ -29,6 +29,7 @@ import {
   drawTodayLine,
   drawTimelineHeader,
   drawTaskBar,
+  drawTaskBarLabel,
   drawSummaryBar,
   drawMilestone,
   drawDependencyArrows,
@@ -593,12 +594,27 @@ export class GanttEngineImpl implements GanttEngine {
 
     const { firstRow, lastRow } = this._visibleRange();
 
+    // Layer order on canvas-bars: bars (no labels) → arrows → labels.
+    //
+    // The horizontal exit/entry segment of every dependency arrow runs at
+    // row-center y, which is exactly where the task name label sits. If the
+    // arrows are drawn on top of the labels (the natural last-pass position)
+    // they cut horizontally through the text and look like a strikethrough.
+    // Drawing labels last keeps text readable on top of any crossing arrow.
     for (let i = firstRow; i <= lastRow; i++) {
-      this._paintTaskAt(ctx, i);
+      this._paintTaskAt(ctx, i, /* skipLabel */ true);
     }
 
-    // Dependency arrows on top of bars
     drawDependencyArrows(ctx, this._tasks, this._links, this._scales, this._scrollLeft, this._scrollTop);
+
+    for (let i = firstRow; i <= lastRow; i++) {
+      const task = this._tasks[i];
+      if (!task || task.isMilestone || task.isSummary) continue;
+      ctx.save();
+      ctx.translate(0, -this._scrollTop);
+      drawTaskBarLabel(ctx, task, i, this._scales, this._scrollLeft, this._viewportWidth);
+      ctx.restore();
+    }
   }
 
   private _paintRow(rowIndex: number): void {
@@ -625,7 +641,7 @@ export class GanttEngineImpl implements GanttEngine {
     this._paintTaskAt(ctx, rowIndex);
   }
 
-  private _paintTaskAt(ctx: CanvasRenderingContext2D, rowIndex: number): void {
+  private _paintTaskAt(ctx: CanvasRenderingContext2D, rowIndex: number, skipLabel = false): void {
     if (!this._scales) return;
     const task = this._tasks[rowIndex];
     if (!task || !task.start || !task.finish) return;
@@ -641,7 +657,7 @@ export class GanttEngineImpl implements GanttEngine {
     } else if (task.isSummary) {
       drawSummaryBar(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected);
     } else {
-      drawTaskBar(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected, this._viewportWidth);
+      drawTaskBar(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected, this._viewportWidth, skipLabel);
     }
 
     // Actual-date overlay: drawn after the planned bar so it renders on top.

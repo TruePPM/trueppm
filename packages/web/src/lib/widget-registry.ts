@@ -50,17 +50,24 @@ export interface SlotRegistration<T = ComponentType<any>> {
   canRender?: (ctx: unknown) => boolean;
 }
 
-class WidgetRegistry {
+export class WidgetRegistry {
   private readonly slots = new Map<SlotId, SlotRegistration[]>();
 
   /**
    * Register a component for a named slot.
    *
+   * Idempotent: re-registering the same `(slot, id)` replaces the prior
+   * entry rather than appending a duplicate. Vite HMR, module re-imports,
+   * and React StrictMode's double-invoke all cause init code to run twice;
+   * without dedupe every section was rendered twice in the task detail
+   * drawer (and any other slot). Replace-by-id also lets HMR pick up the
+   * new component when a section is edited mid-session.
+   *
    * Registrations are sorted by priority (ascending) on each call so that
    * get() returns them in the correct render order without a sort at read time.
    */
   register(slot: SlotId, reg: SlotRegistration): void {
-    const existing = this.slots.get(slot) ?? [];
+    const existing = (this.slots.get(slot) ?? []).filter((r) => r.id !== reg.id);
     this.slots.set(
       slot,
       [...existing, reg].sort((a, b) => a.priority - b.priority),
