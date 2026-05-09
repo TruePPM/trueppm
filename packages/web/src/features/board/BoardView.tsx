@@ -465,7 +465,7 @@ interface PhaseLaneProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   onMenuMove: (task: Task, newStatus: TaskStatus) => void;
-  onAddTask: (phaseId: string, phaseName: string) => void;
+  onAddTask: (phaseId: string, phaseName: string, isSynthetic?: boolean) => void;
   focusedCardId: string | null;
   highlightedTaskIds: Set<string> | null;
   overallocByResourcePerTask: Map<string, Map<string, number>>;
@@ -515,6 +515,14 @@ function PhaseLane({
   const avg = avgProgress(phase.tasks);
   const color = phaseColor(phase.id);
   const colCount = columns.length;
+  // Synthetic phase-less Project Tasks lane (#386 / #387): the only way the
+  // 'root' lane has zero tasks is when the `phases` useMemo injected it
+  // because the project has no committed structure but at least one BACKLOG
+  // card exists. The real 'root' lane (parentless committed tasks) always
+  // has tasks.length > 0 by construction in `buildPhases`. When synthetic,
+  // the "+ Add task" button reads "Add to backlog" and the modal defaults
+  // status to BACKLOG — VoC consensus on the BACKLOG-vs-TO-DO question.
+  const isSynthetic = phase.id === 'root' && phase.tasks.length === 0;
 
   // Aggregate cost data for phase header (issue #189).
   const phaseBudgetAtCompletion = phase.tasks.reduce<number | null>((acc, t) => {
@@ -578,7 +586,8 @@ function PhaseLane({
             workshop={workshop}
             onPhaseRename={onPhaseRename ? (name) => onPhaseRename(phase.id, name) : undefined}
             dragHandleListeners={dragHandleListeners}
-            onAddTask={() => onAddTask(phase.id, phase.name)}
+            onAddTask={() => onAddTask(phase.id, phase.name, isSynthetic)}
+            addTaskLabel={isSynthetic ? 'Add to backlog' : undefined}
             collapseToggle={collapseToggle}
             showCost={showCost}
             phaseBudgetAtCompletion={phaseBudgetAtCompletion}
@@ -791,7 +800,12 @@ export function BoardView() {
   const [sort, setSort] = useState<BoardSortKey>('priority');
   const [showWip, setShowWip] = useState(true);
   const [showColTints, setShowColTints] = useState(true);
-  const [addTaskPhase, setAddTaskPhase] = useState<{ id: string; name: string } | null>(null);
+  // `isSynthetic` flags the phase-less Project Tasks lane (#386) — when true,
+  // TaskFormModal opens with status defaulting to BACKLOG and the modal title
+  // reads "Add to backlog" rather than "Add to Project Tasks". Issue #387.
+  const [addTaskPhase, setAddTaskPhase] = useState<
+    { id: string; name: string; isSynthetic?: boolean } | null
+  >(null);
   const [riskLinkedOnly, setRiskLinkedOnly] = useState(false);
   const [evmMode, setEvmMode] = useState<EvmMode>('off');
   const [showCost, setShowCost] = useState(false);
@@ -1242,9 +1256,21 @@ export function BoardView() {
     [projectId, updateStatus, COLUMNS, showWip, totalByStatus],
   );
 
-  const handleAddTask = useCallback((phaseId: string, phaseName: string) => {
-    setAddTaskPhase({ id: phaseId, name: phaseName });
-  }, []);
+  const handleAddTask = useCallback(
+    (phaseId: string, phaseName: string, isSynthetic = false) => {
+      // Synthetic phase-less Project Tasks lane (#387): the lane is intake
+      // scaffolding, not a real committed structure, so the modal opens
+      // with `defaultStatus="BACKLOG"` and the header reads "Add to backlog".
+      // VoC panel resolved the BACKLOG-vs-TO-DO default tension (#386 follow-up)
+      // by treating the synthetic lane as context-aware intake.
+      setAddTaskPhase({
+        id: phaseId,
+        name: isSynthetic ? 'backlog' : phaseName,
+        isSynthetic,
+      });
+    },
+    [],
+  );
 
   const handlePhaseRename = useCallback(
     (phaseId: string, newName: string) => {
@@ -1759,13 +1785,22 @@ export function BoardView() {
         />
       )}
 
-      {/* Per-phase task create modal (issue #305 — replaced AddTaskModal) */}
+      {/* Per-phase task create modal (issue #305 — replaced AddTaskModal).
+          When the source is the synthetic phase-less Project Tasks lane
+          (#387), open with status defaulting to BACKLOG; the modal title
+          becomes "Add to backlog" via the lowercased phaseName.
+
+          The `'root'` sentinel is the BoardView's view-layer name for the
+          parentless lane — the API expects `parent_id: null` (see
+          views.py "null = root level"), so normalize before the modal
+          stores it as `selectedParentId`. */}
       {addTaskPhase && projectId && (
         <TaskFormModal
           projectId={projectId}
           task={null}
           phaseName={addTaskPhase.name}
-          parentId={addTaskPhase.id}
+          parentId={addTaskPhase.id === 'root' ? null : addTaskPhase.id}
+          defaultStatus={addTaskPhase.isSynthetic ? 'BACKLOG' : 'NOT_STARTED'}
           isMobile={isMobile}
           onClose={() => setAddTaskPhase(null)}
         />

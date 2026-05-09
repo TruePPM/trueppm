@@ -34,6 +34,14 @@ export interface LaneMetaProps {
    */
   dragHandleListeners?: Record<string, unknown>;
   onAddTask?: () => void;
+  /**
+   * Override for the "+" button's title and aria-label. Defaults to
+   * `Add task to ${phaseName}`. The synthetic phase-less Project Tasks lane
+   * (#387) sets this to `Add to backlog` so the affordance signals where
+   * the new task is actually going — that lane is intake scaffolding, not
+   * a real committed structure.
+   */
+  addTaskLabel?: string;
   /** Expand/collapse toggle rendered inside the phase name row. */
   collapseToggle?: ReactNode;
   /** When true, show cost row (issue #189). */
@@ -60,6 +68,7 @@ export function LaneMeta({
   onPhaseRename,
   dragHandleListeners,
   onAddTask,
+  addTaskLabel,
   collapseToggle,
   showCost = false,
   phaseBudgetAtCompletion = null,
@@ -162,8 +171,8 @@ export function LaneMeta({
           <button
             type="button"
             onClick={onAddTask}
-            title={`Add task to ${phaseName}`}
-            aria-label={`Add task to ${phaseName}`}
+            title={addTaskLabel ?? `Add task to ${phaseName}`}
+            aria-label={addTaskLabel ?? `Add task to ${phaseName}`}
             data-testid={`add-task-${phaseId}`}
             className="flex-shrink-0 w-[22px] h-[22px] flex items-center justify-center rounded
               border border-neutral-border bg-neutral-surface text-neutral-text-secondary
