@@ -62,7 +62,7 @@ describe('LaneMeta', () => {
 
   it('progress bar width matches avgProgress (issue #385)', () => {
     const { container } = render(<LaneMeta {...BASE_PROPS} avgProgress={42} />);
-    const bar = container.querySelector('[role="progressbar"] > div') as HTMLElement | null;
+    const bar = container.querySelector<HTMLElement>('[role="progressbar"] > div');
     expect(bar?.style.width).toBe('42%');
   });
 
