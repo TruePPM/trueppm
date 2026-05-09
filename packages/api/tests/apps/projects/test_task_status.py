@@ -320,3 +320,41 @@ def test_new_statuses_accepted_by_api(
         assert r_review.status_code == 200
     task.refresh_from_db()
     assert task.status == TaskStatus.REVIEW
+
+
+@pytest.mark.django_db
+def test_complete_status_coerces_progress_to_100(project: Project) -> None:
+    """Saving a task with status=COMPLETE forces percent_complete to 100.
+
+    Mirrors the BoardCard / popover display clamp added in #381 so the
+    underlying record stays consistent with the column the card lives in.
+    """
+    task = Task.objects.create(project=project, name="ship it", duration=2)
+    task.status = TaskStatus.COMPLETE
+    task.save()
+    task.refresh_from_db()
+    assert task.percent_complete == 100.0
+
+
+@pytest.mark.django_db
+def test_complete_status_with_partial_progress_is_clamped(project: Project) -> None:
+    """A caller that PATCHes status=COMPLETE with progress=40 still ends at 100."""
+    task = Task.objects.create(project=project, name="ship it", duration=2, percent_complete=40.0)
+    task.status = TaskStatus.COMPLETE
+    task.save()
+    task.refresh_from_db()
+    assert task.percent_complete == 100.0
+
+
+@pytest.mark.django_db
+def test_non_complete_status_does_not_touch_progress(project: Project) -> None:
+    """Inverse coupling is intentionally not enforced — progress=100 + IN_PROGRESS stays."""
+    task = Task.objects.create(
+        project=project,
+        name="almost done",
+        duration=2,
+        status=TaskStatus.IN_PROGRESS,
+        percent_complete=100.0,
+    )
+    assert task.status == TaskStatus.IN_PROGRESS
+    assert task.percent_complete == 100.0

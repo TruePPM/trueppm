@@ -286,10 +286,12 @@ class TaskStatus(models.TextChoices):
     ON_HOLD is retained for backwards compatibility; existing ON_HOLD rows are migrated
     to BACKLOG in migration 0020. New tasks should never be set to ON_HOLD.
 
-    status and percent_complete are independent fields — a task can be In Review
-    at 60% complete, or marked Complete while percent_complete is still 0.8 if
-    the PM chooses to track progress separately. The CPM engine ignores status;
-    it drives the schedule from duration and dependencies only.
+    status and percent_complete are loosely coupled: a task can be In Review at
+    60% complete, but a task in COMPLETE is always 100%. The save() method
+    coerces percent_complete to 100 whenever status is set to COMPLETE so the
+    UI display, the SPI math, and the column the card lives in stay consistent
+    (#381 follow-up). The CPM engine ignores status; it drives the schedule
+    from duration and dependencies only.
     """
 
     BACKLOG = "BACKLOG", "Backlog"
@@ -493,6 +495,17 @@ class Task(VersionedModel):
             self.status_changed_at = timezone.now()
             if _update_fields is not None and "status_changed_at" not in _update_fields:
                 kwargs = {**kwargs, "update_fields": (*_update_fields, "status_changed_at")}
+        # COMPLETE coerces percent_complete to 100 — a card in DONE is finished
+        # by definition, regardless of what percent the caller passed. Without
+        # this the popover, ring, strip, and SPI math all disagree with the
+        # column the card lives in.  Inverse coupling (progress=100 → status=
+        # COMPLETE) is intentionally NOT enforced; the UI shows a "mark
+        # complete" nudge instead so the PM makes that call explicitly.
+        if self.status == TaskStatus.COMPLETE and self.percent_complete != 100:
+            self.percent_complete = 100.0
+            _update_fields = kwargs.get("update_fields")
+            if _update_fields is not None and "percent_complete" not in _update_fields:
+                kwargs = {**kwargs, "update_fields": (*_update_fields, "percent_complete")}
         super().save(*args, **kwargs)
         if _status_changed:
             from trueppm_api.apps.projects.signals import task_status_changed
