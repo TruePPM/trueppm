@@ -199,6 +199,8 @@ test.describe('Board view', () => {
   });
 
   test('column tints toggle is visible and on by default (issue #211)', async ({ page }) => {
+    // CalmToolbar (#382) moves Column tints behind the More⋯ overflow.
+    await page.getByRole('button', { name: 'More board controls' }).click();
     const toggle = page.getByLabel('Show column tints');
     await expect(toggle).toBeVisible();
     await expect(toggle).toBeChecked();
@@ -247,6 +249,7 @@ test.describe('Board view', () => {
   // -------------------------------------------------------------------------
 
   test('Columns button opens the settings panel (issue #170)', async ({ page }) => {
+    await page.getByRole('button', { name: 'More board controls' }).click();
     await page.getByRole('button', { name: 'Open board column settings' }).click();
     const panel = page.getByRole('dialog', { name: 'Column settings' });
     await expect(panel).toBeVisible({ timeout: 5_000 });
@@ -259,6 +262,7 @@ test.describe('Board view', () => {
   });
 
   test('settings panel Escape closes it (issue #170)', async ({ page }) => {
+    await page.getByRole('button', { name: 'More board controls' }).click();
     await page.getByRole('button', { name: 'Open board column settings' }).click();
     const panel = page.getByRole('dialog', { name: 'Column settings' });
     await expect(panel).toBeVisible({ timeout: 5_000 });
@@ -307,11 +311,12 @@ test.describe('Board view', () => {
   });
 
   test('Sort select is functional and defaults to Priority rank (issue #191)', async ({ page }) => {
-    const sortSelect = page.getByLabel('Sort tasks by');
-    await expect(sortSelect).toBeVisible();
-    await expect(sortSelect).toHaveValue('priority');
-    await sortSelect.selectOption('start_date');
-    await expect(sortSelect).toHaveValue('start_date');
+    // CalmToolbar (#382) replaced the legacy <select> with a chip popover.
+    const sortChip = page.getByRole('button', { name: 'Sort tasks by' });
+    await expect(sortChip).toContainText('Priority');
+    await sortChip.click();
+    await page.getByRole('radio', { name: 'Start date' }).click();
+    await expect(sortChip).toContainText('Start date');
   });
 
   test('settings panel edits label and saves (issue #170)', async ({ page }) => {
@@ -330,6 +335,7 @@ test.describe('Board view', () => {
       await route.continue();
     });
 
+    await page.getByRole('button', { name: 'More board controls' }).click();
     await page.getByRole('button', { name: 'Open board column settings' }).click();
     const panel = page.getByRole('dialog', { name: 'Column settings' });
     await expect(panel).toBeVisible({ timeout: 5_000 });
@@ -352,13 +358,16 @@ test.describe('Board view', () => {
 
   test('"Collapse all" hides leaf task cards (issue #190)', async ({ page }) => {
     await expect(page.getByText('Design')).toBeVisible();
+    await page.getByRole('button', { name: 'More board controls' }).click();
     await page.getByRole('button', { name: 'Collapse all lanes' }).click();
     await expect(page.getByText('Design')).not.toBeVisible({ timeout: 3_000 });
   });
 
   test('"Expand all" restores cards after collapse-all (issue #190)', async ({ page }) => {
+    await page.getByRole('button', { name: 'More board controls' }).click();
     await page.getByRole('button', { name: 'Collapse all lanes' }).click();
     await expect(page.getByText('Design')).not.toBeVisible({ timeout: 3_000 });
+    // The More⋯ popover stays open between in-popover clicks.
     await page.getByRole('button', { name: 'Expand all lanes' }).click();
     await expect(page.getByText('Design')).toBeVisible({ timeout: 3_000 });
   });
@@ -367,14 +376,16 @@ test.describe('Board view', () => {
   // Issue #193 — Card density toggle
   // -------------------------------------------------------------------------
 
-  test('card density select is visible and defaults to comfortable (issue #193)', async ({ page }) => {
-    const select = page.getByLabel('Card density');
-    await expect(select).toBeVisible();
-    await expect(select).toHaveValue('comfortable');
+  test('card density chip is visible and defaults to Comfortable (issue #193)', async ({ page }) => {
+    // CalmToolbar (#382) replaced the legacy <select> with a chip popover.
+    const chip = page.getByRole('button', { name: 'Card density' });
+    await expect(chip).toBeVisible();
+    await expect(chip).toContainText('Comfortable');
   });
 
   test('switching to compact keeps board columns visible (issue #193)', async ({ page }) => {
-    await page.getByLabel('Card density').selectOption('compact');
+    await page.getByRole('button', { name: 'Card density' }).click();
+    await page.getByRole('radio', { name: 'Board card density: Compact' }).click();
     await expect(page.getByText('In Progress')).toBeVisible();
     await expect(page.getByText('Done')).toBeVisible();
   });
@@ -436,6 +447,7 @@ test.describe('Board view', () => {
   // -------------------------------------------------------------------------
 
   test('SPI chip renders on card when EVM mode is "spi" (issue #185)', async ({ page }) => {
+    await page.getByRole('button', { name: 'More board controls' }).click();
     await page.getByLabel('EVM indicators').selectOption('spi');
     // b5 QA Gate has baseline_start 2026-01-01, baseline_finish 2026-01-10,
     // early_start 2026-01-05, early_finish 2026-01-20 → SPI computed client-side

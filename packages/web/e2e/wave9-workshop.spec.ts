@@ -65,6 +65,22 @@ const ENDED_SESSION = {
   ended_at: new Date().toISOString(),
 };
 
+// CalmToolbar (#382) moved the Workshop toggle behind the More⋯ overflow popover.
+// Tests open the popover, click the (Start|Exit) workshop button, then dismiss
+// the popover (which stays open across in-popover clicks by design) by toggling
+// More⋯ closed so subsequent clicks on the banner / page aren't intercepted.
+async function openMoreAndClickWorkshop(
+  page: import('@playwright/test').Page,
+  variant: 'start' | 'exit' = 'start',
+) {
+  const moreButton = page.getByRole('button', { name: /more board controls/i });
+  await moreButton.click();
+  const name = variant === 'start' ? /start workshop session/i : /exit workshop mode/i;
+  await page.getByRole('button', { name }).click();
+  // Dismiss the still-open More⋯ popover so it doesn't intercept later clicks.
+  await moreButton.click();
+}
+
 async function setup(page: import('@playwright/test').Page) {
   await setupAuth(page);
   await setupCatchAll(page);
@@ -96,7 +112,9 @@ test.describe('Workshop mode', () => {
     await page.goto(`${BASE_URL}/board`);
     await expect(page.getByText('Phase One')).toBeVisible({ timeout: 10_000 });
 
-    await expect(page.getByRole('button', { name: /workshop/i })).toBeVisible();
+    // Workshop lives inside the More⋯ overflow popover post-#382.
+    await page.getByRole('button', { name: /more board controls/i }).click();
+    await expect(page.getByRole('button', { name: /start workshop session/i })).toBeVisible();
   });
 
   test('starting workshop shows banner and End Workshop button', async ({ page }) => {
@@ -123,7 +141,7 @@ test.describe('Workshop mode', () => {
     await page.goto(`${BASE_URL}/board`);
     await expect(page.getByText('Phase One')).toBeVisible({ timeout: 10_000 });
 
-    await page.getByRole('button', { name: /workshop/i }).click();
+    await openMoreAndClickWorkshop(page, 'start');
 
     // Banner should appear
     await expect(page.getByRole('status', { name: /workshop/i })).toBeVisible();
@@ -148,7 +166,7 @@ test.describe('Workshop mode', () => {
 
     await page.goto(`${BASE_URL}/board`);
     await expect(page.getByText('Phase One')).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: /workshop/i }).click();
+    await openMoreAndClickWorkshop(page, 'start');
     await page.waitForTimeout(200);
 
     // Click End Workshop in the banner
@@ -181,7 +199,7 @@ test.describe('Workshop mode', () => {
 
     await page.goto(`${BASE_URL}/board`);
     await expect(page.getByText('Phase One')).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: /workshop/i }).click();
+    await openMoreAndClickWorkshop(page, 'start');
     await page.waitForTimeout(200);
     await page.getByRole('button', { name: /end workshop/i }).click();
 
@@ -210,7 +228,7 @@ test.describe('Workshop mode', () => {
 
     await page.goto(`${BASE_URL}/board`);
     await expect(page.getByText('Phase One')).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: /workshop/i }).click();
+    await openMoreAndClickWorkshop(page, 'start');
     await page.waitForTimeout(200);
     await page.getByRole('button', { name: /end workshop/i }).click();
 
@@ -248,9 +266,12 @@ test.describe('Workshop mode', () => {
     });
 
     await page.goto(`${BASE_URL}/board`);
-    // With empty tasks the board shows "No tasks yet" — start workshop
-    await expect(page.getByRole('button', { name: /workshop/i })).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: /workshop/i }).click();
+    // With empty tasks the board shows "No tasks yet" — start workshop via the More⋯ popover (#382).
+    const moreButton = page.getByRole('button', { name: /more board controls/i });
+    await moreButton.click();
+    await expect(page.getByRole('button', { name: /start workshop session/i })).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: /start workshop session/i }).click();
+    await moreButton.click();
     await page.waitForTimeout(200);
 
     // Workshop canvas should show "Add Phase" button, not the generic empty state
