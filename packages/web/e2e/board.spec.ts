@@ -186,11 +186,16 @@ test.describe('Board view', () => {
   });
 
   test('column headers render (issue #211)', async ({ page }) => {
-    await expect(page.getByText('Backlog')).toBeVisible();
-    await expect(page.getByText('To Do')).toBeVisible();
-    await expect(page.getByText('In Progress')).toBeVisible();
-    await expect(page.getByText('Review')).toBeVisible();
-    await expect(page.getByText('Done')).toBeVisible();
+    // BACKLOG was lifted out of the phase grid into the BacklogBand rail
+    // (#381 / epic #361). The four committed columns remain. Scope by
+    // role=heading because the rail hint copy ("...promote to To do")
+    // also contains the column words at the document level.
+    await expect(page.getByRole('heading', { name: /^To Do,/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^In Progress,/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Review,/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Done,/ })).toBeVisible();
+    // Backlog is now a left-side rail with eyebrow copy "Inbox · backlog".
+    await expect(page.getByText(/Inbox · backlog/i)).toBeVisible();
   });
 
   test('column tints toggle is visible and on by default (issue #211)', async ({ page }) => {

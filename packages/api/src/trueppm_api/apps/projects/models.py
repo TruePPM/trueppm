@@ -286,10 +286,12 @@ class TaskStatus(models.TextChoices):
     ON_HOLD is retained for backwards compatibility; existing ON_HOLD rows are migrated
     to BACKLOG in migration 0020. New tasks should never be set to ON_HOLD.
 
-    status and percent_complete are independent fields — a task can be In Review
-    at 60% complete, or marked Complete while percent_complete is still 0.8 if
-    the PM chooses to track progress separately. The CPM engine ignores status;
-    it drives the schedule from duration and dependencies only.
+    status and percent_complete are loosely coupled: a task can be In Review at
+    60% complete, but a task in COMPLETE is always 100%. The save() method
+    coerces percent_complete to 100 whenever status is set to COMPLETE so the
+    UI display, the SPI math, and the column the card lives in stay consistent
+    (#381 follow-up). The CPM engine ignores status; it drives the schedule
+    from duration and dependencies only.
     """
 
     BACKLOG = "BACKLOG", "Backlog"
@@ -298,6 +300,20 @@ class TaskStatus(models.TextChoices):
     REVIEW = "REVIEW", "Review"
     ON_HOLD = "ON_HOLD", "On hold"  # legacy — maps to Backlog in board config
     COMPLETE = "COMPLETE", "Complete"
+
+
+class CommittedTaskManager(models.Manager["Task"]):
+    """Tasks that represent committed delivery: not BACKLOG and not soft-deleted.
+
+    Use this for any aggregate where BACKLOG cards would distort the picture —
+    capacity heat maps, Schedule/Gantt view, Monte Carlo input, client PDF
+    export, Board phase progress. Default ``Task.objects`` is intentionally
+    unfiltered so the Board can still render BACKLOG cards inside the
+    band-above-grid layout (ADR-0057).
+    """
+
+    def get_queryset(self) -> models.QuerySet[Task]:
+        return super().get_queryset().exclude(status=TaskStatus.BACKLOG).filter(is_deleted=False)
 
 
 class Task(VersionedModel):
@@ -429,6 +445,13 @@ class Task(VersionedModel):
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_TASK)
 
+    # Default manager — unfiltered. Listed first so it remains _default_manager
+    # (Board view depends on seeing BACKLOG cards).
+    objects: models.Manager[Task] = models.Manager()
+    # Aggregate manager — filters out BACKLOG and soft-deleted. Used by Schedule
+    # view, capacity, Monte Carlo, PDF export. See CommittedTaskManager docstring.
+    committed: CommittedTaskManager = CommittedTaskManager()
+
     class Meta:
         db_table = "projects_task"
         ordering = ["wbs_path", "name"]
@@ -472,6 +495,19 @@ class Task(VersionedModel):
             self.status_changed_at = timezone.now()
             if _update_fields is not None and "status_changed_at" not in _update_fields:
                 kwargs = {**kwargs, "update_fields": (*_update_fields, "status_changed_at")}
+        # REVIEW and COMPLETE both coerce percent_complete to 100 — a card in
+        # the Review column is "work done, awaiting sign-off" and DONE is
+        # finished by definition; both states imply 100% delivered work. The
+        # only difference between them is whether the PM has signed off yet.
+        # Without this, the popover/ring/strip/SPI math disagree with the
+        # column the card lives in. The inverse direction (progress=100 →
+        # auto-flip status) lives in TaskSerializer.update() where actor role
+        # can be inspected: contributor → REVIEW, PM/PMO → COMPLETE.
+        if self.status in (TaskStatus.REVIEW, TaskStatus.COMPLETE) and self.percent_complete != 100:
+            self.percent_complete = 100.0
+            _update_fields = kwargs.get("update_fields")
+            if _update_fields is not None and "percent_complete" not in _update_fields:
+                kwargs = {**kwargs, "update_fields": (*_update_fields, "percent_complete")}
         super().save(*args, **kwargs)
         if _status_changed:
             from trueppm_api.apps.projects.signals import task_status_changed

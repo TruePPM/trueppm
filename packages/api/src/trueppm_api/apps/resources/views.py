@@ -23,6 +23,7 @@ from trueppm_api.apps.access.permissions import (
     ProjectScopedViewSet,
     _membership_role,
 )
+from trueppm_api.apps.projects.models import Task
 from trueppm_api.apps.resources.models import (
     Proficiency,
     ProjectResource,
@@ -323,10 +324,13 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
     Returns:
         A list containing at most one warning dict, or an empty list.
     """
+    # Capacity check counts only committed delivery — BACKLOG and COMPLETE are
+    # excluded. BACKLOG via Task.committed (ADR-0057), COMPLETE via the
+    # historical exclude (units are no longer demanding capacity).
+    committed_task_ids = Task.committed.filter(project_id=project_id).values_list("pk", flat=True)
     total: Decimal = TaskResource.objects.filter(
         resource=resource,
-        task__project_id=project_id,
-        task__is_deleted=False,
+        task_id__in=committed_task_ids,
     ).exclude(task__status="COMPLETE").aggregate(total=Sum("units"))["total"] or Decimal("0")
     if total > resource.max_units:
         return [

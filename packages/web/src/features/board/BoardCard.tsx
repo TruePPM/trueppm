@@ -70,11 +70,15 @@ function entryStamp(task: Task): { text: string; isStalled: boolean; daysAgo: nu
   const daysAgo = Math.floor((now - enteredMs) / 86_400_000);
   const daysLabel = daysAgo === 1 ? '1d ago' : `${daysAgo}d ago`;
 
-  // Stalled = same status for > 3 days without reaching 100 %
-  const isStalled = daysAgo > 3 && task.progress < 100;
+  // COMPLETE implies 100% regardless of the stored progress value, so the
+  // entry stamp matches the column it lives in.  Stalled is also a no-op on
+  // DONE — a card sitting in DONE for weeks isn't "stalled," it's finished.
+  const effectiveProgress = task.status === 'COMPLETE' ? 100 : task.progress;
+  const isStalled =
+    task.status !== 'COMPLETE' && daysAgo > 3 && effectiveProgress < 100;
 
   return {
-    text: `Entered at ${task.progress}% · ${daysLabel}${isStalled ? ' — stalled' : ''}`,
+    text: `Entered at ${effectiveProgress}% · ${daysLabel}${isStalled ? ' — stalled' : ''}`,
     isStalled,
     daysAgo,
   };
@@ -233,6 +237,11 @@ export function BoardCard({
   const otherColumns = columns.filter((c) => c.status !== task.status);
   const { text: stampText, isStalled: derivedStalled, daysAgo } = entryStamp(task);
   const isStalled = isOverrideStalled ?? derivedStalled;
+  // COMPLETE clamps display progress to 100% so the ring, the bottom strip,
+  // and the aria-label all reflect "done" regardless of the stored value.
+  // The raw `task.progress` is still used for SPI math (line 133) since SPI
+  // measures actual delivered work against plan, not status.
+  const effectiveProgress = task.status === 'COMPLETE' ? 100 : task.progress;
 
   // Aging / dwell-time indicator (issue #192)
   const slaDays = columns.find((c) => c.status === task.status)?.slaDays;
@@ -429,7 +438,7 @@ export function BoardCard({
           w-[85vw] md:w-auto md:min-w-[200px]"
       >
         <div className="flex items-center gap-1.5">
-          <BoardProgressRing progress={task.progress} isCritical={showCriticalState} isStalled={isStalled} />
+          <BoardProgressRing progress={effectiveProgress} isCritical={showCriticalState} isStalled={isStalled} />
           <p className="text-sm font-medium text-neutral-text-primary truncate">
             {task.name}
           </p>
@@ -454,7 +463,7 @@ export function BoardCard({
     const progressColor =
       showCriticalState
         ? 'bg-semantic-critical'
-        : task.progress === 100
+        : effectiveProgress === 100
           ? 'bg-semantic-on-track'
           : 'bg-brand-primary';
     return (
@@ -472,7 +481,7 @@ export function BoardCard({
         className={containerClass}
         role="button"
         tabIndex={0}
-        aria-label={`${task.name}, ${task.progress}% complete${showCriticalState ? ', critical path' : ''}`}
+        aria-label={`${task.name}, ${effectiveProgress}% complete${showCriticalState ? ', critical path' : ''}`}
       >
         <div className={`absolute left-0 inset-y-0 w-1 rounded-l-md ${accentBarClass(task, showCriticalState)}`} aria-hidden="true" />
         <div className="pl-2.5 pr-8 py-2 flex items-center gap-1 min-w-0">
@@ -500,7 +509,7 @@ export function BoardCard({
         </div>
         {/* 3px progress strip at the bottom of each compact card */}
         <div className="absolute bottom-0 left-1 right-1 h-[3px] rounded-full overflow-hidden bg-neutral-border" aria-hidden="true">
-          <div className={`h-full ${progressColor}`} style={{ width: `${task.progress}%` }} />
+          <div className={`h-full ${progressColor}`} style={{ width: `${effectiveProgress}%` }} />
         </div>
         {signalIcons}
         {menuButton}
@@ -574,7 +583,7 @@ export function BoardCard({
         <div className="flex items-center gap-1.5 pr-6 min-w-0">
           {!isIdea && (
             <BoardProgressRing
-              progress={task.progress}
+              progress={effectiveProgress}
               isCritical={showCriticalState}
               isStalled={isStalled}
             />

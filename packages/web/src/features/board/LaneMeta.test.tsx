@@ -66,6 +66,12 @@ describe('LaneMeta', () => {
     expect(progressArc).toBeTruthy();
   });
 
+  it('renders em-dash instead of 0% when there are no committed tasks (ADR-0057)', () => {
+    render(<LaneMeta {...BASE_PROPS} taskCount={0} avgProgress={0} />);
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.queryByText('0%')).not.toBeInTheDocument();
+  });
+
   it('progress ring uses neutral-border stroke at 0%', () => {
     const { container } = render(<LaneMeta {...BASE_PROPS} avgProgress={0} />);
     const circles = container.querySelectorAll('circle');

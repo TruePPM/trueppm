@@ -217,12 +217,19 @@ export function LaneMeta({
           </button>
         </div>
 
-        {/* Progress block */}
+        {/* Progress block — em-dash empty state when no committed tasks
+            (ADR-0057). After BACKLOG was lifted into the band above the grid,
+            a phase whose only cards are backlog ideas has zero committed
+            delivery. "0%" would imply "0% done"; "—" reads as
+            "not applicable yet" — which is the truth. */}
         <div className="flex items-center gap-2">
-          <ProgressRing avg={pct} />
+          <ProgressRing avg={taskCount === 0 ? 0 : pct} />
           <div className="flex flex-col min-w-0">
-            <span className="text-sm font-semibold text-neutral-text-primary font-mono leading-none">
-              {pct}%
+            <span
+              className="text-sm font-semibold text-neutral-text-primary font-mono leading-none"
+              aria-label={taskCount === 0 ? 'No committed tasks' : `${pct} percent complete`}
+            >
+              {taskCount === 0 ? '—' : `${pct}%`}
             </span>
             <span className="text-xs text-neutral-text-secondary leading-tight mt-0.5">
               {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
