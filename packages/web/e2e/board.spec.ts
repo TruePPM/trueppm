@@ -32,6 +32,10 @@ const FIXTURE_TASKS = [
   {
     id: 'b2', wbs_path: '1.1', name: 'Design',
     early_start: '2026-01-05', early_finish: '2026-01-16',
+    // PM-committed `planned_start` so the card counts toward the lane
+    // rollup under the #402 `isTaskScheduled` gate; without it the card
+    // is treated as uncommitted backlog and excluded from `avgProgress`.
+    planned_start: '2026-01-05',
     duration: 10, percent_complete: 100, is_critical: false,
     is_milestone: false, is_summary: false, parent_id: 'b1',
     status: 'COMPLETE', assignees: [], total_float: null,
@@ -41,6 +45,7 @@ const FIXTURE_TASKS = [
   {
     id: 'b3', wbs_path: '1.2', name: 'Build',
     early_start: '2026-01-19', early_finish: '2026-01-30',
+    planned_start: '2026-01-19',
     duration: 10, percent_complete: 60, is_critical: false,
     is_milestone: false, is_summary: false, parent_id: 'b1',
     status: 'IN_PROGRESS', assignees: [], total_float: null,
@@ -51,6 +56,7 @@ const FIXTURE_TASKS = [
   {
     id: 'b4', wbs_path: '1.3', name: 'Release',
     early_start: '2026-02-01', early_finish: '2026-02-05',
+    planned_start: '2026-02-01',
     duration: 5, percent_complete: 0, is_critical: false,
     is_milestone: true, is_summary: false, parent_id: 'b1',
     status: 'NOT_STARTED', assignees: [],

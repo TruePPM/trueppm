@@ -89,6 +89,18 @@ describe('LaneMeta', () => {
     expect(bar?.getAttribute('aria-label')).toMatch(/No committed tasks/i);
   });
 
+  it('em-dash empty state triggers when committedTaskCount is 0 even with cards present', () => {
+    // Lane has cards (taskCount=4) but none are committed (no plannedStart).
+    // The visible "{N} tasks" counter still reads the total, but the percent
+    // collapses to em-dash because there is no committed delivery to roll up.
+    render(
+      <LaneMeta {...BASE_PROPS} taskCount={4} committedTaskCount={0} avgProgress={0} />,
+    );
+    expect(screen.getByText('—')).toBeInTheDocument();
+    expect(screen.queryByText('0%')).not.toBeInTheDocument();
+    expect(screen.getByText('4 tasks')).toBeInTheDocument();
+  });
+
   it('renders no SVG circle (ProgressRing replaced by inline bar in #385)', () => {
     const { container } = render(<LaneMeta {...BASE_PROPS} avgProgress={55} />);
     expect(container.querySelector('circle')).toBeNull();

@@ -1170,4 +1170,51 @@ describe('BoardView', () => {
       expect(monoCount).toBeTruthy();
     });
   });
+
+  describe('phase rollup % (matches CP rollup gate)', () => {
+    // The rollup denominator drops uncommitted tasks (no plannedStart, no
+    // sprintId) — same isTaskScheduled gate the CP/float chips use. An
+    // unscheduled To Do is a 0%-progress task in the data but represents work
+    // the PM hasn't committed to; counting it would drag the rollup down by
+    // counting backlog ideas against delivery.
+    it('excludes unscheduled tasks from the average', () => {
+      const base: Omit<Task, 'id' | 'name' | 'plannedStart' | 'progress' | 'status'> = {
+        wbs: '', isSummary: false, isMilestone: false, parentId: null,
+        isCritical: false, isComplete: false, assignees: [], notes: '',
+        start: '2026-10-05', finish: '2026-10-05', duration: 0,
+      };
+      mockTasks = [
+        // Two committed (plannedStart set) tasks, both 100% — committed avg = 100%.
+        { ...base, id: 'c1', name: 'Done one', plannedStart: '2026-10-05', progress: 100, status: 'COMPLETE' },
+        { ...base, id: 'c2', name: 'Done two', plannedStart: '2026-10-05', progress: 100, status: 'COMPLETE' },
+        // Two unscheduled (plannedStart=null, no sprint) To Dos at 0% — would
+        // pull the naive average to 50% if they were counted.
+        { ...base, id: 'u1', name: 'Idea one', plannedStart: null, progress: 0, status: 'NOT_STARTED' },
+        { ...base, id: 'u2', name: 'Idea two', plannedStart: null, progress: 0, status: 'NOT_STARTED' },
+      ];
+      renderBoard();
+      // The synthetic Project Tasks lane renders one progressbar; assert that
+      // the rollup reads 100%, not 50%.
+      const bar = screen.getByRole('progressbar', { name: /Phase progress 100 percent/i });
+      expect(bar).toHaveAttribute('aria-valuenow', '100');
+    });
+
+    it('shows the em-dash empty state when every card is uncommitted', () => {
+      const base: Omit<Task, 'id' | 'name' | 'plannedStart' | 'progress' | 'status'> = {
+        wbs: '', isSummary: false, isMilestone: false, parentId: null,
+        isCritical: false, isComplete: false, assignees: [], notes: '',
+        start: '2026-10-05', finish: '2026-10-05', duration: 0,
+      };
+      mockTasks = [
+        { ...base, id: 'u1', name: 'Idea one', plannedStart: null, progress: 0, status: 'NOT_STARTED' },
+        { ...base, id: 'u2', name: 'Idea two', plannedStart: null, progress: 0, status: 'NOT_STARTED' },
+      ];
+      renderBoard();
+      // No committed delivery → progressbar reads "No committed tasks", not
+      // a misleading "0%". The em-dash is in the visible label.
+      expect(
+        screen.getByRole('progressbar', { name: /No committed tasks/i }),
+      ).toBeInTheDocument();
+    });
+  });
 });

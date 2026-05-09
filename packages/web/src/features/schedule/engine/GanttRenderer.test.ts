@@ -426,6 +426,73 @@ describe('drawTaskBar — uncommitted-task suppression (#332)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// drawTaskBar / drawTaskBarLabel — split for z-order layering
+// ---------------------------------------------------------------------------
+
+import { drawTaskBarLabel } from './GanttRenderer';
+
+describe('drawTaskBar — skipLabel parameter (z-order regression)', () => {
+  // Dependency arrows exit/enter at row-center y, exactly where the label
+  // sits. If the engine paints labels first and arrows last (the natural
+  // last-pass position), every arrow looks like a strikethrough through
+  // the label text. The fix splits label rendering into drawTaskBarLabel
+  // so the engine can layer bars → arrows → labels.
+  const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
+  const VIEWPORT_W = 800;
+
+  it('does NOT draw the task name when skipLabel is true', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const task = makeBarTask({ name: 'My Task' });
+    drawTaskBar(ctx, task, 0, scales, 0, false, VIEWPORT_W, /* skipLabel */ true);
+    const nameCalls = calls.filter((c) => c.name === 'fillText' && c.args[0] === 'My Task');
+    expect(nameCalls).toHaveLength(0);
+  });
+
+  it('still draws the task name when skipLabel is false (default)', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const task = makeBarTask({ name: 'My Task' });
+    drawTaskBar(ctx, task, 0, scales, 0, false, VIEWPORT_W);
+    const nameCalls = calls.filter((c) => c.name === 'fillText' && c.args[0] === 'My Task');
+    expect(nameCalls.length).toBeGreaterThan(0);
+  });
+
+  it('drawTaskBarLabel draws only the task name (no bar fill, no chip, no initials)', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const task = makeBarTask({ name: 'My Task' });
+    drawTaskBarLabel(ctx, task, 0, scales, 0, VIEWPORT_W);
+    // Exactly one fillText for the name; nothing else.
+    const nameCalls = calls.filter((c) => c.name === 'fillText' && c.args[0] === 'My Task');
+    expect(nameCalls).toHaveLength(1);
+    // No bar — no roundRect call.
+    expect(calls.filter((c) => c.name === 'roundRect')).toHaveLength(0);
+  });
+
+  it('drawTaskBarLabel respects the same #332 uncommitted gate as drawTaskBar', () => {
+    const { ctx, calls } = makeCtxSpy();
+    const uncommitted = makeBarTask({ plannedStart: null, sprintId: null, name: 'Idea' });
+    drawTaskBarLabel(ctx, uncommitted, 0, scales, 0, VIEWPORT_W);
+    expect(calls.filter((c) => c.name === 'fillText')).toHaveLength(0);
+  });
+
+  it('paint sequence drawTaskBar(skipLabel=true) → label puts the name AFTER the chip', () => {
+    // Direct regression for the strikethrough artifact: the engine paints
+    // the bar first, then arrows, then labels. We can't exercise the engine
+    // here, but we can lock in the contract that drawTaskBarLabel is
+    // independently invokable and runs after drawTaskBar(skipLabel=true).
+    const { ctx, calls } = makeCtxSpy();
+    const task = makeBarTask({ name: 'My Task', progress: 50 });
+    drawTaskBar(ctx, task, 0, scales, 0, false, VIEWPORT_W, /* skipLabel */ true);
+    // Label not yet drawn after just drawTaskBar.
+    expect(calls.filter((c) => c.name === 'fillText' && c.args[0] === 'My Task')).toHaveLength(0);
+    drawTaskBarLabel(ctx, task, 0, scales, 0, VIEWPORT_W);
+    // Now the label call exists, and it is the LAST fillText invocation —
+    // any arrow drawn between the two calls would be covered.
+    const allFillText = calls.filter((c) => c.name === 'fillText');
+    expect(allFillText[allFillText.length - 1]?.args[0]).toBe('My Task');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // drawSummaryBar — phase rollup must render regardless of phase plannedStart
 // ---------------------------------------------------------------------------
 

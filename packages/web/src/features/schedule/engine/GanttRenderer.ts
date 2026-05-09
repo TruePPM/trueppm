@@ -451,13 +451,24 @@ function drawTaskBarChip(
 /**
  * Draw a normal (non-summary, non-milestone) task bar on canvas-bars.
  *
- * The task name is rendered OUTSIDE the bar (right of bar end, 4px gap) for
- * light-mode legibility (#212). A % completion chip appears inside the bar
- * when it is at least 32px wide. Assignee initials remain right-aligned
- * inside the bar at >= 48px width.
+ * Renders the bar fill, selection ring, progress overlay, % chip, and
+ * assignee initials — everything that lives INSIDE the bar. The task name
+ * is drawn separately by {@link drawTaskBarLabel} so the engine can layer
+ * bars → arrows → labels. With the label baked in here, dependency arrows
+ * (drawn afterward in `_paintAllBars`) crossed through the label text and
+ * looked like a strikethrough — the arrow's horizontal exit segment runs
+ * at row-center y, exactly where the label sits.
+ *
+ * Pass `skipLabel: false` when calling this in isolation (single-row
+ * repaint, where no arrows are drawn anyway). The full-canvas paint pass
+ * passes `skipLabel: true`, draws all arrows, then loops again to draw
+ * labels on top via {@link drawTaskBarLabel}.
  *
  * @param viewportWidth - Logical-px viewport width, used to detect flush-right
  *   bars and fall back to rendering the name to the left of the bar start.
+ * @param skipLabel - When true, the task name is NOT drawn. The caller is
+ *   responsible for invoking {@link drawTaskBarLabel} after dependency
+ *   arrows so labels render on top of crossing arrow lines.
  */
 export function drawTaskBar(
   ctx: CanvasRenderingContext2D,
@@ -467,6 +478,7 @@ export function drawTaskBar(
   scrollLeft: number,
   isSelected: boolean,
   viewportWidth: number,
+  skipLabel = false,
 ): void {
   // Defense-in-depth: _paintTaskAt already guards, but protect against direct callers too
   if (!task.start || !task.finish) return;
@@ -532,9 +544,37 @@ export function drawTaskBar(
 
   ctx.restore();
 
-  // Task name — outside the bar (rule 72 / #212).
-  // Primary: 4px right of bar end.
-  // Fallback: 4px left of bar start, right-aligned, when flush right.
+  if (!skipLabel) {
+    drawTaskBarLabel(ctx, task, rowIndex, scales, scrollLeft, viewportWidth);
+  }
+}
+
+/**
+ * Draw the task name OUTSIDE the bar (rule 72 / #212).
+ *
+ * Primary: 4px right of bar end. Fallback: 4px left of bar start,
+ * right-aligned, when the right-of-bar position would overflow the viewport.
+ *
+ * Extracted from {@link drawTaskBar} so the engine can layer
+ * bars → arrows → labels. The horizontal exit segment of dependency arrows
+ * runs at row-center y, which is exactly where the label sits — drawing
+ * arrows on top of labels produced a strikethrough artifact. Always invoke
+ * this AFTER `drawDependencyArrows` for the same row.
+ */
+export function drawTaskBarLabel(
+  ctx: CanvasRenderingContext2D,
+  task: Task,
+  rowIndex: number,
+  scales: GanttScaleData,
+  scrollLeft: number,
+  viewportWidth: number,
+): void {
+  if (!task.start || !task.finish) return;
+  if (!task.plannedStart && !task.sprintId) return;
+  const barLeft = dateToLeft(task.start, scales) - scrollLeft;
+  const barRight = dateToLeft(task.finish, scales) - scrollLeft;
+  const barTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT + BAR_TOP_OFFSET;
+
   ctx.save();
   ctx.font = CANVAS_FONT;
   ctx.fillStyle = _palette.textSecondary;

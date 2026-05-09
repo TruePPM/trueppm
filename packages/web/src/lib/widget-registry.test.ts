@@ -1,29 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { ComponentType } from 'react';
-import type { SlotId, SlotRegistration } from './widget-registry';
+import { WidgetRegistry } from './widget-registry';
 
-// Re-instantiate a fresh registry for each test to isolate state.
-// The exported `registry` singleton cannot be reset between tests, so we test
-// the WidgetRegistry class directly by importing the module dynamically and
-// re-evaluating. Instead, we test the logic by working with a local class copy.
-
-// Inline a minimal reproduction of the registry class to test its behaviour
-// without coupling tests to the singleton state (which accumulates across imports).
-class WidgetRegistry {
-  private readonly slots = new Map<SlotId, SlotRegistration[]>();
-
-  register(slot: SlotId, reg: SlotRegistration): void {
-    const existing = this.slots.get(slot) ?? [];
-    this.slots.set(
-      slot,
-      [...existing, reg].sort((a, b) => a.priority - b.priority),
-    );
-  }
-
-  get(slot: SlotId): SlotRegistration[] {
-    return this.slots.get(slot) ?? [];
-  }
-}
+// Tests instantiate a fresh WidgetRegistry per test to isolate state from the
+// exported `registry` singleton (which accumulates across imports). This used
+// to be a local copy of the class definition — drift between the copy and the
+// real implementation is exactly how the duplicate-section bug shipped.
 
 const stubComponent: ComponentType = () => null;
 
@@ -147,5 +129,75 @@ describe('WidgetRegistry', () => {
       .get('task_detail.section')
       .map((r) => r.id);
     expect(ids).toEqual(['overview', 'dependencies', 'custom-fields', 'subtasks']);
+  });
+
+  // --- idempotency (regression: doubled drawer sections) ---------------------
+
+  it('re-registering the same (slot, id) replaces the prior entry instead of appending', () => {
+    // Vite HMR / module re-import / React StrictMode all fire init code twice.
+    // Without dedupe every section was rendered twice in the task detail
+    // drawer (OVERVIEW × 2, DEPENDENCIES × 2, etc.).
+    const componentV1: ComponentType = () => null;
+    const componentV2: ComponentType = () => null;
+
+    registry.register('task_detail.section', {
+      id: 'overview',
+      title: 'Overview',
+      component: componentV1,
+      priority: 100,
+    });
+    registry.register('task_detail.section', {
+      id: 'overview',
+      title: 'Overview (HMR update)',
+      component: componentV2,
+      priority: 100,
+    });
+
+    const result = registry.get('task_detail.section');
+    expect(result).toHaveLength(1);
+    // Replacement takes the latest definition so HMR picks up edits mid-session.
+    expect(result[0]?.title).toBe('Overview (HMR update)');
+    expect(result[0]?.component).toBe(componentV2);
+  });
+
+  it('dedupe is per (slot, id) — different slots with the same id are independent', () => {
+    registry.register('project_overview.kpi_row', {
+      id: 'shared-id',
+      component: stubComponent,
+      priority: 10,
+    });
+    registry.register('nav.portfolio_section', {
+      id: 'shared-id',
+      component: stubComponent,
+      priority: 10,
+    });
+
+    expect(registry.get('project_overview.kpi_row')).toHaveLength(1);
+    expect(registry.get('nav.portfolio_section')).toHaveLength(1);
+  });
+
+  it('dedupe preserves priority ordering across replacements', () => {
+    registry.register('task_detail.section', {
+      id: 'a',
+      title: 'A',
+      component: stubComponent,
+      priority: 100,
+    });
+    registry.register('task_detail.section', {
+      id: 'b',
+      title: 'B',
+      component: stubComponent,
+      priority: 200,
+    });
+    // Replace 'a' with a new priority — final order should be by new priorities.
+    registry.register('task_detail.section', {
+      id: 'a',
+      title: 'A (re-prioritised)',
+      component: stubComponent,
+      priority: 300,
+    });
+
+    const ids = registry.get('task_detail.section').map((r) => r.id);
+    expect(ids).toEqual(['b', 'a']);
   });
 });
