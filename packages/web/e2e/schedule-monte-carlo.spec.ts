@@ -142,10 +142,13 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     await gotoScheduleWithMC(page);
 
     // Markers mount once the canvas engine is ready. They self-hide when
-    // scrolled off-screen, so wait for DOM attach (not visibility) and then
-    // scroll the canvas to the right edge so the future-dated MC percentiles
-    // (Nov-Dec 2026) come into view from the today-default scroll position.
-    await page.waitForSelector('[data-testid="mc-marker-p50"]', {
+    // outside the viewport (style.visibility = 'hidden' when x < -120 or
+    // x > viewportWidth + 4), so wait for DOM attach (not visibility), then
+    // scroll the canvas so the P80 marker (the middle percentile, Dec 10) is
+    // centered horizontally — this brings P50, P80, and P95 all into view.
+    // Each marker's inline `style.left` is viewport-relative; adding the
+    // current scrollLeft recovers its canvas-origin coordinate.
+    await page.waitForSelector('[data-testid="mc-marker-p80"]', {
       state: 'attached',
       timeout: 10_000,
     });
@@ -153,7 +156,13 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
       const scroller = document.querySelector(
         '[data-testid="schedule-canvas-scroll"]',
       ) as HTMLElement | null;
-      if (scroller) scroller.scrollLeft = scroller.scrollWidth;
+      const marker = document.querySelector(
+        '[data-testid="mc-marker-p80"]',
+      ) as HTMLElement | null;
+      if (!scroller || !marker) return;
+      const viewportLeft = parseFloat(marker.style.left || '0');
+      const canvasOriginX = viewportLeft + scroller.scrollLeft;
+      scroller.scrollLeft = Math.max(0, canvasOriginX - scroller.clientWidth / 2);
     });
 
     await expect(page.locator('[data-testid="mc-marker-p50"]')).toBeVisible();
