@@ -18,6 +18,33 @@ function renderBoard() {
   );
 }
 
+// Calm-toolbar (#382) helpers — controls were collapsed into chip popovers
+// (Density) and a More⋯ overflow. Tests open the relevant popover before
+// asserting on the underlying control. Each call clicks the popover's
+// trigger; the popover stays open for subsequent assertions in the same test.
+type UE = ReturnType<typeof userEvent.setup>;
+async function openMore(user: UE) {
+  await user.click(screen.getByRole('button', { name: 'More board controls' }));
+}
+async function openDensityChip(user: UE) {
+  await user.click(screen.getByRole('button', { name: 'Card density' }));
+}
+const DENSITY_LABEL: Record<'compact' | 'comfortable' | 'detailed', string> = {
+  compact: 'Compact',
+  comfortable: 'Comfortable',
+  detailed: 'Detailed',
+};
+async function setBoardDensity(user: UE, value: 'compact' | 'comfortable' | 'detailed') {
+  await openDensityChip(user);
+  await user.click(
+    screen.getByRole('radio', { name: `Board card density: ${DENSITY_LABEL[value]}` }),
+  );
+}
+function expectBoardDensity(value: 'compact' | 'comfortable' | 'detailed') {
+  const chip = screen.getByRole('button', { name: 'Card density' });
+  expect(chip).toHaveTextContent(DENSITY_LABEL[value]);
+}
+
 // jsdom does not implement window.matchMedia — stub it.
 // Default: desktop (matches: false). Individual tests may override via mockReturnValue.
 const makeMq = (matches: boolean) => ({
@@ -101,7 +128,10 @@ vi.mock('@/hooks/useMyTasksFilter', () => ({
 }));
 
 vi.mock('@/hooks/useProject', () => ({
-  useProject: () => ({ data: { agile_features: false }, isLoading: false }),
+  useProject: () => ({
+    data: { id: 'project-1', name: 'Test Project', agile_features: false },
+    isLoading: false,
+  }),
 }));
 
 vi.mock('@/hooks/useTaskHistory', () => ({
@@ -309,8 +339,10 @@ describe('BoardView', () => {
     expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
   });
 
-  it('shows WIP toggle in toolbar', () => {
+  it('shows WIP toggle in toolbar', async () => {
+    const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     expect(screen.getByLabelText('Show WIP limits')).toBeInTheDocument();
   });
 
@@ -319,8 +351,9 @@ describe('BoardView', () => {
     mockTasks = null;
     renderBoard();
     expect(screen.getByText('Loading board…')).toBeInTheDocument();
-    // The toolbar / lanes do not render in the loading branch.
-    expect(screen.queryByLabelText('Show WIP limits')).not.toBeInTheDocument();
+    // The toolbar / lanes do not render in the loading branch — the More⋯
+    // overflow that owns "Show WIP limits" is therefore not present.
+    expect(screen.queryByRole('button', { name: 'More board controls' })).not.toBeInTheDocument();
   });
 
   it('renders the empty state when no leaf tasks exist', () => {
@@ -338,6 +371,7 @@ describe('BoardView', () => {
   it('replaces the WIP badge with a plain count when "Show WIP limits" is off', async () => {
     const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     const toggle = screen.getByLabelText<HTMLInputElement>('Show WIP limits');
     expect(toggle.checked).toBe(true);
     await user.click(toggle);
@@ -478,13 +512,19 @@ describe('BoardView', () => {
     expect(screen.getByRole('dialog', { name: /Add to Alpha Platform Upgrade/ })).toBeInTheDocument();
   });
 
-  it('renders "Column tints" toggle in toolbar (issue #211)', () => {
+  it('renders "Column tints" toggle in toolbar (issue #211)', async () => {
+    const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
+    // CalmToolbar (#382) moves the toggle behind the More⋯ overflow; the
+    // legacy "Show column tints" aria-label is preserved for compat.
     expect(screen.getByLabelText('Show column tints')).toBeInTheDocument();
   });
 
-  it('"Column tints" toggle is on by default (issue #211)', () => {
+  it('"Column tints" toggle is on by default (issue #211)', async () => {
+    const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     const toggle = screen.getByLabelText<HTMLInputElement>('Show column tints');
     expect(toggle.checked).toBe(true);
   });
@@ -492,6 +532,7 @@ describe('BoardView', () => {
   it('board still renders when column tints are toggled off (issue #211)', async () => {
     const user = (await import('@testing-library/user-event')).default.setup();
     renderBoard();
+    await openMore(user);
     const toggle = screen.getByLabelText<HTMLInputElement>('Show column tints');
     await user.click(toggle);
     expect(toggle.checked).toBe(false);
@@ -502,8 +543,10 @@ describe('BoardView', () => {
   // Issue #190 — Swimlane collapse/expand persistence
   // -------------------------------------------------------------------------
 
-  it('renders "Collapse all" and "Expand all" buttons in toolbar (issue #190)', () => {
+  it('renders "Collapse all" and "Expand all" buttons in toolbar (issue #190)', async () => {
+    const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     expect(screen.getByRole('button', { name: 'Collapse all lanes' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Expand all lanes' })).toBeInTheDocument();
   });
@@ -511,6 +554,7 @@ describe('BoardView', () => {
   it('"Collapse all" hides all lane task cards (issue #190)', async () => {
     const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     expect(screen.getByText('Discovery & Design')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Collapse all lanes' }));
     expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
@@ -519,8 +563,11 @@ describe('BoardView', () => {
   it('"Expand all" restores cards after collapse-all (issue #190)', async () => {
     const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     await user.click(screen.getByRole('button', { name: 'Collapse all lanes' }));
     expect(screen.queryByText('Discovery & Design')).not.toBeInTheDocument();
+    // The More⋯ popover stays open after a button click inside it — Expand all
+    // is reachable without re-opening.
     await user.click(screen.getByRole('button', { name: 'Expand all lanes' }));
     expect(screen.getByText('Discovery & Design')).toBeInTheDocument();
   });
@@ -541,21 +588,20 @@ describe('BoardView', () => {
 
   it('renders a "Card density" selector in toolbar (issue #193)', () => {
     renderBoard();
-    expect(screen.getByLabelText('Card density')).toBeInTheDocument();
+    // CalmToolbar (#382) replaces the legacy <select> with a chip popover —
+    // the chip button carries the "Card density" aria-label.
+    expect(screen.getByRole('button', { name: 'Card density' })).toBeInTheDocument();
   });
 
   it('card density defaults to "comfortable" (issue #193)', () => {
     renderBoard();
-    const select = screen.getByLabelText<HTMLSelectElement>('Card density');
-    expect(select.value).toBe('comfortable');
+    expectBoardDensity('comfortable');
   });
 
   it('switching to compact hides progress rings from cards (issue #193)', async () => {
     const user = userEvent.setup();
     renderBoard();
-    // In comfortable mode, cards include a progress ring (SVG aria-hidden)
-    // In compact mode, the progress ring is not rendered.
-    await user.selectOptions(screen.getByLabelText('Card density'), 'compact');
+    await setBoardDensity(user, 'compact');
     // Board still renders — task names still visible
     expect(screen.getByText('Discovery & Design')).toBeInTheDocument();
   });
@@ -563,7 +609,7 @@ describe('BoardView', () => {
   it('density persists to localStorage (issue #193)', async () => {
     const user = userEvent.setup();
     renderBoard();
-    await user.selectOptions(screen.getByLabelText('Card density'), 'detailed');
+    await setBoardDensity(user, 'detailed');
     const stored = localStorage.getItem('trueppm.board.density');
     expect(stored).toBe('detailed');
   });
@@ -571,8 +617,7 @@ describe('BoardView', () => {
   it('restores density preference from localStorage on mount (issue #193)', () => {
     localStorage.setItem('trueppm.board.density', 'compact');
     renderBoard();
-    const select = screen.getByLabelText<HTMLSelectElement>('Card density');
-    expect(select.value).toBe('compact');
+    expectBoardDensity('compact');
   });
 
   it('restores collapsed lanes from localStorage on mount (issue #190)', () => {
@@ -609,33 +654,30 @@ describe('BoardView', () => {
   it('auto-selects compact density below md viewport (issue #224)', () => {
     (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(true));
     renderBoard();
-    const select = screen.getByLabelText<HTMLSelectElement>('Card density');
-    expect(select.value).toBe('compact');
+    expectBoardDensity('compact');
   });
 
   it('ignores stored desktop density on mobile — auto-compact wins (issue #224)', () => {
     localStorage.setItem('trueppm.board.density', 'detailed');
     (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(true));
     renderBoard();
-    const select = screen.getByLabelText<HTMLSelectElement>('Card density');
-    expect(select.value).toBe('compact');
+    expectBoardDensity('compact');
   });
 
   it('manual density override on mobile is not persisted to localStorage (issue #224)', async () => {
     (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(true));
     const user = userEvent.setup();
     renderBoard();
-    await user.selectOptions(screen.getByLabelText('Card density'), 'comfortable');
+    await setBoardDensity(user, 'comfortable');
     expect(localStorage.getItem('trueppm.board.density')).toBeNull();
-    const select = screen.getByLabelText<HTMLSelectElement>('Card density');
-    expect(select.value).toBe('comfortable');
+    expectBoardDensity('comfortable');
   });
 
   it('desktop density still persists to localStorage when viewport is >= md (issue #224)', async () => {
     // matchMedia already returns matches:false (desktop) from resetMocks
     const user = userEvent.setup();
     renderBoard();
-    await user.selectOptions(screen.getByLabelText('Card density'), 'detailed');
+    await setBoardDensity(user, 'detailed');
     expect(localStorage.getItem('trueppm.board.density')).toBe('detailed');
   });
 
@@ -643,8 +685,10 @@ describe('BoardView', () => {
   // ADR-0046 — Workshop mode (banner, exit dialog, focus trap)
   // -------------------------------------------------------------------------
 
-  it('renders the workshop toggle in non-workshop mode (ADR-0046)', () => {
+  it('renders the workshop toggle in non-workshop mode (ADR-0046)', async () => {
+    const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     expect(
       screen.getByRole('button', { name: 'Start workshop session' }),
     ).toBeInTheDocument();
@@ -653,6 +697,7 @@ describe('BoardView', () => {
   it('starting workshop mode calls startWorkshop.mutate (ADR-0046)', async () => {
     const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
     expect(startWorkshopMutate).toHaveBeenCalledTimes(1);
   });
@@ -675,6 +720,7 @@ describe('BoardView', () => {
     );
     const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
     expect(screen.getByLabelText('Workshop session active')).toBeInTheDocument();
   });
@@ -695,6 +741,7 @@ describe('BoardView', () => {
     );
     const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
     await user.click(screen.getByRole('button', { name: 'Exit workshop mode' }));
     expect(screen.getByRole('dialog', { name: /End workshop session/ })).toBeInTheDocument();
@@ -716,6 +763,7 @@ describe('BoardView', () => {
     );
     const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
     await user.click(screen.getByRole('button', { name: 'Exit workshop mode' }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
@@ -744,6 +792,7 @@ describe('BoardView', () => {
     );
     const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
     await user.click(screen.getByRole('button', { name: 'Exit workshop mode' }));
     // The dialog renders a primary "End Workshop" button alongside Cancel.
@@ -767,6 +816,7 @@ describe('BoardView', () => {
     );
     const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     await user.click(screen.getByRole('button', { name: 'Start workshop session' }));
     await user.click(screen.getByRole('button', { name: 'Exit workshop mode' }));
     const dialog = screen.getByRole('dialog', { name: /End workshop session/ });
@@ -778,13 +828,17 @@ describe('BoardView', () => {
   // Issue #185 — EVM toolbar toggle (evmMode select + show cost checkbox)
   // -------------------------------------------------------------------------
 
-  it('renders EVM indicators select in toolbar (issue #185)', () => {
+  it('renders EVM indicators select in toolbar (issue #185)', async () => {
+    const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     expect(screen.getByLabelText('EVM indicators')).toBeInTheDocument();
   });
 
-  it('EVM indicators select defaults to "off" (issue #185)', () => {
+  it('EVM indicators select defaults to "off" (issue #185)', async () => {
+    const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     const select = screen.getByLabelText<HTMLSelectElement>('EVM indicators');
     expect(select.value).toBe('off');
   });
@@ -792,6 +846,7 @@ describe('BoardView', () => {
   it('switching EVM to "spi" keeps the board rendering (issue #185)', async () => {
     const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     await user.selectOptions(screen.getByLabelText('EVM indicators'), 'spi');
     expect(screen.getByText('TO DO')).toBeInTheDocument();
   });
@@ -799,6 +854,7 @@ describe('BoardView', () => {
   it('switching EVM to "cpi" keeps the board rendering (issue #185)', async () => {
     const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     await user.selectOptions(screen.getByLabelText('EVM indicators'), 'cpi');
     expect(screen.getByText('TO DO')).toBeInTheDocument();
   });
@@ -806,26 +862,30 @@ describe('BoardView', () => {
   it('switching EVM to "both" keeps the board rendering (issue #185)', async () => {
     const user = userEvent.setup();
     renderBoard();
+    await openMore(user);
     await user.selectOptions(screen.getByLabelText('EVM indicators'), 'both');
     expect(screen.getByText('TO DO')).toBeInTheDocument();
   });
 
-  it('renders "Show cost" checkbox in toolbar (issue #189)', () => {
+  it('renders "Show cost" toggle in toolbar (issue #189)', () => {
     renderBoard();
-    expect(screen.getByLabelText('Show cost')).toBeInTheDocument();
+    // CalmToolbar (#382) renders Show cost as a quiet pill toggle (button with
+    // aria-pressed) instead of the legacy <input type="checkbox">.
+    expect(screen.getByRole('button', { name: 'Show cost' })).toBeInTheDocument();
   });
 
-  it('"Show cost" checkbox defaults to unchecked (issue #189)', () => {
+  it('"Show cost" toggle defaults to unpressed (issue #189)', () => {
     renderBoard();
-    const cb = screen.getByLabelText<HTMLInputElement>('Show cost');
-    expect(cb.checked).toBe(false);
+    const btn = screen.getByRole('button', { name: 'Show cost' });
+    expect(btn).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('toggling "Show cost" to on keeps the board rendering (issue #189)', async () => {
     const user = userEvent.setup();
     renderBoard();
-    await user.click(screen.getByLabelText('Show cost'));
-    expect(screen.getByLabelText<HTMLInputElement>('Show cost').checked).toBe(true);
+    const btn = screen.getByRole('button', { name: 'Show cost' });
+    await user.click(btn);
+    expect(btn).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText('TO DO')).toBeInTheDocument();
   });
 

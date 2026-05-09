@@ -130,13 +130,25 @@ stays reviewable. All target milestone 0.1.
 
 | # | Slice | Status |
 |---|---|---|
-| #381 | Backlog rail + new card style + drag rules | active (this branch) |
-| #382 | Calm toolbar (chips / pill toggles / layout switcher / `More⋯`) | queued |
+| #381 | Backlog rail + new card style + drag rules | merged |
+| #382 | Calm toolbar (chips / pill toggles / layout switcher / `More⋯`) | merged |
 | #383 | Drawer layout variant | queued |
 | #384 | Queue layout variant | queued |
 | #385 | Phase-grid quieting (empty-cell ticks, `LaneMeta` inline progress, `ColHeader` redesign) | queued |
 
 Children B–E will amend this ADR as they land.
+
+### Child B addendum (#382) — calm toolbar
+
+The 14-control toolbar row collapses into:
+
+- **Identity block** — `BoardViewDropdown` (saved views) + project name + activity stats (`{N} active · {N} in backlog`).
+- **Primary chips** — `Group: Phase`, `Sort: {value}`, `Density: {value}`. Each is a rounded pill that opens a `role="dialog"` popover with `radiogroup` options. The Density popover exposes both *board-card* density (existing `useBoardDensity`) and *backlog-card* density (new, persisted via `useBoardToolbarPrefs`).
+- **Quiet pill toggles** — `★ My tasks`, `⚠ At-risk`, `$ Cost`. No border at rest, sunken-fill when active. `aria-pressed` reports state. The `aria-label` on the cost pill remains `"Show cost"` for backwards compatibility with existing tests and saved-view configs.
+- **Layout segmented control** — `Rail · Drawer · Queue`. All three persist via `useBoardToolbarPrefs` (localStorage key `trueppm.board.toolbarPrefs.v1`); only `rail` actually renders a backlog layout until siblings #383 (drawer) and #384 (queue) plug in. Selection survives reload — verified in `board-calm-toolbar.spec.ts`.
+- **`More⋯` overflow popover** — secondary controls cut from the primary row: Collapse all, Expand all, Show WIP, Column tints, EVM, Columns, Keyboard shortcuts, Workshop. The popover persists open across button-clicks inside it so a user can collapse-then-expand without re-opening.
+
+No behaviour changes: every control delegates to the same setters previously wired in `BoardView.tsx`. The change is a pure surface refactor scoped to `packages/web/src/features/board/CalmToolbar.tsx` and a new `useBoardToolbarPrefs` hook.
 
 ## Out of scope (split to #362, milestone 0.2)
 

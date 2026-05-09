@@ -56,7 +56,6 @@ import { useWorkshopSocket } from '@/hooks/useWorkshopSocket';
 import { useCreateTask, useUpdateTask } from '@/hooks/useTaskMutations';
 import type { Task, TaskStatus } from '@/types';
 import { BoardCard, type BoardDensity, type EvmMode } from './BoardCard';
-import { BoardViewDropdown } from './BoardViewDropdown';
 import { LaneMeta } from './LaneMeta';
 import { WorkshopBanner } from './WorkshopBanner';
 import { TaskFormModal } from './TaskFormModal';
@@ -70,6 +69,9 @@ import { TaskDetailDrawer } from '@/features/schedule/TaskDetailDrawer';
 import { phaseColor } from './phaseColors';
 import { BacklogBand, BACKLOG_BAND_DROPPABLE_ID } from './BacklogBand';
 import { BacklogDemoteConfirmDialog } from './BacklogDemoteConfirmDialog';
+import { CalmToolbar } from './CalmToolbar';
+import { useBoardToolbarPrefs } from '@/hooks/useBoardToolbarPrefs';
+import { useProject } from '@/hooks/useProject';
 
 // ---------------------------------------------------------------------------
 // Sort helper
@@ -820,6 +822,8 @@ export function BoardView() {
 
   const { collapsedIds, toggle: toggleCollapse, collapseAll, expandAll } = useBoardCollapsedLanes(projectId);
   const { density, setDensity, isMobile } = useBoardDensity();
+  const toolbarPrefs = useBoardToolbarPrefs();
+  const { data: projectDetail } = useProject(projectId || null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -1278,11 +1282,6 @@ export function BoardView() {
     );
   }
 
-  const toolbarBtnClass =
-    'border border-neutral-border rounded px-2 py-0.5 text-neutral-text-primary ' +
-    'hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary ' +
-    'focus-visible:outline-none';
-
   return (
     <>
       {/* aria-live region for status change announcements (rule 105) */}
@@ -1297,197 +1296,54 @@ export function BoardView() {
       >
         <div className="flex flex-col h-full overflow-hidden">
 
-          {/* Board toolbar */}
-          <div className="flex-shrink-0 border-b border-neutral-border bg-neutral-surface px-4 py-2 flex items-center gap-4 text-xs text-neutral-text-secondary flex-wrap">
-            {/* View dropdown — issue #191 */}
-            <BoardViewDropdown
-              projectId={projectId}
-              currentConfig={currentViewConfig}
-              activeViewId={activeViewId}
-              onApply={applyViewConfig}
-            />
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              Lane:
-              <select className="border border-neutral-border rounded px-1.5 py-0.5 text-neutral-text-primary focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none">
-                <option>Phase (WBS rollup)</option>
-              </select>
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              Sort:
-              <select
-                value={sort}
-                onChange={(e) => setSort(e.target.value as BoardSortKey)}
-                className="border border-neutral-border rounded px-1.5 py-0.5 text-neutral-text-primary focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
-                aria-label="Sort tasks by"
-              >
-                <option value="priority">Priority rank</option>
-                <option value="start_date">Start date</option>
-                <option value="percent_complete">% complete</option>
-              </select>
-            </label>
-            {/* Card density — issue #193 */}
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              Density:
-              <select
-                value={density}
-                onChange={(e) => setDensity(e.target.value as BoardDensity)}
-                className="border border-neutral-border rounded px-1.5 py-0.5 text-neutral-text-primary focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
-                aria-label="Card density"
-              >
-                <option value="compact">Compact</option>
-                <option value="comfortable">Comfortable</option>
-                <option value="detailed">Detailed</option>
-              </select>
-            </label>
-            {/* Collapse all / Expand all — issue #190 */}
-            <button
-              type="button"
-              className={toolbarBtnClass}
-              onClick={() => collapseAll(phases.map((p) => p.id))}
-              aria-label="Collapse all lanes"
-            >
-              Collapse all
-            </button>
-            <button
-              type="button"
-              className={toolbarBtnClass}
-              onClick={expandAll}
-              aria-label="Expand all lanes"
-            >
-              Expand all
-            </button>
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={showWip}
-                onChange={(e) => setShowWip(e.target.checked)}
-                className="accent-brand-primary"
-                aria-label="Show WIP limits"
-              />
-              Show WIP limits
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={showColTints}
-                onChange={(e) => setShowColTints(e.target.checked)}
-                className="accent-brand-primary"
-                aria-label="Show column tints"
-              />
-              Column tints
-            </label>
-            {/* EVM indicators toggle — SPI/CPI chips (issue #185) */}
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              EVM:
-              <select
-                value={evmMode}
-                onChange={(e) => setEvmMode(e.target.value as EvmMode)}
-                className="border border-neutral-border rounded px-1.5 py-0.5 text-neutral-text-primary focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
-                aria-label="EVM indicators"
-              >
-                <option value="off">Off</option>
-                <option value="spi">SPI</option>
-                <option value="cpi">CPI</option>
-                <option value="both">Both</option>
-              </select>
-            </label>
-            {/* Cost toggle — phase row + card cost chips (issue #189) */}
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={showCost}
-                onChange={(e) => setShowCost(e.target.checked)}
-                className="accent-brand-primary"
-                aria-label="Show cost"
-              />
-              Show cost
-            </label>
-            {/* Risk-linked filter pill — issue #188 */}
-            <button
-              type="button"
-              onClick={() => setRiskLinkedOnly((v) => !v)}
-              aria-pressed={riskLinkedOnly}
-              className={[
-                'border rounded px-2 py-0.5 inline-flex items-center gap-1',
-                'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
-                riskLinkedOnly
-                  ? 'bg-brand-accent/10 border-brand-accent/40 text-brand-accent-dark dark:text-brand-accent'
-                  : 'border-neutral-border text-neutral-text-primary hover:bg-neutral-surface-raised',
-              ].join(' ')}
-            >
-              <span aria-hidden="true">⚠</span>
-              Risk-linked only
-            </button>
-            {/* "My tasks" filter pill — issue #198. Default by role: on for
-                Team Member, off for SCHEDULER+. Persisted per-user per-project. */}
-            <button
-              type="button"
-              onClick={() => myTasksFilter.setEnabled(!myTasksFilter.enabled)}
-              aria-pressed={myTasksFilter.enabled}
-              disabled={myTasksFilter.isLoading}
-              title="Show only tasks assigned to you"
-              className={[
-                'border rounded px-2 py-0.5 inline-flex items-center gap-1',
-                'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
-                'disabled:opacity-50 disabled:cursor-wait',
-                myTasksFilter.enabled
-                  ? 'bg-brand-primary/10 border-brand-primary/40 text-brand-primary-dark dark:text-brand-primary'
-                  : 'border-neutral-border text-neutral-text-primary hover:bg-neutral-surface-raised',
-              ].join(' ')}
-            >
-              <span aria-hidden="true">★</span>
-              My tasks
-            </button>
-            {/* Column settings — issue #170 */}
-            <button
-              type="button"
-              onClick={() => setShowSettings(true)}
-              className={`${toolbarBtnClass} inline-flex items-center gap-1`}
-              aria-label="Open board column settings"
-              title="Column settings"
-            >
-              <span aria-hidden="true">⚙</span>
-              Columns
-            </button>
-            {/* Keyboard shortcuts hint — issue #195 */}
-            <button
-              type="button"
-              onClick={() => setShowCheatsheet(true)}
-              className={`${toolbarBtnClass} inline-flex items-center gap-1`}
-              aria-label="Show keyboard shortcuts"
-              title="Show keyboard shortcuts (?)"
-            >
-              <kbd className="bg-neutral-surface-raised border border-neutral-border rounded px-1 tppm-mono text-xs">?</kbd>
-            </button>
-
-            {/* Workshop mode toggle (ADR-0046) */}
-            <button
-              ref={workshopToggleRef}
-              type="button"
-              onClick={() => {
-                if (workshopMode) {
-                  setShowExitConfirm(true);
-                } else {
-                  startWorkshop.mutate(undefined, {
-                    onSuccess: () => setWorkshopMode(true),
-                  });
-                }
-              }}
-              disabled={startWorkshop.isPending}
-              aria-pressed={workshopMode}
-              className={[
-                'border rounded px-2 py-0.5 hidden md:inline-flex items-center gap-1',
-                'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none',
-                workshopMode
-                  ? 'bg-brand-primary/10 border-brand-primary/40 text-brand-primary-dark dark:text-brand-primary'
-                  : 'border-neutral-border text-neutral-text-primary hover:bg-neutral-surface-raised',
-              ].join(' ')}
-              aria-label={workshopMode ? 'Exit workshop mode' : 'Start workshop session'}
-            >
-              {workshopMode ? '◎ In Workshop' : '◎ Workshop'}
-            </button>
-          </div>
-
+          {/* Board toolbar — calm refactor (issue #382, epic #361 child B). */}
+          <CalmToolbar
+            projectId={projectId}
+            projectName={projectDetail?.name}
+            activeCount={committedTasks.filter((t) => !t.isSummary).length}
+            backlogCount={backlogTasks.length}
+            currentViewConfig={currentViewConfig}
+            activeViewId={activeViewId}
+            onApplyView={applyViewConfig}
+            groupBy="Phase (WBS rollup)"
+            sort={sort}
+            onSortChange={setSort}
+            density={density}
+            onDensityChange={setDensity}
+            backlogDensity={toolbarPrefs.backlogDensity}
+            onBacklogDensityChange={toolbarPrefs.setBacklogDensity}
+            layout={toolbarPrefs.layout}
+            onLayoutChange={toolbarPrefs.setLayout}
+            myTasksEnabled={myTasksFilter.enabled}
+            myTasksLoading={myTasksFilter.isLoading}
+            onMyTasksToggle={() => myTasksFilter.setEnabled(!myTasksFilter.enabled)}
+            riskLinkedOnly={riskLinkedOnly}
+            onRiskLinkedToggle={() => setRiskLinkedOnly((v) => !v)}
+            showCost={showCost}
+            onShowCostToggle={() => setShowCost((v) => !v)}
+            onCollapseAll={() => collapseAll(phases.map((p) => p.id))}
+            onExpandAll={expandAll}
+            showWip={showWip}
+            onShowWipToggle={() => setShowWip((v) => !v)}
+            showColTints={showColTints}
+            onShowColTintsToggle={() => setShowColTints((v) => !v)}
+            evmMode={evmMode}
+            onEvmChange={setEvmMode}
+            onOpenColumns={() => setShowSettings(true)}
+            onOpenCheatsheet={() => setShowCheatsheet(true)}
+            workshopMode={workshopMode}
+            workshopDisabled={startWorkshop.isPending}
+            workshopButtonRef={workshopToggleRef}
+            onWorkshopToggle={() => {
+              if (workshopMode) {
+                setShowExitConfirm(true);
+              } else {
+                startWorkshop.mutate(undefined, {
+                  onSuccess: () => setWorkshopMode(true),
+                });
+              }
+            }}
+          />
           {/* Workshop banner — shown when a session is active (ADR-0046) */}
           {workshopMode && workshopSession && (
             <WorkshopBanner
@@ -1528,6 +1384,7 @@ export function BoardView() {
               tasks={backlogTasks}
               isDragActive={activeId !== null}
               isOver={overCell === BACKLOG_BAND_DROPPABLE_ID}
+              density={toolbarPrefs.backlogDensity}
               phaseColorFor={(parentId) =>
                 parentId ? phaseColor(parentId) : phaseColor('root')
               }
