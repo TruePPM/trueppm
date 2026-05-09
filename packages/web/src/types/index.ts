@@ -99,6 +99,14 @@ export interface Task {
    * (issue #317). Null/undefined for tasks not assigned to a sprint.
    */
   sprintId?: string | null;
+  /** Original sprint commitment estimate in story points. Null for non-agile tasks. */
+  storyPoints?: number | null;
+  /**
+   * Live remaining-effort signal for sprint burndown (issue #366).
+   * Auto-set to 0 on COMPLETE; restored from storyPoints on reopen.
+   * Null means fall back to storyPoints in burndown math.
+   */
+  remainingPoints?: number | null;
   /**
    * Long-form description / notes. Maps to the API's `Task.notes` field.
    * Empty string when unset (ADR-0048). Read by the task create/edit modal

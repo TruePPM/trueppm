@@ -305,3 +305,129 @@ describe('EstimatesTab — blur handlers', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sprint effort section (issue #366)
+// ---------------------------------------------------------------------------
+
+const sprintTask: Task = {
+  ...baseTask,
+  id: 'ts1',
+  sprintId: 'sprint-1',
+  storyPoints: 8,
+  remainingPoints: 5,
+};
+
+describe('EstimatesTab — sprint effort section', () => {
+  it('does not show sprint effort section when task has no sprint', () => {
+    renderWithProviders(
+      <EstimatesTab
+        task={baseTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+      />,
+    );
+    expect(screen.queryByText(/Sprint Effort/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Committed.*pts/i)).not.toBeInTheDocument();
+  });
+
+  it('shows sprint effort section when task has a sprintId', () => {
+    renderWithProviders(
+      <EstimatesTab
+        task={sprintTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+      />,
+    );
+    expect(screen.getByText(/Sprint Effort/i)).toBeInTheDocument();
+  });
+
+  it('shows committed story points as read-only', () => {
+    renderWithProviders(
+      <EstimatesTab
+        task={sprintTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+      />,
+    );
+    expect(screen.getByLabelText(/Committed story points \(read-only\)/i)).toHaveTextContent('8');
+  });
+
+  it('shows remaining-points field disabled when sprint is not active', () => {
+    renderWithProviders(
+      <EstimatesTab
+        task={sprintTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+        sprintIsActive={false}
+      />,
+    );
+    expect(screen.getByLabelText(/Remaining \(pts\)/i)).toBeDisabled();
+  });
+
+  it('shows remaining-points field enabled when sprint is active', () => {
+    renderWithProviders(
+      <EstimatesTab
+        task={sprintTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+        sprintIsActive={true}
+      />,
+    );
+    expect(screen.getByLabelText(/Remaining \(pts\)/i)).not.toBeDisabled();
+  });
+
+  it('pre-fills remaining-points with current value', () => {
+    renderWithProviders(
+      <EstimatesTab
+        task={sprintTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+        sprintIsActive={true}
+      />,
+    );
+    expect(screen.getByLabelText(/Remaining \(pts\)/i)).toHaveValue(5);
+  });
+
+  it('disables remaining-points when status is COMPLETE', () => {
+    renderWithProviders(
+      <EstimatesTab
+        task={{ ...sprintTask, status: 'COMPLETE', remainingPoints: 0 }}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+        sprintIsActive={true}
+      />,
+    );
+    expect(screen.getByLabelText(/Remaining \(pts\)/i)).toBeDisabled();
+    expect(screen.getByText(/zeroed automatically/i)).toBeInTheDocument();
+  });
+
+  it('fires a PATCH for remaining_points on blur when active', async () => {
+    vi.useFakeTimers();
+    renderWithProviders(
+      <EstimatesTab
+        task={sprintTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={false}
+        sprintIsActive={true}
+      />,
+    );
+    const input = screen.getByLabelText(/Remaining \(pts\)/i);
+    fireEvent.change(input, { target: { value: '3' } });
+    fireEvent.blur(input);
+    await vi.runAllTimersAsync();
+    expect(patchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/tasks/ts1/'),
+      expect.objectContaining({ remaining_points: 3 }),
+    );
+    vi.useRealTimers();
+  });
+});

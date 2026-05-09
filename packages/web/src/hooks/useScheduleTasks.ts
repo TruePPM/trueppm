@@ -50,6 +50,10 @@ interface ApiTask {
   server_version?: number;
   // Sprint membership (issue #317) — null/absent when not in a sprint.
   sprint?: string | null;
+  // Agile estimate (ADR-0037) — original commitment. Null for non-agile tasks.
+  story_points?: number | null;
+  // Live burndown signal (issue #366) — remaining effort; null = fall back to story_points.
+  remaining_points?: number | null;
   // Long-form description (issue #305) — Task.notes field on the model.
   notes?: string;
   assignments?: Array<{
@@ -156,6 +160,8 @@ function mapTask(t: ApiTask): Task {
     assigneeIsOverallocated: t.assignee_is_overallocated ?? false,
     serverVersion: t.server_version,
     sprintId: t.sprint ?? null,
+    storyPoints: t.story_points ?? null,
+    remainingPoints: t.remaining_points ?? null,
     plannedStart: t.planned_start,
     notes: t.notes ?? '',
   };

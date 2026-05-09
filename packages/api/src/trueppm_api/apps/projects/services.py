@@ -265,13 +265,17 @@ def upsert_burndown_for_sprint(sprint: Any, snapshot_date: date | None = None) -
 
     tasks = list(
         Task.objects.filter(sprint_id=sprint.pk, is_deleted=False).values_list(
-            "status", "story_points"
+            "status", "story_points", "remaining_points"
         )
     )
-    completed_points = sum(p or 0 for s, p in tasks if s == TaskStatus.COMPLETE)
-    completed_count = sum(1 for s, _p in tasks if s == TaskStatus.COMPLETE)
-    remaining_points = sum(p or 0 for s, p in tasks if s != TaskStatus.COMPLETE)
-    remaining_count = sum(1 for s, _p in tasks if s != TaskStatus.COMPLETE)
+    completed_points = sum(sp or 0 for s, sp, _rp in tasks if s == TaskStatus.COMPLETE)
+    completed_count = sum(1 for s, _sp, _rp in tasks if s == TaskStatus.COMPLETE)
+    # Use remaining_points when set (issue #366); fall back to story_points for
+    # tasks that pre-date the field or haven't been re-estimated mid-sprint.
+    remaining_points = sum(
+        (rp if rp is not None else (sp or 0)) for s, sp, rp in tasks if s != TaskStatus.COMPLETE
+    )
+    remaining_count = sum(1 for s, _sp, _rp in tasks if s != TaskStatus.COMPLETE)
 
     committed = sprint.committed_points or 0
     committed_count_initial = sprint.committed_task_count or 0

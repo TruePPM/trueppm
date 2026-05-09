@@ -81,6 +81,10 @@ export interface UpdateTaskPayload {
   notes?: string;
   /** Sprint UUID — null removes the task from any sprint. */
   sprint?: string | null;
+  /** Original commitment estimate in story points. */
+  story_points?: number | null;
+  /** Live remaining-effort for burndown (issue #366). Auto-zeroed on COMPLETE by the API. */
+  remaining_points?: number | null;
 }
 
 /** PATCH /api/v1/tasks/{id}/ — update task fields; immediately invalidates the task cache. */

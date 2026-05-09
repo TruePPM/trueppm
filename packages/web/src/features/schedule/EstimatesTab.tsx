@@ -8,6 +8,8 @@ interface EstimatesTabProps {
   projectId: string;
   estimationMode: EstimationMode;
   userIsScheduler: boolean;
+  /** Whether the task's sprint is currently ACTIVE — gates remaining-points edit. */
+  sprintIsActive?: boolean;
 }
 
 export function EstimatesTab({
@@ -15,6 +17,7 @@ export function EstimatesTab({
   projectId,
   estimationMode,
   userIsScheduler,
+  sprintIsActive = false,
 }: EstimatesTabProps) {
   const updateTask = useUpdateTask();
   const approveEstimates = useApproveEstimates(projectId);
@@ -29,12 +32,16 @@ export function EstimatesTab({
   const [pessimistic, setPessimistic] = useState<string>(
     task.pessimisticDuration != null ? String(task.pessimisticDuration) : '',
   );
+  const [remaining, setRemaining] = useState<string>(
+    task.remainingPoints != null ? String(task.remainingPoints) : '',
+  );
 
   useEffect(() => {
     setOptimistic(task.optimisticDuration != null ? String(task.optimisticDuration) : '');
     setMostLikely(task.mostLikelyDuration != null ? String(task.mostLikelyDuration) : '');
     setPessimistic(task.pessimisticDuration != null ? String(task.pessimisticDuration) : '');
-  }, [task.id, task.optimisticDuration, task.mostLikelyDuration, task.pessimisticDuration]);
+    setRemaining(task.remainingPoints != null ? String(task.remainingPoints) : '');
+  }, [task.id, task.optimisticDuration, task.mostLikelyDuration, task.pessimisticDuration, task.remainingPoints]);
 
   // Save on blur using the current input value
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -190,6 +197,53 @@ export function EstimatesTab({
         <p className="text-xs text-neutral-text-secondary">
           Your estimates will be submitted for scheduler approval before being used in Monte Carlo.
         </p>
+      )}
+
+      {/* Sprint effort — only shown when task is in a sprint */}
+      {task.sprintId && (
+        <fieldset className="flex flex-col gap-3 border-t border-neutral-border pt-4">
+          <legend className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-1">
+            Sprint Effort
+          </legend>
+
+          {/* Story points — read-only; commitment baseline must not change mid-sprint */}
+          <div className="flex items-center gap-3">
+            <span className="w-36 shrink-0 text-xs text-neutral-text-secondary">
+              Committed (pts)
+            </span>
+            <span
+              className="w-24 h-9 flex items-center justify-center text-sm text-neutral-text-primary
+                tppm-mono border border-neutral-border/50 rounded bg-neutral-surface-raised"
+              aria-label="Committed story points (read-only)"
+            >
+              {task.storyPoints ?? '—'}
+            </span>
+          </div>
+
+          {/* Remaining points — editable when sprint is active */}
+          <EstimateField
+            label="Remaining (pts)"
+            value={remaining}
+            onChange={setRemaining}
+            onBlur={(value) => {
+              const n = value === '' ? null : Number(value);
+              updateTask.mutate({ id: task.id, projectId, remaining_points: n });
+            }}
+            disabled={!sprintIsActive || task.status === 'COMPLETE'}
+            id={`rem-${task.id}`}
+          />
+
+          {task.status === 'COMPLETE' && (
+            <p className="text-xs text-neutral-text-secondary">
+              Remaining effort is zeroed automatically when a task is completed.
+            </p>
+          )}
+          {!sprintIsActive && task.status !== 'COMPLETE' && (
+            <p className="text-xs text-neutral-text-secondary">
+              Remaining effort can be updated while the sprint is active.
+            </p>
+          )}
+        </fieldset>
       )}
     </div>
   );

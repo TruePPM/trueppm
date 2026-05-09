@@ -442,6 +442,10 @@ class Task(VersionedModel):
     # Agile estimate (ADR-0037 Q1).  Nullable — story_points is fully optional
     # so non-agile projects do not see a "0 pts" badge on every card.
     story_points = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Live burndown signal (issue #366).  Tracks remaining effort within a sprint;
+    # auto-set to 0 on COMPLETE and restored from story_points on reopen.
+    # Null means "not separately estimated" — burndown falls back to story_points.
+    remaining_points = models.PositiveSmallIntegerField(null=True, blank=True)
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_TASK)
 
