@@ -68,10 +68,14 @@ not used in the CPM algorithm itself.
 
 ### Depth-1 enforcement
 
-At the `TaskViewSet.create()` layer: when `is_subtask=True` is included in the request body
-(or a dedicated `POST /tasks/{id}/subtasks/` action is used), validate `parent.is_subtask == False`.
-Return 400 with `"detail": "Subtasks cannot have subtasks"` on violation. No DB-level CHECK
-constraint — the application layer validation is sufficient and avoids schema complexity.
+At the `TaskViewSet.create()` layer: whenever a `parent_id` is supplied, validate
+`parent.is_subtask == False` regardless of whether the request sets `is_subtask=True`.
+The check must run on every parent-resolved create path so the "Add Task" entry point
+cannot bypass the rule by omitting the `is_subtask` flag (the original gating on
+`is_subtask=True` requests only allowed depth-2 hierarchies through a different door).
+Return 400 with `{"parent_id": "Cannot create a child of a subtask."}` on violation.
+No DB-level CHECK constraint — the application layer validation is sufficient and
+avoids schema complexity.
 
 ### Broadcast strategy
 

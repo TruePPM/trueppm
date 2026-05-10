@@ -880,9 +880,14 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                         ) from exc
                     if not parent.wbs_path:
                         raise DRFValidationError({"parent_id": "Parent task has no WBS path."})
-                    # Depth-1 enforcement (ADR-0060): a subtask cannot itself have subtasks.
-                    if is_subtask and parent.is_subtask:
-                        raise DRFValidationError({"is_subtask": "Subtasks cannot have subtasks."})
+                    # Depth-1 enforcement (ADR-0060): subtasks are leaf nodes —
+                    # no task of any kind may be created as a child of a subtask.
+                    # Checked on every parent_id path, not only is_subtask=True
+                    # requests, so the "Add Task" entry point cannot bypass it.
+                    if parent.is_subtask:
+                        raise DRFValidationError(
+                            {"parent_id": "Cannot create a child of a subtask."}
+                        )
                     children = _get_siblings(str(project.pk), str(parent.wbs_path), lock=True)
                     wbs_path = _build_wbs_path(str(parent.wbs_path), len(children) + 1)
                 else:

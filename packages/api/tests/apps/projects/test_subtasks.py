@@ -177,12 +177,14 @@ class TestSubtaskDepthEnforcement:
             },
         )
         assert r2.status_code == 400
-        assert "is_subtask" in r2.data
+        assert "parent_id" in r2.data
 
-    def test_regular_child_under_subtask_allowed(
+    def test_regular_child_under_subtask_rejected(
         self, client: APIClient, project: Project, parent_task: Task
     ) -> None:
-        """A non-subtask child under a subtask is not blocked by depth-1 rule."""
+        # Subtasks are leaf nodes — the depth-1 rule applies on every parent_id
+        # path, so a regular ("Add Task") create with a subtask as the parent
+        # must also be rejected, not just is_subtask=True requests.
         r = client.post(
             "/api/v1/tasks/",
             {
@@ -195,8 +197,6 @@ class TestSubtaskDepthEnforcement:
         )
         subtask_id = r.data["id"]
 
-        # Regular (non-subtask) child under a subtask is permitted — the depth
-        # guard only checks is_subtask=True requests.
         r2 = client.post(
             "/api/v1/tasks/",
             {
@@ -206,7 +206,8 @@ class TestSubtaskDepthEnforcement:
                 "parent_id": subtask_id,
             },
         )
-        assert r2.status_code == 201
+        assert r2.status_code == 400
+        assert "parent_id" in r2.data
 
 
 # ---------------------------------------------------------------------------
