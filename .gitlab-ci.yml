@@ -712,6 +712,85 @@ web:e2e:
       - packages/web/playwright-report/
     expire_in: 7 days
 
+web:integration:
+  # Full-stack integration tests: real Django + PostgreSQL + Valkey + Vite dev
+  # proxy. Covers the three scenarios the mocked web:e2e job cannot exercise:
+  #   1. Auth token exchange via the real /api/v1/auth/token/ endpoint
+  #   2. Task CRUD write contract against the live database
+  #   3. WebSocket broadcast — mutation in one context, assertion in another
+  #
+  # Main-only: runs after every merge to verify end-to-end stack health.
+  # Does not block MR pipelines (those rely on the mocked web:e2e job).
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.58.2-noble
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+    - name: valkey/valkey:8-alpine
+      alias: valkey
+  variables:
+    DJANGO_SETTINGS_MODULE: trueppm_api.settings.dev
+    TRUEPPM_ALLOW_DEV_SETTINGS: "1"
+    DATABASE_URL: "postgres://trueppm:trueppm@postgres/trueppm_test"
+    REDIS_URL: "redis://valkey:6379"
+    # Non-secret CI key — dev settings enforce ALLOWED_HOSTS=* + AllowAny guard
+    SECRET_KEY: "ci-integration-secret-not-for-production"
+    # Vite proxy target: routes /api and /ws/v1 to the local Django process.
+    API_URL: "http://127.0.0.1:8000"
+    INTEGRATION_USER_EMAIL: "ci@trueppm.test"
+    INTEGRATION_USER_PASSWORD: "ci-integration-pw"
+    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  cache:
+    - key:
+        files:
+          - packages/web/package-lock.json
+        prefix: web-npm
+      paths:
+        - packages/web/node_modules/
+    - key:
+        files:
+          - packages/api/pyproject.toml
+        prefix: api-pip
+      paths:
+        - .cache/pip/
+      policy: pull
+  before_script:
+    # The playwright:noble image is Ubuntu 24.04 with Node pre-installed.
+    # Add Python 3 and the C build deps required by psycopg2.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends
+        python3 python3-pip python3-venv python3-dev libpq-dev gcc
+    - python3 -m venv /opt/api-venv
+    - /opt/api-venv/bin/pip install --upgrade pip --quiet
+    - /opt/api-venv/bin/pip install -e "packages/scheduler[dev]" --quiet
+    - /opt/api-venv/bin/pip install -e "packages/api[dev]" --quiet
+    - /opt/api-venv/bin/pip install uvicorn[standard] --quiet
+    # Migrate and seed integration fixtures.
+    - cd packages/api
+    - /opt/api-venv/bin/python manage.py migrate --noinput
+    - /opt/api-venv/bin/python manage.py seed_integration_fixtures
+    # Start the Django ASGI server in the background.
+    - >
+      PYTHONPATH=src /opt/api-venv/bin/uvicorn trueppm_api.asgi:application
+      --host 127.0.0.1 --port 8000 &
+    - cd ../..
+    # Wait up to 30 s for Django to accept connections.
+    - >
+      timeout 30 sh -c
+      'until curl -sf http://127.0.0.1:8000/api/v1/health/ > /dev/null;
+       do sleep 1; done'
+    # Install web dependencies.
+    - cd packages/web && npm ci --prefer-offline --quiet && cd ../..
+  script:
+    - cd packages/web
+    - npx playwright test e2e/integration/ --config playwright.integration.config.ts --reporter=line
+  artifacts:
+    when: on_failure
+    paths:
+      - packages/web/playwright-report/
+    expire_in: 7 days
+
 website:build:
   # Verify the Starlight documentation site builds cleanly.
   # Catches broken links, invalid frontmatter, and build errors early.
