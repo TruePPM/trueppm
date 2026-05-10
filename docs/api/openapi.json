@@ -7234,6 +7234,38 @@
                     }
                 }
             }
+        },
+        "/api/v1/users/search/": {
+            "get": {
+                "operationId": "v1_users_search_list",
+                "description": "GET /api/v1/users/search/?q=<term> — org-wide user typeahead for member invite.\n\nReturns up to 10 active users matching username or email (case-insensitive).\nRequires authentication only — no project-membership check. Acceptable for\nself-hosted deployments where all accounts are org-internal (ADR-0061).\n\nReturns an empty list when q is fewer than 2 characters.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/UserSearchResult"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
         }
     },
     "components": {
@@ -10722,6 +10754,37 @@
                 },
                 "required": [
                     "refresh"
+                ]
+            },
+            "UserSearchResult": {
+                "type": "object",
+                "description": "Read-only serializer for GET /api/v1/users/search/ results (ADR-0061).",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email"
+                    },
+                    "display_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "initials": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "display_name",
+                    "email",
+                    "id",
+                    "initials",
+                    "username"
                 ]
             },
             "Webhook": {

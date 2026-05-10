@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import uuid
 
+from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
@@ -21,6 +22,7 @@ from trueppm_api.apps.access.serializers import (
     MeSerializer,
     ProjectMembershipReadSerializer,
     ProjectMembershipWriteSerializer,
+    UserSearchResultSerializer,
 )
 from trueppm_api.apps.projects.models import Project
 
@@ -255,6 +257,31 @@ class ProjectMembershipViewSet(viewsets.GenericViewSet[ProjectMembership]):
         )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class UserSearchView(APIView):
+    """GET /api/v1/users/search/?q=<term> — org-wide user typeahead for member invite.
+
+    Returns up to 10 active users matching username or email (case-insensitive).
+    Requires authentication only — no project-membership check. Acceptable for
+    self-hosted deployments where all accounts are org-internal (ADR-0061).
+
+    Returns an empty list when q is fewer than 2 characters.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: UserSearchResultSerializer(many=True)})
+    def get(self, request: Request) -> Response:
+        q = (request.query_params.get("q") or "").strip()
+        if len(q) < 2:
+            return Response([])
+        User = get_user_model()
+        qs = User.objects.filter(
+            Q(username__icontains=q) | Q(email__icontains=q),
+            is_active=True,
+        ).order_by("username")[:10]
+        return Response(UserSearchResultSerializer(qs, many=True).data)
 
 
 class MeView(APIView):

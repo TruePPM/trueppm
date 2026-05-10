@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router';
-import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon, SprintIcon } from '@/components/Icons';
+import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon, SprintIcon, SettingsIcon } from '@/components/Icons';
 import { OverviewIcon } from '@/components/Icons';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
@@ -27,6 +27,9 @@ const TABS: Tab[] = [
   { view: 'calendar',   label: 'Calendar',   Icon: CalendarIcon },
   { view: 'resources',  label: 'Team',       Icon: ResourcesIcon },
   { view: 'risk',       label: 'Risks',      Icon: RiskIcon },
+  // Settings tab — visible to all members (Viewer+); write controls are OWNER-gated
+  // inside the page. Not in BottomNav (infrequent, admin access — same rationale as Risks).
+  { view: 'settings',  label: 'Settings',   Icon: SettingsIcon },
 ];
 
 /**
@@ -46,10 +49,12 @@ export function ViewTabs() {
 
   if (!projectId) return null;
 
-  // Derive active view from the last path segment.
+  // Derive active view from the path segment immediately after the projectId.
   // e.g. /projects/abc/schedule → 'schedule'
+  //      /projects/abc/settings/members → 'settings'
   const pathSegments = location.pathname.split('/');
-  const currentView = pathSegments[pathSegments.length - 1] ?? 'overview';
+  const projectIdIndex = pathSegments.indexOf(projectId ?? '');
+  const currentView = (projectIdIndex >= 0 ? pathSegments[projectIdIndex + 1] : undefined) ?? 'overview';
 
   // Default to HYBRID (all tabs visible) until the project loads — preserves
   // pre-methodology behavior during the brief loading window.

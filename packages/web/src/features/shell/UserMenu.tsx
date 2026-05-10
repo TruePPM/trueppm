@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, type ReactNode, type RefObject } from 'react';
-import { useNavigate } from 'react-router';
+import { NavLink, useNavigate } from 'react-router';
 import { useThemeStore, type Theme } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
 import { queryClient } from '@/lib/queryClient';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useProjectId } from '@/hooks/useProjectId';
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
 
 // ---------------------------------------------------------------------------
@@ -136,6 +137,8 @@ interface MenuContentProps {
   onClose: () => void;
   /** true for mobile bottom sheet (52px row height); false for desktop (36px). */
   isMobile: boolean;
+  /** When set, renders a "Project settings" link in the menu. */
+  projectId: string | undefined;
 }
 
 function MenuContent({
@@ -148,6 +151,7 @@ function MenuContent({
   onOpenShortcuts,
   onClose,
   isMobile,
+  projectId,
 }: MenuContentProps) {
   const rowBase = isMobile
     ? 'flex items-center px-4 min-h-[52px]'
@@ -184,6 +188,18 @@ function MenuContent({
         <span className="text-sm text-neutral-text-primary">Theme</span>
         <ThemePill theme={theme} onSetTheme={onSetTheme} />
       </div>
+
+      {/* Project settings — only shown when a project is in context */}
+      {projectId && (
+        <NavLink
+          to={`/projects/${projectId}/settings/members`}
+          role="menuitem"
+          onClick={onClose}
+          className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
+        >
+          Project settings
+        </NavLink>
+      )}
 
       {/* Notifications row */}
       <a
@@ -288,6 +304,7 @@ export function UserMenu() {
   const navigate = useNavigate();
 
   const { user, isLoading } = useCurrentUser();
+  const projectId = useProjectId();
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
   const clearTokens = useAuthStore((s) => s.clearTokens);
@@ -345,6 +362,7 @@ export function UserMenu() {
     onSignOut: handleSignOut,
     onOpenShortcuts: () => setShowShortcuts(true),
     onClose: close,
+    projectId,
   };
 
   return (

@@ -21,6 +21,8 @@ from django.db import transaction
 
 _EMAIL = os.environ.get("INTEGRATION_USER_EMAIL", "ci@trueppm.test")
 _PASSWORD = os.environ.get("INTEGRATION_USER_PASSWORD", "ci-integration-pw")
+_MEMBER_EMAIL = "ci-member@trueppm.test"
+_NONMEMBER_EMAIL = "ci-nonmember@trueppm.test"
 _PROJECT_NAME = "CI Integration Project"
 
 
@@ -67,7 +69,26 @@ class Command(BaseCommand):
             start_date=date.today(),
             calendar=cal,
         )
-        ProjectMembership.objects.create(project=project, user=user, role=Role.ADMIN)
+        # OWNER so integration tests can exercise the full member-management UI
+        ProjectMembership.objects.create(project=project, user=user, role=Role.OWNER)
+
+        # Second user — project member; used by E2E to verify member list
+        ci_member, _ = User.objects.update_or_create(
+            email=_MEMBER_EMAIL,
+            defaults={"username": _MEMBER_EMAIL},
+        )
+        ci_member.set_password(_PASSWORD)
+        ci_member.save(update_fields=["password"])
+        ProjectMembership.objects.create(project=project, user=ci_member, role=Role.MEMBER)
+
+        # Third user — has an account but no project membership; used by E2E
+        # member-search tests to find a user and add them to the project
+        ci_nonmember, _ = User.objects.update_or_create(
+            email=_NONMEMBER_EMAIL,
+            defaults={"username": _NONMEMBER_EMAIL},
+        )
+        ci_nonmember.set_password(_PASSWORD)
+        ci_nonmember.save(update_fields=["password"])
 
         # One seed task so the schedule view renders a non-empty state on first load.
         Task.objects.create(
