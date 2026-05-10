@@ -19,6 +19,7 @@
 import { registry } from '@/lib/widget-registry';
 import type { Task } from '@/types';
 import { OverviewSection } from './OverviewSection';
+import { SprintSection } from './SprintSection';
 import { DependenciesSection } from './DependenciesSection';
 import { EstimatesSection } from './EstimatesSection';
 import { HistorySection } from './HistorySection';
@@ -40,6 +41,18 @@ export function registerOssDrawerSections(): void {
     title: 'Overview',
     component: OverviewSection,
     priority: 100,
+  });
+
+  registry.register('task_detail.section', {
+    id: 'sprint',
+    title: 'Sprint',
+    component: SprintSection,
+    priority: 150,
+    // Sprint assignment is not meaningful for summary or milestone tasks.
+    canRender: (ctx) => {
+      const t = (ctx as { task: Task }).task;
+      return !t.isSummary && !t.isMilestone;
+    },
   });
 
   registry.register('task_detail.section', {

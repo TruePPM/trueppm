@@ -31,6 +31,7 @@ import { useSprintBacklog } from '@/hooks/useSprintBacklog';
 import { useMyActiveSprints } from '@/hooks/useMyActiveSprints';
 import { useCurrentUserResourceId } from '@/hooks/useCurrentUserResourceId';
 import { daysBetween } from './sprintMath';
+import { TaskFormModal } from '@/features/board/TaskFormModal';
 
 function sprintFilterKey(sprintId: string): string {
   return `trueppm.sprintFilter.${sprintId}`;
@@ -123,6 +124,8 @@ export function SprintsView() {
   const [editSprintId, setEditSprintId] = useState<string | null>(null);
   // Close-sprint dialog (#299) replaces the old direct closeSprint.mutate call.
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
+  // Task create modal — opens with active sprint pre-populated.
+  const [addTaskOpen, setAddTaskOpen] = useState(false);
   // Sprint backlog filter (#299) — popover open + value, persisted in
   // sessionStorage keyed by active sprint id. Bound to the Filter button
   // anchor for placement.
@@ -155,6 +158,18 @@ export function SprintsView() {
     setCapacityWarnings([]);
   }, [activeSprint?.id]);
 
+  // ⌘K / Ctrl+K opens the task create modal pre-targeted at the active sprint.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && activeSprint) {
+        e.preventDefault();
+        setAddTaskOpen(true);
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [activeSprint]);
+
   const editingSprint = useMemo(() => {
     if (!editSprintId) return undefined;
     return buckets.planned.find((s) => s.id === editSprintId);
@@ -163,7 +178,7 @@ export function SprintsView() {
   // Filtered backlog feeds the SprintBacklogTable; the metrics row continues
   // to receive the unfiltered list so burndown / capacity / velocity reflect
   // the whole sprint regardless of the user's view filter.
-  const backlogTasks = backlog.data ?? [];
+  const backlogTasks = useMemo(() => backlog.data ?? [], [backlog.data]);
   const filteredBacklog = useMemo(
     () => applySprintFilter(backlogTasks, filter, myResourceId),
     [backlogTasks, filter, myResourceId],
@@ -400,6 +415,7 @@ export function SprintsView() {
             projectId={projectId}
             sprintId={activeSprint.id}
             tasks={filteredBacklog}
+            onAddTask={() => setAddTaskOpen(true)}
           />
         )}
 
@@ -455,6 +471,16 @@ export function SprintsView() {
           isClosing={closeSprint.isPending}
           onCancel={() => setCloseDialogOpen(false)}
           onConfirm={handleConfirmClose}
+        />
+      )}
+
+      {addTaskOpen && projectId && (
+        <TaskFormModal
+          projectId={projectId}
+          task={null}
+          defaultSprintId={activeSprint?.id ?? null}
+          isMobile={false}
+          onClose={() => setAddTaskOpen(false)}
         />
       )}
     </div>

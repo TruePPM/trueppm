@@ -7,6 +7,8 @@ interface Props {
   projectId: string;
   sprintId: string;
   tasks: SprintBacklogTask[];
+  /** Called when the user clicks "+ Add task" or presses ⌘K. */
+  onAddTask?: () => void;
 }
 
 /**
@@ -40,7 +42,7 @@ function persistKey(sprintId: string, status: TaskStatus): string {
  * and is collapsible (state persists in sessionStorage so a tab swap does
  * not reset the user's view).
  */
-export function SprintBacklogTable({ projectId, sprintId, tasks }: Props) {
+export function SprintBacklogTable({ projectId, sprintId, tasks, onAddTask }: Props) {
   const groups = useMemo(() => {
     const byStatus = new Map<TaskStatus, SprintBacklogTask[]>();
     for (const t of tasks) {
@@ -80,15 +82,17 @@ export function SprintBacklogTable({ projectId, sprintId, tasks }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          <span
-            className="text-xs text-neutral-text-disabled hidden sm:inline-flex items-center gap-1"
-            aria-label="Press cmd-K to add a task"
-          >
-            <kbd className="tppm-mono text-[10px] px-1.5 py-0.5 rounded border border-neutral-border bg-neutral-surface-sunken">
-              ⌘K
-            </kbd>
-            to add task
-          </span>
+          {onAddTask && (
+            <button
+              type="button"
+              onClick={onAddTask}
+              className="border border-neutral-border rounded h-7 px-3 text-xs font-medium text-neutral-text-primary
+                hover:bg-neutral-surface-raised
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              + Add task
+            </button>
+          )}
           <Link
             to={`/projects/${projectId}/board?sprint=${sprintId}`}
             className="text-xs font-medium text-brand-primary hover:text-brand-primary-dark
@@ -102,14 +106,26 @@ export function SprintBacklogTable({ projectId, sprintId, tasks }: Props) {
       {tasks.length === 0 ? (
         <div
           role="status"
-          className="rounded-md border border-dashed border-neutral-border bg-neutral-surface-raised p-6 text-center"
+          className="rounded-md border border-dashed border-neutral-border bg-neutral-surface-raised p-6 text-center flex flex-col items-center gap-3"
         >
           <p className="text-sm font-medium text-neutral-text-primary">
             No tasks committed to this sprint yet
           </p>
-          <p className="mt-1 text-xs text-neutral-text-secondary">
-            Plan the next sprint or add tasks from the board.
-          </p>
+          {onAddTask ? (
+            <button
+              type="button"
+              onClick={onAddTask}
+              className="border border-neutral-border rounded h-7 px-3 text-xs font-medium text-neutral-text-primary
+                hover:bg-neutral-surface-raised
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              + Add task
+            </button>
+          ) : (
+            <p className="text-xs text-neutral-text-secondary">
+              Plan the next sprint or add tasks from the board.
+            </p>
+          )}
         </div>
       ) : (
         <table className="w-full text-sm">
