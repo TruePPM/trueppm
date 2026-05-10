@@ -8804,6 +8804,12 @@
                         "maximum": 32767,
                         "minimum": 0,
                         "nullable": true
+                    },
+                    "remaining_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
                     }
                 }
             },
@@ -10228,6 +10234,12 @@
                         "maximum": 32767,
                         "minimum": 0,
                         "nullable": true
+                    },
+                    "remaining_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -10386,6 +10398,12 @@
                         "nullable": true
                     },
                     "story_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "remaining_points": {
                         "type": "integer",
                         "maximum": 32767,
                         "minimum": 0,

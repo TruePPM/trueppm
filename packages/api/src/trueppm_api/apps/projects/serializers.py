@@ -202,6 +202,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "assignee_is_overallocated",
             "sprint",
             "story_points",
+            "remaining_points",
         ]
         read_only_fields = [
             "id",
@@ -408,6 +409,18 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     validated_data["actual_finish"] = today
                 if "actual_start" not in validated_data and not instance.actual_start:
                     validated_data["actual_start"] = today
+                # Zero out remaining effort when work is done.
+                if "remaining_points" not in validated_data:
+                    validated_data["remaining_points"] = 0
+
+        # Reopening from COMPLETE restores remaining_points from the commitment baseline.
+        if (
+            new_status
+            and new_status != TaskStatus.COMPLETE
+            and old_status == TaskStatus.COMPLETE
+            and "remaining_points" not in validated_data
+        ):
+            validated_data["remaining_points"] = instance.story_points
 
         # Estimate governance: mark as pending when PERT fields are written in
         # suggest_approve mode. Caller must not pass estimate_status directly;

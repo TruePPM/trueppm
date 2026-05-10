@@ -3170,10 +3170,16 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                 .first()
             )
 
+        # IsAuthenticated permission guarantees request.user is a real user, not
+        # an AnonymousUser; cast for mypy since DRF's request.user union still
+        # includes AnonymousUser at the type level.
+        from django.contrib.auth.models import User
+
+        retro_user = cast(User, request.user)
         with transaction.atomic():
             retro, _ = SprintRetro.objects.update_or_create(
                 sprint=sprint,
-                defaults={"notes": notes, "created_by": request.user},
+                defaults={"notes": notes, "created_by": retro_user},
             )
             # Replace the action item set — retros are append-on-save semantics
             # at the meeting boundary, not a continuously-edited document.
