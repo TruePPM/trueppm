@@ -74,6 +74,9 @@ class SyncTaskSerializer(serializers.ModelSerializer[Task]):
             "optimistic_duration",
             "most_likely_duration",
             "pessimistic_duration",
+            "is_subtask",
+            "sprint",
+            "assignee",
         ]
 
 

@@ -56,6 +56,10 @@ export interface ApiTask {
   remaining_points?: number | null;
   // Long-form description (issue #305) — Task.notes field on the model.
   notes?: string;
+  // Subtask discriminator (ADR-0060 #308) — true for tasks created via the drawer subtask action.
+  is_subtask?: boolean;
+  // Sprint scope-change audit rows (ADR-0060 #308) — non-empty when subtasks were added after sprint start.
+  sprint_scope_changes?: Array<{ subtask_name: string; added_by_name: string | null; added_at: string }>;
   assignments?: Array<{
     resource_id: string;
     resource_name: string;
@@ -164,6 +168,12 @@ export function mapTask(t: ApiTask): Task {
     remainingPoints: t.remaining_points ?? null,
     plannedStart: t.planned_start,
     notes: t.notes ?? '',
+    isSubtask: t.is_subtask ?? false,
+    sprintScopeChanges: t.sprint_scope_changes?.map((s) => ({
+      subtaskName: s.subtask_name,
+      addedByName: s.added_by_name,
+      addedAt: s.added_at,
+    })),
   };
 }
 

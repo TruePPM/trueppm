@@ -36,6 +36,8 @@ export interface CreateTaskPayload {
   sprint?: string | null;
   /** Mark the task as a milestone (server requires duration=0 alongside). */
   is_milestone?: boolean;
+  /** Mark the task as a subtask of `parent_id` (ADR-0060 #308). Depth is limited to 1. */
+  is_subtask?: boolean;
 }
 
 /** POST /api/v1/tasks/ — create a new task in the given project. */
@@ -54,6 +56,7 @@ export function useCreateTask(projectId: string | null) {
         ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
         ...(payload.sprint !== undefined ? { sprint: payload.sprint } : {}),
         ...(payload.is_milestone ? { is_milestone: true } : {}),
+        ...(payload.is_subtask ? { is_subtask: true } : {}),
       });
       return res.data;
     },

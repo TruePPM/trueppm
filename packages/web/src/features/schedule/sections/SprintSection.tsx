@@ -104,6 +104,36 @@ export function SprintSection({ taskId, projectId }: DrawerSectionProps) {
           </button>
         </div>
       )}
+
+      {task.sprintScopeChanges && task.sprintScopeChanges.length > 0 && (
+        <div>
+          <div className={LABEL_CLASS}>Scope changes</div>
+          <div className="space-y-1.5">
+            {task.sprintScopeChanges.map((sc, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span
+                  className="mt-1.5 h-1.5 w-1.5 rounded-full bg-semantic-at-risk shrink-0"
+                  aria-hidden="true"
+                />
+                <span className="text-xs text-neutral-text-secondary">
+                  <span className="text-neutral-text-primary">{sc.subtaskName}</span>
+                  {sc.addedByName ? ` · added by ${sc.addedByName}` : ''}
+                  {' · '}
+                  <time
+                    dateTime={sc.addedAt}
+                    className="tppm-mono"
+                  >
+                    {new Date(sc.addedAt).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                  </time>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

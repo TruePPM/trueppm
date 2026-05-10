@@ -675,6 +675,22 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         elif sprint_filter:
             qs = qs.filter(sprint_id=sprint_filter)
 
+        # Subtask filters (ADR-0060 #308):
+        #   ?parent=<uuid>       — subtasks of a specific parent task
+        #   ?is_subtask=true     — all drawer-created subtasks in the project
+        parent_filter = self.request.query_params.get("parent")
+        if parent_filter:
+            qs = qs.filter(
+                wbs_path__startswith=Task.objects.filter(pk=parent_filter)
+                .values_list("wbs_path", flat=True)
+                .first()
+                or "",
+                is_subtask=True,
+            ).exclude(pk=parent_filter)
+        is_subtask_filter = self.request.query_params.get("is_subtask")
+        if is_subtask_filter is not None:
+            qs = qs.filter(is_subtask=is_subtask_filter.lower() in ("true", "1"))
+
         # Date-range filter for calendar / resource views.
         # ?start__gte=YYYY-MM-DD  — tasks whose early_finish >= this date (still active)
         # ?finish__lte=YYYY-MM-DD — tasks whose early_start <= this date (already started)
@@ -815,6 +831,18 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         )
         qs = qs.annotate(assignee_is_overallocated=Exists(overallocated_subq))
 
+        # Prefetch sprint scope-change audit rows (ADR-0060) so TaskSerializer
+        # can include them without an N+1 query per task.
+        from trueppm_api.apps.projects.models import SprintScopeChange
+
+        qs = qs.prefetch_related(
+            db_models.Prefetch(
+                "sprint_scope_changes",
+                queryset=SprintScopeChange.objects.select_related("added_by"),
+                to_attr="_prefetched_sprint_scope_changes",
+            )
+        )
+
         return cast("QuerySet[Task]", qs)
 
     def perform_create(self, serializer: BaseSerializer[Task]) -> None:
@@ -833,6 +861,9 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         #
         # The count + save share one atomic block so the SELECT FOR UPDATE lock
         # covers the INSERT and prevents concurrent creates racing to the same path.
+        is_subtask = str(self.request.data.get("is_subtask", "")).lower() in ("true", "1")
+        parent: Task | None = None
+
         with transaction.atomic():
             if not serializer.validated_data.get("wbs_path") and project is not None:
                 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -849,6 +880,14 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                         ) from exc
                     if not parent.wbs_path:
                         raise DRFValidationError({"parent_id": "Parent task has no WBS path."})
+                    # Depth-1 enforcement (ADR-0060): subtasks are leaf nodes —
+                    # no task of any kind may be created as a child of a subtask.
+                    # Checked on every parent_id path, not only is_subtask=True
+                    # requests, so the "Add Task" entry point cannot bypass it.
+                    if parent.is_subtask:
+                        raise DRFValidationError(
+                            {"parent_id": "Cannot create a child of a subtask."}
+                        )
                     children = _get_siblings(str(project.pk), str(parent.wbs_path), lock=True)
                     wbs_path = _build_wbs_path(str(parent.wbs_path), len(children) + 1)
                 else:
@@ -858,15 +897,44 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                         .count()
                     )
                     wbs_path = str(root_count + 1)
-                instance = serializer.save(wbs_path=wbs_path)
+                instance = serializer.save(wbs_path=wbs_path, is_subtask=is_subtask)
             else:
-                instance = serializer.save()
+                instance = serializer.save(is_subtask=is_subtask)
+
+            # When a subtask is created: bump parent server_version so sync clients
+            # detect the parent's new is_summary=True state, and record a
+            # SprintScopeChange row if the parent belongs to an active sprint.
+            if is_subtask and parent is not None:
+                Task.objects.filter(pk=parent.pk).update(
+                    server_version=db_models.F("server_version") + 1
+                )
+                if parent.sprint_id is not None:
+                    from trueppm_api.apps.projects.models import SprintScopeChange
+                    from trueppm_api.apps.projects.signals import subtask_sprint_scope_changed
+
+                    scope_change = SprintScopeChange.objects.create(
+                        task=parent,
+                        sprint_id=parent.sprint_id,
+                        subtask_name=instance.name,
+                        added_by=self.request.user if self.request.user.is_authenticated else None,
+                    )
+                    subtask_sprint_scope_changed.send(
+                        sender=SprintScopeChange,
+                        scope_change=scope_change,
+                        parent_task=parent,
+                    )
+
         project_id = str(instance.project_id)
         task_id = str(instance.pk)
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_created", {"id": task_id})
         )
+        if is_subtask and parent is not None:
+            parent_id_str = str(parent.pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "task_updated", {"id": parent_id_str})
+            )
         payload = _task_webhook_payload(instance)
         transaction.on_commit(lambda: _dispatch_webhooks(project_id, "task.created", payload))
 

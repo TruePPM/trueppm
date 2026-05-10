@@ -127,6 +127,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     is_summary = serializers.BooleanField(read_only=True, default=False)
     parent_id = serializers.UUIDField(read_only=True, allow_null=True, default=None)
 
+    # Sprint scope-change audit rows (ADR-0060).  Populated via prefetch_related
+    # in TaskViewSet.get_queryset(); defaults to empty list when called outside
+    # the viewset so the field is always safe to read.
+    sprint_scope_changes = serializers.SerializerMethodField()
+
     # Nested resource assignments — read-only, used for Gantt assignee chips.
     assignments = TaskAssignmentSerializer(many=True, read_only=True)
 
@@ -203,6 +208,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "sprint",
             "story_points",
             "remaining_points",
+            "is_subtask",
+            "sprint_scope_changes",
         ]
         read_only_fields = [
             "id",
@@ -228,6 +235,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "linked_risks_max_severity",
             "status_changed_at",
             "assignee_is_overallocated",
+            "sprint_scope_changes",
         ]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
@@ -277,6 +285,23 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         if getattr(obj, "has_predecessors", False):
             return "ready"
         return "estimated"
+
+    def get_sprint_scope_changes(self, obj: Task) -> list[dict[str, Any]]:
+        """Return scope-change audit rows for the sprint-scope indicator chip."""
+        rows = getattr(obj, "_prefetched_sprint_scope_changes", None)
+        if rows is None:
+            # Fallback for callers that bypass the viewset (e.g. tests).
+            from trueppm_api.apps.projects.models import SprintScopeChange
+
+            rows = SprintScopeChange.objects.filter(task_id=obj.pk).select_related("added_by")
+        return [
+            {
+                "subtask_name": r.subtask_name,
+                "added_by_name": r.added_by.get_full_name() if r.added_by else None,
+                "added_at": r.added_at.isoformat(),
+            }
+            for r in rows
+        ]
 
     def to_representation(self, instance: Task) -> dict[str, Any]:
         """Override percent_complete for summary tasks with duration-weighted child average."""

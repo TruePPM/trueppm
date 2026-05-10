@@ -20,6 +20,7 @@ import { registry } from '@/lib/widget-registry';
 import type { Task } from '@/types';
 import { OverviewSection } from './OverviewSection';
 import { SprintSection } from './SprintSection';
+import { SubtasksSection } from './SubtasksSection';
 import { DependenciesSection } from './DependenciesSection';
 import { ActivitySection } from './ActivitySection';
 import { EstimatesSection } from './EstimatesSection';
@@ -54,6 +55,15 @@ export function registerOssDrawerSections(): void {
       const t = (ctx as { task: Task }).task;
       return !t.isSummary && !t.isMilestone;
     },
+  });
+
+  registry.register('task_detail.section', {
+    id: 'subtasks',
+    title: 'Subtasks',
+    component: SubtasksSection,
+    priority: 300,
+    // Milestones have no subtasks — duration is 0 and breaking them down is meaningless.
+    canRender: (ctx) => !(ctx as { task: Task }).task.isMilestone,
   });
 
   registry.register('task_detail.section', {
