@@ -60,6 +60,30 @@ class ProjectMembershipWriteSerializer(serializers.ModelSerializer[ProjectMember
         return value
 
 
+class UserSearchResultSerializer(serializers.Serializer[Any]):
+    """Read-only serializer for GET /api/v1/users/search/ results (ADR-0061)."""
+
+    id = serializers.CharField()
+    username = serializers.CharField()
+    email = serializers.EmailField()
+    display_name = serializers.SerializerMethodField()
+    initials = serializers.SerializerMethodField()
+
+    def get_display_name(self, obj: Any) -> str:
+        name = f"{obj.first_name} {obj.last_name}".strip()
+        return name if name else obj.username
+
+    def get_initials(self, obj: Any) -> str:
+        parts: list[str] = []
+        if obj.first_name:
+            parts.append(obj.first_name[0].upper())
+        if obj.last_name:
+            parts.append(obj.last_name[0].upper())
+        if parts:
+            return "".join(parts[:2])
+        return str(obj.username[:2].upper())
+
+
 class MeSerializer(serializers.Serializer[Any]):
     """Read-only serializer for GET /api/v1/auth/me/."""
 

@@ -17,6 +17,35 @@ export interface PaginatedResponse<T> {
   results: T[];
 }
 
+// ---------------------------------------------------------------------------
+// Access / membership types (ADR-0061)
+// ---------------------------------------------------------------------------
+
+export interface UserSummary {
+  id: string;
+  username: string;
+  email: string;
+}
+
+export interface ProjectMembership {
+  id: string;
+  server_version: number;
+  project: string;
+  user: string;
+  user_detail: UserSummary;
+  role: number;
+  role_label: string;
+}
+
+export interface UserSearchResult {
+  id: string;
+  username: string;
+  email: string;
+  display_name: string;
+  initials: string;
+}
+
+// ---------------------------------------------------------------------------
 // Risk Register types (issues #52, #221). Hand-authored until openapi-typescript regeneration.
 export interface Risk {
   id: string;

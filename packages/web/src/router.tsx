@@ -17,6 +17,8 @@ import { TeamView } from '@/features/roster/TeamView';
 import { RosterPage } from '@/features/roster/RosterPage';
 import { RiskRegisterView } from '@/features/risk/RiskRegisterView';
 import { ResourcesPage } from '@/features/resources/ResourcesPage';
+import { ProjectSettingsPage } from '@/features/settings/ProjectSettingsPage';
+import { MembersTab } from '@/features/settings/members/MembersTab';
 
 /**
  * Redirects to the first project's overview when landing on `/` with no project
@@ -83,6 +85,14 @@ export const router = createBrowserRouter([
                 ],
               },
               { path: 'risk', element: <RiskRegisterView /> },
+              {
+                path: 'settings',
+                element: <ProjectSettingsPage />,
+                children: [
+                  { index: true, element: <Navigate to="members" replace /> },
+                  { path: 'members', element: <MembersTab /> },
+                ],
+              },
             ],
           },
           // Org-level resource catalog
