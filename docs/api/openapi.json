@@ -8810,6 +8810,10 @@
                         "maximum": 32767,
                         "minimum": 0,
                         "nullable": true
+                    },
+                    "is_subtask": {
+                        "type": "boolean",
+                        "description": "True for tasks created via the drawer subtask action (ADR-0060)."
                     }
                 }
             },
@@ -10240,6 +10244,19 @@
                         "maximum": 32767,
                         "minimum": 0,
                         "nullable": true
+                    },
+                    "is_subtask": {
+                        "type": "boolean",
+                        "description": "True for tasks created via the drawer subtask action (ADR-0060)."
+                    },
+                    "sprint_scope_changes": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        },
+                        "description": "Return scope-change audit rows for the sprint-scope indicator chip.",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -10266,6 +10283,7 @@
                     "schedule_variance_days",
                     "server_version",
                     "short_id",
+                    "sprint_scope_changes",
                     "status_changed_at",
                     "total_float"
                 ]
@@ -10408,6 +10426,10 @@
                         "maximum": 32767,
                         "minimum": 0,
                         "nullable": true
+                    },
+                    "is_subtask": {
+                        "type": "boolean",
+                        "description": "True for tasks created via the drawer subtask action (ADR-0060)."
                     }
                 },
                 "required": [
