@@ -132,8 +132,9 @@ test.describe('Members Settings — golden path', () => {
   test('member list renders alice and bob', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
-    await expect(page.getByText('alice')).toBeVisible();
-    await expect(page.getByText('bob')).toBeVisible();
+    // Two <p> elements per row contain 'alice' (username + email), so scope to row.
+    await expect(page.locator('li').filter({ hasText: 'alice' }).first()).toBeVisible();
+    await expect(page.locator('li').filter({ hasText: 'bob' }).first()).toBeVisible();
   });
 
   test('shows (you) label next to current user', async ({ page }) => {
@@ -172,7 +173,7 @@ test.describe('Members Settings — role change', () => {
     let patchBody: unknown;
     await page.route(`**/api/v1/projects/${PROJECT_ID}/members/${MEM_BOB_ID}/`, (r) => {
       if (r.request().method() === 'PATCH') {
-        void r.request().postDataJSON().then((body: unknown) => { patchBody = body; });
+        patchBody = r.request().postDataJSON();
         return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...FIXTURE_MEMBERS[1], role: 2, role_label: 'Resource Manager' }) });
       }
       return r.continue();
@@ -220,7 +221,7 @@ test.describe('Members Settings — invite form', () => {
   test('search dropdown appears after typing 2+ characters', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
-    await page.getByRole('textbox', { name: /search/i }).fill('ca');
+    await page.getByRole('combobox', { name: /search/i }).fill('ca');
     await expect(page.getByRole('option', { name: /carol/i })).toBeVisible();
   });
 
@@ -236,7 +237,7 @@ test.describe('Members Settings — invite form', () => {
     let postBody: unknown;
     await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (r) => {
       if (r.request().method() === 'POST') {
-        void r.request().postDataJSON().then((b: unknown) => { postBody = b; });
+        postBody = r.request().postDataJSON();
         return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({
           id: 'mem-carol', server_version: 1, project: PROJECT_ID, user: 'user-carol',
           user_detail: { id: 'user-carol', username: 'carol', email: 'carol@example.com' },
@@ -247,7 +248,7 @@ test.describe('Members Settings — invite form', () => {
     });
 
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
-    await page.getByRole('textbox', { name: /search/i }).fill('ca');
+    await page.getByRole('combobox', { name: /search/i }).fill('ca');
     await page.getByRole('option', { name: /carol/i }).click();
     await page.getByRole('button', { name: /^add$/i }).click();
 

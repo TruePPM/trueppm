@@ -49,14 +49,14 @@ describe('InviteForm', () => {
   it('shows search results in dropdown after two characters', async () => {
     mockSearchResults = [searchResult];
     render();
-    await userEvent.type(screen.getByRole('textbox', { name: /search/i }), 'da');
+    await userEvent.type(screen.getByRole('combobox', { name: /search/i }), 'da');
     expect(await screen.findByRole('option', { name: /dave/i })).toBeInTheDocument();
   });
 
   it('selects a user and enables Add', async () => {
     mockSearchResults = [searchResult];
     render();
-    await userEvent.type(screen.getByRole('textbox', { name: /search/i }), 'da');
+    await userEvent.type(screen.getByRole('combobox', { name: /search/i }), 'da');
     await userEvent.click(await screen.findByRole('option', { name: /dave/i }));
     expect(screen.getByRole('button', { name: /^add$/i })).toBeEnabled();
   });
@@ -64,7 +64,7 @@ describe('InviteForm', () => {
   it('calls addMember with selected user id and role on submit', async () => {
     mockSearchResults = [searchResult];
     render();
-    await userEvent.type(screen.getByRole('textbox', { name: /search/i }), 'da');
+    await userEvent.type(screen.getByRole('combobox', { name: /search/i }), 'da');
     await userEvent.click(await screen.findByRole('option', { name: /dave/i }));
     await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
     expect(mockAddMember).toHaveBeenCalledWith(
