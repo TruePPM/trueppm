@@ -113,6 +113,10 @@ export interface Task {
    * (#305) for the description textarea; not displayed elsewhere on board cards.
    */
   notes: string;
+  /** True for tasks created via the drawer subtask action (ADR-0060 #308). */
+  isSubtask?: boolean;
+  /** Sprint scope-change audit rows — populated when subtasks are added to an in-sprint task (ADR-0060). */
+  sprintScopeChanges?: Array<{ subtaskName: string; addedByName: string | null; addedAt: string }>;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */

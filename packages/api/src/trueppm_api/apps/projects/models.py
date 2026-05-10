@@ -447,6 +447,16 @@ class Task(VersionedModel):
     # Null means "not separately estimated" — burndown falls back to story_points.
     remaining_points = models.PositiveSmallIntegerField(null=True, blank=True)
 
+    # Subtask discriminator (ADR-0060 #308).  True only for tasks created via the
+    # drawer subtask action.  Distinguishes drawer-created decomposition children
+    # from WBS phase/milestone children created via indent/reparent.
+    # Depth-1 enforcement: tasks with is_subtask=True cannot themselves have subtasks.
+    is_subtask = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="True for tasks created via the drawer subtask action (ADR-0060).",
+    )
+
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_TASK)
 
     # Default manager — unfiltered. Listed first so it remains _default_manager
@@ -524,10 +534,13 @@ class Task(VersionedModel):
             )
 
     def soft_delete(self) -> None:
-        """Soft-delete the task and cascade to all its dependency edges.
+        """Soft-delete the task, its dependency edges, and any is_subtask children.
 
         Dependency rows that reference this task are themselves soft-deleted so
         the sync endpoint can tombstone them on connected mobile clients.
+
+        Subtask children (is_subtask=True) are cascade-deleted when the parent
+        is deleted — they have no independent existence outside the parent task.
         """
         # Soft-delete all edges where this task is predecessor or successor.
         edges = Dependency.objects.filter(predecessor=self) | Dependency.objects.filter(
@@ -536,6 +549,16 @@ class Task(VersionedModel):
         for dep in list(edges):
             if not dep.is_deleted:
                 dep.soft_delete()
+        # Cascade to drawer-created subtask children (depth-1 only; WBS structure
+        # children are not auto-deleted — the PM must explicitly delete them).
+        if self.wbs_path:
+            subtask_children = Task.objects.filter(
+                is_subtask=True,
+                is_deleted=False,
+                wbs_path__startswith=str(self.wbs_path) + ".",
+            ).select_for_update()
+            for child in list(subtask_children):
+                child.soft_delete()
         super().soft_delete()
 
 
@@ -1245,3 +1268,61 @@ class RetroActionItem(models.Model):
 
     def __str__(self) -> str:
         return f"RetroActionItem({self.id}, retro={self.retro_id})"
+
+
+# ---------------------------------------------------------------------------
+# Sprint scope-change audit (ADR-0060 #308)
+# ---------------------------------------------------------------------------
+
+
+class SprintScopeChange(models.Model):
+    """Records each subtask added to a task that belongs to an active sprint.
+
+    Written atomically with subtask creation in TaskViewSet.perform_create when
+    the parent task has a non-null sprint_id.  A single row per subtask-add event.
+
+    Rows are the canonical source for the scope-change indicator surfaced in the
+    parent task's drawer SprintSection.  They survive subtask deletion (subtask_name
+    is denormalized) so the audit trail is complete even if the subtask is later
+    removed.  Rows are cleared when the sprint closes (SprintCloseRequest drain
+    deletes rows for the sprint on completion).
+
+    The ``subtask_sprint_scope_changed`` signal is fired after the row is saved so
+    that Enterprise audit receivers can capture the event without modifying OSS code.
+
+    Plain models.Model (not VersionedModel): scope-change rows are not synced to
+    mobile; they are display metadata for the scope-change indicator chip only.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # The parent task whose sprint membership is affected.
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        related_name="sprint_scope_changes",
+    )
+    sprint = models.ForeignKey(
+        "Sprint",
+        on_delete=models.CASCADE,
+        related_name="scope_changes",
+    )
+    # Denormalized — survives subtask deletion.
+    subtask_name = models.CharField(max_length=512)
+    added_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sprint_scope_changes_added",
+    )
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "projects_sprintscopechange"
+        ordering = ["added_at"]
+        indexes = [
+            models.Index(fields=["task", "sprint"], name="scope_change_task_sprint_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"SprintScopeChange(task={self.task_id}, sprint={self.sprint_id})"
