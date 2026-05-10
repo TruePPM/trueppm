@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/utils';
 import { EstimatesSection } from './EstimatesSection';
 import type { Task, ApiSprint } from '@/types';
+import type { UseMonteCarloResultReturn } from '@/hooks/useMonteCarloResult';
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -24,6 +25,11 @@ vi.mock('@/hooks/useSprints', () => ({
 
 vi.mock('@/api/client', () => ({
   apiClient: { patch: vi.fn().mockResolvedValue({ data: {} }), post: vi.fn() },
+}));
+
+let mockMcReturn: UseMonteCarloResultReturn = { data: undefined, isLoading: false, error: null };
+vi.mock('@/hooks/useMonteCarloResult', () => ({
+  useMonteCarloResult: () => mockMcReturn,
 }));
 
 // ---------------------------------------------------------------------------
@@ -84,6 +90,29 @@ const activeSprint: ApiSprint = {
   updated_at: '2026-04-01T00:00:00Z',
 };
 
+// Summary task with no PERT on any descendant
+const summaryTask: Task = { ...baseTask, id: 'phase-1', isSummary: true, parentId: null };
+// Leaf child of summaryTask with no PERT
+const childNoPert: Task = { ...baseTask, id: 'child-1', parentId: 'phase-1' };
+// Leaf child of summaryTask with PERT set
+const childWithPert: Task = {
+  ...baseTask,
+  id: 'child-2',
+  parentId: 'phase-1',
+  optimisticDuration: 3,
+  mostLikelyDuration: 5,
+  pessimisticDuration: 8,
+};
+
+const mcResult = {
+  projectId: 'p1',
+  runs: 1000,
+  p50: '2026-09-15',
+  p80: '2026-10-01',
+  p95: '2026-10-20',
+  buckets: [],
+};
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -117,5 +146,47 @@ describe('EstimatesSection', () => {
     renderWithProviders(<EstimatesSection taskId="t1" projectId="p1" />);
     expect(screen.getByLabelText(/Remaining \(pts\)/i)).toBeDisabled();
     mockActiveSprint = null;
+  });
+
+  describe('summary task routing (#403)', () => {
+    it('hides the section entirely when a summary task has no descendant PERT', () => {
+      mockTasks.splice(0, mockTasks.length, summaryTask, childNoPert);
+      const { container } = renderWithProviders(
+        <EstimatesSection taskId="phase-1" projectId="p1" />,
+      );
+      expect(container).toBeEmptyDOMElement();
+    });
+
+    it('shows Run Monte Carlo hint when descendants have PERT but MC not run', () => {
+      mockMcReturn = { data: undefined, isLoading: false, error: null };
+      mockTasks.splice(0, mockTasks.length, summaryTask, childWithPert);
+      renderWithProviders(<EstimatesSection taskId="phase-1" projectId="p1" />);
+      expect(screen.getByText(/Run Monte Carlo to see phase confidence dates/i)).toBeInTheDocument();
+      expect(screen.queryByLabelText(/Optimistic/i)).not.toBeInTheDocument();
+    });
+
+    it('shows Phase P50/P80/P95 chips when descendants have PERT and MC has been run', () => {
+      mockMcReturn = { data: mcResult, isLoading: false, error: null };
+      mockTasks.splice(0, mockTasks.length, summaryTask, childWithPert);
+      renderWithProviders(<EstimatesSection taskId="phase-1" projectId="p1" />);
+      expect(screen.getByText(/Phase P50/)).toBeInTheDocument();
+      expect(screen.getByText(/Phase P80/)).toBeInTheDocument();
+      expect(screen.getByText(/Phase P95/)).toBeInTheDocument();
+      expect(screen.queryByLabelText(/Optimistic/i)).not.toBeInTheDocument();
+    });
+
+    it('detects PERT on a grandchild (multi-level summary)', () => {
+      const grandchild: Task = { ...baseTask, id: 'gc-1', parentId: 'child-1', optimisticDuration: 2 };
+      mockMcReturn = { data: mcResult, isLoading: false, error: null };
+      mockTasks.splice(0, mockTasks.length, summaryTask, childNoPert, grandchild);
+      renderWithProviders(<EstimatesSection taskId="phase-1" projectId="p1" />);
+      expect(screen.getByText(/Phase P50/)).toBeInTheDocument();
+    });
+
+    it('does not affect leaf tasks — they still render editable fields', () => {
+      mockTasks.splice(0, mockTasks.length, baseTask);
+      renderWithProviders(<EstimatesSection taskId="t1" projectId="p1" />);
+      expect(screen.getByLabelText(/Optimistic/i)).toBeInTheDocument();
+    });
   });
 });
