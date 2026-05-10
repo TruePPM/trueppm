@@ -61,6 +61,28 @@ describe('registerOssDrawerSections — Estimates canRender', () => {
   });
 });
 
+describe('registerOssDrawerSections — Activity section', () => {
+  it('Activity section is registered at priority 600', () => {
+    const sections = registry.get('task_detail.section');
+    const activity = sections.find((s) => s.id === 'activity');
+    expect(activity).toBeDefined();
+    expect(activity!.priority).toBe(600);
+  });
+
+  it('Activity section has no canRender gate (visible for all task types)', () => {
+    const sections = registry.get('task_detail.section');
+    const activity = sections.find((s) => s.id === 'activity');
+    expect(activity!.canRender).toBeUndefined();
+  });
+
+  it('Activity section renders before Estimates (600 < 800)', () => {
+    const sections = registry.get('task_detail.section');
+    const activity = sections.find((s) => s.id === 'activity');
+    const estimates = sections.find((s) => s.id === 'estimates');
+    expect(activity!.priority).toBeLessThan(estimates!.priority);
+  });
+});
+
 describe('registerOssDrawerSections — Sprint canRender', () => {
   it('Sprint section renders for regular leaf tasks', () => {
     const sections = registry.get('task_detail.section');
