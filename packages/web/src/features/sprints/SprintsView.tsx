@@ -178,7 +178,7 @@ export function SprintsView() {
   // Filtered backlog feeds the SprintBacklogTable; the metrics row continues
   // to receive the unfiltered list so burndown / capacity / velocity reflect
   // the whole sprint regardless of the user's view filter.
-  const backlogTasks = backlog.data ?? [];
+  const backlogTasks = useMemo(() => backlog.data ?? [], [backlog.data]);
   const filteredBacklog = useMemo(
     () => applySprintFilter(backlogTasks, filter, myResourceId),
     [backlogTasks, filter, myResourceId],
