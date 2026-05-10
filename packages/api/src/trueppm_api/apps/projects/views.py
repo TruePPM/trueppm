@@ -3173,9 +3173,9 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         # IsAuthenticated permission guarantees request.user is a real user, not
         # an AnonymousUser; cast for mypy since DRF's request.user union still
         # includes AnonymousUser at the type level.
-        from django.contrib.auth.models import AbstractBaseUser
+        from django.contrib.auth.models import User
 
-        retro_user = cast(AbstractBaseUser, request.user)
+        retro_user = cast(User, request.user)
         with transaction.atomic():
             retro, _ = SprintRetro.objects.update_or_create(
                 sprint=sprint,
