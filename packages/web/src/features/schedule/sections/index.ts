@@ -21,6 +21,7 @@ import type { Task } from '@/types';
 import { OverviewSection } from './OverviewSection';
 import { SprintSection } from './SprintSection';
 import { DependenciesSection } from './DependenciesSection';
+import { ActivitySection } from './ActivitySection';
 import { EstimatesSection } from './EstimatesSection';
 import { HistorySection } from './HistorySection';
 import { BaselineSection } from './BaselineSection';
@@ -60,6 +61,13 @@ export function registerOssDrawerSections(): void {
     title: 'Dependencies',
     component: DependenciesSection,
     priority: 200,
+  });
+
+  registry.register('task_detail.section', {
+    id: 'activity',
+    title: 'Activity',
+    component: ActivitySection,
+    priority: 600,
   });
 
   registry.register('task_detail.section', {
