@@ -364,6 +364,18 @@ def test_combined_remaining_plus_completed_equals_total(project: Project, member
 
 
 @pytest.mark.django_db
+def test_combined_invalid_metric_returns_400(project: Project, member: object) -> None:
+    """Invalid metric with combined chart_type must return 400, not 500 (security-review fix)."""
+    c = _client(member)
+    today = date.today().isoformat()
+    resp = c.get(
+        f"/api/v1/projects/{project.pk}/burn/",
+        {"chart_type": "combined", "metric": "biscuits", "since": today, "until": today},
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.django_db
 def test_combined_metric_points(project: Project, member: object) -> None:
     """combined chart_type respects metric=points."""
     tasks = _create_tasks(project, 4, points=3)
