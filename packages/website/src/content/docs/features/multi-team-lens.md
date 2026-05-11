@@ -32,6 +32,10 @@ Steps 5–7 of the [hybrid PM flow](/the-story/) — bridges across projects. Si
 
 The narrative document is explicit: this is a single-team-lead use case (looking across their own assignments), not a PMO portfolio rollup (looking across all 40 projects). The distinction matters — `My Teams` is filtered to the user's own assignments. The cross-organisation view is the entry point to the Enterprise upsell.
 
+## Related ADRs
+
+- [ADR-0037](/architecture/adr/) — Sprint model: data, API, and board integration (defines the `me/active-sprints/` endpoint and summary payload shape)
+
 ## If you are…
 
 - **Maya** — covering two Scrum teams? The toggle gives you both sprints in one screen.

@@ -97,6 +97,8 @@ export default defineConfig({
             { slug: "features/retrospective" },
             // Board surface
             { slug: "features/wip-overload" },
+            // Reporting
+            { slug: "features/burn-charts" },
             // Cross-cutting
             { slug: "features/real-time" },
             { slug: "features/offline-sync" },
