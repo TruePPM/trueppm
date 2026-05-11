@@ -255,10 +255,16 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
 
   // --- Sprint data ---
   const sprintQuery = useSprintBurndown(sprintId ?? null);
+  // Auto-derive sprint metric from committed_points so the series uses the right
+  // unit even though the selector is hidden in sprint context.
+  const sprintMetric: BurnMetric =
+    isSprintCtx && sprintQuery.data
+      ? (sprintQuery.data.sprint.committed_points ?? 0) > 0 ? 'points' : 'tasks'
+      : metric;
   const sprintResult = useMemo(() => {
     if (!isSprintCtx || !sprintQuery.data) return null;
-    return deriveSprintSeries(sprintQuery.data.sprint, sprintQuery.data.snapshots, metric);
-  }, [isSprintCtx, sprintQuery.data, metric]);
+    return deriveSprintSeries(sprintQuery.data.sprint, sprintQuery.data.snapshots, sprintMetric);
+  }, [isSprintCtx, sprintQuery.data, sprintMetric]);
 
   // --- Project data ---
   const burnQuery = useBurnChart(isSprintCtx ? null : projectId, variant, metric, since, until);
@@ -274,12 +280,6 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
   const isEmpty = !isLoading && !isError && (!points || points.length === 0);
 
   // Metric selector: in sprint context, auto-derive and hide; in project context, show
-  const sprintMetric: BurnMetric =
-    isSprintCtx && sprintQuery.data
-      ? (sprintQuery.data.sprint.committed_points ?? 0) > 0
-        ? 'points'
-        : 'tasks'
-      : metric;
   const effectiveMetric = isSprintCtx ? sprintMetric : metric;
 
   // Sprint trending / forecast
@@ -296,6 +296,16 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
     points.every((p) => p.remaining === 0 && p.completed === 0);
 
   const today = new Date().toISOString().slice(0, 10);
+
+  // Sprint-specific empty states: future sprint or active sprint with no snapshots yet.
+  // deriveSprintSeries always generates a point per day, so isEmpty is always false for
+  // sprint context — we need a separate gate to surface these UI states.
+  const sprintHasNoRealData =
+    isSprintCtx &&
+    !!sprintQuery.data &&
+    (sprintQuery.data.sprint.start_date > today ||
+      sprintQuery.data.snapshots.length === 0);
+  const showEmpty = isEmpty || sprintHasNoRealData;
 
   // Export helpers
   const exportPng = async () => {
@@ -407,7 +417,7 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
           <div className="relative group">
             <button
               className="h-9 px-3 rounded-md border border-neutral-border bg-neutral-surface text-xs font-medium text-neutral-text-primary flex items-center gap-1.5 hover:bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none disabled:opacity-50"
-              disabled={isLoading || isEmpty || isError}
+              disabled={isLoading || showEmpty || isError}
               aria-haspopup="menu"
               aria-label="Export chart"
               onClick={() => {}} // dropdown opens via group-focus-within below
@@ -510,8 +520,8 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
             </button>
           </div>
         )}
-        {isEmpty && !isError && <ChartEmpty isSprintCtx={isSprintCtx} sprint={sprintQuery.data?.sprint} />}
-        {!isLoading && !isError && !isEmpty && points && (
+        {showEmpty && !isError && <ChartEmpty isSprintCtx={isSprintCtx} sprint={sprintQuery.data?.sprint} />}
+        {!isLoading && !isError && !showEmpty && points && (
           <ResponsiveContainer width="100%" height={320}>
             {variant === 'burndown' ? (
               <AreaChart data={points} margin={chartMargin}>
