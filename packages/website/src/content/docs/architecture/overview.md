@@ -103,6 +103,8 @@ grep -r "trueppm_enterprise" packages/
 # must return zero results
 ```
 
-**Community:** scheduling engine, CPM, Monte Carlo, Schedule (Gantt-style) UI, Board, Sprints workspace, mobile apps, offline sync, real-time, 5-role RBAC, REST/WS API, time tracking, baselines, Helm chart, MS Project import/export.
+**Community:** scheduling engine, CPM, Monte Carlo, Schedule (Gantt-style) UI, Board, Sprints workspace, program management (coordinating multiple projects within a program), mobile apps, offline sync, real-time, 5-role RBAC, REST/WS API, time tracking, baselines, Helm chart, MS Project import/export.
 
-**Enterprise (separate repo):** portfolio analytics, SSO/SAML/OIDC, LDAP sync, immutable audit trail, custom roles, approval workflows, Jira/GitLab/ServiceNow connectors, AI scheduling, scenario modeling, multi-tenancy.
+**Enterprise (separate repo):** portfolio analytics and health scores, cross-program resource leveling, SSO/SAML/OIDC, LDAP sync, immutable audit trail, custom roles, approval workflows, Jira/GitLab/ServiceNow connectors, AI scheduling, scenario modeling, multi-tenancy.
+
+The OSS unit is the **program** (one PM, one or more related projects). The Enterprise unit is the **portfolio** (multiple programs under organizational governance).

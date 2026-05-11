@@ -139,10 +139,12 @@ cd packages/web && npm test         # web (vitest)
 Everything in the community edition: scheduling engine, CPM, Monte Carlo, schedule view, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, time tracking, baselines, Helm chart, MS Project import/export.
 
 ### Enterprise (trueppm-enterprise) — Proprietary
-Portfolio dashboard, health scores, demand intake, prioritization workspace, cross-project dependencies, resource leveling (cross-project), CCPM, resource heat map (cross-portfolio), schedule forensics (narrative), SSO/SAML/OIDC, LDAP sync, immutable audit trail, custom roles, approval workflows, integration hub (Jira/GitLab/ServiceNow connectors), AI scheduling, scenario modeling, portfolio Monte Carlo, multi-tenancy, HA deployment.
+Portfolio dashboard and health scores, demand intake, prioritization workspace, cross-program resource leveling, resource heat map (cross-portfolio), schedule forensics (narrative), SSO/SAML/OIDC, LDAP sync, immutable audit trail, custom roles, approval workflows, integration hub (Jira/GitLab/ServiceNow connectors), AI scheduling, scenario modeling, portfolio Monte Carlo, multi-tenancy, HA deployment.
 
 ### When in doubt
-Ask: "Would an individual PM or small team need this?" If yes → OSS. "Does this require coordinating across multiple projects, teams, or an organization?" If yes → Enterprise.
+The OSS unit is the **program** — a set of related projects managed by one PM or program manager. The Enterprise unit is the **portfolio** — coordination across multiple programs at an organizational level.
+
+Ask: "Would a PM or program manager need this for their program (one or more related projects)?" If yes → OSS. "Does this require portfolio-level coordination across multiple programs, or org-level governance (health scoring, audit trail, sign-off, SSO, policy enforcement)?" If yes → Enterprise.
 
 ### OSS / Enterprise boundary rules
 - The OSS core must remain fully functional without the enterprise repo — no hard dependencies on enterprise hooks, signals, or settings
@@ -150,9 +152,10 @@ Ask: "Would an individual PM or small team need this?" If yes → OSS. "Does thi
 - Verify with: `grep -r "trueppm_enterprise" packages/` — must return zero results in OSS code
 
 ### Issues are part of the boundary
-- An issue describing enterprise functionality (cross-project, portfolio, SSO, audit trail, approval workflows, multi-tenancy, AI scheduling) must be filed in `trueppm-enterprise` from the start — not in the OSS tracker
+- An issue describing enterprise functionality (cross-program/portfolio coordination, SSO, audit trail, approval workflows, multi-tenancy, AI scheduling) must be filed in `trueppm-enterprise` from the start — not in the OSS tracker
+- Cross-project coordination **within a single program** belongs in OSS — only cross-program and portfolio-level governance belongs in `trueppm-enterprise`
 - The OSS `enterprise` and `portfolio` labels are reserved for **OSS-side extension-point work** that enterprise registers against (slot registration per ADR-0029, edition-based routing per ADR-0030) — not for enterprise features themselves
-- Before opening an OSS issue with cross-project, portfolio, SSO, audit-trail, or approval-workflow scope, run the `enterprise-check` agent
+- Before opening an OSS issue with cross-program, portfolio, SSO, audit-trail, or approval-workflow scope, run the `enterprise-check` agent
 - Enforced by CI: `boundary:check` runs on main pushes and on schedule; it fails the pipeline if any open OSS issue carries the `enterprise` or `portfolio` label. See `scripts/check-issue-boundary.sh`
 
 ## Documentation Discipline

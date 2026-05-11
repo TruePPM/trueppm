@@ -44,7 +44,7 @@ The features most relevant to executives and PMO directors are on the enterprise
 |---------|-------------|---------|
 | Portfolio dashboard | Health scores, RAG status across all projects | Enterprise |
 | Demand intake | Prioritization workspace for project proposals | Enterprise |
-| Cross-project dependencies | Visualize and manage inter-project relationships | Enterprise |
+| Cross-program coordination | Dependencies and alignment across multiple programs | Enterprise |
 | Schedule forensics | Narrative detection of what changed and why | Enterprise |
 | SSO/SAML/OIDC | Enterprise single sign-on | Enterprise |
 | LDAP sync | Automatic user provisioning | Enterprise |
@@ -53,7 +53,7 @@ The features most relevant to executives and PMO directors are on the enterprise
 | Email/Slack digests | Proactive risk alerts and status summaries | Enterprise |
 
 :::note[Why enterprise?]
-These features require coordinating across multiple projects, teams, and organizational boundaries — which is the defining characteristic of the enterprise edition. The community edition handles individual projects; the enterprise edition handles the portfolio.
+These features require coordinating across multiple programs and enforcing governance at the portfolio level — which is the defining characteristic of the enterprise edition. The community edition handles everything a PM or program manager needs (including multi-project programs); the enterprise edition handles the portfolio and org-level governance layer on top.
 :::
 
 ## Evaluating TruePPM

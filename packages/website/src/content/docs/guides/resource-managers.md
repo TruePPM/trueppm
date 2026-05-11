@@ -43,13 +43,14 @@ These are important for resource managers and are prioritized on the roadmap.
 |---------|--------|---------|
 | Resource allocation percentages | Planned | Community |
 | Resource view (per-project) | Planned | Community |
-| Cross-project resource leveling | Planned | Enterprise |
+| Cross-project resource view (within a program) | Planned | Community |
+| Cross-program resource leveling | Planned | Enterprise |
 | Resource heat map (cross-portfolio) | Planned | Enterprise |
-| Capacity forecasting | Planned | Enterprise |
-| Conflict detection and alerts | Planned | Enterprise |
+| Capacity forecasting (portfolio scope) | Planned | Enterprise |
+| Conflict detection and alerts | Planned | Community |
 
 :::note[Community vs. Enterprise]
-Within a single project, resource management will be fully featured in the community edition. Cross-project and portfolio-level resource features (leveling, heat maps, capacity forecasting) are planned for the enterprise edition, because they require a multi-project coordination layer.
+Within a program (one or more related projects), resource management will be fully featured in the community edition — including conflict detection within the program. Cross-program and portfolio-level features (leveling across programs, org-wide heat maps, portfolio capacity forecasting) are planned for the enterprise edition.
 :::
 
 ## Getting started

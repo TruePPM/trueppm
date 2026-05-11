@@ -129,7 +129,7 @@ cd packages/website && npm run build   # docs site build
 
 **Community edition** (this repo) is Apache 2.0 — scheduling engine, CPM, Monte Carlo, Gantt UI, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, Helm chart. Everything an individual PM or small team needs.
 
-**Enterprise edition** (separate repo, proprietary) adds features for organizations coordinating across multiple projects: portfolio analytics, SSO/SAML/OIDC, immutable audit trail, cross-project resource leveling, AI scheduling, Jira/GitLab/ServiceNow connectors.
+**Enterprise edition** (separate repo, proprietary) adds features for organizations managing a portfolio across multiple programs: portfolio analytics, SSO/SAML/OIDC, immutable audit trail, cross-program resource leveling, AI scheduling, Jira/GitLab/ServiceNow connectors.
 
 The community edition is fully functional on its own — it never imports from the enterprise repo. The dependency is strictly one-way.
 
