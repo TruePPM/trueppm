@@ -501,7 +501,7 @@ export function BurnChart({ projectId, sprintId, defaultVariant = 'burndown' }: 
         {isLoading && <ChartSkeleton />}
         {isError && (
           <div className="flex items-center justify-center gap-3 h-48 text-xs text-semantic-at-risk" aria-live="polite">
-            <span>⚠ Couldn't load chart data.</span>
+            <span>⚠ Couldn&apos;t load chart data.</span>
             <button
               onClick={() => isSprintCtx ? void sprintQuery.refetch() : void burnQuery.refetch()}
               className="underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"

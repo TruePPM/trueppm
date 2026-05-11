@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -10,7 +11,7 @@ vi.mock('recharts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('recharts')>();
   return {
     ...actual,
-    ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
+    ResponsiveContainer: ({ children }: { children: ReactNode }) => (
       <div style={{ width: 600, height: 320 }}>{children}</div>
     ),
   };
@@ -55,32 +56,35 @@ import { useSprintBurndown } from '@/hooks/useSprints';
 const mockUseBurnChart = vi.mocked(useBurnChart);
 const mockUseSprintBurndown = vi.mocked(useSprintBurndown);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyQuery = any;
+// Cast helpers — go through unknown to satisfy both tsc and ESLint no-unsafe-argument.
+// TanStack Query return types have ~25 fields; for tests we only care about the
+// subset the component actually reads (data, isLoading, isError, refetch).
+const asBC = (v: unknown) => v as ReturnType<typeof useBurnChart>;
+const asSB = (v: unknown) => v as ReturnType<typeof useSprintBurndown>;
 
 function projectLoading() {
-  mockUseBurnChart.mockReturnValue({ data: undefined, isLoading: true, isError: false, refetch: vi.fn() } as AnyQuery);
-  mockUseSprintBurndown.mockReturnValue({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() } as AnyQuery);
+  mockUseBurnChart.mockReturnValue(asBC({ data: undefined, isLoading: true, isError: false, refetch: vi.fn() }));
+  mockUseSprintBurndown.mockReturnValue(asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
 }
 
 function projectWithData() {
-  mockUseBurnChart.mockReturnValue({ data: BURN_RESPONSE, isLoading: false, isError: false, refetch: vi.fn() } as AnyQuery);
-  mockUseSprintBurndown.mockReturnValue({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() } as AnyQuery);
+  mockUseBurnChart.mockReturnValue(asBC({ data: BURN_RESPONSE, isLoading: false, isError: false, refetch: vi.fn() }));
+  mockUseSprintBurndown.mockReturnValue(asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
 }
 
 function projectError() {
-  mockUseBurnChart.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch: vi.fn() } as AnyQuery);
-  mockUseSprintBurndown.mockReturnValue({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() } as AnyQuery);
+  mockUseBurnChart.mockReturnValue(asBC({ data: undefined, isLoading: false, isError: true, refetch: vi.fn() }));
+  mockUseSprintBurndown.mockReturnValue(asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
 }
 
 function projectEmpty() {
-  mockUseBurnChart.mockReturnValue({ data: { ...BURN_RESPONSE, series: [] }, isLoading: false, isError: false, refetch: vi.fn() } as AnyQuery);
-  mockUseSprintBurndown.mockReturnValue({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() } as AnyQuery);
+  mockUseBurnChart.mockReturnValue(asBC({ data: { ...BURN_RESPONSE, series: [] }, isLoading: false, isError: false, refetch: vi.fn() }));
+  mockUseSprintBurndown.mockReturnValue(asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
 }
 
 function sprintWithData() {
-  mockUseBurnChart.mockReturnValue({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() } as AnyQuery);
-  mockUseSprintBurndown.mockReturnValue({
+  mockUseBurnChart.mockReturnValue(asBC({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+  mockUseSprintBurndown.mockReturnValue(asSB({
     data: {
       sprint: {
         id: 'sp-1', server_version: 1, short_id: 'A1', short_id_display: 'SP-A1',
@@ -105,7 +109,7 @@ function sprintWithData() {
       ],
     },
     isLoading: false, isError: false, refetch: vi.fn(),
-  } as AnyQuery);
+  }));
 }
 
 beforeEach(() => {
