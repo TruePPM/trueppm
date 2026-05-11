@@ -3,7 +3,8 @@
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
         migrations-check schema-check web-lint web-typecheck pre-push \
-        coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web
+        coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web \
+        release-smoke
 
 # Diff-coverage gate config. New code on this branch (vs $(COVERAGE_DIFF_BASE))
 # must hit at least $(COVERAGE_DIFF_MIN)% line coverage.
@@ -165,6 +166,9 @@ admin: ## Print the bootstrapped admin password (created on first `make up`)
 # ─── Production ───────────────────────────────────────────────────────────────
 up-prod: ## Start the production stack (requires .env — run init-prod.sh first)
 	docker compose -f docker-compose.prod.yml up -d
+
+release-smoke: ## Boot the dev stack, seed demo data, and curl every shipped endpoint
+	@bash scripts/smoke-test.sh
 
 # ─── Clean ────────────────────────────────────────────────────────────────────
 clean: ## Remove generated files and caches

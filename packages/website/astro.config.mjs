@@ -132,7 +132,10 @@ export default defineConfig({
         // --- Contributing ---
         {
           label: "Contributing",
-          items: [{ slug: "contributing/guide" }],
+          items: [
+            { slug: "contributing/guide" },
+            { slug: "contributing/release" },
+          ],
         },
       ],
     }),
