@@ -92,8 +92,22 @@ def enqueue_recalculate(
 
     from django.utils import timezone
 
-    ScheduleRequest.objects.filter(id=req.id, status=ScheduleRequestStatus.PENDING).update(
-        status=ScheduleRequestStatus.DISPATCHED,
-        celery_task_id=result.id,
-        dispatched_at=timezone.now(),
-    )
+    # Guard the PENDING→DISPATCHED transition with a savepoint: another row for
+    # this project may already be DISPATCHED (stranded by a missing worker — the
+    # CI integration env, or a Celery outage in prod) and the partial unique
+    # index `schedule_request_one_dispatched_per_project` will reject the
+    # update. Treat that as the same situation as a broker outage: leave the
+    # row PENDING and let `drain_schedule_queue` coalesce on the next tick.
+    try:
+        with transaction.atomic():
+            ScheduleRequest.objects.filter(id=req.id, status=ScheduleRequestStatus.PENDING).update(
+                status=ScheduleRequestStatus.DISPATCHED,
+                celery_task_id=result.id,
+                dispatched_at=timezone.now(),
+            )
+    except IntegrityError:
+        logger.warning(
+            "enqueue_recalculate: project %s already has a DISPATCHED outbox row "
+            "— leaving new request PENDING for drain_schedule_queue to coalesce",
+            project_id,
+        )
