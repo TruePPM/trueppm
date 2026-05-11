@@ -11,8 +11,8 @@ Most project management tools are glorified to-do lists. They let you draw bars 
 
 TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platform for teams that need reliable schedule control — not just task tracking.
 
-> **Status: Pre-Alpha**
-> TruePPM is under active development. The scheduling engine, REST API, and real-time backend are functional and tested. The web UI renders a Gantt chart with fixture data; live API wiring is in progress. The project is not yet suitable for production use, but the core engine and API are ready for evaluation and contribution.
+> **Status: v0.1 — early release, suitable for evaluation and small teams.**
+> The scheduling engine, REST API, and web UI are all functional and wired together. Not yet recommended for mission-critical production use without testing against your workload.
 
 ## Why TruePPM?
 
@@ -26,33 +26,43 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 
 **Built for collaboration.** Real-time WebSocket pushes, 5-role RBAC (Owner / Admin / Scheduler / Member / Viewer), and an offline-first sync protocol designed for mobile clients.
 
-## What's Built Today
+## What's in v0.1
 
-| Component | Status | What it does |
-|-----------|--------|-------------|
-| **Scheduling engine** | Stable | CPM (all 4 dependency types, calendar-aware lag, cycle detection) + Monte Carlo simulation. Ships independently as `trueppm-scheduler` on PyPI. |
-| **REST API** | Stable | Full CRUD for projects, tasks, dependencies, resources, calendars, members. Auto-scheduling via Celery. OpenAPI 3.1 schema. |
-| **RBAC** | Stable | 5-role per-project permissions enforced on every endpoint and WebSocket connection. |
-| **Real-time** | Stable | WebSocket broadcasts for every mutation, deferred to transaction commit. |
-| **Offline sync** | Stable | WatermelonDB-compatible delta protocol with soft-delete tombstones. |
-| **Web UI** | Early | Application shell, Gantt view (split-pane, 6 bar types, 4 dependency types, zoom levels). Currently renders fixture data — live API wiring is in progress. |
-| **Helm chart** | Draft | Kubernetes deployment with Bitnami sub-charts for PostgreSQL and Valkey (BSD-licensed Redis fork; wire-compatible). |
+| Component | Status | Notes |
+|-----------|--------|-------|
+| **Scheduling engine** | ✅ Stable | CPM (all 4 dependency types, calendar-aware lag, cycle detection) + Monte Carlo. Standalone PyPI package. |
+| **REST API** | ✅ Stable | Full CRUD for projects, tasks, dependencies, resources, calendars, members, sprints. Auto-scheduling via Celery. OpenAPI 3.1 schema. |
+| **RBAC** | ✅ Stable | 5-role per-project permissions on every endpoint, WebSocket, and UI surface. Members management UI. |
+| **Real-time** | ✅ Stable | WebSocket broadcasts for every mutation, deferred to transaction commit. |
+| **Offline sync** | ✅ Stable | WatermelonDB-compatible delta protocol with soft-delete tombstones. |
+| **Schedule / Gantt** | ✅ Wired | Split-pane view, 6 bar types, 4 dependency types, zoom levels, build mode (keyboard-first task entry). |
+| **Board / Kanban** | ✅ Wired | Phase-grid + rail/drawer/queue layouts, calm toolbar, drag-to-promote, WIP control. |
+| **Sprints** | ✅ Wired | Plan/activate/close workflow, burndown, velocity, capacity preflight, multi-team lens, retrospective. |
+| **Monte Carlo UI** | ✅ Wired | P50/P80/P95 distribution, live rerun, freshness indicator, burn-up and burn-down charts. |
+| **Helm chart** | ✅ Functional | Kubernetes deployment with Bitnami sub-charts for PostgreSQL and Valkey (BSD-licensed Redis fork). Published to GHCR OCI registry. |
 
-### What's Not Built Yet
+**Coming in 0.2:** backup/replay hardening, auth expiry handling, mobile app (React Native), MS Project import.
 
-Board/Kanban view, List view, Calendar view, Resource view, login/auth flow in the UI, drag-to-reschedule on the Gantt, time tracking, baselines, MS Project import/export. See the [roadmap issues](https://gitlab.com/trueppm/trueppm/-/issues) for what's planned.
+## Published Artifacts
+
+| Artifact | Registry |
+|----------|----------|
+| `trueppm-scheduler` | [PyPI](https://pypi.org/project/trueppm-scheduler/) |
+| `ghcr.io/trueppm/api` | [GHCR](https://ghcr.io/trueppm/api) |
+| `ghcr.io/trueppm/web` | [GHCR](https://ghcr.io/trueppm/web) |
+| Helm chart | `oci://ghcr.io/trueppm/charts/trueppm` |
 
 ## Documentation
 
-Full documentation at [docs.trueppm.com](https://docs.trueppm.com) (or build locally from `packages/website/`).
+Full documentation at **[docs.trueppm.com](https://docs.trueppm.com)** (published via GitLab Pages on every release tag).
 
-The docs are organized by audience:
-- **Getting Started** — installation and quickstart for everyone
-- **Guides** — role-specific guides for [project managers](https://docs.trueppm.com/guides/project-managers/), [team members](https://docs.trueppm.com/guides/team-members/), [resource managers](https://docs.trueppm.com/guides/resource-managers/), and [executives](https://docs.trueppm.com/guides/executives/)
-- **Administration** — deployment, configuration, RBAC, and security
-- **Features** — deep dives into CPM scheduling, Gantt, real-time, and offline sync
-- **API Reference** — full endpoint listing with examples
-- **Architecture** — system design and ADRs
+- **[Installation](https://docs.trueppm.com/getting-started/installation/)** — Docker Compose, Helm/Kubernetes, single-server, or scheduler library
+- **[Upgrading](https://docs.trueppm.com/getting-started/upgrade/)** — rolling upgrades and rollback for each deployment path
+- **[Guides](https://docs.trueppm.com/guides/project-managers/)** — role-specific guides for project managers, team members, resource managers, and executives
+- **[Administration](https://docs.trueppm.com/administration/deployment/)** — deployment, configuration, RBAC, security
+- **[Features](https://docs.trueppm.com/features/scheduler/)** — deep dives into CPM, Gantt, sprints, real-time, offline sync, and more
+- **[API Reference](https://docs.trueppm.com/api/reference/)** — full endpoint listing with examples
+- **[Release Process](https://docs.trueppm.com/contributing/release/)** — how to cut a release (maintainers)
 
 ## Repository Layout
 
@@ -65,7 +75,8 @@ trueppm-suite/
 │   ├── helm/        # Helm 3 chart for Kubernetes deployment
 │   └── website/     # Astro Starlight documentation site
 ├── docs/            # Architecture Decision Records (source of record)
-└── docker-compose.yml
+├── docker-compose.yml       # development stack
+└── docker-compose.prod.yml  # production stack (GHCR images + TLS)
 ```
 
 ## Quickstart
@@ -73,28 +84,50 @@ trueppm-suite/
 ### Full stack (Docker Compose)
 
 ```bash
-git clone git@gitlab.com:trueppm/trueppm.git
+git clone https://gitlab.com/trueppm/trueppm.git
 cd trueppm
 docker compose up -d
 ```
 
-Wait for all services to be healthy (~20 seconds), then apply migrations:
+Migrations and admin bootstrap run automatically on first startup (~20 seconds). Retrieve the generated admin password:
 
 ```bash
-docker compose exec api python manage.py migrate
-docker compose exec api python manage.py createsuperuser
+docker compose exec api cat /tmp/trueppm_admin_password
 ```
 
-| Service    | URL                                        |
-|------------|--------------------------------------------|
-| Web UI     | http://localhost:5173                      |
-| API        | http://localhost:8000                      |
-| API schema | http://localhost:8000/api/schema/          |
+| Service    | URL                                          |
+|------------|----------------------------------------------|
+| Web UI     | http://localhost:5173                        |
+| API        | http://localhost:8000                        |
 | Swagger UI | http://localhost:8000/api/schema/swagger-ui/ |
 
-### Scheduling engine only
+Seed a populated demo project:
 
-If you just want the CPM and Monte Carlo engine — no API, no Docker:
+```bash
+docker compose exec api python manage.py seed_demo_project --with-personas
+# Six persona logins (Maya, Raj, Diana, Sarah, Carlos, Tom) — all password: demo
+```
+
+### Production (single server)
+
+```bash
+cp .env.example .env   # fill in DOMAIN, SECRET_KEY, DB_PASSWORD, REDIS_PASSWORD
+chmod +x init-prod.sh
+./init-prod.sh         # obtains TLS cert, starts production stack
+```
+
+### Helm / Kubernetes
+
+```bash
+helm install trueppm oci://ghcr.io/trueppm/charts/trueppm \
+  --version 0.1.0 \
+  --namespace trueppm --create-namespace \
+  -f my-values.yaml
+```
+
+See the [full installation guide](https://docs.trueppm.com/getting-started/installation/) for prerequisites and values configuration.
+
+### Scheduling engine only
 
 ```bash
 pip install trueppm-scheduler
@@ -115,19 +148,20 @@ print(result.tasks["t-2"].early_finish)  # 2026-01-20
 
 ## Development
 
-See the [full developer guide](https://docs.trueppm.com/getting-started/installation/) for environment variables, CI details, and the complete test matrix.
-
 ```bash
-# Per-package commands:
-cd packages/scheduler && pytest        # scheduler tests
-cd packages/api && pytest              # API tests (testcontainers PostgreSQL)
-cd packages/web && npm test            # web tests (vitest)
-cd packages/website && npm run build   # docs site build
+make setup    # install git hooks via pre-commit
+make doctor   # verify prerequisites
+make up       # start dev stack
+make test     # run all tests (pytest + vitest)
+make lint     # ruff + eslint
+make pre-push # full CI gate (lint, typecheck, migrations, schema)
 ```
+
+See `CLAUDE.md` for coding conventions, two-repo rules, and the complete developer guide.
 
 ## Open-Core Model
 
-**Community edition** (this repo) is Apache 2.0 — scheduling engine, CPM, Monte Carlo, Gantt UI, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, Helm chart. Everything an individual PM or small team needs.
+**Community edition** (this repo) is Apache 2.0 — scheduling engine, CPM, Monte Carlo, Gantt, Board, Sprints, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, Helm chart. Everything an individual PM or small team needs.
 
 **Enterprise edition** (separate repo, proprietary) adds features for organizations managing a portfolio across multiple programs: portfolio analytics, SSO/SAML/OIDC, immutable audit trail, cross-program resource leveling, AI scheduling, Jira/GitLab/ServiceNow connectors.
 
@@ -135,14 +169,14 @@ The community edition is fully functional on its own — it never imports from t
 
 ## Contributing
 
-TruePPM is in its early days and contributions are welcome.
+TruePPM welcomes contributions.
 
 1. Branch from `main`: `git checkout -b feat/<short-description>`
 2. Follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, `test:`, `chore:`, etc.)
-3. Add a changelog fragment in `changelog.d/` (e.g. `my-change.added.md`) — the CI pipeline checks for this
+3. Add a changelog fragment in `changelog.d/` (e.g. `my-change.added.md`) — CI checks for this
 4. All MRs require a green pipeline before merge
 
-See `CLAUDE.md` for the full developer guide, including coding conventions, two-repo rules, and the OSS/Enterprise boundary.
+See [Contributing guide](https://docs.trueppm.com/contributing/guide/) for the full workflow.
 
 ## License
 
