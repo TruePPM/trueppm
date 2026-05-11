@@ -172,9 +172,16 @@ class TestFailedTaskAPI:
             status=FailedTaskStatus.DEAD,
         )
 
-    def test_list_authenticated(self) -> None:
+    def test_list_requires_admin(self) -> None:
+        # Tracebacks/args/kwargs must not be visible to non-admin members.
         self._create_failed()
         client = _regular_client()
+        resp = client.get("/api/v1/admin/failed-tasks/")
+        assert resp.status_code == 403
+
+    def test_list_as_admin(self) -> None:
+        self._create_failed()
+        client = _staff_client()
         resp = client.get("/api/v1/admin/failed-tasks/")
         assert resp.status_code == 200
         assert len(resp.data) >= 1
@@ -183,9 +190,16 @@ class TestFailedTaskAPI:
         resp = APIClient().get("/api/v1/admin/failed-tasks/")
         assert resp.status_code in (401, 403)
 
-    def test_detail(self) -> None:
+    def test_detail_requires_admin(self) -> None:
+        # Tracebacks/args/kwargs must not be visible to non-admin members.
         ft = self._create_failed()
         client = _regular_client()
+        resp = client.get(f"/api/v1/admin/failed-tasks/{ft.pk}/")
+        assert resp.status_code == 403
+
+    def test_detail_as_admin(self) -> None:
+        ft = self._create_failed()
+        client = _staff_client()
         resp = client.get(f"/api/v1/admin/failed-tasks/{ft.pk}/")
         assert resp.status_code == 200
         assert resp.data["task_name"] == "test.task"
