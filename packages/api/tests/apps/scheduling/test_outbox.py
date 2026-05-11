@@ -191,6 +191,42 @@ class TestEnqueueRecalculate:
         assert existing.status == ScheduleRequestStatus.DISPATCHED
         assert existing.celery_task_id == "celery-task-xyz"
 
+    def test_stranded_dispatched_row_leaves_new_request_pending(self, project) -> None:
+        """If a DISPATCHED row already exists, a new request stays PENDING.
+
+        Scenario: a previous dispatch enqueued work but no worker drained it
+        (CI integration env, Celery outage). The partial unique index
+        `schedule_request_one_dispatched_per_project` would otherwise reject
+        the PENDING→DISPATCHED transition and 500 the caller's mutation. The
+        guard treats this the same as a broker outage: leave the row PENDING
+        and let `drain_schedule_queue` coalesce on the next tick.
+        """
+        from django.utils import timezone
+
+        stranded = ScheduleRequest.objects.create(
+            project=project,
+            status=ScheduleRequestStatus.DISPATCHED,
+            celery_task_id="stranded-task",
+            dispatched_at=timezone.now(),
+        )
+        mock_result = MagicMock()
+        mock_result.id = "celery-task-new"
+        with patch(
+            "trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay",
+            return_value=mock_result,
+        ):
+            self._call(str(project.pk))
+
+        # Two rows: original stranded DISPATCHED untouched, new one PENDING.
+        rows = list(ScheduleRequest.objects.filter(project=project).order_by("requested_at"))
+        assert len(rows) == 2
+        stranded.refresh_from_db()
+        assert stranded.status == ScheduleRequestStatus.DISPATCHED
+        assert stranded.celery_task_id == "stranded-task"
+        new_row = next(r for r in rows if r.id != stranded.id)
+        assert new_row.status == ScheduleRequestStatus.PENDING
+        assert new_row.celery_task_id == ""
+
 
 # ---------------------------------------------------------------------------
 # Celery app wiring regression — covers the #314 root cause: without the
