@@ -56,16 +56,41 @@ class HistoryPagination(PageNumberPagination):
     max_page_size = 200
 
 
-def _compute_diffs(records: list[Any]) -> dict[int, list[dict[str, Any]]]:
+def _build_prev_map(records: list[Any]) -> dict[int, Any | None]:
+    """Return history_id → previous HistoricalRecord without extra DB queries.
+
+    Groups records by their original-object PK, sorts each group by
+    history_date ascending, and pairs adjacent records in Python. Avoids
+    the per-record DB round-trip that record.prev_record triggers.
+    """
+    by_obj: dict[Any, list[Any]] = {}
+    for r in records:
+        by_obj.setdefault(r.id, []).append(r)
+    prev_map: dict[int, Any | None] = {}
+    for group in by_obj.values():
+        group.sort(key=lambda r: r.history_date)
+        for i, r in enumerate(group):
+            prev_map[r.history_id] = group[i - 1] if i > 0 else None
+    return prev_map
+
+
+def _compute_diffs(
+    records: list[Any], all_records: list[Any] | None = None
+) -> dict[int, list[dict[str, Any]]]:
     """Return history_id → field-diff list for a batch of HistoricalRecords.
 
     Compares each record against its predecessor. Records with no tracked-field
     changes map to an empty list; the view omits those from the response so
     CPM-only mutations (or future excluded-field updates) don't produce noise.
+
+    Pass all_records (the full unpaginated list for the same object) so that
+    the first record on a page can find its predecessor even when it sits on
+    a different page.
     """
+    prev_map = _build_prev_map(all_records if all_records is not None else records)
     result: dict[int, list[dict[str, Any]]] = {}
     for record in records:
-        prev = record.prev_record
+        prev = prev_map.get(record.history_id)
         if prev is None:
             # Creation — list non-null fields as old=None → new=value.
             changes: list[dict[str, Any]] = [
@@ -89,10 +114,15 @@ def _compute_diffs(records: list[Any]) -> dict[int, list[dict[str, Any]]]:
 
 
 def _count_field_changes(records: list[Any]) -> dict[str, int]:
-    """Count changed tracked fields across a batch of HistoricalRecords."""
+    """Count changed tracked fields across a batch of HistoricalRecords.
+
+    Records may span multiple original objects (e.g. all tasks in a project).
+    Groups by original PK and pairs by history_date to avoid prev_record queries.
+    """
+    prev_map = _build_prev_map(records)
     counts: dict[str, int] = {}
     for record in records:
-        prev = record.prev_record
+        prev = prev_map.get(record.history_id)
         if prev is None:
             continue
         for f in record._meta.fields:
@@ -140,7 +170,7 @@ class TaskHistoryListView(APIView):
         paginator = HistoryPagination()
         page: list[Any] = paginator.paginate_queryset(records, request, view=self) or records  # type: ignore[arg-type]
 
-        diffs = _compute_diffs(page)
+        diffs = _compute_diffs(page, all_records=records)
         hide_user = not _caller_can_see_user(request, project)
         visible = [r for r in page if diffs.get(r.history_id)]
         serializer = HistoryRecordSerializer(
@@ -170,7 +200,7 @@ class ProjectHistoryListView(APIView):
         paginator = HistoryPagination()
         page: list[Any] = paginator.paginate_queryset(records, request, view=self) or records  # type: ignore[arg-type]
 
-        diffs = _compute_diffs(page)
+        diffs = _compute_diffs(page, all_records=records)
         hide_user = not _caller_can_see_user(request, project)
         visible = [r for r in page if diffs.get(r.history_id)]
         serializer = HistoryRecordSerializer(

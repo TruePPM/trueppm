@@ -304,22 +304,15 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         ]
 
     def to_representation(self, instance: Task) -> dict[str, Any]:
-        """Override percent_complete for summary tasks with duration-weighted child average."""
+        """Override percent_complete for summary tasks with duration-weighted child average.
+
+        Uses the percent_complete_rollup annotation from TaskViewSet.get_queryset()
+        to avoid one raw SQL query per summary task on list responses.
+        """
         data = super().to_representation(instance)
-        if data.get("is_summary") and instance.wbs_path:
-            # Direct children only: ltree ~ 'parent_path.*{1}' matches exactly
-            # one level deeper. Uses RawSQL to leverage the GiST index.
-            children = Task.objects.raw(
-                "SELECT id, duration, percent_complete FROM projects_task"
-                " WHERE project_id = %s"
-                "   AND is_deleted = false"
-                "   AND wbs_path ~ (%s || '.*{1}')::lquery",
-                [instance.project_id, str(instance.wbs_path)],
-            )
-            total_duration = sum(c.duration for c in children)
-            if total_duration > 0:
-                weighted = sum(c.duration * c.percent_complete for c in children)
-                data["percent_complete"] = round(weighted / total_duration, 2)
+        rollup = getattr(instance, "percent_complete_rollup", None)
+        if rollup is not None:
+            data["percent_complete"] = round(float(rollup), 2)
         return data
 
     def update(self, instance: Task, validated_data: dict[str, Any]) -> Task:

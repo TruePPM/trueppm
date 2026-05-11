@@ -23,16 +23,26 @@ pip install trueppm-scheduler
 ## Quick start
 
 ```python
-from trueppm_scheduler import schedule, Calendar, Project, Task, Dependency
+from datetime import date, timedelta
+from trueppm_scheduler import schedule, Calendar, Project, Task, Dependency, DependencyType
 
-calendar = Calendar(id="cal-1", name="Standard")
-project = Project(id="p-1", name="My Project", start_date="2026-01-01", calendar=calendar)
-task_a = Task(id="t-1", name="Design", duration=5, project_id="p-1")
-task_b = Task(id="t-2", name="Build", duration=10, project_id="p-1")
-dep = Dependency(id="d-1", predecessor_id="t-1", successor_id="t-2", dep_type="FS")
+calendar = Calendar()  # Mon–Fri, 8 h/day, no holidays
+task_a = Task(id="t-1", name="Design", duration=timedelta(days=5))
+task_b = Task(id="t-2", name="Build",  duration=timedelta(days=10))
+dep = Dependency(predecessor_id="t-1", successor_id="t-2", dep_type=DependencyType.FS)
 
-result = schedule(project, [task_a, task_b], [dep], calendar)
-print(result.tasks["t-2"].early_finish)  # 2026-01-20
+project = Project(
+    id="p-1",
+    name="My Project",
+    start_date=date(2026, 1, 5),
+    tasks=[task_a, task_b],
+    dependencies=[dep],
+    calendar=calendar,
+)
+
+result = schedule(project)
+build = next(t for t in result.tasks if t.id == "t-2")
+print(build.early_finish)  # 2026-01-21 (5 + 10 working days from 2026-01-05)
 ```
 
 See [the full documentation](https://docs.trueppm.com/features/scheduler) for CPM output fields, Monte Carlo usage, and CLI reference.

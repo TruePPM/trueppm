@@ -197,7 +197,7 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             from trueppm_api.apps.access.models import ProjectMembership
 
             try:
-                return ProjectMembership.objects.get(project_id=pk, user=u).role
+                return ProjectMembership.objects.get(project_id=pk, user=u, is_deleted=False).role
             except ProjectMembership.DoesNotExist:
                 return None
 

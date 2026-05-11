@@ -56,7 +56,8 @@ def _cmd_schedule(args: argparse.Namespace) -> None:
 def _cmd_monte_carlo(args: argparse.Namespace) -> None:
     project = _load_project(args.project)
     try:
-        result = monte_carlo(project, runs=args.runs, seed=args.seed)
+        # max_runs=None bypasses the library cap so the CLI default of 10 000 works.
+        result = monte_carlo(project, runs=args.runs, seed=args.seed, max_runs=None)
     except Exception as e:
         print(f"error: {e}", file=sys.stderr)
         sys.exit(1)

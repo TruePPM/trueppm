@@ -247,16 +247,30 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
 class TaskSkillRequirementViewSet(viewsets.ModelViewSet[TaskSkillRequirement]):
     """CRUD for skill requirements on tasks.
 
-    Read: any project member. Write: SCHEDULER+.
+    Read: authenticated users scoped to their member projects.
+    Write: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember, CanAssignResource]
     serializer_class = TaskSkillRequirementSerializer
     filter_backends = [filters.OrderingFilter]
     queryset = TaskSkillRequirement.objects.select_related("skill").filter(is_deleted=False)
 
+    def get_permissions(self) -> list[BasePermission]:
+        from rest_framework.permissions import SAFE_METHODS
+
+        if self.request.method in SAFE_METHODS:
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsOrgScheduler()]
+
     def get_queryset(self) -> QuerySet[TaskSkillRequirement]:
-        qs = TaskSkillRequirement.objects.select_related("skill").filter(is_deleted=False)
+        # Scope to tasks in projects where the requesting user is a member.
+        member_project_ids = ProjectMembership.objects.filter(
+            user=self.request.user, is_deleted=False
+        ).values_list("project_id", flat=True)
+        qs = TaskSkillRequirement.objects.select_related("skill").filter(
+            is_deleted=False,
+            task__project_id__in=member_project_ids,
+        )
         task_id = self.request.query_params.get("task")
         if task_id:
             qs = qs.filter(task_id=task_id)

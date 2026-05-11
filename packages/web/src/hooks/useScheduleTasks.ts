@@ -202,17 +202,28 @@ export function useScheduleTasks(projectId?: string): UseScheduleTasksResult {
   const tasksQuery = useQuery({
     queryKey: ['tasks', resolvedId],
     queryFn: async () => {
-      const res = await apiClient.get<PaginatedResponse<ApiTask>>('/tasks/', {
-        params: { project: resolvedId },
-      });
-      // Only include tasks that have been scheduled — null dates crash the
-      // Gantt engine's date-to-canvas conversion. New tasks appear once the
-      // CPM worker assigns early_start / early_finish.
+      // Fetch all pages — PAGE_SIZE=50 would otherwise silently cap the Gantt
+      // at 50 tasks. Follow the DRF `next` cursor until exhausted.
+      const allApiTasks: ApiTask[] = [];
+      let nextUrl: string | null = '/tasks/';
+      let isFirstPage = true;
+      while (nextUrl) {
+        const params = isFirstPage ? { project: resolvedId } : undefined;
+        const currentUrl: string = nextUrl;
+        isFirstPage = false;
+        const { data: pageData } = await apiClient.get<PaginatedResponse<ApiTask>>(currentUrl, {
+          params,
+        });
+        allApiTasks.push(...pageData.results);
+        // Strip the origin from the next URL so apiClient uses its baseURL.
+        nextUrl = pageData.next
+          ? pageData.next.replace(/^https?:\/\/[^/]+/, '')
+          : null;
+      }
       // Pass all tasks to the engine — _paintTaskAt skips bars for unscheduled
       // tasks (empty start/finish), and _updateProjectRange defaults to today
-      // ±30 days when no task has dates yet. Filtering here caused the task list
-      // to show "No tasks yet" even when the project had unscheduled tasks.
-      const rawTasks = res.data.results.map(mapTask);
+      // ±30 days when no task has dates yet.
+      const rawTasks = allApiTasks.map(mapTask);
       // Compute WBS display codes from tree position (parentId + sibling order)
       // rather than passing through wbs_path directly. This ensures codes are
       // always sequential and correct — including for tasks created in the UI
@@ -221,9 +232,9 @@ export function useScheduleTasks(projectId?: string): UseScheduleTasksResult {
       return rawTasks.map((t) => ({ ...t, wbs: wbsCodes.get(t.id) ?? t.wbs }));
     },
     enabled: !!resolvedId,
-    // Poll every 2 s so CPM-computed dates (early_start/early_finish) propagate
-    // to the canvas and task list without requiring a manual page refresh.
-    refetchInterval: 2000,
+    // WebSocket invalidations (useProjectWebSocket) handle live updates.
+    // 30 s fallback catches missed events without hammering the API at 0.5 Hz.
+    refetchInterval: 30_000,
   });
 
   const linksQuery = useQuery({

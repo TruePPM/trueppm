@@ -37,6 +37,7 @@ from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
+    IsOrgAdmin,
     IsProjectAdmin,
     IsProjectMember,
     IsProjectMemberWrite,
@@ -92,20 +93,22 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     """CRUD for project calendars.
 
     Calendars define working days, hours per day, and holiday exceptions.
-    They can be shared across multiple projects and resources.
+    They are shared org-level resources — not scoped to a single project.
 
-    Read access requires IsAuthenticated (any logged-in user can see calendars
-    since they are referenced by projects the user may not yet belong to).
-    Write operations require IsProjectAdmin on the owning project.
+    Read access: any authenticated user.
+    Write operations: org admin (Project Manager+ on at least one project).
     """
 
-    # Calendars are org-level objects referenced by projects; read is open to
-    # any authenticated user, write is admin-only.
     permission_classes = [IsAuthenticated, IsProjectMember]
     queryset = Calendar.objects.prefetch_related("exceptions").order_by("name")
     serializer_class = CalendarSerializer
     search_fields = ["name"]
     ordering_fields = ["name"]
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.request.method in SAFE_METHODS:
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsOrgAdmin()]
 
     def get_queryset(self) -> QuerySet[Calendar]:
         # Calendars are not project-scoped — they are shared org-level resources.
@@ -703,7 +706,9 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             qs = qs.filter(early_start__lte=finish_lte)
 
         # Summary task annotations: is_summary = has at least one direct child,
-        # parent_id = the task whose wbs_path is this task's parent path.
+        # parent_id = the task whose wbs_path is this task's parent path,
+        # percent_complete_rollup = duration-weighted average of direct children's
+        #   percent_complete (NULL for leaf tasks, avoids per-row raw query in serializer).
         # Uses ltree operators via RawSQL for PostgreSQL-native performance.
         qs = qs.annotate(
             is_summary=RawSQL(
@@ -734,6 +739,24 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 ")",
                 [],
                 output_field=db_models.UUIDField(),
+            ),
+            # Replaces the per-row Task.objects.raw() in TaskSerializer.to_representation.
+            # Returns the weighted average percent_complete of direct children, or NULL for
+            # leaf tasks (which the serializer leaves untouched). Single correlated subquery
+            # per row in a single DB round trip instead of N separate queries.
+            percent_complete_rollup=RawSQL(
+                "("
+                "  SELECT CASE WHEN SUM(c.duration) > 0"
+                "              THEN SUM(c.duration * c.percent_complete) / SUM(c.duration)"
+                "              ELSE NULL END"
+                "  FROM projects_task c"
+                "  WHERE c.project_id = projects_task.project_id"
+                "    AND c.is_deleted = false"
+                "    AND projects_task.wbs_path IS NOT NULL"
+                "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1}')::lquery"
+                ")",
+                [],
+                output_field=db_models.FloatField(),
             ),
         )
 
@@ -1830,6 +1853,15 @@ class TaskBulkView(APIView):
 
         result: dict[str, Any] = {"created": [], "updated": [], "deleted": []}
 
+        # Fetch the caller's role once for the delete permission check below.
+        # delete mirrors IsProjectMemberWriteOrOwn: Admin+ or task assignee.
+        caller_role: int = (
+            ProjectMembership.objects.filter(project_id=pk, user=request.user, is_deleted=False)
+            .values_list("role", flat=True)
+            .first()
+            or -1
+        )
+
         with transaction.atomic():
             for op in operations:
                 op_type: str = op["op"]
@@ -1850,6 +1882,18 @@ class TaskBulkView(APIView):
 
                 elif op_type == "delete":
                     task = locked_tasks[op["id"]]
+                    # Mirrors IsProjectMemberWriteOrOwn: Admin+ or task assignee may delete.
+                    if caller_role < Role.ADMIN:
+                        is_assignee = task.assignments.filter(resource__user=request.user).exists()
+                        if not is_assignee:
+                            return Response(
+                                {
+                                    "operations": [
+                                        "Only Project Managers and task assignees may delete tasks."
+                                    ]
+                                },
+                                status=status.HTTP_403_FORBIDDEN,
+                            )
                     task.soft_delete()
                     result["deleted"].append(str(op["id"]))
 
