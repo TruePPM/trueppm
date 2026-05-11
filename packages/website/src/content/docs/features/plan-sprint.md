@@ -37,3 +37,9 @@ The capacity preflight runs at *activate* time, not creation, so a planning-time
 ## Related ADRs
 
 - [ADR-0037](/architecture/adr/) — Sprint model: data, API, and board integration
+
+## If you are…
+
+- **Maya** — fires this dialog to open the next iteration. After closing a sprint, the "Plan next sprint" slot appears at the end of the timeline strip.
+- **Tom** — rarely; Maya creates sprints. You'll see the sprint appear in the timeline once she creates it.
+- **Raj** — sprint start/finish dates here need to fit within the milestone window you set on the Schedule view.
