@@ -148,6 +148,17 @@ export function SettingsIcon({ className, ...rest }: IconProps) {
   );
 }
 
+/** Bar chart — three ascending columns for the Reports tab */
+export function BarChartIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" className={className} {...rest}>
+      <rect x="1"  y="8"  width="4" height="7" rx="1" />
+      <rect x="6"  y="4"  width="4" height="11" rx="1" />
+      <rect x="11" y="1"  width="4" height="14" rx="1" />
+    </svg>
+  );
+}
+
 /** Logo mark — mini Gantt bars forming a "T" silhouette */
 export function LogoMark({ className, ...rest }: IconProps) {
   return (

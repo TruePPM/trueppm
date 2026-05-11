@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router';
-import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon, SprintIcon, SettingsIcon } from '@/components/Icons';
+import { GanttIcon, BoardIcon, ListIcon, CalendarIcon, ResourcesIcon, RiskIcon, SprintIcon, SettingsIcon, BarChartIcon } from '@/components/Icons';
 import { OverviewIcon } from '@/components/Icons';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
@@ -27,6 +27,7 @@ const TABS: Tab[] = [
   { view: 'calendar',   label: 'Calendar',   Icon: CalendarIcon },
   { view: 'resources',  label: 'Team',       Icon: ResourcesIcon },
   { view: 'risk',       label: 'Risks',      Icon: RiskIcon },
+  { view: 'reports',   label: 'Reports',    Icon: BarChartIcon },
   // Settings tab — visible to all members (Viewer+); write controls are OWNER-gated
   // inside the page. Not in BottomNav (infrequent, admin access — same rationale as Risks).
   { view: 'settings',  label: 'Settings',   Icon: SettingsIcon },

@@ -319,3 +319,65 @@ def test_unknown_project_returns_404(member: object) -> None:
     # Membership check resolves before object lookup; outsider would see 403,
     # but a known member querying a non-existent project gets 404.
     assert resp.status_code in (403, 404)
+
+
+# ---------------------------------------------------------------------------
+# Combined chart type (issue #53 / ADR-0062)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_combined_returns_correct_shape(project: Project, member: object) -> None:
+    """chart_type=combined returns {remaining, completed, total, ideal} per point."""
+    tasks = _create_tasks(project, 4)
+    tasks[0].status = TaskStatus.COMPLETE
+    tasks[0].save()
+    c = _client(member)
+    today = date.today().isoformat()
+    resp = c.get(
+        f"/api/v1/projects/{project.pk}/burn/",
+        {"chart_type": "combined", "since": today, "until": today},
+    )
+    assert resp.status_code == 200
+    assert resp.data["chart_type"] == "combined"
+    assert resp.data["metric"] == "tasks"
+    point = resp.data["series"][0]
+    assert {"date", "remaining", "completed", "total", "ideal"} <= set(point.keys())
+
+
+@pytest.mark.django_db
+def test_combined_remaining_plus_completed_equals_total(project: Project, member: object) -> None:
+    """For each point: remaining + completed should equal total (scope)."""
+    tasks = _create_tasks(project, 6)
+    for t in tasks[:2]:
+        t.status = TaskStatus.COMPLETE
+        t.save()
+    c = _client(member)
+    today = date.today().isoformat()
+    resp = c.get(
+        f"/api/v1/projects/{project.pk}/burn/",
+        {"chart_type": "combined", "since": today, "until": today},
+    )
+    assert resp.status_code == 200
+    for point in resp.data["series"]:
+        assert point["remaining"] + point["completed"] == point["total"]
+
+
+@pytest.mark.django_db
+def test_combined_metric_points(project: Project, member: object) -> None:
+    """combined chart_type respects metric=points."""
+    tasks = _create_tasks(project, 4, points=3)
+    tasks[0].status = TaskStatus.COMPLETE
+    tasks[0].save()
+    c = _client(member)
+    today = date.today().isoformat()
+    resp = c.get(
+        f"/api/v1/projects/{project.pk}/burn/",
+        {"chart_type": "combined", "metric": "points", "since": today, "until": today},
+    )
+    assert resp.status_code == 200
+    assert resp.data["metric"] == "points"
+    point = resp.data["series"][0]
+    assert point["total"] == 12  # 4 tasks × 3 pts
+    assert point["completed"] == 3  # 1 completed × 3 pts
+    assert point["remaining"] == 9  # 3 remaining × 3 pts

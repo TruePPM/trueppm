@@ -5,7 +5,6 @@ import {
   useSprints,
   useSprintsByState,
   useSprintMutations,
-  useSprintBurndown,
   useSprintCapacity,
   useProjectVelocity,
   type CapacityWarning,
@@ -14,7 +13,7 @@ import { SprintHeader } from './SprintHeader';
 import { SprintGoalCard } from './SprintGoalCard';
 import { AdvancingToMilestoneCard } from './AdvancingToMilestoneCard';
 import { SprintTimelineStrip } from './SprintTimelineStrip';
-import { SprintBurndownChart } from './SprintBurndownChart';
+import { BurnChart } from '@/features/reports/BurnChart';
 import { CapacityPreflight } from './CapacityPreflight';
 import { VelocityPanel } from './VelocityPanel';
 import { SprintBacklogTable } from './SprintBacklogTable';
@@ -110,7 +109,6 @@ export function SprintsView() {
   const projectName = projectQuery.data?.name;
 
   // Metrics row queries — only fire when we have an active sprint.
-  const burndown = useSprintBurndown(activeSprint?.id);
   const capacity = useSprintCapacity(activeSprint?.id);
   const velocity = useProjectVelocity(projectId);
   const backlog = useSprintBacklog(projectId, activeSprint?.id);
@@ -371,14 +369,7 @@ export function SprintsView() {
 
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div className="md:col-span-3">
-                {burndown.data ? (
-                  <SprintBurndownChart
-                    sprint={burndown.data.sprint}
-                    snapshots={burndown.data.snapshots}
-                  />
-                ) : (
-                  <ChartSkeleton label="Sprint Burndown" />
-                )}
+                <BurnChart sprintId={activeSprint.id} defaultVariant="burndown" />
               </div>
               <div className="md:col-span-2 flex flex-col gap-4">
                 {capacity.data ? (

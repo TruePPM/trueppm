@@ -14,6 +14,7 @@ import type { Methodology } from '@/types';
  * | calendar  | ✅        | ❌    | ✅     |
  * | resources | ✅        | ✅    | ✅     |
  * | risk      | ✅        | ✅    | ✅     |
+ * | reports   | ✅        | ✅    | ✅     |
  *
  * `grid` replaces the legacy `wbs` + `list` entries (issue #334). Outline mode
  * inside Grid covers the WBS use case for WATERFALL and HYBRID; Flat mode is

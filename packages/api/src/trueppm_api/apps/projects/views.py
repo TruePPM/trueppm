@@ -3433,6 +3433,42 @@ class ProjectBurnView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if chart_type == "combined":
+            # Merge burndown (remaining) and burnup (completed) into one series so
+            # the client gets both curves in a single request (ADR-0062).
+            bd = burn_series(
+                project_id=project.pk,
+                chart_type="burndown",
+                since=since,
+                until=until,
+                metric=metric,
+            )
+            bu = burn_series(
+                project_id=project.pk,
+                chart_type="burnup",
+                since=since,
+                until=until,
+                metric=metric,
+            )
+            bu_by_date = {p["date"]: p for p in bu["series"]}
+            payload = {
+                "chart_type": "combined",
+                "metric": metric,
+                "since": str(since),
+                "until": str(until),
+                "series": [
+                    {
+                        "date": p["date"],
+                        "remaining": p["actual"],
+                        "completed": bu_by_date.get(p["date"], {}).get("actual", 0),
+                        "total": p["scope"],
+                        "ideal": p["ideal"],
+                    }
+                    for p in bd["series"]
+                ],
+            }
+            return Response(payload, status=status.HTTP_200_OK)
+
         try:
             payload = burn_series(
                 project_id=project.pk,
