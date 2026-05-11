@@ -212,8 +212,9 @@ test.describe('Project overview page', () => {
     await expect(page.getByText('On track').first()).toBeVisible();
     // Owner visible in subtitle
     await expect(page.getByText(/Owner: Alice Smith/)).toBeVisible();
-    // Export and Update Status buttons present
-    await expect(page.getByRole('button', { name: /export/i })).toBeVisible();
+    // Export and Update Status buttons present. Use exact name on Export because the
+    // BurnChart card on this page also renders a button with accessible name "Export chart".
+    await expect(page.getByRole('button', { name: 'Export', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /update status/i })).toBeVisible();
   });
 
