@@ -80,9 +80,9 @@ describe('ProjectOverviewPage', () => {
     expect(screen.getByRole('region', { name: /project kpis/i })).toBeInTheDocument();
   });
 
-  it('renders burn-up placeholder', () => {
+  it('renders burn-up chart section', () => {
     renderPage();
-    expect(screen.getByRole('img', { name: /burn-up chart/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /burn-up chart/i })).toBeInTheDocument();
   });
 
   it('renders attention section', () => {
