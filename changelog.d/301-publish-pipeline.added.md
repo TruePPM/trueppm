@@ -1,0 +1,1 @@
+CI/CD publish pipeline: `api:publish` and `web:publish` push Docker images to GHCR (`ghcr.io/trueppm/{api,web}`) on `v*` tag push; `helm:publish` packages and pushes the Helm chart to the GHCR OCI registry. Closes part of #301.
