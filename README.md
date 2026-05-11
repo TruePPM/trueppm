@@ -11,8 +11,8 @@ Most project management tools are glorified to-do lists. They let you draw bars 
 
 TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platform for teams that need reliable schedule control — not just task tracking.
 
-> **Status: v0.1 — early release, suitable for evaluation and small teams.**
-> The scheduling engine, REST API, and web UI are all functional and wired together. Not yet recommended for mission-critical production use without testing against your workload.
+> **Status: 0.1-alpha — first public alpha. Not ready for production use.**
+> The core engine and API are solid. The UI is functional but rough. Expect breaking API changes between alpha and beta. **Hold off on deploying for real teams until the first beta release** — we don't know yet what needs to change based on early feedback, and locking in users before we do will make that harder.
 
 ## Why TruePPM?
 
@@ -26,7 +26,7 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 
 **Built for collaboration.** Real-time WebSocket pushes, 5-role RBAC (Owner / Admin / Scheduler / Member / Viewer), and an offline-first sync protocol designed for mobile clients.
 
-## What's in v0.1
+## What's in 0.1-alpha
 
 | Component | Status | Notes |
 |-----------|--------|-------|
