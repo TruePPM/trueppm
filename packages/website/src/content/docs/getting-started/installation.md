@@ -1,36 +1,41 @@
 ---
 title: Installation
-description: Set up a local TruePPM instance with Docker Compose.
+description: Four ways to run TruePPM — Docker Compose, Helm/Kubernetes, single-server, or the scheduler library standalone.
 ---
 
-:::caution[Pre-Alpha]
-TruePPM is under active development and not yet suitable for production use. These instructions are for evaluation, development, and contribution.
-:::
+TruePPM ships as pre-built Docker images on GHCR and a Python package on PyPI. Pick the path that fits your environment:
 
-## Prerequisites
+| Path | Best for |
+|------|----------|
+| [Docker Compose](#docker-compose) | Evaluation, development, small teams |
+| [Helm / Kubernetes](#helm--kubernetes) | Production, horizontal scaling |
+| [Single server](#single-server-with-docker-compose) | Production without Kubernetes |
+| [Scheduler library](#scheduler-library-only) | Embedding the CPM engine in your own app |
+
+---
+
+## Docker Compose
+
+The fastest way to run TruePPM locally. All five services start from a single command.
+
+### Prerequisites
 
 | Tool | Minimum version |
 |------|----------------|
 | Docker + Docker Compose | 24+ |
 | Git | any recent |
-| Python | 3.12+ (for local scheduler development only) |
 
-You do not need Python installed locally to run the API — Docker handles it.
-
-## Clone the repository
+### Steps
 
 ```bash
-git clone git@gitlab.com:trueppm/trueppm.git
+git clone https://gitlab.com/trueppm/trueppm.git
 cd trueppm
-```
-
-## Start the stack
-
-```bash
 docker compose up -d
 ```
 
-This starts five services:
+Wait for all services to be healthy (usually 15–20 seconds), then open the web UI at **http://localhost:5173**.
+
+**Services started:**
 
 | Service | Port | Purpose |
 |---------|------|---------|
@@ -38,45 +43,197 @@ This starts five services:
 | `valkey` | 6379 | Celery broker + Django Channels layer (BSD-licensed Redis fork; wire-compatible) |
 | `api` | 8000 | Django ASGI (uvicorn) |
 | `celery` | — | CPM auto-scheduling worker |
-| `web` | 5173 | React frontend (nginx, serves the Vite build) |
+| `celery-beat` | — | Periodic task runner |
+| `web` | 5173 | React frontend |
 
-Wait for all services to be healthy (usually 15-20 seconds), then apply migrations:
-
-```bash
-docker compose exec api python manage.py migrate
-```
-
-The api container runs the `create_admin` command automatically on startup, generating a secure random password and writing it to `/tmp/trueppm_admin_password`. Retrieve it with:
+Migrations run automatically on first startup. The `create_admin` management command generates a secure random password and writes it to `/tmp/trueppm_admin_password`:
 
 ```bash
 docker compose exec api cat /tmp/trueppm_admin_password
 docker compose exec api rm  /tmp/trueppm_admin_password   # delete after retrieval
 ```
 
-For full details on first-run credentials, password rotation, and production deployments, see [Admin password setup](/administration/admin-password/).
-
-## Seed a demo project (optional)
-
-The fastest way to see TruePPM populated is to run the demo seed:
+### Seed a demo project (optional)
 
 ```bash
 docker compose exec api python manage.py seed_demo_project --with-personas
 ```
 
-This bootstraps a coherent "Platform Migration" project with eight closed sprints, an active sprint mid-window, baselines, resources, a retro, and six persona logins (all password `demo`). See [Quickstart](/getting-started/quickstart/) for the per-persona walkthrough.
+Creates a "Platform Migration" project with eight closed sprints, an active sprint, baselines, resources, a retro, and six persona logins (all password `demo`). See [Quickstart](/getting-started/quickstart/) for a per-persona walkthrough.
 
-## Verify
+### Verify
 
 ```bash
 curl http://localhost:8000/api/v1/projects/
 # → {"count":0,"results":[]}
 ```
 
-The web UI is at `http://localhost:5173`. The OpenAPI schema is at `http://localhost:8000/api/schema/` (YAML) and `http://localhost:8000/api/schema/swagger-ui/` (interactive).
+The OpenAPI schema is at `http://localhost:8000/api/schema/swagger-ui/`.
 
-## Scheduler package only
+---
 
-If you only need the scheduling engine (no API, no Docker):
+## Helm / Kubernetes
+
+Use the published Helm chart to deploy TruePPM on any Kubernetes cluster (kind, k3s, EKS, GKE, AKS, or bare-metal).
+
+### Prerequisites
+
+| Tool | Minimum version |
+|------|----------------|
+| Helm | 3.14+ |
+| kubectl | any compatible with your cluster |
+| A running Kubernetes cluster | 1.27+ |
+
+### Add the chart repository
+
+The chart is published to the GHCR OCI registry:
+
+```bash
+helm registry login ghcr.io --username <github-username> --password <PAT-with-read:packages>
+```
+
+### Prepare your values file
+
+Download the production values template and fill in your settings:
+
+```bash
+curl -sL https://gitlab.com/trueppm/trueppm/-/raw/main/packages/helm/values-prod.yaml \
+  -o my-values.yaml
+```
+
+At minimum, set:
+
+```yaml
+# my-values.yaml
+ingress:
+  enabled: true
+  host: trueppm.example.com
+  tls:
+    enabled: true
+    secretName: trueppm-tls
+
+env:
+  SECRET_KEY: "<50+ character random string>"
+  ALLOWED_HOSTS: "trueppm.example.com"
+
+# If using external PostgreSQL and Valkey (recommended for production):
+postgresql:
+  enabled: false
+valkey:
+  enabled: false
+externalDatabase:
+  url: "postgres://trueppm:<password>@<host>:5432/trueppm"
+externalValkey:
+  url: "redis://:<password>@<host>:6379"
+```
+
+### Install
+
+```bash
+helm install trueppm oci://ghcr.io/trueppm/charts/trueppm \
+  --version 0.1.0 \
+  --namespace trueppm \
+  --create-namespace \
+  -f my-values.yaml
+```
+
+### Post-install
+
+Migrations run automatically in an init container. Retrieve the generated admin password from the pod:
+
+```bash
+kubectl exec -n trueppm deployment/trueppm-api -- \
+  cat /run/trueppm/admin_password
+```
+
+### Verify
+
+```bash
+kubectl get pods -n trueppm
+# All pods should be Running / Completed
+```
+
+---
+
+## Single-server with Docker Compose
+
+For production on a single Linux server without Kubernetes. Uses the published GHCR images, managed by systemd.
+
+### Prerequisites
+
+- A Linux server (Ubuntu 22.04+ or Debian 12+)
+- Docker 24+ and Docker Compose plugin
+- A domain name pointing to the server's public IP
+- Ports 80 and 443 open
+
+### Steps
+
+```bash
+git clone https://gitlab.com/trueppm/trueppm.git
+cd trueppm
+cp .env.example .env
+```
+
+Edit `.env` and fill in all required values:
+
+```bash
+# Required minimums — see .env.example for full list
+DOMAIN=trueppm.example.com
+TLS_MODE=letsencrypt
+CERTBOT_EMAIL=ops@example.com
+SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
+DB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+REDIS_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
+APP_VERSION=0.1.0
+```
+
+Run the one-time setup (obtains a TLS certificate and starts the stack):
+
+```bash
+chmod +x init-prod.sh
+./init-prod.sh
+```
+
+Retrieve the admin password:
+
+```bash
+docker compose -f docker-compose.prod.yml exec api-init \
+  cat /run/trueppm/admin_password
+```
+
+### systemd auto-start
+
+Create `/etc/systemd/system/trueppm.service`:
+
+```ini
+[Unit]
+Description=TruePPM
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/trueppm
+EnvironmentFile=/opt/trueppm/.env
+ExecStart=/usr/bin/docker compose -f docker-compose.prod.yml up -d
+ExecStop=/usr/bin/docker compose -f docker-compose.prod.yml down
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now trueppm
+```
+
+---
+
+## Scheduler library only
+
+If you only need the CPM scheduling engine in your own Python application:
 
 ```bash
 pip install trueppm-scheduler
@@ -95,14 +252,20 @@ result = schedule(project, [task_a, task_b], [dep], calendar)
 print(result.tasks["t-2"].early_finish)  # 2026-01-20
 ```
 
+See the [Scheduler integration guide](/integration/standalone/) for full API reference.
+
+---
+
 ## Environment variables
 
-For local development, `docker-compose.yml` sets sensible defaults. For production configuration, see the [Administration guide](/administration/configuration/).
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `SECRET_KEY` | Yes | Django secret key — 50+ character random string |
+| `DATABASE_URL` | Yes | `postgres://user:password@host:5432/dbname` |
+| `REDIS_URL` | Yes | `redis://:password@host:6379` (Valkey accepts the `redis://` scheme) |
+| `DJANGO_SETTINGS_MODULE` | Yes (prod) | `trueppm_api.settings.prod` |
+| `ALLOWED_HOSTS` | Yes | Comma-separated list of allowed hostnames |
+| `DOMAIN` | Single-server | Public hostname, used by nginx and certbot |
+| `TLS_MODE` | Single-server | `letsencrypt` \| `selfsigned` \| `none` |
 
-| Variable | Description |
-|----------|-------------|
-| `SECRET_KEY` | Django secret key — use a long random string |
-| `DATABASE_URL` | `postgres://user:password@host:5432/dbname` |
-| `REDIS_URL` | `redis://host:6379` (Valkey accepts the `redis://` scheme; the env var name is unchanged) |
-| `DJANGO_SETTINGS_MODULE` | `trueppm_api.settings.prod` |
-| `ALLOWED_HOSTS` | Comma-separated list of allowed hostnames |
+For all configuration options, see [Configuration](/administration/configuration/).

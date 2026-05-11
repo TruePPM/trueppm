@@ -56,6 +56,7 @@ export default defineConfig({
           items: [
             { slug: "getting-started/installation" },
             { slug: "getting-started/quickstart" },
+            { slug: "getting-started/upgrade" },
           ],
         },
         // --- Persona guides ---
