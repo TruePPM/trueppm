@@ -195,7 +195,6 @@ export function TaskFormModal({
   // the highlighted Schedule row) but user-overridable via the picker below
   // so they can move the new task into a different phase before save.
   const [selectedParentId, setSelectedParentId] = useState<string | null>(parentId ?? null);
-  const [parentQuery, setParentQuery] = useState<string>('');
 
   // Dependent queries
   const { tasks: allTasks } = useScheduleTasks(projectId);
@@ -299,15 +298,6 @@ export function TaskFormModal({
   const selectedParentIsLeaf =
     selectedParentId !== null &&
     parentOptions.find((o) => o.id === selectedParentId)?.isSummary === false;
-
-  // Keep the visible input text in sync with selectedParentId — when the
-  // caller seeds an inferred parent, the picker should display its label
-  // immediately rather than waiting for the user to type.
-  useEffect(() => {
-    if (mode !== 'create') return;
-    const match = parentOptions.find((o) => o.id === selectedParentId);
-    setParentQuery(match ? match.label : '');
-  }, [mode, selectedParentId, parentOptions]);
 
   // Dirty check — by-value comparison.
   const isDirty = useMemo(() => {
@@ -602,33 +592,19 @@ export function TaskFormModal({
             <label htmlFor="task-parent" className="block text-xs font-medium text-neutral-text-secondary mb-1">
               Parent phase <span className="text-neutral-text-disabled">(optional)</span>
             </label>
-            <input
+            <select
               id="task-parent"
-              type="text"
-              list="task-parent-options"
               disabled={isReadOnly}
-              value={parentQuery}
-              onChange={(e) => {
-                const next = e.target.value;
-                setParentQuery(next);
-                // Resolve label → id. Empty string clears the parent (root).
-                if (!next.trim()) {
-                  setSelectedParentId(null);
-                  return;
-                }
-                const match = parentOptions.find((o) => o.label === next);
-                setSelectedParentId(match?.id ?? null);
-              }}
-              placeholder="Search phases…"
-              autoComplete="off"
+              value={selectedParentId ?? ''}
+              onChange={(e) => setSelectedParentId(e.target.value || null)}
               aria-describedby="task-parent-hint"
-              className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none placeholder:text-neutral-text-disabled disabled:opacity-60"
-            />
-            <datalist id="task-parent-options">
+              className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+            >
+              <option value="">— No parent (root)</option>
               {parentOptions.map((opt) => (
-                <option key={opt.id} value={opt.label} />
+                <option key={opt.id} value={opt.id}>{opt.label}</option>
               ))}
-            </datalist>
+            </select>
             <p id="task-parent-hint" className="mt-1 text-[11px] text-neutral-text-secondary">
               {selectedParentId
                 ? selectedParentIsLeaf
@@ -638,7 +614,7 @@ export function TaskFormModal({
                   : isMilestoneCreate
                     ? 'New milestone will be added as a child of this phase.'
                     : 'New task will be added as a child of this phase.'
-                : 'Leave blank to add at the project root.'}
+                : 'Choose "No parent" to add at the project root.'}
             </p>
           </div>
         )}
