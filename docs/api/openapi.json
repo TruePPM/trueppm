@@ -9,7 +9,7 @@
         "/api/v1/admin/failed-tasks/": {
             "get": {
                 "operationId": "v1_admin_failed_tasks_list",
-                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail: any authenticated user (operational visibility).\nRetry/dismiss: staff users only (admin action).",
+                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail/retry/dismiss: admin users only. The serializer exposes\ntracebacks, args, and kwargs which may contain internal paths or partial\nsecrets and must not be visible to unprivileged members.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -67,7 +67,7 @@
         "/api/v1/admin/failed-tasks/{id}/": {
             "get": {
                 "operationId": "v1_admin_failed_tasks_retrieve",
-                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail: any authenticated user (operational visibility).\nRetry/dismiss: staff users only (admin action).",
+                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail/retry/dismiss: admin users only. The serializer exposes\ntracebacks, args, and kwargs which may contain internal paths or partial\nsecrets and must not be visible to unprivileged members.",
                 "parameters": [
                     {
                         "in": "path",
@@ -301,7 +301,7 @@
         "/api/v1/calendars/": {
             "get": {
                 "operationId": "v1_calendars_list",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey can be shared across multiple projects and resources.\n\nRead access requires IsAuthenticated (any logged-in user can see calendars\nsince they are referenced by projects the user may not yet belong to).\nWrite operations require IsProjectAdmin on the owning project.",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -357,7 +357,7 @@
             },
             "post": {
                 "operationId": "v1_calendars_create",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey can be shared across multiple projects and resources.\n\nRead access requires IsAuthenticated (any logged-in user can see calendars\nsince they are referenced by projects the user may not yet belong to).\nWrite operations require IsProjectAdmin on the owning project.",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
                 "tags": [
                     "v1"
                 ],
@@ -406,7 +406,7 @@
         "/api/v1/calendars/{id}/": {
             "get": {
                 "operationId": "v1_calendars_retrieve",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey can be shared across multiple projects and resources.\n\nRead access requires IsAuthenticated (any logged-in user can see calendars\nsince they are referenced by projects the user may not yet belong to).\nWrite operations require IsProjectAdmin on the owning project.",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
                 "parameters": [
                     {
                         "in": "path",
@@ -445,7 +445,7 @@
             },
             "put": {
                 "operationId": "v1_calendars_update",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey can be shared across multiple projects and resources.\n\nRead access requires IsAuthenticated (any logged-in user can see calendars\nsince they are referenced by projects the user may not yet belong to).\nWrite operations require IsProjectAdmin on the owning project.",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
                 "parameters": [
                     {
                         "in": "path",
@@ -504,7 +504,7 @@
             },
             "patch": {
                 "operationId": "v1_calendars_partial_update",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey can be shared across multiple projects and resources.\n\nRead access requires IsAuthenticated (any logged-in user can see calendars\nsince they are referenced by projects the user may not yet belong to).\nWrite operations require IsProjectAdmin on the owning project.",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
                 "parameters": [
                     {
                         "in": "path",
@@ -562,7 +562,7 @@
             },
             "delete": {
                 "operationId": "v1_calendars_destroy",
-                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey can be shared across multiple projects and resources.\n\nRead access requires IsAuthenticated (any logged-in user can see calendars\nsince they are referenced by projects the user may not yet belong to).\nWrite operations require IsProjectAdmin on the owning project.",
+                "description": "CRUD for project calendars.\n\nCalendars define working days, hours per day, and holiday exceptions.\nThey are shared org-level resources — not scoped to a single project.\n\nRead access: any authenticated user.\nWrite operations: org admin (Project Manager+ on at least one project).",
                 "parameters": [
                     {
                         "in": "path",
@@ -6596,7 +6596,7 @@
         "/api/v1/task-skill-requirements/": {
             "get": {
                 "operationId": "v1_task_skill_requirements_list",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: any project member. Write: SCHEDULER+.",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -6643,7 +6643,7 @@
             },
             "post": {
                 "operationId": "v1_task_skill_requirements_create",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: any project member. Write: SCHEDULER+.",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
                 "tags": [
                     "v1"
                 ],
@@ -6692,7 +6692,7 @@
         "/api/v1/task-skill-requirements/{id}/": {
             "get": {
                 "operationId": "v1_task_skill_requirements_retrieve",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: any project member. Write: SCHEDULER+.",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
                 "parameters": [
                     {
                         "in": "path",
@@ -6731,7 +6731,7 @@
             },
             "put": {
                 "operationId": "v1_task_skill_requirements_update",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: any project member. Write: SCHEDULER+.",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
                 "parameters": [
                     {
                         "in": "path",
@@ -6790,7 +6790,7 @@
             },
             "patch": {
                 "operationId": "v1_task_skill_requirements_partial_update",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: any project member. Write: SCHEDULER+.",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
                 "parameters": [
                     {
                         "in": "path",
@@ -6848,7 +6848,7 @@
             },
             "delete": {
                 "operationId": "v1_task_skill_requirements_destroy",
-                "description": "CRUD for skill requirements on tasks.\n\nRead: any project member. Write: SCHEDULER+.",
+                "description": "CRUD for skill requirements on tasks.\n\nRead: authenticated users scoped to their member projects.\nWrite: SCHEDULER+ (IsOrgScheduler — SCHEDULER role on at least one project).",
                 "parameters": [
                     {
                         "in": "path",
