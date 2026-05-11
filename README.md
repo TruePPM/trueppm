@@ -35,7 +35,7 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 | **RBAC** | ✅ Stable | 5-role per-project permissions on every endpoint, WebSocket, and UI surface. Members management UI. |
 | **Real-time** | ✅ Stable | WebSocket broadcasts for every mutation, deferred to transaction commit. |
 | **Offline sync** | ✅ Stable | WatermelonDB-compatible delta protocol with soft-delete tombstones. |
-| **Schedule / Gantt** | ✅ Wired | Split-pane view, 6 bar types, 4 dependency types, zoom levels, build mode (keyboard-first task entry). |
+| **Schedule (Gantt)** | ✅ Wired | Split-pane view, 6 bar types, 4 dependency types, zoom levels, build mode (keyboard-first task entry). |
 | **Board / Kanban** | ✅ Wired | Phase-grid + rail/drawer/queue layouts, calm toolbar, drag-to-promote, WIP control. |
 | **Sprints** | ✅ Wired | Plan/activate/close workflow, burndown, velocity, capacity preflight, multi-team lens, retrospective. |
 | **Monte Carlo UI** | ✅ Wired | P50/P80/P95 distribution, live rerun, freshness indicator, burn-up and burn-down charts. |
@@ -60,7 +60,7 @@ Full documentation at **[docs.trueppm.com](https://docs.trueppm.com)** (publishe
 - **[Upgrading](https://docs.trueppm.com/getting-started/upgrade/)** — rolling upgrades and rollback for each deployment path
 - **[Guides](https://docs.trueppm.com/guides/project-managers/)** — role-specific guides for project managers, team members, resource managers, and executives
 - **[Administration](https://docs.trueppm.com/administration/deployment/)** — deployment, configuration, RBAC, security
-- **[Features](https://docs.trueppm.com/features/scheduler/)** — deep dives into CPM, Gantt, sprints, real-time, offline sync, and more
+- **[Features](https://docs.trueppm.com/features/scheduler/)** — deep dives into CPM, Schedule (Gantt), sprints, real-time, offline sync, and more
 - **[API Reference](https://docs.trueppm.com/api/reference/)** — full endpoint listing with examples
 - **[Release Process](https://docs.trueppm.com/contributing/release/)** — how to cut a release (maintainers)
 
@@ -161,7 +161,7 @@ See `CLAUDE.md` for coding conventions, two-repo rules, and the complete develop
 
 ## Open-Core Model
 
-**Community edition** (this repo) is Apache 2.0 — scheduling engine, CPM, Monte Carlo, Gantt, Board, Sprints, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, Helm chart. Everything an individual PM or small team needs.
+**Community edition** (this repo) is Apache 2.0 — scheduling engine, CPM, Monte Carlo, Schedule (Gantt), Board, Sprints, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, Helm chart. Everything an individual PM or small team needs.
 
 **Enterprise edition** (separate repo, proprietary) adds features for organizations managing a portfolio across multiple programs: portfolio analytics, SSO/SAML/OIDC, immutable audit trail, cross-program resource leveling, AI scheduling, Jira/GitLab/ServiceNow connectors.
 
