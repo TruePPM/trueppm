@@ -59,7 +59,7 @@ services:
   # Runs migrations, collectstatic, and admin bootstrap once before the API
   # starts. Exits 0 on success; api waits for this to complete.
   api-init:
-    image: registry.gitlab.com/trueppm/trueppm/api:${APP_VERSION:-latest}
+    image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     command: >
       sh -c "python manage.py migrate --noinput &&
              python manage.py collectstatic --noinput &&
@@ -82,7 +82,7 @@ services:
         condition: service_healthy
 
   api:
-    image: registry.gitlab.com/trueppm/trueppm/api:${APP_VERSION:-latest}
+    image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     restart: unless-stopped
     read_only: true
     security_opt:
@@ -109,7 +109,7 @@ services:
       retries: 3
 
   celery:
-    image: registry.gitlab.com/trueppm/trueppm/api:${APP_VERSION:-latest}
+    image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
     command: ["celery", "-A", "trueppm_api.celery", "worker", "--loglevel=info"]
     restart: unless-stopped
     read_only: true
@@ -130,7 +130,7 @@ services:
   # Copies the pre-built frontend assets into the shared volume so nginx
   # can serve them. Exits immediately after the copy.
   web-build:
-    image: registry.gitlab.com/trueppm/trueppm/web:${APP_VERSION:-latest}
+    image: ghcr.io/trueppm/web:${APP_VERSION:-latest}
     entrypoint: ["/bin/sh", "-c"]
     command: ["cp -r /usr/share/nginx/html/. /dist/"]
     volumes:
