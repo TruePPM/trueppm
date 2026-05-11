@@ -293,7 +293,7 @@ export function BacklogCard({
       </div>
 
       {density === 'full' && (
-        <div className="flex items-center gap-2 text-[10px] text-neutral-text-secondary">
+        <div className="flex items-center gap-2 text-xs text-neutral-text-secondary">
           <span style={{ color: phaseColor }} className="font-semibold">
             {/* Phase name is sourced via prop in future; for now show the WBS
                 root label since the rail is project-scoped. */}
@@ -427,7 +427,7 @@ export function BacklogBand({
       {/* Header — eyebrow + count + collapse toggle */}
       <div className="flex items-center gap-2 px-4 pt-3.5 pb-2.5">
         <div className="flex-1 min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-neutral-text-secondary">
+          <div className="text-xs font-semibold uppercase tracking-widest text-neutral-text-secondary">
             Inbox · backlog
           </div>
           <div className="mt-1 flex items-baseline gap-2">
@@ -469,7 +469,7 @@ export function BacklogBand({
         >
           <span aria-hidden="true">⌕</span>
           <span className="flex-1">Search or capture an idea…</span>
-          <span className="tppm-mono text-[10px]">⌘K</span>
+          <span className="tppm-mono text-xs">⌘K</span>
         </div>
       </div>
 

@@ -187,7 +187,7 @@ export function RetroPanel({ sprintId, isClosed, promoteToSprintId }: Props) {
                   </label>
                   {persisted?.promoted_task_id && (
                     <span
-                      className="tppm-mono text-[10px] px-1.5 py-0.5 rounded border border-semantic-on-track/40 text-semantic-on-track"
+                      className="tppm-mono text-xs px-1.5 py-0.5 rounded border border-semantic-on-track/40 text-semantic-on-track"
                       title={`Created task ${persisted.promoted_task_id}`}
                     >
                       → T-{persisted.promoted_task_id.slice(0, 6)}

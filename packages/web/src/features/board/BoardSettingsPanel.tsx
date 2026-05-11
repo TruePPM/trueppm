@@ -229,7 +229,7 @@ function ColumnRow({ col, err, readOnly, onChange }: RowProps) {
           className="inline-block w-3 h-3 rounded-sm border border-neutral-border"
           style={{ backgroundColor: col.color ?? 'transparent' }}
         />
-        <span className="text-[10px] uppercase tracking-widest text-neutral-text-disabled tppm-mono">
+        <span className="text-xs uppercase tracking-widest text-neutral-text-disabled tppm-mono">
           {col.status}
         </span>
       </div>

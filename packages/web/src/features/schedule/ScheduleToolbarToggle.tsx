@@ -28,7 +28,7 @@ export function ScheduleToolbarToggle({
       onClick={() => onToggle(!pressed)}
       className={[
         'px-3 h-7 text-xs font-medium transition-colors',
-        'focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary',
         pressed
           ? 'bg-brand-primary text-neutral-text-inverse'
           : 'bg-neutral-surface text-neutral-text-secondary hover:bg-neutral-surface-raised',

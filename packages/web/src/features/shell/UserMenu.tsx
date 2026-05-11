@@ -410,9 +410,11 @@ export function UserMenu() {
               aria-hidden="true"
               onClick={close}
             />
-            {/* Bottom sheet */}
+            {/* Bottom sheet — heterogeneous controls (theme toggle, links, buttons)
+                require Tab navigation so role="dialog" is correct here, not role="menu". */}
             <div
-              role="menu"
+              role="dialog"
+              aria-modal="true"
               aria-label="User menu"
               className="fixed bottom-0 inset-x-0 z-50 bg-chrome-surface rounded-t-2xl border-t border-neutral-border flex flex-col py-2"
             >

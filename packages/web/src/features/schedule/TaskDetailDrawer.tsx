@@ -115,11 +115,12 @@ export function TaskDetailDrawer({
         />
       )}
 
-      {/* Desktop: 540px right-side slide-in (ADR-0050 ux-design) */}
+      {/* Desktop: 540px right-side slide-in (ADR-0050 ux-design).
+          aria-modal="false": schedule canvas remains interactive alongside panel. */}
       <div
         ref={drawerRef}
         role="dialog"
-        aria-modal="true"
+        aria-modal="false"
         aria-label={drawerTitle}
         className={[
           'hidden md:flex fixed inset-y-0 right-0 w-[540px] flex-col',

@@ -202,7 +202,7 @@ export function RiskRegisterView() {
                   }}
                   className="w-full text-left px-3 py-2 text-sm text-neutral-text-primary
                     hover:bg-neutral-surface-raised
-                    focus-visible:outline-none focus-visible:bg-neutral-surface-raised"
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset focus-visible:bg-neutral-surface-raised"
                 >
                   Export CSV
                 </button>

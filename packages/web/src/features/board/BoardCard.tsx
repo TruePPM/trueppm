@@ -554,7 +554,7 @@ export function BoardCard({
       className={containerClass}
       role="button"
       tabIndex={0}
-      aria-label={`${task.name}, ${task.progress}% complete${showCriticalState ? ', critical path' : ''}`}
+      aria-label={`${task.name}, ${effectiveProgress}% complete${showCriticalState ? ', critical path' : ''}`}
     >
       {/* Left accent bar — rounded-l-md matches card's border-radius so the bar
           respects the card corners without needing overflow-hidden on the parent. */}

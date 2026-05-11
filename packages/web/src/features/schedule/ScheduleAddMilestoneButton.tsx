@@ -30,7 +30,7 @@ export function ScheduleAddMilestoneButton({
       data-testid="add-milestone-button"
       className={[
         'inline-flex h-7 px-3 items-center gap-1.5 rounded text-xs font-medium transition-colors',
-        'focus:outline-none focus:ring-2 focus:ring-brand-accent focus:ring-offset-1 focus:ring-offset-neutral-surface',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface',
         disabled
           ? 'bg-neutral-surface-sunken text-neutral-text-disabled border border-neutral-border cursor-not-allowed'
           : pending

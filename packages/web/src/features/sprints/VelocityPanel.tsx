@@ -107,7 +107,7 @@ export function VelocityPanel({ velocity }: Props) {
                   x={x + BAR_W / 2}
                   y={CHART_H + 12}
                   textAnchor="middle"
-                  className="tppm-mono text-[10px] fill-neutral-text-disabled"
+                  className="tppm-mono text-xs fill-neutral-text-disabled"
                 >
                   {completed}
                 </text>

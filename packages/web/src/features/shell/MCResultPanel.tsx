@@ -77,7 +77,7 @@ export function MCResultPanel({ result, onClose }: Props) {
         {/* Percentile chips */}
         <div className="flex items-center gap-3 px-5 pt-4 pb-2 flex-wrap">
           <div className="flex flex-col items-center gap-0.5">
-            <span className="text-[10px] uppercase tracking-widest text-neutral-text-disabled">P50</span>
+            <span className="text-xs uppercase tracking-widest text-neutral-text-disabled">P50</span>
             <span
               className="inline-flex items-center px-2 py-0.5 rounded border border-semantic-on-track/40 text-semantic-on-track text-xs tppm-mono"
               aria-label={`P50: ${fmtDate(result.p50)}`}
@@ -86,7 +86,7 @@ export function MCResultPanel({ result, onClose }: Props) {
             </span>
           </div>
           <div className="flex flex-col items-center gap-0.5">
-            <span className="text-[10px] uppercase tracking-widest text-neutral-text-disabled">P80</span>
+            <span className="text-xs uppercase tracking-widest text-neutral-text-disabled">P80</span>
             <span
               className="inline-flex items-center px-2 py-0.5 rounded border border-semantic-at-risk/40 text-semantic-at-risk text-xs tppm-mono"
               aria-label={`P80: ${fmtDate(result.p80)}`}
@@ -95,7 +95,7 @@ export function MCResultPanel({ result, onClose }: Props) {
             </span>
           </div>
           <div className="flex flex-col items-center gap-0.5">
-            <span className="text-[10px] uppercase tracking-widest text-neutral-text-disabled">P95</span>
+            <span className="text-xs uppercase tracking-widest text-neutral-text-disabled">P95</span>
             <span
               className="inline-flex items-center px-2 py-0.5 rounded border border-semantic-critical/40 text-semantic-critical text-xs tppm-mono"
               aria-label={`P95: ${fmtDate(result.p95)}`}

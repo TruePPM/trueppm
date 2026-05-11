@@ -130,7 +130,7 @@ export function CapacityPreflight({ capacity }: Props) {
             >
               <span
                 aria-hidden="true"
-                className={`flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-medium tppm-mono shrink-0 ${
+                className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium tppm-mono shrink-0 ${
                   m.is_over
                     ? 'bg-semantic-critical-bg text-semantic-critical'
                     : 'bg-neutral-surface-sunken text-neutral-text-secondary'
