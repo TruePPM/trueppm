@@ -84,6 +84,7 @@ export default defineConfig({
         {
           label: "Features",
           items: [
+            { slug: "features/unified-data-model" },
             { slug: "features/scheduler" },
             { slug: "features/schedule" },
             { slug: "features/methodology-preset" },
@@ -132,7 +133,10 @@ export default defineConfig({
         // --- Contributing ---
         {
           label: "Contributing",
-          items: [{ slug: "contributing/guide" }],
+          items: [
+            { slug: "contributing/guide" },
+            { slug: "contributing/release" },
+          ],
         },
       ],
     }),

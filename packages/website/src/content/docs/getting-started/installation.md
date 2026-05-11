@@ -3,11 +3,15 @@ title: Installation
 description: Four ways to run TruePPM — Docker Compose, Helm/Kubernetes, single-server, or the scheduler library standalone.
 ---
 
+:::caution[0.1-alpha — not ready for production use]
+This is the first public alpha. The core engine and API are solid; the UI is functional but rough. Expect breaking API changes before the first beta. **Install for evaluation and to give feedback — hold off on deploying for real teams until 0.1-beta.**
+:::
+
 TruePPM ships as pre-built Docker images on GHCR and a Python package on PyPI. Pick the path that fits your environment:
 
 | Path | Best for |
 |------|----------|
-| [Docker Compose](#docker-compose) | Evaluation, development, small teams |
+| [Docker Compose](#docker-compose) | Evaluation, development, contributors |
 | [Helm / Kubernetes](#helm--kubernetes) | Production, horizontal scaling |
 | [Single server](#single-server-with-docker-compose) | Production without Kubernetes |
 | [Scheduler library](#scheduler-library-only) | Embedding the CPM engine in your own app |
