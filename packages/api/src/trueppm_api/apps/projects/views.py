@@ -3433,6 +3433,60 @@ class ProjectBurnView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Validate chart_type and metric before dispatching — guards both combined
+        # and non-combined paths with a consistent 400 response (security-review finding).
+        _VALID_CHART_TYPES = {"burndown", "burnup", "combined"}
+        _VALID_METRICS = {"tasks", "points"}
+        if chart_type not in _VALID_CHART_TYPES:
+            return Response(
+                {"detail": f"chart_type must be one of: {', '.join(sorted(_VALID_CHART_TYPES))}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if metric not in _VALID_METRICS:
+            return Response(
+                {"detail": f"metric must be one of: {', '.join(sorted(_VALID_METRICS))}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if chart_type == "combined":
+            # Merge burndown (remaining) and burnup (completed) into one series so
+            # the client gets both curves in a single request (ADR-0062).
+            try:
+                bd = burn_series(
+                    project_id=project.pk,
+                    chart_type="burndown",
+                    since=since,
+                    until=until,
+                    metric=metric,
+                )
+                bu = burn_series(
+                    project_id=project.pk,
+                    chart_type="burnup",
+                    since=since,
+                    until=until,
+                    metric=metric,
+                )
+            except ValueError as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            bu_by_date = {p["date"]: p for p in bu["series"]}
+            payload = {
+                "chart_type": "combined",
+                "metric": metric,
+                "since": str(since),
+                "until": str(until),
+                "series": [
+                    {
+                        "date": p["date"],
+                        "remaining": p["actual"],
+                        "completed": bu_by_date.get(p["date"], {}).get("actual", 0),
+                        "total": p["scope"],
+                        "ideal": p["ideal"],
+                    }
+                    for p in bd["series"]
+                ],
+            }
+            return Response(payload, status=status.HTTP_200_OK)
+
         try:
             payload = burn_series(
                 project_id=project.pk,

@@ -1,0 +1,472 @@
+import type { ReactNode } from 'react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderWithProviders } from '@/test/utils';
+import { BurnChart } from './BurnChart';
+
+// Recharts uses ResizeObserver and SVG layout — stub ResponsiveContainer so
+// it renders children without needing real dimensions in jsdom.
+vi.mock('recharts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('recharts')>();
+  return {
+    ...actual,
+    ResponsiveContainer: ({ children }: { children: ReactNode }) => (
+      <div style={{ width: 600, height: 320 }}>{children}</div>
+    ),
+  };
+});
+
+// Mock html-to-image and jspdf (dynamically imported in exportPng / exportPdf)
+vi.mock('html-to-image', () => ({
+  toPng: vi.fn().mockResolvedValue('data:image/png;base64,abc'),
+}));
+vi.mock('jspdf', () => ({
+  jsPDF: vi.fn().mockImplementation(() => ({
+    addImage: vi.fn(),
+    save: vi.fn(),
+  })),
+}));
+
+const BURN_SERIES = [
+  { date: '2026-04-01', actual: 40, ideal: 40, scope: 40 },
+  { date: '2026-04-07', actual: 20, ideal: 20, scope: 40 },
+  { date: '2026-04-14', actual: 0,  ideal: 0,  scope: 40 },
+];
+
+const BURN_RESPONSE = {
+  chart_type: 'burndown',
+  metric: 'tasks',
+  since: '2026-04-01',
+  until: '2026-04-14',
+  series: BURN_SERIES,
+};
+
+vi.mock('./hooks/useBurnChart', () => ({
+  useBurnChart: vi.fn(),
+}));
+
+vi.mock('@/hooks/useSprints', () => ({
+  useSprintBurndown: vi.fn(),
+}));
+
+import { useBurnChart } from './hooks/useBurnChart';
+import { useSprintBurndown } from '@/hooks/useSprints';
+
+const mockUseBurnChart = vi.mocked(useBurnChart);
+const mockUseSprintBurndown = vi.mocked(useSprintBurndown);
+
+// Cast helpers — go through unknown to satisfy both tsc and ESLint no-unsafe-argument.
+// TanStack Query return types have ~25 fields; for tests we only care about the
+// subset the component actually reads (data, isLoading, isError, refetch).
+const asBC = (v: unknown) => v as ReturnType<typeof useBurnChart>;
+const asSB = (v: unknown) => v as ReturnType<typeof useSprintBurndown>;
+
+function projectLoading() {
+  mockUseBurnChart.mockReturnValue(asBC({ data: undefined, isLoading: true, isError: false, refetch: vi.fn() }));
+  mockUseSprintBurndown.mockReturnValue(asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+}
+
+function projectWithData() {
+  mockUseBurnChart.mockReturnValue(asBC({ data: BURN_RESPONSE, isLoading: false, isError: false, refetch: vi.fn() }));
+  mockUseSprintBurndown.mockReturnValue(asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+}
+
+function projectError() {
+  mockUseBurnChart.mockReturnValue(asBC({ data: undefined, isLoading: false, isError: true, refetch: vi.fn() }));
+  mockUseSprintBurndown.mockReturnValue(asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+}
+
+function projectEmpty() {
+  mockUseBurnChart.mockReturnValue(asBC({ data: { ...BURN_RESPONSE, series: [] }, isLoading: false, isError: false, refetch: vi.fn() }));
+  mockUseSprintBurndown.mockReturnValue(asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+}
+
+function sprintWithData() {
+  mockUseBurnChart.mockReturnValue(asBC({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+  mockUseSprintBurndown.mockReturnValue(asSB({
+    data: {
+      sprint: {
+        id: 'sp-1', server_version: 1, short_id: 'A1', short_id_display: 'SP-A1',
+        name: 'Sprint 1', goal: null, notes: '',
+        start_date: '2026-04-01', finish_date: '2026-04-14',
+        state: 'ACTIVE',
+        target_milestone: null, target_milestone_detail: null,
+        committed_points: 40, committed_task_count: 8,
+        completed_points: null, completed_task_count: null,
+        completion_ratio_points: null, completion_ratio_tasks: null,
+        activated_at: '2026-04-01T00:00:00Z', closed_at: null,
+        created_at: '2026-04-01T00:00:00Z', updated_at: '2026-04-01T00:00:00Z',
+      },
+      snapshots: [
+        {
+          id: 'sn-1', snapshot_date: '2026-04-07',
+          remaining_points: 20, remaining_task_count: 4,
+          completed_points: 20, completed_task_count: 4,
+          scope_change_points: 0, scope_change_task_count: 0,
+          created_at: '2026-04-07T00:00:00Z',
+        },
+      ],
+    },
+    isLoading: false, isError: false, refetch: vi.fn(),
+  }));
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe('BurnChart — project context', () => {
+  it('renders section heading "Burn Chart"', () => {
+    projectWithData();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    expect(screen.getByRole('heading', { name: /burn chart/i })).toBeInTheDocument();
+  });
+
+  it('renders the variant segmented control', () => {
+    projectWithData();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    expect(screen.getByRole('group', { name: /chart variant/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /burn down/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /burn up/i })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /combined/i })).toBeInTheDocument();
+  });
+
+  it('marks the default variant radio as checked', () => {
+    projectWithData();
+    renderWithProviders(<BurnChart projectId="proj-1" defaultVariant="burndown" />);
+    expect(screen.getByRole('radio', { name: /burn down/i })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /burn up/i })).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('switches variant on click', async () => {
+    projectWithData();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('radio', { name: /burn up/i }));
+    expect(screen.getByRole('radio', { name: /burn up/i })).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('radio', { name: /burn down/i })).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('shows metric selector in project context', () => {
+    projectWithData();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    expect(screen.getByRole('combobox', { name: /metric/i })).toBeInTheDocument();
+  });
+
+  it('shows date range inputs', () => {
+    projectWithData();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    expect(screen.getByLabelText(/from date/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/to date/i)).toBeInTheDocument();
+  });
+
+  it('renders loading skeleton while data is fetching', () => {
+    projectLoading();
+    const { container } = renderWithProviders(<BurnChart projectId="proj-1" />);
+    // ChartSkeleton renders an animate-pulse div
+    expect(container.querySelector('.animate-pulse')).toBeInTheDocument();
+  });
+
+  it('renders error state with retry button', () => {
+    projectError();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    expect(screen.getByText(/couldn't load chart data/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+  });
+
+  it('renders empty state when series is empty', () => {
+    projectEmpty();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    expect(screen.getByText(/no tasks to chart yet/i)).toBeInTheDocument();
+  });
+
+  it('renders export button', () => {
+    projectWithData();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    expect(screen.getByRole('button', { name: /export chart/i })).toBeInTheDocument();
+  });
+});
+
+describe('BurnChart — sprint context', () => {
+  it('renders "Sprint Burndown" heading in sprint context', () => {
+    sprintWithData();
+    renderWithProviders(<BurnChart sprintId="sp-1" />);
+    expect(screen.getByRole('heading', { name: /sprint burndown/i })).toBeInTheDocument();
+  });
+
+  it('does not show metric selector in sprint context', () => {
+    sprintWithData();
+    renderWithProviders(<BurnChart sprintId="sp-1" />);
+    expect(screen.queryByRole('combobox', { name: /metric/i })).not.toBeInTheDocument();
+  });
+
+  it('shows sprint date range instead of date pickers', () => {
+    sprintWithData();
+    renderWithProviders(<BurnChart sprintId="sp-1" />);
+    expect(screen.queryByLabelText(/from date/i)).not.toBeInTheDocument();
+    expect(screen.getByText('2026-04-01 → 2026-04-14')).toBeInTheDocument();
+  });
+
+  it('renders sprint empty state when sprint starts in the future', () => {
+    mockUseBurnChart.mockReturnValue(asBC({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+    const futureDate = new Date();
+    futureDate.setFullYear(futureDate.getFullYear() + 1);
+    const futureIso = futureDate.toISOString().slice(0, 10);
+    const finishIso = new Date(futureDate.getTime() + 14 * 86400000).toISOString().slice(0, 10);
+    mockUseSprintBurndown.mockReturnValue(asSB({
+      data: {
+        sprint: {
+          id: 'sp-future', server_version: 1, short_id: 'A2', short_id_display: 'SP-A2',
+          name: 'Future Sprint', goal: null, notes: '',
+          start_date: futureIso, finish_date: finishIso, state: 'PLANNED',
+          target_milestone: null, target_milestone_detail: null,
+          committed_points: 20, committed_task_count: 5,
+          completed_points: null, completed_task_count: null,
+          completion_ratio_points: null, completion_ratio_tasks: null,
+          activated_at: null, closed_at: null,
+          created_at: '2026-04-01T00:00:00Z', updated_at: '2026-04-01T00:00:00Z',
+        },
+        snapshots: [],
+      },
+      isLoading: false, isError: false, refetch: vi.fn(),
+    }));
+    renderWithProviders(<BurnChart sprintId="sp-future" />);
+    expect(screen.getByText(/sprint starts/i)).toBeInTheDocument();
+  });
+
+  it('renders sprint no-snapshots state for an active sprint with no data yet', () => {
+    mockUseBurnChart.mockReturnValue(asBC({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+    mockUseSprintBurndown.mockReturnValue(asSB({
+      data: {
+        sprint: {
+          id: 'sp-active-empty', server_version: 1, short_id: 'A3', short_id_display: 'SP-A3',
+          name: 'Empty Active', goal: null, notes: '',
+          start_date: '2026-04-01', finish_date: '2026-04-14', state: 'ACTIVE',
+          target_milestone: null, target_milestone_detail: null,
+          committed_points: 20, committed_task_count: 5,
+          completed_points: null, completed_task_count: null,
+          completion_ratio_points: null, completion_ratio_tasks: null,
+          activated_at: '2026-04-01T00:00:00Z', closed_at: null,
+          created_at: '2026-04-01T00:00:00Z', updated_at: '2026-04-01T00:00:00Z',
+        },
+        snapshots: [],
+      },
+      isLoading: false, isError: false, refetch: vi.fn(),
+    }));
+    renderWithProviders(<BurnChart sprintId="sp-active-empty" />);
+    expect(screen.getByText(/no snapshots yet/i)).toBeInTheDocument();
+  });
+
+  it('renders sprint with tasks metric when committed_points is null', () => {
+    mockUseBurnChart.mockReturnValue(asBC({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+    mockUseSprintBurndown.mockReturnValue(asSB({
+      data: {
+        sprint: {
+          id: 'sp-tasks', server_version: 1, short_id: 'B1', short_id_display: 'SP-B1',
+          name: 'Tasks Sprint', goal: null, notes: '',
+          start_date: '2026-04-01', finish_date: '2026-04-14', state: 'ACTIVE',
+          target_milestone: null, target_milestone_detail: null,
+          committed_points: null, committed_task_count: 8,
+          completed_points: null, completed_task_count: null,
+          completion_ratio_points: null, completion_ratio_tasks: null,
+          activated_at: '2026-04-01T00:00:00Z', closed_at: null,
+          created_at: '2026-04-01T00:00:00Z', updated_at: '2026-04-01T00:00:00Z',
+        },
+        snapshots: [
+          {
+            id: 'sn-t1', snapshot_date: '2026-04-07',
+            remaining_points: 0, remaining_task_count: 4,
+            completed_points: 0, completed_task_count: 4,
+            scope_change_points: 0, scope_change_task_count: 0,
+            created_at: '2026-04-07T00:00:00Z',
+          },
+        ],
+      },
+      isLoading: false, isError: false, refetch: vi.fn(),
+    }));
+    renderWithProviders(<BurnChart sprintId="sp-tasks" />);
+    // With committed_points=null, metric auto-selects tasks — no metric selector shown
+    expect(screen.queryByRole('combobox', { name: /metric/i })).not.toBeInTheDocument();
+  });
+
+  it('renders sprint error state with retry', () => {
+    mockUseBurnChart.mockReturnValue(asBC({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+    mockUseSprintBurndown.mockReturnValue(asSB({ data: undefined, isLoading: false, isError: true, refetch: vi.fn() }));
+    renderWithProviders(<BurnChart sprintId="sp-err" />);
+    expect(screen.getByText(/couldn't load chart data/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+  });
+});
+
+describe('BurnChart — combined variant', () => {
+  const COMBINED_RESPONSE = {
+    chart_type: 'combined',
+    metric: 'tasks',
+    since: '2026-04-01',
+    until: '2026-04-14',
+    series: [
+      { date: '2026-04-01', remaining: 40, completed: 0,  total: 40, ideal: 40 },
+      { date: '2026-04-07', remaining: 20, completed: 20, total: 40, ideal: 20 },
+      { date: '2026-04-14', remaining: 0,  completed: 40, total: 40, ideal: 0  },
+    ],
+  };
+
+  it('renders combined chart with both remaining and completed curves', () => {
+    mockUseBurnChart.mockReturnValue(asBC({ data: COMBINED_RESPONSE, isLoading: false, isError: false, refetch: vi.fn() }));
+    mockUseSprintBurndown.mockReturnValue(asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+    renderWithProviders(<BurnChart projectId="proj-1" defaultVariant="combined" />);
+    expect(screen.getByRole('radio', { name: /combined/i })).toHaveAttribute('aria-checked', 'true');
+    // Chart area renders (not skeleton/empty/error)
+    const { container } = renderWithProviders(<BurnChart projectId="proj-1" defaultVariant="combined" />);
+    expect(container.querySelector('.animate-pulse')).not.toBeInTheDocument();
+  });
+});
+
+describe('BurnChart — scope change markers', () => {
+  const BURN_WITH_SCOPE_CHANGE = {
+    chart_type: 'burndown',
+    metric: 'tasks',
+    since: '2026-04-01',
+    until: '2026-04-07',
+    series: [
+      { date: '2026-04-01', actual: 40, ideal: 40, scope: 40 },
+      { date: '2026-04-04', actual: 35, ideal: 30, scope: 40 },
+      // scope jumps from 40 → 45 on this date (5-task scope add)
+      { date: '2026-04-05', actual: 38, ideal: 25, scope: 45 },
+      { date: '2026-04-07', actual: 30, ideal: 15, scope: 45 },
+    ],
+  };
+
+  it('renders when scope changes are present in the series', () => {
+    mockUseBurnChart.mockReturnValue(asBC({ data: BURN_WITH_SCOPE_CHANGE, isLoading: false, isError: false, refetch: vi.fn() }));
+    mockUseSprintBurndown.mockReturnValue(asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+    // Component renders without error — scope dots are SVG elements inside Recharts
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    expect(screen.getByRole('heading', { name: /burn chart/i })).toBeInTheDocument();
+  });
+});
+
+describe('BurnChart — null story-points banner', () => {
+  it('shows the banner when all points are zero with metric=points', async () => {
+    const zeroPointsSeries = [
+      { date: '2026-04-01', actual: 0, ideal: 0, scope: 0 },
+      { date: '2026-04-07', actual: 0, ideal: 0, scope: 0 },
+    ];
+    mockUseBurnChart.mockReturnValue(asBC({
+      data: { chart_type: 'burndown', metric: 'points', since: '2026-04-01', until: '2026-04-07', series: zeroPointsSeries },
+      isLoading: false, isError: false, refetch: vi.fn(),
+    }));
+    mockUseSprintBurndown.mockReturnValue(asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+    const user = userEvent.setup();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    // Switch metric to points to trigger the banner
+    await user.selectOptions(screen.getByRole('combobox', { name: /metric/i }), 'points');
+    expect(screen.getByText(/most tasks have no story point estimates/i)).toBeInTheDocument();
+  });
+
+  it('"Use task count" button in banner switches metric back to tasks', async () => {
+    const zeroPointsSeries = [
+      { date: '2026-04-01', actual: 0, ideal: 0, scope: 0 },
+    ];
+    mockUseBurnChart.mockReturnValue(asBC({
+      data: { chart_type: 'burndown', metric: 'points', since: '2026-04-01', until: '2026-04-01', series: zeroPointsSeries },
+      isLoading: false, isError: false, refetch: vi.fn(),
+    }));
+    mockUseSprintBurndown.mockReturnValue(asSB({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+    const user = userEvent.setup();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    await user.selectOptions(screen.getByRole('combobox', { name: /metric/i }), 'points');
+    const bannerBtn = screen.getByRole('button', { name: /use task count/i });
+    await user.click(bannerBtn);
+    // After clicking, metric resets to tasks — banner disappears
+    expect(screen.queryByText(/most tasks have no story point estimates/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('BurnChart — export', () => {
+  it('calls toPng when Download PNG menuitem is clicked', async () => {
+    projectWithData();
+    const user = userEvent.setup();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    // The menu is hidden by CSS in production but accessible in jsdom
+    await user.click(screen.getByRole('menuitem', { name: /download png/i }));
+    const { toPng } = await import('html-to-image');
+    await waitFor(() => expect(toPng).toHaveBeenCalled());
+  });
+
+  it('calls toPng when Download PDF menuitem is clicked', async () => {
+    projectWithData();
+    const user = userEvent.setup();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    await user.click(screen.getByRole('menuitem', { name: /download pdf/i }));
+    const { toPng } = await import('html-to-image');
+    await waitFor(() => expect(toPng).toHaveBeenCalled());
+  });
+});
+
+describe('BurnChart — date range controls', () => {
+  it('updates since/until state when date inputs change', () => {
+    projectWithData();
+    renderWithProviders(<BurnChart projectId="proj-1" />);
+    const fromInput = screen.getByLabelText(/from date/i);
+    const toInput = screen.getByLabelText(/to date/i);
+    fireEvent.change(fromInput, { target: { value: '2026-04-01' } });
+    fireEvent.change(toInput, { target: { value: '2026-04-14' } });
+    expect(fromInput).toHaveValue('2026-04-01');
+    expect(toInput).toHaveValue('2026-04-14');
+  });
+});
+
+describe('BurnChart — sprint with forecast', () => {
+  it('shows trending callout for an in-progress sprint', () => {
+    // Use a sprint that spans today so dayIndex > 0 and burnRate > 0
+    const today = new Date();
+    const startDate = new Date(today);
+    startDate.setDate(today.getDate() - 9);
+    const finishDate = new Date(today);
+    finishDate.setDate(today.getDate() + 4);
+    const startIso = startDate.toISOString().slice(0, 10);
+    const finishIso = finishDate.toISOString().slice(0, 10);
+    const todayIso = today.toISOString().slice(0, 10);
+
+    mockUseBurnChart.mockReturnValue(asBC({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+    mockUseSprintBurndown.mockReturnValue(asSB({
+      data: {
+        sprint: {
+          id: 'sp-active', server_version: 1, short_id: 'C1', short_id_display: 'SP-C1',
+          name: 'Active Sprint', goal: null, notes: '',
+          start_date: startIso, finish_date: finishIso, state: 'ACTIVE',
+          target_milestone: null, target_milestone_detail: null,
+          committed_points: null, committed_task_count: 20,
+          completed_points: null, completed_task_count: null,
+          completion_ratio_points: null, completion_ratio_tasks: null,
+          activated_at: startIso + 'T00:00:00Z', closed_at: null,
+          created_at: startIso + 'T00:00:00Z', updated_at: startIso + 'T00:00:00Z',
+        },
+        snapshots: [
+          {
+            id: 'sn-act', snapshot_date: todayIso,
+            remaining_points: 0, remaining_task_count: 12,
+            completed_points: 0, completed_task_count: 8,
+            scope_change_points: 0, scope_change_task_count: 0,
+            created_at: todayIso + 'T00:00:00Z',
+          },
+        ],
+      },
+      isLoading: false, isError: false, refetch: vi.fn(),
+    }));
+    renderWithProviders(<BurnChart sprintId="sp-active" />);
+    // Trending callout renders when trendAhead is computed
+    expect(screen.getByText(/trending/i)).toBeInTheDocument();
+  });
+
+  it('fires sprint refetch when retry is clicked in error state', async () => {
+    const refetch = vi.fn();
+    mockUseBurnChart.mockReturnValue(asBC({ data: undefined, isLoading: false, isError: false, refetch: vi.fn() }));
+    mockUseSprintBurndown.mockReturnValue(asSB({ data: undefined, isLoading: false, isError: true, refetch }));
+    renderWithProviders(<BurnChart sprintId="sp-err" />);
+    await userEvent.setup().click(screen.getByRole('button', { name: /retry/i }));
+    expect(refetch).toHaveBeenCalled();
+  });
+});

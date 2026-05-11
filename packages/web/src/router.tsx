@@ -16,6 +16,7 @@ import { HeatmapPage } from '@/features/resource/HeatmapPage';
 import { TeamView } from '@/features/roster/TeamView';
 import { RosterPage } from '@/features/roster/RosterPage';
 import { RiskRegisterView } from '@/features/risk/RiskRegisterView';
+import { ReportsView } from '@/features/reports/ReportsView';
 import { ResourcesPage } from '@/features/resources/ResourcesPage';
 import { ProjectSettingsPage } from '@/features/settings/ProjectSettingsPage';
 import { MembersTab } from '@/features/settings/members/MembersTab';
@@ -85,6 +86,7 @@ export const router = createBrowserRouter([
                 ],
               },
               { path: 'risk', element: <RiskRegisterView /> },
+              { path: 'reports', element: <ReportsView /> },
               {
                 path: 'settings',
                 element: <ProjectSettingsPage />,

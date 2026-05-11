@@ -191,8 +191,11 @@ test.describe('Wave 10 — Sprints metrics row', () => {
     await page.goto(BASE_URL);
 
     await expect(page.getByRole('region', { name: /Sprint Burndown/i })).toBeVisible();
-    await expect(page.getByText('TODAY')).toBeVisible();
-    await expect(page.getByText(/scope-add 2026-04-05/)).toBeVisible();
+    // Scope change on 2026-04-05 (+4 points) is rendered as a Recharts ReferenceDot with
+    // an aria-label, plus the legend chip "Scope added". The ideal-line "TODAY" marker
+    // only appears when today falls within the sprint window, so we don't assert it here.
+    await expect(page.getByLabel(/Scope change 2026-04-05: \+4/)).toBeVisible();
+    await expect(page.getByText('Scope added')).toBeVisible();
 
     const capacity = page.getByRole('region', { name: /Capacity Preflight/i });
     await expect(capacity).toBeVisible();
