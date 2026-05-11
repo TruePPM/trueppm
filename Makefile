@@ -141,7 +141,7 @@ coverage-diff-web: ## Diff coverage for packages/web
 	  echo "→ web diff coverage: no changes — skipped"; \
 	fi
 
-pre-push: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check schema-check coverage-diff ## Run pre-push CI gates (all lint+typecheck, migrations, schema, diff-coverage)
+pre-push: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check schema-check ## Run pre-push CI gates (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@echo ""
 	@echo "✅ Pre-push checks passed. Safe to git push."
 
