@@ -1855,8 +1855,11 @@ class TaskBulkView(APIView):
 
         # Fetch the caller's role once for the delete permission check below.
         # delete mirrors IsProjectMemberWriteOrOwn: Admin+ or task assignee.
+        from django.contrib.auth.models import User as _User
+
+        _caller = cast(_User, request.user)
         caller_role: int = (
-            ProjectMembership.objects.filter(project_id=pk, user=request.user, is_deleted=False)
+            ProjectMembership.objects.filter(project_id=pk, user=_caller, is_deleted=False)
             .values_list("role", flat=True)
             .first()
             or -1
@@ -1884,7 +1887,7 @@ class TaskBulkView(APIView):
                     task = locked_tasks[op["id"]]
                     # Mirrors IsProjectMemberWriteOrOwn: Admin+ or task assignee may delete.
                     if caller_role < Role.ADMIN:
-                        is_assignee = task.assignments.filter(resource__user=request.user).exists()
+                        is_assignee = task.assignments.filter(resource__user=_caller).exists()
                         if not is_assignee:
                             return Response(
                                 {

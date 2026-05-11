@@ -264,8 +264,13 @@ class TaskSkillRequirementViewSet(viewsets.ModelViewSet[TaskSkillRequirement]):
 
     def get_queryset(self) -> QuerySet[TaskSkillRequirement]:
         # Scope to tasks in projects where the requesting user is a member.
+        from typing import cast
+
+        from django.contrib.auth.models import User
+
+        user = cast(User, self.request.user)
         member_project_ids = ProjectMembership.objects.filter(
-            user=self.request.user, is_deleted=False
+            user=user, is_deleted=False
         ).values_list("project_id", flat=True)
         qs = TaskSkillRequirement.objects.select_related("skill").filter(
             is_deleted=False,
