@@ -43,8 +43,8 @@ export function BuildModeEmptyState({ onAddFirstTask }: BuildModeEmptyStateProps
         className="inline-flex h-9 px-4 items-center gap-2 rounded
           bg-brand-primary text-white text-[13px] font-medium
           hover:opacity-95
-          focus:outline-none focus:ring-2 focus:ring-brand-primary
-          focus:ring-offset-2 focus:ring-offset-neutral-surface"
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+          focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-surface"
       >
         + Add first task
         <kbd className="inline-flex h-5 px-1.5 items-center rounded border border-white/40 text-[11px] tppm-mono">

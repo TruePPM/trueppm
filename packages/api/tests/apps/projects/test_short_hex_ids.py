@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import date
 from unittest.mock import patch
 
@@ -22,7 +23,7 @@ User = get_user_model()
 
 @pytest.fixture
 def user(db: object) -> object:
-    return User.objects.create_user(username="pm", password="pw")
+    return User.objects.create_user(username=f"pm-{uuid.uuid4().hex[:8]}", password="pw")
 
 
 @pytest.fixture

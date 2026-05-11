@@ -89,7 +89,7 @@ export function AssigneesEditor({
         >
           <span
             aria-hidden="true"
-            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-brand-primary text-white text-[10px] font-bold shrink-0"
+            className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-brand-primary text-white text-xs font-bold shrink-0"
           >
             {initials(row.resourceName)}
           </span>
@@ -156,7 +156,7 @@ export function AssigneesEditor({
                     setSearch('');
                     inputRef.current?.focus();
                   }}
-                  className="w-full text-left px-2 py-1.5 text-[13px] text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:bg-neutral-surface-sunken focus-visible:outline-none"
+                  className="w-full text-left px-2 py-1.5 text-[13px] text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
                 >
                   {pr.resource.name}
                   {pr.roleTitle && (

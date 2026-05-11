@@ -8,9 +8,20 @@
  *   task_run_failed   → taskRunStore.failRun(); for scheduling tasks also setCpmError()
  *   task_run_cancelled → taskRunStore.cancelRun()
  *   cpm_complete      → invalidate tasks query, schedulerStore.setCpmComplete() (compat broadcast)
- *   task_created / task_updated / task_deleted → invalidate tasks query
+ *   cpm_error         → schedulerStore.setCpmError(), setRecalculating(false)
+ *   task_created / task_updated / task_deleted → invalidate tasks
+ *   tasks_reordered / tasks_restructured / tasks_bulk_mutated → invalidate tasks
  *   dependency_created / dependency_updated / dependency_deleted → invalidate dependencies + tasks
  *   baseline_created / baseline_activated / baseline_deleted → invalidate baselines + tasks
+ *   risk_created / risk_updated / risk_deleted → invalidate risks
+ *   comment_created → invalidate riskComments
+ *   sprint_created / sprint_updated / sprint_deleted / sprint_activated / sprint_cancelled / sprint_closed → invalidate sprints
+ *   assignment_created / assignment_updated / assignment_deleted / roster_changed → invalidate tasks
+ *   member_added / member_role_changed / member_removed → invalidate members
+ *   board_config_updated → invalidate boardConfig
+ *   board_view_created / board_view_updated / board_view_deleted → invalidate boardViews
+ *   project_created / project_updated / project_deleted → invalidate project + projects
+ *   phases_reordered → invalidate tasks
  *
  * Reconnects with exponential backoff (1s → 2s → 4s → … up to 30s).
  * Stops reconnecting when `projectId` is null/undefined or the token is absent.
@@ -135,6 +146,12 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         removePresenceUser(payload.user_id as string);
       }
 
+      // --- CPM error (timeout / hard failure) ---
+      else if (event_type === 'cpm_error') {
+        setCpmError({ error: (payload.error as string | undefined) ?? 'timeout', cycle: [] } as CpmError);
+        setRecalculating(false);
+      }
+
       // --- Legacy CPM compat broadcast ---
       else if (event_type === 'cpm_complete') {
         // cpm_complete is still emitted by the scheduler for any client that hasn't
@@ -176,6 +193,83 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         if (event_type === 'baseline_activated' || event_type === 'baseline_deleted') {
           void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
         }
+      }
+
+      // --- Bulk task mutations (reorder, indent/outdent, bulk ops) ---
+      else if (
+        event_type === 'tasks_reordered' ||
+        event_type === 'tasks_restructured' ||
+        event_type === 'tasks_bulk_mutated' ||
+        event_type === 'phases_reordered'
+      ) {
+        void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+      }
+
+      // --- Risk events ---
+      else if (
+        event_type === 'risk_created' ||
+        event_type === 'risk_updated' ||
+        event_type === 'risk_deleted'
+      ) {
+        void queryClient.invalidateQueries({ queryKey: ['risks', projectIdRef.current] });
+      }
+
+      // --- Risk comment events ---
+      else if (event_type === 'comment_created') {
+        void queryClient.invalidateQueries({ queryKey: ['riskComments', projectIdRef.current] });
+      }
+
+      // --- Sprint events ---
+      else if (
+        event_type === 'sprint_created' ||
+        event_type === 'sprint_updated' ||
+        event_type === 'sprint_deleted' ||
+        event_type === 'sprint_activated' ||
+        event_type === 'sprint_cancelled' ||
+        event_type === 'sprint_closed'
+      ) {
+        void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
+      }
+
+      // --- Resource assignment events ---
+      else if (
+        event_type === 'assignment_created' ||
+        event_type === 'assignment_updated' ||
+        event_type === 'assignment_deleted' ||
+        event_type === 'roster_changed'
+      ) {
+        // Assignments are surfaced on task rows (assignee chips, overalloc flag).
+        void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+      }
+
+      // --- Membership events ---
+      else if (
+        event_type === 'member_added' ||
+        event_type === 'member_role_changed' ||
+        event_type === 'member_removed'
+      ) {
+        void queryClient.invalidateQueries({ queryKey: ['members', projectIdRef.current] });
+      }
+
+      // --- Board config and saved-view events ---
+      else if (event_type === 'board_config_updated') {
+        void queryClient.invalidateQueries({ queryKey: ['boardConfig', projectIdRef.current] });
+      } else if (
+        event_type === 'board_view_created' ||
+        event_type === 'board_view_updated' ||
+        event_type === 'board_view_deleted'
+      ) {
+        void queryClient.invalidateQueries({ queryKey: ['boardViews', projectIdRef.current] });
+      }
+
+      // --- Project-level events ---
+      else if (
+        event_type === 'project_created' ||
+        event_type === 'project_updated' ||
+        event_type === 'project_deleted'
+      ) {
+        void queryClient.invalidateQueries({ queryKey: ['project', projectIdRef.current] });
+        void queryClient.invalidateQueries({ queryKey: ['projects'] });
       }
     }
 

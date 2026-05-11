@@ -7,9 +7,10 @@ high-frequency cursor messages.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
+
+from asgiref.sync import async_to_sync
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +26,9 @@ def broadcast_workshop_event(
 ) -> None:
     """Send a JSON event to all clients connected to the project's workshop group.
 
-    Uses the same asyncio.run() / loop.create_task() dispatch pattern as
-    broadcast_board_event, but the channel-layer message envelope intentionally
-    differs: event_type and payload are nested under a "content" key so that
+    Uses async_to_sync(channel_layer.group_send) for thread-safe dispatch.
+    The channel-layer message envelope intentionally differs from
+    broadcast_board_event: event_type and payload are nested under a "content" key so that
     WorkshopConsumer.workshop_event() can relay the entire content dict to the
     client with a single send_json(event["content"]) call.  Do not "fix" this
     to match the flat broadcast_board_event layout — the consumer reads "content".
@@ -54,18 +55,10 @@ def broadcast_workshop_event(
     }
 
     try:
-        asyncio.run(_send(channel_layer, group, message))
-    except RuntimeError:
-        loop = asyncio.get_event_loop()
-        _task = loop.create_task(_send(channel_layer, group, message))
-        _task.add_done_callback(lambda t: None)
+        async_to_sync(channel_layer.group_send)(group, message)
     except Exception:
         logger.exception(
             "broadcast_workshop_event: failed to send %s to group %s",
             event_type,
             group,
         )
-
-
-async def _send(channel_layer: Any, group: str, message: dict[str, Any]) -> None:
-    await channel_layer.group_send(group, message)

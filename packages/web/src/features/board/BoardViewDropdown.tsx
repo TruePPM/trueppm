@@ -67,7 +67,7 @@ function SaveViewModal({ onSave, onCancel, isSaving }: SaveViewModalProps) {
 
   return (
     <div
-      className="absolute left-0 top-full mt-1 z-50 bg-neutral-surface border border-neutral-border rounded-md shadow-sm p-3 w-64"
+      className="absolute left-0 top-full mt-1 z-50 bg-neutral-surface border border-neutral-border rounded-md p-3 w-64"
       role="dialog"
       aria-label="Save current view"
       aria-modal="false"

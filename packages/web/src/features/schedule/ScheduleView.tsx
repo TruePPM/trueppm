@@ -1006,14 +1006,16 @@ export function ScheduleView() {
         />
       )}
 
-      <MonteCarloRow
-        engine={engine}
-        projectId={projectId ?? undefined}
-        taskListWidth={totalWidth}
-        cpmFinish={cpmFinish}
-        mutationVersion={mcMutationVersion}
-        tasks={allTasks}
-      />
+      {(currentRole === null || currentRole >= 1) && (
+        <MonteCarloRow
+          engine={engine}
+          projectId={projectId ?? undefined}
+          taskListWidth={totalWidth}
+          cpmFinish={cpmFinish}
+          mutationVersion={mcMutationVersion}
+          tasks={allTasks}
+        />
+      )}
 
       {/* Mobile MC card — md:hidden; desktop uses MonteCarloRow above (issue #33) */}
       <MobileMonteCarloCard projectId={projectId ?? undefined} />

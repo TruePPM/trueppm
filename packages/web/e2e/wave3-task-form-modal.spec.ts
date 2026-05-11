@@ -180,10 +180,11 @@ test.describe('Task create/edit modal (#305)', () => {
       dialog.getByText('New task will be added as a child of this phase.'),
     ).toBeVisible();
 
-    // Typing the leaf task's WBS label resolves the picker to its task id and
-    // swaps the hint to the leaf-promotion copy. Before #378 the leaf was
-    // filtered out of `parentOptions` entirely, so the hint never matched.
-    await picker.fill('1.1 · Build feature');
+    // Selecting the leaf task option swaps the hint to the leaf-promotion
+    // copy. Before #378 the leaf was filtered out of `parentOptions` entirely,
+    // so the hint never matched. The picker is a native <select> (issue #444);
+    // selectOption resolves by visible label.
+    await picker.selectOption({ label: '1.1 · Build feature' });
     await expect(
       dialog.getByText('Adding a task here will turn this task into a phase.'),
     ).toBeVisible();

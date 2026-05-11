@@ -117,11 +117,13 @@ export function RiskDrawer({ projectId, risk, isOpen, onClose, initialEditing }:
         />
       )}
 
-      {/* Desktop inline panel — rendered as a flex sibling by RiskRegisterView */}
+      {/* Desktop inline panel — rendered as a flex sibling by RiskRegisterView.
+          aria-modal="false": this panel is non-modal; the risk table stays
+          interactive alongside it. Only the mobile bottom sheet is modal. */}
       <div
         ref={drawerRef}
         role="dialog"
-        aria-modal="true"
+        aria-modal="false"
         aria-label={drawerTitle}
         className="hidden md:flex w-[480px] shrink-0 flex-col bg-neutral-surface border-l border-neutral-border overflow-y-auto"
       >
@@ -479,6 +481,7 @@ function RiskNotesSection({ projectId, riskId }: { projectId: string; riskId: st
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 onKeyDown={handleKeyDown}
+                aria-label="Add a note"
                 placeholder="Add a note…"
                 disabled={createComment.isPending}
                 className="w-full border border-neutral-border rounded px-3 py-2

@@ -463,13 +463,13 @@ export function QueueLayout({
           >
             <h2
               id={`queue-group-${group.key}`}
-              className="text-[10px] font-semibold uppercase tracking-widest text-neutral-text-secondary"
+              className="text-xs font-semibold uppercase tracking-widest text-neutral-text-secondary"
             >
               {group.label}
             </h2>
             <span
               className="inline-flex items-center justify-center rounded-full bg-neutral-surface-sunken
-                text-[10px] font-semibold text-neutral-text-secondary tppm-mono"
+                text-xs font-semibold text-neutral-text-secondary tppm-mono"
               style={{ minWidth: 18, height: 16, padding: '0 6px' }}
               aria-label={`${group.tasks.length} ${group.tasks.length === 1 ? 'task' : 'tasks'}`}
               data-testid={`queue-group-count-${group.key}`}

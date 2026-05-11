@@ -145,7 +145,7 @@ export function InviteForm({ projectId }: InviteFormProps) {
                   className={[
                     'flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors',
                     'hover:bg-neutral-surface-raised',
-                    'focus-visible:outline-none focus-visible:bg-neutral-surface-raised',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset focus-visible:bg-neutral-surface-raised',
                   ].join(' ')}
                 >
                   <span

@@ -77,8 +77,8 @@ export function BuildModeHintStrip({ mode, onShowCheatsheet }: BuildModeHintStri
         onClick={onShowCheatsheet}
         className="inline-flex items-center gap-1.5 text-[12px] text-chrome-text-secondary
           hover:text-chrome-text-primary
-          focus:outline-none focus:ring-2 focus:ring-brand-primary
-          focus:ring-offset-1 focus:ring-offset-chrome-surface-raised rounded"
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+          focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface-raised rounded"
         aria-label="Show all keyboard shortcuts"
       >
         <kbd className="inline-flex h-5 px-1.5 items-center rounded border border-chrome-border bg-chrome-surface text-[11px] tppm-mono">

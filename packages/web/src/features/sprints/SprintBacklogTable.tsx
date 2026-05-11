@@ -231,7 +231,7 @@ function BacklogGroup({ sprintId, group }: GroupProps) {
             <td className="px-3 py-2 align-top w-12">
               {t.is_critical && (
                 <span
-                  className="tppm-mono text-[10px] border border-semantic-critical/40 text-semantic-critical bg-transparent rounded px-1 py-0.5"
+                  className="tppm-mono text-xs border border-semantic-critical/40 text-semantic-critical bg-transparent rounded px-1 py-0.5"
                   title="This task is on the critical path — delays here delay the project end date"
                   aria-label="Critical path task"
                 >
@@ -274,7 +274,7 @@ function OwnerAvatars({ assignments }: { assignments: { resource_name: string }[
     return (
       <span
         aria-hidden="true"
-        className="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] tppm-mono bg-neutral-surface-sunken text-neutral-text-disabled"
+        className="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs tppm-mono bg-neutral-surface-sunken text-neutral-text-disabled"
       >
         ?
       </span>
@@ -287,14 +287,14 @@ function OwnerAvatars({ assignments }: { assignments: { resource_name: string }[
           key={`${a.resource_name}-${idx}`}
           aria-label={a.resource_name}
           title={a.resource_name}
-          className="inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-medium tppm-mono bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-surface"
+          className="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium tppm-mono bg-neutral-surface-sunken text-neutral-text-secondary border border-neutral-surface"
         >
           {initials(a.resource_name)}
         </span>
       ))}
       {assignments.length > 3 && (
         <span
-          className="tppm-mono text-[10px] text-neutral-text-disabled pl-2"
+          className="tppm-mono text-xs text-neutral-text-disabled pl-2"
           aria-label={`${assignments.length - 3} more owners`}
         >
           +{assignments.length - 3}

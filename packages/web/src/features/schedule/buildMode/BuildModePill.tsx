@@ -19,8 +19,8 @@ export function BuildModePill({ onShowCheatsheet }: BuildModePillProps) {
         border border-brand-primary/30 bg-brand-primary/8 text-brand-primary
         text-[11px] font-medium uppercase tracking-widest
         hover:bg-brand-primary/12
-        focus:outline-none focus:ring-2 focus:ring-brand-primary
-        focus:ring-offset-1 focus:ring-offset-neutral-surface"
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+        focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface"
     >
       <span aria-hidden="true">⌨</span>
       Build mode

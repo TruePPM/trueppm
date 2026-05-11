@@ -141,7 +141,7 @@ export function PredecessorsEditor({
                       // Keep picker open so users can chain-add multiple.
                       inputRef.current?.focus();
                     }}
-                    className="w-full text-left flex items-center gap-2 px-2 py-1.5 text-[13px] hover:bg-neutral-surface-sunken focus-visible:bg-neutral-surface-sunken focus-visible:outline-none"
+                    className="w-full text-left flex items-center gap-2 px-2 py-1.5 text-[13px] hover:bg-neutral-surface-sunken focus-visible:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
                   >
                     <span className="tppm-mono text-[11px] text-neutral-text-disabled w-12 shrink-0">
                       {t.wbs || '—'}

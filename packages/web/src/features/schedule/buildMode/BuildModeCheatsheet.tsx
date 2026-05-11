@@ -111,8 +111,8 @@ export function BuildModeCheatsheet({ open, onClose }: BuildModeCheatsheetProps)
             aria-label="Close shortcuts"
             className="w-7 h-7 inline-flex items-center justify-center rounded
               text-neutral-text-secondary hover:text-neutral-text-primary
-              focus:outline-none focus:ring-2 focus:ring-brand-primary
-              focus:ring-offset-1 focus:ring-offset-neutral-surface"
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+              focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface"
           >
             ✕
           </button>
@@ -159,8 +159,8 @@ export function BuildModeCheatsheet({ open, onClose }: BuildModeCheatsheetProps)
             className="inline-flex h-8 px-3 items-center rounded border border-neutral-border
               bg-neutral-surface text-[13px] text-neutral-text-primary
               hover:bg-neutral-row-hover
-              focus:outline-none focus:ring-2 focus:ring-brand-primary
-              focus:ring-offset-1 focus:ring-offset-neutral-surface"
+              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+              focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface"
           >
             Close
           </button>

@@ -69,8 +69,7 @@ export function ResourcesPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full h-7 px-2.5 rounded border border-neutral-border text-xs text-neutral-text-primary placeholder-neutral-text-disabled
-              bg-neutral-surface focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-0
-              focus-visible:ring-2 focus-visible:ring-brand-primary"
+              bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-0"
           />
         </div>
 
