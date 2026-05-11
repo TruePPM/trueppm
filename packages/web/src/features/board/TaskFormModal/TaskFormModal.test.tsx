@@ -211,9 +211,8 @@ describe('TaskFormModal (issue #305)', () => {
 
   it('parent picker includes leaf tasks and excludes milestones (#378)', () => {
     renderModal();
-    const datalist = document.getElementById('task-parent-options') as HTMLDataListElement;
-    expect(datalist).not.toBeNull();
-    const labels = Array.from(datalist.options).map((o) => o.value);
+    const picker = screen.getByLabelText<HTMLSelectElement>(/Parent phase/);
+    const labels = Array.from(picker.options).map((o) => o.textContent);
     // Summary phase + both leaf tasks are valid parents.
     expect(labels).toContain('1 · Parent task');
     expect(labels).toContain('2 · Sibling one');
@@ -224,13 +223,13 @@ describe('TaskFormModal (issue #305)', () => {
 
   it('shows leaf-promotion hint copy when a leaf task is selected as parent (#378)', async () => {
     renderModal();
-    const picker = screen.getByLabelText<HTMLInputElement>(/Parent phase/);
-    fireEvent.change(picker, { target: { value: '2 · Sibling one' } });
+    const picker = screen.getByLabelText<HTMLSelectElement>(/Parent phase/);
+    fireEvent.change(picker, { target: { value: 'sibling-1' } });
     expect(
       await screen.findByText('Adding a task here will turn this task into a phase.'),
     ).toBeInTheDocument();
     // Switching back to a real summary phase reverts to the regular hint.
-    fireEvent.change(picker, { target: { value: '1 · Parent task' } });
+    fireEvent.change(picker, { target: { value: 'parent-task-id' } });
     expect(
       await screen.findByText('New task will be added as a child of this phase.'),
     ).toBeInTheDocument();
@@ -238,8 +237,8 @@ describe('TaskFormModal (issue #305)', () => {
 
   it('posts the leaf parent id on create — server promotes it to a summary on next read (#378)', async () => {
     renderModal();
-    const picker = screen.getByLabelText<HTMLInputElement>(/Parent phase/);
-    fireEvent.change(picker, { target: { value: '3 · Phase 4' } });
+    const picker = screen.getByLabelText<HTMLSelectElement>(/Parent phase/);
+    fireEvent.change(picker, { target: { value: 'leaf-phase-id' } });
     fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Child of leaf' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
     await Promise.resolve();
@@ -251,14 +250,14 @@ describe('TaskFormModal (issue #305)', () => {
 
   it('renders the parent picker seeded from the inferred parentId, and posts the chosen id (#360)', async () => {
     renderModal({ parentId: 'parent-task-id' });
-    const picker = screen.getByLabelText<HTMLInputElement>(/Parent phase/);
-    // Seeded from prop — label combines WBS + name.
-    expect(picker.value).toBe('1 · Parent task');
-    // Clearing the input drops back to root parent.
+    const picker = screen.getByLabelText<HTMLSelectElement>(/Parent phase/);
+    // Seeded from prop — select value is the task UUID.
+    expect(picker.value).toBe('parent-task-id');
+    // Selecting the "No parent (root)" option drops back to root parent.
     fireEvent.change(picker, { target: { value: '' } });
     expect(screen.getByText(/add at the project root/)).toBeInTheDocument();
-    // Re-typing a known label re-resolves to the matching id.
-    fireEvent.change(picker, { target: { value: '1 · Parent task' } });
+    // Re-selecting the parent option re-resolves to the matching id.
+    fireEvent.change(picker, { target: { value: 'parent-task-id' } });
     fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Child' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
     await Promise.resolve();
@@ -564,12 +563,12 @@ describe('TaskFormModal (issue #305)', () => {
 
   it('milestone mode: parent picker hint reads "milestone" when a leaf is chosen', async () => {
     renderModal({ isMilestone: true });
-    const picker = screen.getByLabelText<HTMLInputElement>(/Parent phase/);
-    fireEvent.change(picker, { target: { value: '2 · Sibling one' } });
+    const picker = screen.getByLabelText<HTMLSelectElement>(/Parent phase/);
+    fireEvent.change(picker, { target: { value: 'sibling-1' } });
     expect(
       await screen.findByText('Adding a milestone here will turn this task into a phase.'),
     ).toBeInTheDocument();
-    fireEvent.change(picker, { target: { value: '1 · Parent task' } });
+    fireEvent.change(picker, { target: { value: 'parent-task-id' } });
     expect(
       await screen.findByText('New milestone will be added as a child of this phase.'),
     ).toBeInTheDocument();
