@@ -7,6 +7,7 @@ import type { MonteCarloResult } from '@/types';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
 import { formatRelative } from '@/lib/formatRelative';
+import { BurnChart } from '@/features/reports/BurnChart';
 
 // ---------------------------------------------------------------------------
 // API response types
@@ -756,20 +757,15 @@ export function ProjectOverviewPage() {
       {/* Monte Carlo forecast widget (#172) */}
       {projectId && <MonteCarloWidget projectId={projectId} />}
 
-      {/* Burn-up chart placeholder — issue #53 */}
-      <section aria-label="Burn-up chart">
-        <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
-          Burn-up
-        </h2>
-        <div
-          className="flex items-center justify-center h-48 rounded border border-dashed
-            border-neutral-border text-sm text-neutral-text-disabled"
-          role="img"
-          aria-label="Burn-up chart — coming in issue #53"
-        >
-          Burn-up chart — issue #53
-        </div>
-      </section>
+      {/* Burn-up chart */}
+      {projectId && (
+        <section aria-label="Burn-up chart">
+          <h2 className="text-sm font-semibold text-neutral-text-secondary uppercase tracking-wide mb-3">
+            Burn-up
+          </h2>
+          <BurnChart projectId={projectId} defaultVariant="burnup" />
+        </section>
+      )}
 
       {/* Two-column lower section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
