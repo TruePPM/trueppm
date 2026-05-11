@@ -7,9 +7,10 @@ that was subsequently rolled back.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
+
+from asgiref.sync import async_to_sync
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +27,10 @@ def broadcast_board_event(
 ) -> None:
     """Send a JSON event to all WebSocket clients connected to a project group.
 
-    This is a synchronous helper designed to be called from Celery tasks and
-    Django views (both of which run in sync context). It uses
-    asyncio.run() to drive the async channel layer call.
+    Synchronous helper for Django views and Celery tasks. Uses asgiref's
+    async_to_sync adapter (the official Channels approach) rather than
+    asyncio.run() so the existing thread's event-loop context is reused
+    instead of a fresh one being booted per call.
 
     Args:
         project_id:  UUID string of the project whose group to broadcast to.
@@ -51,17 +53,6 @@ def broadcast_board_event(
     }
 
     try:
-        asyncio.run(_send(channel_layer, group, message))
-    except RuntimeError:
-        # asyncio.run() raises RuntimeError if an event loop is already running
-        # (e.g. inside an async consumer). Use the running loop instead.
-        loop = asyncio.get_event_loop()
-        _bg_task = loop.create_task(_send(channel_layer, group, message))
-        # Keep a reference so the task is not garbage-collected before completion.
-        _bg_task.add_done_callback(lambda t: None)
+        async_to_sync(channel_layer.group_send)(group, message)
     except Exception:
         logger.exception("broadcast_board_event: failed to send %s to group %s", event_type, group)
-
-
-async def _send(channel_layer: Any, group: str, message: dict[str, Any]) -> None:
-    await channel_layer.group_send(group, message)

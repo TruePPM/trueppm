@@ -253,12 +253,13 @@ class MonteCarloLatestView(APIView):
 class FailedTaskViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):  # type: ignore[type-arg]
     """Admin endpoint for dead-lettered Celery tasks.
 
-    List/detail: any authenticated user (operational visibility).
-    Retry/dismiss: staff users only (admin action).
+    List/detail/retry/dismiss: admin users only. The serializer exposes
+    tracebacks, args, and kwargs which may contain internal paths or partial
+    secrets and must not be visible to unprivileged members.
     """
 
     serializer_class = FailedTaskSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
     queryset = FailedTask.objects.all()
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])

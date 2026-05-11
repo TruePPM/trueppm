@@ -1,11 +1,32 @@
 /**
- * Tests for the useScheduleTasks API mapper (mapTask).
- *
- * mapTask and ApiTask are exported for testing — the hook wraps them in
- * TanStack Query calls that are integration-tested elsewhere.
+ * Tests for the useScheduleTasks API mapper (mapTask) and pagination loop.
  */
-import { describe, expect, it } from 'vitest';
-import { mapTask, type ApiTask } from './useScheduleTasks';
+import { renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+import type { ReactNode } from 'react';
+import { createElement } from 'react';
+import { mapTask, useScheduleTasks, type ApiTask } from './useScheduleTasks';
+
+// ---------------------------------------------------------------------------
+// Mocks for hook tests
+// ---------------------------------------------------------------------------
+
+const getMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/api/client', () => ({ apiClient: { get: getMock } }));
+vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));
+
+function makeWrapper(qc: QueryClient) {
+  function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client: qc }, children);
+  }
+  return Wrapper;
+}
+
+// ---------------------------------------------------------------------------
+// Shared fixture
+// ---------------------------------------------------------------------------
 
 const base: ApiTask = {
   id: 'abc',
@@ -240,5 +261,89 @@ describe('useScheduleTasks mapper', () => {
     const task = mapTask({ ...base });
     expect(task.storyPoints).toBeNull();
     expect(task.remainingPoints).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hook: pagination loop
+// ---------------------------------------------------------------------------
+
+function makeApiTask(id: string): ApiTask {
+  return { ...base, id, wbs_path: null };
+}
+
+function paginatedResponse(results: ApiTask[], next: string | null = null) {
+  return { data: { results, next, previous: null, count: results.length } };
+}
+
+describe('useScheduleTasks pagination', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    getMock.mockReset();
+    // Stub the dependencies query so it doesn't interfere.
+    getMock.mockImplementation((url: string) => {
+      if (url === '/dependencies/') return Promise.resolve(paginatedResponse([]));
+      return Promise.resolve(paginatedResponse([]));
+    });
+  });
+
+  it('fetches a single page when next is null', async () => {
+    const task = makeApiTask('t-1');
+    getMock.mockImplementation((url: string) => {
+      if (url === '/dependencies/') return Promise.resolve(paginatedResponse([]));
+      return Promise.resolve(paginatedResponse([task], null));
+    });
+
+    const { result } = renderHook(() => useScheduleTasks('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.tasks).toHaveLength(1);
+    expect(result.current.tasks![0].id).toBe('t-1');
+  });
+
+  it('follows the next cursor and accumulates all pages', async () => {
+    const page1 = [makeApiTask('t-1'), makeApiTask('t-2')];
+    const page2 = [makeApiTask('t-3')];
+
+    getMock.mockImplementation((url: string) => {
+      if (url === '/dependencies/') return Promise.resolve(paginatedResponse([]));
+      if (url === '/tasks/') return Promise.resolve(paginatedResponse(page1, 'http://api/tasks/?cursor=abc'));
+      if (url === '/tasks/?cursor=abc') return Promise.resolve(paginatedResponse(page2, null));
+      return Promise.resolve(paginatedResponse([]));
+    });
+
+    const { result } = renderHook(() => useScheduleTasks('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.tasks).toHaveLength(3);
+    expect(result.current.tasks!.map((t) => t.id)).toEqual(['t-1', 't-2', 't-3']);
+  });
+
+  it('strips the origin from the next URL', async () => {
+    const task = makeApiTask('t-1');
+    getMock.mockImplementation((url: string) => {
+      if (url === '/dependencies/') return Promise.resolve(paginatedResponse([]));
+      if (url === '/tasks/') {
+        return Promise.resolve(
+          paginatedResponse([task], 'https://api.trueppm.com/tasks/?cursor=xyz'),
+        );
+      }
+      if (url === '/tasks/?cursor=xyz') return Promise.resolve(paginatedResponse([], null));
+      return Promise.resolve(paginatedResponse([]));
+    });
+
+    const { result } = renderHook(() => useScheduleTasks('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    // Both calls should have been made via apiClient (origin stripped).
+    expect(getMock).toHaveBeenCalledWith('/tasks/?cursor=xyz', expect.anything());
   });
 });

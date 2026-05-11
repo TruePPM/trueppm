@@ -58,7 +58,8 @@ class TestCalendarAPI:
         assert r.status_code == 200
         assert len(r.data["results"]) >= 1
 
-    def test_create(self, client: APIClient) -> None:
+    def test_create(self, client: APIClient, membership: ProjectMembership) -> None:
+        # Requires IsOrgAdmin: user must have ADMIN+ role on at least one project.
         r = client.post("/api/v1/calendars/", {"name": "Custom", "working_days": 31})
         assert r.status_code == 201
         assert r.data["name"] == "Custom"
@@ -68,15 +69,19 @@ class TestCalendarAPI:
         assert r.status_code == 200
         assert r.data["name"] == "Standard"
 
-    def test_update(self, client: APIClient, calendar: Calendar) -> None:
+    def test_update(
+        self, client: APIClient, calendar: Calendar, membership: ProjectMembership
+    ) -> None:
+        # Requires IsOrgAdmin: user must have ADMIN+ role on at least one project.
         r = client.patch(f"/api/v1/calendars/{calendar.pk}/", {"hours_per_day": 9.0})
         assert r.status_code == 200
         assert r.data["hours_per_day"] == 9.0
 
-    def test_delete(self, client: APIClient, project: Project, calendar: Calendar) -> None:
-        # Remove the project referencing the calendar first to satisfy PROTECT.
-        project.delete()
-        r = client.delete(f"/api/v1/calendars/{calendar.pk}/")
+    def test_delete(self, client: APIClient, membership: ProjectMembership) -> None:
+        # Requires IsOrgAdmin: user must have ADMIN+ role on at least one project.
+        # Use a fresh calendar not referenced by any project to avoid PROTECT errors.
+        standalone = Calendar.objects.create(name="ToDelete")
+        r = client.delete(f"/api/v1/calendars/{standalone.pk}/")
         assert r.status_code == 204
 
 

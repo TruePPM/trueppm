@@ -1,25 +1,69 @@
 import { createBrowserRouter, Navigate, useNavigate } from 'react-router';
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { useProjects } from '@/hooks/useProjects';
 import { AppShell } from '@/features/shell/AppShell';
 import { ProjectShell } from '@/features/project/ProjectShell';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { RequireAuth } from '@/features/auth/RequireAuth';
-import { ProjectOverviewPage } from '@/features/project/ProjectOverviewPage';
-import { ScheduleView } from '@/features/schedule/ScheduleView';
-import { GridView } from '@/features/grid/GridView';
-import { BoardView } from '@/features/board/BoardView';
-import { SprintsView } from '@/features/sprints/SprintsView';
-import { CalendarView } from '@/features/calendar/CalendarView';
-import { ResourceView } from '@/features/resource/ResourceView';
-import { HeatmapPage } from '@/features/resource/HeatmapPage';
-import { TeamView } from '@/features/roster/TeamView';
-import { RosterPage } from '@/features/roster/RosterPage';
-import { RiskRegisterView } from '@/features/risk/RiskRegisterView';
-import { ReportsView } from '@/features/reports/ReportsView';
-import { ResourcesPage } from '@/features/resources/ResourcesPage';
-import { ProjectSettingsPage } from '@/features/settings/ProjectSettingsPage';
-import { MembersTab } from '@/features/settings/members/MembersTab';
+
+// Route-level code splitting — each chunk is loaded only when the route is
+// first visited, keeping the initial bundle (login + shell) minimal.
+const ProjectOverviewPage = lazy(() =>
+  import('@/features/project/ProjectOverviewPage').then((m) => ({ default: m.ProjectOverviewPage }))
+);
+const ScheduleView = lazy(() =>
+  import('@/features/schedule/ScheduleView').then((m) => ({ default: m.ScheduleView }))
+);
+const GridView = lazy(() =>
+  import('@/features/grid/GridView').then((m) => ({ default: m.GridView }))
+);
+const BoardView = lazy(() =>
+  import('@/features/board/BoardView').then((m) => ({ default: m.BoardView }))
+);
+const SprintsView = lazy(() =>
+  import('@/features/sprints/SprintsView').then((m) => ({ default: m.SprintsView }))
+);
+const CalendarView = lazy(() =>
+  import('@/features/calendar/CalendarView').then((m) => ({ default: m.CalendarView }))
+);
+const ResourceView = lazy(() =>
+  import('@/features/resource/ResourceView').then((m) => ({ default: m.ResourceView }))
+);
+const HeatmapPage = lazy(() =>
+  import('@/features/resource/HeatmapPage').then((m) => ({ default: m.HeatmapPage }))
+);
+const TeamView = lazy(() =>
+  import('@/features/roster/TeamView').then((m) => ({ default: m.TeamView }))
+);
+const RosterPage = lazy(() =>
+  import('@/features/roster/RosterPage').then((m) => ({ default: m.RosterPage }))
+);
+const RiskRegisterView = lazy(() =>
+  import('@/features/risk/RiskRegisterView').then((m) => ({ default: m.RiskRegisterView }))
+);
+const ReportsView = lazy(() =>
+  import('@/features/reports/ReportsView').then((m) => ({ default: m.ReportsView }))
+);
+const ResourcesPage = lazy(() =>
+  import('@/features/resources/ResourcesPage').then((m) => ({ default: m.ResourcesPage }))
+);
+const ProjectSettingsPage = lazy(() =>
+  import('@/features/settings/ProjectSettingsPage').then((m) => ({
+    default: m.ProjectSettingsPage,
+  }))
+);
+const MembersTab = lazy(() =>
+  import('@/features/settings/members/MembersTab').then((m) => ({ default: m.MembersTab }))
+);
+
+/** Fallback rendered inside Suspense while a lazy chunk is loading. */
+function RouteLoadingFallback() {
+  return (
+    <div className="flex items-center justify-center h-full text-sm text-neutral-text-secondary">
+      Loading…
+    </div>
+  );
+}
 
 /**
  * Redirects to the first project's overview when landing on `/` with no project
@@ -65,19 +109,65 @@ export const router = createBrowserRouter([
             children: [
               // /projects/:projectId → redirect to overview (canonical landing surface, ADR-0030)
               { index: true, element: <Navigate to="overview" replace /> },
-              { path: 'overview', element: <ProjectOverviewPage /> },
-              { path: 'schedule', element: <ScheduleView /> },
-              { path: 'grid', element: <GridView /> },
+              {
+                path: 'overview',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProjectOverviewPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'schedule',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ScheduleView />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'grid',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <GridView />
+                  </Suspense>
+                ),
+              },
               // Legacy routes — redirect to /grid so old bookmarks and shared
               // links keep working after the WBS / Table consolidation (#334).
               { path: 'wbs', element: <Navigate to="../grid" replace /> },
               { path: 'list', element: <Navigate to="../grid" replace /> },
-              { path: 'board', element: <BoardView /> },
-              { path: 'sprints', element: <SprintsView /> },
-              { path: 'calendar', element: <CalendarView /> },
+              {
+                path: 'board',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <BoardView />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'sprints',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <SprintsView />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'calendar',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <CalendarView />
+                  </Suspense>
+                ),
+              },
               {
                 path: 'resources',
-                element: <TeamView />,
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <TeamView />
+                  </Suspense>
+                ),
                 children: [
                   { index: true, element: <Navigate to="roster" replace /> },
                   { path: 'roster', element: <RosterPage /> },
@@ -85,11 +175,29 @@ export const router = createBrowserRouter([
                   { path: 'heatmap', element: <HeatmapPage /> },
                 ],
               },
-              { path: 'risk', element: <RiskRegisterView /> },
-              { path: 'reports', element: <ReportsView /> },
+              {
+                path: 'risk',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <RiskRegisterView />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'reports',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ReportsView />
+                  </Suspense>
+                ),
+              },
               {
                 path: 'settings',
-                element: <ProjectSettingsPage />,
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProjectSettingsPage />
+                  </Suspense>
+                ),
                 children: [
                   { index: true, element: <Navigate to="members" replace /> },
                   { path: 'members', element: <MembersTab /> },
@@ -98,7 +206,14 @@ export const router = createBrowserRouter([
             ],
           },
           // Org-level resource catalog
-          { path: 'resources', element: <ResourcesPage /> },
+          {
+            path: 'resources',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <ResourcesPage />
+              </Suspense>
+            ),
+          },
           // Root: redirect to first project overview, or prompt to select one.
           { index: true, element: <RootRedirect /> },
         ],

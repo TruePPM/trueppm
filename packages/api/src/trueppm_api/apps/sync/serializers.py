@@ -108,7 +108,8 @@ class SyncRiskSerializer(serializers.ModelSerializer[Risk]):
     task_ids = serializers.SerializerMethodField()
 
     def get_task_ids(self, obj: Risk) -> list[str]:
-        return [str(pk) for pk in obj.tasks.values_list("id", flat=True)]
+        # Iterate the prefetched cache; values_list() bypasses it and fires an extra SELECT.
+        return [str(t.pk) for t in obj.tasks.all()]
 
     class Meta:
         model = Risk
