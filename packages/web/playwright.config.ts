@@ -14,7 +14,9 @@ export default defineConfig({
   testDir: './e2e',
   // Integration specs require a live Django stack and run only in the
   // main-only `web:integration` job via playwright.integration.config.ts.
-  testIgnore: ['integration/**'],
+  // marketing-shots is an opt-in capture run driven by
+  // playwright.marketing.config.ts; it expects a live dev server on :5173.
+  testIgnore: ['integration/**', 'marketing-shots.spec.ts'],
   fullyParallel: true,
   // Fail fast on focused tests (.only) in CI — prevents accidental partial runs.
   forbidOnly: !!process.env.CI,
