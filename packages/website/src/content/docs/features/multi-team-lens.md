@@ -26,11 +26,11 @@ Steps 5–7 of the [hybrid PM flow](/the-story/) — bridges across projects. Si
 |---|---|---|
 | `GET` | `/api/v1/me/active-sprints/` | One summary entry per project where user has open assignments in the active sprint |
 
-`IsAuthenticated` only — scope is the user's own assignments, not an org-wide rollup. The cross-org portfolio view belongs in the Enterprise edition.
+`IsAuthenticated` only — scope is the user's own assignments, not an org-wide rollup. The cross-portfolio view (aggregating across programs for a PMO director) belongs in the Enterprise edition.
 
 ## Why this is OSS-shaped, not Enterprise
 
-The narrative document is explicit: this is a single-team-lead use case (looking across their own assignments), not a PMO portfolio rollup (looking across all 40 projects). The distinction matters — `My Teams` is filtered to the user's own assignments. The cross-organisation view is the entry point to the Enterprise upsell.
+This is a single-team-lead use case (looking across their own assignments within their program), not a PMO portfolio rollup (looking across all programs for an entire organization). The distinction matters — `My Teams` is filtered to the user's own assignments across the projects they're active in. Portfolio-level aggregation across programs is the entry point to the Enterprise upsell.
 
 ## Related ADRs
 

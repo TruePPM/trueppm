@@ -40,12 +40,13 @@ Operations
 | Layer | Scope | Repo |
 |-------|-------|------|
 | Senior Leadership | Org-wide strategy, board-level reporting | Enterprise |
-| Portfolios | Cross-project dashboards, capacity, strategic alignment | Enterprise |
-| Programs and Projects | Single-project scheduling, tasks, CPM, Gantt, Monte Carlo | **OSS** |
+| Portfolios | Cross-program dashboards, capacity, strategic alignment | Enterprise |
+| Programs and Projects | Scheduling, tasks, CPM, program management (coordinating projects within a program) | **OSS** |
 | Operations | Deliverable hand-off, maintenance tracking, time entries | **OSS** |
 
-A feature that aggregates or compares data **across** projects (upward toward Portfolio)
-belongs in Enterprise. A feature that operates **within** a single project belongs in OSS.
+The OSS unit is the **program** — a set of related projects managed by one PM or program manager. The Enterprise unit is the **portfolio** — coordination across multiple programs at an organizational level.
+
+A feature that aggregates or compares data **across programs** (upward toward Portfolio) belongs in Enterprise. A feature that operates **within a program** (one or more related projects) belongs in OSS.
 
 > **Adoption lens (read this before applying the rule above strictly):**
 > "Cross-project" alone is not the test — **governance** is. A solo PM or small team
@@ -84,12 +85,12 @@ Impact/Sales ▲
 
 **What this means for OSS/Enterprise classification:**
 - **Individual project** (Project 1, Project 5, etc.) → **OSS** — a PM needs to schedule it
-- **Program** (Program A, Program B — grouping projects across phases) → **Enterprise**
-- **Portfolio Governance** (the bar spanning everything) → **Enterprise**
-- A feature that asks "which program does this project belong to?" → **Enterprise**
-- A feature that asks "what's the schedule for this project?" → **OSS**
-- Multiple projects running concurrently (Projects 4/5/6 in Maturity) is exactly
-  the scenario that makes cross-project coordination an Enterprise concern
+- **Program** (Program A, Program B — grouping related projects) → **OSS** — a program manager coordinating multiple projects within one delivery initiative needs this
+- **Portfolio Governance** (the bar spanning multiple programs) → **Enterprise**
+- A feature that asks "what's the schedule or status for projects in this program?" → **OSS**
+- A feature that asks "how are all our programs performing against portfolio strategy?" → **Enterprise**
+- Multiple projects running concurrently within a program (Projects 4/5/6 in Maturity) → **OSS** (same program manager, one delivery initiative)
+- Coordinating across Programs A and B simultaneously (portfolio-level) → **Enterprise**
 
 ## Classification Rules
 
@@ -126,14 +127,14 @@ OSS feature list (non-exhaustive):
   bidirectional sync workers, OAuth flows, and conflict resolution are Enterprise.
 
 ### Enterprise — goes in `trueppm-enterprise`
-A feature belongs in the enterprise edition if it requires **coordinating across
-multiple projects, teams, or an entire organization**.
+A feature belongs in the enterprise edition if it requires **portfolio-level coordination
+across multiple programs, or organizational governance on top of program-level work**.
 
 Enterprise feature list (non-exhaustive):
 - Portfolio dashboard and health scores
 - Demand intake and prioritization workspace
-- Cross-project dependencies
-- Resource leveling across projects
+- Cross-program coordination and dependencies
+- Resource leveling across programs (portfolio scope)
 - CCPM (Critical Chain)
 - Resource heat map (cross-portfolio)
 - Schedule forensics and narrative reporting
@@ -151,7 +152,7 @@ Enterprise feature list (non-exhaustive):
 - Portfolio risk rollup (aggregated risk across projects)
 - Cross-project risk propagation
 - Risk-triggered approval workflows
-- Burn charts at portfolio/program level (cross-project scope)
+- Burn charts at portfolio level (cross-program scope)
 - Risk register: risk matrix visualization, risk-to-task linkage, severity scoring (OSS has basic CRUD only)
 - Monte Carlo: unlimited simulations and tasks, sensitivity analysis, confidence intervals (OSS has capped simulation only)
 - Custom fields / custom attributes on tasks and projects (org-specific metadata)
@@ -204,10 +205,9 @@ Ask in order:
      applies — basic multi-project viewing for an individual PM passes step 1)
    - Programs and Projects or Operations → OSS
 4. Does this feature require data from more than one project?
-   - For **basic read-only viewing** of one's own projects → OSS
-   - For governance, aggregation, leveling, scenario modeling, cross-project
-     dependencies, or anything an *organization* coordinates → Enterprise
-5. Does this feature require org-level admin (not project-level)? → Enterprise
+   - Within a single **program** (one PM/program manager, related projects) → OSS
+   - Across **multiple programs** (portfolio governance, org-level coordination) → Enterprise
+5. Does this feature require org-level admin (not project- or program-level)? → Enterprise
 6. Would a freelance PM using the free tier miss this? → OSS
 7. Is this a compliance, audit, or governance feature? → Enterprise
 8. Is it a core scheduling algorithm? → OSS (scheduling is TruePPM's OSS differentiator)
