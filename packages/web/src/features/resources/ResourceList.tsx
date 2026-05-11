@@ -14,7 +14,7 @@ export function ResourceList({ resources, selectedId, onSelect }: Props) {
   }
 
   return (
-    <ul className="divide-y divide-neutral-border">
+    <ul aria-label="Resources" className="divide-y divide-neutral-border">
       {resources.map((r) => (
         <ResourceRow
           key={r.id}
