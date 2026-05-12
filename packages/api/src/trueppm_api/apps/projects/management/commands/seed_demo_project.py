@@ -770,7 +770,7 @@ class Command(BaseCommand):
         sarah = users.get("sarah")
         diana = users.get("diana")
 
-        specs = [
+        specs: list[dict[str, Any]] = [
             {
                 "title": "Third-party API rate limits block migration",
                 "description": (
