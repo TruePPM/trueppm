@@ -197,22 +197,33 @@ class Command(BaseCommand):
     ) -> None:
         from trueppm_api.apps.access.models import ProjectMembership, Role
 
-        if not users:
-            return
-        role_map = {p["username"]: getattr(Role, p["role"]) for p in PERSONAS}
-        for username, user in users.items():
-            ProjectMembership.objects.update_or_create(
-                project=project, user=user, defaults={"role": role_map[username]}
-            )
-        # Diana + Sarah see the secondary project too — that's what flips
-        # the multi-team Sprints lens toggle on for them (#230).
-        for username in ("diana", "sarah", "tom"):
-            if username in users:
+        if users:
+            role_map = {p["username"]: getattr(Role, p["role"]) for p in PERSONAS}
+            for username, user in users.items():
                 ProjectMembership.objects.update_or_create(
-                    project=secondary,
-                    user=users[username],
-                    defaults={"role": role_map[username]},
+                    project=project, user=user, defaults={"role": role_map[username]}
                 )
+            # Diana + Sarah see the secondary project too — that's what flips
+            # the multi-team Sprints lens toggle on for them (#230).
+            for username in ("diana", "sarah", "tom"):
+                if username in users:
+                    ProjectMembership.objects.update_or_create(
+                        project=secondary,
+                        user=users[username],
+                        defaults={"role": role_map[username]},
+                    )
+
+        # Always add superusers so a demo deployment is immediately usable
+        # without logging in as a persona. Persona roles take precedence —
+        # superusers who are also personas keep their persona role.
+        User = get_user_model()
+        persona_pks = {u.pk for u in users.values()}
+        for su in User.objects.filter(is_superuser=True, is_active=True):
+            if su.pk not in persona_pks:
+                for proj in (project, secondary):
+                    ProjectMembership.objects.update_or_create(
+                        project=proj, user=su, defaults={"role": Role.ADMIN}
+                    )
 
     # ------------------------------------------------------------------
     # Project skeleton

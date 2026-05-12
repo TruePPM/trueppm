@@ -5,7 +5,7 @@ import starlightVersions from "starlight-versions";
 // When a release is cut, add an entry here. The plugin is only loaded when
 // at least one version exists (it errors on an empty array).
 // Example: { slug: "0.1.0", label: "v0.1.0" }
-const versions = [{ slug: "0.1.0-alpha.1", label: "v0.1.0-alpha.1" }];
+const versions = [];
 
 const versionPlugins =
   versions.length > 0
