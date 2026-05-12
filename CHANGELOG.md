@@ -8,7 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-<<<<<<< HEAD
 - **Idempotent task framework** (issue #63): reusable `@idempotent_task` decorator in
   `trueppm_api.core.idempotent` that wraps `@shared_task` with Redis distributed locking.
   Supports three contention strategies (`retry`, `skip`, `queue`), automatic lock extension
