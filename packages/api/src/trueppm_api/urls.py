@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.contrib import admin
-from django.http import JsonResponse
 from django.urls import include, path
+from drf_spectacular.utils import extend_schema, inline_serializer
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from rest_framework import serializers
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -14,8 +15,20 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 
-def health(_request: object) -> JsonResponse:
-    return JsonResponse({"status": "ok"})
+@extend_schema(
+    summary="Liveness probe",
+    description=(
+        'Returns HTTP 200 with `{"status": "ok"}` when the API process is running. '
+        "No authentication required. Use for Kubernetes liveness/readiness probes."
+    ),
+    responses={200: inline_serializer("HealthResponse", {"status": serializers.CharField()})},
+    auth=[],
+    tags=["meta"],
+)
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def health(_request: Request) -> Response:
+    return Response({"status": "ok"})
 
 
 @api_view(["GET"])

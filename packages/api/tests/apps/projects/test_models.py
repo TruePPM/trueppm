@@ -124,6 +124,41 @@ class TestTask:
 
 
 @pytest.mark.django_db
+class TestTaskSoftDelete:
+    """Task.soft_delete() — tombstone, server_version bump, CommittedTaskManager exclusion."""
+
+    def setup_method(self) -> None:
+        self.project = Project.objects.create(name="SoftDelProj", start_date=date(2026, 3, 2))
+
+    def test_tombstone_set(self) -> None:
+        t = Task.objects.create(project=self.project, name="T", duration=1)
+        t.soft_delete()
+        t.refresh_from_db()
+        assert t.is_deleted is True
+
+    def test_server_version_bumped(self) -> None:
+        t = Task.objects.create(project=self.project, name="T", duration=1)
+        version_before = t.server_version
+        t.soft_delete()
+        t.refresh_from_db()
+        assert t.server_version > version_before
+
+    def test_excluded_from_committed_queryset(self) -> None:
+        t = Task.objects.create(project=self.project, name="T", duration=1)
+        assert Task.committed.filter(pk=t.pk).exists()
+        t.soft_delete()
+        assert not Task.committed.filter(pk=t.pk).exists()
+
+    def test_dependency_edges_soft_deleted(self) -> None:
+        t1 = Task.objects.create(project=self.project, name="A", duration=1)
+        t2 = Task.objects.create(project=self.project, name="B", duration=1)
+        dep = Dependency.objects.create(predecessor=t1, successor=t2)
+        t1.soft_delete()
+        dep.refresh_from_db()
+        assert dep.is_deleted is True
+
+
+@pytest.mark.django_db
 class TestDependency:
     def setup_method(self) -> None:
         self.project = Project.objects.create(name="P", start_date=date(2026, 3, 2))
