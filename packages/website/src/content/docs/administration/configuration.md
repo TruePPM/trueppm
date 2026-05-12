@@ -29,6 +29,15 @@ All configuration is via environment variables. For local development, `docker-c
 Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The default secret key is public — anyone who knows it can forge session cookies and JWTs.
 :::
 
+## Optional / advanced settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TRUEPPM_EDITION` | `community` | Edition discriminator read by `/api/v1/edition/`. Set to `enterprise` in the enterprise Helm chart so the React shell can make the post-login redirect decision without importing enterprise code (ADR-0029). Never set this in an OSS deployment. |
+| `HISTORY_RETENTION_DAYS` | `90` | How many days of object-change history to keep. Records older than this are purged nightly by Celery beat. Set to `0` to disable automatic purging entirely (enterprise unlimited-retention tier does this). |
+| `TASK_RUN_RETENTION_DAYS` | `30` | How many days of completed/failed/cancelled Celery task-run records to keep before the nightly purge. Set to `0` to disable. |
+| `VITE_FEATURE_FLAGS` | `{}` | Build-time JSON blob of feature flag overrides for the React frontend, e.g. `'{"schedule_build_mode_v1":true}'`. Set in `packages/web/.env` or `.env.production` before `npm run build`. Per-user `localStorage` overrides win over this default at runtime. |
+
 ## First user setup
 
 After starting the stack and running migrations:

@@ -98,12 +98,21 @@ export default defineConfig({
             { slug: "features/multi-team-lens" },
             { slug: "features/retrospective" },
             // Board surface
+            { slug: "features/board" },
             { slug: "features/wip-overload" },
+            { slug: "features/subtasks" },
+            // Risk management
+            { slug: "features/risk-register" },
+            // Schedule authoring
+            { slug: "features/schedule-toolbar" },
+            { slug: "features/schedule-build-mode" },
             // Reporting
             { slug: "features/burn-charts" },
             // Cross-cutting
             { slug: "features/real-time" },
             { slug: "features/offline-sync" },
+            // Integrations
+            { slug: "features/webhooks" },
           ],
         },
         // --- API + integrations ---

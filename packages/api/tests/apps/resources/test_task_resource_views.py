@@ -418,3 +418,26 @@ class TestAutoRosterOnAssignment:
         )
         assert patch_r.status_code == 200
         assert ProjectResource.objects.filter(project=project, resource=resource_50).exists()
+
+
+# ---------------------------------------------------------------------------
+# TaskResource.project_id property
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_task_resource_project_id_property(
+    task: Task,
+    resource: Resource,
+    project: Project,
+) -> None:
+    """project_id property exposes task.project_id for CanAssignResource RBAC resolution.
+
+    TaskResource has no direct FK to Project — the permission class calls
+    _get_project_id_from_obj which walks obj.project_id. This test ensures
+    the property is wired correctly so the permission check never silently
+    returns the wrong project or raises AttributeError.
+    """
+    tr = TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.0"))
+    assert tr.project_id == task.project_id
+    assert tr.project_id == project.pk

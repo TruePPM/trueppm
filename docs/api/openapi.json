@@ -902,6 +902,28 @@
                 }
             }
         },
+        "/api/v1/health/": {
+            "get": {
+                "operationId": "v1_health_retrieve",
+                "description": "Returns HTTP 200 with `{\"status\": \"ok\"}` when the API process is running. No authentication required. Use for Kubernetes liveness/readiness probes.",
+                "summary": "Liveness probe",
+                "tags": [
+                    "meta"
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HealthResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/me/active-sprints/": {
             "get": {
                 "operationId": "v1_me_active_sprints_retrieve",
@@ -7775,6 +7797,17 @@
                 ],
                 "type": "string",
                 "description": "* `pending_retry` - Pending Retry\n* `dead` - Dead\n* `dismissed` - Dismissed\n* `retried` - Retried"
+            },
+            "HealthResponse": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "status"
+                ]
             },
             "Me": {
                 "type": "object",

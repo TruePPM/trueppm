@@ -31,6 +31,19 @@ env:
   # against the Valkey service. The env var name is intentionally kept as
   # REDIS_URL (deferred to 1.0; see ADR-0040 / CHANGELOG #316).
   REDIS_URL: redis://trueppm-valkey-primary:6379
+  # SECRET_KEY and ALLOWED_HOSTS must be set via a Kubernetes Secret — do NOT
+  # store them here in plaintext. Create a Secret and mount it as env vars:
+  #
+  #   kubectl create secret generic trueppm-env \
+  #     --from-literal=SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))") \
+  #     --from-literal=ALLOWED_HOSTS=trueppm.example.com
+  #
+  # Then reference the Secret in your values override:
+  #   envFrom:
+  #     - secretRef:
+  #         name: trueppm-env
+  #
+  # Without SECRET_KEY the Django application will refuse to start.
 
 # Admin bootstrap settings.
 # The bootstrap init container runs `create_admin` once on first deploy and
