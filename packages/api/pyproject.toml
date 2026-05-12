@@ -13,7 +13,7 @@ authors = [
     { name = "Kelly Hair" },
 ]
 dependencies = [
-    "trueppm-scheduler>=0.1.0",
+    "trueppm-scheduler>=0.1.0a0",
     "django>=5.1",
     "djangorestframework>=3.15",
     "djangorestframework-simplejwt>=5.3",
