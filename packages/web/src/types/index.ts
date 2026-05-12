@@ -115,6 +115,8 @@ export interface Task {
   notes: string;
   /** True for tasks created via the drawer subtask action (ADR-0060 #308). */
   isSubtask?: boolean;
+  /** 8-hex-digit project-scoped ID (ADR-0016 / issue #50). Rendered as the task's short reference. */
+  shortId?: string;
   /** Sprint scope-change audit rows — populated when subtasks are added to an in-sprint task (ADR-0060). */
   sprintScopeChanges?: Array<{ subtaskName: string; addedByName: string | null; addedAt: string }>;
 }

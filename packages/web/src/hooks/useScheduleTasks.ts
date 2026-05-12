@@ -60,6 +60,8 @@ export interface ApiTask {
   is_subtask?: boolean;
   // Sprint scope-change audit rows (ADR-0060 #308) — non-empty when subtasks were added after sprint start.
   sprint_scope_changes?: Array<{ subtask_name: string; added_by_name: string | null; added_at: string }>;
+  // 8-hex-digit project-scoped ID (ADR-0016 / issue #50).
+  short_id?: string;
   assignments?: Array<{
     resource_id: string;
     resource_name: string;
@@ -174,6 +176,7 @@ export function mapTask(t: ApiTask): Task {
       addedByName: s.added_by_name,
       addedAt: s.added_at,
     })),
+    shortId: t.short_id,
   };
 }
 

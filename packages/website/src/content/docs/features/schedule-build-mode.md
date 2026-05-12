@@ -1,0 +1,90 @@
+---
+title: Schedule Build Mode
+description: Keyboard-first surface for laying down and structuring a project plan directly in the Schedule list.
+---
+
+Schedule build mode turns the Schedule list into a keyboard-first surface for laying down and structuring a project plan. It is opt-in, gated behind the `schedule_build_mode_v1` feature flag, and is a desktop-only experience — mobile continues to use the existing Add Task modal.
+
+The goal is to collapse the round-trip cost of structuring a plan from "open modal → fill form → save → repeat" to "type, Tab, type, Enter."
+
+## Enabling the flag
+
+Build mode is **off by default in production builds**. Three ways to turn it on:
+
+| How | Where | Notes |
+|---|---|---|
+| URL parameter | Append `?ff=schedule_build_mode_v1` to any TruePPM URL once. | The flag is stored in `localStorage` and persists across navigations and page reloads. The `ff` query string is stripped from the URL after it's applied. |
+| Browser devtools | `localStorage.setItem('trueppm.featureFlags', JSON.stringify({schedule_build_mode_v1: true}))` | Same persistence as the URL form. |
+| Build-time default | Set `VITE_FEATURE_FLAGS='{"schedule_build_mode_v1":true}'` in `packages/web/.env` (or `.env.development`) before `npm run build` / `npm run dev`. | Useful for self-hosters who want to enable build mode for all users by default. Per-user `localStorage` overrides win over the build-time default. |
+
+To turn it off in your browser, run `localStorage.setItem('trueppm.featureFlags', JSON.stringify({schedule_build_mode_v1: false}))` or clear the `trueppm.featureFlags` key entirely.
+
+## What changes when build mode is on
+
+Two visible signals appear on the Schedule view:
+
+- A **`⌨ Build mode` pill** in the toolbar (left side, next to the +Task button). Clicking it opens the keyboard cheatsheet.
+- A **bottom hint strip** that always shows the three most relevant hotkeys for what you're currently focused on. Pressing `?` opens the full cheatsheet from anywhere on the page.
+
+The Schedule list rows also gain new keyboard behavior — see below.
+
+## Keyboard reference
+
+The Schedule list is in one of three focus states at any time. The same keys do different things in each — the hint strip and cheatsheet always show what's active.
+
+### When nothing is selected (NoSelection)
+
+| Key | Action |
+|---|---|
+| ↑ ↓ | Move focus into the list |
+| Click a row | Select that row |
+| ? | Show / hide the cheatsheet |
+
+### When a row is focused (RowFocused)
+
+| Key | Action |
+|---|---|
+| Enter / F2 | Edit the focused cell (defaults to the Task name) |
+| Letter key | Start typing — opens the Task name cell |
+| Tab | Indent under the previous sibling row (forms an emergent phase) |
+| Shift + Tab | Outdent one level |
+| ↑ ↓ | Move focus to the next / previous row |
+| Right-click | Open the row context menu (Edit / Indent / Outdent / Convert to milestone / Delete) |
+| Delete / Backspace | Delete the row (no confirm — undo via re-adding) |
+| Esc | Clear selection |
+
+### Schedule-wide shortcuts (always on)
+
+| Key | Action |
+|---|---|
+| ⌘ M / Ctrl + M | Insert a new milestone at today's date |
+| ? | Open the keyboard shortcut cheatsheet (build mode only) |
+
+### When a cell is being edited (CellEdit)
+
+| Key | Action |
+|---|---|
+| Enter | Save and return focus to the row |
+| Esc | Discard your edit and return focus to the row |
+| Tab | Save and move to the next editable cell in the same row |
+| Shift + Tab | Save and move to the previous editable cell |
+
+The editable cells in v1 are **Task name**, **Duration**, and **% complete**. Start and Finish are computed from CPM and remain read-only — change a Planned Start to override.
+
+## Indenting and emergent phases
+
+When you indent a row under a leaf row (one with no children), the parent automatically becomes a summary task — its name goes bold, computed dates roll up from its children, and the chevron lets you collapse / expand. There is no "convert this to a phase" step; phases form as a side effect of structuring.
+
+The reverse holds when you outdent: if a summary task loses all its children, it becomes a leaf again on the next refresh.
+
+## What's not in v1
+
+- **No mobile signal.** Build mode is desktop-only. On mobile, use the Add Task button as before.
+- **Insert below** in the right-click menu is disabled — the underlying API does not yet support positioned insertion. Use Tab to indent the next-created row instead, or open the Add Task modal.
+- **No optimistic indent.** Indent / outdent waits ~50ms for the server to confirm before the row position updates.
+- **No multi-row select / fill-down / paste-from-Excel.** Single-row keyboard editing only.
+- **No Sprint backlog parity yet.** The same inline-edit / Tab pattern will extend to the Sprint backlog table in a future release.
+
+## See also
+
+- [Schedule view toolbar](./schedule-toolbar) — toolbar controls, filter groups, and the summary chip
