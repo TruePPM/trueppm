@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "trueppm-api"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 description = "TruePPM Django REST API — projects, tasks, scheduling, real-time collaboration"
 readme = "README.md"
 license = "Apache-2.0"

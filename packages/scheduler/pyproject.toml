@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "trueppm-scheduler"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 description = "Critical-path and resource-leveling scheduler for project management"
 readme = "README.md"
 license = "Apache-2.0"
