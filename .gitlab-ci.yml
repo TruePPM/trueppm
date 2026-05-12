@@ -42,6 +42,9 @@ workflow:
     - if: '$CI_COMMIT_BRANCH == "main"'
       auto_cancel:
         on_new_commit: none
+    - if: '$CI_COMMIT_TAG =~ /^v\d+/'
+      auto_cancel:
+        on_new_commit: none
     - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
       when: never
     - if: '$CI_COMMIT_BRANCH'
@@ -89,6 +92,7 @@ workflow:
 .rules-website: &rules-website
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_TAG =~ /^v\d+/'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/website/**/*
@@ -1095,3 +1099,37 @@ helm:publish:
       helm package packages/helm
       CHART_FILE=$(ls trueppm-*.tgz)
       helm push "$CHART_FILE" "oci://ghcr.io/${GHCR_USER}/charts"
+
+# ---------------------------------------------------------------------------
+# RELEASE — GitLab Release entry.
+#
+# Trigger: any v* tag (stable and pre-release).
+# Creates the release entry in GitLab's Releases UI and wires it to the tag.
+# Pre-release builds get a short description pointing to [Unreleased] in
+# CHANGELOG.md; stable releases extract their section from the assembled log.
+# ---------------------------------------------------------------------------
+
+release:create:
+  stage: deploy
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+/'
+  script:
+    - |
+      VERSION="${CI_COMMIT_TAG#v}"
+      if echo "$VERSION" | grep -qE '(alpha|beta|rc)'; then
+        BASE="${VERSION%%-*}"
+        cat > release_notes.md <<NOTES
+      **TruePPM ${CI_COMMIT_TAG}** — pre-release build.
+
+      Changes are accumulating in \`[Unreleased]\` until **${BASE}** ships as stable.
+      See [CHANGELOG.md](https://gitlab.com/trueppm/trueppm/-/blob/${CI_COMMIT_TAG}/CHANGELOG.md) for the current unreleased change list.
+      NOTES
+      else
+        awk "/^## \[$VERSION\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md \
+          > release_notes.md
+      fi
+  release:
+    tag_name: '$CI_COMMIT_TAG'
+    name: 'TruePPM $CI_COMMIT_TAG'
+    description: './release_notes.md'
