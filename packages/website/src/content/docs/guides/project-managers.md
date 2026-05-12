@@ -52,17 +52,22 @@ When a scheduler or admin changes the plan, you see it immediately. WebSocket pu
 
 The sync protocol is designed for unreliable connectivity. Sync when you have signal, work offline when you don't. The protocol uses server-versioned deltas with soft-delete tombstones — you never lose data.
 
+## What's shipped
+
+| Feature | Status |
+|---------|--------|
+| Risk register | Shipped — [full docs](/features/risk-register/) |
+| Board/Kanban view | Shipped — [full docs](/features/board/) |
+| Sprint burndown | Shipped — [full docs](/features/sprint-burndown/) |
+| Baselines | Shipped — capture and overlay on the Gantt |
+
 ## What's coming
 
 | Feature | Status |
 |---------|--------|
 | Gantt drag-to-reschedule | Planned — requires WASM CPM on client |
 | Time tracking | Planned |
-| Baselines and baseline comparison | Planned |
 | MS Project import/export | Planned |
-| Burn charts | Planned |
-| Risk register | Planned |
-| Board/Kanban view | In progress |
 
 ## Getting started
 

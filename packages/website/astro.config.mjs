@@ -18,6 +18,7 @@ export default defineConfig({
     starlight({
       title: "TruePPM",
       tagline: "Open-source project scheduling that actually computes the math.",
+      defaultTheme: "light",
       // logo: { alt: "TruePPM", src: "./src/assets/logo.svg" },
       social: [
         {
