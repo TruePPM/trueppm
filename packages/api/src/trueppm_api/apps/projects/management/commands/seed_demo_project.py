@@ -150,6 +150,8 @@ class Command(BaseCommand):
         self._build_retro(project, users.get("maya"))
         self._build_secondary_active_sprint(secondary, users.get("tom"))
 
+        self._build_risks(project, phase_tasks, users)
+
         # Activate the baseline last so it captures the CPM dates we just
         # set on the work packages.
         self._activate_baseline(project)
@@ -313,24 +315,28 @@ class Command(BaseCommand):
         start = project.start_date
         for phase_idx, (phase_name, day_offset, dur, packages) in enumerate(phases, start=1):
             phase_start = start + timedelta(days=120 + day_offset)
+            phase_finish = phase_start + timedelta(days=dur)
             phase = Task.objects.create(
                 project=project,
                 name=phase_name,
                 duration=dur,
+                planned_start=phase_start,
                 early_start=phase_start,
-                early_finish=phase_start + timedelta(days=dur),
+                early_finish=phase_finish,
                 wbs_path=str(phase_idx),
                 status="IN_PROGRESS",
             )
             out[phase_name] = phase
             cur = phase_start
             for wp_idx, (pkg_name, pkg_dur) in enumerate(packages, start=1):
+                wp_finish = cur + timedelta(days=pkg_dur)
                 wp = Task.objects.create(
                     project=project,
                     name=pkg_name,
                     duration=pkg_dur,
+                    planned_start=cur,
                     early_start=cur,
-                    early_finish=cur + timedelta(days=pkg_dur),
+                    early_finish=wp_finish,
                     wbs_path=f"{phase_idx}.{wp_idx}",
                     is_critical=phase_name in ("Build", "Migration"),
                     status="IN_PROGRESS" if cur < date.today() else "NOT_STARTED",
@@ -342,12 +348,14 @@ class Command(BaseCommand):
         for ms_idx, (ms_name, ms_offset) in enumerate(
             (("UAT signoff", -7), ("Production cutover signoff", 14)), start=1
         ):
+            ms_date = date.today() + timedelta(days=ms_offset)
             Task.objects.create(
                 project=project,
                 name=ms_name,
                 duration=0,
-                early_start=date.today() + timedelta(days=ms_offset),
-                early_finish=date.today() + timedelta(days=ms_offset),
+                planned_start=ms_date,
+                early_start=ms_date,
+                early_finish=ms_date,
                 wbs_path=f"M.{ms_idx}",
                 is_milestone=True,
                 status="NOT_STARTED",
@@ -574,11 +582,17 @@ class Command(BaseCommand):
         ]
         parent = phase_tasks.get("Auth migration") or phase_tasks.get("Build")
         parent_path = str(parent.wbs_path) if parent and parent.wbs_path else "2.1"
+        # Distribute stories across the sprint window: COMPLETE/REVIEW in the
+        # first half, IN_PROGRESS in the middle, NOT_STARTED/BACKLOG later.
         for idx, (name, pts, status, is_critical) in enumerate(story_specs, start=1):
+            slot = start + timedelta(days=min(idx - 1, 12))
             Task.objects.create(
                 project=project,
                 name=name,
                 duration=1,
+                planned_start=start,
+                early_start=slot,
+                early_finish=slot + timedelta(days=1),
                 wbs_path=f"{parent_path}.{idx}",
                 sprint=sprint,
                 story_points=pts,
@@ -653,6 +667,9 @@ class Command(BaseCommand):
             project=project,
             name="Pilot — onboarding email copy",
             duration=1,
+            planned_start=start,
+            early_start=start,
+            early_finish=finish,
             sprint=sprint,
             story_points=3,
             status="IN_PROGRESS",
@@ -701,6 +718,9 @@ class Command(BaseCommand):
                 project=project,
                 name="Lock sprint scope at planning gate",
                 duration=1,
+                planned_start=next_planned.start_date,
+                early_start=next_planned.start_date,
+                early_finish=next_planned.start_date + timedelta(days=1),
                 sprint=next_planned,
                 story_points=3,
                 status=TaskStatus.BACKLOG,
@@ -726,3 +746,107 @@ class Command(BaseCommand):
             story_points=2,
         )
         return retro
+
+    # ------------------------------------------------------------------
+    # Risks
+    # ------------------------------------------------------------------
+
+    def _build_risks(
+        self,
+        project: Any,
+        phase_tasks: dict[str, Any],
+        users: dict[str, Any],
+    ) -> None:
+        from trueppm_api.apps.projects.models import (
+            Risk,
+            RiskCategory,
+            RiskResponse,
+            RiskStatus,
+            RiskTask,
+        )
+
+        today = date.today()
+        raj = users.get("raj")
+        sarah = users.get("sarah")
+        diana = users.get("diana")
+
+        specs = [
+            {
+                "title": "Third-party API rate limits block migration",
+                "description": (
+                    "The legacy integration API enforces per-hour rate limits. "
+                    "Bulk data transfers during the Pilot data sync phase may hit "
+                    "throttling, delaying the cutover window."
+                ),
+                "status": RiskStatus.OPEN,
+                "probability": 3,
+                "impact": 4,
+                "category": RiskCategory.EXTERNAL,
+                "response": RiskResponse.MITIGATE,
+                "trigger": "Daily transfer volume exceeds 50 K records in a single hour",
+                "mitigation_due_date": today + timedelta(days=7),
+                "contingency": "Pre-stage data in nightly batches; add 3-day buffer to cutover.",
+                "owner": raj,
+                "linked_task": "Pilot data sync",
+            },
+            {
+                "title": "Cleo Ng over-allocated across parallel work packages",
+                "description": (
+                    "Cleo is assigned at 0.8 FTE to Data layer rewrite and 0.6 FTE "
+                    "to API surface refresh simultaneously — 140% total utilisation. "
+                    "Schedule slip on either package is likely."
+                ),
+                "status": RiskStatus.MITIGATING,
+                "probability": 4,
+                "impact": 3,
+                "category": RiskCategory.ORGANIZATIONAL,
+                "response": RiskResponse.MITIGATE,
+                "trigger": "Cleo's effective capacity drops below 0.5 FTE on either package",
+                "mitigation_due_date": today + timedelta(days=3),
+                "contingency": "Back-fill with contractor; descope API surface refresh to 12d.",
+                "owner": sarah,
+                "linked_task": "Data layer rewrite",
+            },
+            {
+                "title": "Undocumented legacy auth flows expand Auth migration scope",
+                "description": (
+                    "Audit of the legacy system reveals SAML and custom token flows not "
+                    "in the original SOW. Each undocumented flow adds 2-3d of analysis "
+                    "and adapter work."
+                ),
+                "status": RiskStatus.OPEN,
+                "probability": 3,
+                "impact": 5,
+                "category": RiskCategory.PROJECT_MANAGEMENT,
+                "response": RiskResponse.AVOID,
+                "trigger": "Discovery of auth flows not covered by the migration adapter matrix",
+                "mitigation_due_date": today - timedelta(days=5),
+                "contingency": "Raise a change request; extend Auth migration by up to 7d.",
+                "owner": raj,
+                "linked_task": "Auth migration",
+            },
+            {
+                "title": "Stakeholder sign-off delayed past UAT deadline",
+                "description": (
+                    "Executive sponsor availability in the final two weeks is limited. "
+                    "If UAT sign-off is not received by the milestone date, Production "
+                    "cutover is blocked by contract."
+                ),
+                "status": RiskStatus.OPEN,
+                "probability": 2,
+                "impact": 5,
+                "category": RiskCategory.ORGANIZATIONAL,
+                "response": RiskResponse.ACCEPT,
+                "trigger": "UAT signoff meeting not scheduled 5 days before the milestone",
+                "mitigation_due_date": today + timedelta(days=14),
+                "contingency": "Escalate to PMO; invoke clause 4.2 for asynchronous approval.",
+                "owner": diana,
+                "linked_task": "Cutover rehearsal",
+            },
+        ]
+
+        for spec in specs:
+            linked = spec.pop("linked_task", None)
+            risk = Risk.objects.create(project=project, **spec)
+            if linked and linked in phase_tasks:
+                RiskTask.objects.create(risk=risk, task=phase_tasks[linked])
