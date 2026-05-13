@@ -181,22 +181,23 @@ class TestPercentCompleteRollup:
         assert r.status_code == 200
         assert r.data["percent_complete"] == 0  # Falls through — total_duration is 0
 
-    def test_grandchildren_excluded(
+    def test_intermediate_summaries_excluded(
         self, client: APIClient, project: Project, membership: ProjectMembership
     ) -> None:
-        """Only direct children contribute to the rollup, not grandchildren."""
+        """Rollup uses leaf descendants only — intermediate summaries do not contribute (#397)."""
         root = Task.objects.create(project=project, name="Root", duration=0, wbs_path="1")
+        # "Sub" has a child below it, so it is an intermediate summary, not a leaf.
         Task.objects.create(
             project=project, name="Sub", duration=10, percent_complete=50, wbs_path="1.1"
         )
-        # Grandchild at 100% should not affect root's rollup.
+        # Only this leaf grandchild contributes.
         Task.objects.create(
             project=project, name="Leaf", duration=5, percent_complete=100, wbs_path="1.1.1"
         )
         r = client.get(f"/api/v1/tasks/{root.id}/", {"project": str(project.id)})
         assert r.status_code == 200
-        # Only child "Sub" (10d, 50%) contributes → 50.0
-        assert r.data["percent_complete"] == 50.0
+        # Only leaf "Leaf" (5d, 100%) contributes → 100.0
+        assert r.data["percent_complete"] == 100.0
 
 
 @pytest.mark.django_db
