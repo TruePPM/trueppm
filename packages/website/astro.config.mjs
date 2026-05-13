@@ -18,7 +18,16 @@ export default defineConfig({
     starlight({
       title: "TruePPM",
       tagline: "Open-source project scheduling that actually computes the math.",
-      defaultTheme: "light",
+      // Default first-time visitors to light mode. Starlight has no
+      // `defaultTheme` option; instead we seed localStorage before its
+      // theme script reads it. Subsequent visits respect the user's choice.
+      head: [
+        {
+          tag: "script",
+          content:
+            "if(!localStorage.getItem('starlight-theme')){localStorage.setItem('starlight-theme','light');document.documentElement.dataset.theme='light';}",
+        },
+      ],
       // logo: { alt: "TruePPM", src: "./src/assets/logo.svg" },
       social: [
         {
