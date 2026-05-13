@@ -146,10 +146,28 @@ def capacity_summary(sprint: Any) -> dict[str, Any]:
     assignments = (
         TaskResource.objects.filter(task__sprint_id=sprint.pk, task__is_deleted=False)
         .select_related("resource")
-        .values_list("resource_id", "resource__name", "resource__max_units", "units")
+        .values_list(
+            "resource_id",
+            "resource__name",
+            "resource__max_units",
+            "units",
+            "task__early_start",
+            "task__early_finish",
+        )
     )
     by_resource: dict[Any, dict[str, Any]] = {}
-    for resource_id, resource_name, max_units, units in assignments:
+    for resource_id, resource_name, max_units, units, task_start, task_end in assignments:
+        # Compute working-day overlap between the task window and the sprint.
+        # Fall back to the full sprint when CPM dates are not yet available.
+        t_start = task_start or sprint.start_date
+        t_end = task_end or sprint.finish_date
+        overlap_start = max(t_start, sprint.start_date)
+        overlap_end = min(t_end, sprint.finish_date)
+        task_days = (
+            _working_days(overlap_start, overlap_end, wd_mask)
+            if overlap_start <= overlap_end
+            else 0
+        )
         entry = by_resource.setdefault(
             resource_id,
             {
@@ -158,13 +176,14 @@ def capacity_summary(sprint: Any) -> dict[str, Any]:
                 "committed": Decimal("0"),
             },
         )
-        entry["committed"] += units or Decimal("0")
+        entry["committed"] += (units or Decimal("0")) * Decimal(str(task_days))
 
     members: list[dict[str, Any]] = []
     total_committed = 0.0
     total_available = 0.0
     for resource_id, data in by_resource.items():
-        committed_hours = float(data["committed"]) * working_days * hours_per_day
+        # data["committed"] already encodes units × task_working_days per assignment.
+        committed_hours = float(data["committed"]) * hours_per_day
         available_hours = float(data["max_units"]) * working_days * hours_per_day
         ratio = committed_hours / available_hours if available_hours > 0 else 0.0
         members.append(
@@ -531,21 +550,50 @@ def burn_series(
         project_id=project_id, is_active=True, is_deleted=False
     ).first()
     if active_baseline is not None:
-        baseline_tasks = list(
-            BaselineTask.objects.filter(baseline=active_baseline).values("finish")
-        )
-        if baseline_tasks:
-            total = len(baseline_tasks)
-            baseline_series: list[dict[str, Any]] = []
-            for day in days:
-                done = sum(
-                    1 for t in baseline_tasks if t["finish"] is not None and t["finish"] <= day
-                )
-                if chart_type == "burndown":
-                    baseline_series.append({"date": day.isoformat(), "planned": total - done})
-                else:
-                    baseline_series.append({"date": day.isoformat(), "planned": done})
-            payload["baseline_series"] = baseline_series
+        if metric == "points":
+            # Join baseline task list with live tasks to obtain story_points.
+            from trueppm_api.apps.projects.models import Task as _Task
+
+            bt_rows = list(active_baseline.tasks.values("task_id", "finish"))
+            live_sp: dict[str, int] = {
+                str(tid): sp or 0
+                for tid, sp in _Task.objects.filter(
+                    id__in=[r["task_id"] for r in bt_rows], is_deleted=False
+                ).values_list("id", "story_points")
+            }
+            baseline_tasks_pts = [(str(r["task_id"]), r["finish"]) for r in bt_rows]
+            total_pts = sum(live_sp.get(tid, 0) for tid, _ in baseline_tasks_pts)
+            if total_pts > 0:
+                baseline_series: list[dict[str, Any]] = []
+                for day in days:
+                    done_pts = sum(
+                        live_sp.get(tid, 0)
+                        for tid, finish in baseline_tasks_pts
+                        if finish is not None and finish <= day
+                    )
+                    if chart_type == "burndown":
+                        baseline_series.append(
+                            {"date": day.isoformat(), "planned": total_pts - done_pts}
+                        )
+                    else:
+                        baseline_series.append({"date": day.isoformat(), "planned": done_pts})
+                payload["baseline_series"] = baseline_series
+        else:
+            baseline_tasks = list(
+                BaselineTask.objects.filter(baseline=active_baseline).values("finish")
+            )
+            if baseline_tasks:
+                total = len(baseline_tasks)
+                baseline_series = []
+                for day in days:
+                    done = sum(
+                        1 for t in baseline_tasks if t["finish"] is not None and t["finish"] <= day
+                    )
+                    if chart_type == "burndown":
+                        baseline_series.append({"date": day.isoformat(), "planned": total - done})
+                    else:
+                        baseline_series.append({"date": day.isoformat(), "planned": done})
+                payload["baseline_series"] = baseline_series
 
     return payload
 
@@ -577,12 +625,19 @@ def apply_carry_over(sprint: Any, carry_over_to: str) -> None:
         is_deleted=False,
     )
     if carry_over_to == "backlog":
-        incomplete.update(sprint=None, status=TaskStatus.BACKLOG)
+        # Iterate to call .save() so VersionedModel bumps server_version on each
+        # task — queryset.update() bypasses the model and mobile sync misses it.
+        for task in incomplete:
+            task.sprint = None
+            task.status = TaskStatus.BACKLOG
+            task.save(update_fields=["sprint", "status"])
         return
 
-    # Otherwise treat as a UUID string referencing another sprint in the
-    # same project. Caller is expected to have validated this upstream.
-    incomplete.update(sprint_id=carry_over_to)
+    # Otherwise treat as a UUID string referencing another sprint in the same
+    # project. Caller is expected to have validated this upstream.
+    for task in incomplete:
+        task.sprint_id = carry_over_to
+        task.save(update_fields=["sprint"])
 
 
 def snapshot_completed_metrics(sprint: Any) -> None:

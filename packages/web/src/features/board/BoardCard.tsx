@@ -123,8 +123,8 @@ function computeTaskSpi(task: Task): number | null {
   if (!task.baselineStart || !task.baselineFinish) return null;
   const baselineStartMs = new Date(task.baselineStart).getTime();
   const baselineFinishMs = new Date(task.baselineFinish).getTime();
-  const duration = baselineFinishMs - baselineStartMs;
-  if (duration <= 0) return null;
+  // Treat same-day (1-day) baselines as 1 day long so SPI is not silently suppressed.
+  const duration = Math.max(baselineFinishMs - baselineStartMs, 86_400_000);
   const now = Date.now();
   const elapsed = now - baselineStartMs;
   if (elapsed <= 0) return null; // hasn't started per baseline

@@ -600,6 +600,19 @@ describe('BoardCard', () => {
       renderCard({ task: taskWithBaseline, showEvm: 'cpi', density: 'comfortable' });
       expect(screen.queryByText(/SPI/)).not.toBeInTheDocument();
     });
+
+    it('shows SPI chip for a 1-day baseline (start === finish) (#400)', () => {
+      // When baselineStart === baselineFinish, duration was 0 and computeTaskSpi
+      // returned null, silently hiding the chip. It should now treat the task as 1 day.
+      const oneDay: Task = {
+        ...baseTask,
+        progress: 50,
+        baselineStart: '2026-01-08',
+        baselineFinish: '2026-01-08', // same day — 1-day baseline
+      };
+      renderCard({ task: oneDay, showEvm: 'spi', density: 'comfortable' });
+      expect(screen.getByText(/^SPI 0\.\d\d$/)).toBeInTheDocument();
+    });
   });
 
   describe('CPI chip (issue #185)', () => {

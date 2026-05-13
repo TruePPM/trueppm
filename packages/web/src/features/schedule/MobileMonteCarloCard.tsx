@@ -8,6 +8,7 @@ function formatShortDate(iso: string): string {
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
+    timeZone: 'UTC',
   }).format(new Date(iso));
 }
 

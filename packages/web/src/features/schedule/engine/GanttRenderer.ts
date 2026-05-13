@@ -18,6 +18,7 @@
 import type { Task, TaskLink } from '@/types';
 import type { GanttScaleData } from './GanttScaleData';
 import { ZOOM_CONFIGS, dateToLeft, parseUTCDate } from './GanttScaleData';
+import { todayISO } from '@/features/resource/resourceUtils';
 import { HEADER_HEIGHT } from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
@@ -213,7 +214,7 @@ export function drawTodayLine(
   scrollLeft: number,
   canvasHeight: number,
 ): void {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const x = dateToLeft(today, scales) - scrollLeft;
 
   if (x < -2 || x > ctx.canvas.width / (window.devicePixelRatio || 1) + 2) return;

@@ -3,6 +3,14 @@
  * Kept in a separate module so it is trivial to unit-test without a render.
  */
 
+/** Convert a Date to a local-zone YYYY-MM-DD string. */
+function localDateISO(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 /** Inclusive day count between two ISO dates. */
 export function daysBetween(startIso: string, endIso: string): number {
   const start = new Date(startIso + 'T00:00:00Z');
@@ -25,7 +33,7 @@ export function sprintDayOf(
   today: Date = new Date(),
 ): { day: number; total: number } {
   const total = daysBetween(startIso, finishIso) + 1;
-  const todayIso = today.toISOString().slice(0, 10);
+  const todayIso = localDateISO(today);
   const elapsed = daysBetween(startIso, todayIso) + 1;
   if (elapsed < 1) return { day: 1, total };
   if (elapsed > total) return { day: total, total };
@@ -34,7 +42,7 @@ export function sprintDayOf(
 
 /** Days until ``targetIso`` (negative when the date has passed). */
 export function daysUntil(targetIso: string, today: Date = new Date()): number {
-  const todayIso = today.toISOString().slice(0, 10);
+  const todayIso = localDateISO(today);
   return daysBetween(todayIso, targetIso);
 }
 

@@ -67,6 +67,22 @@ describe('MonteCarloTimeline', () => {
     });
   });
 
+  describe('UTC date rendering — no day-early shift for users west of UTC (#399)', () => {
+    it('renders the ISO date as-is regardless of local timezone', () => {
+      // "2026-11-14" must render as "Nov 14", never "Nov 13" (UTC midnight parsed in local zone).
+      const result = {
+        ...FIXTURE_MC_RESULT,
+        p50: '2026-11-14',
+        p80: '2026-11-14',
+        p95: '2026-11-14',
+      };
+      render(<MonteCarloTimeline result={result} />);
+      const p50 = screen.getByText(/^P50: /);
+      expect(p50.textContent).toContain('Nov 14');
+      expect(p50.textContent).not.toContain('Nov 13');
+    });
+  });
+
   describe('collapse case — every simulation converged on one date', () => {
     const COLLAPSED: typeof FIXTURE_MC_RESULT = {
       ...FIXTURE_MC_RESULT,
