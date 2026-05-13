@@ -194,11 +194,20 @@ class TestDependencyAPI:
         assert len(r.data["results"]) >= 1
 
     def test_cross_project_dependency_rejected(
-        self, client: APIClient, calendar: Calendar, task: Task
+        self,
+        client: APIClient,
+        user: object,
+        project: Project,
+        calendar: Calendar,
+        task: Task,
+        membership: ProjectMembership,
     ) -> None:
+        # User is a member of both projects so both membership checks pass.
+        # The same-project check then fires and returns 400.
         other_project = Project.objects.create(
             name="Other", start_date=date(2026, 4, 1), calendar=calendar
         )
+        ProjectMembership.objects.create(project=other_project, user=user, role=Role.OWNER)
         other_task = Task.objects.create(project=other_project, name="X", duration=1)
         r = client.post(
             "/api/v1/dependencies/",
@@ -411,3 +420,98 @@ class TestDependencyAPI:
         )
         assert r.status_code == 200
         assert r.data["lag"] == 1
+
+    # ------------------------------------------------------------------
+    # Soft-deleted FK guard — #358
+    # ------------------------------------------------------------------
+
+    def test_create_with_soft_deleted_predecessor_returns_400(
+        self,
+        client: APIClient,
+        project: Project,
+        task: Task,
+        membership: ProjectMembership,
+    ) -> None:
+        """DependencySerializer rejects a predecessor that has been soft-deleted."""
+        t2 = Task.objects.create(project=project, name="Live", duration=2)
+        task.is_deleted = True
+        task.save(update_fields=["is_deleted"])
+
+        r = client.post(
+            "/api/v1/dependencies/",
+            {"predecessor": str(task.pk), "successor": str(t2.pk), "dep_type": "FS"},
+        )
+        assert r.status_code == 400
+
+    def test_create_with_soft_deleted_successor_returns_400(
+        self,
+        client: APIClient,
+        project: Project,
+        task: Task,
+        membership: ProjectMembership,
+    ) -> None:
+        """DependencySerializer rejects a successor that has been soft-deleted."""
+        t2 = Task.objects.create(project=project, name="Live", duration=2)
+        t2.is_deleted = True
+        t2.save(update_fields=["is_deleted"])
+
+        r = client.post(
+            "/api/v1/dependencies/",
+            {"predecessor": str(task.pk), "successor": str(t2.pk), "dep_type": "FS"},
+        )
+        assert r.status_code == 400
+
+    def test_patch_to_soft_deleted_task_returns_400(
+        self,
+        client: APIClient,
+        project: Project,
+        task: Task,
+        membership: ProjectMembership,
+    ) -> None:
+        """PATCHing a dep to point at a soft-deleted task returns 400."""
+        t2 = Task.objects.create(project=project, name="Live", duration=2)
+        t3 = Task.objects.create(project=project, name="Deleted", duration=1)
+        edge = Dependency.objects.create(predecessor=task, successor=t2)
+        t3.is_deleted = True
+        t3.save(update_fields=["is_deleted"])
+
+        r = client.patch(
+            f"/api/v1/dependencies/{edge.pk}/",
+            {"successor": str(t3.pk)},
+        )
+        assert r.status_code == 400
+
+    # ------------------------------------------------------------------
+    # Membership check order — #359
+    # ------------------------------------------------------------------
+
+    def test_non_member_gets_403_regardless_of_project_pairing(
+        self,
+        client: APIClient,
+        project: Project,
+        task: Task,
+        membership: ProjectMembership,
+        calendar: Calendar,
+    ) -> None:
+        """Non-member submitting any foreign task UUID gets 403, not 400.
+
+        Both same-project and cross-project foreign pairs must return 403 so
+        callers cannot infer shared project membership from the error code.
+        """
+        other = Project.objects.create(name="Other", start_date=date(2026, 4, 1), calendar=calendar)
+        foreign_a = Task.objects.create(project=other, name="FA", duration=1)
+        foreign_b = Task.objects.create(project=other, name="FB", duration=1)
+
+        # Both tasks in the same foreign project → must still return 403.
+        r = client.post(
+            "/api/v1/dependencies/",
+            {"predecessor": str(foreign_a.pk), "successor": str(foreign_b.pk), "dep_type": "FS"},
+        )
+        assert r.status_code == 403
+
+        # Cross-project pair: one foreign, one from member project → must return 403.
+        r2 = client.post(
+            "/api/v1/dependencies/",
+            {"predecessor": str(foreign_a.pk), "successor": str(task.pk), "dep_type": "FS"},
+        )
+        assert r2.status_code == 403

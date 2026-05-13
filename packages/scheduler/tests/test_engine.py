@@ -610,3 +610,43 @@ class TestMonteCarlo:
         )
         with pytest.raises(CyclicDependencyError):
             monte_carlo(p, runs=10)
+
+    def test_deterministic_fallback_date_matches_cpm(self) -> None:
+        """Without PERT estimates, MC P50/P80/P95 must equal CPM project_finish exactly."""
+        p = make_project(
+            tasks=[task("A", "A", 5), task("B", "B", 3)],
+            dependencies=[Dependency("A", "B")],
+        )
+        cpm_result = schedule(p)
+        mc_result = monte_carlo(p, runs=100, seed=0)
+        assert mc_result.p50 == mc_result.p80 == mc_result.p95 == cpm_result.project_finish
+
+    def test_mc_lag_units_consistent_with_cpm(self) -> None:
+        """MC with degenerate PERT and FS lag=7 calendar days matches CPM finish exactly."""
+        p = make_project(
+            tasks=[task("A", "A", 5), task("B", "B", 3)],
+            dependencies=[Dependency("A", "B", lag=timedelta(days=7))],
+        )
+        cpm_result = schedule(p)
+        mc_result = monte_carlo(p, runs=100, seed=0)
+        assert mc_result.p50 == mc_result.p80 == mc_result.p95 == cpm_result.project_finish
+
+
+# ---------------------------------------------------------------------------
+# schedule() — parallel roots
+# ---------------------------------------------------------------------------
+
+
+class TestScheduleParallelRoots:
+    def test_project_start_is_min_across_parallel_roots(self) -> None:
+        """project_start = min(early_start) — not topo_order[0] — when roots are parallel."""
+        # R1 has planned_start pinned to Mar 9; R2 floats to project start (Mar 2).
+        # Whichever root topo_sort picks first, project_start must be Mar 2.
+        p = make_project(
+            tasks=[
+                task("R1", "R1", 3, planned_start=date(2026, 3, 9)),
+                task("R2", "R2", 3),
+            ],
+        )
+        r = schedule(p)
+        assert r.project_start == date(2026, 3, 2)

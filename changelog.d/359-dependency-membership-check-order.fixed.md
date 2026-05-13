@@ -1,0 +1,1 @@
+Dependency create/update now runs membership checks on both predecessor and successor before the same-project check, so non-members always receive 403 regardless of project pairing (defense-in-depth hardening).
