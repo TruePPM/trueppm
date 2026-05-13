@@ -37,7 +37,7 @@ export function MonteCarloTimeline({ result, p80DeltaDays }: Props) {
   const isCollapsed = p50 === p80 && p80 === p95;
 
   const fmtShort = (iso: string) =>
-    new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(
+    new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(
       new Date(iso),
     );
   const fmtLong = (iso: string) =>
@@ -45,6 +45,7 @@ export function MonteCarloTimeline({ result, p80DeltaDays }: Props) {
       month: 'long',
       day: 'numeric',
       year: 'numeric',
+      timeZone: 'UTC',
     }).format(new Date(iso));
 
   const title = isCollapsed

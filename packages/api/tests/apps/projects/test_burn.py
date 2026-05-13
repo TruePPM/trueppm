@@ -393,3 +393,37 @@ def test_combined_metric_points(project: Project, member: object) -> None:
     assert point["total"] == 12  # 4 tasks × 3 pts
     assert point["completed"] == 3  # 1 completed × 3 pts
     assert point["remaining"] == 9  # 3 remaining × 3 pts
+
+
+@pytest.mark.django_db
+def test_baseline_series_uses_story_points_when_metric_is_points(
+    project: Project, member: object
+) -> None:
+    """Baseline overlay must sum story_points, not task count, when metric=points (#395)."""
+    tasks = _create_tasks(project, 3, points=5)
+    today = date.today()
+    baseline = Baseline.objects.create(
+        project=project, name="B", is_active=True, has_cpm_dates=True
+    )
+    # All 3 tasks planned to finish by today.
+    for t in tasks:
+        BaselineTask.objects.create(
+            baseline=baseline,
+            task_id=t.pk,
+            task_name=t.name,
+            finish=today,
+            duration=1,
+        )
+    c = _client(member)
+    resp = c.get(
+        f"/api/v1/projects/{project.pk}/burn/",
+        {"metric": "points", "since": today.isoformat(), "until": today.isoformat()},
+    )
+    assert resp.status_code == 200
+    assert "baseline_series" in resp.data
+    point = resp.data["baseline_series"][0]
+    # Burndown: planned = total_points - done_points = 15 - 15 = 0
+    # (all tasks planned to finish by today → all counted as done).
+    # The key assertion is that planned is NOT 3 (the task count).
+    assert point["planned"] != 3, "baseline overlay must use story_points, not task count"
+    assert point["planned"] == 0  # 3 tasks × 5 pts all finish ≤ today

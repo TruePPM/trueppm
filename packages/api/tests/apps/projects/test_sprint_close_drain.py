@@ -167,6 +167,62 @@ def test_close_sprint_failed_for_cancelled(_broadcast: object, project: Project)
     assert "cancelled" in req.error_message.lower()
 
 
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_carry_over_to_backlog_bumps_server_version(
+    _broadcast: object, user: object, project: Project
+) -> None:
+    """queryset.update() skips VersionedModel.save() — mobile sync never sees the move (#396)."""
+    s = _make_active_sprint(project)
+    task = Task.objects.create(
+        project=project,
+        name="Carry",
+        duration=1,
+        sprint=s,
+        status=TaskStatus.IN_PROGRESS,
+    )
+    version_before = task.server_version
+
+    req = SprintCloseRequest.objects.create(sprint=s, requested_by=user, carry_over_to="backlog")
+    close_sprint.run(str(req.id))
+
+    task.refresh_from_db()
+    assert task.sprint is None
+    assert task.status == TaskStatus.BACKLOG
+    assert task.server_version > version_before, (
+        "server_version must be incremented so mobile sync clients see the carry-over"
+    )
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_carry_over_to_next_sprint_bumps_server_version(
+    _broadcast: object, project: Project
+) -> None:
+    """server_version bump required when moving tasks to next sprint (#396)."""
+    s = _make_active_sprint(project)
+    target = Sprint.objects.create(
+        project=project,
+        name="Next",
+        start_date=date(2026, 5, 1),
+        finish_date=date(2026, 5, 14),
+        state=SprintState.PLANNED,
+    )
+    task = Task.objects.create(
+        project=project,
+        name="MovedTask",
+        duration=1,
+        sprint=s,
+        status=TaskStatus.IN_PROGRESS,
+    )
+    version_before = task.server_version
+
+    req = SprintCloseRequest.objects.create(sprint=s, carry_over_to=str(target.pk))
+    close_sprint.run(str(req.id))
+
+    task.refresh_from_db()
+    assert task.sprint_id == target.pk
+    assert task.server_version > version_before
+
+
 @patch("trueppm_api.apps.projects.tasks.close_sprint.delay")
 def test_drain_dispatches_pending_rows(mock_delay: object, project: Project) -> None:
     s = _make_active_sprint(project)

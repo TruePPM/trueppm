@@ -16,6 +16,7 @@ from trueppm_api.apps.projects.models import (
 )
 from trueppm_api.apps.projects.services import (
     capacity_check,
+    capacity_summary,
     velocity_summary,
 )
 from trueppm_api.apps.resources.models import Resource, TaskResource
@@ -121,3 +122,53 @@ def test_capacity_check_warns_for_overcommitment(project: Project) -> None:
     assert w["type"] == "over_capacity"
     assert w["committed_hours"] > w["available_hours"]
     assert w["suggested_commitment_points"] >= 0
+
+
+@pytest.mark.django_db
+def test_capacity_summary_uses_task_duration_overlap_not_sprint_total(
+    project: Project,
+) -> None:
+    """Committed hours must be proportional to how much of the sprint each task covers (#392).
+
+    A 1-day task and a 10-day task both assigned to the same resource at 1.0 units
+    must produce different committed_hours — the sprint total must not be used for both.
+    """
+    # Mon Apr 13 – Fri Apr 24 (10 working days).
+    s = Sprint.objects.create(
+        project=project,
+        name="S",
+        start_date=date(2026, 4, 13),
+        finish_date=date(2026, 4, 24),
+        state=SprintState.PLANNED,
+    )
+    res = Resource.objects.create(name="Dev", max_units=1.0)
+
+    # 1-day task on the first day of the sprint.
+    t1 = Task.objects.create(
+        project=project,
+        name="Short",
+        duration=1,
+        sprint=s,
+        early_start=date(2026, 4, 13),
+        early_finish=date(2026, 4, 13),
+    )
+    # 10-day task spanning the whole sprint.
+    t2 = Task.objects.create(
+        project=project,
+        name="Long",
+        duration=10,
+        sprint=s,
+        early_start=date(2026, 4, 13),
+        early_finish=date(2026, 4, 24),
+    )
+    TaskResource.objects.create(task=t1, resource=res, units=1.0)
+    TaskResource.objects.create(task=t2, resource=res, units=1.0)
+
+    summary = capacity_summary(s)
+    member = summary["members"][0]
+    hours_per_day = summary["hours_per_day"]
+    # Short task contributes 1 working day, long task contributes 10.
+    # Total committed = (1 + 10) * hours_per_day.
+    assert member["committed_hours"] == round(11 * hours_per_day, 2)
+    # Available = 10 working days * hours_per_day.
+    assert member["available_hours"] == round(10 * hours_per_day, 2)

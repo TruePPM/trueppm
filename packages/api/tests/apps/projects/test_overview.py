@@ -497,3 +497,131 @@ class TestProjectMyTasks:
         res = client.get(self.url(project.pk))
         names = [t["name"] for t in res.json()["tasks"]]
         assert names == ["Earlier", "Later"]
+
+
+# ---------------------------------------------------------------------------
+# Attention — baseline drift sort order (#394)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestAttentionDriftSort:
+    """Most-slipped critical tasks must be ordered largest drift first (#394)."""
+
+    def test_baseline_drift_items_ordered_by_largest_slip_first(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        from trueppm_api.apps.projects.models import Baseline, BaselineTask
+
+        baseline = Baseline.objects.create(
+            project=project, name="B1", is_active=True, has_cpm_dates=True
+        )
+        today = datetime.date.today()
+        # Five critical tasks with varying drift amounts (1, 3, 7, 2, 5 days).
+        slip_days = [1, 3, 7, 2, 5]
+        for i, drift in enumerate(slip_days):
+            t = make_task(
+                project,
+                name=f"Task{i}",
+                is_critical=True,
+                early_finish=today + datetime.timedelta(days=drift),
+            )
+            BaselineTask.objects.create(
+                baseline=baseline,
+                task_id=t.pk,
+                task_name=t.name,
+                finish=today,
+                duration=1,
+            )
+
+        res = client.get(f"/api/v1/projects/{project.pk}/attention/")
+        assert res.status_code == 200
+        import re
+
+        drift_items = [i for i in res.json()["items"] if i["type"] == "baseline_drift"]
+        # At most _MAX_PER_BUCKET (3) items returned; top 3 by drift are 7, 5, 3 days.
+        assert len(drift_items) <= 3
+        if len(drift_items) >= 2:
+            # drift_days is encoded in the detail string: "Slipped +Nd vs baseline"
+            def _parse_drift(item: dict) -> int:
+                m = re.search(r"\+(\d+)d", item["detail"])
+                return int(m.group(1)) if m else 0
+
+            drifts = [_parse_drift(i) for i in drift_items]
+            assert drifts == sorted(drifts, reverse=True)
+
+
+# ---------------------------------------------------------------------------
+# Overview — SPI proxy uses baseline, allows SPI > 1.0 (#398)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestOverviewSpiProxy:
+    def url(self, pk: object) -> str:
+        return f"/api/v1/projects/{pk}/overview/"
+
+    def test_spi_above_1_when_ahead_of_schedule(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        from trueppm_api.apps.projects.models import Baseline, BaselineTask
+
+        baseline = Baseline.objects.create(
+            project=project, name="B1", is_active=True, has_cpm_dates=True
+        )
+        today = datetime.date.today()
+        # 2 tasks planned to finish by today per baseline; both already complete.
+        # A third task also complete but not in the baseline window — ahead of schedule.
+        for i in range(3):
+            t = make_task(
+                project,
+                name=f"T{i}",
+                status=TaskStatus.COMPLETE,
+            )
+            if i < 2:
+                BaselineTask.objects.create(
+                    baseline=baseline,
+                    task_id=t.pk,
+                    task_name=t.name,
+                    finish=today,
+                    duration=1,
+                )
+
+        res = client.get(self.url(project.pk))
+        assert res.status_code == 200
+        spi = res.json().get("spi")
+        # BCWP=3 (all complete), BCWS=2 (baseline tasks planned by today) → SPI=1.5
+        assert spi is not None
+        assert spi > 1.0
+
+    def test_spi_no_cap_at_1_after_cpm_rerun(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """SPI must not drift to 1.0 when CPM pushes early_finish past today."""
+        from trueppm_api.apps.projects.models import Baseline, BaselineTask
+
+        baseline = Baseline.objects.create(
+            project=project, name="B1", is_active=True, has_cpm_dates=True
+        )
+        today = datetime.date.today()
+        # 1 task planned to finish today (baseline), but CPM shifted it a week out.
+        # Task is still complete → SPI = 1.0 (not degraded to 0).
+        t = make_task(
+            project,
+            name="Shifted",
+            early_finish=today + datetime.timedelta(days=7),
+            status=TaskStatus.COMPLETE,
+        )
+        BaselineTask.objects.create(
+            baseline=baseline,
+            task_id=t.pk,
+            task_name=t.name,
+            finish=today,
+            duration=1,
+        )
+
+        res = client.get(self.url(project.pk))
+        spi = res.json().get("spi")
+        assert spi is not None
+        # BCWP=1 (complete), BCWS=1 (baseline finish=today) → SPI=1.0, not 0.
+        assert spi == 1.0

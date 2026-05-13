@@ -48,6 +48,28 @@ describe('daysUntil', () => {
   });
 });
 
+describe('sprintDayOf / daysUntil — local-zone date used, not UTC (#401)', () => {
+  it('sprintDayOf uses local date from the Date object, not UTC date', () => {
+    // Apr 4 21:00 local (getDate()=4) but Apr 5 04:00 UTC (toISOString()="2026-04-05T...").
+    // Construct a Date such that getDate()=4 and getUTCDate()=5 to verify
+    // the implementation reads local date, not UTC date.
+    // We simulate this by supplying a known Date and checking the result is
+    // consistent with getDate() rather than toISOString().
+    const today = new Date(2026, 3, 4, 21, 0, 0); // Apr 4 21:00 LOCAL
+    const result = sprintDayOf('2026-04-01', '2026-04-14', today);
+    // Local date is Apr 4 → elapsed = daysBetween('2026-04-01', '2026-04-04') + 1 = 4
+    // UTC date would be Apr 5 → elapsed = 5
+    expect(result.day).toBe(4);
+    expect(result.total).toBe(14);
+  });
+
+  it('daysUntil uses local date from the Date object, not UTC date', () => {
+    const today = new Date(2026, 3, 4, 21, 0, 0); // Apr 4 21:00 LOCAL
+    // Days until Apr 8 from Apr 4 local = 4
+    expect(daysUntil('2026-04-08', today)).toBe(4);
+  });
+});
+
 describe('formatShortDate / formatDateRange', () => {
   it('formats a single date as Mon D', () => {
     expect(formatShortDate('2026-04-07')).toBe('Apr 7');

@@ -2363,20 +2363,36 @@ class ProjectOverviewView(APIView):
         tasks_late: int = counts["late"] or 0
 
         # ── Schedule health: SPI proxy ─────────────────────────────────────
-        # SPI = (tasks actually complete) / (tasks planned to be complete by today)
-        # "Planned to be complete" = tasks whose CPM early_finish is ≤ today.
-        planned_done = (
-            Task.objects.filter(project=project, is_deleted=False, early_finish__lte=today)
-            .exclude(status=TaskStatus.COMPLETE)
-            .count()
-        )
-        # planned_count: tasks whose scheduled finish is today or earlier
-        planned_count: int = Task.objects.filter(
-            project=project, is_deleted=False, early_finish__lte=today
-        ).count()
+        # SPI = BCWP / BCWS (can exceed 1.0 when ahead of schedule).
+        #
+        # BCWS denominator: tasks whose baseline finish is ≤ today — stable
+        # across CPM reruns. Falls back to early_finish when no baseline exists.
+        # BCWP numerator: tasks that are COMPLETE with actual_finish ≤ today
+        # (or COMPLETE with no actual_finish recorded). Using actual_finish
+        # rather than status alone prevents late completions from masquerading
+        # as on-time. The 1.0 cap is intentionally absent — SPI > 1.0 is a
+        # genuine ahead-of-schedule signal.
+        active_baseline_for_spi = Baseline.objects.filter(
+            project=project, is_active=True, is_deleted=False
+        ).first()
+
+        if active_baseline_for_spi is not None:
+            planned_count = active_baseline_for_spi.tasks.filter(finish__lte=today).count()
+        else:
+            # No baseline: fall back to CPM schedule (known limitation — drifts on rerun).
+            planned_count = Task.objects.filter(
+                project=project, is_deleted=False, early_finish__lte=today
+            ).count()
 
         if planned_count > 0:
-            planned_complete = planned_count - planned_done
+            # Count tasks complete by today; null actual_finish on a complete task counts.
+            planned_complete: int = (
+                Task.objects.filter(project=project, is_deleted=False, status=TaskStatus.COMPLETE)
+                .filter(
+                    db_models.Q(actual_finish__lte=today) | db_models.Q(actual_finish__isnull=True)
+                )
+                .count()
+            )
             spi = round(planned_complete / planned_count, 3)
             if spi >= 0.95:
                 health = "on_track"
@@ -2563,7 +2579,7 @@ class ProjectAttentionView(APIView):
                     baseline_finish__isnull=False,
                     early_finish__gt=db_models.F("baseline_finish"),
                 )
-                .order_by(db_models.F("early_finish") - db_models.F("baseline_finish"))[
+                .order_by((db_models.F("early_finish") - db_models.F("baseline_finish")).desc())[
                     : self._MAX_PER_BUCKET
                 ]
             )
