@@ -13,7 +13,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { DndContext } from '@dnd-kit/core';
-import { BacklogBand } from './BacklogBand';
+import { BacklogBand, type BacklogBandProps } from './BacklogBand';
 import type { Task } from '@/types';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
@@ -46,7 +46,7 @@ const BASE_PROPS = {
   onCardClick: vi.fn(),
 };
 
-function renderBand(props: Partial<typeof BASE_PROPS> & { tasks: Task[] }) {
+function renderBand(props: Partial<BacklogBandProps> & { tasks: Task[] }) {
   return render(
     <DndContext>
       <BacklogBand {...BASE_PROPS} {...props} />
@@ -157,7 +157,22 @@ describe('BacklogBand (rail)', () => {
     expect(search).toHaveTextContent(/Search or capture an idea/i);
   });
 
-  it('renders the disabled "Capture idea" CTA', () => {
+  it('calls onCaptureIdea when "+ Capture idea" is clicked', () => {
+    const onCaptureIdea = vi.fn();
+    renderBand({ tasks: [makeTask()], onCaptureIdea });
+    const cta = screen.getByRole('button', { name: /Capture idea/i });
+    expect(cta).not.toBeDisabled();
+    fireEvent.click(cta);
+    expect(onCaptureIdea).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables "+ Capture idea" while pending and shows "Adding…"', () => {
+    renderBand({ tasks: [makeTask()], onCaptureIdea: vi.fn(), isCaptureIdeaPending: true });
+    const cta = screen.getByRole('button', { name: /Adding/i });
+    expect(cta).toBeDisabled();
+  });
+
+  it('disables "+ Capture idea" when no onCaptureIdea handler provided', () => {
     renderBand({ tasks: [makeTask()] });
     const cta = screen.getByRole('button', { name: /Capture idea/i });
     expect(cta).toBeDisabled();

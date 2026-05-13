@@ -741,9 +741,14 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 output_field=db_models.UUIDField(),
             ),
             # Replaces the per-row Task.objects.raw() in TaskSerializer.to_representation.
-            # Returns the weighted average percent_complete of direct children, or NULL for
-            # leaf tasks (which the serializer leaves untouched). Single correlated subquery
-            # per row in a single DB round trip instead of N separate queries.
+            # Returns the duration-weighted average percent_complete of ALL LEAF descendants,
+            # or NULL for leaf tasks (which the serializer leaves untouched).
+            #
+            # Previously used '.*{1}' (direct children only). For 3-level WBS this caused
+            # grandparent summaries to read zero — the intermediate summary's stored
+            # percent_complete is 0 (not persisted); only leaves have live values.
+            # Fix: select all descendants at any depth ('.*{1,}') then exclude any
+            # descendant that itself has children (non-leaf), so only leaf tasks contribute.
             percent_complete_rollup=RawSQL(
                 "("
                 "  SELECT CASE WHEN SUM(c.duration) > 0"
@@ -753,7 +758,13 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 "  WHERE c.project_id = projects_task.project_id"
                 "    AND c.is_deleted = false"
                 "    AND projects_task.wbs_path IS NOT NULL"
-                "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1}')::lquery"
+                "    AND c.wbs_path ~ (projects_task.wbs_path::text || '.*{1,}')::lquery"
+                "    AND NOT EXISTS ("
+                "      SELECT 1 FROM projects_task gc"
+                "      WHERE gc.project_id = projects_task.project_id"
+                "        AND gc.is_deleted = false"
+                "        AND gc.wbs_path ~ (c.wbs_path::text || '.*{1}')::lquery"
+                "    )"
                 ")",
                 [],
                 output_field=db_models.FloatField(),

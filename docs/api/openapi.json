@@ -10228,7 +10228,7 @@
                     "schedule_variance_days": {
                         "type": "integer",
                         "nullable": true,
-                        "description": "Compute schedule variance: actual_finish - early_finish in calendar days.",
+                        "description": "Compute schedule variance: actual_finish - baseline_finish in calendar days.\n\nUses the active-baseline snapshot date, not early_finish (CPM). early_finish\ndrifts toward actual_finish on each CPM recompute, making the variance appear\nto shrink even when work is running late. Without an active baseline the\nmetric is undefined — returns None rather than a misleading CPM-relative value.",
                         "readOnly": true
                     },
                     "is_summary": {

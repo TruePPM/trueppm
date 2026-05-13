@@ -470,3 +470,47 @@ class TestAssignmentGuard:
         )
         assert r.status_code == 400
         assert "summary task" in str(r.data["task"])
+
+
+@pytest.mark.django_db
+class TestPercentCompleteRollupDeepWbs:
+    """percent_complete_rollup must aggregate leaf descendants at any depth (#397)."""
+
+    def test_3_level_wbs_grandparent_rollup(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """Grandparent rollup uses leaf grandchildren, not the intermediate summary's stored 0."""
+        # 3-level WBS:
+        #   1         grandparent (summary)
+        #   1.1       intermediate summary
+        #   1.1.1     leaf A  — 5 days, 50%
+        #   1.1.2     leaf B  — 5 days, 100%
+        # Expected grandparent rollup: (5*50 + 5*100) / (5+5) = 75
+        grandparent = Task.objects.create(project=project, name="Phase", duration=0, wbs_path="1")
+        Task.objects.create(project=project, name="Sub-phase", duration=0, wbs_path="1.1")
+        Task.objects.create(
+            project=project, name="Leaf A", duration=5, wbs_path="1.1.1", percent_complete=50
+        )
+        Task.objects.create(
+            project=project, name="Leaf B", duration=5, wbs_path="1.1.2", percent_complete=100
+        )
+
+        r = client.get(f"/api/v1/tasks/{grandparent.pk}/")
+        assert r.status_code == 200
+        assert r.data["percent_complete"] == 75.0
+
+    def test_2_level_wbs_rollup_unchanged(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """Existing 2-level rollup still works after the fix."""
+        parent = Task.objects.create(project=project, name="Phase", duration=0, wbs_path="1")
+        Task.objects.create(
+            project=project, name="Leaf A", duration=4, wbs_path="1.1", percent_complete=25
+        )
+        Task.objects.create(
+            project=project, name="Leaf B", duration=4, wbs_path="1.2", percent_complete=75
+        )
+
+        r = client.get(f"/api/v1/tasks/{parent.pk}/")
+        assert r.status_code == 200
+        assert r.data["percent_complete"] == 50.0

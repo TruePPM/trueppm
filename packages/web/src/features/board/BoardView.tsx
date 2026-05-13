@@ -1549,6 +1549,15 @@ export function BoardView() {
                 focusedCardId={focusedCardId}
                 onCardFocus={handleCardFocus}
                 onCardClick={handleCardClick}
+                onCaptureIdea={() => {
+                  createTask.mutate({
+                    name: 'New idea',
+                    duration: 0,
+                    status: 'BACKLOG',
+                    parent_id: null,
+                  });
+                }}
+                isCaptureIdeaPending={createTask.isPending}
               />
             )}
 
