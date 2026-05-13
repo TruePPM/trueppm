@@ -1,0 +1,1 @@
+Fixed `project_start` being reported as a later date than work actually begins when multiple parallel root tasks exist — now correctly uses `min(early_start)` across all tasks instead of the first topological-order entry.

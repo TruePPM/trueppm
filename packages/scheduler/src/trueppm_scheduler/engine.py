@@ -546,12 +546,13 @@ def schedule(project: Project) -> ScheduleResult:
 
     critical_path = [tid for tid in topo_order if task_map[tid].is_critical]
 
-    first_task_es = task_map[topo_order[0]].early_start
-    assert first_task_es is not None
+    # Use min(early_start) across all tasks — topo_order[0] is arbitrary when
+    # multiple parallel roots exist and may not be the earliest-starting one.
+    project_start_date = min(t.early_start for t in tasks if t.early_start is not None)
 
     return ScheduleResult(
         project_id=project.id,
-        project_start=first_task_es,
+        project_start=project_start_date,
         project_finish=project_finish,
         tasks=tasks,
         critical_path=critical_path,
@@ -702,8 +703,20 @@ def monte_carlo(
     es_mat = np.zeros((runs, n_tasks), dtype=np.float64)
     ef_mat = np.zeros((runs, n_tasks), dtype=np.float64)
 
-    # Pre-compute lag in working days for each edge (approximate: lag.days treated
-    # as working days for the MC simulation, consistent with the CPM engine).
+    # Pre-compute lag in working-day offsets for each edge using the project
+    # calendar. CPM treats dep.lag as calendar days (via _advance_calendar_days);
+    # using the same conversion here keeps MC consistent with CPM results.
+    ref = project.start_date
+    edge_lag_wd: dict[tuple[str, str], float] = {}
+    for u, v, data in g.edges(data=True):
+        d: Dependency = data["dep"]
+        if d.lag.days > 0:
+            edge_lag_wd[(u, v)] = float(_working_days_between(ref, ref + d.lag, calendar))
+        elif d.lag.days < 0:
+            edge_lag_wd[(u, v)] = -float(_working_days_between(ref + d.lag, ref, calendar))
+        else:
+            edge_lag_wd[(u, v)] = 0.0
+
     for col, tid in enumerate(topo_order):
         es_constraints = np.zeros(runs)  # project start = offset 0
         ef_constraints = np.zeros(runs)
@@ -711,7 +724,7 @@ def monte_carlo(
 
         for pred_id in g.predecessors(tid):
             dep: Dependency = g[pred_id][tid]["dep"]
-            lag_wd = float(dep.lag.days)  # treat lag as working days for MC
+            lag_wd = edge_lag_wd[(pred_id, tid)]
             p = task_idx[pred_id]
 
             if dep.dep_type == DependencyType.FS:
@@ -746,7 +759,9 @@ def monte_carlo(
     wd_index = _build_working_day_index(project.start_date, calendar, max_offset + 30)
 
     def _offset_to_date(offset: float) -> date:
-        idx = max(0, min(round(offset), len(wd_index) - 1))
+        # EF offsets are exclusive (EF=5 means working days 0..4). Subtract 1
+        # to get the last working day of the task, matching CPM's inclusive EF.
+        idx = max(0, min(round(offset) - 1, len(wd_index) - 1))
         return wd_index[idx]
 
     all_dates = sorted(_offset_to_date(o) for o in completion_offsets.tolist())

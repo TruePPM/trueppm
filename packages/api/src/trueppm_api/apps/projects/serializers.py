@@ -636,35 +636,48 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
     frontend can surface the offending path to the user; see ADR-0055.
     """
 
+    # Explicit querysets exclude soft-deleted tasks so a caller cannot anchor
+    # a new live edge to a tombstoned row — which would corrupt the CPM graph
+    # and produce sync conflicts on the orphaned FK.
+    predecessor = serializers.PrimaryKeyRelatedField(
+        queryset=Task.objects.filter(is_deleted=False),
+    )
+    successor = serializers.PrimaryKeyRelatedField(
+        queryset=Task.objects.filter(is_deleted=False),
+    )
+
     class Meta:
         model = Dependency
         fields = ["id", "predecessor", "successor", "dep_type", "lag"]
         read_only_fields = ["id"]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        # Enforce same-project constraint: the CPM engine assumes a single-project
-        # DAG. Cross-project edges produce undefined scheduling behaviour.
         predecessor = attrs.get("predecessor") or (
             self.instance.predecessor if self.instance else None
         )
         successor = attrs.get("successor") or (self.instance.successor if self.instance else None)
+
+        # Membership check runs first — before the same-project check — so that
+        # a non-member submitting any foreign task UUID always gets 403 regardless
+        # of whether the two UUIDs happen to share a project. Running same-project
+        # first would let callers distinguish the two cases and infer shared
+        # project membership from the error code (ADR-0055 / #359 hardening).
+        request = self.context.get("request")
+        view = self.context.get("view")
+        if request is not None and view is not None:
+            if predecessor:
+                view.check_object_permissions(request, predecessor)
+            if successor:
+                view.check_object_permissions(request, successor)
+
+        # Enforce same-project constraint: the CPM engine assumes a single-project
+        # DAG. Cross-project edges produce undefined scheduling behaviour.
         if predecessor and successor and predecessor.project_id != successor.project_id:
             raise serializers.ValidationError(
                 "Predecessor and successor must belong to the same project."
             )
+
         if predecessor and successor:
-            # Enforce per-project membership before running cycle detection.
-            # `IsProjectScheduler.has_permission` short-circuits to True for the
-            # top-level /dependencies/ route (no project_pk in view kwargs);
-            # the H1 fix in perform_create runs `check_object_permissions` —
-            # but only AFTER validate. Without this check at validate time the
-            # structured 400 cycle response would leak task names / short_ids
-            # from a project the caller is not a member of (ADR-0055 / RBAC
-            # finding for #356).
-            request = self.context.get("request")
-            view = self.context.get("view")
-            if request is not None and view is not None:
-                view.check_object_permissions(request, predecessor)
             self._check_no_cycle(predecessor, successor)
         return attrs
 
