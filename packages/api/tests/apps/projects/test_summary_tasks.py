@@ -181,22 +181,23 @@ class TestPercentCompleteRollup:
         assert r.status_code == 200
         assert r.data["percent_complete"] == 0  # Falls through — total_duration is 0
 
-    def test_grandchildren_excluded(
+    def test_intermediate_summaries_excluded(
         self, client: APIClient, project: Project, membership: ProjectMembership
     ) -> None:
-        """Only direct children contribute to the rollup, not grandchildren."""
+        """Rollup uses leaf descendants only — intermediate summaries do not contribute (#397)."""
         root = Task.objects.create(project=project, name="Root", duration=0, wbs_path="1")
+        # "Sub" has a child below it, so it is an intermediate summary, not a leaf.
         Task.objects.create(
             project=project, name="Sub", duration=10, percent_complete=50, wbs_path="1.1"
         )
-        # Grandchild at 100% should not affect root's rollup.
+        # Only this leaf grandchild contributes.
         Task.objects.create(
             project=project, name="Leaf", duration=5, percent_complete=100, wbs_path="1.1.1"
         )
         r = client.get(f"/api/v1/tasks/{root.id}/", {"project": str(project.id)})
         assert r.status_code == 200
-        # Only child "Sub" (10d, 50%) contributes → 50.0
-        assert r.data["percent_complete"] == 50.0
+        # Only leaf "Leaf" (5d, 100%) contributes → 100.0
+        assert r.data["percent_complete"] == 100.0
 
 
 @pytest.mark.django_db
@@ -470,3 +471,47 @@ class TestAssignmentGuard:
         )
         assert r.status_code == 400
         assert "summary task" in str(r.data["task"])
+
+
+@pytest.mark.django_db
+class TestPercentCompleteRollupDeepWbs:
+    """percent_complete_rollup must aggregate leaf descendants at any depth (#397)."""
+
+    def test_3_level_wbs_grandparent_rollup(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """Grandparent rollup uses leaf grandchildren, not the intermediate summary's stored 0."""
+        # 3-level WBS:
+        #   1         grandparent (summary)
+        #   1.1       intermediate summary
+        #   1.1.1     leaf A  — 5 days, 50%
+        #   1.1.2     leaf B  — 5 days, 100%
+        # Expected grandparent rollup: (5*50 + 5*100) / (5+5) = 75
+        grandparent = Task.objects.create(project=project, name="Phase", duration=0, wbs_path="1")
+        Task.objects.create(project=project, name="Sub-phase", duration=0, wbs_path="1.1")
+        Task.objects.create(
+            project=project, name="Leaf A", duration=5, wbs_path="1.1.1", percent_complete=50
+        )
+        Task.objects.create(
+            project=project, name="Leaf B", duration=5, wbs_path="1.1.2", percent_complete=100
+        )
+
+        r = client.get(f"/api/v1/tasks/{grandparent.pk}/")
+        assert r.status_code == 200
+        assert r.data["percent_complete"] == 75.0
+
+    def test_2_level_wbs_rollup_unchanged(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        """Existing 2-level rollup still works after the fix."""
+        parent = Task.objects.create(project=project, name="Phase", duration=0, wbs_path="1")
+        Task.objects.create(
+            project=project, name="Leaf A", duration=4, wbs_path="1.1", percent_complete=25
+        )
+        Task.objects.create(
+            project=project, name="Leaf B", duration=4, wbs_path="1.2", percent_complete=75
+        )
+
+        r = client.get(f"/api/v1/tasks/{parent.pk}/")
+        assert r.status_code == 200
+        assert r.data["percent_complete"] == 50.0

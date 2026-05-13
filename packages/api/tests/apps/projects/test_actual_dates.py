@@ -11,7 +11,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Task
+from trueppm_api.apps.projects.models import Baseline, BaselineTask, Calendar, Project, Task
 
 User = get_user_model()
 
@@ -60,6 +60,16 @@ def _patch(client: APIClient, task: Task, data: dict) -> object:  # type: ignore
         patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
     ):
         return client.patch(f"/api/v1/tasks/{task.pk}/", data, format="json")
+
+
+def _fetch_task(client: APIClient, task: Task, project: Project) -> dict:  # type: ignore[type-arg]
+    """GET the task via the list endpoint so baseline annotations are applied."""
+    r = client.get(f"/api/v1/tasks/?project={project.pk}")
+    assert r.status_code == 200
+    for item in r.data["results"]:
+        if str(item["id"]) == str(task.pk):
+            return item  # type: ignore[return-value]
+    raise AssertionError(f"Task {task.pk} not found in list response")
 
 
 # ---------------------------------------------------------------------------
@@ -191,38 +201,62 @@ def test_non_status_patch_does_not_auto_set(
 # ---------------------------------------------------------------------------
 
 
+def _make_baseline(project: Project, task: Task, baseline_finish: date) -> Baseline:
+    """Create an active baseline with a single BaselineTask snapshot."""
+    bl = Baseline.objects.create(project=project, name="B1", is_active=True)
+    BaselineTask.objects.create(
+        baseline=bl,
+        task_id=task.pk,
+        task_name=task.name,
+        start=date(2026, 4, 7),
+        finish=baseline_finish,
+        duration=task.duration,
+    )
+    return bl
+
+
 @pytest.mark.django_db
 def test_schedule_variance_computed(
-    client: APIClient, task: Task, membership: ProjectMembership
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
 ) -> None:
-    # Set up: early_finish via direct DB write (simulating CPM), actual_finish via API
-    Task.objects.filter(pk=task.pk).update(early_finish=date(2026, 4, 10))
+    # Baseline finish = Apr 10; actual_finish = Apr 13 → 3 days late.
+    _make_baseline(project, task, date(2026, 4, 10))
     _patch(client, task, {"status": "COMPLETE", "actual_finish": "2026-04-13"})
 
-    r = _patch(client, task, {"name": "T1"})  # re-fetch via PATCH response
-    assert r.status_code == 200
-    assert r.data["schedule_variance_days"] == 3  # 3 days late
+    data = _fetch_task(client, task, project)
+    assert data["schedule_variance_days"] == 3  # 3 days late vs baseline
 
 
 @pytest.mark.django_db
 def test_schedule_variance_null_when_incomplete(
-    client: APIClient, task: Task, membership: ProjectMembership
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
 ) -> None:
-    r = _patch(client, task, {"name": "T1"})
-    assert r.status_code == 200
-    assert r.data["schedule_variance_days"] is None
+    data = _fetch_task(client, task, project)
+    assert data["schedule_variance_days"] is None
+
+
+@pytest.mark.django_db
+def test_schedule_variance_null_when_no_baseline(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    # Without an active baseline the metric is undefined — no plan to compare against.
+    Task.objects.filter(pk=task.pk).update(early_finish=date(2026, 4, 10))
+    _patch(client, task, {"status": "COMPLETE", "actual_finish": "2026-04-13"})
+
+    data = _fetch_task(client, task, project)
+    assert data["schedule_variance_days"] is None
 
 
 @pytest.mark.django_db
 def test_schedule_variance_negative_when_early(
-    client: APIClient, task: Task, membership: ProjectMembership
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
 ) -> None:
-    Task.objects.filter(pk=task.pk).update(early_finish=date(2026, 4, 15))
+    # Baseline finish = Apr 15; actual_finish = Apr 12 → 3 days early.
+    _make_baseline(project, task, date(2026, 4, 15))
     _patch(client, task, {"status": "COMPLETE", "actual_finish": "2026-04-12"})
 
-    r = _patch(client, task, {"name": "T1"})
-    assert r.status_code == 200
-    assert r.data["schedule_variance_days"] == -3  # 3 days early
+    data = _fetch_task(client, task, project)
+    assert data["schedule_variance_days"] == -3  # 3 days early vs baseline
 
 
 # ---------------------------------------------------------------------------

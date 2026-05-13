@@ -339,6 +339,10 @@ export interface BacklogBandProps {
   focusedCardId: string | null;
   onCardFocus: (taskId: string, status: TaskStatus, phaseId: string) => void;
   onCardClick: (task: Task, anchor: HTMLElement) => void;
+  /** Called when the user clicks "+ Capture idea". Creates a new BACKLOG task. */
+  onCaptureIdea?: () => void;
+  /** True while the create mutation is in flight — disables the button. */
+  isCaptureIdeaPending?: boolean;
 }
 
 export function ageInDays(iso: string | undefined): number | null {
@@ -357,6 +361,8 @@ export function BacklogBand({
   focusedCardId,
   onCardFocus,
   onCardClick,
+  onCaptureIdea,
+  isCaptureIdeaPending = false,
 }: BacklogBandProps) {
   const [collapsed, setCollapsed] = useBacklogRailCollapsed();
   const { setNodeRef } = useDroppable({ id: BACKLOG_BAND_DROPPABLE_ID });
@@ -515,19 +521,18 @@ export function BacklogBand({
           })
         )}
 
-        {/* Capture-idea CTA — the design canonical placement, intentionally
-            below the list. Wiring is queued; the button stays visible so the
-            capture affordance shows up in keyboard tab-order today. */}
         <button
           type="button"
-          disabled
-          title="Capture is wired in a follow-up under epic #361"
+          onClick={onCaptureIdea}
+          disabled={isCaptureIdeaPending || !onCaptureIdea}
+          aria-busy={isCaptureIdeaPending}
           className="mt-1.5 flex items-center justify-center gap-1.5 rounded-md border border-dashed border-neutral-border bg-transparent text-xs text-neutral-text-disabled
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            hover:border-brand-primary hover:text-brand-primary disabled:opacity-50 disabled:cursor-not-allowed
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           style={{ height: 36 }}
         >
           <span aria-hidden="true" style={{ fontSize: 14, lineHeight: 0 }}>+</span>
-          Capture idea
+          {isCaptureIdeaPending ? 'Adding…' : 'Capture idea'}
         </button>
       </div>
     </aside>

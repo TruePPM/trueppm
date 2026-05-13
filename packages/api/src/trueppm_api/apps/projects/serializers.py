@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import date
 from typing import Any
 
 from django.utils import timezone
@@ -259,9 +260,17 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         return attrs
 
     def get_schedule_variance_days(self, obj: Task) -> int | None:
-        """Compute schedule variance: actual_finish - early_finish in calendar days."""
-        if obj.actual_finish and obj.early_finish:
-            return (obj.actual_finish - obj.early_finish).days
+        """Compute schedule variance: actual_finish - baseline_finish in calendar days.
+
+        Uses the active-baseline snapshot date, not early_finish (CPM). early_finish
+        drifts toward actual_finish on each CPM recompute, making the variance appear
+        to shrink even when work is running late. Without an active baseline the
+        metric is undefined — returns None rather than a misleading CPM-relative value.
+        """
+        actual = obj.actual_finish
+        baseline: date | None = getattr(obj, "baseline_finish", None)
+        if actual and baseline:
+            return (actual - baseline).days
         return None
 
     def get_readiness(self, obj: Task) -> str:
