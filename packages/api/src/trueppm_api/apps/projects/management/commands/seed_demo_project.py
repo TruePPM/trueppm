@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, date, datetime, timedelta
-from itertools import pairwise
 from typing import Any
 
 from django.contrib.auth import get_user_model
@@ -150,6 +149,8 @@ class Command(BaseCommand):
         self._build_retro(project, users.get("maya"))
         self._build_secondary_active_sprint(secondary, users.get("tom"))
 
+        self._build_risks(project, phase_tasks, users)
+
         # Activate the baseline last so it captures the CPM dates we just
         # set on the work packages.
         self._activate_baseline(project)
@@ -197,22 +198,33 @@ class Command(BaseCommand):
     ) -> None:
         from trueppm_api.apps.access.models import ProjectMembership, Role
 
-        if not users:
-            return
-        role_map = {p["username"]: getattr(Role, p["role"]) for p in PERSONAS}
-        for username, user in users.items():
-            ProjectMembership.objects.update_or_create(
-                project=project, user=user, defaults={"role": role_map[username]}
-            )
-        # Diana + Sarah see the secondary project too — that's what flips
-        # the multi-team Sprints lens toggle on for them (#230).
-        for username in ("diana", "sarah", "tom"):
-            if username in users:
+        if users:
+            role_map = {p["username"]: getattr(Role, p["role"]) for p in PERSONAS}
+            for username, user in users.items():
                 ProjectMembership.objects.update_or_create(
-                    project=secondary,
-                    user=users[username],
-                    defaults={"role": role_map[username]},
+                    project=project, user=user, defaults={"role": role_map[username]}
                 )
+            # Diana + Sarah see the secondary project too — that's what flips
+            # the multi-team Sprints lens toggle on for them (#230).
+            for username in ("diana", "sarah", "tom"):
+                if username in users:
+                    ProjectMembership.objects.update_or_create(
+                        project=secondary,
+                        user=users[username],
+                        defaults={"role": role_map[username]},
+                    )
+
+        # Always add superusers so a demo deployment is immediately usable
+        # without logging in as a persona. Persona roles take precedence —
+        # superusers who are also personas keep their persona role.
+        User = get_user_model()
+        persona_pks = {u.pk for u in users.values()}
+        for su in User.objects.filter(is_superuser=True, is_active=True):
+            if su.pk not in persona_pks:
+                for proj in (project, secondary):
+                    ProjectMembership.objects.update_or_create(
+                        project=proj, user=su, defaults={"role": Role.ADMIN}
+                    )
 
     # ------------------------------------------------------------------
     # Project skeleton
@@ -251,92 +263,129 @@ class Command(BaseCommand):
     def _build_wbs(self, project: Any) -> dict[str, Any]:
         """Build 4 phases × 2-3 work packages each. Returns name → task map.
 
-        Hierarchy uses the ``wbs_path`` ltree column directly — there is no
-        ``parent`` FK on Task; summary status is inferred from having
-        descendants in the same path subtree (per serializer convention).
+        Schedule narrative (relative to today):
+          Discovery (day 0–21, today-120..today-99): COMPLETE
+          Build     (day 21–81, today-99..today-39): COMPLETE
+          Migration (day 81–134, today-39..today+14): IN_PROGRESS, LATE
+            Pilot data sync — overdue (60% at due date, on critical path)
+            Comms + rollback plan — parallel track, behind schedule (30%)
+            Cutover rehearsal — NOT_STARTED, blocked on Pilot sync
+          Cutover   (day 134–148, today+14..today+28): NOT_STARTED (pushed out)
         """
         from trueppm_api.apps.projects.models import Task
 
         out: dict[str, Any] = {}
+        start = project.start_date  # today - 120
+
+        # (phase_name, days_from_project_start, duration, status, pct,
+        #  [(pkg_name, days_from_phase_start, dur, status, pct, is_critical)])
         phases = [
             (
                 "Discovery",
-                -120,
+                0,
                 21,
+                "COMPLETE",
+                100.0,
                 [
-                    ("Stakeholder interviews", 7),
-                    ("Architecture review", 7),
-                    ("Risk register kickoff", 7),
+                    ("Stakeholder interviews", 0, 7, "COMPLETE", 100.0, False),
+                    ("Architecture review", 7, 7, "COMPLETE", 100.0, False),
+                    ("Risk register kickoff", 14, 7, "COMPLETE", 100.0, False),
                 ],
             ),
             (
                 "Build",
-                -90,
+                21,
                 60,
+                "COMPLETE",
+                100.0,
                 [
-                    ("Auth migration", 18),
-                    ("Data layer rewrite", 24),
-                    ("API surface refresh", 18),
+                    ("Auth migration", 0, 18, "COMPLETE", 100.0, True),
+                    ("Data layer rewrite", 18, 24, "COMPLETE", 100.0, True),
+                    ("API surface refresh", 42, 18, "COMPLETE", 100.0, True),
                 ],
             ),
             (
                 "Migration",
-                -30,
-                30,
+                81,
+                53,
+                "IN_PROGRESS",
+                35.0,
                 [
-                    ("Pilot data sync", 14),
-                    ("Cutover rehearsal", 8),
-                    ("Comms + rollback plan", 8),
+                    # Critical path — overdue; was due today-25 at 14d, only 60% done
+                    ("Pilot data sync", 0, 14, "IN_PROGRESS", 60.0, True),
+                    # Blocked on Pilot; NOT_STARTED, can't begin until Pilot finishes
+                    ("Cutover rehearsal", 14, 8, "NOT_STARTED", 0.0, True),
+                    # Parallel comms track — started at phase start, behind (30% after 8d)
+                    ("Comms + rollback plan", 0, 8, "IN_PROGRESS", 30.0, False),
                 ],
             ),
             (
                 "Cutover",
-                0,
+                134,
                 14,
+                "NOT_STARTED",
+                0.0,
                 [
-                    ("Production cutover", 7),
-                    ("Post-launch hardening", 7),
+                    ("Production cutover", 0, 7, "NOT_STARTED", 0.0, True),
+                    ("Post-launch hardening", 7, 7, "NOT_STARTED", 0.0, False),
                 ],
             ),
         ]
-        start = project.start_date
-        for phase_idx, (phase_name, day_offset, dur, packages) in enumerate(phases, start=1):
-            phase_start = start + timedelta(days=120 + day_offset)
+
+        for phase_idx, (
+            phase_name,
+            phase_day,
+            phase_dur,
+            phase_status,
+            phase_pct,
+            packages,
+        ) in enumerate(phases, start=1):
+            phase_start = start + timedelta(days=phase_day)
+            phase_finish = phase_start + timedelta(days=phase_dur)
             phase = Task.objects.create(
                 project=project,
                 name=phase_name,
-                duration=dur,
+                duration=phase_dur,
+                planned_start=phase_start,
                 early_start=phase_start,
-                early_finish=phase_start + timedelta(days=dur),
+                early_finish=phase_finish,
                 wbs_path=str(phase_idx),
-                status="IN_PROGRESS",
+                status=phase_status,
+                percent_complete=phase_pct,
             )
             out[phase_name] = phase
-            cur = phase_start
-            for wp_idx, (pkg_name, pkg_dur) in enumerate(packages, start=1):
+            for wp_idx, (pkg_name, pkg_day, pkg_dur, wp_status, wp_pct, wp_critical) in enumerate(
+                packages, start=1
+            ):
+                wp_start = phase_start + timedelta(days=pkg_day)
+                wp_finish = wp_start + timedelta(days=pkg_dur)
                 wp = Task.objects.create(
                     project=project,
                     name=pkg_name,
                     duration=pkg_dur,
-                    early_start=cur,
-                    early_finish=cur + timedelta(days=pkg_dur),
+                    planned_start=wp_start,
+                    early_start=wp_start,
+                    early_finish=wp_finish,
                     wbs_path=f"{phase_idx}.{wp_idx}",
-                    is_critical=phase_name in ("Build", "Migration"),
-                    status="IN_PROGRESS" if cur < date.today() else "NOT_STARTED",
+                    is_critical=wp_critical,
+                    status=wp_status,
+                    percent_complete=wp_pct,
                 )
                 out[pkg_name] = wp
-                cur += timedelta(days=pkg_dur)
 
-        # Two contractual milestones land on the WBS.
-        for ms_idx, (ms_name, ms_offset) in enumerate(
-            (("UAT signoff", -7), ("Production cutover signoff", 14)), start=1
+        # UAT signoff at day 111 (today-9) is now overdue — Migration is late.
+        # Production cutover signoff anchors to the end of the Cutover phase.
+        for ms_idx, (ms_name, ms_day) in enumerate(
+            (("UAT signoff", 111), ("Production cutover signoff", 148)), start=1
         ):
+            ms_date = start + timedelta(days=ms_day)
             Task.objects.create(
                 project=project,
                 name=ms_name,
                 duration=0,
-                early_start=date.today() + timedelta(days=ms_offset),
-                early_finish=date.today() + timedelta(days=ms_offset),
+                planned_start=ms_date,
+                early_start=ms_date,
+                early_finish=ms_date,
                 wbs_path=f"M.{ms_idx}",
                 is_milestone=True,
                 status="NOT_STARTED",
@@ -346,18 +395,26 @@ class Command(BaseCommand):
     def _build_dependencies(self, phase_tasks: dict[str, Any]) -> None:
         from trueppm_api.apps.projects.models import Dependency
 
-        chain = [
-            "Stakeholder interviews",
-            "Architecture review",
-            "Auth migration",
-            "Data layer rewrite",
-            "API surface refresh",
-            "Pilot data sync",
-            "Cutover rehearsal",
-            "Production cutover",
-            "Post-launch hardening",
+        links = [
+            # Discovery critical path
+            ("Stakeholder interviews", "Architecture review"),
+            ("Architecture review", "Risk register kickoff"),
+            # Discovery → Build
+            ("Risk register kickoff", "Auth migration"),
+            # Build critical path
+            ("Auth migration", "Data layer rewrite"),
+            ("Data layer rewrite", "API surface refresh"),
+            # Build → Migration: Pilot sync and Comms plan start in parallel
+            ("API surface refresh", "Pilot data sync"),
+            ("API surface refresh", "Comms + rollback plan"),
+            # Cutover rehearsal blocked until Pilot sync finishes
+            ("Pilot data sync", "Cutover rehearsal"),
+            # Both tracks converge at Production cutover
+            ("Cutover rehearsal", "Production cutover"),
+            ("Comms + rollback plan", "Production cutover"),
+            ("Production cutover", "Post-launch hardening"),
         ]
-        for prev, nxt in pairwise(chain):
+        for prev, nxt in links:
             if prev in phase_tasks and nxt in phase_tasks:
                 Dependency.objects.create(
                     predecessor=phase_tasks[prev],
@@ -375,13 +432,32 @@ class Command(BaseCommand):
             is_active=False,  # activate after CPM dates settle
             has_cpm_dates=True,
         )
+        today = date.today()
+        # Original contract dates before slippage: Migration started 5 days earlier
+        # and Cutover was planned to finish by today. The Gantt baseline overlay shows
+        # the variance — Pilot data sync is 14d behind, Cutover is 26d behind.
+        original_dates: dict[str, tuple[date | None, date | None]] = {
+            "Migration": (today - timedelta(days=44), today - timedelta(days=22)),
+            "Pilot data sync": (today - timedelta(days=44), today - timedelta(days=30)),
+            "Cutover rehearsal": (today - timedelta(days=30), today - timedelta(days=22)),
+            "Comms + rollback plan": (today - timedelta(days=44), today - timedelta(days=36)),
+            "Cutover": (today - timedelta(days=22), today - timedelta(days=8)),
+            "Production cutover": (today - timedelta(days=22), today - timedelta(days=15)),
+            "Post-launch hardening": (today - timedelta(days=15), today - timedelta(days=8)),
+            "UAT signoff": (today - timedelta(days=22), today - timedelta(days=22)),
+            "Production cutover signoff": (today - timedelta(days=8), today - timedelta(days=8)),
+        }
         for task in Task.objects.filter(project=project, is_deleted=False):
+            if task.name in original_dates:
+                bl_start, bl_finish = original_dates[task.name]
+            else:
+                bl_start, bl_finish = task.early_start, task.early_finish
             BaselineTask.objects.create(
                 baseline=baseline,
                 task_id=task.pk,
                 task_name=task.name,
-                start=task.early_start,
-                finish=task.early_finish,
+                start=bl_start,
+                finish=bl_finish,
                 duration=task.duration,
             )
         return baseline
@@ -454,16 +530,28 @@ class Command(BaseCommand):
         from trueppm_api.apps.resources.models import TaskResource
         from trueppm_api.apps.resources.services import ensure_project_resource
 
-        # Spread assignments across the in-flight work packages. Cleo is the
-        # over-allocated member — pinned to two simultaneous packages at full
-        # units so the capacity preflight surfaces the conflict.
+        # Full assignment set across all phases. Two over-allocation scenarios:
+        # - Cleo Ng: Data layer rewrite (0.8) + API surface refresh (0.6) = 140%
+        #   Historical — Build is now COMPLETE; visible in resource utilization history.
+        # - Dan Ortiz: Pilot data sync (1.0) + Comms + rollback plan (0.5) = 150%
+        #   ACTIVE — both tasks are IN_PROGRESS in parallel; surfaces in capacity preflight.
         assignments = [
+            # Discovery (complete — historical)
+            ("Stakeholder interviews", "Tom Nguyen", 0.5),
+            ("Architecture review", "Aisha Khan", 0.5),
+            ("Risk register kickoff", "Sarah Lee", 0.3),
+            # Build (complete)
             ("Auth migration", "Aisha Khan", 1.0),
             ("Data layer rewrite", "Ben Lee", 1.0),
             ("Data layer rewrite", "Cleo Ng", 0.8),
-            ("API surface refresh", "Cleo Ng", 0.6),  # over-allocated
+            ("API surface refresh", "Cleo Ng", 0.6),  # was over-allocated with Data layer rewrite
+            # Migration (current — Dan at 150% across two parallel tasks)
             ("Pilot data sync", "Dan Ortiz", 1.0),
+            ("Comms + rollback plan", "Dan Ortiz", 0.5),  # over-allocated!
             ("Cutover rehearsal", "Tom Nguyen", 1.0),
+            # Cutover (future)
+            ("Production cutover", "Tom Nguyen", 0.8),
+            ("Production cutover", "Aisha Khan", 0.5),
         ]
         for pkg_name, res_name, units in assignments:
             if pkg_name in phase_tasks and res_name in resources:
@@ -534,8 +622,8 @@ class Command(BaseCommand):
 
         sprint = Sprint.objects.create(
             project=project,
-            name="Sprint 9 — Telemetry & FAT prep",
-            goal="Close out telemetry firmware sweep and prep FAT review.",
+            name="Sprint 9 — Sync validation & cutover prep",
+            goal="Validate data sync accuracy against legacy source and prepare cutover runbook.",
             start_date=start,
             finish_date=finish,
             state=SprintState.ACTIVE,
@@ -544,30 +632,37 @@ class Command(BaseCommand):
             activated_at=datetime.combine(start, datetime.min.time(), tzinfo=UTC),
         )
 
-        # Story-level tasks under the Build phase, all assigned to the
-        # active sprint with realistic point + status mix.
+        # Story-level tasks under the Migration / Pilot data sync work package.
         # IN_PROGRESS=4 trips the WIP limit (3) so the overload chip lights up.
         story_specs = [
-            ("Wire telemetry channel", 8, "IN_PROGRESS", True),
-            ("Calibrate FAT bench", 5, "IN_PROGRESS", True),
-            ("Telemetry power tap", 3, "IN_PROGRESS", False),
-            ("Doc draft — FAT runbook", 2, "IN_PROGRESS", False),
-            ("Channel sweep regression", 5, "REVIEW", False),
-            ("Cap-bank dry run", 3, "REVIEW", False),
-            ("Smoke test harness", 3, "COMPLETE", True),
-            ("Rev-A schematic review", 2, "COMPLETE", False),
-            ("Field harness layout", 5, "BACKLOG", False),
-            ("Spare-parts BOM", 2, "BACKLOG", False),
-            ("Pilot site visit prep", 3, "NOT_STARTED", False),
-            ("Test fixture inventory", 3, "NOT_STARTED", False),
+            ("Validate record-count reconciliation script", 8, "IN_PROGRESS", True),
+            ("Smoke-test legacy API throttle limiter", 5, "IN_PROGRESS", True),
+            ("Write cutover runbook draft", 3, "IN_PROGRESS", False),
+            ("Review rollback trigger criteria", 3, "IN_PROGRESS", False),
+            ("Fix date-format drift in 3 entity types", 5, "REVIEW", False),
+            ("Validate foreign-key integrity post-sync", 3, "REVIEW", False),
+            ("Sign off auth token migration", 3, "COMPLETE", True),
+            ("Schema diff report — legacy vs target", 2, "COMPLETE", False),
+            ("Backfill missing created_at values", 5, "BACKLOG", False),
+            ("Cutover rollback drill — cancel scenario", 2, "BACKLOG", False),
+            ("Draft comms email — internal stakeholders", 2, "NOT_STARTED", False),
+            ("Update ops runbook with Pilot learnings", 1, "NOT_STARTED", False),
+            ("Load test data sync under throttle limit", 1, "NOT_STARTED", False),
+            ("Dry-run cutover communication sign-off", 1, "NOT_STARTED", False),
         ]
-        parent = phase_tasks.get("Auth migration") or phase_tasks.get("Build")
+        parent = phase_tasks.get("Pilot data sync") or phase_tasks.get("Migration")
         parent_path = str(parent.wbs_path) if parent and parent.wbs_path else "2.1"
+        # Distribute stories across the sprint window: COMPLETE/REVIEW in the
+        # first half, IN_PROGRESS in the middle, NOT_STARTED/BACKLOG later.
         for idx, (name, pts, status, is_critical) in enumerate(story_specs, start=1):
+            slot = start + timedelta(days=min(idx - 1, 12))
             Task.objects.create(
                 project=project,
                 name=name,
                 duration=1,
+                planned_start=start,
+                early_start=slot,
+                early_finish=slot + timedelta(days=1),
                 wbs_path=f"{parent_path}.{idx}",
                 sprint=sprint,
                 story_points=pts,
@@ -610,8 +705,8 @@ class Command(BaseCommand):
         finish = start + timedelta(days=13)
         return Sprint.objects.create(
             project=project,
-            name="Sprint 10 — Pilot deployment",
-            goal="Deploy to pilot users and validate cutover runbook.",
+            name="Sprint 10 — Cutover rehearsal",
+            goal="Complete cutover rehearsal dry run and sign off production go-live checklist.",
             start_date=start,
             finish_date=finish,
             state=SprintState.PLANNED,
@@ -642,6 +737,9 @@ class Command(BaseCommand):
             project=project,
             name="Pilot — onboarding email copy",
             duration=1,
+            planned_start=start,
+            early_start=start,
+            early_finish=finish,
             sprint=sprint,
             story_points=3,
             status="IN_PROGRESS",
@@ -675,9 +773,11 @@ class Command(BaseCommand):
         retro = SprintRetro.objects.create(
             sprint=last_closed,
             notes=(
-                "What went well: telemetry channel sweep landed on time.\n"
-                "What did not: scope crept on day 4 (PM hot-fix). "
-                "Next time: lock scope at sprint start, gate hot-fixes through retro."
+                "What went well: auth token migration sign-off received; schema diff report "
+                "shipped clean.\n"
+                "What did not: legacy API throttle limiter hit rate limits on day 3 — "
+                "unplanned investigation cost 2 days. "
+                "Next time: pre-stage throttle test in staging 48h before sprint start."
             ),
             created_by=maya,
         )
@@ -688,8 +788,11 @@ class Command(BaseCommand):
         if next_planned is not None:
             promoted_task = Task.objects.create(
                 project=project,
-                name="Lock sprint scope at planning gate",
+                name="Pre-stage throttle test in staging before sprint start",
                 duration=1,
+                planned_start=next_planned.start_date,
+                early_start=next_planned.start_date,
+                early_finish=next_planned.start_date + timedelta(days=1),
                 sprint=next_planned,
                 story_points=3,
                 status=TaskStatus.BACKLOG,
@@ -697,21 +800,125 @@ class Command(BaseCommand):
             )
         RetroActionItem.objects.create(
             retro=retro,
-            text="Lock sprint scope at planning gate",
+            text="Pre-stage throttle test in staging before sprint start",
             assignee=maya,
-            story_points=3,
+            story_points=2,
             promoted_task_id=promoted_task.pk if promoted_task else None,
         )
         RetroActionItem.objects.create(
             retro=retro,
-            text="Add scope-add row to retro template",
+            text="Add rate-limit headroom check to sprint Definition of Done",
             assignee=maya,
             story_points=1,
         )
         RetroActionItem.objects.create(
             retro=retro,
-            text="Document hot-fix gating in playbook",
+            text="Document legacy API quirks in ops runbook",
             assignee=maya,
             story_points=2,
         )
         return retro
+
+    # ------------------------------------------------------------------
+    # Risks
+    # ------------------------------------------------------------------
+
+    def _build_risks(
+        self,
+        project: Any,
+        phase_tasks: dict[str, Any],
+        users: dict[str, Any],
+    ) -> None:
+        from trueppm_api.apps.projects.models import (
+            Risk,
+            RiskCategory,
+            RiskResponse,
+            RiskStatus,
+            RiskTask,
+        )
+
+        today = date.today()
+        raj = users.get("raj")
+        sarah = users.get("sarah")
+        diana = users.get("diana")
+
+        specs: list[dict[str, Any]] = [
+            {
+                "title": "Third-party API rate limits block migration",
+                "description": (
+                    "The legacy integration API enforces per-hour rate limits. "
+                    "Bulk data transfers during the Pilot data sync phase may hit "
+                    "throttling, delaying the cutover window."
+                ),
+                "status": RiskStatus.OPEN,
+                "probability": 3,
+                "impact": 4,
+                "category": RiskCategory.EXTERNAL,
+                "response": RiskResponse.MITIGATE,
+                "trigger": "Daily transfer volume exceeds 50 K records in a single hour",
+                "mitigation_due_date": today + timedelta(days=7),
+                "contingency": "Pre-stage data in nightly batches; add 3-day buffer to cutover.",
+                "owner": raj,
+                "linked_task": "Pilot data sync",
+            },
+            {
+                "title": "Cleo Ng over-allocated across parallel work packages",
+                "description": (
+                    "Cleo is assigned at 0.8 FTE to Data layer rewrite and 0.6 FTE "
+                    "to API surface refresh simultaneously — 140% total utilisation. "
+                    "Schedule slip on either package is likely."
+                ),
+                "status": RiskStatus.MITIGATING,
+                "probability": 4,
+                "impact": 3,
+                "category": RiskCategory.ORGANIZATIONAL,
+                "response": RiskResponse.MITIGATE,
+                "trigger": "Cleo's effective capacity drops below 0.5 FTE on either package",
+                "mitigation_due_date": today + timedelta(days=3),
+                "contingency": "Back-fill with contractor; descope API surface refresh to 12d.",
+                "owner": sarah,
+                "linked_task": "Data layer rewrite",
+            },
+            {
+                "title": "Undocumented legacy auth flows expand Auth migration scope",
+                "description": (
+                    "Audit of the legacy system reveals SAML and custom token flows not "
+                    "in the original SOW. Each undocumented flow adds 2-3d of analysis "
+                    "and adapter work."
+                ),
+                "status": RiskStatus.OPEN,
+                "probability": 3,
+                "impact": 5,
+                "category": RiskCategory.PROJECT_MANAGEMENT,
+                "response": RiskResponse.AVOID,
+                "trigger": "Discovery of auth flows not covered by the migration adapter matrix",
+                "mitigation_due_date": today - timedelta(days=5),
+                "contingency": "Raise a change request; extend Auth migration by up to 7d.",
+                "owner": raj,
+                "linked_task": "Auth migration",
+            },
+            {
+                "title": "Stakeholder sign-off delayed past UAT deadline",
+                "description": (
+                    "Executive sponsor availability in the final two weeks is limited. "
+                    "If UAT sign-off is not received by the milestone date, Production "
+                    "cutover is blocked by contract."
+                ),
+                "status": RiskStatus.OPEN,
+                "probability": 2,
+                "impact": 5,
+                "category": RiskCategory.ORGANIZATIONAL,
+                "response": RiskResponse.ACCEPT,
+                "trigger": "UAT signoff meeting not scheduled 5 days before the milestone",
+                "mitigation_due_date": today + timedelta(days=14),
+                "contingency": "Escalate to PMO; invoke clause 4.2 for asynchronous approval.",
+                "owner": diana,
+                "linked_task": "Cutover rehearsal",
+            },
+        ]
+
+        for spec in specs:
+            linked = spec.pop("linked_task", None)
+            risk = Risk.objects.create(project=project, **spec)
+            if linked and linked in phase_tasks:
+                RiskTask.objects.create(risk=risk, task=phase_tasks[linked])

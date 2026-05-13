@@ -1,28 +1,53 @@
-/* TruePPM brand colors for Starlight */
+/* TruePPM brand colors for Starlight
+ *
+ * Starlight cascade:
+ *   :root            — dark mode (the default; no data-theme attribute)
+ *   [data-theme='light'] — light mode override
+ *
+ * --sl-color-white is the FOREGROUND text color used by asides and prose.
+ * It must be near-white in dark mode and near-black in light mode.
+ * Never override it to a dark value inside a [data-theme="dark"] block —
+ * that produces invisible text on dark aside backgrounds.
+ */
+
+/* Dark mode — Starlight default */
 :root {
   --sl-color-accent-low: #1e2f6b;
   --sl-color-accent: #3b5bdb;
   --sl-color-accent-high: #c5d0f6;
-  --sl-color-white: #ffffff;
+
+  /* Foreground text (near-white for dark bg) */
+  --sl-color-white: #f0f2f9;
+
+  /* Gray scale: 1 = lightest (text), 6 = darkest (bg elements) */
   --sl-color-gray-1: #eef0f6;
   --sl-color-gray-2: #c2c6d3;
   --sl-color-gray-3: #8b90a0;
   --sl-color-gray-4: #545867;
   --sl-color-gray-5: #353847;
   --sl-color-gray-6: #24262f;
+
+  /* Page background */
   --sl-color-black: #17181c;
 }
 
-:root[data-theme="dark"] {
-  --sl-color-accent-low: #1a2a5e;
-  --sl-color-accent: #7b9ff9;
-  --sl-color-accent-high: #d5e2fd;
+/* Light mode */
+:root[data-theme="light"] {
+  --sl-color-accent-low: #dce7ff;
+  --sl-color-accent: #3b5bdb;
+  --sl-color-accent-high: #1e2f6b;
+
+  /* Foreground text (near-black for light bg) */
   --sl-color-white: #17181c;
+
+  /* Gray scale inverted: 1 = darkest (text), 6 = lightest (bg elements) */
   --sl-color-gray-1: #24262f;
   --sl-color-gray-2: #353847;
   --sl-color-gray-3: #545867;
   --sl-color-gray-4: #8b90a0;
   --sl-color-gray-5: #c2c6d3;
   --sl-color-gray-6: #eef0f6;
+
+  /* Page background */
   --sl-color-black: #ffffff;
 }

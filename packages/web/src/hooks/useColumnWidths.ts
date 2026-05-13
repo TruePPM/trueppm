@@ -11,7 +11,7 @@ export const MIN_COL_WIDTHS = {
   dur: 40,
   start: 60,
   finish: 60,
-  progress: 40,
+  progress: 56,  // "33.33%" needs ~52px; floor at 56 to avoid overflow
   owner: 40,
 } as const;
 
@@ -23,7 +23,7 @@ const DEFAULTS: Record<ColumnKey, number> = {
   dur: 52,
   start: 74,
   finish: 74,
-  progress: 44,
+  progress: 60,
   owner: 72,
 };
 
