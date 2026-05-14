@@ -836,10 +836,14 @@ export function drawDependencyArrows(
     // CPM dates exist, regardless of phase plannedStart, so arrows pointing
     // to/from a phase row remain valid.
     if (!t.isSummary && !t.plannedStart && !t.sprintId) continue;
+    // For milestones the bar has zero width; anchor at the diamond's left/right
+    // tips (centerX ± half-diagonal) so arrows connect to the visible edge.
+    const milestoneHalfDiag = Math.round(MILESTONE_SIZE / 2 * Math.SQRT2); // ≈ 8px
+    const cx = dateToLeft(t.start, scales) - scrollLeft;
     taskMap.set(t.id, {
       rowIndex: i,
-      barLeft: dateToLeft(t.start, scales) - scrollLeft,
-      barRight: dateToLeft(t.finish, scales) - scrollLeft,
+      barLeft:  t.isMilestone ? cx - milestoneHalfDiag : cx,
+      barRight: t.isMilestone ? cx + milestoneHalfDiag : dateToLeft(t.finish, scales) - scrollLeft,
       isCritical: t.isCritical,
     });
   }
