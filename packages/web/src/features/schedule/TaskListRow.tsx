@@ -715,8 +715,12 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
           style={{ width: widths.start }}
           role="gridcell"
           aria-label={task.start ? `starts ${formatDate(task.start)}` : 'unscheduled'}
+          tabIndex={buildMode && task.isMilestone ? 0 : undefined}
           onClick={buildMode && task.isMilestone
             ? (e) => { e.stopPropagation(); setShowMilestonePicker((v) => !v); }
+            : undefined}
+          onKeyDown={buildMode && task.isMilestone
+            ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowMilestonePicker((v) => !v); } }
             : undefined}
         >
           {task.isMilestone ? formatDate(task.start) : (task.start ? formatDate(task.start) : '—')}
