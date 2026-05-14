@@ -894,17 +894,20 @@ export function drawDependencyArrows(
     ctx.lineWidth = 2;
     ctx.beginPath();
 
-    // For FS, the arrowhead tip stops 4px short of the bar edge so there is a
-    // visible gap between the tip and the connected bar (Visio convention).
+    // For FS: arrowhead tip stops 4px short of the bar edge (Visio gap convention).
+    // Angle is computed before drawing the line so the line can terminate cleanly
+    // at the arrowhead base rather than passing through the triangle interior.
     const tipX = isFS ? x2 - 4 : x2;
+    const arrowSize = 8;
+    const angle = isFS ? Math.atan2(0, tipX - (x1 + 12)) : Math.atan2(0, x2 - cx2);
 
     if (isFS) {
-      // Orthogonal elbow: exit right 12px → vertical → arrive at target left-edge (rule 75)
+      // Orthogonal elbow: exit right 12px → vertical → stop at arrowhead base (rule 75)
       const elbowX = x1 + 12;
       ctx.moveTo(x1, srcY);
       ctx.lineTo(elbowX, srcY);
       ctx.lineTo(elbowX, tgtY);
-      ctx.lineTo(tipX, tgtY);
+      ctx.lineTo(tipX - arrowSize * Math.cos(angle), tgtY);
     } else {
       // SS / FF / SF: cubic Bézier, horizontal entry/exit tangent
       ctx.moveTo(x1, srcY);
@@ -912,11 +915,7 @@ export function drawDependencyArrows(
     }
     ctx.stroke();
 
-    // Arrowhead: filled triangle at target end.
-    // FS: angle determined by final horizontal segment direction (elbowX vs tipX).
-    // SS/FF/SF: angle from Bézier tangent at t=1 (atan2(0, x2 - cx2)).
-    const arrowSize = 8;
-    const angle = isFS ? Math.atan2(0, tipX - (x1 + 12)) : Math.atan2(0, x2 - cx2);
+    // Arrowhead: filled triangle with tip at tipX.
     ctx.fillStyle = stroke;
     ctx.beginPath();
     ctx.moveTo(tipX, tgtY);
