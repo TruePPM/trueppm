@@ -43,7 +43,7 @@ describe('SprintPrompt', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders the prompt for an agile project', () => {
+  it('renders the sprint step for an agile project', () => {
     wrap(
       <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={vi.fn()} />,
       agileProjectClient(),
@@ -70,13 +70,49 @@ describe('SprintPrompt', () => {
     expect(screen.getByText('Backlog')).toBeInTheDocument();
   });
 
-  it('calls onSelect(null) when Backlog option is clicked', () => {
+  it('advances to points step after sprint selection', () => {
+    wrap(
+      <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={vi.fn()} />,
+      agileProjectClient(),
+    );
+    fireEvent.click(screen.getByText('Backlog'));
+    expect(screen.getByText('Story points?')).toBeInTheDocument();
+    expect(screen.getByRole('spinbutton', { name: /story points/i })).toBeInTheDocument();
+  });
+
+  it('calls onSelect(null, null) when Backlog is picked and Done clicked with no pts', () => {
     const onSelect = vi.fn();
     wrap(
       <SprintPrompt open projectId="p1" onSelect={onSelect} onDismiss={vi.fn()} />,
       agileProjectClient(),
     );
     fireEvent.click(screen.getByText('Backlog'));
-    expect(onSelect).toHaveBeenCalledWith(null);
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(onSelect).toHaveBeenCalledWith(null, null);
+  });
+
+  it('calls onSelect(null, 5) when Backlog is picked and 5 pts entered', () => {
+    const onSelect = vi.fn();
+    wrap(
+      <SprintPrompt open projectId="p1" onSelect={onSelect} onDismiss={vi.fn()} />,
+      agileProjectClient(),
+    );
+    fireEvent.click(screen.getByText('Backlog'));
+    fireEvent.change(screen.getByRole('spinbutton', { name: /story points/i }), { target: { value: '5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(onSelect).toHaveBeenCalledWith(null, 5);
+  });
+
+  it('goes back to sprint step when Esc pressed on points step', () => {
+    const onDismiss = vi.fn();
+    wrap(
+      <SprintPrompt open projectId="p1" onSelect={vi.fn()} onDismiss={onDismiss} />,
+      agileProjectClient(),
+    );
+    fireEvent.click(screen.getByText('Backlog'));
+    expect(screen.getByText('Story points?')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape', bubbles: true });
+    expect(screen.getByText('Add to sprint?')).toBeInTheDocument();
+    expect(onDismiss).not.toHaveBeenCalled();
   });
 });

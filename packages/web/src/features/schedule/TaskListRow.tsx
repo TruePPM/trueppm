@@ -830,9 +830,9 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
         <SprintPrompt
           open={showSprintPrompt}
           projectId={projectId || null}
-          onSelect={(sprintId) => {
+          onSelect={(sprintId, storyPoints) => {
             if (projectId) {
-              updateTask.mutate({ id: task.id, projectId, sprint: sprintId });
+              updateTask.mutate({ id: task.id, projectId, sprint: sprintId, story_points: storyPoints });
             }
             setShowSprintPrompt(false);
           }}
