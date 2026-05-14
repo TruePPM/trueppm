@@ -249,9 +249,10 @@ These rules are enforced at review time. Violations block merge.
 
 74. **Non-working day shading uses `rgba(0,0,0,0.03)`** — a very subtle dark overlay on weekend columns on the light canvas. Applied on `canvas-bg`, not recalculated during drag.
 
-75. **Dependency arrows are cubic Bézier curves** with control points offset 40px
-    horizontally from the source and target bar endpoints. FS arrows emerge from
-    the bar right edge and enter the next bar left edge. Critical-path arrows use
+75. **FS dependency arrows use orthogonal elbow routing** — exit the source right-edge
+    horizontally for 12px, drop vertically to the target row's midline, then arrive
+    horizontally at the target left-edge. Right-angle bends only; no curves. SS / FF / SF
+    still use cubic Bézier curves with 40px control-point offsets. Critical-path arrows use
     `COLOR.arrowCritical` (`#B91C1C`); non-critical use `COLOR.arrowNormal`
     (`rgba(107,105,101,0.6)`). Arrow line width: 1.5px logical px.
 

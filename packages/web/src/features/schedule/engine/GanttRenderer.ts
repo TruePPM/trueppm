@@ -12,7 +12,7 @@
  * - Bar label text uses neutral-text-primary (#1A1917) on light surface
  * - Critical path bars use semantic-critical (#B91C1C) on light surface
  * - Rule 74: weekend shading = rgba(255,255,255,0.03)
- * - Rule 75: dependency arrows are cubic Bézier, 40px control offsets, 1.5px
+ * - Rule 75: FS arrows use orthogonal elbow routing (12px exit, vertical drop, horizontal entry); SS/FF/SF use cubic Bézier
  */
 
 import type { Task, TaskLink } from '@/types';
@@ -801,15 +801,14 @@ export function drawMilestone(
 /**
  * Draw dependency arrows for all four link types (FS, SS, FF, SF).
  *
- * Anchor points and Bézier control-point offsets per type (rule 75 — 40px):
- *   FS  Finish → Start  : exits right from src finish, enters left  at tgt start
+ * FS uses orthogonal elbow routing (rule 75 — issue #466):
+ *   exit source right-edge 12px → drop vertically to target row → arrive at target left-edge.
+ *   Arrowhead points right (→) when elbow is left of target, left (←) for backward links.
+ *
+ * SS / FF / SF still use cubic Bézier with 40px control-point offsets:
  *   SS  Start  → Start  : exits left  from src start,  enters left  at tgt start
  *   FF  Finish → Finish : exits right from src finish, enters right at tgt finish
  *   SF  Start  → Finish : exits left  from src start,  enters right at tgt finish
- *
- * Control points share the y-coordinate of their anchor so the curve exits and
- * enters horizontally (tangent is purely horizontal at both endpoints). This
- * means the arrowhead angle is always 0 (→) for FS/SS and π (←) for FF/SF.
  *
  * Critical-path arrows (both tasks isCritical) use arrowCritical stroke.
  */
@@ -856,28 +855,25 @@ export function drawDependencyArrows(
     const srcY = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
     const tgtY = tgt.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
 
-    // Compute anchor x-coords and Bézier control x-coords per dependency type.
-    let x1: number, x2: number, cx1: number, cx2: number;
+    // Compute anchor x-coords per dependency type. cx1/cx2 are Bézier control
+    // points for SS/FF/SF; unused for FS (orthogonal routing, rule 75).
+    const isFS = link.type !== 'SS' && link.type !== 'FF' && link.type !== 'SF';
+    let x1: number, x2: number, cx1 = 0, cx2 = 0;
     switch (link.type) {
       case 'SS':
-        // Start → Start: both anchors on left bar edge, loop out to the left
         x1 = src.barLeft;  x2 = tgt.barLeft;
         cx1 = x1 - 40;    cx2 = x2 - 40;
         break;
       case 'FF':
-        // Finish → Finish: both anchors on right bar edge, loop out to the right
         x1 = src.barRight; x2 = tgt.barRight;
         cx1 = x1 + 40;    cx2 = x2 + 40;
         break;
       case 'SF':
-        // Start → Finish: source exits left, target enters right
         x1 = src.barLeft;  x2 = tgt.barRight;
         cx1 = x1 - 40;    cx2 = x2 + 40;
         break;
       default: // 'FS'
-        // Finish → Start: source exits right, target enters left (most common)
         x1 = src.barRight; x2 = tgt.barLeft;
-        cx1 = x1 + 40;    cx2 = x2 - 40;
     }
 
     // Skip if entirely off-screen
@@ -898,16 +894,25 @@ export function drawDependencyArrows(
     ctx.lineWidth = 1.5;
     ctx.beginPath();
 
-    // Cubic Bézier: control y-coords match anchor y-coords → horizontal entry/exit tangent (rule 75)
-    ctx.moveTo(x1, srcY);
-    ctx.bezierCurveTo(cx1, srcY, cx2, tgtY, x2, tgtY);
+    if (isFS) {
+      // Orthogonal elbow: exit right 12px → vertical → arrive at target left-edge (rule 75)
+      const elbowX = x1 + 12;
+      ctx.moveTo(x1, srcY);
+      ctx.lineTo(elbowX, srcY);
+      ctx.lineTo(elbowX, tgtY);
+      ctx.lineTo(x2, tgtY);
+    } else {
+      // SS / FF / SF: cubic Bézier, horizontal entry/exit tangent
+      ctx.moveTo(x1, srcY);
+      ctx.bezierCurveTo(cx1, srcY, cx2, tgtY, x2, tgtY);
+    }
     ctx.stroke();
 
-    // Arrowhead: tangent at t=1 is horizontal, so angle is atan2(0, x2 - cx2).
-    // FS/SS: cx2 < x2  → angle = 0  → arrowhead points right (entering left edge)
-    // FF/SF: cx2 > x2  → angle = π  → arrowhead points left  (entering right edge)
+    // Arrowhead: filled triangle at target end.
+    // FS: angle determined by final horizontal segment direction (elbowX vs x2).
+    // SS/FF/SF: angle from Bézier tangent at t=1 (atan2(0, x2 - cx2)).
     const arrowSize = 6;
-    const angle = Math.atan2(0, x2 - cx2);
+    const angle = isFS ? Math.atan2(0, x2 - (x1 + 12)) : Math.atan2(0, x2 - cx2);
     ctx.fillStyle = stroke;
     ctx.beginPath();
     ctx.moveTo(x2, tgtY);
