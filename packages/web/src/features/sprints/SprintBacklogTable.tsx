@@ -9,6 +9,8 @@ interface Props {
   tasks: SprintBacklogTask[];
   /** Called when the user clicks "+ Add task" or presses ⌘K. */
   onAddTask?: () => void;
+  /** Called when the user removes a task from this sprint (sets sprint=null). */
+  onRemoveTask?: (taskId: string) => void;
 }
 
 /**
@@ -42,7 +44,7 @@ function persistKey(sprintId: string, status: TaskStatus): string {
  * and is collapsible (state persists in sessionStorage so a tab swap does
  * not reset the user's view).
  */
-export function SprintBacklogTable({ projectId, sprintId, tasks, onAddTask }: Props) {
+export function SprintBacklogTable({ projectId, sprintId, tasks, onAddTask, onRemoveTask }: Props) {
   const groups = useMemo(() => {
     const byStatus = new Map<TaskStatus, SprintBacklogTask[]>();
     for (const t of tasks) {
@@ -137,10 +139,11 @@ export function SprintBacklogTable({ projectId, sprintId, tasks, onAddTask }: Pr
               <th>Flags</th>
               <th>Owner</th>
               <th>Status</th>
+              {onRemoveTask && <th>Remove</th>}
             </tr>
           </thead>
           {groups.map((g) => (
-            <BacklogGroup key={g.status} sprintId={sprintId} group={g} />
+            <BacklogGroup key={g.status} sprintId={sprintId} group={g} onRemoveTask={onRemoveTask} />
           ))}
         </table>
       )}
@@ -155,9 +158,10 @@ interface GroupProps {
     label: string;
     rows: SprintBacklogTask[];
   };
+  onRemoveTask?: (taskId: string) => void;
 }
 
-function BacklogGroup({ sprintId, group }: GroupProps) {
+function BacklogGroup({ sprintId, group, onRemoveTask }: GroupProps) {
   const key = persistKey(sprintId, group.status);
   const [collapsed, setCollapsed] = useState<boolean>(false);
 
@@ -215,7 +219,7 @@ function BacklogGroup({ sprintId, group }: GroupProps) {
           <tr
             key={t.id}
             id={`backlog-group-${group.status}`}
-            className="border-b border-neutral-border/60 hover:bg-neutral-surface-raised"
+            className="border-b border-neutral-border/60 hover:bg-neutral-surface-raised group/row"
           >
             <td className="px-3 py-2 align-top w-20 text-xs tppm-mono text-neutral-text-secondary">
               T-{t.short_id || t.id.slice(0, 6)}
@@ -249,6 +253,20 @@ function BacklogGroup({ sprintId, group }: GroupProps) {
                 {prettyStatus(t.status)}
               </span>
             </td>
+            {onRemoveTask && (
+              <td className="px-2 py-2 align-top w-8 text-right">
+                <button
+                  type="button"
+                  onClick={() => onRemoveTask(t.id)}
+                  title="Remove from sprint"
+                  aria-label={`Remove ${t.name} from sprint`}
+                  className="opacity-0 group-hover/row:opacity-100 text-neutral-text-disabled hover:text-semantic-critical
+                    focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+                >
+                  ×
+                </button>
+              </td>
+            )}
           </tr>
         ))}
     </tbody>

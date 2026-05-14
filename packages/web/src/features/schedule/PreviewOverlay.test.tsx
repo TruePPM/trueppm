@@ -48,6 +48,9 @@ const INITIAL_STORE = {
   isKeyboardMode: false,
   keyboardDelta: 0,
   confirmedStart: null,
+  buildingTaskId: null,
+  buildingStart: null,
+  buildingFinish: null,
 };
 
 beforeEach(() => {
@@ -212,6 +215,37 @@ describe('PreviewOverlay', () => {
       useDragStore.getState().commitDrag();
       render(<PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />);
       expect(screen.queryByText('Esc to cancel')).toBeNull();
+    });
+  });
+
+  describe('building phase ghost bar (#344)', () => {
+    it('renders the overlay when phase is building', () => {
+      useDragStore.getState().startBuilding('t1', '2025-01-06', '2025-01-10');
+      const { container } = render(
+        <PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />,
+      );
+      expect(container.firstChild).not.toBeNull();
+    });
+
+    it('renders a dashed build ghost bar for the building task', () => {
+      useDragStore.getState().startBuilding('t1', '2025-01-06', '2025-01-10');
+      const { container } = render(
+        <PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />,
+      );
+      const overlay = container.firstChild as HTMLElement;
+      const dashedChild = Array.from(overlay.children).find(
+        (el) => (el as HTMLElement).style?.borderStyle === 'dashed',
+      );
+      expect(dashedChild).toBeDefined();
+    });
+
+    it('falls back to end-of-list row when buildingTaskId is not in taskIds', () => {
+      useDragStore.getState().startBuilding('t-new', '2025-01-06', '2025-01-10');
+      const { container } = render(
+        <PreviewOverlay scales={SCALES} scrollLeft={0} taskIds={TASK_IDS} />,
+      );
+      // Overlay should render (task not in list → falls back to row TASK_IDS.length)
+      expect(container.firstChild).not.toBeNull();
     });
   });
 

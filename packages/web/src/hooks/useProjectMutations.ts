@@ -22,6 +22,8 @@ export interface CreateProjectPayload {
   description?: string;
   /** Project planning methodology (ADR-0041). Server defaults to HYBRID when omitted. */
   methodology?: Methodology;
+  /** Sprint/story-points UI gate (ADR-0037). True for AGILE and HYBRID projects. */
+  agile_features?: boolean;
 }
 
 /** POST /api/v1/projects/ — create a new project and invalidate the project list cache. */

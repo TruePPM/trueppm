@@ -109,6 +109,7 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
         start_date: startDate,
         description: description.trim() || undefined,
         methodology,
+        agile_features: methodology !== 'WATERFALL',
       },
       { onSuccess: (data) => onCreated(data.id) },
     );
@@ -275,33 +276,20 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
                 >
                   Cancel
                 </button>
-                {step < TOTAL_STEPS ? (
-                  <button
-                    type="button"
-                    onClick={advance}
-                    disabled={
-                      (step === 1 && !canAdvanceStep1) ||
-                      (step === 2 && !canAdvanceStep2)
-                    }
-                    className="h-9 px-4 rounded text-sm font-medium bg-brand-primary text-white
-                      disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
-                      focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
-                  >
-                    Next
-                  </button>
-                ) : (
-                  <button
-                    type="submit"
-                    disabled={createProject.isPending}
-                    className="h-9 px-4 rounded text-sm font-medium bg-brand-primary text-white
-                      disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
-                      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
-                      focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
-                  >
-                    {createProject.isPending ? 'Creating…' : 'Create project'}
-                  </button>
-                )}
+                <button
+                  type="submit"
+                  disabled={
+                    (step === 1 && !canAdvanceStep1) ||
+                    (step === 2 && !canAdvanceStep2) ||
+                    (step === TOTAL_STEPS && createProject.isPending)
+                  }
+                  className="h-9 px-4 rounded text-sm font-medium bg-brand-primary text-white
+                    disabled:opacity-50 disabled:cursor-not-allowed hover:bg-brand-primary-dark
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white
+                    focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary"
+                >
+                  {step < TOTAL_STEPS ? 'Next' : createProject.isPending ? 'Creating…' : 'Create project'}
+                </button>
               </div>
             </div>
           </form>

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
+import { useUpdateTask } from '@/hooks/useTaskMutations';
 import {
   useSprints,
   useSprintsByState,
@@ -105,6 +107,7 @@ export function SprintsView() {
   }, [sprints]);
 
   const activeSprint = buckets.active;
+  const plannedSprint = buckets.planned[0] ?? null;
   const hasPlannedSprint = buckets.planned.length > 0;
   const projectName = projectQuery.data?.name;
 
@@ -112,7 +115,10 @@ export function SprintsView() {
   const capacity = useSprintCapacity(activeSprint?.id);
   const velocity = useProjectVelocity(projectId);
   const backlog = useSprintBacklog(projectId, activeSprint?.id);
+  const plannedBacklog = useSprintBacklog(projectId, plannedSprint?.id);
   const myTeams = useMyActiveSprints();
+  const queryClient = useQueryClient();
+  const updateTask = useUpdateTask();
   const myTeamsCount = myTeams.data?.length ?? 0;
   // Toggle only useful when the user has assignments in ≥ 2 active sprints.
   const showLensToggle = myTeamsCount >= 2;
@@ -122,8 +128,9 @@ export function SprintsView() {
   const [editSprintId, setEditSprintId] = useState<string | null>(null);
   // Close-sprint dialog (#299) replaces the old direct closeSprint.mutate call.
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
-  // Task create modal — opens with active sprint pre-populated.
-  const [addTaskOpen, setAddTaskOpen] = useState(false);
+  // Task create modal — opens with the target sprint pre-populated.
+  // null = modal closed; a sprint id string = modal open targeting that sprint.
+  const [addTaskForSprintId, setAddTaskForSprintId] = useState<string | null>(null);
   // Sprint backlog filter (#299) — popover open + value, persisted in
   // sessionStorage keyed by active sprint id. Bound to the Filter button
   // anchor for placement.
@@ -156,17 +163,19 @@ export function SprintsView() {
     setCapacityWarnings([]);
   }, [activeSprint?.id]);
 
-  // ⌘K / Ctrl+K opens the task create modal pre-targeted at the active sprint.
+  // ⌘K / Ctrl+K opens the task create modal pre-targeted at the active sprint,
+  // or the planned sprint when there is no active sprint yet.
   useEffect(() => {
+    const targetSprint = activeSprint ?? plannedSprint;
     function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && activeSprint) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k' && targetSprint) {
         e.preventDefault();
-        setAddTaskOpen(true);
+        setAddTaskForSprintId(targetSprint.id);
       }
     }
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [activeSprint]);
+  }, [activeSprint, plannedSprint]);
 
   const editingSprint = useMemo(() => {
     if (!editSprintId) return undefined;
@@ -181,6 +190,7 @@ export function SprintsView() {
     () => applySprintFilter(backlogTasks, filter, myResourceId),
     [backlogTasks, filter, myResourceId],
   );
+  const plannedBacklogTasks = useMemo(() => plannedBacklog.data ?? [], [plannedBacklog.data]);
 
   function handlePlanNext() {
     if (hasPlannedSprint) return;
@@ -224,6 +234,16 @@ export function SprintsView() {
 
   function handleEditPlanned(sprintId: string) {
     setEditSprintId(sprintId);
+  }
+
+  function handleRemoveFromSprint(taskId: string) {
+    if (!projectId) return;
+    updateTask.mutate({ id: taskId, projectId, sprint: null }, {
+      onSuccess: () => {
+        // Invalidate both active and planned sprint backlog caches.
+        void queryClient.invalidateQueries({ queryKey: ['sprint-backlog', projectId] });
+      },
+    });
   }
 
   return (
@@ -406,7 +426,18 @@ export function SprintsView() {
             projectId={projectId}
             sprintId={activeSprint.id}
             tasks={filteredBacklog}
-            onAddTask={() => setAddTaskOpen(true)}
+            onAddTask={() => setAddTaskForSprintId(activeSprint.id)}
+            onRemoveTask={handleRemoveFromSprint}
+          />
+        )}
+
+        {!isLoading && !error && !activeSprint && plannedSprint && projectId && (
+          <SprintBacklogTable
+            projectId={projectId}
+            sprintId={plannedSprint.id}
+            tasks={plannedBacklogTasks}
+            onAddTask={() => setAddTaskForSprintId(plannedSprint.id)}
+            onRemoveTask={handleRemoveFromSprint}
           />
         )}
 
@@ -465,13 +496,13 @@ export function SprintsView() {
         />
       )}
 
-      {addTaskOpen && projectId && (
+      {addTaskForSprintId !== null && projectId && (
         <TaskFormModal
           projectId={projectId}
           task={null}
-          defaultSprintId={activeSprint?.id ?? null}
+          defaultSprintId={addTaskForSprintId}
           isMobile={false}
-          onClose={() => setAddTaskOpen(false)}
+          onClose={() => setAddTaskForSprintId(null)}
         />
       )}
     </div>

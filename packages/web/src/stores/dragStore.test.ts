@@ -11,6 +11,9 @@ const INITIAL_STATE = {
   isKeyboardMode: false,
   keyboardDelta: 0,
   confirmedStart: null,
+  buildingTaskId: null,
+  buildingStart: null,
+  buildingFinish: null,
 };
 
 beforeEach(() => {
@@ -154,6 +157,33 @@ describe('dragStore', () => {
       useDragStore.getState().setKeyboardDelta(5);
       useDragStore.getState().setKeyboardDelta(0);
       expect(useDragStore.getState().keyboardDelta).toBe(0);
+    });
+  });
+
+  describe('startBuilding / stopBuilding', () => {
+    it('startBuilding transitions to building phase with ghost bar dates', () => {
+      useDragStore.getState().startBuilding('t-new', '2026-05-14', '2026-05-19');
+      const s = useDragStore.getState();
+      expect(s.phase).toBe('building');
+      expect(s.buildingTaskId).toBe('t-new');
+      expect(s.buildingStart).toBe('2026-05-14');
+      expect(s.buildingFinish).toBe('2026-05-19');
+    });
+
+    it('stopBuilding resets phase to idle and clears building fields', () => {
+      useDragStore.getState().startBuilding('t-new', '2026-05-14', '2026-05-19');
+      useDragStore.getState().stopBuilding();
+      const s = useDragStore.getState();
+      expect(s.phase).toBe('idle');
+      expect(s.buildingTaskId).toBeNull();
+      expect(s.buildingStart).toBeNull();
+      expect(s.buildingFinish).toBeNull();
+    });
+
+    it('cancelDrag also resets building fields', () => {
+      useDragStore.getState().startBuilding('t-new', '2026-05-14', '2026-05-19');
+      useDragStore.getState().cancelDrag();
+      expect(useDragStore.getState()).toMatchObject(INITIAL_STATE);
     });
   });
 });

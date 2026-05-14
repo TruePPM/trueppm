@@ -353,7 +353,7 @@ export interface WorstMilestone {
 }
 
 /** Drag state machine phases */
-export type DragPhase = 'idle' | 'dragging' | 'committing' | 'error';
+export type DragPhase = 'idle' | 'dragging' | 'committing' | 'error' | 'building';
 
 export interface ShellStatTask {
   id: string;

@@ -1,7 +1,8 @@
 /**
  * Absolutely-positioned overlay that renders translucent preview bars for
  * all downstream-impacted tasks during a Gantt drag (issue #19) or keyboard
- * reschedule (issue #34).
+ * reschedule (issue #34), and a dashed build ghost bar during inline name
+ * editing in build mode (issue #344).
  *
  * Design rules enforced here:
  * - Rule 23: ghost-fill / ghost-border tokens via style prop (dynamic values)
@@ -28,6 +29,8 @@ const GHOST_BORDER = 'rgba(100, 116, 139, 0.55)';
 const CRITICAL_BORDER = 'var(--color-semantic-critical, #B91C1C)';
 // Origin ghost bar: more opaque border to distinguish from downstream previews (rule 52)
 const ORIGIN_BORDER = 'rgba(100, 116, 139, 0.80)';
+// Build ghost bar: dashed brand-accent (amber) border during inline name editing (#344)
+const BUILD_BORDER = 'var(--color-brand-accent, #E8A020)';
 
 const BAR_HEIGHT = 18; // rule 14: normal/critical/complete = 18px
 const ROW_HEIGHT = 28; // rule 15: task list row height
@@ -114,6 +117,38 @@ function OriginBar({ originStart, originFinish, scales, scrollLeft, rowIndex }: 
   );
 }
 
+/** Dashed amber bar during build-mode inline name editing — shows where the bar will land (#344). */
+interface BuildGhostBarProps {
+  ghostStart: string;
+  ghostFinish: string;
+  scales: GanttScaleData;
+  scrollLeft: number;
+  rowIndex: number;
+}
+
+function BuildGhostBar({ ghostStart, ghostFinish, scales, scrollLeft, rowIndex }: BuildGhostBarProps) {
+  const left = dateToLeft(ghostStart, scales) - scrollLeft;
+  const right = dateToLeft(ghostFinish, scales) - scrollLeft;
+  const width = Math.max(4, right - left);
+  const top = rowIndex * ROW_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2;
+
+  return (
+    <div
+      className="absolute rounded-sm"
+      style={{
+        left,
+        top,
+        width,
+        height: BAR_HEIGHT,
+        backgroundColor: 'transparent',
+        border: `2px dashed ${BUILD_BORDER}`,
+        borderStyle: 'dashed',
+      }}
+      aria-hidden="true"
+    />
+  );
+}
+
 interface Props {
   scales: GanttScaleData | null;
   scrollLeft: number;
@@ -136,6 +171,9 @@ export function PreviewOverlay({ scales, scrollLeft, taskIds, originTask }: Prop
   const previewResults = useDragStore((s) => s.previewResults);
   const overflowCount = useDragStore((s) => s.overflowCount);
   const isKeyboardMode = useDragStore((s) => s.isKeyboardMode);
+  const buildingTaskId = useDragStore((s) => s.buildingTaskId);
+  const buildingStart = useDragStore((s) => s.buildingStart);
+  const buildingFinish = useDragStore((s) => s.buildingFinish);
 
   // Track when we entered 'dragging' phase to enforce the ≥ 400ms CP badge delay (rule 26)
   const dragStartRef = useRef<number | null>(null);
@@ -160,7 +198,7 @@ export function PreviewOverlay({ scales, scrollLeft, taskIds, originTask }: Prop
     return map;
   }, [taskIds]);
 
-  const isVisible = phase === 'dragging' || phase === 'committing';
+  const isVisible = phase === 'dragging' || phase === 'committing' || phase === 'building';
 
   if (!isVisible || !scales) return null;
 
@@ -176,6 +214,22 @@ export function PreviewOverlay({ scales, scrollLeft, taskIds, originTask }: Prop
           : 'none',
       }}
     >
+      {/* Build ghost bar — dashed amber placeholder during inline name editing (#344) */}
+      {phase === 'building' && buildingTaskId && buildingStart && buildingFinish && (() => {
+        const rawIdx = rowIndexMap.get(buildingTaskId);
+        // Fall back to end of list when the task is newly created and not yet in taskIds
+        const rowIndex = rawIdx !== undefined ? rawIdx : taskIds.length;
+        return (
+          <BuildGhostBar
+            ghostStart={buildingStart}
+            ghostFinish={buildingFinish}
+            scales={scales}
+            scrollLeft={scrollLeft}
+            rowIndex={rowIndex}
+          />
+        );
+      })()}
+
       {/* Origin ghost bar — shows the task's pre-nudge position (rule 52) */}
       {isKeyboardMode && originTask && (() => {
         const rowIndex = rowIndexMap.get(originTask.id);

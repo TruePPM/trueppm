@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect, type RefObject } from 'react';
+import { useRef, useState, useEffect, useMemo, type RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Task } from '@/types';
 import { ROW_HEIGHT } from './scheduleConstants';
@@ -10,6 +10,49 @@ import { TaskListRow } from './TaskListRow';
 /** Derive WBS nesting level from the dot-separated wbs string (e.g. '1.2.3' → level 3) */
 function wbsLevel(wbs: string): number {
   return wbs.split('.').length;
+}
+
+/** WBS parent path: '1.2.3' → '1.2', '1' → '' */
+function wbsParent(wbs: string): string {
+  const parts = wbs.split('.');
+  return parts.slice(0, -1).join('.');
+}
+
+/** All same-level siblings of a task (tasks with matching parent wbs path). */
+function computeSiblingIds(task: Task, allTasks: Task[]): string[] {
+  const parentPath = wbsParent(task.wbs);
+  const level = wbsLevel(task.wbs);
+  return allTasks
+    .filter((t) => wbsLevel(t.wbs) === level && wbsParent(t.wbs) === parentPath)
+    .map((t) => t.id);
+}
+
+/** Ancestor summary tasks for a milestone, closest first (up to 3 levels). */
+function computeMilestoneParents(
+  task: Task,
+  allTasks: Task[],
+): { name: string; finish?: string }[] {
+  const wbsByTask = new Map(allTasks.map((t) => [t.wbs, t]));
+  const parts = task.wbs.split('.');
+  const parents: { name: string; finish?: string }[] = [];
+  for (let i = parts.length - 1; i >= 1; i--) {
+    const parentWbs = parts.slice(0, i).join('.');
+    const parent = wbsByTask.get(parentWbs);
+    if (parent) parents.push({ name: parent.name, finish: parent.finish || undefined });
+  }
+  return parents.slice(0, 3);
+}
+
+/** Deduplicated task name list: milestones first, then all others. */
+function computeNameSuggestions(tasks: Task[]): string[] {
+  const milestoneNames = tasks.filter((t) => t.isMilestone).map((t) => t.name);
+  const otherNames = tasks.filter((t) => !t.isMilestone).map((t) => t.name);
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const name of [...milestoneNames, ...otherNames]) {
+    if (!seen.has(name)) { seen.add(name); result.push(name); }
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +142,23 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visibl
   const scrollToTaskId = useScheduleStore((s) => s.scrollToTaskId);
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
 
+  // Derived maps computed once per tasks change — passed to each row for #343/#345/#347
+  const siblingIdsMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const task of tasks) map.set(task.id, computeSiblingIds(task, tasks));
+    return map;
+  }, [tasks]);
+
+  const nameSuggestions = useMemo(() => computeNameSuggestions(tasks), [tasks]);
+
+  const milestoneParentsMap = useMemo(() => {
+    const map = new Map<string, { name: string; finish?: string }[]>();
+    for (const task of tasks) {
+      if (task.isMilestone) map.set(task.id, computeMilestoneParents(task, tasks));
+    }
+    return map;
+  }, [tasks]);
+
   const virtualizer = useVirtualizer({
     count: tasks.length,
     getScrollElement: () => scrollRef.current,
@@ -161,6 +221,9 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visibl
                   nextTaskId={virtualRow.index < tasks.length - 1 ? tasks[virtualRow.index + 1].id : null}
                   dimmed={focusChainIds !== undefined && focusChainIds.size > 0 && !focusChainIds.has(task.id)}
                   depChips={depChipsById?.get(task.id)}
+                  siblingIds={siblingIdsMap.get(task.id)}
+                  nameSuggestions={nameSuggestions}
+                  milestoneParents={milestoneParentsMap.get(task.id)}
                 />
               </div>
             );
