@@ -67,7 +67,7 @@ export const COLOR = {
   barComplete:    '#166534',   // semantic-on-track — dark green
   barSummary:     '#374151',   // gray-700 — visible on white
   milestone:      '#E8A020',   // brand-accent
-  arrowNormal:    'rgba(107,105,101,0.6)',   // neutral-text-secondary based
+  arrowNormal:    'rgba(107,105,101,0.85)',  // neutral-text-secondary based
   arrowCritical:  '#B91C1C',
   selectionRing:  '#1C6B3A',   // brand-primary
   ghostFill:      'rgba(100,116,139,0.12)',
@@ -95,7 +95,7 @@ export const COLOR_DARK: ColorPalette = {
   barComplete:    '#4ADE80',   // Green-400 — semantic-on-track dark
   barSummary:     '#94A3B8',   // Slate-400
   milestone:      '#E8A020',   // brand-accent — unchanged
-  arrowNormal:    'rgba(148,163,184,0.6)',   // Slate-400 based
+  arrowNormal:    'rgba(148,163,184,0.85)',  // Slate-400 based
   arrowCritical:  '#F87171',   // Red-400
   selectionRing:  '#4ADE80',   // Green-400, 5.28:1 on dark surface
   ghostFill:      'rgba(100,116,139,0.12)',
@@ -891,7 +891,7 @@ export function drawDependencyArrows(
 
     ctx.save();
     ctx.strokeStyle = stroke;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 2;
     ctx.beginPath();
 
     if (isFS) {
@@ -911,7 +911,7 @@ export function drawDependencyArrows(
     // Arrowhead: filled triangle at target end.
     // FS: angle determined by final horizontal segment direction (elbowX vs x2).
     // SS/FF/SF: angle from Bézier tangent at t=1 (atan2(0, x2 - cx2)).
-    const arrowSize = 6;
+    const arrowSize = 8;
     const angle = isFS ? Math.atan2(0, x2 - (x1 + 12)) : Math.atan2(0, x2 - cx2);
     ctx.fillStyle = stroke;
     ctx.beginPath();
@@ -919,6 +919,11 @@ export function drawDependencyArrows(
     ctx.lineTo(x2 - arrowSize * Math.cos(angle - 0.4), tgtY - arrowSize * Math.sin(angle - 0.4));
     ctx.lineTo(x2 - arrowSize * Math.cos(angle + 0.4), tgtY - arrowSize * Math.sin(angle + 0.4));
     ctx.closePath();
+    ctx.fill();
+
+    // Connection dot at source bar edge — Visio-style attachment indicator.
+    ctx.beginPath();
+    ctx.arc(x1, srcY, 3.5, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
