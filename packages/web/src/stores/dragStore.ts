@@ -32,6 +32,12 @@ export interface DragState {
    * dispatcher in ScheduleView. Null when phase is not 'committing'.
    */
   confirmedStart: string | null;
+  /** Task being named in the inline editor — ghost bar origin (issue #344). */
+  buildingTaskId: string | null;
+  /** Ghost bar start ISO date (today). Null outside 'building' phase. */
+  buildingStart: string | null;
+  /** Ghost bar finish ISO date (today + default duration). Null outside 'building' phase. */
+  buildingFinish: string | null;
 
   // Actions
   /**
@@ -48,6 +54,10 @@ export interface DragState {
   cancelDrag: () => void;
   setError: () => void;
   setKeyboardDelta: (delta: number) => void;
+  /** Enter 'building' phase: show a ghost bar while the user names a new task (#344). */
+  startBuilding: (taskId: string, ghostStart: string, ghostFinish: string) => void;
+  /** Leave 'building' phase (name committed or cancelled). */
+  stopBuilding: () => void;
 }
 
 export const useDragStore = create<DragState>((set) => ({
@@ -59,6 +69,9 @@ export const useDragStore = create<DragState>((set) => ({
   isKeyboardMode: false,
   keyboardDelta: 0,
   confirmedStart: null,
+  buildingTaskId: null,
+  buildingStart: null,
+  buildingFinish: null,
 
   startDrag: (taskId, isKeyboard = false) =>
     set({
@@ -94,9 +107,18 @@ export const useDragStore = create<DragState>((set) => ({
       isKeyboardMode: false,
       keyboardDelta: 0,
       confirmedStart: null,
+      buildingTaskId: null,
+      buildingStart: null,
+      buildingFinish: null,
     }),
 
   setError: () => set({ phase: 'error' }),
 
   setKeyboardDelta: (delta) => set({ keyboardDelta: delta }),
+
+  startBuilding: (taskId, ghostStart, ghostFinish) =>
+    set({ phase: 'building', buildingTaskId: taskId, buildingStart: ghostStart, buildingFinish: ghostFinish }),
+
+  stopBuilding: () =>
+    set({ phase: 'idle', buildingTaskId: null, buildingStart: null, buildingFinish: null }),
 }));

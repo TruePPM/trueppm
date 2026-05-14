@@ -1,16 +1,20 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import type React from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import type { Task } from '@/types';
 import { ROW_HEIGHT, WBS_INDENT } from './scheduleConstants';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleStore } from '@/stores/scheduleStore';
-import { useUpdateTask } from '@/hooks/useTaskMutations';
+import { useUpdateTask, useReorderTasks } from '@/hooks/useTaskMutations';
+import { useDragStore } from '@/stores/dragStore';
 import { AssigneeChips } from './AssigneeChips';
 import {
   useBuildMode,
   EditableCell,
   BuildModeRowMenu,
+  NameAutocomplete,
+  MilestoneDatePopover,
+  SprintPrompt,
   type RowMenuItem,
 } from './buildMode';
 
@@ -41,6 +45,15 @@ interface Props {
     predsCritical: boolean;
     succsCritical: boolean;
   };
+  /**
+   * Ordered IDs of all same-wbs-level siblings. Used for Alt+↑/↓ reorder (#347).
+   * Includes this task's own id.
+   */
+  siblingIds?: string[];
+  /** Task name suggestions for the inline autocomplete dropdown (#343). */
+  nameSuggestions?: string[];
+  /** Parent summary tasks (closest ancestor first) — for milestone date quick-picks (#345). */
+  milestoneParents?: { name: string; finish?: string }[];
 }
 
 function formatDate(iso: string): string {
@@ -64,7 +77,29 @@ export function truncateWbsPath(path: string, maxChars: number): string {
   return `${parts[0]}.…${parts[parts.length - 1]}`;
 }
 
-export function TaskListRow({ task, level, widths, visible, hasChildren = false, isExpanded = false, onToggle, prevTaskId = null, nextTaskId = null, dimmed = false, depChips }: Props) {
+/** Derive WBS parent path for reorder API (ltree format). Root tasks return "". */
+function wbsParentPath(wbs: string): string {
+  const parts = wbs.split('.');
+  return parts.slice(0, -1).join('.');
+}
+
+/** Today in local timezone as YYYY-MM-DD (mirrors localDateISO in sprintMath.ts). */
+function todayLocalISO(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** Add n calendar days to an ISO date string. */
+function addDaysISO(iso: string, n: number): string {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+export function TaskListRow({ task, level, widths, visible, hasChildren = false, isExpanded = false, onToggle, prevTaskId = null, nextTaskId = null, dimmed = false, depChips, siblingIds, nameSuggestions, milestoneParents }: Props) {
   const projectId = useProjectId() ?? '';
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
@@ -108,6 +143,23 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
   const buildMode = useBuildMode();
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
 
+  // #347: sibling reorder via Alt+↑/↓ and ⋮⋮ handle
+  const reorderTasks = useReorderTasks(projectId || null);
+  const reorderHandleRef = useRef<{ startY: number } | null>(null);
+
+  // #343: name autocomplete state
+  const [autocompleteQuery, setAutocompleteQuery] = useState('');
+
+  // #344: ghost bar store actions (effects wired below, after editingColumnName is declared)
+  const startBuilding = useDragStore((s) => s.startBuilding);
+  const stopBuilding = useDragStore((s) => s.stopBuilding);
+
+  // #345: milestone date picker visibility
+  const [showMilestonePicker, setShowMilestonePicker] = useState(false);
+
+  // #346: sprint prompt visibility
+  const [showSprintPrompt, setShowSprintPrompt] = useState(false);
+
   const isBuildSelected = buildMode?.focus.isRowFocused(task.id) ?? false;
   const editingColumnName =
     buildMode?.focus.isCellInEdit(task.id, 'name') ?? false;
@@ -117,6 +169,20 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
     buildMode?.focus.isCellInEdit(task.id, 'progress') ?? false;
   const anyCellInEdit =
     editingColumnName || editingColumnDuration || editingColumnProgress;
+
+  // #344: start/stop build ghost bar when name cell enters/exits edit mode
+  useEffect(() => {
+    if (!buildMode || !editingColumnName) {
+      stopBuilding();
+      return;
+    }
+    const today = todayLocalISO();
+    const defaultFinish = addDaysISO(today, 4); // 5-day inclusive bar
+    startBuilding(task.id, today, defaultFinish);
+    return () => { stopBuilding(); };
+  // startBuilding/stopBuilding are stable store actions, task.id/buildMode are deps that matter
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingColumnName, buildMode, task.id]);
 
   // Move keyboard focus to a sibling row by data-row-id selector. Used by both
   // the build-mode and flag-off arrow-key handlers so the destination row
@@ -130,15 +196,30 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
 
   const handleBuildKeyDown = (e: React.KeyboardEvent) => {
     if (!buildMode || anyCellInEdit) return;
+    // Alt+↑/↓ — reorder among same-indent siblings (#347)
+    if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && siblingIds) {
+      e.preventDefault();
+      const currentIdx = siblingIds.indexOf(task.id);
+      if (currentIdx === -1) return;
+      const delta = e.key === 'ArrowDown' ? 1 : -1;
+      const newIdx = currentIdx + delta;
+      if (newIdx < 0 || newIdx >= siblingIds.length) return;
+      const newOrder = [...siblingIds];
+      newOrder.splice(currentIdx, 1);
+      newOrder.splice(newIdx, 0, task.id);
+      reorderTasks.mutate({ parent_path: wbsParentPath(task.wbs), ordered_ids: newOrder });
+      return;
+    }
+
     // Arrow up/down — move row focus to the previous/next visible row.
     // Documented in useScheduleFocus's docstring; previously unimplemented (#340 follow-up).
-    if (e.key === 'ArrowDown' && nextTaskId) {
+    if (!e.altKey && e.key === 'ArrowDown' && nextTaskId) {
       e.preventDefault();
       buildMode.focus.focusRow(nextTaskId);
       focusRowDom(nextTaskId);
       return;
     }
-    if (e.key === 'ArrowUp' && prevTaskId) {
+    if (!e.altKey && e.key === 'ArrowUp' && prevTaskId) {
       e.preventDefault();
       buildMode.focus.focusRow(prevTaskId);
       focusRowDom(prevTaskId);
@@ -180,6 +261,36 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
       e.preventDefault();
       buildMode.focus.clear();
     }
+  };
+
+  // #347: ⋮⋮ drag handle pointer handlers
+  const handleReorderPointerDown = (e: React.PointerEvent) => {
+    if (!buildMode || !siblingIds) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    reorderHandleRef.current = { startY: e.clientY };
+  };
+
+  const handleReorderPointerMove = (e: React.PointerEvent) => {
+    if (!reorderHandleRef.current) return;
+    e.preventDefault();
+  };
+
+  const handleReorderPointerUp = (e: React.PointerEvent) => {
+    if (!reorderHandleRef.current || !siblingIds) return;
+    const deltaY = e.clientY - reorderHandleRef.current.startY;
+    reorderHandleRef.current = null;
+    const deltaRows = Math.round(deltaY / ROW_HEIGHT);
+    if (deltaRows === 0) return;
+    const currentIdx = siblingIds.indexOf(task.id);
+    if (currentIdx === -1) return;
+    const newIdx = Math.max(0, Math.min(siblingIds.length - 1, currentIdx + deltaRows));
+    if (newIdx === currentIdx) return;
+    const newOrder = [...siblingIds];
+    newOrder.splice(currentIdx, 1);
+    newOrder.splice(newIdx, 0, task.id);
+    reorderTasks.mutate({ parent_path: wbsParentPath(task.wbs), ordered_ids: newOrder });
   };
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -280,7 +391,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
       tabIndex={isEditing || anyCellInEdit ? -1 : 0}
       style={{ height: ROW_HEIGHT }}
       className={[
-        'group flex items-stretch text-xs border-b border-neutral-border/20',
+        'relative group flex items-stretch text-xs border-b border-neutral-border/20',
         isEditing || anyCellInEdit ? 'cursor-text' : 'cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white',
         (buildMode ? isBuildSelected : isSelected) && !(isEditing || anyCellInEdit)
@@ -346,6 +457,29 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
         }
       }}
     >
+      {/* ── ⋮⋮ reorder handle — build mode only, visible on row hover (#347) ── */}
+      {buildMode && siblingIds && (
+        <div
+          className="absolute left-0 inset-y-0 w-3.5 flex items-center justify-center z-10
+            opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing
+            text-neutral-text-disabled hover:text-neutral-text-secondary"
+          title="Drag to reorder"
+          aria-hidden="true"
+          onPointerDown={handleReorderPointerDown}
+          onPointerMove={handleReorderPointerMove}
+          onPointerUp={handleReorderPointerUp}
+        >
+          <svg width="7" height="11" viewBox="0 0 7 11" fill="currentColor" aria-hidden="true">
+            <circle cx="1.5" cy="1.5" r="1.2" />
+            <circle cx="5.5" cy="1.5" r="1.2" />
+            <circle cx="1.5" cy="5.5" r="1.2" />
+            <circle cx="5.5" cy="5.5" r="1.2" />
+            <circle cx="1.5" cy="9.5" r="1.2" />
+            <circle cx="5.5" cy="9.5" r="1.2" />
+          </svg>
+        </div>
+      )}
+
       {/* ── WBS column (#248) ───────────────────────────────────────────────── */}
       {visible.wbs && (
         <div
@@ -398,26 +532,44 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
             Build-mode uses the EditableCell primitive (Tab traverses to next
             cell). Flag-off path keeps the existing simple input (legacy behavior). */}
         {buildMode && editingColumnName ? (
-          <EditableCell
-            column="name"
-            value={task.name}
-            isEditing={true}
-            inputType="text"
-            ariaLabel={`Rename task ${task.name}`}
-            className="flex-1 min-w-0"
-            onStartEdit={() => {
-              /* already editing */
-            }}
-            onCommit={(parsed) => {
-              if (typeof parsed === 'string' && projectId) {
-                updateTask.mutate({ id: task.id, projectId, name: parsed });
-              }
-              buildMode.focus.commitToRow();
-            }}
-            onRollback={() => buildMode.focus.rollbackToRow()}
-            onTabForward={() => buildMode.focus.tabForward()}
-            onTabBackward={() => buildMode.focus.tabBackward()}
-          />
+          <div className="relative flex-1 min-w-0">
+            <EditableCell
+              column="name"
+              value={task.name}
+              isEditing={true}
+              inputType="text"
+              ariaLabel={`Rename task ${task.name}`}
+              className="flex-1 min-w-0 w-full"
+              onStartEdit={() => { /* already editing */ }}
+              onCommit={(parsed) => {
+                if (typeof parsed === 'string' && projectId) {
+                  updateTask.mutate({ id: task.id, projectId, name: parsed });
+                  setShowSprintPrompt(true);
+                }
+                setAutocompleteQuery('');
+                buildMode.focus.commitToRow();
+              }}
+              onRollback={() => {
+                setAutocompleteQuery('');
+                buildMode.focus.rollbackToRow();
+              }}
+              onTabForward={() => buildMode.focus.tabForward()}
+              onTabBackward={() => buildMode.focus.tabBackward()}
+              onQueryChange={setAutocompleteQuery}
+            />
+            {nameSuggestions && (
+              <NameAutocomplete
+                query={autocompleteQuery}
+                suggestions={nameSuggestions}
+                onSelect={(name) => {
+                  updateTask.mutate({ id: task.id, projectId, name });
+                  setAutocompleteQuery('');
+                  buildMode.focus.commitToRow();
+                }}
+                onDismiss={() => setAutocompleteQuery('')}
+              />
+            )}
+          </div>
         ) : isEditing ? (
           <input
             ref={inputRef}
@@ -555,13 +707,32 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
       {/* ── Start column ────────────────────────────────────────────────────── */}
       {!isEditing && visible.start && (
         <div
-          className="flex items-center justify-end shrink-0 border-r border-neutral-border/20
-            text-right text-neutral-text-secondary tabular-nums pr-2"
+          className={[
+            'relative flex items-center justify-end shrink-0 border-r border-neutral-border/20',
+            'text-right text-neutral-text-secondary tabular-nums pr-2',
+            buildMode && task.isMilestone ? 'cursor-pointer hover:text-neutral-text-primary' : '',
+          ].join(' ')}
           style={{ width: widths.start }}
           role="gridcell"
           aria-label={task.start ? `starts ${formatDate(task.start)}` : 'unscheduled'}
+          onClick={buildMode && task.isMilestone
+            ? (e) => { e.stopPropagation(); setShowMilestonePicker((v) => !v); }
+            : undefined}
         >
           {task.isMilestone ? formatDate(task.start) : (task.start ? formatDate(task.start) : '—')}
+          {buildMode && task.isMilestone && (
+            <MilestoneDatePopover
+              open={showMilestonePicker}
+              parents={milestoneParents ?? []}
+              onSelect={(iso) => {
+                if (projectId) {
+                  updateTask.mutate({ id: task.id, projectId, planned_start: iso });
+                }
+                setShowMilestonePicker(false);
+              }}
+              onClose={() => setShowMilestonePicker(false)}
+            />
+          )}
         </div>
       )}
 
@@ -645,6 +816,20 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
             <AssigneeChips assignees={task.assignees} size="md" max={3} />
           )}
         </div>
+      )}
+      {/* Sprint assignment prompt after name commit in agile mode (#346) */}
+      {buildMode && showSprintPrompt && (
+        <SprintPrompt
+          open={showSprintPrompt}
+          projectId={projectId || null}
+          onSelect={(sprintId) => {
+            if (projectId) {
+              updateTask.mutate({ id: task.id, projectId, sprint: sprintId });
+            }
+            setShowSprintPrompt(false);
+          }}
+          onDismiss={() => setShowSprintPrompt(false)}
+        />
       )}
       {buildMode && menuAnchor && (
         <BuildModeRowMenu

@@ -18,3 +18,6 @@ export {
   useBuildMode,
   type BuildModeApi,
 } from './BuildModeContext';
+export { NameAutocomplete } from './NameAutocomplete';
+export { MilestoneDatePopover, type MilestoneParent } from './MilestoneDatePopover';
+export { SprintPrompt } from './SprintPrompt';

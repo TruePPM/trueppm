@@ -32,6 +32,8 @@ export interface EditableCellProps {
   onTabForward: () => void;
   /** Called when Shift-Tab is pressed inside the input. Parent retreats column. */
   onTabBackward: () => void;
+  /** Called on every keystroke with the current draft value. Used to feed autocomplete. */
+  onQueryChange?: (query: string) => void;
 }
 
 /**
@@ -88,6 +90,7 @@ export function EditableCell({
   onRollback,
   onTabForward,
   onTabBackward,
+  onQueryChange,
 }: EditableCellProps) {
   const [draft, setDraft] = useState(value);
   const [flash, setFlash] = useState<FlashKind>(null);
@@ -190,7 +193,7 @@ export function EditableCell({
       <input
         ref={inputRef}
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => { setDraft(e.target.value); onQueryChange?.(e.target.value); }}
         onBlur={() => {
           // Blur outside Enter/Tab/Esc paths — commit silently if value changed.
           if (draft !== value) tryCommit(draft);
