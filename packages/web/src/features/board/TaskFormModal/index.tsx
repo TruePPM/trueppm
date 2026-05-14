@@ -307,9 +307,10 @@ export function TaskFormModal({
     return JSON.stringify(form) !== JSON.stringify(pristine);
   }, [form, pristine]);
 
-  // Milestones are zero-duration markers; only the name is required.
+  // Edit mode: only the name is required — duration was already validated at creation.
+  // Create mode: duration >= 1, except milestones which are always zero-duration.
   const formIsValid =
-    form.name.trim().length > 0 && (isMilestoneCreate || form.duration >= 1);
+    form.name.trim().length > 0 && (isEdit || isMilestoneCreate || form.duration >= 1);
 
   const isPending = createTask.isPending || updateTask.isPending;
 
@@ -682,44 +683,51 @@ export function TaskFormModal({
         })()}
 
         {/* Planned start + Duration — 2-col on desktop, stacked on mobile.
-            Milestones are zero-duration markers, so the Duration column is
-            suppressed and the date label switches from "Planned start" to
-            "Date" (matches the MetaRail rename in MR !239 / #253). */}
-        <div className={`grid grid-cols-1 ${isMilestoneCreate ? '' : 'md:grid-cols-2'} gap-3`}>
-          <div>
-            <label htmlFor="task-start" className="block text-xs font-medium text-neutral-text-secondary mb-1">
-              {isMilestoneCreate ? 'Date' : 'Planned start'}
-            </label>
-            <input
-              id="task-start"
-              type="date"
-              disabled={isReadOnly}
-              value={form.plannedStart}
-              onChange={(e) => setForm({ ...form, plannedStart: e.target.value })}
-              className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
-            />
-          </div>
-          {!isMilestoneCreate && (
-            <div>
-              <label htmlFor="task-duration" className="block text-xs font-medium text-neutral-text-secondary mb-1">
-                Duration <span className="text-neutral-text-disabled">(working days)</span>
-              </label>
-              <input
-                id="task-duration"
-                type="number"
-                min={1}
-                step={1}
-                disabled={isReadOnly}
-                value={form.duration}
-                onChange={(e) => {
-                  const n = Number(e.target.value);
-                  setForm({ ...form, duration: Number.isFinite(n) && n >= 1 ? n : 1 });
-                }}
-                className="w-full h-9 px-3 text-sm text-neutral-text-primary tppm-mono bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
-              />
+            Milestones and pure-agile projects suppress the Duration column:
+            milestones are zero-duration markers; agile teams size in story
+            points and velocity→calendar translation happens at program level,
+            not per-task (#469). */}
+        {(() => {
+          const isAgileOnly = projectDetail?.methodology === 'AGILE';
+          const showDuration = !isMilestoneCreate && !isAgileOnly;
+          return (
+            <div className={`grid grid-cols-1 ${showDuration ? 'md:grid-cols-2' : ''} gap-3`}>
+              <div>
+                <label htmlFor="task-start" className="block text-xs font-medium text-neutral-text-secondary mb-1">
+                  {isMilestoneCreate ? 'Date' : 'Planned start'}
+                </label>
+                <input
+                  id="task-start"
+                  type="date"
+                  disabled={isReadOnly}
+                  value={form.plannedStart}
+                  onChange={(e) => setForm({ ...form, plannedStart: e.target.value })}
+                  className="w-full h-9 px-3 text-sm text-neutral-text-primary bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+                />
+              </div>
+              {showDuration && (
+                <div>
+                  <label htmlFor="task-duration" className="block text-xs font-medium text-neutral-text-secondary mb-1">
+                    Duration <span className="text-neutral-text-disabled">(working days)</span>
+                  </label>
+                  <input
+                    id="task-duration"
+                    type="number"
+                    min={isEdit ? 0 : 1}
+                    step={1}
+                    disabled={isReadOnly}
+                    value={form.duration}
+                    onChange={(e) => {
+                      const n = Number(e.target.value);
+                      setForm({ ...form, duration: Number.isFinite(n) && n >= 1 ? n : 1 });
+                    }}
+                    className="w-full h-9 px-3 text-sm text-neutral-text-primary tppm-mono bg-neutral-surface border border-neutral-border rounded focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none disabled:opacity-60"
+                  />
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          );
+        })()}
 
         {/* Assignees */}
         <div>
