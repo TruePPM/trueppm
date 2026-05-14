@@ -46,7 +46,7 @@ interface Props {
     succsCritical: boolean;
   };
   /**
-   * Ordered IDs of all same-wbs-level siblings. Used for Alt+↑/↓ reorder (#347).
+   * Ordered IDs of all same-wbs-level siblings. Used for Option/Alt+↑/↓ reorder (#347).
    * Includes this task's own id.
    */
   siblingIds?: string[];
@@ -55,6 +55,10 @@ interface Props {
   /** Parent summary tasks (closest ancestor first) — for milestone date quick-picks (#345). */
   milestoneParents?: { name: string; finish?: string }[];
 }
+
+// On macOS the modifier is labelled "Option"; everywhere else it's "Alt".
+const REORDER_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+  ? 'Option' : 'Alt';
 
 function formatDate(iso: string): string {
   if (!iso) return '—';
@@ -143,7 +147,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
   const buildMode = useBuildMode();
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
 
-  // #347: sibling reorder via Alt+↑/↓ and ⋮⋮ handle
+  // #347: sibling reorder via Option/Alt+↑/↓ and ⋮⋮ handle
   const reorderTasks = useReorderTasks(projectId || null);
   const reorderHandleRef = useRef<{ startY: number } | null>(null);
 
@@ -196,7 +200,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
 
   const handleBuildKeyDown = (e: React.KeyboardEvent) => {
     if (!buildMode || anyCellInEdit) return;
-    // Alt+↑/↓ — reorder among same-indent siblings (#347)
+    // Option/Alt+↑/↓ — reorder among same-indent siblings (#347)
     if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && siblingIds) {
       e.preventDefault();
       const currentIdx = siblingIds.indexOf(task.id);
@@ -463,7 +467,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
           className="absolute left-0 inset-y-0 w-3.5 flex items-center justify-center z-10
             opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing
             text-neutral-text-disabled hover:text-neutral-text-secondary"
-          title="Drag to reorder"
+          title={`Drag to reorder  ·  ${REORDER_KEY}+↑/↓ keyboard`}
           aria-hidden="true"
           onPointerDown={handleReorderPointerDown}
           onPointerMove={handleReorderPointerMove}
