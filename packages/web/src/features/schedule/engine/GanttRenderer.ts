@@ -836,9 +836,10 @@ export function drawDependencyArrows(
     // CPM dates exist, regardless of phase plannedStart, so arrows pointing
     // to/from a phase row remain valid.
     if (!t.isSummary && !t.plannedStart && !t.sprintId) continue;
-    // For milestones the bar has zero width; anchor at the diamond's left/right
-    // tips (centerX ± half-diagonal) so arrows connect to the visible edge.
-    const milestoneHalfDiag = Math.round(MILESTONE_SIZE / 2 * Math.SQRT2); // ≈ 8px
+    // For milestones the bar has zero width (start === finish). Anchor at the
+    // diamond's left/right tips using the half-diagonal (ceil so the connection
+    // point is just outside the rendered tip, not inside it).
+    const milestoneHalfDiag = Math.ceil(MILESTONE_SIZE / 2 * Math.SQRT2); // = 9px
     const cx = dateToLeft(t.start, scales) - scrollLeft;
     taskMap.set(t.id, {
       rowIndex: i,
@@ -898,11 +899,11 @@ export function drawDependencyArrows(
     ctx.lineWidth = 2;
     ctx.beginPath();
 
-    // For FS: arrowhead tip stops 4px short of the bar edge (Visio gap convention).
+    // For FS: arrowhead tip stops 3px short of the bar edge (Visio gap convention).
     // Angle is computed before drawing the line so the line can terminate cleanly
     // at the arrowhead base rather than passing through the triangle interior.
-    const tipX = isFS ? x2 - 4 : x2;
-    const arrowSize = 8;
+    const tipX = isFS ? x2 - 3 : x2;
+    const arrowSize = 6;
     const angle = isFS ? Math.atan2(0, tipX - (x1 + 12)) : Math.atan2(0, x2 - cx2);
 
     if (isFS) {
@@ -930,7 +931,7 @@ export function drawDependencyArrows(
 
     // Connection dot at source bar edge — Visio-style attachment indicator.
     ctx.beginPath();
-    ctx.arc(x1, srcY, 3.5, 0, Math.PI * 2);
+    ctx.arc(x1, srcY, 2.5, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
