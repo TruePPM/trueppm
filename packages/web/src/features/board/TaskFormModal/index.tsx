@@ -15,6 +15,7 @@ import {
   useRemoveDependency,
   parseCyclicDependencyError,
   formatCycleMessage,
+  parseProgressAnchorError,
 } from '@/hooks/useTaskMutations';
 import {
   useAddAssignment,
@@ -478,8 +479,15 @@ export function TaskFormModal({
       }
       onClose();
     } catch (err) {
+      const anchorErr = parseProgressAnchorError(err);
+      if (anchorErr) {
+        setSubmitError(
+          `Set a Planned Start date (or assign a sprint) before recording progress.`,
+        );
+        return;
+      }
       setSubmitError(
-        err instanceof Error ? err.message : 'Couldn’t save the task. Try again.',
+        err instanceof Error ? err.message : `Couldn’t save the task. Try again.`,
       );
     }
   }

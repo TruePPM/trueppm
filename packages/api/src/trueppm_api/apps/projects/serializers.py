@@ -239,24 +239,89 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "sprint_scope_changes",
         ]
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        """Enforce the milestone invariant: is_milestone=True implies duration=0.
+    def _get_caller_role(self, project: Project | None) -> int | None:
+        """Resolve the caller's project role, checking context before hitting the DB.
 
-        Milestones are single-point gates (permits, inspections, sprint reviews,
-        contract dates). A milestone with a non-zero duration produces a Gantt row
-        whose Start and Finish render different dates, which contradicts the
-        diamond marker and the "—" duration display. This invariant is enforced
-        here so the contradiction can never reach the database from the API.
+        Bulk operations pass ``caller_role`` in serializer context to avoid one
+        ``ProjectMembership`` query per task. Single-object views fall back to a
+        fresh query via the request user.
+        """
+        if "caller_role" in self.context:
+            return int(self.context["caller_role"])
+        request = self.context.get("request")
+        user = getattr(request, "user", None) if request else None
+        if user is None or not getattr(user, "is_authenticated", False) or project is None:
+            return None
+        return (
+            ProjectMembership.objects.filter(project=project, user=user)
+            .values_list("role", flat=True)
+            .first()
+        )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Enforce the milestone invariant and progress-anchor gate.
+
+        Milestone invariant: is_milestone=True implies duration=0. Milestones
+        are single-point gates (permits, inspections, sprint reviews, contract
+        dates). A milestone with a non-zero duration produces a Gantt row whose
+        Start and Finish render different dates, which contradicts the diamond
+        marker and the "—" duration display. This invariant is enforced here so
+        the contradiction can never reach the database from the API.
 
         On partial updates the resulting state is computed from instance + attrs
         so toggling is_milestone=True without sending duration still zeroes it,
         and editing duration on an existing milestone gets clamped back to zero.
+
+        Sprint cross-project ownership: the sprint assigned to a task must
+        belong to the same project as the task. Validated at the serializer
+        level because the Sprint FK queryset is intentionally not project-scoped
+        at the field level (the viewset scopes access via project membership).
+
+        Progress-anchor gate (ADR-0057 Q5): percent_complete > 0 requires
+        either planned_start or a sprint assignment. ADMIN+ users are exempt
+        so project managers can correct imported or manually-entered data.
         """
         is_milestone = attrs.get("is_milestone")
         if is_milestone is None and self.instance is not None:
             is_milestone = self.instance.is_milestone
         if is_milestone:
             attrs["duration"] = 0
+
+        # Sprint cross-project ownership check.
+        sprint = attrs.get("sprint")
+        if "sprint" in attrs and sprint is not None:
+            task_project_id = (
+                self.instance.project_id
+                if self.instance is not None
+                else getattr(attrs.get("project"), "pk", None)
+            )
+            if task_project_id is not None and str(sprint.project_id) != str(task_project_id):
+                raise serializers.ValidationError(
+                    {"sprint": "Sprint does not belong to this project."}
+                )
+
+        # Progress-anchor gate: block percent_complete > 0 when the task has no
+        # planned_start and no sprint. For partial updates, merge instance state
+        # with the incoming attrs to determine the resulting effective values.
+        new_pc = attrs.get("percent_complete")
+        if new_pc is not None and new_pc > 0:
+            eff_planned_start = attrs.get(
+                "planned_start",
+                self.instance.planned_start if self.instance is not None else None,
+            )
+            eff_sprint = (
+                attrs.get("sprint")
+                if "sprint" in attrs
+                else (self.instance.sprint if self.instance is not None else None)
+            )
+            if eff_planned_start is None and eff_sprint is None:
+                project = (
+                    self.instance.project if self.instance is not None else attrs.get("project")
+                )
+                role = self._get_caller_role(project)
+                if role is None or role < Role.ADMIN:
+                    raise ProgressAnchorError()
+
         return attrs
 
     def get_schedule_variance_days(self, obj: Task) -> int | None:
@@ -380,6 +445,25 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             ):
                 validated_data["actual_start"] = validated_data["planned_start"]
 
+        # Progress 0 → >0 auto-promote: NOT_STARTED → IN_PROGRESS (#362).
+        # Only fires for MEMBER+ so Viewers (who cannot write tasks in practice
+        # but may arrive via sync paths) do not trigger silent state transitions.
+        # Skipped when percent_complete goes straight to 100 — the percent=100
+        # block below handles that path (REVIEW or COMPLETE, role-gated).
+        new_pc = validated_data.get("percent_complete")
+        if (
+            new_pc is not None
+            and 0 < new_pc < 100
+            and instance.percent_complete == 0
+            and "status" not in validated_data
+            and instance.status == TaskStatus.NOT_STARTED
+        ):
+            role = self._get_caller_role(instance.project)
+            if role is not None and role >= Role.MEMBER:
+                validated_data["status"] = TaskStatus.IN_PROGRESS
+                if "actual_start" not in validated_data and not instance.actual_start:
+                    validated_data["actual_start"] = timezone.localdate()
+
         # Option E auto-status on percent_complete=100 (#381 follow-up, VoC
         # 2026-05-08).  Contributors (role < ADMIN) drop work into REVIEW so a
         # PM/PMO sign-off step is preserved; PMs and above flip straight to
@@ -394,15 +478,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             and "status" not in validated_data
             and instance.status not in (TaskStatus.COMPLETE, TaskStatus.REVIEW, TaskStatus.BACKLOG)
         ):
-            request = self.context.get("request")
-            user = getattr(request, "user", None) if request else None
-            role: int | None = None
-            if user is not None and getattr(user, "is_authenticated", False):
-                role = (
-                    ProjectMembership.objects.filter(project=instance.project, user=user)
-                    .values_list("role", flat=True)
-                    .first()
-                )
+            role = self._get_caller_role(instance.project)
             if role is not None and role >= Role.ADMIN:
                 validated_data["status"] = TaskStatus.COMPLETE
             else:
@@ -599,6 +675,25 @@ class CycleDetectedError(Exception):
     def __init__(self, cycle: list[dict[str, str]]) -> None:
         self.cycle = cycle
         super().__init__("Cyclic dependency detected.")
+
+
+class ProgressAnchorError(Exception):
+    """Raised by ``TaskSerializer.validate`` when ``percent_complete > 0`` lacks
+    a schedule anchor.
+
+    A task must have either a ``planned_start`` date or a sprint assignment before
+    progress can be recorded. Enforces the "no ghost progress" invariant — a task
+    cannot have meaningful completion without being scheduled (ADR-0057 Q5).
+
+    ADMIN+ users are exempt so project managers can correct imported data.
+
+    Bypasses DRF's :class:`serializers.ValidationError` for the same reason as
+    :class:`CycleDetectedError` — the frontend expects a structured
+    ``{"code": ..., "detail": ..., "suggested_action": ...}`` response body
+    without ``ErrorDetail`` wrapping (ADR-0055).
+    """
+
+    pass
 
 
 def _load_project_tasks_and_children_map(
