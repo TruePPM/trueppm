@@ -1880,8 +1880,13 @@ class TaskBulkView(APIView):
         mutated_ids = [op["id"] for op in operations if op["op"] in ("update", "delete")]
         locked_tasks: dict[uuid.UUID, Task] = {}
         if mutated_ids:
+            # of=("self",) restricts the row lock to the Task table — without it,
+            # select_related on the nullable Sprint FK creates an outer join that
+            # Postgres rejects ("FOR UPDATE cannot be applied to the nullable side
+            # of an outer join"). Sprint is needed read-only by the progress-gate
+            # serializer; only Task rows need a write lock.
             qs = (
-                Task.objects.select_for_update()
+                Task.objects.select_for_update(of=("self",))
                 .select_related("sprint")
                 .filter(pk__in=mutated_ids, project_id=pk, is_deleted=False)
             )

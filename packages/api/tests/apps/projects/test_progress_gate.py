@@ -93,23 +93,36 @@ def viewer_client(viewer_user: object, viewer_membership: ProjectMembership) -> 
 
 
 @pytest.fixture
-def unanchored_task(project: Project) -> Task:
-    """Task with no planned_start and no sprint — anchored progress is blocked."""
-    return Task.objects.create(project=project, name="Unanchored", duration=3)
+def unanchored_task(project: Project, member_user: object) -> Task:
+    """Task with no planned_start and no sprint — anchored progress is blocked.
+
+    Assigned to ``member_user`` so the MEMBER role has PATCH permission via the
+    "or own" branch of IsProjectMemberWriteOrOwn; tests can then exercise the
+    gate without permission noise.
+    """
+    return Task.objects.create(project=project, name="Unanchored", duration=3, assignee=member_user)
 
 
 @pytest.fixture
-def anchored_task(project: Project) -> Task:
+def anchored_task(project: Project, member_user: object) -> Task:
     """Task with planned_start set — progress is allowed."""
     return Task.objects.create(
-        project=project, name="Anchored", duration=3, planned_start=date(2026, 5, 1)
+        project=project,
+        name="Anchored",
+        duration=3,
+        planned_start=date(2026, 5, 1),
+        assignee=member_user,
     )
 
 
 @pytest.fixture
 def active_sprint(project: Project) -> Sprint:
     return Sprint.objects.create(
-        project=project, name="Sprint 1", state=SprintState.ACTIVE, order=1
+        project=project,
+        name="Sprint 1",
+        state=SprintState.ACTIVE,
+        start_date=date(2026, 5, 1),
+        finish_date=date(2026, 5, 14),
     )
 
 
@@ -242,7 +255,11 @@ def test_gate_rejects_cross_project_sprint(
         name="Other", start_date=date(2026, 4, 1), calendar=calendar
     )
     foreign_sprint = Sprint.objects.create(
-        project=other_project, name="Other Sprint", state=SprintState.ACTIVE, order=1
+        project=other_project,
+        name="Other Sprint",
+        state=SprintState.ACTIVE,
+        start_date=date(2026, 5, 1),
+        finish_date=date(2026, 5, 14),
     )
     r = pm_client.patch(
         f"/api/v1/tasks/{unanchored_task.pk}/",
