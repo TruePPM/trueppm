@@ -391,3 +391,108 @@ def test_progress_100_routes_not_started_to_review(
     assert r.status_code == 200
     anchored_task.refresh_from_db()
     assert anchored_task.status == TaskStatus.REVIEW
+
+
+# ---------------------------------------------------------------------------
+# Pass 1: gate edge cases — minimum value; full PUT; idempotency guards
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_gate_blocks_minimum_nonzero_progress(
+    member_client: APIClient, unanchored_task: Task
+) -> None:
+    """percent_complete=1 is the minimum value that triggers the gate — the boundary is >0."""
+    r = member_client.patch(
+        f"/api/v1/tasks/{unanchored_task.pk}/",
+        {"percent_complete": 1},
+        format="json",
+    )
+    assert r.status_code == 400
+    assert r.data["code"] == "progress_requires_anchor"
+
+
+@pytest.mark.django_db
+def test_gate_blocks_full_put_without_anchor(
+    member_client: APIClient, unanchored_task: Task
+) -> None:
+    """Full PUT (not just PATCH) also raises the gate for non-Admin roles."""
+    r = member_client.put(
+        f"/api/v1/tasks/{unanchored_task.pk}/",
+        {
+            "name": "Unanchored",
+            "duration": 3,
+            "percent_complete": 50,
+            "project": str(unanchored_task.project_id),
+        },
+        format="json",
+    )
+    assert r.status_code == 400
+    assert r.data["code"] == "progress_requires_anchor"
+
+
+@pytest.mark.django_db
+def test_auto_promote_skipped_when_progress_already_nonzero(
+    member_client: APIClient, anchored_task: Task
+) -> None:
+    """If a NOT_STARTED task already has percent_complete > 0 (e.g. via admin/sync), a
+    further PATCH to a higher value is NOT a 0 → >0 transition and must not auto-promote."""
+    anchored_task.percent_complete = 30
+    anchored_task.save(update_fields=["percent_complete"])
+    assert anchored_task.status == TaskStatus.NOT_STARTED
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        r = member_client.patch(
+            f"/api/v1/tasks/{anchored_task.pk}/",
+            {"percent_complete": 60},
+            format="json",
+        )
+    assert r.status_code == 200
+    anchored_task.refresh_from_db()
+    assert anchored_task.status == TaskStatus.NOT_STARTED
+
+
+@pytest.mark.django_db
+def test_auto_promote_does_not_overwrite_existing_actual_start(
+    member_client: APIClient, anchored_task: Task
+) -> None:
+    """When the 0 → >0 auto-promote fires, actual_start is NOT overwritten if already set."""
+    existing_start = date(2026, 4, 15)
+    anchored_task.actual_start = existing_start
+    anchored_task.save(update_fields=["actual_start"])
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        member_client.patch(
+            f"/api/v1/tasks/{anchored_task.pk}/",
+            {"percent_complete": 25},
+            format="json",
+        )
+    anchored_task.refresh_from_db()
+    assert anchored_task.actual_start == existing_start
+
+
+@pytest.mark.django_db
+def test_bulk_update_gate_blocks_unanchored_progress(
+    member_client: APIClient, project: Project, unanchored_task: Task
+) -> None:
+    """Bulk update endpoint returns progress_requires_anchor for unanchored MEMBER updates."""
+    r = member_client.post(
+        f"/api/v1/projects/{project.pk}/tasks/bulk/",
+        {
+            "operations": [
+                {
+                    "op": "update",
+                    "id": str(unanchored_task.pk),
+                    "data": {"percent_complete": 50},
+                }
+            ]
+        },
+        format="json",
+    )
+    assert r.status_code == 400
+    assert r.data["code"] == "progress_requires_anchor"
+    assert r.data.get("task_id") == str(unanchored_task.pk)

@@ -14,9 +14,20 @@ vi.mock('@/hooks/useScheduleTasks', () => ({
 }));
 
 const updateMock = vi.fn();
+const mockParseProgressAnchorError = vi.hoisted(() =>
+  vi.fn(
+    () =>
+      null as null | {
+        code: 'progress_requires_anchor';
+        detail: string;
+        suggested_action: 'set_planned_start' | 'assign_sprint';
+      },
+  ),
+);
+
 vi.mock('@/hooks/useTaskMutations', () => ({
   useUpdateTask: () => ({ mutate: updateMock, isPending: false }),
-  parseProgressAnchorError: () => null,
+  parseProgressAnchorError: mockParseProgressAnchorError,
 }));
 
 // ResourceAssignmentSection makes its own queries — stub it out.
@@ -53,6 +64,7 @@ const baseTask: Task = {
 beforeEach(() => {
   vi.clearAllMocks();
   mockTasks.splice(0, mockTasks.length, baseTask);
+  mockParseProgressAnchorError.mockReturnValue(null);
 });
 
 // ---------------------------------------------------------------------------
@@ -186,5 +198,44 @@ describe('OverviewSection — progress field', () => {
     expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
     expect(screen.getByText(/55%/)).toBeInTheDocument();
     expect(screen.getByText(/rolled up/i)).toBeInTheDocument();
+  });
+
+  // ----- Pass 3: edge cases — anchor error, no-op blur, non-numeric reset ----
+
+  it('shows the progress anchor error message when the API rejects with progress_requires_anchor', async () => {
+    // Make mutate invoke onError synchronously so the state update fires in the same tick.
+    updateMock.mockImplementationOnce(
+      (_payload: unknown, options?: { onError?: (err: Error) => void }) => {
+        options?.onError?.(new Error('anchor'));
+      },
+    );
+    mockParseProgressAnchorError.mockReturnValueOnce({
+      code: 'progress_requires_anchor' as const,
+      detail: 'Cannot record progress without a planned start date or sprint assignment.',
+      suggested_action: 'set_planned_start' as const,
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    const input = screen.getByRole('spinbutton', { name: /Task progress/i });
+    fireEvent.change(input, { target: { value: '75' } });
+    fireEvent.blur(input);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Set a Planned Start date (or assign a sprint) before recording progress.',
+    );
+  });
+
+  it('does not call updateTask when the progress field is blurred without a change', () => {
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    const input = screen.getByRole('spinbutton', { name: /Task progress/i });
+    // Blur without ever calling fireEvent.change → localProgress stays null.
+    fireEvent.blur(input);
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('does not call updateTask when a non-numeric value is entered and blurred', () => {
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    const input = screen.getByRole('spinbutton', { name: /Task progress/i });
+    fireEvent.change(input, { target: { value: 'abc' } });
+    fireEvent.blur(input);
+    expect(updateMock).not.toHaveBeenCalled();
   });
 });

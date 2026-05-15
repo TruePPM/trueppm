@@ -72,17 +72,26 @@ vi.mock('@/hooks/useTaskDependencies', () => ({
   }),
 }));
 
+const mockParseProgressAnchorError = vi.hoisted(() =>
+  vi.fn(
+    () =>
+      null as null | {
+        code: 'progress_requires_anchor';
+        detail: string;
+        suggested_action: 'set_planned_start' | 'assign_sprint';
+      },
+  ),
+);
+
 vi.mock('@/hooks/useTaskMutations', () => ({
   useCreateTask: () => ({ mutate: vi.fn(), mutateAsync: createMutate, isPending: false }),
   useUpdateTask: () => ({ mutate: vi.fn(), mutateAsync: updateMutate, isPending: false }),
   useDeleteTask: () => ({ mutate: vi.fn(), mutateAsync: deleteMutate, isPending: false }),
   useAddDependency: () => ({ mutate: vi.fn(), mutateAsync: addDependencyMutate, isPending: false }),
   useRemoveDependency: () => ({ mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false }),
-  // Identity passthrough — the cycle-error helpers are not exercised by the
-  // bulk of these tests; the cycle-specific spec covers their behavior.
   parseCyclicDependencyError: () => null,
   formatCycleMessage: () => '',
-  parseProgressAnchorError: () => null,
+  parseProgressAnchorError: mockParseProgressAnchorError,
 }));
 
 vi.mock('@/hooks/useAssignmentMutations', () => ({
@@ -143,6 +152,7 @@ describe('TaskFormModal (issue #305)', () => {
     mockServerPredecessors = [];
     mockPredsResolved = true;
     mockPredsError = null;
+    mockParseProgressAnchorError.mockReturnValue(null);
   });
 
   // ----- Mode + header -----------------------------------------------------
@@ -614,5 +624,27 @@ describe('TaskFormModal (issue #305)', () => {
     // field from a normal task being edited.
     expect(screen.getByLabelText(/Duration/)).toBeInTheDocument();
     expect(screen.getByText('EDIT TASK')).toBeInTheDocument();
+  });
+
+  // ----- Pass 3: progress anchor error in edit mode -------------------------
+
+  it('surfaces the anchor-gate message when update rejects with progress_requires_anchor', async () => {
+    updateMutate.mockRejectedValueOnce(new Error('gate'));
+    mockParseProgressAnchorError.mockReturnValueOnce({
+      code: 'progress_requires_anchor' as const,
+      detail: 'Cannot record progress without a planned start date or sprint assignment.',
+      suggested_action: 'set_planned_start' as const,
+    });
+    const onClose = vi.fn();
+    renderModal({ task: baseTask(), onClose });
+    fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'Tweaked' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(
+      await screen.findByText('Set a Planned Start date (or assign a sprint) before recording progress.'),
+    ).toBeInTheDocument();
+    // Modal stays open so the user can add a planned start date.
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
