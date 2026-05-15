@@ -1006,7 +1006,7 @@ scheduler:publish:
       echo "Version check passed: $PKG_VERSION"
     - cd packages/scheduler
     - python -m build
-    - twine upload dist/* --non-interactive
+    - twine upload dist/* --non-interactive --verbose
   artifacts:
     # Keep the built wheel as a CI artifact for traceability (7-day expiry).
     paths:
