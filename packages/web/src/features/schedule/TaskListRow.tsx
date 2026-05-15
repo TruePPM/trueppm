@@ -5,7 +5,7 @@ import type { Task } from '@/types';
 import { ROW_HEIGHT, WBS_INDENT } from './scheduleConstants';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleStore } from '@/stores/scheduleStore';
-import { useUpdateTask, useReorderTasks } from '@/hooks/useTaskMutations';
+import { useUpdateTask, useReorderTasks, parseProgressAnchorError } from '@/hooks/useTaskMutations';
 import { useDragStore } from '@/stores/dragStore';
 import { AssigneeChips } from './AssigneeChips';
 import {
@@ -107,6 +107,7 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
   const projectId = useProjectId() ?? '';
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
+  const setScheduleError = useScheduleStore((s) => s.setScheduleError);
   const isSelected = selectedTaskId === task.id;
   const updateTask = useUpdateTask();
 
@@ -784,7 +785,19 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
             }}
             onCommit={(parsed) => {
               if (typeof parsed === 'number' && projectId) {
-                updateTask.mutate({ id: task.id, projectId, percent_complete: parsed });
+                updateTask.mutate(
+                  { id: task.id, projectId, percent_complete: parsed },
+                  {
+                    onError: (err) => {
+                      if (parseProgressAnchorError(err)) {
+                        setScheduleError(
+                          `Set a Planned Start date (or assign a sprint) before recording progress.`,
+                        );
+                        setTimeout(() => setScheduleError(null), 5000);
+                      }
+                    },
+                  },
+                );
               }
               buildMode.focus.commitToRow();
             }}

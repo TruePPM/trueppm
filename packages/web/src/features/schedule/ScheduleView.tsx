@@ -500,6 +500,7 @@ export function ScheduleView() {
   }, [engine, projectId, allTasks, rescheduleTask]);
 
   const dragPhase = useDragStore((s) => s.phase);
+  const scheduleError = useScheduleStore((s) => s.scheduleError);
 
   const timelineTop = timelineContainerRef.current
     ? timelineContainerRef.current.getBoundingClientRect().top
@@ -1054,6 +1055,16 @@ export function ScheduleView() {
           className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded border border-neutral-border bg-neutral-surface text-sm text-neutral-text-primary"
         >
           You&apos;re offline — change not saved.
+        </div>
+      )}
+
+      {/* Progress-anchor gate toast (#362) */}
+      {scheduleError && (
+        <div
+          role="alert"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded border border-neutral-border bg-neutral-surface text-sm text-neutral-text-primary"
+        >
+          {scheduleError}
         </div>
       )}
 
