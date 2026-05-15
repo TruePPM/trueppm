@@ -527,3 +527,102 @@ def test_review_card_with_progress_100_stays_review(
     if r.status_code == 200:
         task.refresh_from_db()
         assert task.status == TaskStatus.REVIEW
+
+
+# ---------------------------------------------------------------------------
+# Pass 2: actual-date edges; reopen; signal on full save
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_complete_status_via_api_sets_actual_finish(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    """Transitioning to COMPLETE via PATCH sets actual_finish to today."""
+    task.status = TaskStatus.IN_PROGRESS
+    task.save()
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        r = client.patch(f"/api/v1/tasks/{task.pk}/", {"status": "COMPLETE"}, format="json")
+    assert r.status_code == 200
+    task.refresh_from_db()
+    assert task.status == TaskStatus.COMPLETE
+    assert task.actual_finish == date.today()
+
+
+@pytest.mark.django_db
+def test_reopen_complete_task_clears_actual_finish(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    """Re-opening a COMPLETE task to any non-COMPLETE status clears actual_finish."""
+    task.status = TaskStatus.COMPLETE
+    task.actual_finish = date(2026, 5, 1)
+    task.save()
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        r = client.patch(f"/api/v1/tasks/{task.pk}/", {"status": "IN_PROGRESS"}, format="json")
+    assert r.status_code == 200
+    task.refresh_from_db()
+    assert task.status == TaskStatus.IN_PROGRESS
+    assert task.actual_finish is None
+
+
+@pytest.mark.django_db
+def test_review_transition_sets_actual_start_but_not_actual_finish(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    """Transitioning to REVIEW sets actual_start (work performed) but leaves actual_finish null."""
+    task.status = TaskStatus.IN_PROGRESS
+    task.save()
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        r = client.patch(f"/api/v1/tasks/{task.pk}/", {"status": "REVIEW"}, format="json")
+    assert r.status_code == 200
+    task.refresh_from_db()
+    assert task.status == TaskStatus.REVIEW
+    assert task.actual_start is not None
+    assert task.actual_finish is None
+
+
+@pytest.mark.django_db
+def test_signal_not_emitted_on_full_save_when_status_unchanged(
+    project: Project, task: Task
+) -> None:
+    """A full model save() where status did not change must not fire task_status_changed."""
+    handler = MagicMock()
+    task_status_changed.connect(handler)
+    try:
+        task.name = "Renamed"
+        task.save()  # full save, status = NOT_STARTED (same as before)
+        handler.assert_not_called()
+    finally:
+        task_status_changed.disconnect(handler)
+
+
+@pytest.mark.django_db
+def test_explicit_complete_status_overrides_auto_review_for_admin(
+    client: APIClient, project: Project, task: Task, membership: ProjectMembership
+) -> None:
+    """An ADMIN explicitly sending status=COMPLETE with percent_complete=100 always gets
+    COMPLETE — the auto-REVIEW rule only fires when status is absent from the payload."""
+    task.status = TaskStatus.IN_PROGRESS
+    task.planned_start = date(2026, 4, 1)
+    task.save()
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        r = client.patch(
+            f"/api/v1/tasks/{task.pk}/",
+            {"percent_complete": 100, "status": "COMPLETE"},
+            format="json",
+        )
+    assert r.status_code == 200
+    task.refresh_from_db()
+    assert task.status == TaskStatus.COMPLETE
