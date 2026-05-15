@@ -73,6 +73,7 @@ from trueppm_api.apps.projects.serializers import (
     CalendarSerializer,
     CycleDetectedError,
     DependencySerializer,
+    ProgressAnchorError,
     ProjectSerializer,
     RiskCommentSerializer,
     RiskSerializer,
@@ -632,7 +633,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     search_fields = ["name"]
     ordering_fields = ["wbs_path", "name", "early_start", "status"]
     queryset = (
-        Task.objects.select_related("project")
+        Task.objects.select_related("project", "sprint")
         .prefetch_related("assignments__resource")
         .filter(is_deleted=False)
     )
@@ -984,6 +985,36 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         )
         payload = _task_webhook_payload(instance)
         transaction.on_commit(lambda: _dispatch_webhooks(project_id, "task.updated", payload))
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            return super().update(request, *args, **kwargs)
+        except ProgressAnchorError:
+            return Response(
+                {
+                    "code": "progress_requires_anchor",
+                    "detail": (
+                        "Cannot record progress without a planned start date or sprint assignment."
+                    ),
+                    "suggested_action": "set_planned_start",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            return super().partial_update(request, *args, **kwargs)
+        except ProgressAnchorError:
+            return Response(
+                {
+                    "code": "progress_requires_anchor",
+                    "detail": (
+                        "Cannot record progress without a planned start date or sprint assignment."
+                    ),
+                    "suggested_action": "set_planned_start",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     def perform_destroy(self, instance: Task) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -1849,8 +1880,15 @@ class TaskBulkView(APIView):
         mutated_ids = [op["id"] for op in operations if op["op"] in ("update", "delete")]
         locked_tasks: dict[uuid.UUID, Task] = {}
         if mutated_ids:
-            qs = Task.objects.select_for_update().filter(
-                pk__in=mutated_ids, project_id=pk, is_deleted=False
+            # of=("self",) restricts the row lock to the Task table — without it,
+            # select_related on the nullable Sprint FK creates an outer join that
+            # Postgres rejects ("FOR UPDATE cannot be applied to the nullable side
+            # of an outer join"). Sprint is needed read-only by the progress-gate
+            # serializer; only Task rows need a write lock.
+            qs = (
+                Task.objects.select_for_update(of=("self",))
+                .select_related("sprint")
+                .filter(pk__in=mutated_ids, project_id=pk, is_deleted=False)
             )
             locked_tasks = {t.pk: t for t in qs}
 
@@ -1882,15 +1920,48 @@ class TaskBulkView(APIView):
                 data: dict[str, Any] = op.get("data", {})
 
                 if op_type == "create":
-                    task_serializer = TaskSerializer(data={**data, "project": str(project.pk)})
-                    task_serializer.is_valid(raise_exception=True)
+                    serializer_ctx = {"request": request, "caller_role": caller_role}
+                    task_serializer = TaskSerializer(
+                        data={**data, "project": str(project.pk)}, context=serializer_ctx
+                    )
+                    try:
+                        task_serializer.is_valid(raise_exception=True)
+                    except ProgressAnchorError:
+                        return Response(
+                            {
+                                "code": "progress_requires_anchor",
+                                "detail": (
+                                    "Cannot record progress without a planned start date"
+                                    " or sprint assignment."
+                                ),
+                                "suggested_action": "set_planned_start",
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
                     task = task_serializer.save()
                     result["created"].append(TaskSerializer(task).data)
 
                 elif op_type == "update":
                     task = locked_tasks[op["id"]]
-                    task_serializer = TaskSerializer(task, data=data, partial=True)
-                    task_serializer.is_valid(raise_exception=True)
+                    serializer_ctx = {"request": request, "caller_role": caller_role}
+                    task_serializer = TaskSerializer(
+                        task, data=data, partial=True, context=serializer_ctx
+                    )
+                    try:
+                        task_serializer.is_valid(raise_exception=True)
+                    except ProgressAnchorError:
+                        return Response(
+                            {
+                                "code": "progress_requires_anchor",
+                                "detail": (
+                                    "Cannot record progress without a planned start date"
+                                    " or sprint assignment."
+                                ),
+                                "suggested_action": "set_planned_start",
+                                "task_id": str(op["id"]),
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
                     task = task_serializer.save()
                     result["updated"].append(TaskSerializer(task).data)
 

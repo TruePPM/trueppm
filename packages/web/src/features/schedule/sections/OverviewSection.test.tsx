@@ -16,6 +16,7 @@ vi.mock('@/hooks/useScheduleTasks', () => ({
 const updateMock = vi.fn();
 vi.mock('@/hooks/useTaskMutations', () => ({
   useUpdateTask: () => ({ mutate: updateMock, isPending: false }),
+  parseProgressAnchorError: () => null,
 }));
 
 // ResourceAssignmentSection makes its own queries — stub it out.
@@ -147,6 +148,7 @@ describe('OverviewSection — progress field', () => {
     fireEvent.blur(input);
     expect(updateMock).toHaveBeenCalledWith(
       expect.objectContaining({ id: 't1', percent_complete: 75 }),
+      expect.any(Object),
     );
   });
 
@@ -157,6 +159,7 @@ describe('OverviewSection — progress field', () => {
     fireEvent.blur(input);
     expect(updateMock).toHaveBeenCalledWith(
       expect.objectContaining({ percent_complete: 100 }),
+      expect.any(Object),
     );
   });
 
@@ -167,6 +170,7 @@ describe('OverviewSection — progress field', () => {
     fireEvent.blur(input);
     expect(updateMock).toHaveBeenCalledWith(
       expect.objectContaining({ percent_complete: 0 }),
+      expect.any(Object),
     );
   });
 

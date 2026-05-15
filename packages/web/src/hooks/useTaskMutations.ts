@@ -412,6 +412,32 @@ export function parseCyclicDependencyError(err: unknown): CyclicDependencyError 
   return data as CyclicDependencyError;
 }
 
+/**
+ * Progress-anchor gate error — issued by `PATCH /tasks/{id}/` when
+ * `percent_complete > 0` but the task has no `planned_start` and no sprint
+ * (ADR-0057 Q5). The `suggested_action` field tells the frontend which
+ * resolution path to surface first.
+ */
+export interface ProgressAnchorError {
+  code: 'progress_requires_anchor';
+  detail: string;
+  suggested_action: 'set_planned_start' | 'assign_sprint';
+}
+
+/**
+ * Narrow an unknown caught error to a {@link ProgressAnchorError} payload.
+ *
+ * Returns the parsed payload or `null` for any other error shape.
+ */
+export function parseProgressAnchorError(err: unknown): ProgressAnchorError | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const data = (err as { response?: { data?: unknown } }).response?.data;
+  if (typeof data !== 'object' || data === null) return null;
+  const code = (data as { code?: unknown }).code;
+  if (code !== 'progress_requires_anchor') return null;
+  return data as ProgressAnchorError;
+}
+
 export interface AddDependencyPayload {
   /** UUID of the predecessor task. */
   predecessor: string;

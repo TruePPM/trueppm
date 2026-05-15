@@ -100,7 +100,11 @@ def import_project(
             wbs_path=wbs_path if wbs_path else None,
             duration=td.duration_days,
             is_milestone=td.is_milestone,
-            percent_complete=td.percent_complete,
+            # Clamp to 0 when no start date — preserves the progress-anchor invariant
+            # that bulk_create bypasses (ADR-0057 Q5). A .mpp file can encode
+            # PercentComplete > 0 on an unstarted task; importing that value would
+            # create a task with ghost progress and no schedule anchor.
+            percent_complete=td.percent_complete if td.start else 0,
             notes=td.notes,
             planned_start=td.start if td.start else None,
             short_id=f"{start_seq + i:08X}",

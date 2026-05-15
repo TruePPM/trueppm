@@ -82,6 +82,7 @@ vi.mock('@/hooks/useTaskMutations', () => ({
   // bulk of these tests; the cycle-specific spec covers their behavior.
   parseCyclicDependencyError: () => null,
   formatCycleMessage: () => '',
+  parseProgressAnchorError: () => null,
 }));
 
 vi.mock('@/hooks/useAssignmentMutations', () => ({

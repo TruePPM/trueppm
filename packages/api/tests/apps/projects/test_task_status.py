@@ -413,7 +413,11 @@ def test_contributor_progress_100_routes_to_review(
     Sign-off stays with PM/PMO via the Review column gate (Option E, VoC).
     """
     task = Task.objects.create(
-        project=project, name="Member task", duration=2, assignee=member_user
+        project=project,
+        name="Member task",
+        duration=2,
+        assignee=member_user,
+        planned_start=date(2026, 4, 1),
     )
     task.status = TaskStatus.IN_PROGRESS
     task.save()

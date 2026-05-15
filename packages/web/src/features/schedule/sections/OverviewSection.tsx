@@ -1,6 +1,6 @@
 import { type ChangeEvent, useState } from 'react';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
-import { useUpdateTask } from '@/hooks/useTaskMutations';
+import { useUpdateTask, parseProgressAnchorError } from '@/hooks/useTaskMutations';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import type { TaskStatus } from '@/types';
 import { ResourceAssignmentSection } from '../ResourceAssignmentSection';
@@ -45,6 +45,7 @@ export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
 
   // Local progress state so the input feels immediate before the blur PATCH.
   const [localProgress, setLocalProgress] = useState<string | null>(null);
+  const [progressError, setProgressError] = useState<string | null>(null);
 
   // Pending BACKLOG demotion — set when user selects Backlog from a guarded status.
   const [pendingBacklog, setPendingBacklog] = useState(false);
@@ -81,7 +82,19 @@ export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
     }
     const clamped = Math.max(0, Math.min(100, parsed));
     setLocalProgress(null);
-    updateTask({ id: taskId, projectId, percent_complete: clamped });
+    setProgressError(null);
+    updateTask(
+      { id: taskId, projectId, percent_complete: clamped },
+      {
+        onError: (err) => {
+          if (parseProgressAnchorError(err)) {
+            setProgressError(
+              `Set a Planned Start date (or assign a sprint) before recording progress.`,
+            );
+          }
+        },
+      },
+    );
   }
 
   // Description field is not yet exposed on the Task type — wired in a
@@ -175,6 +188,11 @@ export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
               </span>
             )}
           </div>
+        )}
+        {progressError && (
+          <p role="alert" className="mt-1.5 text-xs text-semantic-critical">
+            {progressError}
+          </p>
         )}
       </div>
     </div>
