@@ -802,8 +802,11 @@ export function drawMilestone(
  * Draw dependency arrows for all four link types (FS, SS, FF, SF).
  *
  * FS uses orthogonal elbow routing (rule 75 — issue #466):
- *   exit source right-edge 12px → drop vertically to target row → arrive at target left-edge.
- *   Arrowhead points right (→) when elbow is left of target, left (←) for backward links.
+ *   Exit source right-edge 4px → drop vertically to target row → arrive at target left-edge.
+ *   Arrowhead tip is 1px from the target bar/diamond edge.
+ *   Two cases depending on whether target is to the right of the source:
+ *     Forward  (→): elbow is left of tipX; approach from left, angle=0.
+ *     Backward (←): elbow overshoots right of tipX; ensures ≥10px shaft before arrowhead, angle=π.
  *
  * SS / FF / SF still use cubic Bézier with 40px control-point offsets:
  *   SS  Start  → Start  : exits left  from src start,  enters left  at tgt start
@@ -897,18 +900,27 @@ export function drawDependencyArrows(
     ctx.save();
     ctx.strokeStyle = stroke;
     ctx.lineWidth = 2;
-    ctx.beginPath();
 
-    // For FS: arrowhead tip stops 3px short of the bar edge (Visio gap convention).
-    // Angle is computed before drawing the line so the line can terminate cleanly
-    // at the arrowhead base rather than passing through the triangle interior.
-    const tipX = isFS ? x2 - 3 : x2;
     const arrowSize = 6;
-    const angle = isFS ? Math.atan2(0, tipX - (x1 + 12)) : Math.atan2(0, x2 - cx2);
+    const tipX = isFS ? x2 - 1 : x2; // 1px gap from target edge (rule 75)
+    let elbowX = 0;
+    let angle: number;
 
     if (isFS) {
-      // Orthogonal elbow: exit right 12px → vertical → stop at arrowhead base (rule 75)
-      const elbowX = x1 + 12;
+      // 4px exit from source, then guarantee ≥10px of horizontal shaft before the arrowhead.
+      // Forward (→): elbow stays left of the target; approach left-to-right.
+      // Backward (←): elbow overshoots to the right; returns left with clean shaft.
+      const rawElbow = x1 + 4;
+      const forward = rawElbow + arrowSize + 10 <= tipX;
+      elbowX = forward ? rawElbow : Math.max(rawElbow, tipX + arrowSize + 10);
+      angle = forward ? 0 : Math.PI;
+    } else {
+      angle = Math.atan2(0, x2 - cx2);
+    }
+
+    ctx.beginPath();
+    if (isFS) {
+      // Orthogonal elbow: exit right → drop vertical → arrive horizontally (rule 75).
       ctx.moveTo(x1, srcY);
       ctx.lineTo(elbowX, srcY);
       ctx.lineTo(elbowX, tgtY);
