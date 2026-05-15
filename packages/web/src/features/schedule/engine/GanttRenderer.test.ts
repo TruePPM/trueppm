@@ -542,8 +542,8 @@ describe('drawSummaryBar — rollup renders without phase plannedStart (#305 fol
 describe('drawDependencyArrows — summary tasks are anchorable without plannedStart (#305 follow-up)', () => {
   const scales = buildScaleData('week', '2026-04-01', '2026-05-01');
 
-  // drawDependencyArrows reads ctx.canvas.width / .height + uses bezierCurveTo;
-  // augment the shared spy so its calls path through the recorder.
+  // drawDependencyArrows reads ctx.canvas.width / .height; augment the shared
+  // spy with canvas methods not in makeCtxSpy().
   function makeArrowCtxSpy() {
     const { ctx, calls } = makeCtxSpy();
     const augmented = ctx as unknown as Record<string, unknown>;
@@ -552,6 +552,9 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
       calls.push({ name: 'bezierCurveTo', args });
     });
     augmented.closePath = vi.fn(() => calls.push({ name: 'closePath', args: [] }));
+    augmented.arc = vi.fn((...args: unknown[]) => {
+      calls.push({ name: 'arc', args });
+    });
     return { ctx, calls };
   }
 
@@ -604,8 +607,8 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
       { id: 'l1', sourceId: 'phase-1', targetId: 'leaf-1', type: 'FS' as const, lag: 0, isCritical: false },
     ];
     drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
-    // bezierCurveTo is the dedicated arrow draw call.
-    expect(calls.filter((c) => c.name === 'bezierCurveTo').length).toBeGreaterThanOrEqual(1);
+    // FS arrows use orthogonal elbow routing (lineTo ×3) — not bezierCurveTo.
+    expect(calls.filter((c) => c.name === 'lineTo').length).toBeGreaterThanOrEqual(1);
   });
 
   it('still skips arrows anchored to uncommitted leaf tasks (the original #332 case)', () => {
@@ -618,6 +621,6 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
       { id: 'l1', sourceId: 'leaf-source', targetId: 'leaf-uncommitted', type: 'FS' as const, lag: 0, isCritical: false },
     ];
     drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
-    expect(calls.filter((c) => c.name === 'bezierCurveTo')).toHaveLength(0);
+    expect(calls.filter((c) => c.name === 'lineTo')).toHaveLength(0);
   });
 });
