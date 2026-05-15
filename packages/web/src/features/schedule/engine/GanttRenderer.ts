@@ -905,26 +905,54 @@ export function drawDependencyArrows(
     const tipX = isFS ? x2 - 1 : x2; // 1px gap from target edge (rule 75)
     let elbowX = 0;
     let angle: number;
+    // Bezier S-curve state (adjacent-row forward FS only)
+    let useBezierS = false;
+    let sCx1 = 0, sCy1 = 0, sCx2 = 0, sCy2 = 0, sBezierEndX = 0;
 
     if (isFS) {
-      // 4px exit from source, then guarantee ≥10px of horizontal shaft before the arrowhead.
-      // Forward (→): elbow stays left of the target; approach left-to-right.
-      // Backward (←): elbow overshoots to the right; returns left with clean shaft.
+      const rowDiff = tgt.rowIndex - src.rowIndex;
       const rawElbow = x1 + 4;
-      const forward = rawElbow + arrowSize + 10 <= tipX;
-      elbowX = forward ? rawElbow : Math.max(rawElbow, tipX + arrowSize + 10);
-      angle = forward ? 0 : Math.PI;
+      // When source finish is left of target start, always route forward — even if
+      // the x-gap is narrow. A tiny forward shaft is better than a backward Z-shape.
+      const sourceIsLeft = x1 < x2;
+      const hasForwardRoom = rawElbow + arrowSize + 10 <= tipX;
+
+      if (sourceIsLeft || hasForwardRoom) {
+        // Forward approach (→), angle = 0
+        angle = 0;
+        if (rowDiff === 1 && sourceIsLeft) {
+          // Adjacent rows, source to the left: Bezier S-curve for a smooth, natural
+          // approach into the arrowhead (rule 75).
+          useBezierS = true;
+          sBezierEndX = tipX - arrowSize;
+          const spread = Math.max((sBezierEndX - x1) / 3, ROW_HEIGHT / 2);
+          sCx1 = x1 + spread;  sCy1 = srcY;
+          sCx2 = sBezierEndX - spread;  sCy2 = tgtY;
+        } else {
+          // Multi-row or tight forward: orthogonal L-shape.
+          elbowX = Math.max(x1, Math.min(rawElbow, tipX - arrowSize));
+        }
+      } else {
+        // Backward (←): source is right of target; overshoot right, return left with shaft.
+        angle = Math.PI;
+        elbowX = Math.max(rawElbow, tipX + arrowSize + 10);
+      }
     } else {
       angle = Math.atan2(0, x2 - cx2);
     }
 
     ctx.beginPath();
     if (isFS) {
-      // Orthogonal elbow: exit right → drop vertical → arrive horizontally (rule 75).
       ctx.moveTo(x1, srcY);
-      ctx.lineTo(elbowX, srcY);
-      ctx.lineTo(elbowX, tgtY);
-      ctx.lineTo(tipX - arrowSize * Math.cos(angle), tgtY);
+      if (useBezierS) {
+        // Smooth S-curve: exits source right, arrives at arrowhead base going right.
+        ctx.bezierCurveTo(sCx1, sCy1, sCx2, sCy2, sBezierEndX, tgtY);
+      } else {
+        // Orthogonal elbow: exit right → drop vertical → arrive horizontally (rule 75).
+        ctx.lineTo(elbowX, srcY);
+        ctx.lineTo(elbowX, tgtY);
+        ctx.lineTo(tipX - arrowSize * Math.cos(angle), tgtY);
+      }
     } else {
       // SS / FF / SF: cubic Bézier, horizontal entry/exit tangent
       ctx.moveTo(x1, srcY);
@@ -941,9 +969,9 @@ export function drawDependencyArrows(
     ctx.closePath();
     ctx.fill();
 
-    // Connection dot at source bar edge — Visio-style attachment indicator.
+    // Connection dot 1px outside the source bar edge — Visio-style attachment indicator.
     ctx.beginPath();
-    ctx.arc(x1, srcY, 2.5, 0, Math.PI * 2);
+    ctx.arc(x1 + 1, srcY, 2.5, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();

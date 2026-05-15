@@ -252,9 +252,14 @@ These rules are enforced at review time. Violations block merge.
 75. **FS dependency arrows use orthogonal elbow routing** — exit source right-edge 4px,
     drop vertically, arrive horizontally at target left-edge with a ≥10px shaft before
     the arrowhead. Arrowhead tip is 1px from the target bar/diamond edge.
-    Two approach modes: forward (→, angle=0) when the elbow is left of the tip;
-    backward (←, angle=π) when the source finish is close to or right of the target start
-    — in that case the elbow overshoots right to guarantee the clean shaft.
+    Three routing modes for FS:
+    - **S-curve** (Bézier): when `rowDiff === 1` AND `sourceIsLeft` (source finish x < target start x) —
+      produces a natural S-shape for directly adjacent forward connections.
+    - **Forward L-shape** (→, angle=0): when `sourceIsLeft` is true but `rowDiff > 1` — orthogonal
+      elbow at `x1 + 4` clamped between `[x1, tipX - arrowSize]`.
+    - **Backward Z-shape** (←, angle=π): when `sourceIsLeft` is false AND no forward room exists —
+      elbow overshoots right of tipX to guarantee the ≥10px approach shaft.
+    `sourceIsLeft = x1 < x2` always forces forward/S-curve mode even when the gap is small.
     SS / FF / SF still use cubic Bézier curves with 40px control-point offsets.
     Critical-path arrows use `COLOR.arrowCritical` (`#B91C1C`); non-critical use
     `COLOR.arrowNormal` (`rgba(107,105,101,0.6)`). Arrow line width: 2px logical px.

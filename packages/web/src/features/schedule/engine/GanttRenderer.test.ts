@@ -623,4 +623,54 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
     expect(calls.filter((c) => c.name === 'lineTo')).toHaveLength(0);
   });
+
+  function schedLeaf(id: string, start: string, finish: string): Task {
+    return {
+      id,
+      wbs: id,
+      name: `Leaf ${id}`,
+      start,
+      finish,
+      plannedStart: start,
+      duration: 5,
+      progress: 0,
+      isSummary: false,
+      isMilestone: false,
+      isCritical: false,
+      parentId: null,
+    } as unknown as Task;
+  }
+
+  it('uses Bézier S-curve for adjacent-row forward FS (rowDiff=1, source finish left of target start)', () => {
+    // Source finishes Apr 10, target starts Apr 14 → x1 < x2, rowDiff=1 → S-curve path.
+    const { ctx, calls } = makeArrowCtxSpy();
+    const tasks: Task[] = [
+      schedLeaf('src', '2026-04-06', '2026-04-10'),  // row 0
+      schedLeaf('tgt', '2026-04-14', '2026-04-21'),  // row 1
+    ];
+    const links = [
+      { id: 'l1', sourceId: 'src', targetId: 'tgt', type: 'FS' as const, lag: 0, isCritical: false },
+    ];
+    drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
+    // S-curve routing: bezierCurveTo for the path; lineTo only for the arrowhead triangle.
+    expect(calls.filter((c) => c.name === 'bezierCurveTo').length).toBeGreaterThanOrEqual(1);
+    expect(calls.filter((c) => c.name === 'lineTo').length).toBe(2); // arrowhead only
+  });
+
+  it('uses orthogonal L-shape for multi-row forward FS (rowDiff>1, source finish left of target start)', () => {
+    // Source finishes Apr 10, target starts Apr 14 → x1 < x2, rowDiff=2 → L-shape (lineTo ×3 + arrowhead ×2).
+    const { ctx, calls } = makeArrowCtxSpy();
+    const tasks: Task[] = [
+      schedLeaf('src', '2026-04-06', '2026-04-10'),  // row 0
+      schedLeaf('mid', '2026-04-06', '2026-04-10'),  // row 1 (not in link)
+      schedLeaf('tgt', '2026-04-14', '2026-04-21'),  // row 2
+    ];
+    const links = [
+      { id: 'l1', sourceId: 'src', targetId: 'tgt', type: 'FS' as const, lag: 0, isCritical: false },
+    ];
+    drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
+    // L-shape routing: lineTo ×3 for path + ×2 for arrowhead; bezierCurveTo not used.
+    expect(calls.filter((c) => c.name === 'bezierCurveTo')).toHaveLength(0);
+    expect(calls.filter((c) => c.name === 'lineTo').length).toBeGreaterThanOrEqual(3);
+  });
 });
