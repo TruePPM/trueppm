@@ -279,16 +279,20 @@ These rules are enforced at review time. Violations block merge.
       `cx − milestoneHalfDiag`). Outgoing arrows exit from the RIGHT edge (= right vertex of the
       milestone). Entry and exit vertices on a single milestone naturally differ because FS sources
       always exit right and FS targets always enter left.
-    - **Merge junctions.** When 2+ FS arrows terminate at the same target (any kind — bar,
-      summary, or milestone), they merge at a single junction. The junction X is the actual
-      line-convergence point: `min(maxPredecessorExitX, tipX − arrowSize − APPROACH_STUB)` —
-      i.e. the X where the LAST predecessor's V drops onto the shared trunk Y, capped so the
-      trunk shaft before the arrowhead remains ≥ APPROACH_STUB. Each predecessor line terminates
-      2px short of the junction center and is drawn WITHOUT an arrowhead. A single trunk arrow
-      with the only arrowhead runs east from the junction to the target. Junction = outer halo
-      (4px radius, `palette.surface`) + inner dot (3px radius, stroke color). Render order:
-      predecessor lines → trunk + arrowhead → junction halo + dot (junction drawn last so it
-      sits on top of all line endcaps).
+    - **Junctions (unified rule).** A junction dot marks any point where 2+ lines meet on a
+      shared segment. Two patterns:
+      - **Merge** (convergence): when 2+ FS arrows terminate at the same target, they share a
+        trunk corridor ending at the target. Junction at `min(maxPredecessorExitX, tipX − arrowSize
+        − APPROACH_STUB)` — the line-convergence X capped to preserve a ≥ APPROACH_STUB straight
+        trunk shaft into the arrowhead. Each predecessor terminates 2px short of the junction
+        (no arrowhead). A single trunk arrow with the only arrowhead runs east to the target.
+      - **Split** (divergence): when 2+ FS arrows from the same source share an exit-stub and V
+        drop on the same column, each arrow leaves the shared V at its target's row Y, turning
+        east. At every intermediate target's Y on the shared column, three segments meet (V from
+        above, H to that target, V continuing south) — junction dot there. The deepest target's
+        Y is NOT a junction (just a corner).
+      - **Junction visual.** Outer halo (4px radius, `palette.surface`) + inner dot (3px radius,
+        stroke color). Drawn last so it sits on top of line endcaps.
     - **Selection emphasis.** When the source OR target is in `engine.selectedTaskIds`, the arrow
       uses `palette.selectionRing` stroke at 2.5px. Other arrows hold 2px.
     - **SS / FF / SF unchanged** — cubic Bézier with 40px control-point offsets. Same charcoal

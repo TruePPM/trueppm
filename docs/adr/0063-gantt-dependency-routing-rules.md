@@ -71,6 +71,15 @@ The 14 spec rules are adopted with the modifications below.
 
 - **R14 (geometry-based dependency suppression).** Deferred. This requires geometry-state classification (Phase 2), which is out of scope for this ADR. Tracked as follow-up #2.
 
+### Junction rule (unified — convergence AND divergence)
+
+A junction dot marks any point where 2+ lines meet on a shared segment. Two patterns:
+
+- **Merge (convergence):** 2+ FS arrows terminate at the same target along a shared trunk. Junction at the trunk's east end (just before the arrowhead leg).
+- **Split (divergence):** 2+ FS arrows leave the same source and share its V-drop column. At every intermediate target's Y on the shared column, three segments meet (V from above, H to this target, V continuing to deeper target) — junction there. The deepest target's Y is not a junction (just a corner).
+
+Junction visual: outer halo (radius `MERGE_HALO_RADIUS`, `palette.surface` fill) + inner dot (radius `MERGE_DOT_RADIUS`, stroke color). Rendered last (z-order) so it sits on top of line endcaps.
+
 ### Merge junction algorithm
 
 Per spec §7.3 with the modifications above:

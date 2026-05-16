@@ -1056,10 +1056,11 @@ export function drawDependencyArrows(
     return allBars.filter((b) => b.id !== srcId && b.id !== tgtId);
   }
 
-  // Group FS links by target id (for merge junctions). Junctions only render
-  // for true convergences — multiple predecessors terminating at the same
-  // target. Diverging arrows from a shared source get no junction.
+  // Group FS links by target (for merge junctions — convergences) and by
+  // source (for split junctions — divergences along a shared gutter).
+  // Junction rule: a dot at any point where 2+ lines meet on a shared segment.
   const fsByTarget = new Map<string, TaskLink[]>();
+  const fsBySource = new Map<string, TaskLink[]>();
   const nonFSLinks: TaskLink[] = [];
   for (const link of links) {
     const isFS = link.type !== 'SS' && link.type !== 'FF' && link.type !== 'SF';
@@ -1067,6 +1068,9 @@ export function drawDependencyArrows(
       const tList = fsByTarget.get(link.targetId);
       if (tList) tList.push(link);
       else fsByTarget.set(link.targetId, [link]);
+      const sList = fsBySource.get(link.sourceId);
+      if (sList) sList.push(link);
+      else fsBySource.set(link.sourceId, [link]);
     } else {
       nonFSLinks.push(link);
     }
@@ -1193,9 +1197,68 @@ export function drawDependencyArrows(
     ctx.restore();
   }
 
-  // Note: diverging arrows from a shared source do NOT get a junction dot.
-  // Junctions only mark TRUE convergences — multiple lines terminating at the
-  // same point. Lines fanning out from a source are diverging, not converging.
+  // ------------------------------------------------------------------------
+  // Split junctions: when a single source has 2+ outgoing FS arrows, the
+  // arrows share the source's exit-stub and a V drop on the same column
+  // (exitX = src.barRight + EXIT_STUB). Each arrow leaves the shared V at
+  // its own target's row Y, turning east as an H to its target. At every
+  // intermediate target's Y on the shared column, three line segments meet
+  // (V from above, H east to this target, V continuing south to deeper
+  // target) — that's a split junction, drawn as a dot.
+  //
+  // The deepest target's Y is NOT a junction (no V continues past it; only
+  // the V from above ends there, and the H goes east — that's a corner,
+  // not a 3-line meeting).
+  // ------------------------------------------------------------------------
+  for (const [sourceId, group] of fsBySource) {
+    if (group.length < 2) continue;
+    const src = taskMap.get(sourceId);
+    if (!src) continue;
+    const srcY = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+    const exitX = src.barRight + EXIT_STUB;
+
+    // Collect each outgoing arrow's target Y. Skip predecessors whose target
+    // is missing from taskMap (uncommitted leaves).
+    const branches: { targetY: number; linkSelected: boolean }[] = [];
+    for (const link of group) {
+      const tgt = taskMap.get(link.targetId);
+      if (!tgt) continue;
+      const targetY = tgt.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+      const linkSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
+      branches.push({ targetY, linkSelected });
+    }
+    if (branches.length < 2) continue;
+
+    // Determine direction of travel (down or up) — must be unanimous for a
+    // shared V column to exist. If branches are mixed (some above, some below
+    // source), no shared V → no split junction (each arrow handled independently).
+    const allBelow = branches.every((b) => b.targetY > srcY + 0.5);
+    const allAbove = branches.every((b) => b.targetY < srcY - 0.5);
+    if (!allBelow && !allAbove) continue;
+
+    // Sort by distance from source — closest first. Junctions at every Y
+    // except the furthest one (the deepest target, which is just a corner).
+    branches.sort((a, b) => Math.abs(a.targetY - srcY) - Math.abs(b.targetY - srcY));
+    const sourceSelected = selectedTaskIds.has(sourceId);
+
+    if (offScreen(exitX, exitX, srcY, branches[branches.length - 1].targetY, cpWidth, cpHeight)) continue;
+
+    for (let i = 0; i < branches.length - 1; i++) {
+      const { targetY, linkSelected } = branches[i];
+      const isSelected = sourceSelected || linkSelected;
+      const { stroke } = arrowPen(isSelected);
+      ctx.save();
+      ctx.fillStyle = _palette.surface;
+      ctx.beginPath();
+      ctx.arc(exitX, targetY, MERGE_HALO_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = stroke;
+      ctx.beginPath();
+      ctx.arc(exitX, targetY, MERGE_DOT_RADIUS, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
 
   // ------------------------------------------------------------------------
   // SS / FF / SF — Bézier (unchanged from prior behavior).
