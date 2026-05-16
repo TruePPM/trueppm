@@ -889,11 +889,10 @@ export function calculateDependencyPath(
   // sequential — target.barLeft is at or before source.barRight + exit stub),
   // the V at exitX would land inside the target's own X-range. Route through
   // the row-gutter midline between source and target rows instead.
-  // SUPPRESSED when targetEntryX is provided (merge-junction predecessor) —
-  // those lines should drop straight to the junction Y at their own exitX so
-  // the geometric convergence happens at the corner (maxExitX, junctionY).
-  const isMergePredecessor = targetEntryX !== undefined;
-  const stackedSequential = !isMergePredecessor && targetX <= exitX;
+  // Applies to merge predecessors too: when a predecessor's exitX is past the
+  // junction's stopX, R12 routes the V to land LEFT of the target so the line
+  // doesn't pass through the target's diamond on its way to the junction.
+  const stackedSequential = targetX <= exitX;
   if (stackedSequential) {
     // If V at approachX would cross a non-source/non-target bar (typically the
     // target's parent summary, e.g., milestone → child-of-phase), push the
