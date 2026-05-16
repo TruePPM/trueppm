@@ -17,6 +17,15 @@ default, collapsible to a header chip, persisted across sessions. This ADR recor
 the placement, persistence, responsive, and export decisions made before
 implementation.
 
+The legend covers nine canvas elements grouped on three rows: **bar variants**
+(summary rollup, task with progress fill, complete), **state markers** (critical
+path, milestone, today line), and **lines and arrows** (planned baseline,
+finish-to-start, merged trunk). The original issue listed six; critical path,
+complete, and today were added on review because they are high-frequency canvas
+elements with dedicated render paths in `GanttRenderer.ts`. SS / FF / SF
+dependency arrows, cross-arrow bridge hops, and drag-preview bars are
+intentionally out of scope — rare in OSS-tier projects or transient.
+
 ### Constraints from VoC (panel avg 5.0/10, no 🔴, two 🟡)
 
 - 🟡 **PDF export inclusion must be decided now, not deferred.** Sarah (PM) blocks

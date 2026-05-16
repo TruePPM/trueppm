@@ -74,18 +74,30 @@ export function ScheduleLegend({ taskListWidth }: ScheduleLegendProps) {
         className="px-3 pb-3 pt-1 border-t border-neutral-border"
       >
         <ul
-          className="grid grid-cols-2 gap-x-4 gap-y-2 list-none m-0 p-0
+          className="grid grid-cols-3 gap-x-4 gap-y-2 list-none m-0 p-0
                      text-neutral-text-secondary"
         >
+          {/* Row 1 — bar variants */}
           <LegendRow label="Summary rollup">
             <SummarySwatch />
+          </LegendRow>
+          <LegendRow label="Task (progress)">
+            <TaskSwatch />
+          </LegendRow>
+          <LegendRow label="Complete">
+            <CompleteSwatch />
+          </LegendRow>
+          {/* Row 2 — state markers */}
+          <LegendRow label="Critical path">
+            <CriticalSwatch />
           </LegendRow>
           <LegendRow label="Milestone">
             <MilestoneSwatch />
           </LegendRow>
-          <LegendRow label="Task (fill = progress)">
-            <TaskSwatch />
+          <LegendRow label="Today">
+            <TodaySwatch />
           </LegendRow>
+          {/* Row 3 — lines &amp; arrows */}
           <LegendRow label="Planned baseline">
             <BaselineSwatch />
           </LegendRow>
@@ -131,6 +143,23 @@ function TaskSwatch() {
     <span className="relative block w-full h-2 border border-neutral-border bg-neutral-surface rounded-[2px] overflow-hidden">
       <span className="absolute inset-y-0 left-0 w-3/5 bg-brand-primary dark:bg-semantic-on-track" />
     </span>
+  );
+}
+
+function CompleteSwatch() {
+  return <span className="block w-full h-2 bg-semantic-on-track rounded-[2px]" />;
+}
+
+function CriticalSwatch() {
+  return <span className="block w-full h-2 bg-semantic-critical rounded-[2px]" />;
+}
+
+function TodaySwatch() {
+  // Vertical line, brand-primary on light; same dark-mode WCAG escape as TaskSwatch.
+  // The canvas today-line is brand-primary (#1C6B3A) light / semantic-on-track dark
+  // per GanttRenderer.ts.
+  return (
+    <span className="block h-full w-[2px] mx-auto bg-brand-primary dark:bg-semantic-on-track" />
   );
 }
 

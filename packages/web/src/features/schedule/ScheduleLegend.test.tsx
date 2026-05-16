@@ -9,12 +9,18 @@ describe('ScheduleLegend', () => {
     localStorage.clear();
   });
 
-  it('renders expanded by default with all six entries', () => {
+  it('renders expanded by default with all nine entries', () => {
     render(<ScheduleLegend taskListWidth={240} />);
     expect(screen.getByTestId('schedule-legend-body')).toBeInTheDocument();
+    // Row 1 — bar variants
     expect(screen.getByText('Summary rollup')).toBeInTheDocument();
-    expect(screen.getByText('Task (fill = progress)')).toBeInTheDocument();
+    expect(screen.getByText('Task (progress)')).toBeInTheDocument();
+    expect(screen.getByText('Complete')).toBeInTheDocument();
+    // Row 2 — state markers
+    expect(screen.getByText('Critical path')).toBeInTheDocument();
     expect(screen.getByText('Milestone')).toBeInTheDocument();
+    expect(screen.getByText('Today')).toBeInTheDocument();
+    // Row 3 — lines & arrows
     expect(screen.getByText('Planned baseline')).toBeInTheDocument();
     expect(screen.getByText('Finish-to-start')).toBeInTheDocument();
     expect(screen.getByText('Merged trunk')).toBeInTheDocument();

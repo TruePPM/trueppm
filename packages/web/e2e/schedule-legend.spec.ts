@@ -64,8 +64,14 @@ test.describe('Schedule legend overlay (#474)', () => {
     await page.goto(BASE_URL);
     await expect(page.getByTestId('schedule-legend-chip')).toBeVisible();
     await expect(page.getByTestId('schedule-legend-body')).toBeVisible();
-    await expect(page.getByText('Summary rollup')).toBeVisible();
-    await expect(page.getByText('Finish-to-start')).toBeVisible();
+    // Sample of entries across the three rows (bar / marker / line). Scoped to
+    // the legend body — "Critical path" and "Today" also appear as labels on
+    // toolbar buttons elsewhere on the page.
+    const body = page.getByTestId('schedule-legend-body');
+    await expect(body.getByText('Summary rollup')).toBeVisible();
+    await expect(body.getByText('Critical path')).toBeVisible();
+    await expect(body.getByText('Today')).toBeVisible();
+    await expect(body.getByText('Finish-to-start')).toBeVisible();
   });
 
   test('clicking the chip collapses the body; chip stays visible', async ({ page }) => {
