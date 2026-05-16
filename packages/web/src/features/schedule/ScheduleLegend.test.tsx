@@ -1,0 +1,67 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { ScheduleLegend } from './ScheduleLegend';
+
+const STORAGE_KEY = 'trueppm.schedule.legend.collapsed.v1';
+
+describe('ScheduleLegend', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('renders expanded by default with all six entries', () => {
+    render(<ScheduleLegend taskListWidth={240} />);
+    expect(screen.getByTestId('schedule-legend-body')).toBeInTheDocument();
+    expect(screen.getByText('Summary rollup')).toBeInTheDocument();
+    expect(screen.getByText('Task (fill = progress)')).toBeInTheDocument();
+    expect(screen.getByText('Milestone')).toBeInTheDocument();
+    expect(screen.getByText('Planned baseline')).toBeInTheDocument();
+    expect(screen.getByText('Finish-to-start')).toBeInTheDocument();
+    expect(screen.getByText('Merged trunk')).toBeInTheDocument();
+  });
+
+  it('chip is a button with aria-expanded=true when expanded', () => {
+    render(<ScheduleLegend taskListWidth={240} />);
+    const chip = screen.getByTestId('schedule-legend-chip');
+    expect(chip.tagName).toBe('BUTTON');
+    expect(chip.getAttribute('aria-expanded')).toBe('true');
+    expect(chip.getAttribute('aria-controls')).toBe(
+      screen.getByTestId('schedule-legend-body').id,
+    );
+  });
+
+  it('clicking the chip collapses the body and updates aria-expanded', () => {
+    render(<ScheduleLegend taskListWidth={240} />);
+    const chip = screen.getByTestId('schedule-legend-chip');
+    fireEvent.click(chip);
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByTestId('schedule-legend-body')).toHaveAttribute('hidden');
+  });
+
+  it('persists collapsed state to localStorage', () => {
+    render(<ScheduleLegend taskListWidth={240} />);
+    fireEvent.click(screen.getByTestId('schedule-legend-chip'));
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('true');
+  });
+
+  it('reads collapsed state from localStorage on mount', () => {
+    localStorage.setItem(STORAGE_KEY, 'true');
+    render(<ScheduleLegend taskListWidth={240} />);
+    const chip = screen.getByTestId('schedule-legend-chip');
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByTestId('schedule-legend-body')).toHaveAttribute('hidden');
+  });
+
+  it('positions horizontally based on taskListWidth prop', () => {
+    const { rerender } = render(<ScheduleLegend taskListWidth={240} />);
+    expect(screen.getByTestId('schedule-legend')).toHaveStyle({ left: '256px' });
+    rerender(<ScheduleLegend taskListWidth={320} />);
+    expect(screen.getByTestId('schedule-legend')).toHaveStyle({ left: '336px' });
+  });
+
+  it('body is suppressed on small viewports via Tailwind (hidden lg:block)', () => {
+    render(<ScheduleLegend taskListWidth={240} />);
+    expect(screen.getByTestId('schedule-legend').className).toContain('hidden');
+    expect(screen.getByTestId('schedule-legend').className).toContain('lg:block');
+  });
+});
