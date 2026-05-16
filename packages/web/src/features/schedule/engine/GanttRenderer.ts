@@ -1094,11 +1094,12 @@ export function drawDependencyArrows(
     return allBars.filter((b) => b.id !== srcId && b.id !== tgtId);
   }
 
-  // Group FS links by target (for merge junctions — convergences) and by
-  // source (for split junctions — divergences along a shared gutter).
-  // Junction rule: a dot at any point where 2+ lines meet on a shared segment.
+  // Group FS links by target (for merge junctions — convergences). Junction
+  // dots only mark TRUE convergences (multiple distinct arrow lines arriving
+  // at one point). Split T-junctions on a shared V column look like ordinary
+  // corners to the eye (one V line passing through + one H branching off) so
+  // they get no dot.
   const fsByTarget = new Map<string, TaskLink[]>();
-  const fsBySource = new Map<string, TaskLink[]>();
   const nonFSLinks: TaskLink[] = [];
   for (const link of links) {
     const isFS = link.type !== 'SS' && link.type !== 'FF' && link.type !== 'SF';
@@ -1106,9 +1107,6 @@ export function drawDependencyArrows(
       const tList = fsByTarget.get(link.targetId);
       if (tList) tList.push(link);
       else fsByTarget.set(link.targetId, [link]);
-      const sList = fsBySource.get(link.sourceId);
-      if (sList) sList.push(link);
-      else fsBySource.set(link.sourceId, [link]);
     } else {
       nonFSLinks.push(link);
     }
@@ -1238,68 +1236,13 @@ export function drawDependencyArrows(
     ctx.restore();
   }
 
-  // ------------------------------------------------------------------------
-  // Split junctions: 2+ outgoing FS arrows from the same source share the
-  // exit-stub and a V drop on `exitX`. Each arrow leaves the shared V at
-  // its target's gutter Y (=  target.Y − gutterOffset, where gutterOffset
-  // matches the per-arrow span). At each intermediate target's gutter Y,
-  // THREE line segments meet on the column: V from above (shared), H east
-  // to that target, V continuing south to the next deeper target.
-  // The deepest target's Y is NOT a split — only V from above + H east =
-  // 2 lines (a corner, not a junction).
-  // ------------------------------------------------------------------------
-  for (const [sourceId, group] of fsBySource) {
-    if (group.length < 2) continue;
-    const src = taskMap.get(sourceId);
-    if (!src) continue;
-    const srcY = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
-    const exitX = src.barRight + EXIT_STUB;
-
-    // Collect each outgoing arrow's target Y.
-    const branches: { targetY: number; linkSelected: boolean }[] = [];
-    for (const link of group) {
-      const tgt = taskMap.get(link.targetId);
-      if (!tgt) continue;
-      const targetY = tgt.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
-      const linkSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
-      branches.push({ targetY, linkSelected });
-    }
-    if (branches.length < 2) continue;
-
-    // Direction must be unanimous for shared V column to exist.
-    const allBelow = branches.every((b) => b.targetY > srcY + 0.5);
-    const allAbove = branches.every((b) => b.targetY < srcY - 0.5);
-    if (!allBelow && !allAbove) continue;
-    const splitDir = allBelow ? 1 : -1;
-
-    // Sort by distance from source — closest first. Junctions at every Y
-    // except the furthest (deepest target is just a corner).
-    branches.sort((a, b) => Math.abs(a.targetY - srcY) - Math.abs(b.targetY - srcY));
-    const sourceSelected = selectedTaskIds.has(sourceId);
-    if (offScreen(exitX, exitX, srcY, branches[branches.length - 1].targetY, cpWidth, cpHeight)) continue;
-
-    for (let i = 0; i < branches.length - 1; i++) {
-      const { targetY, linkSelected } = branches[i];
-      // Split Y matches THIS branch's actual gutter Y — same offset formula
-      // calculateDependencyPath uses, so the dot lands where the arrow's V
-      // physically turns east.
-      const spanRowsForBranch = Math.abs(targetY - srcY) / ROW_HEIGHT;
-      const gutterOffsetForBranch = spanRowsForBranch >= 4 ? ROW_HEIGHT * 1.5 : ROW_HEIGHT * 0.5;
-      const splitY = targetY - splitDir * gutterOffsetForBranch;
-      const isSelected = sourceSelected || linkSelected;
-      const { stroke } = arrowPen(isSelected);
-      ctx.save();
-      ctx.fillStyle = _palette.surface;
-      ctx.beginPath();
-      ctx.arc(exitX, splitY, MERGE_HALO_RADIUS, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = stroke;
-      ctx.beginPath();
-      ctx.arc(exitX, splitY, MERGE_DOT_RADIUS, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-  }
+  // Split junctions intentionally removed (issue #466). When a single source
+  // has 2+ outgoing FS arrows, each turn off the shared V column is a
+  // T-junction — one V line passing through, one H branching off. Visually
+  // indistinguishable from any other Manhattan corner, so a dot there reads
+  // as noise rather than as a meaningful convergence. Merge junctions
+  // (2+ arrow lines arriving at one target) remain — they are TRUE
+  // convergences where distinct lines visibly meet and a dot is meaningful.
 
   // ------------------------------------------------------------------------
   // SS / FF / SF — Bézier (unchanged from prior behavior).

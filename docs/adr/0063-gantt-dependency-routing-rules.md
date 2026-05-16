@@ -73,13 +73,13 @@ The 14 spec rules are adopted with the modifications below.
 
 ### Junction rule (codified — DO NOT DEVIATE)
 
-A junction dot renders at every point where **3 or more dependency arrow segments meet at a single (x, y)**. Two segments meeting is a corner. Three+ is a junction — period. This applies to:
+A junction dot renders only where **3 or more distinct arrow LINES meet at a single (x, y)** — TRUE convergences. Counting segments is the wrong lens: a T-junction has three segments but only two visible lines (one passing through, one branching off), which is indistinguishable from any other Manhattan corner. A dot there reads as noise rather than signal. This applies to:
 
-1. **Merge (convergence)** — 2+ predecessor segments arriving at the same target + 1 trunk segment leaving = 3+ at the convergence point. Junction at `min(maxPredecessorExitX, tipX − arrowSize − APPROACH_STUB)`. Predecessors terminate AT the dot (no individual arrowheads). A single trunk arrow with the only arrowhead runs east to the target.
+1. **Merge (convergence)** — 2+ predecessor arrow lines arrive at one point and a single trunk line continues to the target = 3+ distinct lines meeting. Junction at `min(maxPredecessorExitX, tipX − arrowSize − APPROACH_STUB)`. Predecessors terminate AT the dot (no individual arrowheads). A single trunk arrow with the only arrowhead runs east to the target.
 
-2. **Split (divergence)** — a source with 2+ outgoing FS arrows shares a V-drop column. At every intermediate target's gutter Y on this column, three segments meet: (V from above, H east to that target, V continuing south to the next deeper target). Junction dot at `(source.exitX, intermediate_target.gutterY)` for each intermediate. The deepest target's row is **not** a junction (only 2 segments — corner).
+2. **Split (divergence)** — **no dot.** When a source has 2+ outgoing FS arrows sharing a V-drop column, each turn-off is a T-junction (one V line passing through + one H line branching off east). Two visible lines = corner, not junction. The deepest target's turn-off is the same shape. Splits draw no dots.
 
-3. **Cross-arrow intersection** — two independent arrows crossing at a point that also has a third segment present is a junction. (Currently a follow-up; not implemented.)
+3. **Cross-arrow intersection** — **no dot (deferred).** Two independent arrows crossing at one (x, y) is two lines crossing, not three meeting. A line-bridge or dash break is the appropriate visual cue here, not a dot. Tracked as a follow-up.
 
 **Constraint**: a junction must NOT land inside a task bar, summary rollup, or milestone diamond. If the computed position falls on an object, push it to the nearest row gutter.
 

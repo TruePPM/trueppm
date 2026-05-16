@@ -279,22 +279,23 @@ These rules are enforced at review time. Violations block merge.
       `cx − milestoneHalfDiag`). Outgoing arrows exit from the RIGHT edge (= right vertex of the
       milestone). Entry and exit vertices on a single milestone naturally differ because FS sources
       always exit right and FS targets always enter left.
-    - **JUNCTION RULE (codified, do not deviate).** A junction dot renders at every point where
-      3 OR MORE dependency arrow segments meet. Two segments meeting is a corner, not a junction.
-      Three or more segments at one (x, y) is a junction — period. This covers:
-      - **Merge** (convergence): 2+ predecessor segments arriving at the same target + 1 trunk
-        segment leaving = 3+ segments at the convergence point. Junction at
+    - **JUNCTION RULE (codified, do not deviate).** A junction dot renders only where 3 OR MORE
+      distinct arrow LINES meet at one (x, y) — TRUE convergences. Counting segments is the wrong
+      lens: a T-junction has 3 segments but is visually indistinguishable from any Manhattan
+      corner (one line passing through + one branching off), and a dot there reads as noise. The
+      rule applies to:
+      - **Merge** (convergence): 2+ predecessor lines arrive at one point and a single trunk
+        line continues to the target = 3+ distinct lines meeting. Junction at
         `min(maxPredecessorExitX, tipX − arrowSize − APPROACH_STUB)`. Each predecessor terminates
         AT the junction (no arrowhead). A single trunk arrow with the only arrowhead runs east
         to the target.
-      - **Split** (divergence): a shared V column from a source with 2+ outgoing arrows. At each
-        intermediate target's gutter Y, the shared V meets: (1) the H going east to that target,
-        and (2) the V continuing south to the next deeper target — 3 segments. Junction dot at
-        `(source.exitX, target.gutterY)` for each intermediate target. The deepest target's row
-        is NOT a junction (only 2 segments: V from above + H east = corner).
-      - **Cross-arrow intersections**: 2 independent arrows crossing at one (x, y) with a 3rd
-        segment present (e.g. an arrow passing through another arrow's junction point) — also a
-        junction. (Currently not implemented — deferred to follow-up.)
+      - **Split** (divergence) — **NO dot.** When a source has 2+ outgoing arrows that share a V
+        column, each "intermediate" turn-off is a T-junction (one V line passing through + one H
+        branching off east). Two visible lines, not three — corner, not junction. The deepest
+        target's turn-off is the same (V terminating + H branching off). Splits draw no dots.
+      - **Cross-arrow intersections** — NO dot (deferred). Two independent arrows crossing at
+        one (x, y) is two lines crossing, not three meeting. A bridge / dash break is more
+        appropriate than a dot; tracked as follow-up.
       - **Junction visual.** Outer halo (radius `MERGE_HALO_RADIUS=4`, `palette.surface`) + inner
         dot (radius `MERGE_DOT_RADIUS=3`, stroke color). Drawn LAST so it sits on top of every
         line endcap. If a junction would land inside a task bar's body, push it to the nearest
