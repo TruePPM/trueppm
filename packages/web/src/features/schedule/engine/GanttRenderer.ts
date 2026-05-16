@@ -882,16 +882,23 @@ export function calculateDependencyPath(
     return waypoints;
   }
 
+  const blockerAtExit = findBlockingBar(exitX, startY, targetY, obstacles, sourceBox, targetBox);
+
+  // SIMPLE L: when V at exitX is to the LEFT of target's entry edge AND V is
+  // not blocked, route V down to target.Y then H east to target. One corner
+  // after the exit stub. Used for typical forward FS (target right of source).
+  if (!blockerAtExit && exitX < targetX) {
+    waypoints.push({ x: exitX, y: targetY });
+    waypoints.push({ x: targetX, y: targetY });
+    return waypoints;
+  }
+
   const direction = targetY > startY ? 1 : -1;
-  // Gutter sits JUST BEFORE the target row (not just past source) — the V
-  // drops the full distance past every intermediate obstacle and only then
-  // steps west/east to the approach column. Two right angles after the V.
+  // Gutter sits JUST BEFORE the target row — V drops the full distance past
+  // every intermediate obstacle and only then steps west to the approach
+  // column. Two right angles after the V (south → west → south → junction).
   const gutterY = targetY - direction * (ROW_HEIGHT / 2);
 
-  // If V at exitX is blocked by a non-source/non-target bar (descendants of
-  // source and ancestors of target are pre-filtered), shift V's column to
-  // the right past the blocker.
-  const blockerAtExit = findBlockingBar(exitX, startY, targetY, obstacles, sourceBox, targetBox);
   const vColumn = blockerAtExit
     ? blockerAtExit.x + blockerAtExit.width + EXIT_STUB
     : exitX;
