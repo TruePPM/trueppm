@@ -293,19 +293,39 @@ These rules are enforced at review time. Violations block merge.
         column, each "intermediate" turn-off is a T-junction (one V line passing through + one H
         branching off east). Two visible lines, not three — corner, not junction. The deepest
         target's turn-off is the same (V terminating + H branching off). Splits draw no dots.
-      - **Cross-arrow intersections** — NO dot (deferred). Two independent arrows crossing at
-        one (x, y) is two lines crossing, not three meeting. A bridge / dash break is more
-        appropriate than a dot; tracked as follow-up.
-      - **Junction visual.** Outer halo (radius `MERGE_HALO_RADIUS=4`, `palette.surface`) + inner
-        dot (radius `MERGE_DOT_RADIUS=3`, stroke color). Drawn LAST so it sits on top of every
-        line endcap. If a junction would land inside a task bar's body, push it to the nearest
-        row gutter (it should never sit ON an object).
+      - **Cross-arrow intersections** — bridge hop per ADR-0063 Rule 15 Type A. Two independent
+        arrows crossing at one (x, y) get a 10-px-wide, 6-px-tall quadratic Bézier arc on the
+        "over" segment (horizontal by default). Not a dot. Implemented via the collect-then-draw
+        refactor in `drawDependencyArrows`: every Manhattan path is collected first, then
+        `detectHops()` walks every pair of paths to record orthogonal interior crossings, then
+        `drawPathWithHops()` strokes each path with arcs inserted at hop positions. Bézier
+        (SS/FF/SF) arrows skip detection — Bézier-vs-Manhattan crossings are out of scope for v1.
+      - **One arrow terminating on another arrow's path** — small T-junction dot per Rule 15
+        Type B (spec adopted; implementation deferred). Halo radius 5 + dot radius 4 —
+        intentionally one pixel smaller than the merge marker to reinforce the hierarchy.
+      - **Junction visual (merge).** Outer halo (radius `MERGE_HALO_RADIUS=6`, `palette.surface`)
+        + inner dot (radius `MERGE_DOT_RADIUS=5`, stroke color). Drawn LAST so it sits on top of
+        every line endcap. If a junction would land inside a task bar's body, push it to the
+        nearest row gutter (it should never sit ON an object). Original spec values were 4/3;
+        bumped to 6/5 after canvas testing — 4/3 was visually subordinate to the 2-px arrow
+        stroke and easy to miss on dense charts. See ADR-0063 "Junction rule (codified)" for
+        rationale and Rule 15.2 for the full size hierarchy.
     - **Selection emphasis.** When the source OR target is in `engine.selectedTaskIds`, the arrow
       uses `palette.selectionRing` stroke at 2.5px. Other arrows hold 2px.
     - **SS / FF / SF unchanged** — cubic Bézier with 40px control-point offsets. Same charcoal
       stroke. Manhattan routing collapses these to U-shapes that cross the source bar; Bézier
       reads cleaner for same-edge links and matches MS Project's convention.
     - **Source connection dot is removed** — the arrow tail is the affordance; the dot added noise.
+    - **Ancestors of the arrow's target are transparent obstacles** (ADR-0063 Override 4). A
+      summary rollup is a visual aggregation of its children, not a real wall — an arrow into a
+      deep descendant descends straight through the rollup's body instead of doing a chart-spanning
+      U-detour around the entire summary bar. Source-side descendants stay as walls; only
+      target-side ancestors are excluded.
+    - **Redundant FS edges to descendants of a summary target are suppressed at render** (ADR-0063
+      Override 5). When a source has FS to both summary S AND one or more descendants of S, only
+      the summary edge renders. Schedule semantics are unchanged (data still has both edges, CPM
+      still uses both); the renderer drops the descendant edges to declutter. Example: milestone
+      → phase 4 and milestone → daddy3 (daddy3 ∈ phase 4) — only milestone → phase 4 renders.
     - **Lag annotation and click-to-delete on the arrow** are out of scope for v1.
 
 ### Performance

@@ -642,7 +642,8 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
   }
 
   it('Scenario 1: forward FS with clear gap uses orthogonal L-shape (lineTo, no bezierCurveTo)', () => {
-    // Source finishes Apr 10, target starts Apr 14 → gap > APPROACH_STUB → forward L-shape.
+    // Source finishes Apr 10, target starts Apr 14 → simple L shape.
+    // 3 path lineTos (exit, V drop, run-in) + 2 arrowhead-triangle lineTos = 5.
     const { ctx, calls } = makeArrowCtxSpy();
     const tasks: Task[] = [
       schedLeaf('src', '2026-04-06', '2026-04-10'),  // row 0
@@ -652,16 +653,12 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
       { id: 'l1', sourceId: 'src', targetId: 'tgt', type: 'FS' as const, lag: 0, isCritical: false },
     ];
     drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
-    // Gutter routing: 6 waypoints (M, exit, V to gutter, H along gutter,
-    // V from gutter, sentinel). Loop draws 4 lineTo + 1 approach + 2 arrowhead = 7.
     expect(calls.filter((c) => c.name === 'bezierCurveTo')).toHaveLength(0);
     expect(calls.filter((c) => c.name === 'lineTo').length).toBe(5);
   });
 
   it('Scenario 1: multi-row forward FS also uses orthogonal L-shape regardless of row distance', () => {
-    // Gutter routing is independent of intervening rows — the H traverse runs
-    // in the gap between source row and the next row regardless of what tasks
-    // share those intermediate rows.
+    // Simple L is independent of intervening rows when none are obstacles.
     const { ctx, calls } = makeArrowCtxSpy();
     const tasks: Task[] = [
       schedLeaf('src', '2026-04-06', '2026-04-10'),  // row 0

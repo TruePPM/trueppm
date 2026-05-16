@@ -228,6 +228,11 @@ changelog:check:
   # Exempt MRs: add the ~no-changelog label in GitLab to skip this check.
   stage: lint
   image: alpine:latest
+  variables:
+    # Full history so `git diff origin/<target>...HEAD` finds a merge base even
+    # on long-running feature branches. GitLab's default GIT_DEPTH=20 broke
+    # this job whenever a branch had >20 commits since branching from main.
+    GIT_DEPTH: "0"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME =~ /^(chore|ci|docs)\//i'
       when: never
@@ -235,7 +240,7 @@ changelog:check:
   before_script:
     - apk add --no-cache git
   script:
-    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" --depth=20
+    - git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
     - |
       # Skip if the MR has the ~no-changelog label
       if echo "$CI_MERGE_REQUEST_LABELS" | grep -qF "no-changelog"; then
