@@ -1066,10 +1066,56 @@ export function drawDependencyArrows(
     });
   }
 
-  // Per-arrow obstacle filter: drop the arrow's own source and target so the
-  // routing layer never flags itself as a blocker.
+  // Build child lookup for descendant filtering.
+  const childrenMap = new Map<string, string[]>();
+  for (const t of tasks) {
+    if (t.parentId) {
+      const list = childrenMap.get(t.parentId);
+      if (list) list.push(t.id);
+      else childrenMap.set(t.parentId, [t.id]);
+    }
+  }
+
+  /** Collect every descendant id of `id` (children, grandchildren, …). */
+  function descendantsOf(id: string): Set<string> {
+    const out = new Set<string>();
+    const stack = [id];
+    let guard = 0;
+    while (stack.length && guard < 256) {
+      const cur = stack.pop()!;
+      for (const child of childrenMap.get(cur) ?? []) {
+        if (!out.has(child)) {
+          out.add(child);
+          stack.push(child);
+        }
+      }
+      guard++;
+    }
+    return out;
+  }
+
+  /** Collect every ancestor id of `id` (parent, grandparent, …). */
+  function ancestorsOf(id: string): Set<string> {
+    const out = new Set<string>();
+    let cur: string | null = taskMap.get(id)?.parentId ?? null;
+    let guard = 0;
+    while (cur && guard < 64) {
+      if (out.has(cur)) break;
+      out.add(cur);
+      cur = taskMap.get(cur)?.parentId ?? null;
+      guard++;
+    }
+    return out;
+  }
+
+  // Per-arrow obstacle filter: drop source, target, source's descendants, and
+  // target's ancestors. Source's subtree shouldn't block its own outgoing
+  // arrow; target's containing phase shouldn't block its own incoming arrow.
   function obstaclesFor(srcId: string, tgtId: string): RoutingBox[] {
-    return allBars.filter((b) => b.id !== srcId && b.id !== tgtId);
+    const skip = new Set<string>([srcId, tgtId]);
+    for (const d of descendantsOf(srcId)) skip.add(d);
+    for (const a of ancestorsOf(tgtId)) skip.add(a);
+    return allBars.filter((b) => !skip.has(b.id));
   }
 
   // Group FS links by target (for merge junctions — convergences) and by
@@ -1149,7 +1195,10 @@ export function drawDependencyArrows(
     }
     const junctionX = Math.min(maxExitX, trunkLimit);
     const junctionY = tgtY;
-    const stopX     = junctionX - 2;
+    // Predecessor lines terminate AT the junction center so they literally
+    // attach to the dot (no visual gap). The junction halo + dot (rendered
+    // last) cover the line endcaps.
+    const stopX     = junctionX;
 
     // Each predecessor draws its full path terminating at (junctionX, junctionY).
     // All predecessor lines literally converge at that single point — the only
