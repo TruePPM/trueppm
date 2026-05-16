@@ -995,6 +995,10 @@ export function drawDependencyArrows(
   // Skip unscheduled tasks (empty start/finish) — NaN coordinates in the map
   // can cause degenerate Bézier paths or unexpected arrow rendering (#92).
   // Anchor map: leaves, milestones, and summaries can ALL be arrow endpoints.
+  // Summary rollups have diamond endcaps that extend ±milestoneHalfDiag past
+  // the rectangular body, so we anchor arrows on the OUTER vertex of those
+  // endcaps (same as milestones) — otherwise the arrow's exit stub starts
+  // INSIDE the visible endcap diamond and reads as disconnected.
   const taskMap = new Map<string, { rowIndex: number; barLeft: number; barRight: number; isCritical: boolean; isMilestone: boolean; parentId: string | null }>();
   const milestoneHalfDiag = Math.ceil(MILESTONE_SIZE / 2 * Math.SQRT2); // = 9px
   for (let i = 0; i < tasks.length; i++) {
@@ -1002,10 +1006,23 @@ export function drawDependencyArrows(
     if (!t.start || !t.finish) continue;
     if (!t.isSummary && !t.plannedStart && !t.sprintId) continue;
     const cx = dateToLeft(t.start, scales) - scrollLeft;
+    const rectRight = dateToLeft(t.finish, scales) - scrollLeft;
+    let anchorLeft: number, anchorRight: number;
+    if (t.isMilestone) {
+      anchorLeft  = cx - milestoneHalfDiag;
+      anchorRight = cx + milestoneHalfDiag;
+    } else if (t.isSummary) {
+      // Endcap diamonds extend ±milestoneHalfDiag past the rect.
+      anchorLeft  = cx - milestoneHalfDiag;
+      anchorRight = rectRight + milestoneHalfDiag;
+    } else {
+      anchorLeft  = cx;
+      anchorRight = rectRight;
+    }
     taskMap.set(t.id, {
       rowIndex: i,
-      barLeft:  t.isMilestone ? cx - milestoneHalfDiag : cx,
-      barRight: t.isMilestone ? cx + milestoneHalfDiag : dateToLeft(t.finish, scales) - scrollLeft,
+      barLeft:  anchorLeft,
+      barRight: anchorRight,
       isCritical: t.isCritical,
       isMilestone: !!t.isMilestone,
       parentId: t.parentId ?? null,
