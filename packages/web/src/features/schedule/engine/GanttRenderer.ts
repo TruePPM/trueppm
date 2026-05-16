@@ -883,47 +883,42 @@ export function calculateDependencyPath(
   }
 
   const direction = targetY > startY ? 1 : -1;
-  const gutterY   = startY + direction * (ROW_HEIGHT / 2);
+  // Gutter sits JUST BEFORE the target row (not just past source) — the V
+  // drops the full distance past every intermediate obstacle and only then
+  // steps west/east to the approach column. Two right angles after the V.
+  const gutterY = targetY - direction * (ROW_HEIGHT / 2);
 
-  // V at exitX is the preferred path. If it crosses a non-source/non-target
-  // bar (descendants/ancestors are already filtered out), fall back to the
-  // R12 gutter dogleg. Otherwise use the simple V-down + H-hook.
+  // If V at exitX is blocked by a non-source/non-target bar (descendants of
+  // source and ancestors of target are pre-filtered), shift V's column to
+  // the right past the blocker.
   const blockerAtExit = findBlockingBar(exitX, startY, targetY, obstacles, sourceBox, targetBox);
+  const vColumn = blockerAtExit
+    ? blockerAtExit.x + blockerAtExit.width + EXIT_STUB
+    : exitX;
 
-  // R12 gutter dogleg: only when V at exitX is blocked AND target overlaps
-  // source horizontally. Drops V into the row gutter, traverses west past
-  // the blocker, drops to target row, runs east to target.
-  const stackedSequential = blockerAtExit !== null && targetX <= exitX;
-  if (stackedSequential) {
-    // If V at approachX would cross a non-source/non-target bar (typically the
-    // target's parent summary, e.g., milestone → child-of-phase), push the
-    // approach column LEFT past the blocker so the V drops through clear space
-    // and re-enters target's row from outside the blocker's X range.
-    let approachX = targetX - APPROACH_STUB;
-    const dogLegBlocker = findBlockingBar(approachX, gutterY, targetY, obstacles, sourceBox, targetBox);
-    if (dogLegBlocker) {
-      approachX = dogLegBlocker.x - EXIT_STUB;
-    }
-    waypoints.push({ x: exitX,     y: gutterY });
-    waypoints.push({ x: approachX, y: gutterY });
-    waypoints.push({ x: approachX, y: targetY });
-    waypoints.push({ x: targetX,   y: targetY });
-    return waypoints;
+  // 5-segment canonical path:
+  //   1. exit stub: (source.right, source.Y) → (vColumn, source.Y)
+  //   2. V drop:    (vColumn, source.Y) → (vColumn, gutterY)
+  //   3. H sweep:   (vColumn, gutterY)   → (approachX, gutterY)
+  //   4. V into tgt row: (approachX, gutterY) → (approachX, target.Y)
+  //   5. run-in:    (approachX, target.Y) → (target.x, target.Y) [arrowhead]
+  //
+  // For merge predecessors, target.x is the junction.x — approachX == target.x
+  // so the run-in collapses (line terminates at the junction).
+  const isMergePredecessor = targetEntryX !== undefined;
+  const approachX = isMergePredecessor ? targetX : targetX - APPROACH_STUB;
+
+  // If V column was shifted right past a blocker at source row level, jog
+  // east first so the V doesn't kink at the exit stub.
+  if (vColumn !== exitX) {
+    waypoints.push({ x: vColumn, y: startY });
   }
-
-  // Detour-around-left when V at exitX would cross a non-source/non-target
-  // bar AND the path is NOT stackedSequential (handled above with R12 dogleg).
-  if (blockerAtExit) {
-    const detourX = blockerAtExit.x - EXIT_STUB;
-    waypoints.push({ x: exitX,   y: gutterY });
-    waypoints.push({ x: detourX, y: gutterY });
-    waypoints.push({ x: detourX, y: targetY });
-  } else {
-    // Canonical collapsed 3-segment L: V at exitX straight to target row.
-    waypoints.push({ x: exitX, y: targetY });
+  waypoints.push({ x: vColumn,   y: gutterY });
+  waypoints.push({ x: approachX, y: gutterY });
+  waypoints.push({ x: approachX, y: targetY });
+  if (approachX !== targetX) {
+    waypoints.push({ x: targetX, y: targetY });
   }
-
-  waypoints.push({ x: targetX, y: targetY });
   return waypoints;
 }
 

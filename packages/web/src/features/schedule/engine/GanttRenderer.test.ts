@@ -655,7 +655,7 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     // Gutter routing: 6 waypoints (M, exit, V to gutter, H along gutter,
     // V from gutter, sentinel). Loop draws 4 lineTo + 1 approach + 2 arrowhead = 7.
     expect(calls.filter((c) => c.name === 'bezierCurveTo')).toHaveLength(0);
-    expect(calls.filter((c) => c.name === 'lineTo').length).toBe(5);
+    expect(calls.filter((c) => c.name === 'lineTo').length).toBe(7);
   });
 
   it('Scenario 1: multi-row forward FS also uses orthogonal L-shape regardless of row distance', () => {
@@ -673,7 +673,7 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     ];
     drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
     expect(calls.filter((c) => c.name === 'bezierCurveTo')).toHaveLength(0);
-    expect(calls.filter((c) => c.name === 'lineTo').length).toBe(5);
+    expect(calls.filter((c) => c.name === 'lineTo').length).toBe(7);
   });
 
   it.skip('milestones are obstacles — right-sweep diverts the V drop around a diamond in the drop column', () => {
