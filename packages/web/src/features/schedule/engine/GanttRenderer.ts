@@ -894,17 +894,17 @@ export function calculateDependencyPath(
   }
 
   const direction = targetY > startY ? 1 : -1;
-  // Gutter Y sits HALFWAY between the row immediately above target and the
-  // target row — i.e. `target.Y − 1.5 × ROW_HEIGHT`. For phase 4 → phase 4
-  // check, this lands at row 12 top, which is the halfway point between
-  // one more (row 10) and milestone (row 13).
-  // For adjacent-row arrows this collapses toward target's row top
-  // (capped at source.Y + ROW_HEIGHT/2 so the gutter stays past source).
-  const idealGutter = targetY - direction * (ROW_HEIGHT * 1.5);
-  const minGutter   = startY + direction * (ROW_HEIGHT / 2);
-  const gutterY = direction > 0
-    ? Math.max(idealGutter, minGutter)
-    : Math.min(idealGutter, minGutter);
+  // Gutter Y sits in the row gap immediately above target (= target.Y -
+  // ROW_HEIGHT/2 for descending). The approach V then only spans the
+  // target's own row, which is filtered from the obstacle list — so the
+  // V never has to detour around an intermediate-row wall.
+  //
+  // For long-span arrows (4+ rows between source and target), lift the
+  // gutter higher per UX recommendation, capped so it stays inside a
+  // CLEAR row gap (not on a row's bar Y range).
+  const spanRows = Math.abs(targetY - startY) / ROW_HEIGHT;
+  const gutterOffset = spanRows >= 4 ? ROW_HEIGHT * 1.5 : ROW_HEIGHT * 0.5;
+  const gutterY = targetY - direction * gutterOffset;
 
   const vColumn = blockerAtExit
     ? blockerAtExit.x + blockerAtExit.width + EXIT_STUB
