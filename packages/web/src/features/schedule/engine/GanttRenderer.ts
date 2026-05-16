@@ -1081,13 +1081,6 @@ export function drawDependencyArrows(
       continue;
     }
 
-    // Merge junction. Junction sits MERGE_JUNCTION_OFFSET left of the target's
-    // entry flank (= tgt.barLeft for FS milestones). All predecessor lines
-    // terminate 2px short of junction center, no arrowhead.
-    const junctionX = tgt.barLeft - MERGE_JUNCTION_OFFSET;
-    const junctionY = tgtY;
-    const stopX     = junctionX - 2;
-
     // Selection emphasis: trunk highlights when target or any predecessor is selected.
     let selectedGroup = selectedTaskIds.has(targetId);
     const validPreds: { link: TaskLink; src: NonNullable<ReturnType<typeof taskMap.get>> }[] = [];
@@ -1105,6 +1098,27 @@ export function drawDependencyArrows(
       }
       continue;
     }
+
+    // Junction sits at the actual line-convergence point: the rightmost
+    // predecessor's exit column. That's where the last V drops onto the shared
+    // trunk Y — i.e., the X coordinate where ALL predecessor lines have
+    // merged into one. After that point, a single trunk arrow runs east to
+    // the target's arrowhead.
+    //
+    // Bounded below by `tgt.barLeft − (APPROACH_STUB + arrowSize)` so the
+    // straight trunk shaft preceding the arrowhead stays ≥ APPROACH_STUB
+    // (8px) regardless of how close a predecessor is to the target.
+    const arrowSize    = 6;
+    const tipX         = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
+    const trunkLimit   = tipX - arrowSize - APPROACH_STUB;
+    let maxExitX = -Infinity;
+    for (const { src } of validPreds) {
+      const ex = src.barRight + EXIT_STUB;
+      if (ex > maxExitX) maxExitX = ex;
+    }
+    const junctionX = Math.min(maxExitX, trunkLimit);
+    const junctionY = tgtY;
+    const stopX     = junctionX - 2;
 
     // Each predecessor draws its full path terminating at (junctionX, junctionY).
     // All predecessor lines literally converge at that single point — the only
@@ -1132,12 +1146,9 @@ export function drawDependencyArrows(
       ctx.restore();
     }
 
-    // Trunk arrow: a single straight horizontal segment from junction to the
-    // target's arrowhead, satisfying the "≥ APPROACH_STUB straight line before
-    // arrowhead" rule. junctionX = tipX − (APPROACH_STUB + arrowSize) so the
-    // straight shaft preceding the arrowhead is APPROACH_STUB long.
-    const arrowSize = 6;
-    const tipX      = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
+    // Trunk arrow: a single straight horizontal segment from the junction
+    // east to the arrowhead. The trunk shaft length is at least APPROACH_STUB
+    // because junctionX ≤ trunkLimit = tipX − arrowSize − APPROACH_STUB.
     const { stroke: trunkStroke, lineWidth: trunkLineWidth } = arrowPen(selectedGroup);
 
     ctx.save();

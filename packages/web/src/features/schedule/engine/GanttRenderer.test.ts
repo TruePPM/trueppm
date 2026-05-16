@@ -10,7 +10,6 @@ import {
   BAR_HEIGHT,
   BAR_TOP_OFFSET,
   ROW_HEIGHT,
-  MERGE_JUNCTION_OFFSET,
   MERGE_HALO_RADIUS,
   MERGE_DOT_RADIUS,
   COLOR,
@@ -773,7 +772,12 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     expect(calls.filter((c) => c.name === 'closePath')).toHaveLength(1);
   });
 
-  it('merge junction X sits MERGE_JUNCTION_OFFSET left of milestone left vertex', () => {
+  it('merge junction X sits at the actual line-convergence point (rightmost predecessor exit X)', () => {
+    // Junction is positioned at min(maxPredecessorExitX, tipX - 14) — i.e. at
+    // the X where the LAST predecessor's V drops onto the trunk Y. That's
+    // where the lines actually meet visually. The fixed `target.barLeft - 14`
+    // offset is only used as an upper bound to preserve the ≥ APPROACH_STUB
+    // straight trunk shaft before the arrowhead.
     const milestone: Task = {
       id: 'gate', wbs: 'gate', name: 'Gate',
       start: '2026-04-20', finish: '2026-04-20', plannedStart: '2026-04-20',
@@ -792,11 +796,10 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     const { ctx, calls } = makeArrowCtxSpy();
     drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
 
-    const milestoneHalfDiag = Math.ceil(MILESTONE_SIZE / 2 * Math.SQRT2);
-    const milestoneCx = dateToLeft(milestone.start, scales);
-    const expectedJunctionX = (milestoneCx - milestoneHalfDiag) - MERGE_JUNCTION_OFFSET;
+    // Rightmost predecessor 'b' ends Apr 12 → maxExitX = dateToLeft(Apr 12) + EXIT_STUB (5).
+    const maxExitX = dateToLeft('2026-04-12', scales) + 5;
     const arcs = calls.filter((c) => c.name === 'arc');
-    expect(arcs[arcs.length - 1].args[0]).toBeCloseTo(expectedJunctionX);
+    expect(arcs[arcs.length - 1].args[0]).toBeCloseTo(maxExitX);
   });
 
   it('merge junction trunk uses arrowNormal charcoal regardless of critical predecessors', () => {

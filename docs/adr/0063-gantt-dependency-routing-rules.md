@@ -76,9 +76,9 @@ The 14 spec rules are adopted with the modifications below.
 Per spec §7.3 with the modifications above:
 
 1. Group all FS links by `targetId`. Targets with 2+ predecessors enter the merge-junction code path.
-2. Junction natural position: `(target.barLeft − MERGE_JUNCTION_OFFSET, target.y)` where `MERGE_JUNCTION_OFFSET = APPROACH_STUB + arrowSize = 14`.
+2. Junction position is the **actual line-convergence point**, not a fixed offset from target. Specifically `junctionX = min(maxPredecessorExitX, tipX − arrowSize − APPROACH_STUB)` where `maxPredecessorExitX` is the rightmost `src.barRight + EXIT_STUB` across all valid predecessors. The first term places the dot where the LAST V drops onto the shared trunk Y — i.e. the X where ALL predecessor lines have merged into one. The second term caps it so the trunk shaft preceding the arrowhead stays ≥ APPROACH_STUB.
 3. Each predecessor draws its FULL path via `calculateDependencyPath` with `targetEntryX = junction.x − 2`. The path terminates at the junction's stop point with no arrowhead.
-4. A single trunk arrow runs straight east from the junction to the target's arrowhead base (`tipX − arrowSize`). The trunk shaft is exactly APPROACH_STUB long, satisfying R2. Arrowhead at `tipX`.
+4. A single trunk arrow runs straight east from the junction to the target's arrowhead base (`tipX − arrowSize`). The trunk shaft is at least APPROACH_STUB long, satisfying R2. Arrowhead at `tipX`.
 5. Junction halo (radius 4, palette.surface fill) + dot (radius 3, stroke color) drawn last so it covers all line endcaps.
 6. Junction marks the single point of convergence. T-junction dots at predecessor branch points are **not** drawn (lines pass through, do not converge at those points).
 

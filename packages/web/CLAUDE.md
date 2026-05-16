@@ -279,12 +279,16 @@ These rules are enforced at review time. Violations block merge.
       `cx − milestoneHalfDiag`). Outgoing arrows exit from the RIGHT edge (= right vertex of the
       milestone). Entry and exit vertices on a single milestone naturally differ because FS sources
       always exit right and FS targets always enter left.
-    - **Merge junctions.** When 2+ FS arrows terminate at the same milestone, they merge at a
-      junction point 14px left of the target entry flank. Each predecessor line terminates 2px short
-      of the junction center and is drawn WITHOUT an arrowhead. A single trunk arrow with the only
-      arrowhead runs from the junction to the milestone. Junction = outer halo (4px radius,
-      `palette.surface`) + inner dot (3px radius, stroke color). Render order: predecessor lines
-      → trunk + arrowhead → junction halo + dot (junction drawn last to sit on top).
+    - **Merge junctions.** When 2+ FS arrows terminate at the same target (any kind — bar,
+      summary, or milestone), they merge at a single junction. The junction X is the actual
+      line-convergence point: `min(maxPredecessorExitX, tipX − arrowSize − APPROACH_STUB)` —
+      i.e. the X where the LAST predecessor's V drops onto the shared trunk Y, capped so the
+      trunk shaft before the arrowhead remains ≥ APPROACH_STUB. Each predecessor line terminates
+      2px short of the junction center and is drawn WITHOUT an arrowhead. A single trunk arrow
+      with the only arrowhead runs east from the junction to the target. Junction = outer halo
+      (4px radius, `palette.surface`) + inner dot (3px radius, stroke color). Render order:
+      predecessor lines → trunk + arrowhead → junction halo + dot (junction drawn last so it
+      sits on top of all line endcaps).
     - **Selection emphasis.** When the source OR target is in `engine.selectedTaskIds`, the arrow
       uses `palette.selectionRing` stroke at 2.5px. Other arrows hold 2px.
     - **SS / FF / SF unchanged** — cubic Bézier with 40px control-point offsets. Same charcoal
