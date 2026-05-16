@@ -889,9 +889,21 @@ export function calculateDependencyPath(
   // sequential — target.barLeft is at or before source.barRight + exit stub),
   // the V at exitX would land inside the target's own X-range. Route through
   // the row-gutter midline between source and target rows instead.
-  const stackedSequential = targetX <= exitX;
+  // SUPPRESSED when targetEntryX is provided (merge-junction predecessor) —
+  // those lines should drop straight to the junction Y at their own exitX so
+  // the geometric convergence happens at the corner (maxExitX, junctionY).
+  const isMergePredecessor = targetEntryX !== undefined;
+  const stackedSequential = !isMergePredecessor && targetX <= exitX;
   if (stackedSequential) {
-    const approachX = targetX - APPROACH_STUB;
+    // If V at approachX would cross a non-source/non-target bar (typically the
+    // target's parent summary, e.g., milestone → child-of-phase), push the
+    // approach column LEFT past the blocker so the V drops through clear space
+    // and re-enters target's row from outside the blocker's X range.
+    let approachX = targetX - APPROACH_STUB;
+    const dogLegBlocker = findBlockingBar(approachX, gutterY, targetY, obstacles, sourceBox, targetBox);
+    if (dogLegBlocker) {
+      approachX = dogLegBlocker.x - EXIT_STUB;
+    }
     waypoints.push({ x: exitX,     y: gutterY });
     waypoints.push({ x: approachX, y: gutterY });
     waypoints.push({ x: approachX, y: targetY });
@@ -899,9 +911,8 @@ export function calculateDependencyPath(
     return waypoints;
   }
 
-  // Detour-around-left: V at exitX would cross a non-source/non-target bar
-  // (e.g., milestone → child-of-phase where exitX falls inside the parent
-  // phase summary). Route around the blocker's LEFT side.
+  // Detour-around-left: V at exitX would cross a non-source/non-target bar.
+  // Route around the blocker's LEFT side.
   const blocker = findBlockingBar(exitX, startY, targetY, obstacles, sourceBox, targetBox);
   if (blocker) {
     const detourX = blocker.x - EXIT_STUB;
