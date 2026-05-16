@@ -894,16 +894,17 @@ export function calculateDependencyPath(
   }
 
   const direction = targetY > startY ? 1 : -1;
-  // Gutter sits ONE FULL ROW past source (per UX design): the H corridor is
-  // anchored visually to the source, V is short, then the long V drop
-  // "arrives" at the target. For adjacent rows this collapses to just past
-  // source (= source.Y ± ROW_HEIGHT/2). Capped at target.Y - ROW_HEIGHT/2
-  // for SHORT spans so the gutter stays between source and target.
-  const sourceSideGutter = startY + direction * (ROW_HEIGHT * 1.5);
-  const targetSideGutter = targetY - direction * (ROW_HEIGHT / 2);
+  // Gutter Y sits HALFWAY between the row immediately above target and the
+  // target row — i.e. `target.Y − 1.5 × ROW_HEIGHT`. For phase 4 → phase 4
+  // check, this lands at row 12 top, which is the halfway point between
+  // one more (row 10) and milestone (row 13).
+  // For adjacent-row arrows this collapses toward target's row top
+  // (capped at source.Y + ROW_HEIGHT/2 so the gutter stays past source).
+  const idealGutter = targetY - direction * (ROW_HEIGHT * 1.5);
+  const minGutter   = startY + direction * (ROW_HEIGHT / 2);
   const gutterY = direction > 0
-    ? Math.min(sourceSideGutter, targetSideGutter)
-    : Math.max(sourceSideGutter, targetSideGutter);
+    ? Math.max(idealGutter, minGutter)
+    : Math.min(idealGutter, minGutter);
 
   const vColumn = blockerAtExit
     ? blockerAtExit.x + blockerAtExit.width + EXIT_STUB
@@ -919,7 +920,15 @@ export function calculateDependencyPath(
   // For merge predecessors, target.x is the junction.x — approachX == target.x
   // so the run-in collapses (line terminates at the junction).
   const isMergePredecessor = targetEntryX !== undefined;
-  const approachX = isMergePredecessor ? targetX : targetX - APPROACH_STUB;
+  let approachX = isMergePredecessor ? targetX : targetX - APPROACH_STUB;
+
+  // Wall-avoidance for the approach V drop: if V at approachX from gutterY to
+  // target.Y would cross a non-source/non-target bar, push approachX LEFT past
+  // the blocker's left edge so the V drops through clear space.
+  const approachBlocker = findBlockingBar(approachX, gutterY, targetY, obstacles, sourceBox, targetBox);
+  if (approachBlocker) {
+    approachX = approachBlocker.x - EXIT_STUB;
+  }
 
   // If V column was shifted right past a blocker at source row level, jog
   // east first so the V doesn't kink at the exit stub.
@@ -1074,56 +1083,13 @@ export function drawDependencyArrows(
     });
   }
 
-  // Build child lookup for descendant filtering.
-  const childrenMap = new Map<string, string[]>();
-  for (const t of tasks) {
-    if (t.parentId) {
-      const list = childrenMap.get(t.parentId);
-      if (list) list.push(t.id);
-      else childrenMap.set(t.parentId, [t.id]);
-    }
-  }
-
-  /** Collect every descendant id of `id` (children, grandchildren, …). */
-  function descendantsOf(id: string): Set<string> {
-    const out = new Set<string>();
-    const stack = [id];
-    let guard = 0;
-    while (stack.length && guard < 256) {
-      const cur = stack.pop()!;
-      for (const child of childrenMap.get(cur) ?? []) {
-        if (!out.has(child)) {
-          out.add(child);
-          stack.push(child);
-        }
-      }
-      guard++;
-    }
-    return out;
-  }
-
-  /** Collect every ancestor id of `id` (parent, grandparent, …). */
-  function ancestorsOf(id: string): Set<string> {
-    const out = new Set<string>();
-    let cur: string | null = taskMap.get(id)?.parentId ?? null;
-    let guard = 0;
-    while (cur && guard < 64) {
-      if (out.has(cur)) break;
-      out.add(cur);
-      cur = taskMap.get(cur)?.parentId ?? null;
-      guard++;
-    }
-    return out;
-  }
-
-  // Per-arrow obstacle filter: drop source, target, source's descendants, and
-  // target's ancestors. Source's subtree shouldn't block its own outgoing
-  // arrow; target's containing phase shouldn't block its own incoming arrow.
+  // Per-arrow obstacle filter: every bar is a WALL except the arrow's own
+  // source and target. Descendants of source and ancestors of target are
+  // intentionally NOT filtered — they're walls too. The router must route
+  // around them unless there is no way (R10 soft-obstacle fallback applies
+  // separately for labels, not here).
   function obstaclesFor(srcId: string, tgtId: string): RoutingBox[] {
-    const skip = new Set<string>([srcId, tgtId]);
-    for (const d of descendantsOf(srcId)) skip.add(d);
-    for (const a of ancestorsOf(tgtId)) skip.add(a);
-    return allBars.filter((b) => !skip.has(b.id));
+    return allBars.filter((b) => b.id !== srcId && b.id !== tgtId);
   }
 
   // Group FS links by target (for merge junctions — convergences) and by
