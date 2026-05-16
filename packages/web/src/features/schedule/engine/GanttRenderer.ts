@@ -1237,17 +1237,14 @@ export function drawDependencyArrows(
   }
 
   // ------------------------------------------------------------------------
-  // Split junctions: when a single source has 2+ outgoing FS arrows, the
-  // arrows share the source's exit-stub and a V drop on the same column
-  // (exitX = src.barRight + EXIT_STUB). Each arrow leaves the shared V at
-  // its own target's row Y, turning east as an H to its target. At every
-  // intermediate target's Y on the shared column, three line segments meet
-  // (V from above, H east to this target, V continuing south to deeper
-  // target) — that's a split junction, drawn as a dot.
-  //
-  // The deepest target's Y is NOT a junction (no V continues past it; only
-  // the V from above ends there, and the H goes east — that's a corner,
-  // not a 3-line meeting).
+  // Split junctions: 2+ outgoing FS arrows from the same source share the
+  // exit-stub and a V drop on `exitX`. Each arrow leaves the shared V at
+  // its target's gutter Y (=  target.Y − gutterOffset, where gutterOffset
+  // matches the per-arrow span). At each intermediate target's gutter Y,
+  // THREE line segments meet on the column: V from above (shared), H east
+  // to that target, V continuing south to the next deeper target.
+  // The deepest target's Y is NOT a split — only V from above + H east =
+  // 2 lines (a corner, not a junction).
   // ------------------------------------------------------------------------
   for (const [sourceId, group] of fsBySource) {
     if (group.length < 2) continue;
@@ -1256,8 +1253,7 @@ export function drawDependencyArrows(
     const srcY = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
     const exitX = src.barRight + EXIT_STUB;
 
-    // Collect each outgoing arrow's target Y. Skip predecessors whose target
-    // is missing from taskMap (uncommitted leaves).
+    // Collect each outgoing arrow's target Y.
     const branches: { targetY: number; linkSelected: boolean }[] = [];
     for (const link of group) {
       const tgt = taskMap.get(link.targetId);
@@ -1268,31 +1264,26 @@ export function drawDependencyArrows(
     }
     if (branches.length < 2) continue;
 
-    // Determine direction of travel (down or up) — must be unanimous for a
-    // shared V column to exist. If branches are mixed (some above, some below
-    // source), no shared V → no split junction (each arrow handled independently).
+    // Direction must be unanimous for shared V column to exist.
     const allBelow = branches.every((b) => b.targetY > srcY + 0.5);
     const allAbove = branches.every((b) => b.targetY < srcY - 0.5);
     if (!allBelow && !allAbove) continue;
+    const splitDir = allBelow ? 1 : -1;
 
     // Sort by distance from source — closest first. Junctions at every Y
-    // except the furthest one (the deepest target, which is just a corner).
+    // except the furthest (deepest target is just a corner).
     branches.sort((a, b) => Math.abs(a.targetY - srcY) - Math.abs(b.targetY - srcY));
     const sourceSelected = selectedTaskIds.has(sourceId);
-
     if (offScreen(exitX, exitX, srcY, branches[branches.length - 1].targetY, cpWidth, cpHeight)) continue;
-
-    // Direction is unanimous (allBelow or allAbove enforced above).
-    const splitDir = allBelow ? 1 : -1;
 
     for (let i = 0; i < branches.length - 1; i++) {
       const { targetY, linkSelected } = branches[i];
-      // The split dot lives in the row gutter just BEFORE the intermediate
-      // target's row — that's the actual branch-off Y (where this target's
-      // arrow turns east while deeper-target arrows continue south on the
-      // shared V column). Placing it on target.Y itself would land inside
-      // the target's task bar.
-      const splitY = targetY - splitDir * (ROW_HEIGHT / 2);
+      // Split Y matches THIS branch's actual gutter Y — same offset formula
+      // calculateDependencyPath uses, so the dot lands where the arrow's V
+      // physically turns east.
+      const spanRowsForBranch = Math.abs(targetY - srcY) / ROW_HEIGHT;
+      const gutterOffsetForBranch = spanRowsForBranch >= 4 ? ROW_HEIGHT * 1.5 : ROW_HEIGHT * 0.5;
+      const splitY = targetY - splitDir * gutterOffsetForBranch;
       const isSelected = sourceSelected || linkSelected;
       const { stroke } = arrowPen(isSelected);
       ctx.save();
