@@ -128,7 +128,15 @@ function LegendRow({ children, label }: { children: ReactNode; label: string }) 
 }
 
 function SummarySwatch() {
-  return <span className="block w-full h-[3px] bg-neutral-text-secondary" />;
+  // Summary rollup renders as a thin bar with diamond endcaps matching the
+  // milestone-diamond geometry — see drawSummaryBar() in GanttRenderer.ts.
+  return (
+    <span className="relative block w-full h-full">
+      <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[3px] bg-neutral-text-secondary" />
+      <span className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 w-2 h-2 bg-neutral-text-secondary rotate-45" />
+      <span className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-2 h-2 bg-neutral-text-secondary rotate-45" />
+    </span>
+  );
 }
 
 function MilestoneSwatch() {
