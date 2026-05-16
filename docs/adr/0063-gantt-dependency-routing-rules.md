@@ -71,14 +71,19 @@ The 14 spec rules are adopted with the modifications below.
 
 - **R14 (geometry-based dependency suppression).** Deferred. This requires geometry-state classification (Phase 2), which is out of scope for this ADR. Tracked as follow-up #2.
 
-### Junction rule (unified — convergence AND divergence)
+### Junction rule (codified — DO NOT DEVIATE)
 
-A junction dot marks any point where 2+ lines meet on a shared segment. Two patterns:
+A junction dot renders at every point where **3 or more dependency arrow segments meet at a single (x, y)**. Two segments meeting is a corner. Three+ is a junction — period. This applies to:
 
-- **Merge (convergence):** 2+ FS arrows terminate at the same target along a shared trunk. Junction at the trunk's east end (just before the arrowhead leg).
-- **Split (divergence):** 2+ FS arrows leave the same source and share its V-drop column. At every intermediate target's Y on the shared column, three segments meet (V from above, H to this target, V continuing to deeper target) — junction there. The deepest target's Y is not a junction (just a corner).
+1. **Merge (convergence)** — 2+ predecessor segments arriving at the same target + 1 trunk segment leaving = 3+ at the convergence point. Junction at `min(maxPredecessorExitX, tipX − arrowSize − APPROACH_STUB)`. Predecessors terminate AT the dot (no individual arrowheads). A single trunk arrow with the only arrowhead runs east to the target.
 
-Junction visual: outer halo (radius `MERGE_HALO_RADIUS`, `palette.surface` fill) + inner dot (radius `MERGE_DOT_RADIUS`, stroke color). Rendered last (z-order) so it sits on top of line endcaps.
+2. **Split (divergence)** — a source with 2+ outgoing FS arrows shares a V-drop column. At every intermediate target's gutter Y on this column, three segments meet: (V from above, H east to that target, V continuing south to the next deeper target). Junction dot at `(source.exitX, intermediate_target.gutterY)` for each intermediate. The deepest target's row is **not** a junction (only 2 segments — corner).
+
+3. **Cross-arrow intersection** — two independent arrows crossing at a point that also has a third segment present is a junction. (Currently a follow-up; not implemented.)
+
+**Constraint**: a junction must NOT land inside a task bar, summary rollup, or milestone diamond. If the computed position falls on an object, push it to the nearest row gutter.
+
+**Visual**: outer halo (radius `MERGE_HALO_RADIUS=4`, `palette.surface` fill) + inner dot (radius `MERGE_DOT_RADIUS=3`, stroke color). Drawn LAST in z-order so it sits on top of every line endcap.
 
 ### Merge junction algorithm
 

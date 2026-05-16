@@ -279,20 +279,26 @@ These rules are enforced at review time. Violations block merge.
       `cx − milestoneHalfDiag`). Outgoing arrows exit from the RIGHT edge (= right vertex of the
       milestone). Entry and exit vertices on a single milestone naturally differ because FS sources
       always exit right and FS targets always enter left.
-    - **Junctions (unified rule).** A junction dot marks any point where 2+ lines meet on a
-      shared segment. Two patterns:
-      - **Merge** (convergence): when 2+ FS arrows terminate at the same target, they share a
-        trunk corridor ending at the target. Junction at `min(maxPredecessorExitX, tipX − arrowSize
-        − APPROACH_STUB)` — the line-convergence X capped to preserve a ≥ APPROACH_STUB straight
-        trunk shaft into the arrowhead. Each predecessor terminates 2px short of the junction
-        (no arrowhead). A single trunk arrow with the only arrowhead runs east to the target.
-      - **Split** (divergence): when 2+ FS arrows from the same source share an exit-stub and V
-        drop on the same column, each arrow leaves the shared V at its target's row Y, turning
-        east. At every intermediate target's Y on the shared column, three segments meet (V from
-        above, H to that target, V continuing south) — junction dot there. The deepest target's
-        Y is NOT a junction (just a corner).
-      - **Junction visual.** Outer halo (4px radius, `palette.surface`) + inner dot (3px radius,
-        stroke color). Drawn last so it sits on top of line endcaps.
+    - **JUNCTION RULE (codified, do not deviate).** A junction dot renders at every point where
+      3 OR MORE dependency arrow segments meet. Two segments meeting is a corner, not a junction.
+      Three or more segments at one (x, y) is a junction — period. This covers:
+      - **Merge** (convergence): 2+ predecessor segments arriving at the same target + 1 trunk
+        segment leaving = 3+ segments at the convergence point. Junction at
+        `min(maxPredecessorExitX, tipX − arrowSize − APPROACH_STUB)`. Each predecessor terminates
+        AT the junction (no arrowhead). A single trunk arrow with the only arrowhead runs east
+        to the target.
+      - **Split** (divergence): a shared V column from a source with 2+ outgoing arrows. At each
+        intermediate target's gutter Y, the shared V meets: (1) the H going east to that target,
+        and (2) the V continuing south to the next deeper target — 3 segments. Junction dot at
+        `(source.exitX, target.gutterY)` for each intermediate target. The deepest target's row
+        is NOT a junction (only 2 segments: V from above + H east = corner).
+      - **Cross-arrow intersections**: 2 independent arrows crossing at one (x, y) with a 3rd
+        segment present (e.g. an arrow passing through another arrow's junction point) — also a
+        junction. (Currently not implemented — deferred to follow-up.)
+      - **Junction visual.** Outer halo (radius `MERGE_HALO_RADIUS=4`, `palette.surface`) + inner
+        dot (radius `MERGE_DOT_RADIUS=3`, stroke color). Drawn LAST so it sits on top of every
+        line endcap. If a junction would land inside a task bar's body, push it to the nearest
+        row gutter (it should never sit ON an object).
     - **Selection emphasis.** When the source OR target is in `engine.selectedTaskIds`, the arrow
       uses `palette.selectionRing` stroke at 2.5px. Other arrows hold 2px.
     - **SS / FF / SF unchanged** — cubic Bézier with 40px control-point offsets. Same charcoal

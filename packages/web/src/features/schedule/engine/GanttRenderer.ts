@@ -830,8 +830,10 @@ export const EXIT_STUB = 5;
 /** Mandatory horizontal approach-stub length into the target's left edge (px). */
 export const APPROACH_STUB = 8;
 
-/** Distance from target entry flank to the merge-junction center (px). */
-export const MERGE_JUNCTION_OFFSET = 14;
+/** Distance from target entry flank to the merge-junction center (px).
+ *  = APPROACH_STUB (8) + arrowSize (9) so the trunk shaft into the arrowhead
+ *  base is exactly APPROACH_STUB long. */
+export const MERGE_JUNCTION_OFFSET = 17;
 
 /** Outer halo radius of a merge junction dot (px). */
 export const MERGE_HALO_RADIUS = 4;
@@ -1159,7 +1161,7 @@ export function drawDependencyArrows(
     // Bounded below by `tgt.barLeft − (APPROACH_STUB + arrowSize)` so the
     // straight trunk shaft preceding the arrowhead stays ≥ APPROACH_STUB
     // (8px) regardless of how close a predecessor is to the target.
-    const arrowSize    = 6;
+    const arrowSize    = 9;
     const tipX         = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
     const trunkLimit   = tipX - arrowSize - APPROACH_STUB;
     let maxExitX = -Infinity;
@@ -1334,7 +1336,7 @@ export function drawDependencyArrows(
     ctx.fillStyle   = stroke;
     ctx.lineWidth   = lineWidth;
 
-    const arrowSize = 6;
+    const arrowSize = 9;
     const tipX  = x2;
     const angle = Math.atan2(0, x2 - cx2);
 
@@ -1415,7 +1417,7 @@ function drawSingleFSArrow(
   const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
   const { stroke, lineWidth } = arrowPen(isSelected);
 
-  const arrowSize = 6;
+  const arrowSize = 9;
   // Arrowhead tip: tight to the milestone vertex; 1px gap on regular bars.
   const tipX = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
 
