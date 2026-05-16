@@ -894,10 +894,16 @@ export function calculateDependencyPath(
   }
 
   const direction = targetY > startY ? 1 : -1;
-  // Gutter sits JUST BEFORE the target row — V drops the full distance past
-  // every intermediate obstacle and only then steps west to the approach
-  // column. Two right angles after the V (south → west → south → junction).
-  const gutterY = targetY - direction * (ROW_HEIGHT / 2);
+  // Gutter sits ONE FULL ROW past source (per UX design): the H corridor is
+  // anchored visually to the source, V is short, then the long V drop
+  // "arrives" at the target. For adjacent rows this collapses to just past
+  // source (= source.Y ± ROW_HEIGHT/2). Capped at target.Y - ROW_HEIGHT/2
+  // for SHORT spans so the gutter stays between source and target.
+  const sourceSideGutter = startY + direction * (ROW_HEIGHT * 1.5);
+  const targetSideGutter = targetY - direction * (ROW_HEIGHT / 2);
+  const gutterY = direction > 0
+    ? Math.min(sourceSideGutter, targetSideGutter)
+    : Math.max(sourceSideGutter, targetSideGutter);
 
   const vColumn = blockerAtExit
     ? blockerAtExit.x + blockerAtExit.width + EXIT_STUB
@@ -1310,18 +1316,27 @@ export function drawDependencyArrows(
 
     if (offScreen(exitX, exitX, srcY, branches[branches.length - 1].targetY, cpWidth, cpHeight)) continue;
 
+    // Direction is unanimous (allBelow or allAbove enforced above).
+    const splitDir = allBelow ? 1 : -1;
+
     for (let i = 0; i < branches.length - 1; i++) {
       const { targetY, linkSelected } = branches[i];
+      // The split dot lives in the row gutter just BEFORE the intermediate
+      // target's row — that's the actual branch-off Y (where this target's
+      // arrow turns east while deeper-target arrows continue south on the
+      // shared V column). Placing it on target.Y itself would land inside
+      // the target's task bar.
+      const splitY = targetY - splitDir * (ROW_HEIGHT / 2);
       const isSelected = sourceSelected || linkSelected;
       const { stroke } = arrowPen(isSelected);
       ctx.save();
       ctx.fillStyle = _palette.surface;
       ctx.beginPath();
-      ctx.arc(exitX, targetY, MERGE_HALO_RADIUS, 0, Math.PI * 2);
+      ctx.arc(exitX, splitY, MERGE_HALO_RADIUS, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = stroke;
       ctx.beginPath();
-      ctx.arc(exitX, targetY, MERGE_DOT_RADIUS, 0, Math.PI * 2);
+      ctx.arc(exitX, splitY, MERGE_DOT_RADIUS, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
