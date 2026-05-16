@@ -12,7 +12,8 @@
  * - Bar label text uses neutral-text-primary (#1A1917) on light surface
  * - Critical path bars use semantic-critical (#B91C1C) on light surface
  * - Rule 74: weekend shading = rgba(255,255,255,0.03)
- * - Rule 75: FS arrows use orthogonal elbow routing (12px exit, vertical drop, horizontal entry); SS/FF/SF use cubic Bézier
+ * - Rule 75: FS arrows use Manhattan routing with merge junctions, charcoal stroke for all
+ *   arrows (no critical-red), summary rollups excluded as endpoints. SS/FF/SF Bézier.
  */
 
 import type { Task, TaskLink } from '@/types';
@@ -67,8 +68,12 @@ export const COLOR = {
   barComplete:    '#166534',   // semantic-on-track — dark green
   barSummary:     '#374151',   // gray-700 — visible on white
   milestone:      '#E8A020',   // brand-accent
-  arrowNormal:    'rgba(107,105,101,0.85)',  // neutral-text-secondary based
-  arrowCritical:  '#B91C1C',
+  // Dependency arrows are charcoal regardless of critical-path state.
+  // Critical path is conveyed by red bar fill (rule 73), not by arrow color.
+  // The previous "critical = red arrow" rule made arrows visually merge with
+  // bars where they crossed (issue #466 gap analysis P0-1).
+  arrowNormal:    '#444441',
+  arrowCritical:  '#444441',
   selectionRing:  '#1C6B3A',   // brand-primary
   ghostFill:      'rgba(100,116,139,0.12)',
   ghostBorder:    'rgba(100,116,139,0.55)',
@@ -95,8 +100,9 @@ export const COLOR_DARK: ColorPalette = {
   barComplete:    '#4ADE80',   // Green-400 — semantic-on-track dark
   barSummary:     '#94A3B8',   // Slate-400
   milestone:      '#E8A020',   // brand-accent — unchanged
-  arrowNormal:    'rgba(148,163,184,0.85)',  // Slate-400 based
-  arrowCritical:  '#F87171',   // Red-400
+  // Light charcoal for arrows on the dark surface. Unified — no red variant.
+  arrowNormal:    '#B8B5AE',
+  arrowCritical:  '#B8B5AE',
   selectionRing:  '#4ADE80',   // Green-400, 5.28:1 on dark surface
   ghostFill:      'rgba(100,116,139,0.12)',
   ghostBorder:    'rgba(100,116,139,0.55)',
@@ -798,15 +804,163 @@ export function drawMilestone(
   ctx.restore();
 }
 
+// ---------------------------------------------------------------------------
+// Manhattan routing engine — Right-Sweep collision avoidance (issue #466)
+// ---------------------------------------------------------------------------
+//
+// Baseline algorithm: M → H exit stub → (H sweep right) → V drop → (H back) → H final.
+// The line is a single OPEN polyline; the caller calls `ctx.stroke()` only on
+// this path (never `ctx.fill()` and never `ctx.closePath()`), and the arrowhead
+// is a separate closed triangle drawn afterward.
+
+/** Axis-aligned bounding box for dependency-line collision detection. */
+export interface RoutingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Visual buffer (px) around every obstacle in collision checks. */
+export const ROUTING_PADDING = 8;
+
+/** Mandatory horizontal exit-stub length off the source's right edge (px). */
+export const EXIT_STUB = 5;
+
+/** Mandatory horizontal approach-stub length into the target's left edge (px). */
+export const APPROACH_STUB = 8;
+
+/** Distance from target entry flank to the merge-junction center (px). */
+export const MERGE_JUNCTION_OFFSET = 14;
+
+/** Outer halo radius of a merge junction dot (px). */
+export const MERGE_HALO_RADIUS = 4;
+
+/** Inner filled radius of a merge junction dot (px). */
+export const MERGE_DOT_RADIUS = 3;
+
+/**
+ * Compute the dependency-line path per ADR-0063 (Gantt dependency arrow
+ * routing rules). The path is a Manhattan polyline of 3 to 7 segments.
+ *
+ * Decision tree:
+ *   1. Same row → 3 segments: exit stub → H → run-in. (collapsed R6)
+ *   2. Stacked sequential (R12: target.y > source.y AND target overlaps source
+ *      horizontally) → 5-segment gutter dogleg: exit stub → V to mid-row
+ *      gutter → H along gutter → V to target row → run-in.
+ *   3. V at exit column blocked by a non-source/non-target bar → 5-segment
+ *      left-detour: exit stub → V to gutter → H west to past blocker's left
+ *      edge → V south past blocker → run-in.
+ *   4. Otherwise → 3 segments collapsed canonical: exit stub → V at exit
+ *      column → run-in.
+ *
+ * The caller draws pts[0]…pts[length−2] as a polyline, then a manual
+ * approach lineTo to (tipX − arrowSize, targetY) which is the arrowhead base,
+ * then the arrowhead triangle. Last waypoint is the sentinel at the target's
+ * entry edge.
+ */
+export function calculateDependencyPath(
+  sourceBox: RoutingBox,
+  targetBox: RoutingBox,
+  obstacles: RoutingBox[],
+  _viewportHeight: number,  // retained for API compat; unused
+  targetEntryX?: number,
+): Array<{ x: number; y: number }> {
+  const startX  = sourceBox.x + sourceBox.width;
+  const startY  = sourceBox.y + sourceBox.height / 2;
+  const targetX = targetEntryX ?? targetBox.x;
+  const targetY = targetBox.y + targetBox.height / 2;
+  const exitX = startX + EXIT_STUB;
+  const sameRow = Math.abs(targetY - startY) < 1;
+
+  const waypoints: Array<{ x: number; y: number }> = [];
+  waypoints.push({ x: startX, y: startY });
+  waypoints.push({ x: exitX,  y: startY });
+
+  if (sameRow) {
+    waypoints.push({ x: targetX, y: targetY });
+    return waypoints;
+  }
+
+  const direction = targetY > startY ? 1 : -1;
+  const gutterY   = startY + direction * (ROW_HEIGHT / 2);
+
+  // R12 gutter dogleg: when target overlaps source horizontally (stacked
+  // sequential — target.barLeft is at or before source.barRight + exit stub),
+  // the V at exitX would land inside the target's own X-range. Route through
+  // the row-gutter midline between source and target rows instead.
+  const stackedSequential = targetX <= exitX;
+  if (stackedSequential) {
+    const approachX = targetX - APPROACH_STUB;
+    waypoints.push({ x: exitX,     y: gutterY });
+    waypoints.push({ x: approachX, y: gutterY });
+    waypoints.push({ x: approachX, y: targetY });
+    waypoints.push({ x: targetX,   y: targetY });
+    return waypoints;
+  }
+
+  // Detour-around-left: V at exitX would cross a non-source/non-target bar
+  // (e.g., milestone → child-of-phase where exitX falls inside the parent
+  // phase summary). Route around the blocker's LEFT side.
+  const blocker = findBlockingBar(exitX, startY, targetY, obstacles, sourceBox, targetBox);
+  if (blocker) {
+    const detourX = blocker.x - EXIT_STUB;
+    waypoints.push({ x: exitX,   y: gutterY });
+    waypoints.push({ x: detourX, y: gutterY });
+    waypoints.push({ x: detourX, y: targetY });
+  } else {
+    // Canonical collapsed 3-segment L: V at exitX straight to target row.
+    waypoints.push({ x: exitX, y: targetY });
+  }
+
+  waypoints.push({ x: targetX, y: targetY });
+  return waypoints;
+}
+
+/**
+ * Return the first obstacle whose body the V drop from `y1` to `y2` at column
+ * `x` would cross, excluding the arrow's own source and target boxes.
+ */
+function findBlockingBar(
+  x: number,
+  y1: number,
+  y2: number,
+  obstacles: RoutingBox[],
+  srcBox: RoutingBox,
+  tgtBox: RoutingBox,
+): RoutingBox | null {
+  const top    = Math.min(y1, y2);
+  const bottom = Math.max(y1, y2);
+  for (const obs of obstacles) {
+    if (obs.x === srcBox.x && obs.y === srcBox.y && obs.width === srcBox.width) continue;
+    if (obs.x === tgtBox.x && obs.y === tgtBox.y && obs.width === tgtBox.width) continue;
+    const xHit = x >= obs.x && x <= obs.x + obs.width;
+    const yHit = top < obs.y + obs.height && obs.y < bottom;
+    if (xHit && yHit) return obs;
+  }
+  return null;
+}
+
 /**
  * Draw dependency arrows for all four link types (FS, SS, FF, SF).
  *
- * FS uses orthogonal elbow routing (rule 75 — issue #466):
- *   Exit source right-edge 4px → drop vertically to target row → arrive at target left-edge.
- *   Arrowhead tip is 1px from the target bar/diamond edge.
- *   Two cases depending on whether target is to the right of the source:
- *     Forward  (→): elbow is left of tipX; approach from left, angle=0.
- *     Backward (←): elbow overshoots right of tipX; ensures ≥10px shaft before arrowhead, angle=π.
+ * FS routing (rule 75 — issue #466): Manhattan polyline with collision-avoiding
+ * column selection. See `calculateDependencyPath` above for the algorithm.
+ *
+ * Milestone vertex flanks: incoming FS arrows enter at the LEFT vertex (cx - 9),
+ * outgoing FS arrows exit at the RIGHT vertex (cx + 9). Entry and exit vertices
+ * on the same milestone are guaranteed different because FS sources use the
+ * right edge and FS targets use the left edge.
+ *
+ * Merge junctions: when 2+ FS arrows terminate at the same milestone, each
+ * predecessor terminates 2px short of a junction point 14px left of the target
+ * flank (no arrowhead). A single trunk arrow with arrowhead runs from the
+ * junction to the milestone. Junction halo + dot are drawn LAST so they sit on
+ * top of the predecessor line endcaps. Critical-wins for the trunk color.
+ *
+ * Selection emphasis: when source OR target is in selectedTaskIds, the arrow
+ * uses brand-primary (selectionRing token) stroke at 2.5px instead of the
+ * normal 2px arrowNormal/arrowCritical.
  *
  * SS / FF / SF still use cubic Bézier with 40px control-point offsets:
  *   SS  Start  → Start  : exits left  from src start,  enters left  at tgt start
@@ -822,160 +976,347 @@ export function drawDependencyArrows(
   scales: GanttScaleData,
   scrollLeft: number,
   scrollTop: number,
+  selectedTaskIds: ReadonlySet<string> = EMPTY_SELECTION,
 ): void {
   if (links.length === 0) return;
 
   // Build a quick lookup: taskId → { rowIndex, barLeft, barRight }
   // Skip unscheduled tasks (empty start/finish) — NaN coordinates in the map
   // can cause degenerate Bézier paths or unexpected arrow rendering (#92).
-  const taskMap = new Map<string, { rowIndex: number; barLeft: number; barRight: number; isCritical: boolean }>();
+  // Anchor map: leaves, milestones, and summaries can ALL be arrow endpoints.
+  const taskMap = new Map<string, { rowIndex: number; barLeft: number; barRight: number; isCritical: boolean; isMilestone: boolean; parentId: string | null }>();
+  const milestoneHalfDiag = Math.ceil(MILESTONE_SIZE / 2 * Math.SQRT2); // = 9px
   for (let i = 0; i < tasks.length; i++) {
     const t = tasks[i];
     if (!t.start || !t.finish) continue;
-    // Issue #332 / #305 follow-up: dependency arrows must not anchor on
-    // uncommitted *leaf* tasks — those have no rendered bar (drawTaskBar /
-    // drawMilestone skip them) so an arrow would point at empty space.
-    // Summaries are exempt: drawSummaryBar always renders the rollup when
-    // CPM dates exist, regardless of phase plannedStart, so arrows pointing
-    // to/from a phase row remain valid.
     if (!t.isSummary && !t.plannedStart && !t.sprintId) continue;
-    // For milestones the bar has zero width (start === finish). Anchor at the
-    // diamond's left/right tips using the half-diagonal (ceil so the connection
-    // point is just outside the rendered tip, not inside it).
-    const milestoneHalfDiag = Math.ceil(MILESTONE_SIZE / 2 * Math.SQRT2); // = 9px
     const cx = dateToLeft(t.start, scales) - scrollLeft;
     taskMap.set(t.id, {
       rowIndex: i,
       barLeft:  t.isMilestone ? cx - milestoneHalfDiag : cx,
       barRight: t.isMilestone ? cx + milestoneHalfDiag : dateToLeft(t.finish, scales) - scrollLeft,
       isCritical: t.isCritical,
+      isMilestone: !!t.isMilestone,
+      parentId: t.parentId ?? null,
     });
   }
 
-  const cpWidth = ctx.canvas.width / (window.devicePixelRatio || 1);
+
+  const cpWidth  = ctx.canvas.width  / (window.devicePixelRatio || 1);
   const cpHeight = ctx.canvas.height / (window.devicePixelRatio || 1);
 
-  for (const link of links) {
-    const src = taskMap.get(link.sourceId);
-    const tgt = taskMap.get(link.targetId);
-    if (!src || !tgt) continue;
-
-    const srcY = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
-    const tgtY = tgt.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
-
-    // Compute anchor x-coords per dependency type. cx1/cx2 are Bézier control
-    // points for SS/FF/SF; unused for FS (orthogonal routing, rule 75).
-    const isFS = link.type !== 'SS' && link.type !== 'FF' && link.type !== 'SF';
-    let x1: number, x2: number, cx1 = 0, cx2 = 0;
-    switch (link.type) {
-      case 'SS':
-        x1 = src.barLeft;  x2 = tgt.barLeft;
-        cx1 = x1 - 40;    cx2 = x2 - 40;
-        break;
-      case 'FF':
-        x1 = src.barRight; x2 = tgt.barRight;
-        cx1 = x1 + 40;    cx2 = x2 + 40;
-        break;
-      case 'SF':
-        x1 = src.barLeft;  x2 = tgt.barRight;
-        cx1 = x1 - 40;    cx2 = x2 + 40;
-        break;
-      default: // 'FS'
-        x1 = src.barRight; x2 = tgt.barLeft;
+  // Obstacle list — every rendered bar including summary rollups. We DO want
+  // arrows to route around visible summary bars in general; per-arrow filtering
+  // (below, via `obstaclesFor`) removes ancestor summaries so arrows into a
+  // phase's child don't see that phase as a wall.
+  const allBars: Array<RoutingBox & { id: string }> = [];
+  for (let i = 0; i < tasks.length; i++) {
+    const t = tasks[i];
+    if (!t.start || !t.finish) continue;
+    const cx = dateToLeft(t.start, scales) - scrollLeft;
+    const rectLeft  = t.isMilestone ? cx - milestoneHalfDiag : cx;
+    const rectRight = t.isMilestone ? cx + milestoneHalfDiag : dateToLeft(t.finish, scales) - scrollLeft;
+    const rowCenterY = i * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+    let boxLeft: number, boxRight: number, halfH: number;
+    if (t.isMilestone) {
+      boxLeft = rectLeft; boxRight = rectRight;
+      halfH = milestoneHalfDiag;
+    } else if (t.isSummary) {
+      // Endcap diamonds extend ±milestoneHalfDiag past the rect bounds.
+      boxLeft = rectLeft - milestoneHalfDiag;
+      boxRight = rectRight + milestoneHalfDiag;
+      halfH = milestoneHalfDiag;
+    } else {
+      boxLeft = rectLeft; boxRight = rectRight;
+      halfH = BAR_HEIGHT / 2;
     }
+    allBars.push({
+      id:     t.id,
+      x:      boxLeft,
+      y:      rowCenterY - halfH,
+      width:  boxRight - boxLeft,
+      height: halfH * 2,
+    });
+  }
 
-    // Skip if entirely off-screen
-    if (
-      (x1 < -10 && x2 < -10) ||
-      (x1 > cpWidth + 10 && x2 > cpWidth + 10) ||
-      (srcY < -10 && tgtY < -10) ||
-      (srcY > cpHeight + 10 && tgtY > cpHeight + 10)
-    ) {
+  // Per-arrow obstacle filter: drop the arrow's own source and target so the
+  // routing layer never flags itself as a blocker.
+  function obstaclesFor(srcId: string, tgtId: string): RoutingBox[] {
+    return allBars.filter((b) => b.id !== srcId && b.id !== tgtId);
+  }
+
+  // Group FS links by target id (for merge junctions). Junctions only render
+  // for true convergences — multiple predecessors terminating at the same
+  // target. Diverging arrows from a shared source get no junction.
+  const fsByTarget = new Map<string, TaskLink[]>();
+  const nonFSLinks: TaskLink[] = [];
+  for (const link of links) {
+    const isFS = link.type !== 'SS' && link.type !== 'FF' && link.type !== 'SF';
+    if (isFS) {
+      const tList = fsByTarget.get(link.targetId);
+      if (tList) tList.push(link);
+      else fsByTarget.set(link.targetId, [link]);
+    } else {
+      nonFSLinks.push(link);
+    }
+  }
+
+  // ------------------------------------------------------------------------
+  // FS arrows — single-predecessor and multi-predecessor (merge) cases.
+  // ------------------------------------------------------------------------
+  for (const [targetId, group] of fsByTarget) {
+    const tgt = taskMap.get(targetId);
+    if (!tgt) continue;
+    const tgtY = tgt.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+    // Merge-junction routing applies whenever 2+ FS arrows terminate at the
+    // same target (milestone, leaf task, OR summary). The junction collects
+    // the predecessors visibly into a shared trunk + T-junction dots.
+    const useMergeJunction = group.length >= 2;
+
+    if (!useMergeJunction) {
+      for (const link of group) {
+        drawSingleFSArrow(ctx, link, taskMap, obstaclesFor(link.sourceId, link.targetId),
+          milestoneHalfDiag, scrollTop, cpWidth, cpHeight, selectedTaskIds);
+      }
       continue;
     }
 
-    const isCriticalArrow = src.isCritical && tgt.isCritical;
-    const stroke = isCriticalArrow ? _palette.arrowCritical : _palette.arrowNormal;
+    // Merge junction. Junction sits MERGE_JUNCTION_OFFSET left of the target's
+    // entry flank (= tgt.barLeft for FS milestones). All predecessor lines
+    // terminate 2px short of junction center, no arrowhead.
+    const junctionX = tgt.barLeft - MERGE_JUNCTION_OFFSET;
+    const junctionY = tgtY;
+    const stopX     = junctionX - 2;
+
+    // Selection emphasis: trunk highlights when target or any predecessor is selected.
+    let selectedGroup = selectedTaskIds.has(targetId);
+    const validPreds: { link: TaskLink; src: NonNullable<ReturnType<typeof taskMap.get>> }[] = [];
+    for (const link of group) {
+      const src = taskMap.get(link.sourceId);
+      if (!src) continue;
+      validPreds.push({ link, src });
+      if (selectedTaskIds.has(link.sourceId)) selectedGroup = true;
+    }
+    if (validPreds.length < 2) {
+      // After validity filtering only one predecessor remains — fall back.
+      for (const link of group) {
+        drawSingleFSArrow(ctx, link, taskMap, obstaclesFor(link.sourceId, link.targetId),
+          milestoneHalfDiag, scrollTop, cpWidth, cpHeight, selectedTaskIds);
+      }
+      continue;
+    }
+
+    // Each predecessor draws its full path terminating at (junctionX, junctionY).
+    // All predecessor lines literally converge at that single point — the only
+    // place where multiple lines meet. A junction dot at that point covers the
+    // line endcaps. After the junction, a single trunk arrow with the arrowhead
+    // runs east to the target's entry edge.
+    for (const { link, src } of validPreds) {
+      const srcY = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+      const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
+      const { stroke, lineWidth } = arrowPen(isSelected);
+      const srcBox: RoutingBox = boxFor(src, srcY, milestoneHalfDiag);
+      const tgtBox: RoutingBox = boxFor(tgt, tgtY, milestoneHalfDiag);
+      if (offScreen(src.barRight, junctionX, srcY, junctionY, cpWidth, cpHeight)) continue;
+
+      const obstaclesForLink = obstaclesFor(link.sourceId, link.targetId);
+      const pts = calculateDependencyPath(srcBox, tgtBox, obstaclesForLink, cpHeight, stopX);
+
+      ctx.save();
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth   = lineWidth;
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Trunk arrow: a single straight horizontal segment from junction to the
+    // target's arrowhead, satisfying the "≥ APPROACH_STUB straight line before
+    // arrowhead" rule. junctionX = tipX − (APPROACH_STUB + arrowSize) so the
+    // straight shaft preceding the arrowhead is APPROACH_STUB long.
+    const arrowSize = 6;
+    const tipX      = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
+    const { stroke: trunkStroke, lineWidth: trunkLineWidth } = arrowPen(selectedGroup);
+
+    ctx.save();
+    ctx.strokeStyle = trunkStroke;
+    ctx.fillStyle   = trunkStroke;
+    ctx.lineWidth   = trunkLineWidth;
+    ctx.beginPath();
+    ctx.moveTo(junctionX, junctionY);
+    ctx.lineTo(tipX - arrowSize, junctionY);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(tipX, junctionY);
+    ctx.lineTo(tipX - arrowSize * Math.cos(-0.4), junctionY - arrowSize * Math.sin(-0.4));
+    ctx.lineTo(tipX - arrowSize * Math.cos( 0.4), junctionY - arrowSize * Math.sin( 0.4));
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Junction halo + dot at the single convergence point — drawn LAST so it
+    // sits on top of every predecessor's line endcap.
+    ctx.save();
+    ctx.fillStyle = _palette.surface;
+    ctx.beginPath();
+    ctx.arc(junctionX, junctionY, MERGE_HALO_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = trunkStroke;
+    ctx.beginPath();
+    ctx.arc(junctionX, junctionY, MERGE_DOT_RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Note: diverging arrows from a shared source do NOT get a junction dot.
+  // Junctions only mark TRUE convergences — multiple lines terminating at the
+  // same point. Lines fanning out from a source are diverging, not converging.
+
+  // ------------------------------------------------------------------------
+  // SS / FF / SF — Bézier (unchanged from prior behavior).
+  // ------------------------------------------------------------------------
+  for (const link of nonFSLinks) {
+    const src = taskMap.get(link.sourceId);
+    const tgt = taskMap.get(link.targetId);
+    if (!src || !tgt) continue;
+    const srcY = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+    const tgtY = tgt.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+
+    let x1: number, x2: number, cx1: number, cx2: number;
+    switch (link.type) {
+      case 'SS':
+        x1 = src.barLeft;  x2 = tgt.barLeft;
+        cx1 = x1 - 40;     cx2 = x2 - 40;
+        break;
+      case 'FF':
+        x1 = src.barRight; x2 = tgt.barRight;
+        cx1 = x1 + 40;     cx2 = x2 + 40;
+        break;
+      default: // 'SF'
+        x1 = src.barLeft;  x2 = tgt.barRight;
+        cx1 = x1 - 40;     cx2 = x2 + 40;
+    }
+
+    if (offScreen(x1, x2, srcY, tgtY, cpWidth, cpHeight)) continue;
+
+    const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
+    const { stroke, lineWidth } = arrowPen(isSelected);
 
     ctx.save();
     ctx.strokeStyle = stroke;
-    ctx.lineWidth = 2;
+    ctx.fillStyle   = stroke;
+    ctx.lineWidth   = lineWidth;
 
     const arrowSize = 6;
-    const tipX = isFS ? x2 - 1 : x2; // 1px gap from target edge (rule 75)
-    let elbowX = 0;
-    let angle: number;
-    // Bezier S-curve state (adjacent-row forward FS only)
-    let useBezierS = false;
-    let sCx1 = 0, sCy1 = 0, sCx2 = 0, sCy2 = 0, sBezierEndX = 0;
-
-    if (isFS) {
-      const rowDiff = tgt.rowIndex - src.rowIndex;
-      const rawElbow = x1 + 4;
-      // When source finish is left of target start, always route forward — even if
-      // the x-gap is narrow. A tiny forward shaft is better than a backward Z-shape.
-      const sourceIsLeft = x1 < x2;
-      const hasForwardRoom = rawElbow + arrowSize + 10 <= tipX;
-
-      if (sourceIsLeft || hasForwardRoom) {
-        // Forward approach (→), angle = 0
-        angle = 0;
-        if (rowDiff === 1 && sourceIsLeft) {
-          // Adjacent rows, source to the left: Bezier S-curve for a smooth, natural
-          // approach into the arrowhead (rule 75).
-          useBezierS = true;
-          sBezierEndX = tipX - arrowSize;
-          const spread = Math.max((sBezierEndX - x1) / 3, ROW_HEIGHT / 2);
-          sCx1 = x1 + spread;  sCy1 = srcY;
-          sCx2 = sBezierEndX - spread;  sCy2 = tgtY;
-        } else {
-          // Multi-row or tight forward: orthogonal L-shape.
-          elbowX = Math.max(x1, Math.min(rawElbow, tipX - arrowSize));
-        }
-      } else {
-        // Backward (←): source is right of target; overshoot right, return left with shaft.
-        angle = Math.PI;
-        elbowX = Math.max(rawElbow, tipX + arrowSize + 10);
-      }
-    } else {
-      angle = Math.atan2(0, x2 - cx2);
-    }
+    const tipX  = x2;
+    const angle = Math.atan2(0, x2 - cx2);
 
     ctx.beginPath();
-    if (isFS) {
-      ctx.moveTo(x1, srcY);
-      if (useBezierS) {
-        // Smooth S-curve: exits source right, arrives at arrowhead base going right.
-        ctx.bezierCurveTo(sCx1, sCy1, sCx2, sCy2, sBezierEndX, tgtY);
-      } else {
-        // Orthogonal elbow: exit right → drop vertical → arrive horizontally (rule 75).
-        ctx.lineTo(elbowX, srcY);
-        ctx.lineTo(elbowX, tgtY);
-        ctx.lineTo(tipX - arrowSize * Math.cos(angle), tgtY);
-      }
-    } else {
-      // SS / FF / SF: cubic Bézier, horizontal entry/exit tangent
-      ctx.moveTo(x1, srcY);
-      ctx.bezierCurveTo(cx1, srcY, cx2, tgtY, x2, tgtY);
-    }
+    ctx.moveTo(x1, srcY);
+    ctx.bezierCurveTo(cx1, srcY, cx2, tgtY, x2, tgtY);
     ctx.stroke();
 
-    // Arrowhead: filled triangle with tip at tipX.
-    ctx.fillStyle = stroke;
     ctx.beginPath();
     ctx.moveTo(tipX, tgtY);
     ctx.lineTo(tipX - arrowSize * Math.cos(angle - 0.4), tgtY - arrowSize * Math.sin(angle - 0.4));
     ctx.lineTo(tipX - arrowSize * Math.cos(angle + 0.4), tgtY - arrowSize * Math.sin(angle + 0.4));
     ctx.closePath();
     ctx.fill();
-
-    // Connection dot 1px outside the source bar edge — Visio-style attachment indicator.
-    ctx.beginPath();
-    ctx.arc(x1 + 1, srcY, 2.5, 0, Math.PI * 2);
-    ctx.fill();
-
     ctx.restore();
   }
+}
+
+const EMPTY_SELECTION: ReadonlySet<string> = new Set();
+
+/**
+ * Pen settings (stroke color + line width) for an arrow.
+ * Critical-path arrows do NOT change color — critical state is conveyed by the
+ * red BAR fill (rule 73), not the connector. Issue #466 gap analysis P0-1.
+ */
+function arrowPen(isSelected: boolean): { stroke: string; lineWidth: number } {
+  if (isSelected) return { stroke: _palette.selectionRing, lineWidth: 2.5 };
+  return { stroke: _palette.arrowNormal, lineWidth: 2 };
+}
+
+/** RoutingBox for a task entry in the taskMap. */
+function boxFor(
+  entry: { barLeft: number; barRight: number; isMilestone: boolean },
+  rowCenterY: number,
+  milestoneHalfDiag: number,
+): RoutingBox {
+  const halfH = entry.isMilestone ? milestoneHalfDiag : BAR_HEIGHT / 2;
+  return {
+    x:      entry.barLeft,
+    y:      rowCenterY - halfH,
+    width:  entry.barRight - entry.barLeft,
+    height: halfH * 2,
+  };
+}
+
+/** Off-screen cull for a single arrow span. */
+function offScreen(
+  x1: number, x2: number, y1: number, y2: number,
+  cpWidth: number, cpHeight: number,
+): boolean {
+  return (
+    (x1 < -10 && x2 < -10) ||
+    (x1 > cpWidth + 10 && x2 > cpWidth + 10) ||
+    (y1 < -10 && y2 < -10) ||
+    (y1 > cpHeight + 10 && y2 > cpHeight + 10)
+  );
+}
+
+/** Draw one FS arrow (single-predecessor path, no merge junction). */
+function drawSingleFSArrow(
+  ctx: CanvasRenderingContext2D,
+  link: TaskLink,
+  taskMap: Map<string, { rowIndex: number; barLeft: number; barRight: number; isCritical: boolean; isMilestone: boolean; parentId: string | null }>,
+  obstacles: RoutingBox[],
+  milestoneHalfDiag: number,
+  scrollTop: number,
+  cpWidth: number,
+  cpHeight: number,
+  selectedTaskIds: ReadonlySet<string>,
+): void {
+  const src = taskMap.get(link.sourceId);
+  const tgt = taskMap.get(link.targetId);
+  if (!src || !tgt) return;
+  const srcY = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+  const tgtY = tgt.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
+  if (offScreen(src.barRight, tgt.barLeft, srcY, tgtY, cpWidth, cpHeight)) return;
+
+  const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
+  const { stroke, lineWidth } = arrowPen(isSelected);
+
+  const arrowSize = 6;
+  // Arrowhead tip: tight to the milestone vertex; 1px gap on regular bars.
+  const tipX = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
+
+  const srcBox = boxFor(src, srcY, milestoneHalfDiag);
+  const tgtBox = boxFor(tgt, tgtY, milestoneHalfDiag);
+  const pts = calculateDependencyPath(srcBox, tgtBox, obstacles, cpHeight);
+
+  ctx.save();
+  ctx.strokeStyle = stroke;
+  ctx.fillStyle   = stroke;
+  ctx.lineWidth   = lineWidth;
+
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length - 1; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.lineTo(tipX - arrowSize, tgtY);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(tipX, tgtY);
+  ctx.lineTo(tipX - arrowSize * Math.cos(-0.4), tgtY - arrowSize * Math.sin(-0.4));
+  ctx.lineTo(tipX - arrowSize * Math.cos( 0.4), tgtY - arrowSize * Math.sin( 0.4));
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------

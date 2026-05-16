@@ -249,20 +249,49 @@ These rules are enforced at review time. Violations block merge.
 
 74. **Non-working day shading uses `rgba(0,0,0,0.03)`** — a very subtle dark overlay on weekend columns on the light canvas. Applied on `canvas-bg`, not recalculated during drag.
 
-75. **FS dependency arrows use orthogonal elbow routing** — exit source right-edge 4px,
-    drop vertically, arrive horizontally at target left-edge with a ≥10px shaft before
-    the arrowhead. Arrowhead tip is 1px from the target bar/diamond edge.
-    Three routing modes for FS:
-    - **S-curve** (Bézier): when `rowDiff === 1` AND `sourceIsLeft` (source finish x < target start x) —
-      produces a natural S-shape for directly adjacent forward connections.
-    - **Forward L-shape** (→, angle=0): when `sourceIsLeft` is true but `rowDiff > 1` — orthogonal
-      elbow at `x1 + 4` clamped between `[x1, tipX - arrowSize]`.
-    - **Backward Z-shape** (←, angle=π): when `sourceIsLeft` is false AND no forward room exists —
-      elbow overshoots right of tipX to guarantee the ≥10px approach shaft.
-    `sourceIsLeft = x1 < x2` always forces forward/S-curve mode even when the gap is small.
-    SS / FF / SF still use cubic Bézier curves with 40px control-point offsets.
-    Critical-path arrows use `COLOR.arrowCritical` (`#B91C1C`); non-critical use
-    `COLOR.arrowNormal` (`rgba(107,105,101,0.6)`). Arrow line width: 2px logical px.
+75. **FS dependency arrows use collision-avoiding Manhattan routing with merge junctions** (issue #466,
+    ADR-0063). Spec lives in `docs/adr/0063-gantt-dependency-routing-rules.md` and next to the code
+    in `GanttRenderer.ts` (header comment for `calculateDependencyPath`). Behavior contract:
+    - **Pure Manhattan polyline.** No Bézier, no diagonals. 3 to 7 segments. Every segment is
+      strictly horizontal or strictly vertical.
+    - **Stubs.** Exit stub from source's right edge ≥ `EXIT_STUB` (5px). Approach stub from the last
+      Manhattan waypoint to the arrowhead base ≥ `APPROACH_STUB` (8px). The router targets the
+      arrowhead base (`tipX − arrowSize`), NOT the bar/diamond edge, so the visible stroked shaft
+      before the arrowhead is always APPROACH_STUB long. Arrowhead never sits at a path corner.
+    - **Algorithm — decision tree** (ADR-0063 §"Routing engine"):
+      1. Same row: 3 segments — exit stub → H → run-in.
+      2. Stacked-sequential (target.x ≤ source.barRight + EXIT_STUB): 5-segment gutter dogleg
+         per R12 — exit stub → V to row-gap gutter → H along gutter → V to target row → run-in.
+      3. V at exit column blocked by a non-source/non-target bar: 5-segment left-detour —
+         exit stub → V to gutter → H west past blocker's left edge → V south past blocker →
+         run-in. Used for cases like milestone → child-of-phase where the exit column
+         lands inside the containing summary's X range.
+      4. Otherwise: collapsed 3-segment canonical L — exit stub → V at exit column straight
+         to target row → run-in.
+    - **Arrow color is charcoal, always.** `arrowNormal` and `arrowCritical` both resolve to
+      `#444441` (light) / `#B8B5AE` (dark). Critical-path state is conveyed by the red BAR fill
+      (rule 73), NOT by the arrow. Previous "critical arrow = red" rendered red arrows visually
+      merging with red bars where they crossed (issue #466 gap P0-1).
+    - **Summary rollups CAN be arrow endpoints.** Waterfall PMs use phase-to-phase dependencies
+      as the primary relationship; suppressing them hides the user's working structure. Rollups
+      are also obstacles for routing other arrows.
+    - **Milestone flank rules.** Incoming arrows enter on the LEFT vertex flank (tip at
+      `cx − milestoneHalfDiag`). Outgoing arrows exit from the RIGHT edge (= right vertex of the
+      milestone). Entry and exit vertices on a single milestone naturally differ because FS sources
+      always exit right and FS targets always enter left.
+    - **Merge junctions.** When 2+ FS arrows terminate at the same milestone, they merge at a
+      junction point 14px left of the target entry flank. Each predecessor line terminates 2px short
+      of the junction center and is drawn WITHOUT an arrowhead. A single trunk arrow with the only
+      arrowhead runs from the junction to the milestone. Junction = outer halo (4px radius,
+      `palette.surface`) + inner dot (3px radius, stroke color). Render order: predecessor lines
+      → trunk + arrowhead → junction halo + dot (junction drawn last to sit on top).
+    - **Selection emphasis.** When the source OR target is in `engine.selectedTaskIds`, the arrow
+      uses `palette.selectionRing` stroke at 2.5px. Other arrows hold 2px.
+    - **SS / FF / SF unchanged** — cubic Bézier with 40px control-point offsets. Same charcoal
+      stroke. Manhattan routing collapses these to U-shapes that cross the source bar; Bézier
+      reads cleaner for same-edge links and matches MS Project's convention.
+    - **Source connection dot is removed** — the arrow tail is the affordance; the dot added noise.
+    - **Lag annotation and click-to-delete on the arrow** are out of scope for v1.
 
 ### Performance
 
