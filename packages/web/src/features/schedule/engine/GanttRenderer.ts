@@ -885,14 +885,15 @@ export function calculateDependencyPath(
   const direction = targetY > startY ? 1 : -1;
   const gutterY   = startY + direction * (ROW_HEIGHT / 2);
 
-  // R12 gutter dogleg: when target overlaps source horizontally (stacked
-  // sequential — target.barLeft is at or before source.barRight + exit stub),
-  // the V at exitX would land inside the target's own X-range. Route through
-  // the row-gutter midline between source and target rows instead.
-  // Applies to merge predecessors too: when a predecessor's exitX is past the
-  // junction's stopX, R12 routes the V to land LEFT of the target so the line
-  // doesn't pass through the target's diamond on its way to the junction.
-  const stackedSequential = targetX <= exitX;
+  // V at exitX is the preferred path. If it crosses a non-source/non-target
+  // bar (descendants/ancestors are already filtered out), fall back to the
+  // R12 gutter dogleg. Otherwise use the simple V-down + H-hook.
+  const blockerAtExit = findBlockingBar(exitX, startY, targetY, obstacles, sourceBox, targetBox);
+
+  // R12 gutter dogleg: only when V at exitX is blocked AND target overlaps
+  // source horizontally. Drops V into the row gutter, traverses west past
+  // the blocker, drops to target row, runs east to target.
+  const stackedSequential = blockerAtExit !== null && targetX <= exitX;
   if (stackedSequential) {
     // If V at approachX would cross a non-source/non-target bar (typically the
     // target's parent summary, e.g., milestone → child-of-phase), push the
@@ -910,11 +911,10 @@ export function calculateDependencyPath(
     return waypoints;
   }
 
-  // Detour-around-left: V at exitX would cross a non-source/non-target bar.
-  // Route around the blocker's LEFT side.
-  const blocker = findBlockingBar(exitX, startY, targetY, obstacles, sourceBox, targetBox);
-  if (blocker) {
-    const detourX = blocker.x - EXIT_STUB;
+  // Detour-around-left when V at exitX would cross a non-source/non-target
+  // bar AND the path is NOT stackedSequential (handled above with R12 dogleg).
+  if (blockerAtExit) {
+    const detourX = blockerAtExit.x - EXIT_STUB;
     waypoints.push({ x: exitX,   y: gutterY });
     waypoints.push({ x: detourX, y: gutterY });
     waypoints.push({ x: detourX, y: targetY });
