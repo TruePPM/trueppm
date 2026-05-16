@@ -605,7 +605,7 @@ export class GanttEngineImpl implements GanttEngine {
       this._paintTaskAt(ctx, i, /* skipLabel */ true);
     }
 
-    drawDependencyArrows(ctx, this._tasks, this._links, this._scales, this._scrollLeft, this._scrollTop);
+    drawDependencyArrows(ctx, this._tasks, this._links, this._scales, this._scrollLeft, this._scrollTop, this._selectedTaskIds);
 
     for (let i = firstRow; i <= lastRow; i++) {
       const task = this._tasks[i];
