@@ -66,6 +66,17 @@ audit dimension, each scoped to the changed files only. Use the `Agent` tool wit
    compare with the version on `main` (`git show main:<file>`). Report removed
    fields, type changes, removed required fields."
 
+5. **E2E spec drift** (web changes only): "For these changed UI files `<list>`,
+   grep `packages/web/e2e/` for assertions referencing the affected component
+   names, menu items, section titles, ARIA labels, keyboard bindings, or
+   strict-mode text. Report every assertion that asserts a state the source
+   no longer holds (e.g., `'Insert below'` after the menu item was removed,
+   `'five sections'` after a section was added, `press(' ')` opening the
+   drawer after Space rebinds to Mark complete). E2E specs live in a separate
+   tree from the source and are the #1 source of post-push `web:e2e`
+   failures — co-located vitest assertions are easy to spot, Playwright
+   ones are not."
+
 Each sub-agent returns a structured finding list. Aggregate in main context.
 
 ### Tier 3 — Reasoning (main context, only when needed)
@@ -108,6 +119,19 @@ checklist inline:
   every test file that mocks that module has been updated
 - [ ] Frontend mocks of API responses match the current serializer output
 - [ ] Celery task signatures in tests match the actual task signatures
+
+### E2E Spec Drift (web changes only)
+- [ ] For every changed component, grep `packages/web/e2e/` for the component's
+  test-id, accessible name, aria-label, or visible text used in spec assertions
+- [ ] For menu / section additions or removals, search `packages/web/e2e/` for
+  literal counts ("five sections") or sibling section / menu-item names that
+  will no longer match after the change
+- [ ] For keyboard rebinds, grep `packages/web/e2e/` for `press(...)` and
+  `keyboard.press(...)` patterns referencing the old key
+- [ ] For copy / placeholder / label changes, grep `packages/web/e2e/` for the
+  old string
+- [ ] Run the affected spec locally:
+  `cd packages/web && npx playwright test e2e/<spec>.spec.ts`
 
 ### Scheduler Engine
 - [ ] CPM output (early_start, early_finish, late_start, late_finish, total_float,

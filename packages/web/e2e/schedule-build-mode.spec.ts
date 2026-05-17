@@ -121,14 +121,15 @@ test.describe('Schedule build-mode — flag on', () => {
     await expect(page.getByRole('dialog', { name: 'Schedule shortcuts' })).toHaveCount(0);
   });
 
-  test('cheatsheet renders all five sections', async ({ page }) => {
+  test('cheatsheet renders every section (Quick actions + Dependencies added in #475+#477)', async ({ page }) => {
     await page.goto(BASE_URL);
     await page.getByTestId('build-mode-pill').click();
     const dialog = page.getByRole('dialog', { name: 'Schedule shortcuts' });
     await expect(dialog.getByText('Selecting rows')).toBeVisible();
     await expect(dialog.getByText('Editing cells')).toBeVisible();
     await expect(dialog.getByText('Structuring (the WBS tree)')).toBeVisible();
-    await expect(dialog.getByText('Creating & deleting')).toBeVisible();
+    await expect(dialog.getByText('Quick actions')).toBeVisible();
+    await expect(dialog.getByText('Dependencies')).toBeVisible();
     await expect(dialog.getByText('Help')).toBeVisible();
   });
 
@@ -139,8 +140,13 @@ test.describe('Schedule build-mode — flag on', () => {
     const menu = page.getByRole('menu', { name: 'Row actions' });
     await expect(menu).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Edit/ })).toBeVisible();
+    // Items added in #477 — Mark complete, Add predecessor / successor, Duplicate.
+    await expect(menu.getByRole('menuitem', { name: /Mark complete/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Indent/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Outdent/ })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: /Add predecessor/ })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: /Add successor/ })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: /Duplicate/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Delete/ })).toBeVisible();
     // Esc dismisses.
     await page.keyboard.press('Escape');
