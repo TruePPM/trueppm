@@ -1417,3 +1417,110 @@ class SprintRetroSerializer(serializers.ModelSerializer[SprintRetro]):
             "updated_at",
             "action_items",
         ]
+
+
+# ---------------------------------------------------------------------------
+# My Work contributor surface (ADR-0065 Gap 2, issue #499)
+# ---------------------------------------------------------------------------
+
+
+class MeWorkTaskSerializer(serializers.Serializer[Any]):
+    """Flat, contributor-facing task row for ``GET /me/work/``.
+
+    Deliberately omits every CPM field (``early_start``, ``late_finish``,
+    ``total_float``, ``wbs_path``, ``phase_id``) so the response carries no
+    project-management vocabulary into a contributor's surface. ``is_critical``
+    is the one CPM-derived signal exposed — but as a single boolean the UI
+    renders as an icon with a plain-English tooltip ("delays here delay the
+    project end date"), not as the words "critical path".
+
+    ``due`` follows the ADR-0065 cascade:
+        actual_finish → planned_start → early_finish → sprint.finish_date.
+    ``due_source`` labels which step of the cascade produced the date so the
+    UI can render "Due May 30 (planned)" vs "Ends with Sprint 12" — pure dates
+    without their provenance erode contributor trust within a sprint.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    short_id = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    project_id = serializers.UUIDField(read_only=True)
+    project_name = serializers.SerializerMethodField()
+    sprint_id = serializers.UUIDField(read_only=True, allow_null=True)
+    sprint_name = serializers.SerializerMethodField()
+    status = serializers.CharField(read_only=True)
+    story_points = serializers.IntegerField(read_only=True, allow_null=True)
+    remaining_points = serializers.IntegerField(read_only=True, allow_null=True)
+    due = serializers.SerializerMethodField()
+    due_source = serializers.SerializerMethodField()
+    is_critical = serializers.SerializerMethodField()
+    server_version = serializers.IntegerField(read_only=True)
+    url = serializers.SerializerMethodField()
+
+    def get_project_name(self, obj: Any) -> str:
+        return str(obj.project.name)
+
+    def get_sprint_name(self, obj: Any) -> str | None:
+        return obj.sprint.name if obj.sprint_id else None
+
+    def get_due(self, obj: Any) -> str | None:
+        d, _ = _resolve_due(obj)
+        return d.isoformat() if d else None
+
+    def get_due_source(self, obj: Any) -> str | None:
+        _, source = _resolve_due(obj)
+        return source
+
+    def get_is_critical(self, obj: Any) -> bool:
+        # Task.is_critical is nullable (computed by CPM; not all projects run
+        # the engine). Coerce to false so the UI never has to handle null.
+        return bool(obj.is_critical)
+
+    def get_url(self, obj: Any) -> str:
+        return f"/projects/{obj.project_id}/schedule?task={obj.id}"
+
+
+def _resolve_due(task: Any) -> tuple[date | None, str | None]:
+    """Return (date, source) where source is the cascade step that produced it.
+
+    Cascade order matches ADR-0065:
+        actual_finish → planned_start → early_finish → sprint.finish_date.
+
+    Returns (None, None) if no candidate is present — surfaced as null in
+    both fields so the UI knows there is no due date rather than guessing.
+    """
+    if getattr(task, "actual_finish", None) is not None:
+        return task.actual_finish, "actual"
+    if getattr(task, "planned_start", None) is not None:
+        return task.planned_start, "planned"
+    if getattr(task, "early_finish", None) is not None:
+        return task.early_finish, "estimated"
+    sprint = getattr(task, "sprint", None)
+    if sprint is not None and getattr(sprint, "finish_date", None) is not None:
+        return sprint.finish_date, "sprint"
+    return None, None
+
+
+class MeWorkActiveSprintSerializer(serializers.Serializer[Any]):
+    """Minimal active-sprint card for the My Work group header.
+
+    Inlined into the ``/me/work/`` response so the page mount needs one
+    round trip on mobile. Burndown, velocity, and capacity ratios live on
+    the richer ``/me/active-sprints/`` endpoint — this view only carries
+    what the section header needs (name, project, days remaining, count).
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    project_id = serializers.UUIDField(read_only=True)
+    project_name = serializers.SerializerMethodField()
+    finish_date = serializers.DateField(read_only=True)
+    days_remaining = serializers.SerializerMethodField()
+    task_count = serializers.IntegerField(read_only=True)
+
+    def get_project_name(self, obj: Any) -> str:
+        return str(obj.project.name)
+
+    def get_days_remaining(self, obj: Any) -> int:
+        today = timezone.localdate()
+        return max(0, int((obj.finish_date - today).days))

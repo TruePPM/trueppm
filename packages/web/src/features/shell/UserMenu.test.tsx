@@ -127,6 +127,15 @@ describe('UserMenu', () => {
     expect(screen.queryByText('Sarah Chen')).toBeNull();
   });
 
+  it('renders the "My Work" menu item linking to /me/work', () => {
+    renderWithRouter(<UserMenu />);
+    openMenu();
+    // Both desktop + mobile variants render in JSDOM (CSS media queries not applied).
+    const items = screen.getAllByRole('menuitem', { name: /my work/i });
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0].getAttribute('href')).toBe('/me/work');
+  });
+
   it('click "Sign out" → calls clearTokens() and queryClient.clear()', () => {
     renderWithRouter(<UserMenu />);
     openMenu();

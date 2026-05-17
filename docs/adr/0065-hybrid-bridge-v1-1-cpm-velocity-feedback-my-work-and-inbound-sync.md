@@ -343,3 +343,111 @@ the external side, conflict resolution UI).
    status taps in "My Work" do not flow back to Jira. Teams must choose one source of truth at
    setup. Full bidirectional status sync is Enterprise. Document explicitly in the webhook setup
    guide — this is the most likely source of support tickets post-launch.
+
+---
+
+## Addendum — Gap 2 Implementation Refinements (2026-05-17)
+
+Refinements adopted during the implementation of issue #499. The original Gap 2
+design remains correct; this addendum documents decisions made between the
+parent ADR's acceptance and the actual implementation MR, after a VoC review
+(panel average 5.25 — pulled down by non-target personas; target personas
+Morgan 8🟢 / Sarah 7 / Alex 7 / Priya 6 all in the adoption band).
+
+### Response shape additions
+
+Beyond the fields listed in §"My Work Contributor Surface", the response now
+also carries:
+
+- `is_critical: bool` — coerced from `Task.is_critical` (nullable in the model;
+  null → false in the serializer). Sarah's field crew needs to know which
+  status updates matter to the schedule end date; a single boolean rendered as
+  a `⚠` icon with a plain-English tooltip ("delays here delay the project end
+  date") satisfies WCAG 1.4.1 (color-plus-text) without leaking the words
+  "critical path" into the contributor surface.
+- `due_source: "actual" | "planned" | "estimated" | "sprint" | null` — labels
+  which step of the four-way cascade produced `due`. Resolves the "Due Oct 14
+  vs Ends with Sprint 12" ambiguity Sarah and Morgan flagged in VoC. Null when
+  no candidate is present.
+- `server_version: int` — needed for mobile delta sync (`?since=` cursor).
+- `project_id` and `sprint_id` — needed for URL construction and client-side
+  grouping; not strictly new since the ADR allowed implementation freedom,
+  but documented here for clarity.
+
+The endpoint also returns top-level `due_today_count: int` which drives the
+Sidebar "My Work" badge (rendered only when > 0 — see UX spec in MR #499).
+
+### Pagination
+
+DRF `LimitOffsetPagination`, default 100 / max 200. Initial design called for
+cursor pagination, but DRF's `CursorPagination` filters subsequent pages on
+the *leading* ordering field only — with a binary leading field
+(`_in_active_sprint` ∈ {0, 1}) the filter `_in_active_sprint > 1` returns zero
+rows, silently truncating page 2 to empty. Limit/offset preserves the
+multi-key sort `(_in_active_sprint, _sort_date, priority_rank, id)` intact
+across pages.
+
+The trade-off — concurrent inserts can shift offsets and produce duplicates
+or skips at page boundaries — is acceptable for this surface: Priya's task
+list rarely changes mid-scroll, and the sort that matches the UI's group
+rendering is more valuable than absolute pagination stability.
+
+### RBAC enforcement (Morgan's 🔴)
+
+The endpoint is hard-scoped to `assignee=request.user` in the viewset's
+`get_queryset`. There is **no `?user=` query escape hatch** — any such param
+is silently ignored. The queryset also re-checks
+`project__memberships__user=request.user, project__memberships__is_deleted=False`
+to defend against the "user removed from project but assignee FK still set"
+edge case. PMO-role callers get a 200 with their own tasks (which may be
+empty), not a tenant-wide read. Test: `test_no_user_query_escape_hatch`.
+
+### `X-Source` audit header
+
+The existing `PATCH /api/v1/tasks/{id}/` path now reads an optional `X-Source`
+request header and propagates the value (default `"unknown"`) into the
+`task.updated` webhook payload's `source` field. The /me/work surface sends
+`X-Source: my_work`; the schedule canvas and board surfaces continue to
+default to `unknown` until they're updated in follow-up issues.
+
+The header value is validated against an allow-list pattern (`[a-z_]{1,64}`)
+before reaching the stored webhook payload — third-party consumers receive
+either a recognizable surface tag or the literal string `"unknown"`, never
+arbitrary user-controlled text. This is the minimum viable answer to
+Morgan's surface-source audit concern — full historical-record source
+tracking is deferred (would require a Task field).
+
+### Mobile
+
+`packages/mobile/` does not yet exist. The endpoint is built mobile-ready
+(cacheable shape, cursor pagination, `server_version_high_water`) but the
+React Native client is deferred to a follow-up issue when ADR-0026 lands.
+
+### Zero state
+
+The /me/work page distinguishes two empty states:
+- **Flavor A** — user has no project memberships at all: a friendly empty
+  state with a "Load demo data" CTA (gated on the demo-seed endpoint
+  permitting non-admin callers) and a docs link.
+- **Flavor B** — user has memberships but no current assignments: docs-link
+  only, no demo CTA.
+
+The "Jira/Linear/GitHub sync coming soon" affordance lives in the docs page
+(`docs/features/my-work.md`) until Gap 3 (#500) ships.
+
+### Index strategy
+
+Partial composite index `task_assignee_status_idx` on
+`(assignee, status) WHERE NOT is_deleted` — added to `Task.Meta.indexes` and
+materialized by migration `projects.0033`. No existing Task index covers this
+access pattern; without it a cross-project My Work scan would be a sequential
+scan on the full task table.
+
+### Deferred follow-ups (file as separate issues post-merge)
+
+- `GET /sprints/{id}/team-work/` for Alex (Scrum Master view of one sprint
+  across the whole team) — same query shape, different scoping
+- Manager rollup for David (cross-project utilization by team member)
+- React Native client for #499 once `packages/mobile/` lands
+- Full historical-record source tracking (add `source` field to Task model)
+- `is_blocked` and `?include=blocking` query param (v1.2, per parent ADR)
