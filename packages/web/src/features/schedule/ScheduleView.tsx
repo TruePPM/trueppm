@@ -20,6 +20,7 @@ import { ScheduleToolbarToggle } from './ScheduleToolbarToggle';
 import { ScheduleSummaryChip } from './ScheduleSummaryChip';
 import { ScheduleAddMilestoneButton } from './ScheduleAddMilestoneButton';
 import { MilestonePulseOverlay } from './MilestonePulseOverlay';
+import { ScheduleLegend } from './ScheduleLegend';
 import { useScheduleKeyboard } from './useScheduleKeyboard';
 import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
@@ -911,7 +912,7 @@ export function ScheduleView() {
         />
       )}
 
-      <div className="flex flex-1 overflow-hidden" ref={timelineContainerRef}>
+      <div className="relative flex flex-1 overflow-hidden" ref={timelineContainerRef}>
         <TaskListPanel
           tasks={visibleTasks}
           pendingTaskIds={pendingTaskIds}
@@ -987,6 +988,10 @@ export function ScheduleView() {
 
           </div>
         )}
+
+        {/* Floating legend overlay (#474, ADR-0064) — anchored to the bottom-left of
+            the canvas viewport. Hidden below `lg` per design rule 12. */}
+        <ScheduleLegend taskListWidth={totalWidth} />
       </div>
 
       {/* Unscheduled gutter — tasks with no planned/CPM dates (#213) */}
