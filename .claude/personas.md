@@ -1,7 +1,21 @@
 # TruePPM — Core Personas
 
-Single source of truth for all six TruePPM user personas. Skills and CLAUDE.md
+Single source of truth for all eight TruePPM user personas. Skills and CLAUDE.md
 reference this file — do not duplicate persona content elsewhere.
+
+## TruePPM Collaboration Philosophy
+
+TruePPM is built for **collaborative planning and autonomous execution**. Every persona
+participates in planning at their level and executes (or governs) at theirs.
+
+- **PMO sets the frame**: goals, milestone commitments, resource budgets
+- **Teams choose their method**: waterfall tasks, agile sprints, kanban, or hybrid — within that frame
+- **The tool translates, not controls**: sprint velocity feeds the Gantt automatically; the PM
+  never needs to override a sprint; the agile team never needs to learn CPM
+
+A feature that forces agile teams to use PM vocabulary, or forces PMs to learn sprint mechanics,
+is a product failure. The tool should be invisible infrastructure: each persona uses the surface
+native to their practice, and the translation happens behind the scenes.
 
 ## P3M Layer → Persona Mapping
 
@@ -14,24 +28,30 @@ Portfolios         ←→  Marcus (PMO Director) + David (Resource Manager)
        ↕                   Receives: performance information and progress from projects
                            Sends: desired outcomes, benefits targets to Programs/Projects
 
-Programs/Projects  ←→  Sarah (Project Manager)
+Programs/Projects  ←→  Sarah (Project Manager) + Jordan (Product Owner)
        ↕                   Receives: outcomes/benefits targets from portfolio
                            Sends: deliverables + support info to Operations
 
 Operations         ←→  Alex (Scrum Master / Agile Delivery Lead) — coordinates execution
        ↕                   Receives: delivery targets; translates to sprints
                            Sends: velocity, burndown, impediment reports upward
+                       Morgan (Agile Coach — spans Operations ↔ Programs/Projects)
+                           Receives: team health signals; coaches PM-to-agile interface
+                           Sends: adoption health, practice maturity signals upward
                        Priya (Team Member — execution and maintenance)
                            Receives: sprint tasks, acceptance criteria
                            Sends: updates, fixes, value performance analysis back up
 ```
 
 **Feature resonance rule:**
-- Features loved primarily by **Sarah, Alex, or Priya** → Programs/Projects or Operations → **OSS**
+- Features loved primarily by **Sarah, Jordan, Alex, or Priya** → Programs/Projects or Operations → **OSS**
 - Features loved primarily by **Marcus or Janet** → Portfolio or Senior Leadership → **Enterprise**
 - **David** spans both: project-level allocation (OSS) vs. cross-project heat maps (Enterprise)
 - **Alex** is always OSS: sprint facilitation, velocity tracking, impediment management, and ceremony tooling are single-project operations
-- A feature that aggregates data *across* projects serves Marcus/Janet, not Sarah or Alex
+- **Jordan** is always OSS: backlog management, story prioritization, sprint content decisions, and velocity-based release forecasting are single-product operations
+- **Morgan** is primarily OSS: team health signals, ceremony tooling, and retro pipelines are single-team operations; coaching dashboards that aggregate across teams are Enterprise
+- **Jordan + Alex together** is the strongest OSS adoption signal — if a feature delights both the PO and the Scrum Master, it belongs in OSS without further debate
+- A feature that aggregates data *across* projects serves Marcus/Janet, not Sarah, Jordan, or Alex
 
 ## Product Life Cycle — What Each Persona Sees
 
@@ -53,11 +73,13 @@ Impact ▲
 - **Janet (COO)**: Sees the S-curve. "Are we in Growth or Maturity? When do we invest in Program B?" She doesn't care which individual project is running; she cares about the shape of the curve.
 - **Marcus (PMO)**: Sees Programs and resource demand. "Program A wraps up; Program B needs 3 concurrent projects. Do I have the people?"
 - **Sarah (PM)**: Sees one project box. "My project is Project 5 (Revisions). I need to deliver on schedule." Life cycle phase is irrelevant to her day-to-day.
+- **Jordan (PO)**: Sees the product backlog mapped to project phases. "We're in Revisions — which epics deliver the most value before the deadline?" She bridges business priority with sprint capacity.
 - **Alex (Scrum Master)**: Sees a two-week window. "What does the team commit to this sprint, and are we on track to finish it?" The project timeline is background noise; the sprint boundary is everything.
+- **Morgan (Agile Coach)**: Sees team health across the S-curve. "Are teams burning out in the Maturity crunch? Is the PMO-to-team translation creating friction or flow?" She measures practice quality, not delivery output.
 - **David (Resource Mgr)**: Sees the Maturity phase problem. Projects 4, 5, 6 running simultaneously means three PMs all want the same engineers.
 - **Priya (Team Member)**: Sees her task list. Project number, program, sprint — invisible to her day-to-day.
 
-**Feature resonance rule**: If a feature is most useful at the "peak" of the S-curve (Maturity, multiple concurrent projects) it belongs in Enterprise. If it's useful at any single point on the curve (one project at a time), it belongs in OSS.
+**Feature resonance rule**: If a feature is most useful at the "peak" of the S-curve (Maturity, multiple concurrent projects) it belongs in Enterprise. If it's useful at any single point on the curve (one project or product at a time), it belongs in OSS.
 
 ---
 
@@ -104,6 +126,10 @@ The most informative VoC findings are **tensions**, not consensus. When designin
 | Offline tolerance      | **Sarah**: must work with no signal               | **Marcus / Janet**: assume always-connected             |
 | Source of truth        | **Priya**: Jira (TruePPM is downstream)           | **Sarah**: TruePPM (Jira is one input among many)       |
 | Status cadence         | **Janet**: weekly digest, push to her             | **Alex**: live burndown, pull when curious              |
+| Backlog ownership      | **Jordan**: product backlog is PO territory; sprint content is a negotiation, not a PM assignment | **Sarah**: tasks come from the WBS; a separate PO role is unfamiliar in waterfall contexts |
+| Sprint sovereignty     | **Morgan**: sprint commitment belongs to the team; PMO visibility must not equal PMO control | **Marcus**: full visibility across all delivery mechanisms, including sprints, is a governance requirement |
+| Velocity transparency  | **Jordan / Alex**: velocity is a team planning tool; exposing it to management creates gaming pressure | **Marcus / Janet**: velocity is a capacity input for portfolio forecasting |
+| Tool mandates vs. adoption | **Morgan**: teams must voluntarily adopt tools or data quality rots within a quarter | **Marcus**: portfolio tooling standardization is a governance necessity; voluntary adoption is too slow |
 
 A feature that **resolves** a tension cleanly (e.g. a notification model that satisfies both Priya's signal-only preference *and* Marcus's visibility need) is high-leverage. A feature that ignores a tension is technical debt with a customer-facing fuse.
 
@@ -426,6 +452,106 @@ PSM and Professional Scrum Master are trademarks of Scrum.org.
 **Frequency & time budget**: 30 min 2× weekly (Sprint Planning + Retro) + 2 min daily check-in. Sprint Review and Retro are the high-investment touchpoints (~1–2 hr biweekly each). Monthly velocity / forecast review with the PMO.
 
 **10/10 anchor**: Sprint Planning ends in 45 minutes instead of 2 hours, the velocity chart is right there with a forecast range (not a single number), retro action items flow into next Sprint's backlog automatically, and Sarah upstairs sees the milestone update without him copy-pasting anything between tools.
+
+---
+
+## Persona 7 — Product Owner
+
+**Name**: Jordan Kim
+**Title**: Product Owner / Product Manager, Mid-size SaaS Product Company (150 engineers)
+**Age**: 32 | **Tech comfort**: High (uses Jira, Linear, or Aha! daily; familiar with story maps and release trains)
+
+**Goals**:
+- Own and prioritize the product backlog (epics → stories → acceptance criteria)
+- Forecast feature release dates from sprint velocity, not just CPM planned dates
+- Protect sprint commitment from late-breaking scope injections
+- Bridge business strategy (Janet's outcomes) with delivery capacity (Alex's team velocity)
+- Answer "when does feature X ship?" with a confidence range, not a false-precision date
+
+**Pain points**:
+- "My PM owns the schedule in MS Project and I own the backlog in Jira — they've never talked to each other"
+- "I can't answer 'when does the login redesign ship?' without exporting velocity to a spreadsheet and doing the math myself"
+- "Sprint Planning takes 3 hours because there's no tool that shows backlog priority, team capacity, AND the milestone it maps to in one view"
+- "Scope creep enters through the PM's side door: they add a 'quick urgent task' to the active sprint and it blows the sprint goal, with no audit trail for me to push back with"
+- "I write epics in Jira. The PM's Gantt has summary tasks. We're always reconciling two different representations of the same work."
+
+**What would make them switch tools**:
+- Backlog with epic/story grouping, priority ordering, and acceptance criteria fields
+- Velocity-based release forecast: "at current pace, epic X ships in ~4 sprints (±1)"
+- Sprint Planning view that combines capacity, backlog priority, and milestone alignment in one flow
+- Mid-sprint scope change requires an explicit deliberate decision — no silent task injection
+- PM sees what the team committed to; PM cannot change it without PO/SM awareness
+
+**Evaluation criteria** (in order):
+1. Can I manage a prioritized product backlog with epic/story hierarchy — not just a flat task list?
+2. Can I forecast release dates from velocity, not only from CPM planned dates?
+3. Does sprint planning show capacity + priority + milestone alignment in one flow?
+4. Is mid-sprint scope protected — can I see and approve additions before they land?
+5. Can the PM read sprint commitment without being able to override it unilaterally?
+
+**One-question filter**: *"Does this tell me when the feature ships, in my language?"* — a CPM planned date and a velocity-based forecast are different answers; Jordan needs the forecast.
+
+**Hard NOs (dealbreakers)**:
+- Flat task list with no backlog hierarchy (epic → story grouping required)
+- PM or admin can silently add tasks to an active sprint without PO/SM awareness
+- No velocity-based release forecasting — planned dates only is not enough
+- Forces the PO to learn CPM/WBS vocabulary just to manage their backlog
+
+**Decision authority**: Influencer for product team adoption; often co-signs with Alex. Their combined voice can override an individual PM's tool preference within a product org. Does not sign budget; escalates to Head of Product or VP Engineering.
+
+**Frequency & time budget**: 30 min daily (backlog grooming + sprint tracking) + 2 hr biweekly (Sprint Planning + Sprint Review). Occasional 1-hr release forecast review with stakeholders.
+
+**10/10 anchor**: Sprint Planning takes 60 minutes: Jordan opens the backlog sorted by priority, the team sees remaining capacity and the target milestone in the same view, they commit stories until capacity is full — and Sarah's Gantt milestone confidence updates automatically without a status meeting or spreadsheet.
+
+---
+
+## Persona 8 — Agile Coach / Transformation Lead
+
+**Name**: Morgan Lee
+**Title**: Agile Coach / Head of Delivery Transformation, Enterprise Professional Services (2,000 employees)
+**Age**: 44 | **Tech comfort**: High (evaluates tools against agile principles and team behavior, not feature lists)
+
+**Goals**:
+- Help 8–12 teams mature from ad-hoc delivery toward sustainable hybrid or agile practice
+- Protect team autonomy: sprint commitment belongs to the team, not to management
+- Surface team health signals (burnout risk, WIP creep, sustainable pace) to coaches — not to PMO dashboards
+- Build a bridge between PMO governance (Marcus) and delivery teams (Alex, Jordan, Priya) that feels like alignment, not surveillance
+- Accelerate adoption by eliminating the "yet another mandatory PM tool" objection
+
+**Pain points**:
+- "Every 'hybrid' tool I've evaluated is waterfall with a board bolted on — the PM still controls the sprint"
+- "Teams game velocity when management is watching it. If the PMO can see each team's velocity as a metric, it becomes a pressure gauge, not a health signal"
+- "I spend 30% of my coaching time fighting the tool instead of coaching the team"
+- "Retro action items die in Confluence or on a sticky note. They need to automatically appear in the next sprint's backlog — not get copy-pasted by whoever remembers to do it"
+- "When a tool is mandated by the PMO, team adoption is performative. They fill in the minimum required fields, data quality rots, and Marcus's dashboards become fiction within a quarter"
+
+**What would make them champion the tool**:
+- Clear separation: team owns sprint internals; PMO sees milestone health and schedule confidence, not individual velocity metrics
+- Sprint boundary enforcement: mid-sprint scope changes require an explicit deliberate decision (not silent injection by anyone with PM-level access)
+- Retro-to-backlog pipeline that actually works — action items from the retro appear in the next sprint's backlog automatically
+- Team health signals (WIP overload trend, sprint-over-sprint throughput stability) visible to Alex and Morgan, not automatically exposed to the PMO
+- Configurable visibility: teams choose what the PM and PMO see beyond milestone health
+
+**Evaluation criteria** (in order):
+1. Is the sprint genuinely team-owned, or can PMs and admins override sprint content without team notification?
+2. Are team health signals separated from PMO-visible metrics (no automatic velocity → PMO pipeline)?
+3. Does the tool reduce ceremony overhead, or add "fill this in for the PMO" steps that teams will skip?
+4. Does the retro-to-backlog pipeline actually work, or is it only a UI checkbox?
+5. Will teams adopt it voluntarily, or does it require top-down mandate to survive?
+
+**One-question filter**: *"Does this give teams autonomy, or give management control?"* — a tool that genuinely delivers both is what they have been looking for; a tool that tips toward control is exactly what they've been hired to undo.
+
+**Hard NOs (dealbreakers)**:
+- PMO has real-time visibility into sprint internals (task-level who-is-working-on-what, daily hours logged)
+- Sprint scope can be changed by anyone with PM-level RBAC without team notification or consent
+- Velocity is automatically exposed as a productivity metric on PMO or executive dashboards
+- Tool is deployed by mandate only — no voluntary adoption path means Priya churns, data rots, and Marcus's investment fails
+
+**Decision authority**: High influencer — can champion or kill adoption across 8–12 teams. Reports to CTO or Head of Delivery. If Morgan endorses, team adoption follows. If Morgan opposes, no PMO mandate survives more than one quarter. Does not sign the contract.
+
+**Frequency & time budget**: 30 min weekly review of team health signals + up to 2 hr biweekly per team for retrospectives. Quarterly 1-day practice maturity review. Does not use the tool as a daily work surface — observes and coaches those who do.
+
+**10/10 anchor**: Three months after rollout, a skeptical senior developer on Alex's team opens TruePPM voluntarily — because the tool respects the sprint boundary, the retro action they flagged last sprint appeared in this sprint's backlog automatically, and the PMO dashboard shows milestone confidence without anyone filing a status report.
 
 ---
 

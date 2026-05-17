@@ -2,30 +2,31 @@
 name: voice-of-customer
 model: sonnet
 description: >
-  Simulate feedback from TruePPM's six core personas: Project Manager, PMO Director /
+  Simulate feedback from TruePPM's eight core personas: Project Manager, PMO Director /
   Portfolio Manager, Team Member / Contributor, Resource Manager, Executive Sponsor
-  (C-Suite), and Scrum Master / Agile Delivery Lead. Use when evaluating features,
-  prioritizing backlog, writing user stories, reviewing UX designs, or testing whether
-  a feature resonates with the target market.
+  (C-Suite), Scrum Master / Agile Delivery Lead, Product Owner, and Agile Coach /
+  Transformation Lead. Use when evaluating features, prioritizing backlog, writing user
+  stories, reviewing UX designs, or testing whether a feature resonates with the target
+  market.
 ---
 
 # Voice of Customer Skill
 
 **Before producing any output, read `.claude/personas.md`** — that file is the single
-source of truth for all six persona definitions, P3M layer mappings, feature
+source of truth for all eight persona definitions, P3M layer mappings, feature
 resonance rules, and the VoC scoring rubric. Do not use any persona content defined
 outside that file.
 
 ## How to use this skill
 
-The 6 personas are independent — there is no reason to evaluate them serially. This
+The 8 personas are independent — there is no reason to evaluate them serially. This
 skill **delegates each persona to a parallel Sonnet sub-agent** and aggregates the
-verdicts in the main context. Same total cost as serial inline evaluation, ~6× faster
+verdicts in the main context. Same total cost as serial inline evaluation, ~8× faster
 wall-time, and the main conversation context stays clean.
 
-### Step 1 — Spawn 6 parallel Sonnet sub-agents
+### Step 1 — Spawn 8 parallel Sonnet sub-agents
 
-Using the `Agent` tool, in a **single message** with **6 tool calls in parallel**, spawn
+Using the `Agent` tool, in a **single message** with **8 tool calls in parallel**, spawn
 one sub-agent per persona. Each sub-agent receives:
 
 - The full persona definition (the relevant section from `.claude/personas.md`)
@@ -59,8 +60,8 @@ Top concerns: <bullet list of any hard-NOs triggered or evaluation criteria miss
 ```
 
 Spawn the sub-agents in P3M layer order so their results arrive in a sensible order:
-Janet → Marcus → David → Sarah → Alex → Priya. The Agent tool handles parallelism
-when calls are issued in a single message.
+Janet → Marcus → David → Sarah → Jordan → Alex → Morgan → Priya. The Agent tool handles
+parallelism when calls are issued in a single message.
 
 ### Step 2 — Aggregate in main context
 
@@ -75,7 +76,9 @@ delegate aggregation — synthesizing across personas is the value-add of this s
 | Marcus (PMO) | N/10 | … |
 | David (Resource Manager) | N/10 | … |
 | Sarah (PM) | N/10 | … |
+| Jordan (Product Owner) | N/10 | … |
 | Alex (Scrum Master) | N/10 | … |
+| Morgan (Agile Coach) | N/10 | … |
 | Priya (Team Member) | N/10 | … |
 
 **Average**: X.X/10 | **OSS/Enterprise signal**: [who loves it most → which P3M layer]
@@ -108,6 +111,10 @@ Skip the parallel pattern and run serially in main context if **fewer than 3 per
 are relevant** to the feature (e.g., a backend-only refactor that only meaningfully
 affects Sarah and Priya). For ≥3 personas, parallel is always faster and not more
 expensive.
+
+Note: Jordan (Product Owner) and Morgan (Agile Coach) are most relevant to features
+touching backlog management, sprint sovereignty, team health, and the hybrid bridge.
+For pure PMO/portfolio features, they can be omitted from the panel with a note.
 
 ## What this skill does NOT do
 
