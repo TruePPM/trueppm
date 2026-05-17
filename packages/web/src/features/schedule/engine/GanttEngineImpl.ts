@@ -96,6 +96,14 @@ export class GanttEngineImpl implements GanttEngine {
   private _viewportWidth = 0;
   private _viewportHeight = 0;
   private _selectedTaskIds: Set<string> = new Set();
+  // Hover chain — set from the React side (#475). When non-null, the canvas
+  // dims out-of-chain bars (globalAlpha 0.25) and recolors in-chain dep
+  // arrows (predecessor chain blue, successor chain green). React owns the
+  // BFS compute; the engine just paints what it's told.
+  private _hoverChain: import('./GanttEngine').HoverChain | null = null;
+  // Last hovered task id reported via `task-hover`. Used to debounce the
+  // event to taskId transitions only (pointermove fires many times per row).
+  private _lastHoveredTaskId: string | null = null;
   private _hitIndex: HitIndex | null = null;
   private _dragFSM: GanttDragFSM = new GanttDragFSM();
 
@@ -183,6 +191,10 @@ export class GanttEngineImpl implements GanttEngine {
     this._ixCanvas.addEventListener('pointerdown', this._onPointerDown);
     this._ixCanvas.addEventListener('pointerup', this._onPointerUp);
     this._ixCanvas.addEventListener('pointercancel', this._onPointerCancel);
+    // Pointer-leave clears the hover chain (#475) — without this, moving the
+    // cursor out of the canvas while still hovering a bar leaves the chain
+    // stuck on screen until the next pointermove.
+    this._ixCanvas.addEventListener('pointerleave', this._onPointerLeave);
     // Keyboard listeners
     this._ixCanvas.addEventListener('dblclick', this._onDblClick);
 
@@ -287,6 +299,20 @@ export class GanttEngineImpl implements GanttEngine {
   }
 
   // ---------------------------------------------------------------------------
+  // GanttEngine — Hover chain (#475)
+  // ---------------------------------------------------------------------------
+
+  setHoverChain(chain: import('./GanttEngine').HoverChain | null): void {
+    // Reference comparison is enough — React calls with a stable identity
+    // until the BFS result actually changes (useMemo in useDependencyHover).
+    if (this._hoverChain === chain) return;
+    this._hoverChain = chain;
+    // Hover affects bars and arrows across the whole visible range, not just
+    // one row — flag a full repaint on the next rAF tick.
+    this._fullRepaintPending = true;
+  }
+
+  // ---------------------------------------------------------------------------
   // GanttEngine — Event emitter
   // ---------------------------------------------------------------------------
 
@@ -354,6 +380,7 @@ export class GanttEngineImpl implements GanttEngine {
     this._ixCanvas.removeEventListener('pointerdown', this._onPointerDown);
     this._ixCanvas.removeEventListener('pointerup', this._onPointerUp);
     this._ixCanvas.removeEventListener('pointercancel', this._onPointerCancel);
+    this._ixCanvas.removeEventListener('pointerleave', this._onPointerLeave);
     this._ixCanvas.removeEventListener('dblclick', this._onDblClick);
 
     this._resizeObserver.disconnect();
@@ -605,7 +632,16 @@ export class GanttEngineImpl implements GanttEngine {
       this._paintTaskAt(ctx, i, /* skipLabel */ true);
     }
 
-    drawDependencyArrows(ctx, this._tasks, this._links, this._scales, this._scrollLeft, this._scrollTop, this._selectedTaskIds);
+    drawDependencyArrows(
+      ctx,
+      this._tasks,
+      this._links,
+      this._scales,
+      this._scrollLeft,
+      this._scrollTop,
+      this._selectedTaskIds,
+      this._hoverChain,
+    );
 
     for (let i = firstRow; i <= lastRow; i++) {
       const task = this._tasks[i];
@@ -648,9 +684,19 @@ export class GanttEngineImpl implements GanttEngine {
 
     const isSelected = this._selectedTaskIds.has(task.id);
 
+    // Hover-chain dimming (#475) — bars NOT in the hovered task's chain fade
+    // to 25% opacity. The chain set is empty when no hover is active.
+    const isInChain =
+      this._hoverChain == null
+        ? true
+        : task.id === this._hoverChain.hoveredId ||
+          this._hoverChain.predecessors.has(task.id) ||
+          this._hoverChain.successors.has(task.id);
+
     // Translate so that scrollTop is offset
     ctx.save();
     ctx.translate(0, -this._scrollTop);
+    if (!isInChain) ctx.globalAlpha = 0.25;
 
     if (task.isMilestone) {
       drawMilestone(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected);
@@ -778,6 +824,15 @@ export class GanttEngineImpl implements GanttEngine {
         const canvasY = (e.clientY - this._ixCanvas.getBoundingClientRect().top) + this._scrollTop;
         this._hoverZone = this._hitIndex.query(canvasX, canvasY, isTouch);
         this._updateCursor(this._hoverZone);
+        // Emit task-hover transitions so React-side useDependencyHover can
+        // recompute the chain (#475). Coalesced to taskId changes only —
+        // pointermove fires dozens of times per row but the chain only needs
+        // to refresh when the underlying task changes.
+        const hoveredTaskId = this._hoverZone?.taskId ?? null;
+        if (hoveredTaskId !== this._lastHoveredTaskId) {
+          this._lastHoveredTaskId = hoveredTaskId;
+          this._emit('task-hover', { taskId: hoveredTaskId });
+        }
       }
       return;
     }
@@ -830,6 +885,16 @@ export class GanttEngineImpl implements GanttEngine {
     } catch {
       // Ignore if already released
     }
+  };
+
+  private readonly _onPointerLeave = (): void => {
+    // Clear hover state when the cursor leaves the canvas entirely (#475).
+    if (this._lastHoveredTaskId !== null) {
+      this._lastHoveredTaskId = null;
+      this._emit('task-hover', { taskId: null });
+    }
+    this._hoverZone = null;
+    this._updateCursor(null);
   };
 
   private readonly _onDblClick = (e: MouseEvent): void => {

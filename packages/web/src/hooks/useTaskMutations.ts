@@ -530,3 +530,126 @@ export function useRemoveDependency(projectId: string | null) {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// useToggleComplete — Space-toggle Mark complete from Schedule canvas (#477)
+//
+// Thin wrapper over PATCH /tasks/{id}/ with optimistic flip + rollback.
+// The server auto-injects `actual_finish`, `actual_start`, and zeroes
+// `remaining_points` on COMPLETE; `Task.save()` coerces percent_complete=100.
+// Client only sends `{status}`. The toggle reverses by re-PATCHing the
+// previous status snapshotted at click time (ADR-0066 Q3).
+// ---------------------------------------------------------------------------
+
+export interface ToggleCompletePayload {
+  id: string;
+  projectId: string;
+  /** Status the task held before this toggle — used as the "off" state. */
+  previousStatus: Task['status'];
+}
+
+export function useToggleComplete() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, previousStatus }: ToggleCompletePayload) => {
+      const nextStatus = previousStatus === 'COMPLETE' ? 'NOT_STARTED' : 'COMPLETE';
+      const res = await apiClient.patch<ApiTaskResponse>(`/tasks/${id}/`, {
+        status: nextStatus,
+      });
+      return res.data;
+    },
+    onMutate: async ({ id, projectId, previousStatus }) => {
+      await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
+      const snapshot = queryClient.getQueryData<Task[]>(['tasks', projectId]);
+      const nextStatus = previousStatus === 'COMPLETE' ? 'NOT_STARTED' : 'COMPLETE';
+      queryClient.setQueryData<Task[]>(['tasks', projectId], (old) =>
+        old?.map((t) => {
+          if (t.id !== id) return t;
+          // Match the server's COMPLETE coercion (`progress` is the TS-side
+          // mirror of API `percent_complete` — useScheduleTasks line 135) so
+          // the row settles to its final state immediately, no green-flash
+          // → snap-back when the server confirms (~150 ms typical).
+          return nextStatus === 'COMPLETE'
+            ? { ...t, status: nextStatus, progress: 100, isComplete: true }
+            : { ...t, status: nextStatus };
+        }) ?? [],
+      );
+      return { snapshot };
+    },
+    onError: (_err, { projectId }, context) => {
+      if (context?.snapshot) {
+        queryClient.setQueryData(['tasks', projectId], context.snapshot);
+      }
+    },
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// useDuplicateTask — ⌘D / context-menu Duplicate from Schedule canvas (#477)
+//
+// Reads the source task's name/duration/parent/sprint and POSTs a new task
+// with a `(copy)` (or `(copy N)`) suffix. Dependencies are never cloned
+// (ADR-0066 Q1). Sprint inheritance follows ADR-0066 Q2: clone inherits the
+// source's sprint_id; when source's sprint is ACTIVE the caller surfaces an
+// Undo toast separately — the hook itself is mechanical.
+//
+// Frontend-only via the existing POST endpoint: the server already places
+// the task under `parent_id` with `select_for_update()` and bumps server_version.
+// ---------------------------------------------------------------------------
+
+export interface DuplicateTaskPayload {
+  /** Project UUID — used for cache invalidation. */
+  projectId: string;
+  /** Source task fields the clone needs. */
+  source: {
+    name: string;
+    duration: number;
+    parent_id: string | null;
+    sprint_id: string | null;
+    /** Preserve milestone shape (duration 0 stays as a milestone). */
+    is_milestone: boolean;
+  };
+  /** Existing sibling names — used to compute the "(copy)" suffix uniquely. */
+  siblingNames: string[];
+}
+
+/** Build the "(copy)" suffix that doesn't collide with an existing sibling. */
+export function buildCopyName(sourceName: string, siblingNames: string[]): string {
+  // Strip an existing "(copy)" or "(copy N)" suffix so re-duplicating a copy
+  // doesn't produce "Foo (copy) (copy)".
+  const stripped = sourceName.replace(/\s*\(copy(?:\s+\d+)?\)\s*$/i, '');
+  const taken = new Set(siblingNames);
+  if (!taken.has(`${stripped} (copy)`)) return `${stripped} (copy)`;
+  for (let n = 2; n < 1000; n++) {
+    const candidate = `${stripped} (copy ${n})`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  // Pathological fallback — exceedingly unlikely to hit in real projects.
+  return `${stripped} (copy ${Date.now()})`;
+}
+
+export function useDuplicateTask() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ projectId, source, siblingNames }: DuplicateTaskPayload) => {
+      const name = buildCopyName(source.name, siblingNames);
+      const res = await apiClient.post<ApiTaskResponse>('/tasks/', {
+        project: projectId,
+        name,
+        duration: source.duration,
+        ...(source.parent_id != null ? { parent_id: source.parent_id } : {}),
+        ...(source.sprint_id != null ? { sprint: source.sprint_id } : {}),
+        ...(source.is_milestone ? { is_milestone: true } : {}),
+      });
+      return res.data;
+    },
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });
+    },
+  });
+}

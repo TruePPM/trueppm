@@ -135,9 +135,18 @@ interface Props {
    * Per-task dep-chip data — shown on the selected task row when focus mode is on.
    */
   depChipsById?: Map<string, TaskDepChips>;
+  /** Hover-chain callback (#475) — forwarded to each row. */
+  onHoverChange?: (taskId: string | null) => void;
+  /** Dependency picker entry-point (#477) — forwarded to each row's right-click menu. */
+  onAddDependencyRequest?: (taskId: string, mode: 'predecessor' | 'successor') => void;
+  /**
+   * Sprint lookup by id — used by each row's Duplicate action to render the
+   * "Added to Sprint X · Undo" toast only when the source sprint is ACTIVE.
+   */
+  sprintsById?: Map<string, { id: string; name: string; state: string }>;
 }
 
-export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visible, setWidth, totalWidth, summaryIds, expandedIds, onToggle, focusChainIds, depChipsById }: Props) {
+export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visible, setWidth, totalWidth, summaryIds, expandedIds, onToggle, focusChainIds, depChipsById, onHoverChange, onAddDependencyRequest, sprintsById }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollToTaskId = useScheduleStore((s) => s.scrollToTaskId);
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
@@ -148,6 +157,18 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visibl
     for (const task of tasks) map.set(task.id, computeSiblingIds(task, tasks));
     return map;
   }, [tasks]);
+
+  // Per-task sibling NAMES (not just ids) — used by the Duplicate action to
+  // suffix "(copy)" uniquely without collisions. Cached once per tasks change.
+  const siblingNamesMap = useMemo(() => {
+    const taskById = new Map(tasks.map((t) => [t.id, t]));
+    const map = new Map<string, string[]>();
+    for (const task of tasks) {
+      const sibIds = siblingIdsMap.get(task.id) ?? [];
+      map.set(task.id, sibIds.map((id) => taskById.get(id)?.name ?? '').filter(Boolean));
+    }
+    return map;
+  }, [tasks, siblingIdsMap]);
 
   const nameSuggestions = useMemo(() => computeNameSuggestions(tasks), [tasks]);
 
@@ -222,8 +243,12 @@ export function TaskListPanel({ tasks, pendingTaskIds, scrollRef, widths, visibl
                   dimmed={focusChainIds !== undefined && focusChainIds.size > 0 && !focusChainIds.has(task.id)}
                   depChips={depChipsById?.get(task.id)}
                   siblingIds={siblingIdsMap.get(task.id)}
+                  siblingNames={siblingNamesMap.get(task.id)}
                   nameSuggestions={nameSuggestions}
                   milestoneParents={milestoneParentsMap.get(task.id)}
+                  onHoverChange={onHoverChange}
+                  onAddDependencyRequest={onAddDependencyRequest}
+                  sourceSprint={task.sprintId ? sprintsById?.get(task.sprintId) ?? null : null}
                 />
               </div>
             );

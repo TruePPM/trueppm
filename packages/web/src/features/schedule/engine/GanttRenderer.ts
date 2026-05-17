@@ -1028,6 +1028,8 @@ interface PendingPath {
   pts: Array<{ x: number; y: number }>;
   stroke: string;
   lineWidth: number;
+  /** Hover-chain (#475) — non-chain arrows fade to 20% alpha. Defaults to 1. */
+  alpha?: number;
   arrowhead?: { tipX: number; tipY: number; angle: number };
   bezier?: { cx1: number; cx2: number };
 }
@@ -1171,6 +1173,7 @@ function drawPathWithHops(
   ctx.strokeStyle = path.stroke;
   ctx.fillStyle = path.stroke;
   ctx.lineWidth = path.lineWidth;
+  if (path.alpha !== undefined && path.alpha < 1) ctx.globalAlpha = path.alpha;
 
   if (path.bezier) {
     const { cx1, cx2 } = path.bezier;
@@ -1221,6 +1224,24 @@ function drawPathWithHops(
   ctx.restore();
 }
 
+/**
+ * Hover-chain coloring (#475). When a chain is supplied, each FS arrow
+ * receives one of three pens:
+ *   - blue (#60A5FA) when both endpoints are in `predecessors ∪ {hoveredId}` —
+ *     edge belongs to the hovered task's incoming chain
+ *   - green (#34D399) when both endpoints are in `successors ∪ {hoveredId}` —
+ *     outgoing chain
+ *   - charcoal at 20% alpha when neither role applies — non-chain arrows fade
+ *
+ * Selection still wins for explicit selectedTaskIds; chain coloring kicks in
+ * only when an arrow is not part of the explicit selection.
+ */
+export interface DepArrowHoverChain {
+  hoveredId: string;
+  predecessors: ReadonlySet<string>;
+  successors: ReadonlySet<string>;
+}
+
 export function drawDependencyArrows(
   ctx: CanvasRenderingContext2D,
   tasks: Task[],
@@ -1229,6 +1250,7 @@ export function drawDependencyArrows(
   scrollLeft: number,
   scrollTop: number,
   selectedTaskIds: ReadonlySet<string> = EMPTY_SELECTION,
+  hoverChain: DepArrowHoverChain | null = null,
 ): void {
   if (links.length === 0) return;
 
@@ -1408,13 +1430,14 @@ export function drawDependencyArrows(
     const tgtY = tgt.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
     if (offScreen(src.barRight, tgt.barLeft, srcY, tgtY, cpWidth, cpHeight)) return;
     const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
-    const { stroke, lineWidth } = arrowPen(isSelected);
+    const role = arrowRole(link.sourceId, link.targetId, hoverChain);
+    const { stroke, lineWidth, alpha } = arrowPen(isSelected, role);
     const arrowSize = 9;
     const tipX = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
     const srcBox = boxFor(src, srcY, milestoneHalfDiag);
     const tgtBox = boxFor(tgt, tgtY, milestoneHalfDiag);
     const pts = calculateDependencyPath(srcBox, tgtBox, obstaclesFor(link.sourceId, link.targetId), cpHeight, tipX - arrowSize);
-    pendingPaths.push({ pts, stroke, lineWidth, arrowhead: { tipX, tipY: tgtY, angle: 0 } });
+    pendingPaths.push({ pts, stroke, lineWidth, alpha, arrowhead: { tipX, tipY: tgtY, angle: 0 } });
   };
 
   for (const [targetId, group] of fsByTarget) {
@@ -1465,21 +1488,27 @@ export function drawDependencyArrows(
     for (const { link, src } of validPreds) {
       const srcY = src.rowIndex * ROW_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT / 2 - scrollTop;
       const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
-      const { stroke, lineWidth } = arrowPen(isSelected);
+      const role = arrowRole(link.sourceId, link.targetId, hoverChain);
+      const { stroke, lineWidth, alpha } = arrowPen(isSelected, role);
       const srcBox = boxFor(src, srcY, milestoneHalfDiag);
       const tgtBox = boxFor(tgt, tgtY, milestoneHalfDiag);
       if (offScreen(src.barRight, junctionX, srcY, junctionY, cpWidth, cpHeight)) continue;
       const obstaclesForLink = obstaclesFor(link.sourceId, link.targetId);
       const pts = calculateDependencyPath(srcBox, tgtBox, obstaclesForLink, cpHeight, junctionX, true);
-      pendingPaths.push({ pts, stroke, lineWidth });
+      pendingPaths.push({ pts, stroke, lineWidth, alpha });
     }
 
     // Trunk: 2-point horizontal from junction east to the arrowhead base.
-    const { stroke: trunkStroke, lineWidth: trunkLineWidth } = arrowPen(selectedGroup);
+    // The trunk's chain role is derived from the merge target — every
+    // predecessor edge into the same target shares its role on a merge.
+    const trunkRole = arrowRole(targetId, targetId, hoverChain);
+    const { stroke: trunkStroke, lineWidth: trunkLineWidth, alpha: trunkAlpha } =
+      arrowPen(selectedGroup, trunkRole);
     pendingPaths.push({
       pts: [{ x: junctionX, y: junctionY }, { x: tipX - arrowSize, y: junctionY }],
       stroke: trunkStroke,
       lineWidth: trunkLineWidth,
+      alpha: trunkAlpha,
       arrowhead: { tipX, tipY: junctionY, angle: 0 },
     });
 
@@ -1506,12 +1535,14 @@ export function drawDependencyArrows(
     }
     if (offScreen(x1, x2, srcY, tgtY, cpWidth, cpHeight)) continue;
     const isSelected = selectedTaskIds.has(link.sourceId) || selectedTaskIds.has(link.targetId);
-    const { stroke, lineWidth } = arrowPen(isSelected);
+    const role = arrowRole(link.sourceId, link.targetId, hoverChain);
+    const { stroke, lineWidth, alpha } = arrowPen(isSelected, role);
     const angle = Math.atan2(0, x2 - cx2);
     pendingPaths.push({
       pts: [{ x: x1, y: srcY }, { x: x2, y: tgtY }],
       stroke,
       lineWidth,
+      alpha,
       arrowhead: { tipX: x2, tipY: tgtY, angle },
       bezier: { cx1, cx2 },
     });
@@ -1561,14 +1592,55 @@ export function drawDependencyArrows(
 
 const EMPTY_SELECTION: ReadonlySet<string> = new Set();
 
+// Hover-chain arrow colors (#475). Constant across light/dark — both colors
+// were measured ≥ 3.06:1 against light AND dark surfaces (WCAG 1.4.11 spec
+// floor for non-text components), so a single value works in both modes.
+const CHAIN_ARROW_PREDECESSOR = '#60A5FA'; // blue — flows into hovered task
+const CHAIN_ARROW_SUCCESSOR = '#34D399'; // green — flows out of hovered task
+const CHAIN_ARROW_DIM_ALPHA = 0.2; // non-chain arrows fade to 20% of the charcoal default
+
+type ArrowRole = 'predecessor' | 'successor' | 'dim' | 'normal';
+
+function arrowRole(
+  sourceId: string,
+  targetId: string,
+  chain: DepArrowHoverChain | null,
+): ArrowRole {
+  if (!chain) return 'normal';
+  const { hoveredId, predecessors, successors } = chain;
+  // Predecessor chain: both endpoints in predecessors ∪ {hoveredId}.
+  const sourceInPred = sourceId === hoveredId || predecessors.has(sourceId);
+  const targetInPred = targetId === hoveredId || predecessors.has(targetId);
+  if (sourceInPred && targetInPred) return 'predecessor';
+  // Successor chain: both endpoints in successors ∪ {hoveredId}.
+  const sourceInSucc = sourceId === hoveredId || successors.has(sourceId);
+  const targetInSucc = targetId === hoveredId || successors.has(targetId);
+  if (sourceInSucc && targetInSucc) return 'successor';
+  return 'dim';
+}
+
 /**
- * Pen settings (stroke color + line width) for an arrow.
+ * Pen settings (stroke color + line width + alpha) for an arrow.
+ *
  * Critical-path arrows do NOT change color — critical state is conveyed by the
  * red BAR fill (rule 73), not the connector. Issue #466 gap analysis P0-1.
+ *
+ * Hover-chain (#475): when a chain is supplied, in-chain arrows recolor to
+ * blue (predecessors) or green (successors); out-of-chain arrows dim to 20%.
+ * Explicit selection still wins so a selected arrow stays prominent.
  */
-function arrowPen(isSelected: boolean): { stroke: string; lineWidth: number } {
-  if (isSelected) return { stroke: _palette.selectionRing, lineWidth: 2.5 };
-  return { stroke: _palette.arrowNormal, lineWidth: 2 };
+function arrowPen(
+  isSelected: boolean,
+  role: ArrowRole = 'normal',
+): { stroke: string; lineWidth: number; alpha: number } {
+  if (isSelected) return { stroke: _palette.selectionRing, lineWidth: 2.5, alpha: 1 };
+  if (role === 'predecessor')
+    return { stroke: CHAIN_ARROW_PREDECESSOR, lineWidth: 2, alpha: 1 };
+  if (role === 'successor')
+    return { stroke: CHAIN_ARROW_SUCCESSOR, lineWidth: 2, alpha: 1 };
+  if (role === 'dim')
+    return { stroke: _palette.arrowNormal, lineWidth: 2, alpha: CHAIN_ARROW_DIM_ALPHA };
+  return { stroke: _palette.arrowNormal, lineWidth: 2, alpha: 1 };
 }
 
 /** RoutingBox for a task entry in the taskMap. */

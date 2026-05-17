@@ -23,7 +23,7 @@ const SECTIONS: ShortcutSection[] = [
   {
     title: 'Editing cells',
     entries: [
-      { keys: ['Enter', 'F2'], label: 'Edit selected cell' },
+      { keys: ['F2'], label: 'Edit selected cell' },
       { keys: ['Double-click'], label: 'Edit cell' },
       { keys: ['letter'], label: 'Start typing in Name cell' },
       { keys: ['Tab'], label: 'Save and move to next field' },
@@ -40,10 +40,19 @@ const SECTIONS: ShortcutSection[] = [
     ],
   },
   {
-    title: 'Creating & deleting',
+    title: 'Quick actions',
     entries: [
-      { keys: ['Enter'], label: 'New row below (when row is focused)' },
+      { keys: ['Space'], label: 'Mark complete / un-complete focused row' },
+      { keys: ['⌘', 'D'], label: 'Duplicate focused row' },
+      { keys: ['Enter'], label: 'Open task drawer' },
       { keys: ['⌫'], label: 'Delete row' },
+    ],
+  },
+  {
+    title: 'Dependencies',
+    entries: [
+      { keys: ['Hover'], label: 'Reveal predecessor (blue) and successor (green) chain' },
+      { keys: ['Right-click'], label: 'Add predecessor / successor via picker' },
     ],
   },
   {

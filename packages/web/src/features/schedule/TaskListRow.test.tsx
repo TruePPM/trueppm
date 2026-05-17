@@ -206,12 +206,14 @@ describe('TaskListRow', () => {
     expect(useScheduleStore.getState().selectedTaskId).toBe('t1');
   });
 
-  it('Space key toggles selection', async () => {
+  it('Space key NO LONGER toggles selection — it fires Mark complete now (#477, ADR-0066 Q5)', async () => {
     renderWithRouter(<TaskListRow task={base} level={1} widths={defaultWidths} visible={defaultVisible} />);
     const row = screen.getByRole('row');
     row.focus();
     await userEvent.keyboard(' ');
-    expect(useScheduleStore.getState().selectedTaskId).toBe('t1');
+    // The behavior change: Space no longer opens the drawer; it dispatches a
+    // status mutation. The drawer-toggling path stays bound to Enter.
+    expect(useScheduleStore.getState().selectedTaskId).toBeNull();
   });
 
   it('F2 key enters edit mode', async () => {

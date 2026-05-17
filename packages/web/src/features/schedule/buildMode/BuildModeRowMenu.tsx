@@ -26,7 +26,9 @@ export interface BuildModeRowMenuProps {
   onClose: () => void;
 }
 
-const MENU_WIDTH = 200;
+// 220px (bumped from 200 in ADR-0066) fits "Add predecessor…" + the ⌘D hint
+// without truncation while still flipping cleanly inside a 1024-wide viewport.
+const MENU_WIDTH = 220;
 const ITEM_HEIGHT = 32;
 
 /**

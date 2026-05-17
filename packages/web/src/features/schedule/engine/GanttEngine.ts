@@ -14,6 +14,20 @@
 import type { Task, TaskLink } from '@/types';
 import type { GanttScaleData, ZoomLevel } from './GanttScaleData';
 
+/**
+ * Hover chain payload pushed from React via `engine.setHoverChain` (#475).
+ *
+ * `predecessors` and `successors` are BFS-reachable closures from `hoveredId`
+ * over the dependency graph. The renderer paints arrows in blue when both
+ * endpoints are in `predecessors ∪ {hoveredId}` and in green when both are in
+ * `successors ∪ {hoveredId}`; everything else dims.
+ */
+export interface HoverChain {
+  hoveredId: string;
+  predecessors: ReadonlySet<string>;
+  successors: ReadonlySet<string>;
+}
+
 // ---------------------------------------------------------------------------
 // Event map
 // ---------------------------------------------------------------------------
@@ -92,6 +106,17 @@ export interface GanttEngineEventMap {
    * Cmd+click, or keyboard navigation).
    */
   'selection-change': { taskIds: string[] };
+
+  /**
+   * Fired when the pointer enters or leaves a task hit zone on the canvas
+   * (#475 hover chain). Payload `taskId` is null when the cursor moves off
+   * every bar / milestone / summary endcap. React's `useDependencyHover`
+   * listener computes the chain and pushes it back via `setHoverChain`.
+   *
+   * Coalesced internally — only fires when the hovered task id actually
+   * changes between pointermove events, so listeners don't see noise.
+   */
+  'task-hover': { taskId: string | null };
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +189,22 @@ export interface GanttEngine {
 
   /** Current selection. Immutable — do not mutate the returned set. */
   readonly selectedTaskIds: ReadonlySet<string>;
+
+  // ── Hover chain (#475) ───────────────────────────────────────────────────
+
+  /**
+   * Push the hovered-task chain set to the canvas so it can dim non-chain
+   * bars and recolor in-chain dependency arrows (blue = predecessor chain,
+   * green = successor chain). Pass `null` to clear the chain — non-chain
+   * dimming and chain coloring stop.
+   *
+   * Driven by React: `TaskListRow.onMouseEnter` raises a callback that
+   * flows through `ScheduleView` and `useDependencyHover`, which composes
+   * the predecessor and successor sets via BFS over the dependency graph
+   * and then calls this setter. The engine never recomputes — it only
+   * paints what it's told.
+   */
+  setHoverChain(chain: HoverChain | null): void;
 
   // ── Event emitter ─────────────────────────────────────────────────────────
 
