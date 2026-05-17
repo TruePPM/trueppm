@@ -317,6 +317,8 @@ export interface ProjectVelocity {
   forecast_range_high: number | null;
   rolling_avg_tasks: number | null;
   rolling_stdev_tasks: number | null;
+  /** Rolling 6-sprint team velocity in points-per-working-day (ADR-0065). */
+  team_velocity_per_day: number | null;
 }
 
 /** GET /api/v1/projects/{id}/velocity/ — last-8 closed sprint stats. */

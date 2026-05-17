@@ -370,6 +370,13 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
     avg_p, sd_p, low_p, high_p = _stats(points)
     avg_t, sd_t, _low_t, _high_t = _stats(counts)
 
+    # ADR-0065: surface team_velocity_per_day for CPM calibration. Lives behind
+    # a function call rather than duplicating the rolling-window logic here so
+    # the calibration service and the velocity endpoint stay in sync.
+    from trueppm_api.apps.scheduling.services import compute_team_velocity_per_day
+
+    velocity_per_day = compute_team_velocity_per_day(project_id)
+
     return {
         "sprints": [
             {
@@ -390,6 +397,7 @@ def velocity_summary(project_id: str | uuid.UUID) -> dict[str, Any]:
         "forecast_range_high": high_p,
         "rolling_avg_tasks": avg_t,
         "rolling_stdev_tasks": sd_t,
+        "team_velocity_per_day": float(velocity_per_day) if velocity_per_day else None,
     }
 
 

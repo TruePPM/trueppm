@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+from django.conf import settings
 from django.db import models
 
 
@@ -129,3 +130,92 @@ class FailedTask(models.Model):
 
     def __str__(self) -> str:
         return f"{self.task_name} ({self.task_id}) — {self.status}"
+
+
+class VelocitySuggestion(models.Model):
+    """Non-destructive duration recommendation generated on sprint close (ADR-0065).
+
+    When a sprint closes, the drain computes a rolling 6-sprint team velocity
+    (``completed_points / sprint_working_days``) and, for tasks in the closing
+    sprint with ``story_points`` set, records a suggested
+    ``most_likely_duration = story_points / team_velocity_per_day`` here. The
+    PM accepts or dismisses each suggestion from the Task Detail Drawer; the
+    underlying ``Task.most_likely_duration`` is never overwritten without
+    explicit consent so PM-committed baselines stay intact and the
+    accept/dismiss history is auditable per (task, sprint).
+
+    A unique constraint on (task, sprint) makes the sprint-close drain
+    idempotent: a duplicate run upserts the row rather than producing
+    duplicate prompts.
+
+    Not synced to mobile clients — surfaces only in the PM-facing Task Detail
+    Drawer.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(
+        "projects.Task",
+        on_delete=models.CASCADE,
+        related_name="velocity_suggestions",
+    )
+    sprint = models.ForeignKey(
+        "projects.Sprint",
+        on_delete=models.CASCADE,
+        related_name="velocity_suggestions",
+    )
+    # Suggested most_likely_duration in working days. Stored as integer to match
+    # Task.most_likely_duration; rounding happens in the service layer.
+    suggested_duration = models.PositiveIntegerField()
+    team_velocity_per_day = models.DecimalField(
+        max_digits=6,
+        decimal_places=3,
+        help_text="Rolling 6-sprint average of completed_points / sprint_working_days.",
+    )
+    # When estimation_mode=SUGGEST_APPROVE the suggestion is flagged so the
+    # governance review surface can route the accept decision through a
+    # Scheduler-role user; in OPEN and PM_ONLY modes any PM may accept directly.
+    flag_for_review = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    # Exactly one of accepted_at / dismissed_at is non-null at a time; the
+    # other stays null. The pair encodes the PM decision lifecycle without an
+    # extra status enum (similar to the actual_start / actual_finish pattern).
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="accepted_velocity_suggestions",
+    )
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+    dismissed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="dismissed_velocity_suggestions",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task", "sprint"],
+                name="unique_velocity_suggestion_per_task_sprint",
+            ),
+        ]
+        indexes = [
+            # Pending suggestions for a task — the Task Detail Drawer query.
+            models.Index(
+                fields=["task", "accepted_at", "dismissed_at"],
+                name="velocity_sugg_task_pending_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"VelocitySuggestion(task={self.task_id}, sprint={self.sprint_id})"
+
+    @property
+    def is_pending(self) -> bool:
+        """True when neither accepted nor dismissed — pending PM decision."""
+        return self.accepted_at is None and self.dismissed_at is None

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { screen, fireEvent } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders } from '@/test/utils';
 import { EstimatesTab } from './EstimatesTab';
 import type { Task } from '@/types';
@@ -10,9 +10,12 @@ const patchMock = vi.hoisted(() =>
 const postMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ data: { estimate_status: 'accepted' } }),
 );
+const getMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({ data: { count: 0, results: [] } }),
+);
 
 vi.mock('@/api/client', () => ({
-  apiClient: { patch: patchMock, post: postMock },
+  apiClient: { patch: patchMock, post: postMock, get: getMock },
 }));
 
 const baseTask: Task = {
@@ -441,5 +444,154 @@ describe('EstimatesTab — sprint effort section', () => {
       expect.objectContaining({ remaining_points: 3 }),
     );
     vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Velocity-calibration suggestion banner (ADR-0065)
+// ---------------------------------------------------------------------------
+
+const suggestionFixture = {
+  id: 'sugg-1',
+  task: 't1',
+  sprint_id: 's-12',
+  sprint_name: 'Sprint 12',
+  suggested_duration: 4,
+  team_velocity_per_day: '1.500',
+  flag_for_review: false,
+  is_pending: true,
+  created_at: '2026-05-01T00:00:00Z',
+  accepted_at: null,
+  accepted_by: null,
+  dismissed_at: null,
+  dismissed_by: null,
+};
+
+describe('EstimatesTab — velocity suggestion banner', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('does not render the banner for non-admin users', () => {
+    getMock.mockResolvedValueOnce({ data: { count: 1, results: [suggestionFixture] } });
+    renderWithProviders(
+      <EstimatesTab
+        task={baseTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={true}
+        userIsAdmin={false}
+      />,
+    );
+    // useVelocitySuggestions stays disabled when userIsAdmin is false, so the
+    // banner never renders even if the API would have returned a row.
+    expect(
+      screen.queryByLabelText(/Velocity calibration suggestion/i),
+    ).not.toBeInTheDocument();
+    expect(getMock).not.toHaveBeenCalled();
+  });
+
+  it('renders the banner when a pending suggestion exists and user is admin', async () => {
+    getMock.mockResolvedValueOnce({ data: { count: 1, results: [suggestionFixture] } });
+    renderWithProviders(
+      <EstimatesTab
+        task={baseTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={true}
+        userIsAdmin={true}
+      />,
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText(/Velocity calibration suggestion/i),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/Sprint 12/)).toBeInTheDocument();
+    expect(screen.getByText(/4d/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Accept/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Dismiss/i })).toBeInTheDocument();
+  });
+
+  it('shows current vs suggested duration when most_likely_duration is set', async () => {
+    getMock.mockResolvedValueOnce({ data: { count: 1, results: [suggestionFixture] } });
+    renderWithProviders(
+      <EstimatesTab
+        task={{ ...baseTask, mostLikelyDuration: 7 }}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={true}
+        userIsAdmin={true}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText(/Velocity calibration suggestion/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/currently/i)).toBeInTheDocument();
+    expect(screen.getByText(/7d/)).toBeInTheDocument();
+  });
+
+  it('Accept button posts to the accept endpoint', async () => {
+    getMock.mockResolvedValue({ data: { count: 1, results: [suggestionFixture] } });
+    postMock.mockResolvedValueOnce({
+      data: { ...suggestionFixture, accepted_at: '2026-05-02T00:00:00Z' },
+    });
+    renderWithProviders(
+      <EstimatesTab
+        task={baseTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={true}
+        userIsAdmin={true}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Accept/i })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Accept/i }));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/velocity-suggestions/sugg-1/accept/'),
+    );
+  });
+
+  it('Dismiss button posts to the dismiss endpoint', async () => {
+    getMock.mockResolvedValue({ data: { count: 1, results: [suggestionFixture] } });
+    postMock.mockResolvedValueOnce({
+      data: { ...suggestionFixture, dismissed_at: '2026-05-02T00:00:00Z' },
+    });
+    renderWithProviders(
+      <EstimatesTab
+        task={baseTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={true}
+        userIsAdmin={true}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Dismiss/i })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Dismiss/i }));
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith('/velocity-suggestions/sugg-1/dismiss/'),
+    );
+  });
+
+  it('does not render the banner when no pending suggestion is returned', async () => {
+    getMock.mockResolvedValueOnce({ data: { count: 0, results: [] } });
+    renderWithProviders(
+      <EstimatesTab
+        task={baseTask}
+        projectId="p1"
+        estimationMode="open"
+        userIsScheduler={true}
+        userIsAdmin={true}
+      />,
+    );
+    // Wait for the query to settle; banner remains absent.
+    await waitFor(() => expect(getMock).toHaveBeenCalled());
+    expect(
+      screen.queryByLabelText(/Velocity calibration suggestion/i),
+    ).not.toBeInTheDocument();
   });
 });

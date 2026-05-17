@@ -26,6 +26,7 @@ export function EstimatesSection({ taskId, projectId }: DrawerSectionProps) {
   const task = tasks?.find((t) => t.id === taskId);
   const { role } = useCurrentUserRole(projectId);
   const userIsScheduler = role !== null && role >= 2;
+  const userIsAdmin = role !== null && role >= 3;
   const { sprint: activeSprint } = useActiveSprint(projectId);
 
   if (!task) return null;
@@ -43,6 +44,7 @@ export function EstimatesSection({ taskId, projectId }: DrawerSectionProps) {
       projectId={projectId}
       estimationMode="open"
       userIsScheduler={userIsScheduler}
+      userIsAdmin={userIsAdmin}
       sprintIsActive={sprintIsActive}
     />
   );

@@ -105,6 +105,7 @@ export default defineConfig({
             { slug: "features/sprint-burndown" },
             { slug: "features/capacity-preflight" },
             { slug: "features/velocity" },
+            { slug: "features/velocity-calibration" },
             { slug: "features/multi-team-lens" },
             { slug: "features/retrospective" },
             // Board surface

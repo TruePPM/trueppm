@@ -27,7 +27,9 @@ Step 7 ([Forecast — Monte Carlo across both worlds](/the-story/#7-forecast--mo
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/projects/{id}/velocity/` | Last-8 closed sprint points/tasks + rolling stats + forecast range |
+| `GET` | `/api/v1/projects/{id}/velocity/` | Last-8 closed sprint points/tasks + rolling stats + forecast range + `team_velocity_per_day` |
+
+The `team_velocity_per_day` field is the same rolling per-day average used by [velocity calibration](/features/velocity-calibration/) suggestions on sprint close.
 
 ## Why ± stdev, not a point estimate
 

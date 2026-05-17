@@ -1355,6 +1355,9 @@ class ProjectVelocitySerializer(serializers.Serializer[dict[str, Any]]):
     forecast_range_high = serializers.IntegerField(allow_null=True)
     rolling_avg_tasks = serializers.FloatField(allow_null=True)
     rolling_stdev_tasks = serializers.FloatField(allow_null=True)
+    # ADR-0065: rolling team_velocity_per_day used by CPM velocity feedback.
+    # Null until enough closed sprints exist (see MIN_CLOSED_SPRINTS_FOR_SUGGESTION).
+    team_velocity_per_day = serializers.FloatField(allow_null=True)
 
 
 # ---------------------------------------------------------------------------
