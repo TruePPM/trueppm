@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -154,12 +154,14 @@ def test_velocity_exclude_specific_sprint(project: Project) -> None:
 @pytest.mark.django_db
 def test_velocity_zero_returns_none(project: Project) -> None:
     """Three completed sprints with no points yields zero velocity → None."""
+    base_start = date(2026, 1, 5)
+    base_finish = date(2026, 1, 18)
     for i in range(3):
         _closed_sprint(
             project,
             name=f"S{i}",
-            start=date(2026, 1, 5 + i * 14),
-            finish=date(2026, 1, 18 + i * 14),
+            start=base_start + timedelta(days=i * 14),
+            finish=base_finish + timedelta(days=i * 14),
             completed_points=0,
         )
     assert compute_team_velocity_per_day(project.pk) is None
@@ -172,12 +174,14 @@ def test_velocity_zero_returns_none(project: Project) -> None:
 
 def _seed_baseline(project: Project) -> None:
     """Three prior completed sprints @ 20 points each / 10 working days = velocity 2.0/day."""
+    base_start = date(2026, 1, 5)
+    base_finish = date(2026, 1, 18)
     for i in range(3):
         _closed_sprint(
             project,
             name=f"Prior{i}",
-            start=date(2026, 1, 5 + i * 14),
-            finish=date(2026, 1, 18 + i * 14),
+            start=base_start + timedelta(days=i * 14),
+            finish=base_finish + timedelta(days=i * 14),
             completed_points=20,
         )
 

@@ -178,7 +178,10 @@ async function setupScheduleWithPendingSuggestion(
       }),
     }),
   );
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (route) =>
+  // Use `members/**` to match `?self=true` query string used by useCurrentUserRole.
+  // Both list and self-check paths return the same single-row array; the hook reads
+  // res.data[0] so the array shape is valid for both.
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) =>
     route.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify([{ id: 'mem-1', role: opts.role }]),

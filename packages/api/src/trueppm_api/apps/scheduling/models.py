@@ -216,6 +216,17 @@ class VelocitySuggestion(models.Model):
         return f"VelocitySuggestion(task={self.task_id}, sprint={self.sprint_id})"
 
     @property
+    def project_id(self) -> object:
+        """Expose the task's project_id so _get_project_id_from_obj can find it.
+
+        Required for IsProjectAdmin.has_object_permission to resolve the project
+        context when DRF's get_object() runs check_object_permissions on a
+        VelocitySuggestion (no direct FK to Project). Mirrors the same pattern
+        used by resources.TaskResource.
+        """
+        return self.task.project_id
+
+    @property
     def is_pending(self) -> bool:
         """True when neither accepted nor dismissed — pending PM decision."""
         return self.accepted_at is None and self.dismissed_at is None
