@@ -37,6 +37,9 @@ import { UnscheduledGutter } from './UnscheduledGutter';
 import { useUnscheduledTasks } from '@/hooks/useUnscheduledTasks';
 import type { Task } from '@/types';
 import { useFeatureFlag } from '@/lib/featureFlags';
+import { useDependencyHover } from './useDependencyHover';
+import { ScheduleDependencyPicker } from './ScheduleDependencyPicker';
+import { useSprints } from '@/hooks/useSprints';
 import {
   useScheduleFocus,
   BuildModeProvider,
@@ -65,6 +68,64 @@ function ScheduleEmptyState() {
       className="flex flex-1 h-full items-center justify-center bg-neutral-surface"
     >
       <p className="text-sm text-neutral-text-secondary">No tasks yet. Add a task to get started.</p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ScheduleActionToastRenderer — action toast surface for the Duplicate Undo
+// affordance (#477) and any future mutation that needs a follow-up button.
+// Auto-dismisses on the toast's `durationMs` (default 6000); explicit
+// dismissal on Esc and on Undo click.
+// ---------------------------------------------------------------------------
+
+function ScheduleActionToastRenderer() {
+  const toast = useScheduleStore((s) => s.scheduleActionToast);
+  const setToast = useScheduleStore((s) => s.setScheduleActionToast);
+
+  // Auto-dismiss timer — restarts whenever the toast identity changes.
+  useEffect(() => {
+    if (!toast) return;
+    const duration = toast.durationMs ?? 6000;
+    const handle = window.setTimeout(() => setToast(null), duration);
+    return () => window.clearTimeout(handle);
+  }, [toast, setToast]);
+
+  // Dismiss on Escape (consistent with other transient surfaces).
+  useEffect(() => {
+    if (!toast) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setToast(null);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [toast, setToast]);
+
+  if (!toast) return null;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed bottom-14 left-1/2 -translate-x-1/2 z-[60] min-w-[280px] max-w-[420px] px-4 py-2 rounded-md border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary flex items-center gap-3"
+    >
+      <span className="flex-1">{toast.message}</span>
+      {toast.action && (
+        <button
+          type="button"
+          className="text-brand-primary font-medium hover:underline focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded"
+          onClick={() => {
+            toast.action!.onClick();
+            // The handler is responsible for replacing or clearing the toast;
+            // if it doesn't replace, fall through to clearing so we don't
+            // leave a stuck "Undo" affordance after the action has fired.
+            if (useScheduleStore.getState().scheduleActionToast === toast) {
+              setToast(null);
+            }
+          }}
+        >
+          {toast.action.label}
+        </button>
+      )}
     </div>
   );
 }
@@ -172,6 +233,20 @@ export function ScheduleView() {
   const allLinks          = useMemo(() => rawLinks ?? [], [rawLinks]);
   const { expandedIds, toggle: toggleExpandRaw, expandAll } = useWbsStore();
 
+  // Sprint lookup for the Duplicate Undo affordance (#477).
+  const { sprints } = useSprints(projectId);
+  const sprintsById = useMemo(() => {
+    const m = new Map<string, { id: string; name: string; state: string }>();
+    for (const s of sprints) m.set(s.id, { id: s.id, name: s.name, state: s.state });
+    return m;
+  }, [sprints]);
+
+  // Hover-chain state (#475) — driven by TaskListRow.onMouseEnter / onFocus.
+  // `useDependencyHover` coalesces through rAF and resolves predecessor +
+  // successor sets via BFS over the unfiltered link graph.
+  const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
+  const hoverChain = useDependencyHover(hoveredTaskId, allLinks);
+
   // Focus mode and CP-only filter (issue #131)
   const [focusModeEnabled, setFocusModeEnabled] = useState(false);
   const [showCpOnly, setShowCpOnly] = useState(false);
@@ -267,37 +342,38 @@ export function ScheduleView() {
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
     : null;
 
-  // Focus chain: all predecessor + successor task IDs reachable from the selected task.
-  // Used to dim rows not in the chain when focus mode is on (issue #131).
-  const { focusChainIds, depChipsById } = useMemo((): {
-    focusChainIds: Set<string> | undefined;
-    depChipsById: Map<string, TaskDepChips>;
-  } => {
-    // Build per-task dep chip data and adjacency lists in a single pass over
-    // allLinks — reused by the BFS below so traversal is O(V + E), not O(V · E).
-    const chipsById = new Map<string, TaskDepChips>();
-    const succs = new Map<string, string[]>();
-    const preds = new Map<string, string[]>();
+  // Adjacency + per-task dep-chip data — only depends on `allLinks`, so the
+  // identity stays stable across hover transitions. This matters for
+  // TaskListRow's React.memo: the `depChips` prop must not get a fresh
+  // object identity on every hover change or every row re-renders.
+  const { chipsById, succs, preds } = useMemo(() => {
+    const c = new Map<string, TaskDepChips>();
+    const s = new Map<string, string[]>();
+    const p = new Map<string, string[]>();
     for (const link of allLinks) {
-      const srcChip = chipsById.get(link.sourceId) ?? { predsCount: 0, succsCount: 0, predsCritical: false, succsCritical: false };
+      const srcChip = c.get(link.sourceId) ?? { predsCount: 0, succsCount: 0, predsCritical: false, succsCritical: false };
       srcChip.succsCount++;
       if (link.isCritical) srcChip.succsCritical = true;
-      chipsById.set(link.sourceId, srcChip);
+      c.set(link.sourceId, srcChip);
 
-      const tgtChip = chipsById.get(link.targetId) ?? { predsCount: 0, succsCount: 0, predsCritical: false, succsCritical: false };
+      const tgtChip = c.get(link.targetId) ?? { predsCount: 0, succsCount: 0, predsCritical: false, succsCritical: false };
       tgtChip.predsCount++;
       if (link.isCritical) tgtChip.predsCritical = true;
-      chipsById.set(link.targetId, tgtChip);
+      c.set(link.targetId, tgtChip);
 
-      (succs.get(link.sourceId) ?? succs.set(link.sourceId, []).get(link.sourceId)!).push(link.targetId);
-      (preds.get(link.targetId) ?? preds.set(link.targetId, []).get(link.targetId)!).push(link.sourceId);
+      (s.get(link.sourceId) ?? s.set(link.sourceId, []).get(link.sourceId)!).push(link.targetId);
+      (p.get(link.targetId) ?? p.set(link.targetId, []).get(link.targetId)!).push(link.sourceId);
     }
+    return { chipsById: c, succs: s, preds: p };
+  }, [allLinks]);
 
-    if (!focusModeEnabled || !selectedTaskId) {
-      return { focusChainIds: undefined, depChipsById: chipsById };
-    }
-
-    // BFS via adjacency maps — visits each node once, each edge twice.
+  // Focus chain — hover wins over selection-driven focus mode (ADR-0066 Q7).
+  // Only depends on the chain-driving inputs, so when the user is just
+  // sweeping the cursor across rows the depChipsById identity above stays
+  // stable (no row re-render on chip prop).
+  const focusChainIds = useMemo<Set<string> | undefined>(() => {
+    if (hoverChain.hoveredId) return hoverChain.chain as Set<string>;
+    if (!focusModeEnabled || !selectedTaskId) return undefined;
     const chain = new Set<string>([selectedTaskId]);
     const queue = [selectedTaskId];
     while (queue.length > 0) {
@@ -315,8 +391,9 @@ export function ScheduleView() {
         }
       }
     }
-    return { focusChainIds: chain, depChipsById: chipsById };
-  }, [focusModeEnabled, selectedTaskId, allLinks]);
+    return chain;
+  }, [focusModeEnabled, selectedTaskId, hoverChain, succs, preds]);
+  const depChipsById = chipsById;
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [showAddMilestone, setShowAddMilestone] = useState(false);
@@ -354,6 +431,60 @@ export function ScheduleView() {
 
   const taskListScrollRef = useRef<HTMLDivElement>(null);
   const [engine, setEngine] = useState<GanttEngine | null>(null);
+
+  // Push the hover chain to the canvas whenever it changes — drives dep-arrow
+  // recoloring (blue/green) and out-of-chain bar dimming (#475).
+  useEffect(() => {
+    if (!engine) return;
+    if (hoverChain.hoveredId) {
+      engine.setHoverChain({
+        hoveredId: hoverChain.hoveredId,
+        predecessors: hoverChain.predecessors,
+        successors: hoverChain.successors,
+      });
+    } else {
+      engine.setHoverChain(null);
+    }
+  }, [engine, hoverChain]);
+
+  // Canvas-side hover (#475): the engine fires `task-hover` when the pointer
+  // moves across a bar / milestone / summary endcap on the timeline. Wire it
+  // into the same state used by the task-list rows so both surfaces drive
+  // the chain identically.
+  useEffect(() => {
+    if (!engine) return;
+    const off = engine.on('task-hover', ({ taskId }) => setHoveredTaskId(taskId));
+    return off;
+  }, [engine]);
+
+  // Dependency picker state (#477) — opened from TaskListRow.onAddDependencyRequest.
+  const [depPickerState, setDepPickerState] = useState<
+    { task: Task; mode: 'predecessor' | 'successor' } | null
+  >(null);
+
+  const handleAddDependencyRequest = useCallback(
+    (taskId: string, mode: 'predecessor' | 'successor') => {
+      const task = allTasks.find((t) => t.id === taskId);
+      if (task) setDepPickerState({ task, mode });
+    },
+    [allTasks],
+  );
+
+  // Existing dependencies for the open task — pass to the picker to exclude
+  // tasks already linked in that direction.
+  const depPickerExcludedIds = useMemo(() => {
+    if (!depPickerState) return new Set<string>();
+    const ids = new Set<string>();
+    for (const link of allLinks) {
+      if (depPickerState.mode === 'predecessor' && link.targetId === depPickerState.task.id) {
+        ids.add(link.sourceId);
+      }
+      if (depPickerState.mode === 'successor' && link.sourceId === depPickerState.task.id) {
+        ids.add(link.targetId);
+      }
+    }
+    return ids;
+  }, [depPickerState, allLinks]);
   // Reactive scales — updated via scales-change so totalCanvasWidth stays in sync
   // when setTasks rebuilds the scale after a project switch or task edit (issue #96).
   const [scheduleScales, setScheduleScales] = useState<GanttScaleData | null>(null);
@@ -672,6 +803,33 @@ export function ScheduleView() {
       e.preventDefault();
       handleAddMilestone();
     };
+    // Esc reverts the schedule to a chain-free state. Clears hover (#475),
+    // turns off selection-driven focus mode (#131), and deselects the row
+    // (which also closes the drawer if open). Drawer Esc has its own listener
+    // that stopPropagation()s before the window-level handler — that path
+    // is independently wired in onClose below so both routes clear hover.
+    // Tell the engine directly too so the canvas doesn't have to wait two
+    // React render cycles for the React-state → useEffect propagation to
+    // reach `engine.setHoverChain`.
+    //
+    // Bail when a context menu is open in the DOM — the `BuildModeRowMenu`
+    // has its own window-level Esc listener that closes the menu by setting
+    // `menuAnchor=null`; running this handler in parallel races with that
+    // close and leaves the menu visible (e2e/schedule-build-mode.spec.ts
+    // regression). Let the menu close first; user can press Esc a second
+    // time to clear hover / selection if needed.
+    out['escape'] = () => {
+      if (document.querySelector('[role="menu"][aria-label="Row actions"]')) return;
+      setHoveredTaskId(null);
+      setFocusModeEnabled(false);
+      setSelectedTaskId(null);
+      engine?.setHoverChain(null);
+      // The engine maintains its own `_selectedTaskIds` set (clicked bars get
+      // the brand-primary selection ring on their connected dep arrows). React's
+      // selectedTaskId is the Zustand store for the drawer; the engine's is
+      // separate. Clear both so the canvas reverts fully.
+      engine?.selectTask(null);
+    };
     if (buildModeActive) {
       out['?'] = (e) => {
         e.preventDefault();
@@ -679,7 +837,7 @@ export function ScheduleView() {
       };
     }
     return out;
-  }, [projectId, readOnly, handleAddMilestone, buildModeActive]);
+  }, [projectId, readOnly, handleAddMilestone, buildModeActive, engine, setSelectedTaskId]);
   useScheduleKeyboard(keyBindings);
 
   const handleAddFirstTask = useCallback(() => {
@@ -926,6 +1084,9 @@ export function ScheduleView() {
           onToggle={toggleExpand}
           focusChainIds={focusChainIds}
           depChipsById={depChipsById}
+          onHoverChange={setHoveredTaskId}
+          onAddDependencyRequest={handleAddDependencyRequest}
+          sprintsById={sprintsById}
         />
         {/* Panel splitter — drag to resize task list width */}
         <PanelSplitter currentTaskWidth={widths.task} setWidth={setWidth} />
@@ -1073,12 +1234,39 @@ export function ScheduleView() {
         </div>
       )}
 
+      {/* Sprint Undo toast (#477 / ADR-0066 Q2) — fires after Duplicate inherits
+          an ACTIVE sprint, gives the PM a one-click escape hatch. */}
+      <ScheduleActionToastRenderer />
+
+      {/* Dependency picker modal (#477) — opened from the right-click menu. */}
+      {depPickerState && projectId && (
+        <ScheduleDependencyPicker
+          task={depPickerState.task}
+          mode={depPickerState.mode}
+          projectId={projectId}
+          allTasks={allTasks}
+          excludedIds={depPickerExcludedIds}
+          onClose={() => setDepPickerState(null)}
+        />
+      )}
+
       {/* Task detail drawer — sections fetch their own data via the registry (ADR-0050). */}
       {projectId && (
         <TaskDetailDrawer
           task={selectedTask}
           projectId={projectId}
-          onClose={() => setSelectedTaskId(null)}
+          onClose={() => {
+            setSelectedTaskId(null);
+            // Drawer Esc closes the drawer with stopPropagation (drawer's own
+            // listener at document level), which means the window-level Esc
+            // binding in useScheduleKeyboard never fires to clear the hover
+            // chain. Tie hover-clear to the drawer's close path so closing
+            // via Esc, X, or click-outside all revert the canvas highlights.
+            setHoveredTaskId(null);
+            engine?.setHoverChain(null);
+            // Also clear the engine's selection ring on connected arrows.
+            engine?.selectTask(null);
+          }}
         />
       )}
 

@@ -15,7 +15,7 @@
  */
 
 import type { Task, TaskLink } from '@/types';
-import type { GanttEngine, GanttEngineEventMap } from './GanttEngine';
+import type { GanttEngine, GanttEngineEventMap, HoverChain } from './GanttEngine';
 import type { GanttScaleData, ZoomLevel } from './GanttScaleData';
 
 export class GanttEngineStub implements GanttEngine {
@@ -46,6 +46,10 @@ export class GanttEngineStub implements GanttEngine {
   selectTasks(_taskIds: string[]): void {}
 
   readonly selectedTaskIds: ReadonlySet<string> = new Set();
+
+  // ── Hover chain ───────────────────────────────────────────────────────────
+
+  setHoverChain(_chain: HoverChain | null): void {}
 
   // ── Event emitter ─────────────────────────────────────────────────────────
 

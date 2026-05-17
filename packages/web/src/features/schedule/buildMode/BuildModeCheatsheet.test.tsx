@@ -13,13 +13,27 @@ describe('BuildModeCheatsheet — visibility', () => {
     expect(screen.getByRole('dialog', { name: 'Schedule shortcuts' })).toBeInTheDocument();
   });
 
-  it('renders all five sections', () => {
+  it('renders every section (#475+#477 added "Quick actions" and "Dependencies")', () => {
     render(<BuildModeCheatsheet open={true} onClose={vi.fn()} />);
     expect(screen.getByText('Selecting rows')).toBeInTheDocument();
     expect(screen.getByText('Editing cells')).toBeInTheDocument();
     expect(screen.getByText('Structuring (the WBS tree)')).toBeInTheDocument();
-    expect(screen.getByText('Creating & deleting')).toBeInTheDocument();
+    expect(screen.getByText('Quick actions')).toBeInTheDocument();
+    expect(screen.getByText('Dependencies')).toBeInTheDocument();
     expect(screen.getByText('Help')).toBeInTheDocument();
+  });
+
+  it('shows Space → Mark complete and ⌘D → Duplicate in Quick actions (#477)', () => {
+    render(<BuildModeCheatsheet open={true} onClose={vi.fn()} />);
+    expect(screen.getByText('Mark complete / un-complete focused row')).toBeInTheDocument();
+    expect(screen.getByText('Duplicate focused row')).toBeInTheDocument();
+  });
+
+  it('describes hover chain reveal in the Dependencies section (#475)', () => {
+    render(<BuildModeCheatsheet open={true} onClose={vi.fn()} />);
+    expect(
+      screen.getByText('Reveal predecessor (blue) and successor (green) chain'),
+    ).toBeInTheDocument();
   });
 });
 

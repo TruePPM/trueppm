@@ -1,11 +1,17 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { memo, useState, useRef, useCallback, useEffect } from 'react';
 import type React from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import type { Task } from '@/types';
 import { ROW_HEIGHT, WBS_INDENT } from './scheduleConstants';
 import type { ColumnWidths } from '@/hooks/useColumnWidths';
 import { useScheduleStore } from '@/stores/scheduleStore';
-import { useUpdateTask, useReorderTasks, parseProgressAnchorError } from '@/hooks/useTaskMutations';
+import {
+  useUpdateTask,
+  useReorderTasks,
+  parseProgressAnchorError,
+  useToggleComplete,
+  useDuplicateTask,
+} from '@/hooks/useTaskMutations';
 import { useDragStore } from '@/stores/dragStore';
 import { AssigneeChips } from './AssigneeChips';
 import {
@@ -54,6 +60,21 @@ interface Props {
   nameSuggestions?: string[];
   /** Parent summary tasks (closest ancestor first) — for milestone date quick-picks (#345). */
   milestoneParents?: { name: string; finish?: string }[];
+  /**
+   * Hover bus callback (#475) — fires when the cursor enters or leaves the row,
+   * and when keyboard focus moves on/off. Wires through ScheduleView to
+   * `engine.setHoverChain` so the canvas + task list dim non-chain rows.
+   */
+  onHoverChange?: (taskId: string | null) => void;
+  /**
+   * Open the dependency picker for this task in the given mode (#477).
+   * Lifted to ScheduleView so the modal is a DOM sibling, not embedded in the row.
+   */
+  onAddDependencyRequest?: (taskId: string, mode: 'predecessor' | 'successor') => void;
+  /** Existing sibling names at the row's WBS-parent level — used to suffix "(copy)". */
+  siblingNames?: string[];
+  /** Source sprint snapshot used by the Undo affordance. Null when not in a sprint. */
+  sourceSprint?: { id: string; name: string; state: string } | null;
 }
 
 // On macOS the modifier is labelled "Option"; everywhere else it's "Alt".
@@ -103,13 +124,16 @@ function addDaysISO(iso: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function TaskListRow({ task, level, widths, visible, hasChildren = false, isExpanded = false, onToggle, prevTaskId = null, nextTaskId = null, dimmed = false, depChips, siblingIds, nameSuggestions, milestoneParents }: Props) {
+function TaskListRowInner({ task, level, widths, visible, hasChildren = false, isExpanded = false, onToggle, prevTaskId = null, nextTaskId = null, dimmed = false, depChips, siblingIds, nameSuggestions, milestoneParents, onHoverChange, onAddDependencyRequest, siblingNames, sourceSprint }: Props) {
   const projectId = useProjectId() ?? '';
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
   const setScheduleError = useScheduleStore((s) => s.setScheduleError);
+  const setScheduleActionToast = useScheduleStore((s) => s.setScheduleActionToast);
   const isSelected = selectedTaskId === task.id;
   const updateTask = useUpdateTask();
+  const toggleComplete = useToggleComplete();
+  const duplicateTask = useDuplicateTask();
 
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
@@ -305,6 +329,82 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
     setMenuAnchor({ x: e.clientX, y: e.clientY });
   };
 
+  // ──────────────────────────────────────────────────────────────────────
+  // Mark complete (#477) — Space toggle on focused row, also from context
+  // menu. Optimistic; surfaces progress-anchor 400 toast on rollback.
+  // ──────────────────────────────────────────────────────────────────────
+  const handleToggleComplete = useCallback(() => {
+    if (!projectId || task.isMilestone) return;
+    toggleComplete.mutate(
+      { id: task.id, projectId, previousStatus: task.status },
+      {
+        onError: (err) => {
+          const anchor = parseProgressAnchorError(err);
+          setScheduleError(anchor?.detail ?? 'Failed to update task status.');
+          // Auto-clear the error toast after 4 s so it doesn't pin to the
+          // bottom of the screen indefinitely (#362 pattern).
+          setTimeout(() => setScheduleError(null), 4000);
+        },
+      },
+    );
+  }, [projectId, task.id, task.status, task.isMilestone, toggleComplete, setScheduleError]);
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Duplicate (#477) — frontend-only via POST /tasks/ with `(copy)` suffix,
+  // inheriting parent + sprint. ACTIVE-sprint duplicates surface an Undo
+  // toast so the PM can revert with one click (ADR-0066 Q2).
+  // ──────────────────────────────────────────────────────────────────────
+  const handleDuplicate = useCallback(() => {
+    if (!projectId) return;
+    duplicateTask.mutate(
+      {
+        projectId,
+        source: {
+          name: task.name,
+          duration: task.duration,
+          parent_id: task.parentId,
+          sprint_id: task.sprintId ?? null,
+          is_milestone: task.isMilestone,
+        },
+        siblingNames: siblingNames ?? [],
+      },
+      {
+        onSuccess: (created) => {
+          if (sourceSprint && sourceSprint.state === 'ACTIVE') {
+            setScheduleActionToast({
+              message: `Added to ${sourceSprint.name}`,
+              action: {
+                label: 'Undo',
+                onClick: () => {
+                  updateTask.mutate({ id: created.id, projectId, sprint: null });
+                  setScheduleActionToast({ message: 'Moved to backlog', durationMs: 2000 });
+                },
+              },
+            });
+          }
+        },
+        onError: () => {
+          setScheduleError('Failed to duplicate task.');
+          setTimeout(() => setScheduleError(null), 4000);
+        },
+      },
+    );
+  }, [
+    projectId,
+    task.name,
+    task.duration,
+    task.parentId,
+    task.sprintId,
+    task.isMilestone,
+    siblingNames,
+    sourceSprint,
+    duplicateTask,
+    updateTask,
+    setScheduleActionToast,
+    setScheduleError,
+  ]);
+
+  const isComplete = task.status === 'COMPLETE';
   const menuItems: RowMenuItem[] = buildMode
     ? [
         {
@@ -315,11 +415,23 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
           onSelect: () => buildMode.focus.enterCellEdit(task.id, 'name'),
         },
         {
+          key: 'toggle-complete',
+          // Toggle copy flip — when the task is already COMPLETE the same
+          // action un-marks it (ADR-0066 Q3 / ux-design item 2).
+          label: isComplete ? 'Unmark complete' : 'Mark complete',
+          icon: isComplete ? '↺' : '☑',
+          hint: 'Space',
+          // Milestones are date points; toggling status on them is meaningless.
+          disabled: task.isMilestone,
+          onSelect: handleToggleComplete,
+        },
+        {
           key: 'indent',
           label: 'Indent',
           icon: '⇥',
           hint: 'Tab',
           startsGroup: true,
+          disabled: level <= 1,
           onSelect: () => buildMode.indent(task.id),
         },
         {
@@ -332,22 +444,32 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
           onSelect: () => buildMode.outdent(task.id),
         },
         {
-          // Disabled in v1 — POST /tasks/ has no "insert after" parameter, so
-          // the new row would land at root regardless of which row was right-
-          // clicked. Re-enable once a positioned-insert API exists.
-          key: 'insert-below',
-          label: 'Insert below',
-          icon: '↓',
-          hint: '⏎',
+          key: 'add-predecessor',
+          label: 'Add predecessor…',
+          icon: '↗',
           startsGroup: true,
-          disabled: true,
-          onSelect: () => buildMode.insertBelow(task.id),
+          disabled: !onAddDependencyRequest,
+          onSelect: () => onAddDependencyRequest?.(task.id, 'predecessor'),
+        },
+        {
+          key: 'add-successor',
+          label: 'Add successor…',
+          icon: '↙',
+          disabled: !onAddDependencyRequest,
+          onSelect: () => onAddDependencyRequest?.(task.id, 'successor'),
+        },
+        {
+          key: 'duplicate',
+          label: 'Duplicate',
+          icon: '⎘',
+          hint: '⌘D',
+          startsGroup: true,
+          onSelect: handleDuplicate,
         },
         {
           key: 'milestone',
           label: 'Convert to milestone',
           icon: '◆',
-          startsGroup: true,
           disabled: task.isMilestone,
           onSelect: () => buildMode.convertToMilestone(task.id),
         },
@@ -397,6 +519,10 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
       style={{ height: ROW_HEIGHT }}
       className={[
         'relative group flex items-stretch text-xs border-b border-neutral-border/20',
+        // motion-safe transition so the hover-chain dim/un-dim (#475) doesn't
+        // snap when the cursor sweeps across many rows — without this the rapid
+        // chain recomputes show as flicker.
+        'motion-safe:transition-opacity motion-safe:duration-150 motion-safe:ease-out',
         isEditing || anyCellInEdit ? 'cursor-text' : 'cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white',
         (buildMode ? isBuildSelected : isSelected) && !(isEditing || anyCellInEdit)
@@ -423,6 +549,16 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
         }
       }}
       onContextMenu={handleContextMenu}
+      onMouseEnter={() => onHoverChange?.(task.id)}
+      onMouseLeave={() => onHoverChange?.(null)}
+      onFocus={() => onHoverChange?.(task.id)}
+      onBlur={(e) => {
+        // Only clear hover when focus actually leaves the row, not when it
+        // moves to a child element (e.g. EditableCell input).
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          onHoverChange?.(null);
+        }
+      }}
       onKeyDown={(e) => {
         // Build-mode owns Tab/Letter/Delete/Esc on the row; let it run first.
         if (buildMode) {
@@ -443,7 +579,22 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
           focusRowDom(prevTaskId);
           return;
         }
-        if (e.key === 'Enter' || e.key === ' ') {
+        // Space rebinds to Mark complete on the focused row (ADR-0066 Q5).
+        // Today both Enter and Space were redundant ("open drawer"); Enter
+        // keeps that meaning, Space gets the new high-frequency action.
+        if (e.key === ' ') {
+          e.preventDefault();
+          handleToggleComplete();
+          return;
+        }
+        // ⌘D / Ctrl+D — Duplicate the focused row (ADR-0066 Q1). Always
+        // preventDefault to suppress the browser bookmark dialog.
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'd') {
+          e.preventDefault();
+          handleDuplicate();
+          return;
+        }
+        if (e.key === 'Enter') {
           e.preventDefault();
           if (buildMode) {
             // Enter on row → enter Name cell-edit (per ux-design spec).
@@ -862,3 +1013,21 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
     </div>
   );
 }
+
+/**
+ * Default-shallow memoization keeps rows whose `dimmed` flag did not change
+ * from re-rendering on hover transitions (#475). Without this, every chain
+ * recompute re-renders the full virtualised window — perceived as flash
+ * when sweeping the cursor across the task list.
+ *
+ * Shallow equality is safe because:
+ *   - `task`, `siblingIds`, `nameSuggestions`, `milestoneParents`, `depChips`
+ *     are derived from upstream useMemo()s and have stable identity across
+ *     hover transitions (they only change when the underlying task/link
+ *     data changes).
+ *   - `onHoverChange` / `onAddDependencyRequest` are stable (useState setter
+ *     and useCallback).
+ *   - `dimmed` is the boolean that does change per hover — that's the prop
+ *     we actually want re-renders to track.
+ */
+export const TaskListRow = memo(TaskListRowInner);

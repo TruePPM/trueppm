@@ -336,11 +336,39 @@ describe('TaskListRow — build-mode context menu', () => {
     expect(outdentItem).toBeDisabled();
   });
 
-  it('Insert below is disabled in v1 (no positioned-insert API yet)', () => {
+  it('Insert below is dropped from the menu entirely (ADR-0066 ux-design)', () => {
+    // Previously the item rendered greyed out. The redesign drops it from the
+    // menu until a positioned-insert API exists; the cheatsheet still documents
+    // the "Enter on empty row → new row below" path in build mode.
     renderHarness();
     fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
-    const insertItem = screen.getByRole('menuitem', { name: /Insert below/ });
-    expect(insertItem).toBeDisabled();
+    expect(screen.queryByRole('menuitem', { name: /Insert below/ })).toBeNull();
+  });
+
+  it('Mark complete appears between Edit and Indent (#477)', () => {
+    renderHarness();
+    fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
+    expect(screen.getByRole('menuitem', { name: /Mark complete/ })).toBeInTheDocument();
+  });
+
+  it('Mark complete label flips to Unmark complete when status is COMPLETE', () => {
+    renderHarness({ task: { ...baseTask, status: 'COMPLETE' } });
+    fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
+    expect(screen.getByRole('menuitem', { name: /Unmark complete/ })).toBeInTheDocument();
+  });
+
+  it('Mark complete is disabled on milestone rows', () => {
+    renderHarness({ task: { ...baseTask, isMilestone: true, duration: 0 } });
+    fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
+    expect(screen.getByRole('menuitem', { name: /Mark complete/ })).toBeDisabled();
+  });
+
+  it('Add predecessor / Add successor / Duplicate items render (#477)', () => {
+    renderHarness();
+    fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
+    expect(screen.getByRole('menuitem', { name: /Add predecessor/ })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Add successor/ })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /Duplicate/ })).toBeInTheDocument();
   });
 
   it('Convert to milestone is disabled when task is already a milestone', () => {
