@@ -1,10 +1,9 @@
 import { useRef, useCallback, useState, useEffect, useMemo, type PointerEvent } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import type { GanttEngine, GanttScaleData } from './engine';
-import { dateToLeft, leftToDate } from './engine';
+import { dateToLeft } from './engine';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
-import { useRescheduleTask } from '@/hooks/useTaskMutations';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import { useWbsStore } from '@/stores/wbsStore';
 import { useDragCpm } from '@/hooks/useDragCpm';
@@ -39,6 +38,8 @@ import type { Task } from '@/types';
 import { useFeatureFlag } from '@/lib/featureFlags';
 import { useDependencyHover } from './useDependencyHover';
 import { ScheduleDependencyPicker } from './ScheduleDependencyPicker';
+import { ScheduleCommitPopover } from './ScheduleCommitPopover';
+import { useScheduleCommit } from './useScheduleCommit';
 import { useSprints } from '@/hooks/useSprints';
 import {
   useScheduleFocus,
@@ -586,50 +587,19 @@ export function ScheduleView() {
     onOpenDatePopover: handleOpenDatePopover,
   });
 
-  // Bar drag — convert canvas-origin left-x to planned_start and PATCH
-  const rescheduleTask = useRescheduleTask();
-  useEffect(() => {
-    if (!engine || !projectId) return;
-    return engine.on('drag-task-end', ({ id, left, cancelled }) => {
-      if (cancelled) return;
-      if (!navigator.onLine) return; // offline case handled by useDragCpm
-      const scales = engine.scales;
-      if (!scales) return;
-      const task = allTasks.find((t) => t.id === id);
-      if (!task) return;
-      const newStartIso = leftToDate(left, scales).toISOString().slice(0, 10);
-      if (newStartIso === task.start) return;
-      // Approximate finish keeps the bar width; CPM recomputes the real value
-      const newFinishIso = new Date(
-        new Date(newStartIso + 'T00:00:00Z').getTime() + task.duration * 86_400_000,
-      ).toISOString().slice(0, 10);
-      rescheduleTask.mutate(
-        { id, projectId, planned_start: newStartIso, optimistic: { start: newStartIso, finish: newFinishIso } },
-        { onSuccess: () => setMcMutationVersion((v) => v + 1) },
-      );
-    });
-  }, [engine, projectId, allTasks, rescheduleTask]);
-
-  // Bar resize — convert canvas-origin right-x to new finish date and PATCH
-  useEffect(() => {
-    if (!engine || !projectId) return;
-    return engine.on('resize-task-end', ({ id, right, cancelled }) => {
-      if (cancelled) return;
-      const scales = engine.scales;
-      if (!scales) return;
-      const task = allTasks.find((t) => t.id === id);
-      if (!task?.start) return;
-      const newFinish = leftToDate(right, scales);
-      const newFinishIso = newFinish.toISOString().slice(0, 10);
-      const startMs = new Date(task.start + 'T00:00:00Z').getTime();
-      const newDuration = Math.max(1, Math.round((newFinish.getTime() - startMs) / 86_400_000));
-      if (newDuration === task.duration) return;
-      rescheduleTask.mutate(
-        { id, projectId, duration: newDuration, optimistic: { finish: newFinishIso, duration: newDuration } },
-        { onSuccess: () => setMcMutationVersion((v) => v + 1) },
-      );
-    });
-  }, [engine, projectId, allTasks, rescheduleTask]);
+  // Pull-to-commit gate (ADR-0067 / #492). Drag-end and resize-end no longer
+  // fire the PATCH directly: the bar visually moves via engine.updateTask, and
+  // the popover holds the change until Confirm. Cancel/Esc/click-outside revert.
+  const scheduleCommit = useScheduleCommit({
+    engine,
+    projectId,
+    visibleTasks,
+    allTasks,
+    sprints,
+    canvasContainerRef: canvasScrollRef,
+    ariaAssertiveRef,
+    onCommitSuccess: () => setMcMutationVersion((v) => v + 1),
+  });
 
   const dragPhase = useDragStore((s) => s.phase);
   const scheduleError = useScheduleStore((s) => s.scheduleError);
@@ -1213,6 +1183,21 @@ export function ScheduleView() {
 
       {/* aria-live (assertive) — keyboard nudge announcements (rule 53) */}
       <div ref={ariaAssertiveRef} aria-live="assertive" aria-atomic="true" className="sr-only" />
+
+      {/* Pull-to-commit popover (ADR-0067 / #492) — replaces the silent PATCH
+          that fired on pointerup. Stays open until Confirm/Cancel/Esc/click-outside. */}
+      {scheduleCommit.state && (
+        <ScheduleCommitPopover
+          anchor={scheduleCommit.state.anchor}
+          activeSprintName={scheduleCommit.state.activeSprintName}
+          action={scheduleCommit.state.action}
+          isPending={scheduleCommit.isPending}
+          error={scheduleCommit.state.error}
+          onConfirm={scheduleCommit.handleConfirm}
+          onCancel={scheduleCommit.handleCancel}
+          onDismissByOutsideClick={scheduleCommit.handleDismissByOutsideClick}
+        />
+      )}
 
       {/* Offline error toast (rule 29) */}
       {dragPhase === 'error' && (
