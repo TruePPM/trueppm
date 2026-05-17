@@ -152,6 +152,21 @@ def close_sprint(self: object, request_id: str) -> None:
                 reason=ScheduleRequestReason.SPRINT_CLOSED,
             )
 
+            # Compute velocity-calibration suggestions (ADR-0065). Non-blocking
+            # on failure: any error logs and is swallowed so a calibration bug
+            # cannot strand a sprint close.
+            try:
+                from trueppm_api.apps.scheduling.services import (
+                    compute_velocity_suggestions,
+                )
+
+                compute_velocity_suggestions(sprint.pk)
+            except Exception:
+                logger.exception(
+                    "close_sprint: velocity calibration failed for sprint %s — continuing close",
+                    sprint.pk,
+                )
+
             sprint_id_str = str(sprint.pk)
             project_id_str = str(project_id)
             transaction.on_commit(

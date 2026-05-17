@@ -7288,6 +7288,187 @@
                     }
                 }
             }
+        },
+        "/api/v1/velocity-suggestions/": {
+            "get": {
+                "operationId": "v1_velocity_suggestions_list",
+                "description": "Velocity-calibration suggestions surfaced to the PM (ADR-0065).\n\nLifecycle:\n  - sprint close generates a row per task in the closing sprint via\n    ``compute_velocity_suggestions``\n  - the PM accepts (writes ``most_likely_duration`` + enqueues\n    ScheduleRequest) or dismisses (audit-only stamp) from the Task Detail\n    Drawer\n  - both terminal decisions are non-destructive: the row is preserved for\n    audit; subsequent sprint closes may add new rows (one per task per\n    sprint) but cannot overwrite a settled decision.\n\nAuth model:\n  - list / retrieve: any project member (Viewer+) — read access is fine\n    because the surface is informational\n  - accept / dismiss: PM or above (the action either writes a CPM input or\n    records a governance decision; either way it's PM-scope)\n\nFiltering: ``?task=<task_id>`` is the primary filter the drawer uses.\n``?pending=true`` restricts to suggestions awaiting a decision.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedVelocitySuggestionList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/velocity-suggestions/{id}/": {
+            "get": {
+                "operationId": "v1_velocity_suggestions_retrieve",
+                "description": "Velocity-calibration suggestions surfaced to the PM (ADR-0065).\n\nLifecycle:\n  - sprint close generates a row per task in the closing sprint via\n    ``compute_velocity_suggestions``\n  - the PM accepts (writes ``most_likely_duration`` + enqueues\n    ScheduleRequest) or dismisses (audit-only stamp) from the Task Detail\n    Drawer\n  - both terminal decisions are non-destructive: the row is preserved for\n    audit; subsequent sprint closes may add new rows (one per task per\n    sprint) but cannot overwrite a settled decision.\n\nAuth model:\n  - list / retrieve: any project member (Viewer+) — read access is fine\n    because the surface is informational\n  - accept / dismiss: PM or above (the action either writes a CPM input or\n    records a governance decision; either way it's PM-scope)\n\nFiltering: ``?task=<task_id>`` is the primary filter the drawer uses.\n``?pending=true`` restricts to suggestions awaiting a decision.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this velocity suggestion.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/VelocitySuggestion"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/velocity-suggestions/{id}/accept/": {
+            "post": {
+                "operationId": "v1_velocity_suggestions_accept_create",
+                "description": "Apply the suggested duration to the task and enqueue a CPM recompute.\n\nIdempotent: a suggestion that is already accepted returns 200 with the\nexisting row. Re-applying after dismiss is rejected with 409 so the\naudit trail of the original decision is preserved.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this velocity suggestion.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/VelocitySuggestion"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/velocity-suggestions/{id}/dismiss/": {
+            "post": {
+                "operationId": "v1_velocity_suggestions_dismiss_create",
+                "description": "Mark a suggestion as dismissed without touching the task.\n\nIdempotent: a suggestion that is already dismissed returns 200 with the\nexisting row. Dismissing after accept is rejected with 409 to preserve\nthe original decision.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this velocity suggestion.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/VelocitySuggestion"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
         }
     },
     "components": {
@@ -8418,6 +8599,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/TaskSkillRequirement"
+                        }
+                    }
+                }
+            },
+            "PaginatedVelocitySuggestionList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/VelocitySuggestion"
                         }
                     }
                 }
@@ -10818,6 +11030,92 @@
                     "id",
                     "initials",
                     "username"
+                ]
+            },
+            "VelocitySuggestion": {
+                "type": "object",
+                "description": "Read serializer for a velocity-calibration suggestion (ADR-0065).\n\nSurfaces the sprint that triggered the suggestion (name + id) so the Task\nDetail Drawer can render \"Suggested from Sprint 12 close\" without a second\nfetch.  The accept/dismiss audit fields are exposed so the drawer can also\nrender a quiet history row once a decision is made.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "sprint_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "suggested_duration": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "team_velocity_per_day": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,3}(?:\\.\\d{0,3})?$",
+                        "readOnly": true,
+                        "description": "Rolling 6-sprint average of completed_points / sprint_working_days."
+                    },
+                    "flag_for_review": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "is_pending": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "accepted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "accepted_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "dismissed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "dismissed_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "accepted_at",
+                    "accepted_by",
+                    "created_at",
+                    "dismissed_at",
+                    "dismissed_by",
+                    "flag_for_review",
+                    "id",
+                    "is_pending",
+                    "sprint_id",
+                    "sprint_name",
+                    "suggested_duration",
+                    "task",
+                    "team_velocity_per_day"
                 ]
             },
             "Webhook": {

@@ -8,7 +8,7 @@ from datetime import timedelta
 from celery import current_app
 from django.conf import settings
 from django.core.cache import cache
-from django.db import transaction
+from django.db import models, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status
@@ -20,7 +20,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 
-from trueppm_api.apps.access.permissions import IsProjectMember, IsProjectScheduler
+from trueppm_api.apps.access.permissions import (
+    IsProjectAdmin,
+    IsProjectMember,
+    IsProjectScheduler,
+)
 from trueppm_api.apps.projects.models import (
     Dependency,
     EstimateStatus,
@@ -28,8 +32,16 @@ from trueppm_api.apps.projects.models import (
     Project,
     Task,
 )
-from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus, ScheduleRequestReason
-from trueppm_api.apps.scheduling.serializers import FailedTaskSerializer
+from trueppm_api.apps.scheduling.models import (
+    FailedTask,
+    FailedTaskStatus,
+    ScheduleRequestReason,
+    VelocitySuggestion,
+)
+from trueppm_api.apps.scheduling.serializers import (
+    FailedTaskSerializer,
+    VelocitySuggestionSerializer,
+)
 from trueppm_api.apps.scheduling.services import enqueue_recalculate
 
 
@@ -283,3 +295,149 @@ class FailedTaskViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):  # 
         failed.status = FailedTaskStatus.DISMISSED
         failed.save(update_fields=["status", "last_failed_at"])
         return Response(FailedTaskSerializer(failed).data)
+
+
+# ---------------------------------------------------------------------------
+# Velocity suggestions (ADR-0065)
+# ---------------------------------------------------------------------------
+
+
+class VelocitySuggestionViewSet(
+    ListModelMixin,
+    RetrieveModelMixin,
+    GenericViewSet[VelocitySuggestion],
+):
+    """Velocity-calibration suggestions surfaced to the PM (ADR-0065).
+
+    Lifecycle:
+      - sprint close generates a row per task in the closing sprint via
+        ``compute_velocity_suggestions``
+      - the PM accepts (writes ``most_likely_duration`` + enqueues
+        ScheduleRequest) or dismisses (audit-only stamp) from the Task Detail
+        Drawer
+      - both terminal decisions are non-destructive: the row is preserved for
+        audit; subsequent sprint closes may add new rows (one per task per
+        sprint) but cannot overwrite a settled decision.
+
+    Auth model:
+      - list / retrieve: any project member (Viewer+) — read access is fine
+        because the surface is informational
+      - accept / dismiss: PM or above (the action either writes a CPM input or
+        records a governance decision; either way it's PM-scope)
+
+    Filtering: ``?task=<task_id>`` is the primary filter the drawer uses.
+    ``?pending=true`` restricts to suggestions awaiting a decision.
+    """
+
+    serializer_class = VelocitySuggestionSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = VelocitySuggestion.objects.all()
+
+    def get_queryset(self) -> models.QuerySet[VelocitySuggestion]:
+        qs = (
+            VelocitySuggestion.objects.select_related("task", "sprint")
+            .filter(task__is_deleted=False)
+            .order_by("-created_at")
+        )
+
+        task_id = self.request.query_params.get("task")
+        if task_id:
+            qs = qs.filter(task_id=task_id)
+
+        if self.request.query_params.get("pending", "").lower() == "true":
+            qs = qs.filter(accepted_at__isnull=True, dismissed_at__isnull=True)
+
+        # Membership gate: only return rows whose task belongs to a project the
+        # caller is a member of. We rely on the access app's project-membership
+        # subquery rather than per-row checks so the list endpoint stays fast.
+        # IsAuthenticated excludes AnonymousUser before this runs; the isinstance
+        # guard is there to narrow the type for mypy.
+        from django.contrib.auth.models import AbstractBaseUser
+
+        from trueppm_api.apps.access.models import ProjectMembership
+
+        user = self.request.user
+        if not isinstance(user, AbstractBaseUser):
+            return qs.none()
+        member_project_ids = ProjectMembership.objects.filter(user=user).values_list(
+            "project_id", flat=True
+        )
+        qs = qs.filter(task__project_id__in=member_project_ids)
+        return qs
+
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[IsAuthenticated, IsProjectAdmin],
+    )
+    def accept(self, request: Request, pk: str | None = None) -> Response:
+        """Apply the suggested duration to the task and enqueue a CPM recompute.
+
+        Idempotent: a suggestion that is already accepted returns 200 with the
+        existing row. Re-applying after dismiss is rejected with 409 so the
+        audit trail of the original decision is preserved.
+        """
+        suggestion = self.get_object()
+        # Object-level permission keys off the task's project.
+        self.check_object_permissions(request, suggestion.task)
+
+        if suggestion.accepted_at is not None:
+            return Response(VelocitySuggestionSerializer(suggestion).data)
+        if suggestion.dismissed_at is not None:
+            return Response(
+                {"detail": "Suggestion has already been dismissed."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        task = suggestion.task
+        project_id = task.project_id
+
+        with transaction.atomic():
+            task.most_likely_duration = suggestion.suggested_duration
+            task.save(update_fields=["most_likely_duration"])
+            VelocitySuggestion.objects.filter(pk=suggestion.pk).update(
+                accepted_at=timezone.now(),
+                accepted_by=request.user,
+            )
+            # CPM cascade: the new most_likely_duration shifts the Monte Carlo
+            # forecast on the next run. Enqueue inside the transaction so the
+            # request is visible to the drain only after the task save commits.
+            transaction.on_commit(
+                lambda: enqueue_recalculate(
+                    str(project_id),
+                    reason=ScheduleRequestReason.TASK_CHANGE,
+                )
+            )
+
+        suggestion.refresh_from_db()
+        return Response(VelocitySuggestionSerializer(suggestion).data)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        permission_classes=[IsAuthenticated, IsProjectAdmin],
+    )
+    def dismiss(self, request: Request, pk: str | None = None) -> Response:
+        """Mark a suggestion as dismissed without touching the task.
+
+        Idempotent: a suggestion that is already dismissed returns 200 with the
+        existing row. Dismissing after accept is rejected with 409 to preserve
+        the original decision.
+        """
+        suggestion = self.get_object()
+        self.check_object_permissions(request, suggestion.task)
+
+        if suggestion.dismissed_at is not None:
+            return Response(VelocitySuggestionSerializer(suggestion).data)
+        if suggestion.accepted_at is not None:
+            return Response(
+                {"detail": "Suggestion has already been accepted."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        VelocitySuggestion.objects.filter(pk=suggestion.pk).update(
+            dismissed_at=timezone.now(),
+            dismissed_by=request.user,
+        )
+        suggestion.refresh_from_db()
+        return Response(VelocitySuggestionSerializer(suggestion).data)

@@ -24,7 +24,13 @@ vi.mock('@/hooks/useSprints', () => ({
 }));
 
 vi.mock('@/api/client', () => ({
-  apiClient: { patch: vi.fn().mockResolvedValue({ data: {} }), post: vi.fn() },
+  apiClient: {
+    patch: vi.fn().mockResolvedValue({ data: {} }),
+    post: vi.fn(),
+    // get is consumed by useVelocitySuggestions once a PM-role test fixture
+    // lands; defensive default keeps the suite passing as roles widen.
+    get: vi.fn().mockResolvedValue({ data: { count: 0, results: [] } }),
+  },
 }));
 
 let mockMcReturn: UseMonteCarloResultReturn = { data: undefined, isLoading: false, error: null };

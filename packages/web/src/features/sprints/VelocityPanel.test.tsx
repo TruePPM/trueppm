@@ -26,6 +26,7 @@ function makeVelocity(overrides: Partial<ProjectVelocity> = {}): ProjectVelocity
     forecast_range_high: null,
     rolling_avg_tasks: null,
     rolling_stdev_tasks: null,
+    team_velocity_per_day: null,
     ...overrides,
   };
 }

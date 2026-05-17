@@ -2,12 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import type { EstimationMode, Task } from '@/types';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
 import { useApproveEstimates } from '@/hooks/useApproveEstimates';
+import {
+  useAcceptVelocitySuggestion,
+  useDismissVelocitySuggestion,
+  useVelocitySuggestions,
+} from '@/hooks/useVelocitySuggestions';
 
 interface EstimatesTabProps {
   task: Task;
   projectId: string;
   estimationMode: EstimationMode;
   userIsScheduler: boolean;
+  /** PM/Admin (role ≥ 3); gates velocity-suggestion accept/dismiss buttons. */
+  userIsAdmin?: boolean;
   /** Whether the task's sprint is currently ACTIVE — gates remaining-points edit. */
   sprintIsActive?: boolean;
 }
@@ -17,10 +24,24 @@ export function EstimatesTab({
   projectId,
   estimationMode,
   userIsScheduler,
+  userIsAdmin = false,
   sprintIsActive = false,
 }: EstimatesTabProps) {
   const updateTask = useUpdateTask();
   const approveEstimates = useApproveEstimates(projectId);
+
+  // ADR-0065: Velocity-calibration suggestions surface only to PM-role users.
+  // The list endpoint is gated server-side (membership) and the accept/dismiss
+  // endpoints reject non-admin callers, but skipping the fetch entirely keeps
+  // the drawer payload minimal for Viewers/Members/Schedulers.
+  const { data: suggestions } = useVelocitySuggestions(
+    userIsAdmin ? task.id : undefined,
+  );
+  const acceptSuggestion = useAcceptVelocitySuggestion(task.id, projectId);
+  const dismissSuggestion = useDismissVelocitySuggestion(task.id);
+  // Sprint close generates at most one suggestion per task per sprint, so the
+  // surface need only present the most recent pending row.
+  const pendingSuggestion = suggestions?.[0];
 
   // Local controlled state mirrors task props; resets when task changes
   const [optimistic, setOptimistic] = useState<string>(
@@ -91,6 +112,66 @@ export function EstimatesTab({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* ADR-0065 — velocity-calibration suggestion (PM-only surface). */}
+      {pendingSuggestion && userIsAdmin && (
+        <div
+          role="status"
+          aria-label="Velocity calibration suggestion"
+          className="flex items-start gap-3 rounded-lg border border-brand-primary/40 bg-brand-primary/5 px-3 py-2.5"
+        >
+          <span
+            className="text-brand-primary text-lg leading-none mt-0.5"
+            aria-hidden="true"
+          >
+            📈
+          </span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-neutral-text-primary">
+              Revise estimate from {pendingSuggestion.sprint_name}?
+            </p>
+            <p className="text-xs text-neutral-text-secondary mt-0.5">
+              Team velocity suggests{' '}
+              <span className="tppm-mono font-semibold text-neutral-text-primary">
+                {pendingSuggestion.suggested_duration}d
+              </span>{' '}
+              for this task
+              {task.mostLikelyDuration != null && (
+                <>
+                  {' '}
+                  (currently{' '}
+                  <span className="tppm-mono">{task.mostLikelyDuration}d</span>)
+                </>
+              )}
+              .
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => dismissSuggestion.mutate(pendingSuggestion.id)}
+              disabled={dismissSuggestion.isPending || acceptSuggestion.isPending}
+              className="h-8 px-3 rounded text-xs font-medium border border-neutral-border
+                text-neutral-text-secondary bg-neutral-surface hover:bg-neutral-surface-raised
+                disabled:opacity-50 disabled:cursor-not-allowed
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              {dismissSuggestion.isPending ? 'Dismissing…' : 'Dismiss'}
+            </button>
+            <button
+              type="button"
+              onClick={() => acceptSuggestion.mutate(pendingSuggestion.id)}
+              disabled={acceptSuggestion.isPending || dismissSuggestion.isPending}
+              className="h-8 px-3 rounded text-xs font-semibold border border-brand-primary
+                text-white bg-brand-primary hover:bg-brand-primary-dark
+                disabled:opacity-50 disabled:cursor-not-allowed
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              {acceptSuggestion.isPending ? 'Accepting…' : 'Accept'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Pending approval banner — suggest_approve mode */}
       {showPendingBanner && (
         <div
