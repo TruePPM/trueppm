@@ -811,7 +811,15 @@ export function ScheduleView() {
     // Tell the engine directly too so the canvas doesn't have to wait two
     // React render cycles for the React-state → useEffect propagation to
     // reach `engine.setHoverChain`.
+    //
+    // Bail when a context menu is open in the DOM — the `BuildModeRowMenu`
+    // has its own window-level Esc listener that closes the menu by setting
+    // `menuAnchor=null`; running this handler in parallel races with that
+    // close and leaves the menu visible (e2e/schedule-build-mode.spec.ts
+    // regression). Let the menu close first; user can press Esc a second
+    // time to clear hover / selection if needed.
     out['escape'] = () => {
+      if (document.querySelector('[role="menu"][aria-label="Row actions"]')) return;
       setHoveredTaskId(null);
       setFocusModeEnabled(false);
       setSelectedTaskId(null);
