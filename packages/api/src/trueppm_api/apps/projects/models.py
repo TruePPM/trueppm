@@ -477,6 +477,14 @@ class Task(VersionedModel):
                 fields=["project", "early_start", "early_finish"],
                 name="task_utilization_window_idx",
             ),
+            # Partial covering index for the cross-project My Work endpoint
+            # (ADR-0065 Gap 2). Filters on (assignee, status) with soft-deleted
+            # rows excluded — the contributor surface never shows them.
+            models.Index(
+                fields=["assignee", "status"],
+                condition=models.Q(is_deleted=False),
+                name="task_assignee_status_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(

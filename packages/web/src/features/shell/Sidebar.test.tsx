@@ -28,6 +28,15 @@ vi.mock('./NewProjectModal', () => ({
   ),
 }));
 
+// Stub useMyWork — the Sidebar's "Me" section reads due_today_count from the
+// first page. Without the mock, TanStack Query would attempt a real network
+// call in the JSDOM test environment. The badge logic itself is exercised in
+// the my-work Playwright spec; here we just need the hook to return a no-op
+// shape so the Sidebar renders cleanly.
+vi.mock('@/hooks/useMyWork', () => ({
+  useMyWork: () => ({ data: undefined }),
+}));
+
 describe('Sidebar', () => {
   beforeEach(() => {
     useShellStore.setState({ sidebarCollapsed: false, sidebarUserControlled: false });

@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import datetime
 import logging
+import re
 import uuid
 from typing import Any, cast
 
@@ -27,7 +28,7 @@ from django.db.models import (
 from django.db.models.expressions import RawSQL
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import filters, mixins, serializers, status, viewsets
+from rest_framework import filters, generics, mixins, pagination, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
@@ -73,6 +74,8 @@ from trueppm_api.apps.projects.serializers import (
     CalendarSerializer,
     CycleDetectedError,
     DependencySerializer,
+    MeWorkActiveSprintSerializer,
+    MeWorkTaskSerializer,
     ProgressAnchorError,
     ProjectSerializer,
     RiskCommentSerializer,
@@ -88,6 +91,12 @@ from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
 
 logger = logging.getLogger(__name__)
+
+# Allow-list pattern for the X-Source request header value (ADR-0065 Gap 2).
+# Lower-case ASCII letters and underscores, 1–64 chars. Any other input is
+# coerced to "unknown" before reaching the stored webhook payload — protects
+# downstream third-party consumers from arbitrary Unicode or oversized strings.
+_VALID_SOURCE = re.compile(r"[a-z_]{1,64}")
 
 
 class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
@@ -983,7 +992,16 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
         )
-        payload = _task_webhook_payload(instance)
+        # Capture the calling surface from X-Source header so downstream consumers
+        # (webhooks, future audit views) can distinguish a status flip from /me/work
+        # vs the schedule canvas vs the board — Morgan's sprint-sovereignty concern
+        # (ADR-0065 Gap 2). The header is optional; absent → "unknown".
+        # Validate against an allow-list pattern (lowercase letters and underscores,
+        # max 64 chars) so a hostile or buggy client cannot inject Unicode / huge
+        # strings into stored webhook payloads forwarded to third-party consumers.
+        raw_source = self.request.headers.get("X-Source", "unknown")
+        source = raw_source if _VALID_SOURCE.fullmatch(raw_source) else "unknown"
+        payload = _task_webhook_payload(instance, source=source)
         transaction.on_commit(lambda: _dispatch_webhooks(project_id, "task.updated", payload))
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -2206,8 +2224,15 @@ def _dispatch_webhooks(project_id: str, event_type: str, payload: dict) -> None:
     dispatch_webhooks(project_id, event_type, payload)
 
 
-def _task_webhook_payload(task: Task) -> dict:  # type: ignore[type-arg]
-    """Build a webhook payload dict for a task event."""
+def _task_webhook_payload(task: Task, source: str = "unknown") -> dict:  # type: ignore[type-arg]
+    """Build a webhook payload dict for a task event.
+
+    ``source`` carries the originating UI surface (e.g. ``my_work``, ``schedule``,
+    ``board``) when the X-Source request header is set on the inbound PATCH —
+    ADR-0065 Gap 2 introduces this so external consumers can correlate status
+    changes with the surface that triggered them. Defaults to ``"unknown"``
+    for calls that don't set the header (most existing surfaces).
+    """
     return {
         "id": str(task.pk),
         "project": str(task.project_id),
@@ -2217,6 +2242,7 @@ def _task_webhook_payload(task: Task) -> dict:  # type: ignore[type-arg]
         "assignee": str(task.assignee_id) if task.assignee_id else None,
         "actual_start": str(task.actual_start) if task.actual_start else None,
         "actual_finish": str(task.actual_finish) if task.actual_finish else None,
+        "source": source,
     }
 
 
@@ -3526,6 +3552,199 @@ class MeActiveSprintsView(APIView):
         # fall to the bottom so the UI shows urgency without a manual sort.
         results.sort(key=lambda r: r["sprint"]["trend_pts"])
         return Response(results, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# My Work — cross-project contributor surface (ADR-0065 Gap 2, issue #499)
+# ---------------------------------------------------------------------------
+
+
+class MeWorkPagination(pagination.LimitOffsetPagination):
+    """Limit/offset pagination for the My Work cross-project list.
+
+    DRF's ``CursorPagination`` filters subsequent pages on the *leading*
+    ordering field only. The architect-specified sort has ``_in_active_sprint``
+    (a binary 0/1 annotation) as the leading field, which makes the cursor
+    filter ``_in_active_sprint > <last value>`` silently return zero rows on
+    page 2. Limit/offset preserves the full multi-key sort intact across
+    pages.
+
+    The trade-off — concurrent inserts can shift offsets and produce
+    duplicates or skips at page boundaries — is acceptable for this surface:
+    Priya's task list rarely changes mid-scroll, and the matching sort that
+    groups the UI's active-sprint rendering is more valuable than absolute
+    pagination stability.
+
+    Default page size 100; clients may request smaller via ``?limit=`` but
+    not larger than 200.
+    """
+
+    default_limit = 100
+    max_limit = 200
+
+
+class MeWorkView(generics.ListAPIView[Task]):
+    """``GET /api/v1/me/work/`` — contributor's flat task list across all projects.
+
+    Returns the requesting user's assigned, non-BACKLOG, non-soft-deleted tasks
+    grouped (client-side) by active sprint. Deliberately flat — no CPM fields,
+    no WBS hierarchy, no phase tree. The contributor (Priya persona) reads this
+    as a personal to-do list; PM-level concepts (critical path, float, schedule
+    variance) are intentionally absent.
+
+    **RBAC contract (Morgan's sprint-sovereignty requirement)**: the queryset is
+    hard-scoped to ``assignee=request.user`` *and* re-checks project membership
+    via ``project__memberships``. There is no ``?user=`` escape hatch — a PM-role
+    or admin caller gets a 200 with their *own* assigned tasks (which may be
+    empty). The endpoint cannot be used as a manager surveillance surface.
+
+    Status updates flow through the existing ``PATCH /api/v1/tasks/{id}/`` path,
+    not through this endpoint. Clients should send ``X-Source: my_work`` on the
+    PATCH so the webhook payload carries the originating surface.
+
+    Response shape::
+
+        {
+            "results": [{ ...flat task fields... }],
+            "next": "<cursor>" | null,
+            "previous": "<cursor>" | null,
+            "active_sprints": [{ ...minimal sprint card... }],
+            "due_today_count": 3,
+            "server_version_high_water": 12345
+        }
+    """
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = MeWorkTaskSerializer
+    pagination_class = MeWorkPagination
+
+    def get_queryset(self) -> QuerySet[Task]:
+        from django.db.models import Case, IntegerField, Value, When
+        from django.db.models.functions import Coalesce
+
+        # IsAuthenticated guarantees request.user is a real User (not Anonymous)
+        # by the time this runs. Filter by ``user.pk`` rather than the instance
+        # so the type-checker sees a concrete int/UUID and not the ``User |
+        # AnonymousUser`` DRF union — matches MeActiveSprintsView. The
+        # ``or -1`` keeps mypy happy about the ``int | None`` from .pk; the
+        # value can't be None at runtime because IsAuthenticated rejected
+        # anonymous callers earlier in the request lifecycle.
+        user_pk = self.request.user.pk or -1
+        return (
+            Task.objects.filter(
+                assignee_id=user_pk,
+                is_deleted=False,
+                project__is_deleted=False,
+                project__memberships__user_id=user_pk,
+                project__memberships__is_deleted=False,
+            )
+            .exclude(status=TaskStatus.BACKLOG)
+            .select_related("project", "sprint")
+            .annotate(
+                _in_active_sprint=Case(
+                    When(sprint__state=SprintState.ACTIVE, then=Value(0)),
+                    default=Value(1),
+                    output_field=IntegerField(),
+                ),
+                _sort_date=Coalesce("planned_start", "early_start"),
+            )
+            .order_by("_in_active_sprint", "_sort_date", "priority_rank", "id")
+        )
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Wrap the paginated list with active_sprints + due_today_count + cursor."""
+        from django.db.models import Count, DateField
+        from django.db.models.functions import Coalesce
+
+        # See ``get_queryset`` for the ``or -1`` rationale.
+        user_pk = request.user.pk or -1
+
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page if page is not None else queryset, many=True)
+
+        # Active sprints the user has tasks in — minimal card data only. Burndown
+        # and capacity ratio live on /me/active-sprints/; here we only need what
+        # the section header in the UI renders.
+        active_sprints_qs = (
+            Sprint.objects.filter(
+                is_deleted=False,
+                state=SprintState.ACTIVE,
+                project__is_deleted=False,
+                project__memberships__user_id=user_pk,
+                project__memberships__is_deleted=False,
+                tasks__assignee_id=user_pk,
+                tasks__is_deleted=False,
+            )
+            .exclude(tasks__status=TaskStatus.BACKLOG)
+            .annotate(
+                task_count=Count(
+                    "tasks",
+                    filter=(
+                        Q(tasks__assignee_id=user_pk)
+                        & Q(tasks__is_deleted=False)
+                        & ~Q(tasks__status=TaskStatus.BACKLOG)
+                    ),
+                    distinct=True,
+                )
+            )
+            .select_related("project")
+            .distinct()
+            .order_by("finish_date")
+        )
+
+        # Due-today count — drives the Sidebar "My Work" badge. Coalesce the
+        # same cascade the serializer's `due` field uses so the count matches
+        # exactly what the UI shows.
+        today = timezone.localdate()
+        due_today_count = (
+            Task.objects.filter(
+                assignee_id=user_pk,
+                is_deleted=False,
+                project__is_deleted=False,
+                project__memberships__user_id=user_pk,
+                project__memberships__is_deleted=False,
+            )
+            .exclude(status__in=[TaskStatus.BACKLOG, TaskStatus.COMPLETE])
+            .annotate(
+                _due=Coalesce(
+                    "actual_finish",
+                    "planned_start",
+                    "early_finish",
+                    "sprint__finish_date",
+                    output_field=DateField(),
+                )
+            )
+            .filter(_due=today)
+            .count()
+        )
+
+        # High-water mark for offline delta sync — the largest server_version
+        # in the user's currently-visible task set. Mobile clients persist this
+        # and pass it on the next pull as ``?since=`` to fetch only changes.
+        server_version_high_water = queryset.aggregate(_max=Max("server_version"))["_max"] or 0
+
+        active_sprints_payload = MeWorkActiveSprintSerializer(active_sprints_qs, many=True).data
+
+        if page is not None:
+            paginated = self.get_paginated_response(serializer.data).data
+            assert isinstance(paginated, dict)
+            paginated["active_sprints"] = active_sprints_payload
+            paginated["due_today_count"] = due_today_count
+            paginated["server_version_high_water"] = server_version_high_water
+            return Response(paginated, status=status.HTTP_200_OK)
+
+        return Response(
+            {
+                "results": serializer.data,
+                "next": None,
+                "previous": None,
+                "active_sprints": active_sprints_payload,
+                "due_today_count": due_today_count,
+                "server_version_high_water": server_version_high_water,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class ProjectVelocityView(APIView):

@@ -106,6 +106,7 @@ export default defineConfig({
             { slug: "features/capacity-preflight" },
             { slug: "features/velocity" },
             { slug: "features/velocity-calibration" },
+            { slug: "features/my-work" },
             { slug: "features/multi-team-lens" },
             { slug: "features/retrospective" },
             // Board surface

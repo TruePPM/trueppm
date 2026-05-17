@@ -55,6 +55,9 @@ const ProjectSettingsPage = lazy(() =>
 const MembersTab = lazy(() =>
   import('@/features/settings/members/MembersTab').then((m) => ({ default: m.MembersTab }))
 );
+const MyWorkPage = lazy(() =>
+  import('@/features/me/MyWorkPage').then((m) => ({ default: m.MyWorkPage }))
+);
 
 /** Fallback rendered inside Suspense while a lazy chunk is loading. */
 function RouteLoadingFallback() {
@@ -211,6 +214,15 @@ export const router = createBrowserRouter([
             element: (
               <Suspense fallback={<RouteLoadingFallback />}>
                 <ResourcesPage />
+              </Suspense>
+            ),
+          },
+          // My Work — cross-project contributor surface (#499, ADR-0065 Gap 2)
+          {
+            path: 'me/work',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <MyWorkPage />
               </Suspense>
             ),
           },

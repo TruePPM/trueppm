@@ -14,6 +14,7 @@ from trueppm_api.apps.projects.views import (
     CalendarViewSet,
     DependencyViewSet,
     MeActiveSprintsView,
+    MeWorkView,
     PhaseReorderView,
     ProjectAttentionView,
     ProjectBurnView,
@@ -225,5 +226,11 @@ urlpatterns = [
         "me/active-sprints/",
         MeActiveSprintsView.as_view(),
         name="me-active-sprints",
+    ),
+    # My Work — contributor surface (ADR-0065 Gap 2, issue #499)
+    path(
+        "me/work/",
+        MeWorkView.as_view(),
+        name="me-work",
     ),
 ]

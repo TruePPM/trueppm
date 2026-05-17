@@ -189,6 +189,17 @@ function MenuContent({
         <ThemePill theme={theme} onSetTheme={onSetTheme} />
       </div>
 
+      {/* My Work — cross-project contributor surface (#499, ADR-0065 Gap 2).
+          Placed above project-scoped items so it's reachable without a project. */}
+      <NavLink
+        to="/me/work"
+        role="menuitem"
+        onClick={onClose}
+        className={`${rowInteractive} text-sm text-neutral-text-primary no-underline`}
+      >
+        My Work
+      </NavLink>
+
       {/* Project settings — only shown when a project is in context */}
       {projectId && (
         <NavLink
