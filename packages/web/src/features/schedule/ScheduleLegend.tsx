@@ -32,7 +32,7 @@ export function ScheduleLegend({ taskListWidth }: ScheduleLegendProps) {
     <div
       data-testid="schedule-legend"
       style={{ left: taskListWidth + 16 }}
-      className="absolute bottom-4 z-[45] hidden lg:block
+      className="absolute bottom-4 z-20 hidden lg:block
                  bg-neutral-surface-raised border border-neutral-border rounded-md
                  text-xs text-neutral-text-primary"
     >

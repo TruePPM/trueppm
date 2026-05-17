@@ -57,8 +57,12 @@ parent — **bottom-left** of the canvas viewport, not bottom-right. Rationale:
   below that — so "bottom-left of the canvas" is the bottom-left of the scroll
   container itself, above the gutter.
 
-Z-index: `z-[45]` — above `MilestonePulseOverlay` (`z-40`) and drawer panels
-(`z-40`), below tooltips/popovers (`z-50`), well below modals (`z-[51]+`).
+Z-index: `z-20` — above the canvas stack (`z-0`..`z-2`) and below the
+TaskDetailDrawer panel (`z-40`), tooltips/popovers (`z-50`), and modals
+(`z-[51]+`). Sitting above the drawer would block clicks on drawer
+`CollapsibleSection` headers in the legend's overlap zone — confirmed in
+the #474 pipeline as the cause of subtasks / skill-assignment / task-drawer
+E2E timeouts.
 
 ### Responsive behavior
 
