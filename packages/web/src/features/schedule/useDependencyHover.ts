@@ -77,8 +77,18 @@ function bfs(
 }
 
 /**
- * Compute the chain reachable from `hoveredId`, coalesced through rAF so that
- * rapid hover changes don't compute the chain more than once per frame.
+ * Settle delay before a hover transition activates the chain (ms). Mouse
+ * sweeps across rows shouldn't fire the chain on every passing row — only
+ * once the cursor pauses for this long. Set to feel snappy on intent without
+ * triggering on incidental movement. Clearing (taskId → null) is immediate
+ * so leaving the canvas drops the chain without lag.
+ */
+const HOVER_SETTLE_MS = 80;
+
+/**
+ * Compute the chain reachable from `hoveredId`, debounced with a small
+ * settle delay so rapid mouse sweeps don't fire the chain on every row the
+ * cursor crosses. Clearing the hover (taskId becomes null) is immediate.
  *
  * Returns the empty chain when `hoveredId` is null.
  */
@@ -88,24 +98,28 @@ export function useDependencyHover(
 ): DependencyChain {
   const adjacency = useMemo(() => buildAdjacency(links), [links]);
 
-  // Coalesce hover transitions through rAF — at most one effective hoveredId
-  // change per animation frame, even if the row layer raises many in quick
-  // succession during a mouse sweep.
+  // Debounce hover activation; clear immediately.
   const [coalesced, setCoalesced] = useState<string | null>(null);
-  const pendingRafRef = useRef<number | null>(null);
-  const nextValueRef = useRef<string | null>(null);
+  const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    nextValueRef.current = hoveredId;
-    if (pendingRafRef.current !== null) return;
-    pendingRafRef.current = requestAnimationFrame(() => {
-      pendingRafRef.current = null;
-      setCoalesced(nextValueRef.current);
-    });
+    if (pendingTimerRef.current !== null) {
+      clearTimeout(pendingTimerRef.current);
+      pendingTimerRef.current = null;
+    }
+    if (hoveredId === null) {
+      // Drop the chain right away — no settle delay on clear.
+      setCoalesced(null);
+      return;
+    }
+    pendingTimerRef.current = setTimeout(() => {
+      pendingTimerRef.current = null;
+      setCoalesced(hoveredId);
+    }, HOVER_SETTLE_MS);
     return () => {
-      if (pendingRafRef.current !== null) {
-        cancelAnimationFrame(pendingRafRef.current);
-        pendingRafRef.current = null;
+      if (pendingTimerRef.current !== null) {
+        clearTimeout(pendingTimerRef.current);
+        pendingTimerRef.current = null;
       }
     };
   }, [hoveredId]);

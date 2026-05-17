@@ -342,43 +342,38 @@ export function ScheduleView() {
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
     : null;
 
-  // Focus chain: all predecessor + successor task IDs reachable from the selected task.
-  // Used to dim rows not in the chain when focus mode is on (issue #131).
-  const { focusChainIds, depChipsById } = useMemo((): {
-    focusChainIds: Set<string> | undefined;
-    depChipsById: Map<string, TaskDepChips>;
-  } => {
-    // Build per-task dep chip data and adjacency lists in a single pass over
-    // allLinks — reused by the BFS below so traversal is O(V + E), not O(V · E).
-    const chipsById = new Map<string, TaskDepChips>();
-    const succs = new Map<string, string[]>();
-    const preds = new Map<string, string[]>();
+  // Adjacency + per-task dep-chip data — only depends on `allLinks`, so the
+  // identity stays stable across hover transitions. This matters for
+  // TaskListRow's React.memo: the `depChips` prop must not get a fresh
+  // object identity on every hover change or every row re-renders.
+  const { chipsById, succs, preds } = useMemo(() => {
+    const c = new Map<string, TaskDepChips>();
+    const s = new Map<string, string[]>();
+    const p = new Map<string, string[]>();
     for (const link of allLinks) {
-      const srcChip = chipsById.get(link.sourceId) ?? { predsCount: 0, succsCount: 0, predsCritical: false, succsCritical: false };
+      const srcChip = c.get(link.sourceId) ?? { predsCount: 0, succsCount: 0, predsCritical: false, succsCritical: false };
       srcChip.succsCount++;
       if (link.isCritical) srcChip.succsCritical = true;
-      chipsById.set(link.sourceId, srcChip);
+      c.set(link.sourceId, srcChip);
 
-      const tgtChip = chipsById.get(link.targetId) ?? { predsCount: 0, succsCount: 0, predsCritical: false, succsCritical: false };
+      const tgtChip = c.get(link.targetId) ?? { predsCount: 0, succsCount: 0, predsCritical: false, succsCritical: false };
       tgtChip.predsCount++;
       if (link.isCritical) tgtChip.predsCritical = true;
-      chipsById.set(link.targetId, tgtChip);
+      c.set(link.targetId, tgtChip);
 
-      (succs.get(link.sourceId) ?? succs.set(link.sourceId, []).get(link.sourceId)!).push(link.targetId);
-      (preds.get(link.targetId) ?? preds.set(link.targetId, []).get(link.targetId)!).push(link.sourceId);
+      (s.get(link.sourceId) ?? s.set(link.sourceId, []).get(link.sourceId)!).push(link.targetId);
+      (p.get(link.targetId) ?? p.set(link.targetId, []).get(link.targetId)!).push(link.sourceId);
     }
+    return { chipsById: c, succs: s, preds: p };
+  }, [allLinks]);
 
-    // Hover wins over selection-driven focus mode (ADR-0066 Q7) — when a row
-    // is hovered, the chain follows the hover origin even if the user also
-    // has selection-based focus mode toggled on.
-    if (hoverChain.hoveredId) {
-      return { focusChainIds: hoverChain.chain as Set<string>, depChipsById: chipsById };
-    }
-    if (!focusModeEnabled || !selectedTaskId) {
-      return { focusChainIds: undefined, depChipsById: chipsById };
-    }
-
-    // BFS via adjacency maps — visits each node once, each edge twice.
+  // Focus chain — hover wins over selection-driven focus mode (ADR-0066 Q7).
+  // Only depends on the chain-driving inputs, so when the user is just
+  // sweeping the cursor across rows the depChipsById identity above stays
+  // stable (no row re-render on chip prop).
+  const focusChainIds = useMemo<Set<string> | undefined>(() => {
+    if (hoverChain.hoveredId) return hoverChain.chain as Set<string>;
+    if (!focusModeEnabled || !selectedTaskId) return undefined;
     const chain = new Set<string>([selectedTaskId]);
     const queue = [selectedTaskId];
     while (queue.length > 0) {
@@ -396,8 +391,9 @@ export function ScheduleView() {
         }
       }
     }
-    return { focusChainIds: chain, depChipsById: chipsById };
-  }, [focusModeEnabled, selectedTaskId, allLinks, hoverChain]);
+    return chain;
+  }, [focusModeEnabled, selectedTaskId, hoverChain, succs, preds]);
+  const depChipsById = chipsById;
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [showAddMilestone, setShowAddMilestone] = useState(false);
@@ -807,6 +803,25 @@ export function ScheduleView() {
       e.preventDefault();
       handleAddMilestone();
     };
+    // Esc reverts the schedule to a chain-free state. Clears hover (#475),
+    // turns off selection-driven focus mode (#131), and deselects the row
+    // (which also closes the drawer if open). Drawer Esc has its own listener
+    // that stopPropagation()s before the window-level handler — that path
+    // is independently wired in onClose below so both routes clear hover.
+    // Tell the engine directly too so the canvas doesn't have to wait two
+    // React render cycles for the React-state → useEffect propagation to
+    // reach `engine.setHoverChain`.
+    out['escape'] = () => {
+      setHoveredTaskId(null);
+      setFocusModeEnabled(false);
+      setSelectedTaskId(null);
+      engine?.setHoverChain(null);
+      // The engine maintains its own `_selectedTaskIds` set (clicked bars get
+      // the brand-primary selection ring on their connected dep arrows). React's
+      // selectedTaskId is the Zustand store for the drawer; the engine's is
+      // separate. Clear both so the canvas reverts fully.
+      engine?.selectTask(null);
+    };
     if (buildModeActive) {
       out['?'] = (e) => {
         e.preventDefault();
@@ -814,7 +829,7 @@ export function ScheduleView() {
       };
     }
     return out;
-  }, [projectId, readOnly, handleAddMilestone, buildModeActive]);
+  }, [projectId, readOnly, handleAddMilestone, buildModeActive, engine, setSelectedTaskId]);
   useScheduleKeyboard(keyBindings);
 
   const handleAddFirstTask = useCallback(() => {
@@ -1232,7 +1247,18 @@ export function ScheduleView() {
         <TaskDetailDrawer
           task={selectedTask}
           projectId={projectId}
-          onClose={() => setSelectedTaskId(null)}
+          onClose={() => {
+            setSelectedTaskId(null);
+            // Drawer Esc closes the drawer with stopPropagation (drawer's own
+            // listener at document level), which means the window-level Esc
+            // binding in useScheduleKeyboard never fires to clear the hover
+            // chain. Tie hover-clear to the drawer's close path so closing
+            // via Esc, X, or click-outside all revert the canvas highlights.
+            setHoveredTaskId(null);
+            engine?.setHoverChain(null);
+            // Also clear the engine's selection ring on connected arrows.
+            engine?.selectTask(null);
+          }}
         />
       )}
 

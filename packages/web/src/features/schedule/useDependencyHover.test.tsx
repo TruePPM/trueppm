@@ -69,17 +69,29 @@ describe('useDependencyHover', () => {
     await waitFor(() => expect(result.current.chain.size).toBe(3));
   });
 
-  it('coalesces rapid hover transitions through requestAnimationFrame', async () => {
+  it('debounces rapid hover transitions through a settle delay', async () => {
     const { result, rerender } = renderHook(
       ({ id }: { id: string | null }) => useDependencyHover(id, links),
       { initialProps: { id: null as string | null } },
     );
-    // Three transitions before the next animation frame — only the last one
-    // becomes visible after the frame fires.
+    // Three transitions in quick succession — the prior settle timers are
+    // cancelled on each new value, so only the final id resolves.
     rerender({ id: '1.1' as string | null });
     rerender({ id: '1.2' as string | null });
     rerender({ id: '1.3' as string | null });
     await waitFor(() => expect(result.current.hoveredId).toBe('1.3'));
     expect(result.current.predecessors.has('1.2')).toBe(true);
+  });
+
+  it('clears the chain immediately when hoveredId transitions to null', async () => {
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string | null }) => useDependencyHover(id, links),
+      { initialProps: { id: '1.3' as string | null } },
+    );
+    await waitFor(() => expect(result.current.hoveredId).toBe('1.3'));
+    rerender({ id: null });
+    // No settle wait — null applies on the next React tick.
+    await waitFor(() => expect(result.current.hoveredId).toBeNull());
+    expect(result.current.chain.size).toBe(0);
   });
 });

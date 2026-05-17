@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { memo, useState, useRef, useCallback, useEffect } from 'react';
 import type React from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import type { Task } from '@/types';
@@ -124,7 +124,7 @@ function addDaysISO(iso: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function TaskListRow({ task, level, widths, visible, hasChildren = false, isExpanded = false, onToggle, prevTaskId = null, nextTaskId = null, dimmed = false, depChips, siblingIds, nameSuggestions, milestoneParents, onHoverChange, onAddDependencyRequest, siblingNames, sourceSprint }: Props) {
+function TaskListRowInner({ task, level, widths, visible, hasChildren = false, isExpanded = false, onToggle, prevTaskId = null, nextTaskId = null, dimmed = false, depChips, siblingIds, nameSuggestions, milestoneParents, onHoverChange, onAddDependencyRequest, siblingNames, sourceSprint }: Props) {
   const projectId = useProjectId() ?? '';
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
@@ -519,6 +519,10 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
       style={{ height: ROW_HEIGHT }}
       className={[
         'relative group flex items-stretch text-xs border-b border-neutral-border/20',
+        // motion-safe transition so the hover-chain dim/un-dim (#475) doesn't
+        // snap when the cursor sweeps across many rows — without this the rapid
+        // chain recomputes show as flicker.
+        'motion-safe:transition-opacity motion-safe:duration-150 motion-safe:ease-out',
         isEditing || anyCellInEdit ? 'cursor-text' : 'cursor-pointer',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white',
         (buildMode ? isBuildSelected : isSelected) && !(isEditing || anyCellInEdit)
@@ -1009,3 +1013,21 @@ export function TaskListRow({ task, level, widths, visible, hasChildren = false,
     </div>
   );
 }
+
+/**
+ * Default-shallow memoization keeps rows whose `dimmed` flag did not change
+ * from re-rendering on hover transitions (#475). Without this, every chain
+ * recompute re-renders the full virtualised window — perceived as flash
+ * when sweeping the cursor across the task list.
+ *
+ * Shallow equality is safe because:
+ *   - `task`, `siblingIds`, `nameSuggestions`, `milestoneParents`, `depChips`
+ *     are derived from upstream useMemo()s and have stable identity across
+ *     hover transitions (they only change when the underlying task/link
+ *     data changes).
+ *   - `onHoverChange` / `onAddDependencyRequest` are stable (useState setter
+ *     and useCallback).
+ *   - `dimmed` is the boolean that does change per hover — that's the prop
+ *     we actually want re-renders to track.
+ */
+export const TaskListRow = memo(TaskListRowInner);

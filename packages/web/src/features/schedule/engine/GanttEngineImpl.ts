@@ -110,6 +110,11 @@ export class GanttEngineImpl implements GanttEngine {
   // Dirty-rect tracking
   private _dirtyRows: Set<number> = new Set();
   private _fullRepaintPending = true;
+  // Bars-layer-only repaint flag. Set by mutations that only affect the bars
+  // canvas (hover chain dimming + arrow recolor, #475) so we don't clear and
+  // redraw the bg layer (row bands, grid, today line, header) — that path
+  // produced visible flicker as the cursor moved through rows.
+  private _barsRepaintPending = false;
 
   // rAF
   private _rafId = 0;
@@ -307,9 +312,10 @@ export class GanttEngineImpl implements GanttEngine {
     // until the BFS result actually changes (useMemo in useDependencyHover).
     if (this._hoverChain === chain) return;
     this._hoverChain = chain;
-    // Hover affects bars and arrows across the whole visible range, not just
-    // one row — flag a full repaint on the next rAF tick.
-    this._fullRepaintPending = true;
+    // Hover affects bars and arrows but NOT the bg layer (row bands, grid,
+    // today line, header). Invalidating only the bars layer avoids the
+    // visible flash on the bg canvas as the cursor sweeps across rows.
+    this._barsRepaintPending = true;
   }
 
   // ---------------------------------------------------------------------------
@@ -541,12 +547,18 @@ export class GanttEngineImpl implements GanttEngine {
       this._paintBg();
       this._paintAllBars();
       this._fullRepaintPending = false;
+      this._barsRepaintPending = false;
       this._dirtyRows.clear();
 
       if (!this._hasEmittedReady) {
         this._hasEmittedReady = true;
         this._emit('ready', { scales: this._scales });
       }
+    } else if (this._barsRepaintPending) {
+      // Bars-only invalidation (hover chain) — skip the bg layer entirely.
+      this._paintAllBars();
+      this._barsRepaintPending = false;
+      this._dirtyRows.clear();
     } else if (this._dirtyRows.size > 0) {
       for (const rowIndex of this._dirtyRows) {
         this._paintRow(rowIndex);
