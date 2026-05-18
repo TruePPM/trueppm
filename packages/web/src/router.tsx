@@ -58,6 +58,27 @@ const MembersTab = lazy(() =>
 const MyWorkPage = lazy(() =>
   import('@/features/me/MyWorkPage').then((m) => ({ default: m.MyWorkPage }))
 );
+const ProgramListPage = lazy(() =>
+  import('@/features/programs/ProgramListPage').then((m) => ({ default: m.ProgramListPage }))
+);
+const ProgramShell = lazy(() =>
+  import('@/features/programs/ProgramShell').then((m) => ({ default: m.ProgramShell }))
+);
+const ProgramBacklogStubPage = lazy(() =>
+  import('@/features/programs/ProgramBacklogStubPage').then((m) => ({
+    default: m.ProgramBacklogStubPage,
+  }))
+);
+const ProgramProjectsPage = lazy(() =>
+  import('@/features/programs/ProgramProjectsPage').then((m) => ({
+    default: m.ProgramProjectsPage,
+  }))
+);
+const ProgramMembersTab = lazy(() =>
+  import('@/features/programs/members/ProgramMembersTab').then((m) => ({
+    default: m.ProgramMembersTab,
+  }))
+);
 
 /** Fallback rendered inside Suspense while a lazy chunk is loading. */
 function RouteLoadingFallback() {
@@ -225,6 +246,52 @@ export const router = createBrowserRouter([
                 <MyWorkPage />
               </Suspense>
             ),
+          },
+          // Programs (ADR-0070) — OSS coordination unit for a PM with several
+          // related projects. Lives between project (lower) and Enterprise
+          // portfolio (higher); see ADR-0030 navigation amendment.
+          {
+            path: 'programs',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <ProgramListPage />
+              </Suspense>
+            ),
+          },
+          {
+            path: 'programs/:programId',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <ProgramShell />
+              </Suspense>
+            ),
+            children: [
+              { index: true, element: <Navigate to="projects" replace /> },
+              {
+                path: 'backlog',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProgramBacklogStubPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'projects',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProgramProjectsPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'members',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProgramMembersTab />
+                  </Suspense>
+                ),
+              },
+            ],
           },
           // Root: redirect to first project overview, or prompt to select one.
           { index: true, element: <RootRedirect /> },

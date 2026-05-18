@@ -1,7 +1,7 @@
 # ADR-0070: Program Entity (OSS)
 
 ## Status
-Proposed — prerequisite for ADR-0069 (BacklogItem / program backlog)
+Accepted (2026-05-18) — implemented in #502 / !291. Prerequisite for ADR-0069 (BacklogItem / program backlog).
 
 ## Context
 
@@ -115,18 +115,26 @@ class ProgramMembership(VersionedModel):
 
 ### RBAC
 
-Reuses the existing `Role` enum (VIEWER=1, CONTRIBUTOR=2, EDITOR=3, ADMIN=4, OWNER=5)
-from the `access` app.
+Reuses the existing `Role` enum from the `access` app (`access.models.Role`).
+The ordinals match the project RBAC table exactly:
+
+| Ordinal | Code name | Label              | Program-level intent |
+|--------:|-----------|--------------------|----------------------|
+| 0       | VIEWER    | Viewer             | Read backlog and projects list. |
+| 1       | MEMBER    | Team Member        | Edit BacklogItem entries (#501). |
+| 2       | SCHEDULER | Resource Manager   | Pull BacklogItem → project Task (#501). |
+| 3       | ADMIN     | Project Manager    | Manage members; manage projects in program. |
+| 4       | OWNER     | Project Admin      | Delete program. |
 
 | Action | Minimum role |
 |--------|-------------|
-| View program (shell, project list) | VIEWER |
-| View program backlog | VIEWER |
-| Add/edit BacklogItems | EDITOR |
-| Pull BacklogItem → project Task | EDITOR |
-| Add/remove projects from program | ADMIN |
-| Manage ProgramMembership | ADMIN |
-| Delete program | OWNER |
+| View program (shell, project list) | VIEWER (0) |
+| View program backlog | VIEWER (0) |
+| Add/edit BacklogItems (#501) | MEMBER (1) |
+| Pull BacklogItem → project Task (#501) | SCHEDULER (2) |
+| Add/remove projects from program | ADMIN (3) |
+| Manage ProgramMembership | ADMIN (3) |
+| Delete program | OWNER (4) |
 
 **Auto-membership on create**: When a user creates a Program, a `ProgramMembership` row
 is automatically created for them with `role=OWNER` inside the same transaction.
@@ -137,11 +145,15 @@ grant program visibility. A team member on Project A sees that their project bel
 "Program Alpha" (read-only label), but cannot access the program backlog without an
 explicit `ProgramMembership` row.
 
-### Permission classes (new, in `access` app)
+### Permission classes (new, in `access.permissions`)
 
-- `IsProgramMember` — `ProgramMembership.objects.filter(program=obj, user=request.user).exists()`
-- `IsProgramEditor` — role ≥ EDITOR
-- `IsProgramAdmin` — role ≥ ADMIN
+- `IsProgramMember` — any role on the program (Viewer+).
+- `IsProgramEditor` — role ≥ MEMBER (1). Used by #501's BacklogItem write paths.
+- `IsProgramAdmin` — role ≥ ADMIN (3). Used by program metadata update, member CRUD, and project assignment.
+- `IsProgramOwner` — role = OWNER (4). Used only by program delete.
+
+A per-request memoisation cache (`_program_membership_role`) prevents N+1
+queries when a list endpoint resolves the caller's role per row.
 
 ### API surface
 
@@ -183,11 +195,22 @@ The Enterprise portfolio shell (`/portfolios/:id`) is unchanged.
 
 ### Sync (WatermelonDB, ADR-0010)
 
-Both `Program` and `ProgramMembership` extend `VersionedModel` and participate in the
-delta sync protocol. The mobile sync table list must be updated to include:
-- `projects_program`
-- `access_program_membership`
-- `projects_project` (already synced; `program` FK column added to pull response)
+Both `Program` and `ProgramMembership` extend `VersionedModel`. For #502 we ship
+the architectural foundation but only the `Project.program` FK is wired into the
+existing project-scoped sync endpoint:
+
+- `projects_project` — `program` FK added to `SyncProjectSerializer` so mobile
+  can render the program badge offline.
+- `projects_program`, `access_program_membership` — **not yet wired into mobile
+  sync.** The existing endpoint at `/api/v1/projects/{pk}/sync/` is
+  project-scoped and cannot reach user-scoped Program rows. Mobile clients use
+  the REST endpoints online and rely on the cached project rows (with the
+  `program` FK) offline. A user-scoped sync endpoint that delivers Program /
+  ProgramMembership deltas is tracked as a 0.4 mobile follow-up.
+
+This split keeps the model architecturally clean (both extend VersionedModel
+for future sync) while deferring the user-scoped sync endpoint plumbing to the
+mobile milestone.
 
 ### Real-time broadcast
 

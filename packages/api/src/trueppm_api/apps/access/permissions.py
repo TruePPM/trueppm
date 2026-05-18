@@ -280,6 +280,184 @@ class IsProjectOwner(BasePermission):
         return role == Role.OWNER
 
 
+# ---------------------------------------------------------------------------
+# Program permission helpers (ADR-0070)
+# ---------------------------------------------------------------------------
+
+
+def _program_pk_from_view(view: APIView) -> Any | None:
+    """Extract ``program_pk`` from a view's URL kwargs (nested program routes).
+
+    Program-nested routes use ``program_pk`` (e.g. /programs/<program_pk>/members/).
+    Top-level program routes use ``pk``; that case is handled by individual
+    permission classes that fall through to per-object checks.
+    """
+    return getattr(view, "kwargs", {}).get("program_pk")
+
+
+def _program_membership_role(request: Request, program_id: Any) -> int | None:
+    """Return the requesting user's role ordinal for a program, or None if absent.
+
+    Mirrors :func:`_membership_role` for ``ProgramMembership``. Per-request cache
+    is keyed separately (``_program_rbac_role_cache``) so program and project
+    membership lookups don't collide.
+    """
+    # Import here to avoid the module-level circular import (access ↔ access).
+    from trueppm_api.apps.access.models import ProgramMembership
+
+    if not request.user or not request.user.is_authenticated:
+        return None
+
+    cache: dict[str, int | None] | None = getattr(request, "_program_rbac_role_cache", None)
+    if cache is None:
+        cache = {}
+        request._program_rbac_role_cache = cache  # type: ignore[attr-defined]
+
+    cache_key = str(program_id)
+    if cache_key in cache:
+        return cache[cache_key]
+
+    try:
+        membership = ProgramMembership.objects.get(
+            program_id=program_id,
+            user=request.user,
+            is_deleted=False,
+        )
+        role: int | None = membership.role
+    except ProgramMembership.DoesNotExist:
+        role = None
+
+    cache[cache_key] = role
+    return role
+
+
+def _get_program_id_from_obj(obj: Any) -> Any | None:
+    """Extract a program PK from a model instance for has_object_permission checks.
+
+    Supports direct Program instances and any model with a ``program_id``
+    attribute (Project — via the new FK — and ProgramMembership).
+    """
+    from trueppm_api.apps.projects.models import Program
+
+    if isinstance(obj, Program):
+        return obj.pk
+    if hasattr(obj, "program_id"):
+        return obj.program_id
+    if hasattr(obj, "program"):
+        return obj.program_id
+    return None
+
+
+class IsProgramMember(BasePermission):
+    """Allow any program member (Viewer+) to read; enforce membership on objects.
+
+    Program-nested routes (URL contains ``program_pk``): membership is enforced
+    in ``has_permission`` so list endpoints are gated before the queryset runs.
+    Top-level routes without ``program_pk`` rely on per-object checks.
+    """
+
+    message = "You must be a member of this program."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not (request.user and request.user.is_authenticated):
+            return False
+        program_pk = _program_pk_from_view(view)
+        if program_pk is not None:
+            return _program_membership_role(request, program_pk) is not None
+        return True
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        program_id = _get_program_id_from_obj(obj)
+        if program_id is None:
+            return False
+        return _program_membership_role(request, program_id) is not None
+
+
+class IsProgramEditor(BasePermission):
+    """Allow Team Member (1) or above on a program.
+
+    Used for BacklogItem create/edit endpoints (#501) and any other program-
+    level write that is not Admin-gated. For #502 the only Editor-gated action
+    is project add/remove on the program — that's gated by IsProgramAdmin
+    because it changes program membership-adjacent state. Editor is exposed
+    here for #501 to reuse.
+    """
+
+    message = "You need at least Team Member role on this program."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not (request.user and request.user.is_authenticated):
+            return False
+        program_pk = _program_pk_from_view(view)
+        if program_pk is not None:
+            role = _program_membership_role(request, program_pk)
+            if role is None:
+                return False
+            if request.method in ("GET", "HEAD", "OPTIONS"):
+                return True
+            return role >= Role.MEMBER
+        return True
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        program_id = _get_program_id_from_obj(obj)
+        if program_id is None:
+            return False
+        role = _program_membership_role(request, program_id)
+        if role is None:
+            return False
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return True
+        return role >= Role.MEMBER
+
+
+class IsProgramAdmin(BasePermission):
+    """Allow Project Manager (3) or above on a program.
+
+    Used for: updating program metadata, adding/removing projects from the
+    program, managing membership.
+    """
+
+    message = "You need at least Project Manager role on this program."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not (request.user and request.user.is_authenticated):
+            return False
+        program_pk = _program_pk_from_view(view)
+        if program_pk is not None:
+            role = _program_membership_role(request, program_pk)
+            return role is not None and role >= Role.ADMIN
+        return True
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        program_id = _get_program_id_from_obj(obj)
+        if program_id is None:
+            return False
+        role = _program_membership_role(request, program_id)
+        return role is not None and role >= Role.ADMIN
+
+
+class IsProgramOwner(BasePermission):
+    """Allow only Program Owner (4). Used for: program delete."""
+
+    message = "Only the Program Owner can perform this action."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if not (request.user and request.user.is_authenticated):
+            return False
+        program_pk = _program_pk_from_view(view)
+        if program_pk is not None:
+            role = _program_membership_role(request, program_pk)
+            return role == Role.OWNER
+        return True
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        program_id = _get_program_id_from_obj(obj)
+        if program_id is None:
+            return False
+        role = _program_membership_role(request, program_id)
+        return role == Role.OWNER
+
+
 class IsOrgScheduler(BasePermission):
     """Org-level scheduler gate for the global skill catalog (#254).
 

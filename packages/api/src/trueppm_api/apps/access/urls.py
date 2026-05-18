@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from django.urls import path
 
-from trueppm_api.apps.access.views import MeView, ProjectMembershipViewSet, UserSearchView
+from trueppm_api.apps.access.views import (
+    MeView,
+    ProgramMembershipViewSet,
+    ProjectMembershipViewSet,
+    UserSearchView,
+)
 
 _members = ProjectMembershipViewSet.as_view(
     {
@@ -13,6 +18,19 @@ _members = ProjectMembershipViewSet.as_view(
     }
 )
 _member_detail = ProjectMembershipViewSet.as_view(
+    {
+        "get": "retrieve",
+        "patch": "partial_update",
+        "delete": "destroy",
+    }
+)
+_program_members = ProgramMembershipViewSet.as_view(
+    {
+        "get": "list",
+        "post": "create",
+    }
+)
+_program_member_detail = ProgramMembershipViewSet.as_view(
     {
         "get": "retrieve",
         "patch": "partial_update",
@@ -32,5 +50,15 @@ urlpatterns = [
         "projects/<uuid:project_pk>/members/<uuid:pk>/",
         _member_detail,
         name="project-members-detail",
+    ),
+    path(
+        "programs/<uuid:program_pk>/members/",
+        _program_members,
+        name="program-members-list",
+    ),
+    path(
+        "programs/<uuid:program_pk>/members/<uuid:pk>/",
+        _program_member_detail,
+        name="program-members-detail",
     ),
 ]

@@ -1013,6 +1013,622 @@
                 }
             }
         },
+        "/api/v1/programs/": {
+            "get": {
+                "operationId": "v1_programs_list",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; cascade-removes memberships in one transaction",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedProgramList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_programs_create",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; cascade-removes memberships in one transaction",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{id}/": {
+            "get": {
+                "operationId": "v1_programs_retrieve",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; cascade-removes memberships in one transaction",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_programs_update",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; cascade-removes memberships in one transaction",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_programs_partial_update",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; cascade-removes memberships in one transaction",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_programs_destroy",
+                "description": "CRUD for programs.\n\nURL: ``/api/v1/programs/``\n\nPermission matrix (ADR-0070 §RBAC):\n  list      — IsAuthenticated; queryset filtered to programs the caller is a member of\n  retrieve  — IsProgramMember (Viewer+)\n  create    — IsAuthenticated; caller auto-becomes OWNER via ``create_program``\n  update    — IsProgramAdmin\n  destroy   — IsProgramOwner; cascade-removes memberships in one transaction",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{id}/projects/": {
+            "get": {
+                "operationId": "v1_programs_projects_retrieve",
+                "description": "List projects in this program.\n\nURL: ``GET /api/v1/programs/{pk}/projects/``\n\nPermission: IsProgramMember (any program role can see the project list,\nbut the project itself only opens if the user also has project membership\n— that gate is enforced by the project's own viewset on click-through).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{program_pk}/members/": {
+            "get": {
+                "operationId": "v1_programs_members_list",
+                "description": "Nested CRUD for program memberships (ADR-0070).\n\nURL: ``/api/v1/programs/{program_pk}/members/``\n     ``/api/v1/programs/{program_pk}/members/{pk}/``\n\nPermission matrix mirrors :class:`ProjectMembershipViewSet`:\n  list/retrieve  — any program member (Viewer+)\n  create         — Owner only; cannot assign role >= caller's own\n  partial_update — Owner only; cannot assign role >= caller's own; last-Owner guard\n  destroy        — Owner only for others; self-remove allowed; last-Owner guard",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedProgramMembershipReadList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_programs_members_create",
+                "description": "Nested CRUD for program memberships (ADR-0070).\n\nURL: ``/api/v1/programs/{program_pk}/members/``\n     ``/api/v1/programs/{program_pk}/members/{pk}/``\n\nPermission matrix mirrors :class:`ProjectMembershipViewSet`:\n  list/retrieve  — any program member (Viewer+)\n  create         — Owner only; cannot assign role >= caller's own\n  partial_update — Owner only; cannot assign role >= caller's own; last-Owner guard\n  destroy        — Owner only for others; self-remove allowed; last-Owner guard",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramMembershipWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramMembershipWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramMembershipWriteRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramMembershipWrite"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{program_pk}/members/{id}/": {
+            "get": {
+                "operationId": "v1_programs_members_retrieve",
+                "description": "Nested CRUD for program memberships (ADR-0070).\n\nURL: ``/api/v1/programs/{program_pk}/members/``\n     ``/api/v1/programs/{program_pk}/members/{pk}/``\n\nPermission matrix mirrors :class:`ProjectMembershipViewSet`:\n  list/retrieve  — any program member (Viewer+)\n  create         — Owner only; cannot assign role >= caller's own\n  partial_update — Owner only; cannot assign role >= caller's own; last-Owner guard\n  destroy        — Owner only for others; self-remove allowed; last-Owner guard",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramMembershipRead"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_programs_members_partial_update",
+                "description": "Nested CRUD for program memberships (ADR-0070).\n\nURL: ``/api/v1/programs/{program_pk}/members/``\n     ``/api/v1/programs/{program_pk}/members/{pk}/``\n\nPermission matrix mirrors :class:`ProjectMembershipViewSet`:\n  list/retrieve  — any program member (Viewer+)\n  create         — Owner only; cannot assign role >= caller's own\n  partial_update — Owner only; cannot assign role >= caller's own; last-Owner guard\n  destroy        — Owner only for others; self-remove allowed; last-Owner guard",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramMembershipWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramMembershipWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramMembershipWriteRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProgramMembershipWrite"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_programs_members_destroy",
+                "description": "Nested CRUD for program memberships (ADR-0070).\n\nURL: ``/api/v1/programs/{program_pk}/members/``\n     ``/api/v1/programs/{program_pk}/members/{pk}/``\n\nPermission matrix mirrors :class:`ProjectMembershipViewSet`:\n  list/retrieve  — any program member (Viewer+)\n  create         — Owner only; cannot assign role >= caller's own\n  partial_update — Owner only; cannot assign role >= caller's own; last-Owner guard\n  destroy        — Owner only for others; self-remove allowed; last-Owner guard",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/project-resources/": {
             "get": {
                 "operationId": "v1_project_resources_list",
@@ -9424,6 +10040,68 @@
                     }
                 }
             },
+            "PaginatedProgramList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Program"
+                        }
+                    }
+                }
+            },
+            "PaginatedProgramMembershipReadList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProgramMembershipRead"
+                        }
+                    }
+                }
+            },
             "PaginatedProjectApiTokenList": {
                 "type": "object",
                 "required": [
@@ -10005,6 +10683,41 @@
                     }
                 }
             },
+            "PatchedProgramMembershipWriteRequest": {
+                "type": "object",
+                "description": "Write serializer — accepts user (UUID) and role; program is injected from URL.",
+                "properties": {
+                    "user": {
+                        "type": "integer"
+                    },
+                    "role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                    }
+                }
+            },
+            "PatchedProgramRequest": {
+                "type": "object",
+                "description": "Read/write serializer for Program (ADR-0070).\n\n``my_role`` is the requesting user's role on this program — provided here\nso the list endpoint does not require a second per-program call to render\nthe role chip. ``project_count`` and ``member_count`` are computed in the\nviewset queryset via annotate() to avoid N+1.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "methodology": {
+                        "$ref": "#/components/schemas/MethodologyEnum"
+                    }
+                }
+            },
             "PatchedProjectMembershipWriteRequest": {
                 "type": "object",
                 "description": "Write serializer — accepts user (UUID) and role; project is injected from URL.",
@@ -10025,7 +10738,7 @@
             },
             "PatchedProjectRequest": {
                 "type": "object",
-                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -10052,6 +10765,11 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
                     }
                 }
             },
@@ -10458,9 +11176,199 @@
                 "type": "integer",
                 "description": "* `1` - Beginner\n* `2` - Intermediate\n* `3` - Expert"
             },
+            "Program": {
+                "type": "object",
+                "description": "Read/write serializer for Program (ADR-0070).\n\n``my_role`` is the requesting user's role on this program — provided here\nso the list endpoint does not require a second per-program call to render\nthe role chip. ``project_count`` and ``member_count`` are computed in the\nviewset queryset via annotate() to avoid N+1.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "methodology": {
+                        "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "created_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "my_role": {
+                        "type": "integer",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "my_role_label": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "project_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "default": 0
+                    },
+                    "member_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "default": 0
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "created_by",
+                    "id",
+                    "member_count",
+                    "my_role",
+                    "my_role_label",
+                    "name",
+                    "project_count",
+                    "server_version",
+                    "updated_at"
+                ]
+            },
+            "ProgramMembershipRead": {
+                "type": "object",
+                "description": "Response serializer for ProgramMembership — mirrors the project version.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "user": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "user_detail": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_UserSummary"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                    },
+                    "role_label": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "program",
+                    "role",
+                    "role_label",
+                    "server_version",
+                    "user",
+                    "user_detail"
+                ]
+            },
+            "ProgramMembershipWrite": {
+                "type": "object",
+                "description": "Write serializer — accepts user (UUID) and role; program is injected from URL.",
+                "properties": {
+                    "user": {
+                        "type": "integer"
+                    },
+                    "role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                    }
+                },
+                "required": [
+                    "role",
+                    "user"
+                ]
+            },
+            "ProgramMembershipWriteRequest": {
+                "type": "object",
+                "description": "Write serializer — accepts user (UUID) and role; program is injected from URL.",
+                "properties": {
+                    "user": {
+                        "type": "integer"
+                    },
+                    "role": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/RoleEnum"
+                            }
+                        ],
+                        "minimum": -2147483648,
+                        "maximum": 2147483647
+                    }
+                },
+                "required": [
+                    "role",
+                    "user"
+                ]
+            },
+            "ProgramRequest": {
+                "type": "object",
+                "description": "Read/write serializer for Program (ADR-0070).\n\n``my_role`` is the requesting user's role on this program — provided here\nso the list endpoint does not require a second per-program call to render\nthe role chip. ``project_count`` and ``member_count`` are computed in the\nviewset queryset via annotate() to avoid N+1.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "methodology": {
+                        "$ref": "#/components/schemas/MethodologyEnum"
+                    }
+                },
+                "required": [
+                    "name"
+                ]
+            },
             "Project": {
                 "type": "object",
-                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -10495,6 +11403,11 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -10605,6 +11518,11 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
                     },
                     "unresolved_assignee_count": {
                         "type": "integer",
@@ -10719,7 +11637,7 @@
             },
             "ProjectRequest": {
                 "type": "object",
-                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -10746,6 +11664,11 @@
                     },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
                     }
                 },
                 "required": [

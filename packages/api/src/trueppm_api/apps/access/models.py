@@ -1,4 +1,4 @@
-"""RBAC models — ProjectMembership and Role."""
+"""RBAC models — ProjectMembership, ProgramMembership, and Role."""
 
 from __future__ import annotations
 
@@ -60,3 +60,40 @@ class ProjectMembership(VersionedModel):
 
     def __str__(self) -> str:
         return f"{self.user} — {self.project} ({Role(self.role).label})"
+
+
+class ProgramMembership(VersionedModel):
+    """Through table linking a user to a program with a specific role (ADR-0070).
+
+    Mirrors :class:`ProjectMembership` exactly — standalone model (not M2M
+    ``through=``) so it participates in the offline sync protocol and supports
+    direct permission checks without joining through ``Program``.
+
+    Program membership controls access to program-level views (backlog, projects
+    list, members). It does **not** automatically grant or modify project-level
+    access — a user must be invited to each project separately. This is the
+    deliberate "explicit grants only" boundary called out in ADR-0070 §RBAC.
+
+    Uses the same :class:`Role` enum as :class:`ProjectMembership`; the role
+    ordinals share semantics: VIEWER reads, MEMBER edits, SCHEDULER assigns,
+    ADMIN manages member/projects, OWNER deletes program.
+    """
+
+    program = models.ForeignKey(
+        "projects.Program",
+        on_delete=models.PROTECT,
+        related_name="memberships",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="program_memberships",
+    )
+    role = models.IntegerField(choices=Role.choices)
+
+    class Meta:
+        db_table = "access_program_membership"
+        unique_together = [("program", "user")]
+
+    def __str__(self) -> str:
+        return f"{self.user} — {self.program} ({Role(self.role).label})"

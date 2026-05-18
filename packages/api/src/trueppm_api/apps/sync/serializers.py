@@ -40,7 +40,15 @@ class SyncCalendarSerializer(serializers.ModelSerializer[Calendar]):
 
 
 class SyncProjectSerializer(serializers.ModelSerializer[Project]):
-    """Sync payload for Project — minimal shape consumed by the WatermelonDB Project table."""
+    """Sync payload for Project — minimal shape consumed by the WatermelonDB Project table.
+
+    ``program`` (ADR-0070) is included so mobile can render the program badge
+    on project rows offline. Program and ProgramMembership tables themselves
+    are not yet wired into mobile sync — the existing endpoint is project-scoped
+    and cannot reach user-scoped Program rows. Mobile-side Program sync is
+    tracked as a follow-up; for now mobile uses the REST endpoints online and
+    falls back to the cached project rows (with their ``program`` FK) offline.
+    """
 
     class Meta:
         model = Project
@@ -51,6 +59,7 @@ class SyncProjectSerializer(serializers.ModelSerializer[Project]):
             "description",
             "start_date",
             "calendar",
+            "program",
         ]
 
 
