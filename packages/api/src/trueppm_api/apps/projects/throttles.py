@@ -73,9 +73,10 @@ class TaskSyncThrottle(BaseThrottle):
         )
         bucket_key = f"rate:task_sync:{token.project_id}"
 
+        count: int
         try:
             client = _client()
-            count = client.incr(bucket_key)
+            count = int(client.incr(bucket_key))  # type: ignore[arg-type]
             if count == 1:
                 # First request in the window — set the 60-second TTL.
                 client.expire(bucket_key, 60)
@@ -85,9 +86,7 @@ class TaskSyncThrottle(BaseThrottle):
             logger.exception("TaskSyncThrottle: Redis error, failing open")
             return True
 
-        # int comparison — redis-py with decode_responses=True returns str for
-        # GET but int for INCR.  Belt-and-braces in case the lib changes.
-        if int(count) > limit:
+        if count > limit:
             self.wait_seconds = 60
             return False
         return True
@@ -113,16 +112,17 @@ class TokenIssuanceThrottle(BaseThrottle):
             return True  # let permission classes deal with anonymous
 
         bucket_key = f"rate:api_token_mint:{user.pk}"
+        count: int
         try:
             client = _client()
-            count = client.incr(bucket_key)
+            count = int(client.incr(bucket_key))  # type: ignore[arg-type]
             if count == 1:
                 client.expire(bucket_key, 60)
         except redis.RedisError:
             logger.exception("TokenIssuanceThrottle: Redis error, failing open")
             return True
 
-        if int(count) > self.USER_LIMIT:
+        if count > self.USER_LIMIT:
             self.wait_seconds = 60
             return False
         return True

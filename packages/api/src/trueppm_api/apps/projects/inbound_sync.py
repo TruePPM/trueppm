@@ -86,8 +86,8 @@ def _resolve_status(payload_status: str | None, token: ProjectApiToken) -> str:
             payload_status,
             candidate,
         )
-        return TaskStatus.BACKLOG.value
-    return candidate
+        return str(TaskStatus.BACKLOG.value)
+    return str(candidate)
 
 
 def _resolve_assignee(
@@ -249,6 +249,9 @@ def upsert_inbound_task(
             last_synced_via_token=token,
         )
     else:
+        # link is guaranteed non-None on this branch (created is False); narrow
+        # the type for mypy.
+        assert link is not None
         task = link.task
         # Write-through fields — overwritten on every push.  Use bulk UPDATE
         # so we increment server_version exactly once and avoid the
@@ -313,16 +316,27 @@ def upsert_inbound_task(
     # Bind each lambda's captured values via default arguments so closure
     # late-binding can never substitute a different value if this function
     # is extended later to register multiple branches per call.
-    transaction.on_commit(lambda pid=project_id: _enqueue_recalculate(pid))
-    transaction.on_commit(
-        lambda pid=project_id, et=event_type, tid=task_id, src=source: broadcast_board_event(
-            pid, et, {"id": tid, "source": src}
-        )
-    )
-    transaction.on_commit(
-        lambda pid=project_id, we=webhook_event, wp=webhook_payload: dispatch_webhooks(pid, we, wp)
-    )
+    def _recalc(pid: str = project_id) -> None:
+        _enqueue_recalculate(pid)
 
+    def _broadcast(
+        pid: str = project_id, et: str = event_type, tid: str = task_id, src: str = source
+    ) -> None:
+        broadcast_board_event(pid, et, {"id": tid, "source": src})
+
+    def _dispatch(
+        pid: str = project_id,
+        we: str = webhook_event,
+        wp: dict[str, Any] = webhook_payload,
+    ) -> None:
+        dispatch_webhooks(pid, we, wp)
+
+    transaction.on_commit(_recalc)
+    transaction.on_commit(_broadcast)
+    transaction.on_commit(_dispatch)
+
+    # link is non-None on both create and update branches by construction.
+    assert link is not None
     return UpsertResult(
         task=task,
         link=link,

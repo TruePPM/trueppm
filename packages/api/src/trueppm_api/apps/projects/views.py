@@ -4079,11 +4079,13 @@ class ProjectApiTokenViewSet(viewsets.ModelViewSet[Any]):
             # time (defensive against any later closure-variable mutation).
             project_id = str(project.pk)
             token_name = token.name
-            transaction.on_commit(
-                lambda pid=project_id, pfx=token_prefix, nm=token_name: broadcast_board_event(
-                    pid, "api_token_minted", {"token_prefix": pfx, "name": nm}
-                )
-            )
+
+            def _broadcast_mint(
+                pid: str = project_id, pfx: str = token_prefix, nm: str = token_name
+            ) -> None:
+                broadcast_board_event(pid, "api_token_minted", {"token_prefix": pfx, "name": nm})
+
+            transaction.on_commit(_broadcast_mint)
 
         # Single-shot response: token field is present here, never on subsequent reads.
         read_data = ProjectApiTokenSerializer(token).data
@@ -4119,11 +4121,15 @@ class ProjectApiTokenViewSet(viewsets.ModelViewSet[Any]):
                 project_id = str(token.project_id)
                 token_prefix = token.token_prefix
                 token_name = token.name
-                transaction.on_commit(
-                    lambda pid=project_id, pfx=token_prefix, nm=token_name: broadcast_board_event(
+
+                def _broadcast_revoke(
+                    pid: str = project_id, pfx: str = token_prefix, nm: str = token_name
+                ) -> None:
+                    broadcast_board_event(
                         pid, "api_token_revoked", {"token_prefix": pfx, "name": nm}
                     )
-                )
+
+                transaction.on_commit(_broadcast_revoke)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _get_project_or_404(self, project_pk: Any) -> Project:
@@ -4147,7 +4153,7 @@ class _ApiTokenAuditPagination(pagination.LimitOffsetPagination):
     max_limit = 500
 
 
-class ApiTokenAuditView(generics.ListAPIView):
+class ApiTokenAuditView(generics.ListAPIView[Any]):
     """``GET /api/v1/projects/{project_pk}/api-token-audit/`` — per-project audit log.
 
     Visible to any project member (Viewer+) — the team can see when integration

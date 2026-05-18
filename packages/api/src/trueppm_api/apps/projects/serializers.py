@@ -1626,7 +1626,7 @@ class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToke
 _INBOUND_SOURCE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
 
-class InboundTaskSyncPayloadSerializer(serializers.Serializer):
+class InboundTaskSyncPayloadSerializer(serializers.Serializer[Any]):
     """Validates the inbound push payload.
 
     Loose by design: most fields are optional so a wide range of external
@@ -1635,7 +1635,10 @@ class InboundTaskSyncPayloadSerializer(serializers.Serializer):
     format.
     """
 
-    source = serializers.CharField(max_length=32)
+    # ``source`` collides with the base Field's ``source`` attribute (used for
+    # ModelSerializer's model-field mapping); we genuinely want a payload key
+    # named "source", so silence mypy here only.
+    source = serializers.CharField(max_length=32)  # type: ignore[assignment]
     external_id = serializers.CharField(max_length=255)
     name = serializers.CharField(max_length=512, required=False, allow_blank=True)
     # 100 KB cap matches the practical ceiling Jira/Linear apply to descriptions
