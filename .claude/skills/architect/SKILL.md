@@ -61,14 +61,19 @@ Portfolio Governance  ───────────────────�
 
 **Data model implications:**
 - `Project` is an OSS entity — always has been, always will be
-- `Program` (grouping of projects) is an Enterprise entity — it exists to coordinate
-  concurrent projects in the same life cycle phase (the Maturity scenario above)
-- `Portfolio` is an Enterprise entity — it holds Programs and standalone projects
-  under Portfolio Governance
+- `Program` (grouping of related projects for one PM/team) is an **OSS entity** —
+  a PM must be able to manage a program spanning multiple projects without Enterprise.
+  This is the core adoption unit. The adoption flywheel requires the OSS product to be
+  complete at the program level.
+- `Portfolio` is an Enterprise entity — it holds Programs under PMO governance,
+  adds cross-program health scores, resource leveling, audit trail, and SSO
 - Life cycle phase (`introduction | growth | maturity | decline`) is a Portfolio-layer
   concern — the PM doesn't need it; the PMO Director does
-- When designing a new entity, ask: "Is this a leaf (single project) or a grouping?"
-  Groupings belong in Enterprise.
+- When designing a new entity, ask: "Does a PM/team need this to run their program?"
+  If yes → OSS. "Is this cross-program governance or org-level compliance?" → Enterprise.
+
+**NOTE**: Earlier versions of this skill stated "Program is Enterprise." That was wrong
+and has been corrected. See CLAUDE.md Two-Repo Rule and project memory for context.
 
 ## When Invoked
 
