@@ -169,6 +169,82 @@ test.describe('Programs — shell tabs', () => {
     ).toBeVisible();
   });
 
+  test('Projects tab shows both New project and Add existing buttons (admin)', async ({ page }) => {
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    await page.goto(`/programs/${PROGRAM_ID}/projects`);
+    // Both buttons appear in the toolbar AND in the empty state. The
+    // toolbar copies are deterministic locators; the empty-state copies
+    // would create strict-mode duplicates, so we scope to the toolbar.
+    const toolbar = page.locator('div').filter({ hasText: /^Projects/ }).first();
+    await expect(toolbar.getByRole('button', { name: /^New project$/i })).toBeVisible();
+    await expect(toolbar.getByRole('button', { name: /^Add existing$/i })).toBeVisible();
+  });
+
+  test('New project button creates a project assigned to the program', async ({ page }) => {
+    const NEW_PROJECT_ID = 'e2e-new-project-uuid-0001';
+    let capturedBody: Record<string, unknown> | null = null;
+
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+
+    // Override the default /projects/ stub so POST records the body and
+    // returns a created project. GET continues to return an empty list —
+    // navigation happens immediately so the cache invalidation is a follow-up.
+    await page.route('**/api/v1/projects/', (r) => {
+      if (r.request().method() === 'POST') {
+        capturedBody = r.request().postDataJSON() as Record<string, unknown>;
+        return r.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            id: NEW_PROJECT_ID,
+            server_version: 1,
+            name: capturedBody.name,
+            description: capturedBody.description ?? '',
+            start_date: capturedBody.start_date,
+            calendar: null,
+            methodology: capturedBody.methodology ?? 'HYBRID',
+            program: capturedBody.program ?? null,
+          }),
+        });
+      }
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ results: [], count: 0, next: null, previous: null }),
+      });
+    });
+
+    // Stub the project overview endpoints the navigated-to page will fetch
+    // so the redirect doesn't 404 in the test environment.
+    await page.route(`**/api/v1/projects/${NEW_PROJECT_ID}/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: NEW_PROJECT_ID,
+          server_version: 1,
+          name: 'Tower A Buildout',
+          description: '',
+          start_date: '2026-05-18',
+          methodology: 'HYBRID',
+          program: PROGRAM_ID,
+        }),
+      }),
+    );
+
+    await page.goto(`/programs/${PROGRAM_ID}/projects`);
+    await page.getByRole('button', { name: /^New project$/i }).first().click();
+    await page.getByLabel(/^name/i).fill('Tower A Buildout');
+    await page.getByRole('button', { name: /next/i }).click(); // step 1 → 2
+    await page.getByRole('button', { name: /next/i }).click(); // step 2 → 3
+    await page.getByRole('button', { name: /create project/i }).click();
+
+    await expect(page).toHaveURL(`/projects/${NEW_PROJECT_ID}/overview`);
+    expect(capturedBody).not.toBeNull();
+    expect(capturedBody!.program).toBe(PROGRAM_ID);
+    expect(capturedBody!.name).toBe('Tower A Buildout');
+  });
+
   test('Members tab shows the auto-OWNER row', async ({ page }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.goto(`/programs/${PROGRAM_ID}/members`);

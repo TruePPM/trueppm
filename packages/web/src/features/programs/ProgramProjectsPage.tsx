@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { useProgram } from '@/hooks/useProgram';
 import { useProgramProjects } from '@/hooks/useProgramProjects';
 import { useAssignProjectToProgram } from '@/hooks/useProgramMutations';
+import { NewProjectModal } from '@/features/shell/NewProjectModal';
 import { AddProjectToProgramModal } from './AddProjectToProgramModal';
 
 /**
@@ -15,11 +16,13 @@ import { AddProjectToProgramModal } from './AddProjectToProgramModal';
 export function ProgramProjectsPage() {
   const params = useParams<{ programId: string }>();
   const programId = params.programId;
+  const navigate = useNavigate();
   const { data: program } = useProgram(programId);
   const { data: projects, isLoading, error } = useProgramProjects(programId);
   const removeProjectFromProgram = useAssignProjectToProgram();
 
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [showAddExistingModal, setShowAddExistingModal] = useState(false);
+  const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
   if (!programId) return null;
@@ -49,15 +52,26 @@ export function ProgramProjectsPage() {
           )}
         </h2>
         {isAdmin && (
-          <button
-            type="button"
-            onClick={() => setShowAddModal(true)}
-            className="h-9 rounded bg-brand-primary px-3 text-xs font-medium text-white
-              hover:bg-brand-primary/90
-              focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-          >
-            + Add project
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAddExistingModal(true)}
+              className="h-9 rounded border border-neutral-border bg-neutral-surface px-3 text-xs font-medium text-neutral-text-primary
+                hover:bg-neutral-surface-raised
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              Add existing
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowNewProjectModal(true)}
+              className="h-9 rounded bg-brand-primary px-3 text-xs font-medium text-white
+                hover:bg-brand-primary/90
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              New project
+            </button>
+          </div>
         )}
       </div>
 
@@ -99,15 +113,26 @@ export function ProgramProjectsPage() {
             and assign it here.
           </p>
           {isAdmin && (
-            <button
-              type="button"
-              onClick={() => setShowAddModal(true)}
-              className="mt-4 h-9 rounded bg-brand-primary px-4 text-xs font-medium text-white
-                hover:bg-brand-primary/90
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-            >
-              + Add project
-            </button>
+            <div className="mt-4 flex items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowAddExistingModal(true)}
+                className="h-9 rounded border border-neutral-border bg-neutral-surface px-4 text-xs font-medium text-neutral-text-primary
+                  hover:bg-neutral-surface-raised
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                Add existing
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowNewProjectModal(true)}
+                className="h-9 rounded bg-brand-primary px-4 text-xs font-medium text-white
+                  hover:bg-brand-primary/90
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                New project
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -151,11 +176,22 @@ export function ProgramProjectsPage() {
         </ul>
       )}
 
-      {showAddModal && (
+      {showAddExistingModal && (
         <AddProjectToProgramModal
           programId={programId}
           programName={program?.name ?? ''}
-          onClose={() => setShowAddModal(false)}
+          onClose={() => setShowAddExistingModal(false)}
+        />
+      )}
+
+      {showNewProjectModal && (
+        <NewProjectModal
+          programId={programId}
+          onClose={() => setShowNewProjectModal(false)}
+          onCreated={(newProjectId) => {
+            setShowNewProjectModal(false);
+            void navigate(`/projects/${newProjectId}/overview`);
+          }}
         />
       )}
     </div>

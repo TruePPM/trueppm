@@ -254,4 +254,38 @@ describe('NewProjectModal', () => {
     await userEvent.keyboard('{Enter}');
     expect(screen.getByText(/start date/i)).toBeInTheDocument();
   });
+
+  // ---------------------------------------------------------------------------
+  // ADR-0070 — Program prefill on create
+  // ---------------------------------------------------------------------------
+
+  it('omits program from the create payload when programId is not provided', async () => {
+    renderModal();
+    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'Standalone');
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+
+    const payload = mutateMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('program');
+  });
+
+  it('passes program in the create payload when programId is provided', async () => {
+    renderWithProviders(
+      <NewProjectModal
+        onClose={onClose}
+        onCreated={onCreated}
+        programId="program-uuid-123"
+      />,
+    );
+    await userEvent.type(screen.getByRole('textbox', { name: /name/i }), 'In-Program');
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await userEvent.click(screen.getByRole('button', { name: /next/i }));
+    await userEvent.click(screen.getByRole('button', { name: /create project/i }));
+
+    expect(mutateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'In-Program', program: 'program-uuid-123' }),
+      expect.anything(),
+    );
+  });
 });

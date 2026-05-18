@@ -322,3 +322,84 @@ def test_unassign_project_requires_admin_on_source_program(
         format="json",
     )
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Create-with-program — POST /projects/ with ``program`` set up-front (ADR-0070).
+#
+# The web "New project" button inside a Program shell sends ``program`` in the
+# create payload (no second PATCH). Cross-permission rules for create:
+#  - instance does not yet exist → no project-side ADMIN check applies
+#  - old_program is None → no source-program check
+#  - new_program is set → caller must hold ADMIN on the target program
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_create_project_with_program_succeeds_when_admin_on_program(
+    owner: object,
+    calendar: Calendar,
+) -> None:
+    program = _create_program(_client(owner))
+    resp = _client(owner).post(
+        "/api/v1/projects/",
+        {
+            "name": "Tower A Buildout",
+            "start_date": "2026-05-18",
+            "calendar": str(calendar.pk),
+            "methodology": "HYBRID",
+            "program": str(program.pk),
+        },
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+    assert resp.data["program"] == program.pk
+    project = Project.objects.get(pk=resp.data["id"])
+    assert project.program_id == program.pk
+    # The creator is auto-assigned OWNER on the new project (perform_create).
+    assert ProjectMembership.objects.filter(project=project, user=owner, role=Role.OWNER).exists()
+
+
+@pytest.mark.django_db
+def test_create_project_with_program_rejected_when_not_admin_on_program(
+    owner: object,
+    other_user: object,
+    calendar: Calendar,
+) -> None:
+    program = _create_program(_client(owner))
+    # other_user is only a MEMBER on the program — not ADMIN.
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+    resp = _client(other_user).post(
+        "/api/v1/projects/",
+        {
+            "name": "Sneaky Project",
+            "start_date": "2026-05-18",
+            "calendar": str(calendar.pk),
+            "program": str(program.pk),
+        },
+        format="json",
+    )
+    assert resp.status_code == 400, resp.content
+    # No project row was created — the validate_program guard fires before save().
+    assert not Project.objects.filter(name="Sneaky Project").exists()
+
+
+@pytest.mark.django_db
+def test_create_standalone_project_omits_program(
+    owner: object,
+    calendar: Calendar,
+) -> None:
+    # No ``program`` key in the payload — the project is created standalone.
+    resp = _client(owner).post(
+        "/api/v1/projects/",
+        {
+            "name": "Standalone",
+            "start_date": "2026-05-18",
+            "calendar": str(calendar.pk),
+            "methodology": "HYBRID",
+        },
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+    project = Project.objects.get(pk=resp.data["id"])
+    assert project.program_id is None

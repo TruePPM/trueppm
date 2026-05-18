@@ -119,10 +119,11 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         project. The combined gate prevents one side unilaterally rearranging
         the other's container.
 
-        Returns ``value`` unchanged on success; raises 403 with an actionable
-        message on any failure. Returns early for create flows where no project
-        instance exists yet — in that case the program FK is set up-front by
-        the caller (typically null) and no cross-permission check applies.
+        Returns ``value`` unchanged on success; raises 400 with an actionable
+        message on any failure. On create flows (``instance is None``) the
+        project-side and old-program checks are skipped — only the new-program
+        ADMIN gate applies, so a caller assigning ``program`` at creation must
+        already be ADMIN on the target program.
         """
         from trueppm_api.apps.access.permissions import _membership_role, _program_membership_role
 
