@@ -115,7 +115,7 @@ class Migration(migrations.Migration):
             model_name="projectapitoken",
             index=models.Index(
                 fields=["project", "revoked_at"],
-                name="projects_ap_project_44b58a_idx",
+                name="projects_ap_project_6cdc27_idx",
             ),
         ),
         migrations.CreateModel(
