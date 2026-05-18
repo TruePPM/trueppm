@@ -143,15 +143,20 @@ cd packages/web && npm test         # web (vitest)
 **Before writing any code, determine if it belongs in the OSS repo or the Enterprise repo.**
 
 ### OSS (trueppm-suite) — Apache 2.0
-Everything in the community edition: scheduling engine, CPM, Monte Carlo, schedule view, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, time tracking, baselines, Helm chart, MS Project import/export.
+Everything a PM, PO, Scrum Master, or team member needs to run a program successfully: scheduling engine, CPM, Monte Carlo, schedule view, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, time tracking, baselines, Helm chart, MS Project import/export, **program entity** (grouping of related projects for one PM/team), **program backlog** (intake pool for a program), agile/hybrid workflows (sprints, boards, velocity, retros).
 
 ### Enterprise (trueppm-enterprise) — Proprietary
-Portfolio dashboard and health scores, demand intake, prioritization workspace, cross-program resource leveling, resource heat map (cross-portfolio), schedule forensics (narrative), SSO/SAML/OIDC, LDAP sync, immutable audit trail, custom roles, approval workflows, integration hub (Jira/GitLab/ServiceNow connectors), AI scheduling, scenario modeling, portfolio Monte Carlo, multi-tenancy, HA deployment.
+Everything an organization needs to govern multiple programs: portfolio dashboard and health scores, demand intake, prioritization workspace, **cross-program** resource leveling, resource heat map (cross-portfolio), schedule forensics (narrative), SSO/SAML/OIDC, LDAP sync, immutable audit trail, custom roles, approval workflows, integration hub (Jira/GitLab/ServiceNow connectors), AI scheduling, scenario modeling, portfolio Monte Carlo, multi-tenancy, HA deployment.
 
-### When in doubt
-The OSS unit is the **program** — a set of related projects managed by one PM or program manager. The Enterprise unit is the **portfolio** — coordination across multiple programs at an organizational level.
+### The boundary: adoption vs. governance
+TruePPM's go-to-market is adoption-first (GitLab model). A PM and their team must be fully functional in OSS — if they cannot succeed without Enterprise, the adoption flywheel never starts and Enterprise never sells.
 
-Ask: "Would a PM or program manager need this for their program (one or more related projects)?" If yes → OSS. "Does this require portfolio-level coordination across multiple programs, or org-level governance (health scoring, audit trail, sign-off, SSO, policy enforcement)?" If yes → Enterprise.
+- **OSS** = everything one PM/team/program needs to get work done
+- **Enterprise** = governance, compliance, and portfolio coordination that organizations add *on top of* an already-running practice
+
+The classification test: "Would a PM or program manager need this to run their program?" → OSS. "Is this cross-program coordination, org-level policy, or compliance evidence?" → Enterprise.
+
+**`Program` is an OSS entity.** A program is a set of related projects managed by one PM or program manager. Portfolio (multiple programs under PMO governance) is Enterprise.
 
 ### OSS / Enterprise boundary rules
 - The OSS core must remain fully functional without the enterprise repo — no hard dependencies on enterprise hooks, signals, or settings
