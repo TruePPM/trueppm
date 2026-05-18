@@ -614,6 +614,75 @@ def test_audit_list_endpoint_returns_member_visible_log(
     assert member_client.get(f"/api/v1/projects/{project.pk}/api-token-audit/").status_code == 200
 
 
+@pytest.mark.django_db
+def test_audit_source_ip_visible_to_admin(project: Project, admin_user: Any) -> None:
+    """Admin (Project Manager+) sees raw source_ip in audit responses."""
+    _token, raw = _mint_token(project, admin_user)
+    inbound = _bearer(APIClient(), raw)
+    inbound.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-IP-ADMIN"},
+        format="json",
+        HTTP_X_FORWARDED_FOR="203.0.113.42",
+    )
+    client = APIClient()
+    client.force_authenticate(user=admin_user)
+    resp = client.get(f"/api/v1/projects/{project.pk}/api-token-audit/")
+    assert resp.status_code == 200
+    used_rows = [r for r in resp.data["results"] if r["action"] == ApiTokenAuditAction.USED]
+    assert used_rows, "expected at least one USED audit row"
+    assert used_rows[0]["source_ip"] == "203.0.113.42"
+
+
+@pytest.mark.django_db
+def test_audit_source_ip_redacted_for_member(
+    project: Project, admin_user: Any, member_user: Any
+) -> None:
+    """Below-PM callers see source_ip as null — integration topology stays hidden.
+
+    Mitigates IP enumeration of Jira egress / webhook-relay infrastructure by
+    team members who have legitimate read access to the audit trail itself.
+    """
+    _token, raw = _mint_token(project, admin_user)
+    inbound = _bearer(APIClient(), raw)
+    inbound.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-IP-MEMBER"},
+        format="json",
+        HTTP_X_FORWARDED_FOR="203.0.113.99",
+    )
+    client = APIClient()
+    client.force_authenticate(user=member_user)
+    resp = client.get(f"/api/v1/projects/{project.pk}/api-token-audit/")
+    assert resp.status_code == 200
+    used_rows = [r for r in resp.data["results"] if r["action"] == ApiTokenAuditAction.USED]
+    assert used_rows, "expected at least one USED audit row"
+    assert used_rows[0]["source_ip"] is None
+
+
+@pytest.mark.django_db
+def test_audit_source_ip_redacted_for_viewer(
+    project: Project, admin_user: Any, other_user: Any
+) -> None:
+    """Viewer (role 0) also gets source_ip redacted — only Admin+ sees raw IPs."""
+    ProjectMembership.objects.create(project=project, user=other_user, role=Role.VIEWER)
+    _token, raw = _mint_token(project, admin_user)
+    inbound = _bearer(APIClient(), raw)
+    inbound.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "X-IP-VIEWER"},
+        format="json",
+        HTTP_X_FORWARDED_FOR="203.0.113.7",
+    )
+    client = APIClient()
+    client.force_authenticate(user=other_user)
+    resp = client.get(f"/api/v1/projects/{project.pk}/api-token-audit/")
+    assert resp.status_code == 200
+    used_rows = [r for r in resp.data["results"] if r["action"] == ApiTokenAuditAction.USED]
+    assert used_rows, "expected at least one USED audit row"
+    assert used_rows[0]["source_ip"] is None
+
+
 # ---------------------------------------------------------------------------
 # Broadcast wiring (sync side effects)
 # ---------------------------------------------------------------------------

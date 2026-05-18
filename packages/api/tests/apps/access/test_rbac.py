@@ -17,6 +17,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectMemberWriteOrOwn,
     IsProjectOwner,
     IsProjectScheduler,
+    IsTokenForProject,
 )
 from trueppm_api.apps.projects.models import Calendar, Project, Task
 
@@ -474,3 +475,81 @@ class TestNestedListIDOR:
         c.force_authenticate(user=other_user)
         resp = c.get(f"/api/v1/projects/{project.pk}/webhooks/")
         assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# IsTokenForProject — direct unit tests for the non-token / malformed-URL paths
+# (the matching-token and mismatched-token paths are covered end-to-end by
+# tests/apps/projects/test_inbound_task_sync.py)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestIsTokenForProject:
+    def test_non_token_auth_returns_true(self, user: object) -> None:
+        """JWT/Session auth (request.auth is not a ProjectApiToken) is a no-op.
+
+        Keeps the permission class safely composable on views that mix auth
+        backends — other permission classes are responsible for enforcing
+        access on those code paths.
+        """
+        perm = IsTokenForProject()
+        req = _make_request(user)
+        req.auth = None
+        assert perm.has_permission(req, _make_view()) is True
+
+    def test_non_token_auth_with_arbitrary_object_returns_true(self, user: object) -> None:
+        perm = IsTokenForProject()
+        req = _make_request(user)
+        req.auth = object()  # not a ProjectApiToken
+        assert perm.has_permission(req, _make_view()) is True
+
+    def test_invalid_uuid_in_url_raises_401(self, user: object, project: Project) -> None:
+        """Malformed project id in URL → AuthenticationFailed (401), not 500.
+
+        Mirrors the IDOR-defense pattern: an invalid pk must not leak whether
+        the project exists.
+        """
+        from rest_framework.exceptions import AuthenticationFailed
+
+        from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+        from trueppm_api.apps.projects.models import ProjectApiToken
+
+        raw = f"{TOKEN_PREFIX}{'a' * 64}"
+        token = ProjectApiToken.objects.create(
+            project=project,
+            name="t",
+            token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+            token_hash=sha256_hex(raw),
+            created_by=user,
+        )
+        perm = IsTokenForProject()
+        req = _make_request(user)
+        req.auth = token
+        view = MagicMock()
+        view.kwargs = {"pk": "not-a-uuid"}
+        with pytest.raises(AuthenticationFailed):
+            perm.has_permission(req, view)
+
+    def test_missing_pk_in_url_raises_401(self, user: object, project: Project) -> None:
+        """No pk kwarg at all → AuthenticationFailed (TypeError path on str(None))."""
+        from rest_framework.exceptions import AuthenticationFailed
+
+        from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+        from trueppm_api.apps.projects.models import ProjectApiToken
+
+        raw = f"{TOKEN_PREFIX}{'b' * 64}"
+        token = ProjectApiToken.objects.create(
+            project=project,
+            name="t",
+            token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+            token_hash=sha256_hex(raw),
+            created_by=user,
+        )
+        perm = IsTokenForProject()
+        req = _make_request(user)
+        req.auth = token
+        view = MagicMock()
+        view.kwargs = {}  # neither "pk" nor "project_pk"
+        with pytest.raises(AuthenticationFailed):
+            perm.has_permission(req, view)
