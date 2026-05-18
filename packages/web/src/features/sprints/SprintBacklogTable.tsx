@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import type { TaskStatus } from '@/types';
 import type { SprintBacklogTask } from '@/hooks/useSprintBacklog';
+import { CarryoverLane } from './CarryoverLane';
 
 interface Props {
   projectId: string;
@@ -11,6 +12,10 @@ interface Props {
   onAddTask?: () => void;
   /** Called when the user removes a task from this sprint (sets sprint=null). */
   onRemoveTask?: (taskId: string) => void;
+  /** When true, render the carryover lane above the status groups (PLANNED sprints). */
+  showCarryoverLane?: boolean;
+  /** True if the requesting user can call Pull-to-sprint (SCHEDULER+). */
+  canPullCarryover?: boolean;
 }
 
 /**
@@ -44,7 +49,15 @@ function persistKey(sprintId: string, status: TaskStatus): string {
  * and is collapsible (state persists in sessionStorage so a tab swap does
  * not reset the user's view).
  */
-export function SprintBacklogTable({ projectId, sprintId, tasks, onAddTask, onRemoveTask }: Props) {
+export function SprintBacklogTable({
+  projectId,
+  sprintId,
+  tasks,
+  onAddTask,
+  onRemoveTask,
+  showCarryoverLane = false,
+  canPullCarryover = false,
+}: Props) {
   const groups = useMemo(() => {
     const byStatus = new Map<TaskStatus, SprintBacklogTask[]>();
     for (const t of tasks) {
@@ -104,6 +117,10 @@ export function SprintBacklogTable({ projectId, sprintId, tasks, onAddTask, onRe
           </Link>
         </div>
       </header>
+
+      {showCarryoverLane && (
+        <CarryoverLane projectId={projectId} sprintId={sprintId} canPull={canPullCarryover} />
+      )}
 
       {tasks.length === 0 ? (
         <div

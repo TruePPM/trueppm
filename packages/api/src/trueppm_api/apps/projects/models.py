@@ -1206,7 +1206,23 @@ class SprintCloseRequest(models.Model):
 # ---------------------------------------------------------------------------
 
 
-class SprintRetro(models.Model):
+class RetroVisibility(models.TextChoices):
+    """Who can read raw retro notes and action item text (ADR-0071 §3).
+
+    Aggregate counts (action_items_count, promoted_count) are always
+    visible to project members regardless of visibility — only the
+    free-text body is gated. The enterprise portfolio rollup consumes
+    only aggregate counts, never raw text.
+    """
+
+    TEAM_ONLY = "team_only"  # role >= MEMBER on the project (default)
+    PROJECT = "project"  # any project member including VIEWER
+    # any member of a project in the same program (Program from ADR-0070;
+    # falls back to PROJECT until programs ship)
+    ORG = "org"
+
+
+class SprintRetro(VersionedModel):
     """Retrospective notes attached to a sprint (one-to-one).
 
     Created by the team during or after sprint close. The free-text
@@ -1214,15 +1230,22 @@ class SprintRetro(models.Model):
     live on the related ``RetroActionItem`` rows. The Sprints view renders
     the retro panel beneath the timeline strip when the sprint is in
     ``COMPLETED`` state, and inline during the active close window.
+
+    Extends VersionedModel (ADR-0071) so the retro participates in mobile
+    delta sync and so the audit history is queryable per ADR-0010.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     sprint = models.OneToOneField(
         Sprint,
         on_delete=models.CASCADE,
         related_name="retro",
     )
     notes = models.TextField(blank=True, default="")
+    team_visibility = models.CharField(
+        max_length=12,
+        choices=RetroVisibility.choices,
+        default=RetroVisibility.TEAM_ONLY,
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -1240,17 +1263,19 @@ class SprintRetro(models.Model):
         return f"Retro({self.sprint_id})"
 
 
-class RetroActionItem(models.Model):
+class RetroActionItem(VersionedModel):
     """A single action item from a sprint retrospective.
 
     Items can be promoted to actual tasks in a future sprint via the
     ``promoted_task_id`` field — set to the new task's UUID once the
-    retro endpoint creates it. Until promoted the item is a free-floating
+    promote endpoint creates it. Until promoted the item is a free-floating
     note; after promotion the UI renders a `T-XXX` link back to the task
     so the team can see the action item closed the loop.
+
+    Extends VersionedModel (ADR-0071) so action items participate in
+    mobile delta sync alongside their parent retro.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     retro = models.ForeignKey(
         SprintRetro,
         on_delete=models.CASCADE,
@@ -1267,6 +1292,8 @@ class RetroActionItem(models.Model):
     story_points = models.PositiveSmallIntegerField(null=True, blank=True)
     # FK as plain UUID — the task may live in a different sprint and the
     # snapshot survives task soft-delete. Nullable until promotion happens.
+    # On Task soft-delete, a post_delete signal resets this column to NULL
+    # so the action item can be re-promoted (ADR-0071 §2 rollback).
     promoted_task_id = models.UUIDField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -1276,6 +1303,101 @@ class RetroActionItem(models.Model):
 
     def __str__(self) -> str:
         return f"RetroActionItem({self.id}, retro={self.retro_id})"
+
+
+class SuggestionSource(models.TextChoices):
+    """Why a TaskSuggestedAssignee was created (ADR-0071 §5)."""
+
+    RETROSPECTIVE = "retrospective"
+    OTHER = "other"  # reserved for future suggestion sources
+
+
+class SuggestionState(models.TextChoices):
+    """Lifecycle states for TaskSuggestedAssignee.
+
+    PENDING → ACCEPTED: suggested_user accepted; Task.assignee bound.
+    PENDING → DECLINED: suggested_user declined; no binding.
+    PENDING → REVOKED: suggested_by (or ADMIN) withdrew before action.
+    """
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+    REVOKED = "revoked"
+
+
+class TaskSuggestedAssignee(VersionedModel):
+    """A soft suggestion that a user own a Task, awaiting their acceptance.
+
+    Created when a retro action item is promoted with an assignee who is
+    not the actor of the promote call (i.e. the SM suggests another team
+    member). The suggested_user sees the suggestion on their My Work
+    surface and accepts (binds Task.assignee) or declines.
+
+    A Task may carry many suggestions over its lifetime (one per
+    suggested_user); the partial unique constraint allows at most one
+    PENDING suggestion per (task, suggested_user) pair so a repeated
+    promote does not flood the user with duplicates.
+    """
+
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        related_name="suggested_assignees",
+    )
+    suggested_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="task_suggestions",
+    )
+    suggested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="suggestions_made",
+    )
+    reason = models.TextField(blank=True, default="")
+    source = models.CharField(
+        max_length=24,
+        choices=SuggestionSource.choices,
+        default=SuggestionSource.RETROSPECTIVE,
+    )
+    state = models.CharField(
+        max_length=12,
+        choices=SuggestionState.choices,
+        default=SuggestionState.PENDING,
+        db_index=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    declined_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "projects_tasksuggestedassignee"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task", "suggested_user"],
+                condition=Q(state="pending", is_deleted=False),
+                name="unique_pending_suggestion_per_user_per_task",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["suggested_user", "state"],
+                name="suggestion_user_state_idx",
+            ),
+            models.Index(
+                fields=["task", "state"],
+                name="suggestion_task_state_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"TaskSuggestedAssignee(task={self.task_id}, "
+            f"user={self.suggested_user_id}, state={self.state})"
+        )
 
 
 # ---------------------------------------------------------------------------

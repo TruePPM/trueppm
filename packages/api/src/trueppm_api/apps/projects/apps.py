@@ -10,4 +10,8 @@ class ProjectsConfig(AppConfig):
     def ready(self) -> None:
         """Wire signal receivers when the app starts."""
         # Import for side-effects: registers receivers on task_status_changed.
-        from trueppm_api.apps.projects import receivers  # noqa: F401
+        from trueppm_api.apps.projects import receivers
+
+        # Register the post_save handler that resets RetroActionItem.promoted_task_id
+        # when a Task is soft-deleted (ADR-0071 §2 rollback).
+        receivers._register_task_soft_delete_receiver()

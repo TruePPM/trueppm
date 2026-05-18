@@ -2175,6 +2175,47 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/retrospective/carryover/": {
+            "get": {
+                "operationId": "v1_projects_retrospective_carryover_retrieve",
+                "description": "Unresolved retro action items from the last 1–2 completed retros.\n\nUsed by the Sprint Planning \"From last retro\" lane (ADR-0071 §4b).\n\nAn item is \"unresolved\" when:\n  - ``promoted_task_id IS NULL`` (never promoted to a Task), OR\n  - the promoted Task is not yet COMPLETE.\n\nItems are scoped to the project; the response is the union over the\nmost recent two COMPLETED retros for the project, sorted by source\nsprint finish_date descending then by action item created_at.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/schedule/": {
             "post": {
                 "operationId": "v1_projects_schedule_create",
@@ -6458,7 +6499,7 @@
         "/api/v1/sprints/{id}/retro/": {
             "get": {
                 "operationId": "v1_sprints_retro_retrieve",
-                "description": "Sprint retrospective (#231).\n\n``GET`` returns the existing retro (or 404 if none has been written).\n``POST`` upserts the retro notes and replaces the action item set.\nItems flagged with ``promote=true`` are created as tasks in the\ntarget sprint (``promote_to_sprint_id``, defaults to the next\n``PLANNED`` sprint in the project) and the resulting task UUID is\nrecorded on the action item via ``promoted_task_id``.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.\nBoth gate through the parent sprint's project.",
+                "description": "Sprint retrospective (#486 / ADR-0071).\n\n``GET`` returns the retro using the visibility-aware serializer:\ncallers whose role meets the retro's ``team_visibility`` threshold\nreceive the full serializer (``notes``, ``action_items`` with text\nand assignees); below the threshold, a summary serializer (counts\nonly) is returned. 404 when no retro exists.\n\n``POST`` upserts the retro: replaces ``notes`` and the action-item\nset. Action items no longer auto-promote (sprint sovereignty per\nADR-0071); use the explicit ``/promote/`` action below.\n\n``PATCH`` partially updates the retro — currently scoped to\n``team_visibility``. Only the retro ``created_by`` or a Project\nADMIN+ may change visibility; lower roles get 403.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.",
                 "parameters": [
                     {
                         "in": "path",
@@ -6497,7 +6538,7 @@
             },
             "post": {
                 "operationId": "v1_sprints_retro_create",
-                "description": "Sprint retrospective (#231).\n\n``GET`` returns the existing retro (or 404 if none has been written).\n``POST`` upserts the retro notes and replaces the action item set.\nItems flagged with ``promote=true`` are created as tasks in the\ntarget sprint (``promote_to_sprint_id``, defaults to the next\n``PLANNED`` sprint in the project) and the resulting task UUID is\nrecorded on the action item via ``promoted_task_id``.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.\nBoth gate through the parent sprint's project.",
+                "description": "Sprint retrospective (#486 / ADR-0071).\n\n``GET`` returns the retro using the visibility-aware serializer:\ncallers whose role meets the retro's ``team_visibility`` threshold\nreceive the full serializer (``notes``, ``action_items`` with text\nand assignees); below the threshold, a summary serializer (counts\nonly) is returned. 404 when no retro exists.\n\n``POST`` upserts the retro: replaces ``notes`` and the action-item\nset. Action items no longer auto-promote (sprint sovereignty per\nADR-0071); use the explicit ``/promote/`` action below.\n\n``PATCH`` partially updates the retro — currently scoped to\n``team_visibility``. Only the retro ``created_by`` or a Project\nADMIN+ may change visibility; lower roles get 403.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.",
                 "parameters": [
                     {
                         "in": "path",
@@ -6533,6 +6574,245 @@
                     },
                     "required": true
                 },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_sprints_retro_partial_update",
+                "description": "Sprint retrospective (#486 / ADR-0071).\n\n``GET`` returns the retro using the visibility-aware serializer:\ncallers whose role meets the retro's ``team_visibility`` threshold\nreceive the full serializer (``notes``, ``action_items`` with text\nand assignees); below the threshold, a summary serializer (counts\nonly) is returned. 404 when no retro exists.\n\n``POST`` upserts the retro: replaces ``notes`` and the action-item\nset. Action items no longer auto-promote (sprint sovereignty per\nADR-0071); use the explicit ``/promote/`` action below.\n\n``PATCH`` partially updates the retro — currently scoped to\n``team_visibility``. Only the retro ``created_by`` or a Project\nADMIN+ may change visibility; lower roles get 403.\n\nPermissions: read = IsProjectMember; write = IsProjectMemberWrite.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedSprintRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/retrospective/action-items/{item_pk}/promote/": {
+            "post": {
+                "operationId": "v1_sprints_retrospective_action_items_promote_create",
+                "description": "Promote a RetroActionItem into a project-backlog Task (ADR-0071 §2).\n\nThe created Task is unconditionally ``status=BACKLOG, sprint=NULL``.\nAny ``sprint_id`` field in the request body is structurally ignored —\nthe serializer does not accept it, so sprint sovereignty cannot be\nbypassed via this endpoint.\n\nReturns 409 with the existing task_id if the action item is already\npromoted (idempotent client retry).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "item_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/retrospective/action-items/{item_pk}/pull-to-sprint/": {
+            "post": {
+                "operationId": "v1_sprints_retrospective_action_items_pull_to_sprint_create",
+                "description": "Atomically promote + assign a retro action item to a PLANNED sprint.\n\nSCHEDULER+ gated (the only path that can put a retro action item into\na sprint per ADR-0071 §4b). The target sprint must be in the same\nproject and in PLANNED state.\n\nRequest body: ``{\"target_sprint_id\": \"<uuid>\"}``.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "item_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SprintRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Sprint"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sprints/{id}/retrospective/prior/": {
+            "get": {
+                "operationId": "v1_sprints_retrospective_prior_retrieve",
+                "description": "Most-recent prior completed retro for the same project (ADR-0071 §4a).\n\nReturns 404 if no prior COMPLETED sprint with a retro exists. Filters\nout CANCELLED sprints — the prior context is the team's most recent\nactually-finished sprint, not the most recent of any state.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
                 "security": [
                     {
                         "jwtAuth": []
@@ -7554,6 +7834,399 @@
             "post": {
                 "operationId": "v1_tasks_approve_estimates_create",
                 "description": "Accept pending three-point estimates on a task.\n\nOnly meaningful when the project's estimation_mode is SUGGEST_APPROVE.\nReturns 400 for other modes. Idempotent — calling on an already-accepted\ntask is a no-op (200, no DB write, no broadcast).\n\nPermission: IsProjectScheduler+ (Resource Manager and above).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/suggestions/{suggestion_pk}/accept/": {
+            "post": {
+                "operationId": "v1_tasks_suggestions_accept_create_2",
+                "description": "Accept a PENDING TaskSuggestedAssignee — binds Task.assignee.\n\nOnly the ``suggested_user`` may call. If ``Task.assignee`` is already\nnon-null (another path set it concurrently), returns 409 and the\nsuggestion is marked ACCEPTED without overwriting — the suggestion\nis resolved either way.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "suggestion_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/suggestions/{suggestion_pk}/decline/": {
+            "post": {
+                "operationId": "v1_tasks_suggestions_decline_create_2",
+                "description": "Decline a PENDING TaskSuggestedAssignee.\n\nOnly the ``suggested_user`` may call. No broadcast — declines are\nprivate (Priya's psych-safety note in the VoC).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "suggestion_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/suggestions/{suggestion_pk}/revoke/": {
+            "post": {
+                "operationId": "v1_tasks_suggestions_revoke_create_2",
+                "description": "Revoke a PENDING TaskSuggestedAssignee.\n\nAllowed callers: the original ``suggested_by`` user, or any Project\nADMIN+ on the suggestion's project.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "suggestion_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/suggestions/accept/": {
+            "post": {
+                "operationId": "v1_tasks_suggestions_accept_create",
+                "description": "Accept a PENDING TaskSuggestedAssignee — binds Task.assignee.\n\nOnly the ``suggested_user`` may call. If ``Task.assignee`` is already\nnon-null (another path set it concurrently), returns 409 and the\nsuggestion is marked ACCEPTED without overwriting — the suggestion\nis resolved either way.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/suggestions/decline/": {
+            "post": {
+                "operationId": "v1_tasks_suggestions_decline_create",
+                "description": "Decline a PENDING TaskSuggestedAssignee.\n\nOnly the ``suggested_user`` may call. No broadcast — declines are\nprivate (Priya's psych-safety note in the VoC).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Task"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/tasks/{id}/suggestions/revoke/": {
+            "post": {
+                "operationId": "v1_tasks_suggestions_revoke_create",
+                "description": "Revoke a PENDING TaskSuggestedAssignee.\n\nAllowed callers: the original ``suggested_by`` user, or any Project\nADMIN+ on the suggestion's project.",
                 "parameters": [
                     {
                         "in": "path",

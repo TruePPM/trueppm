@@ -1,10 +1,13 @@
 /**
- * Wave 10 — Sprint retrospective panel E2E (issue #231).
+ * Wave 10 — Sprint retrospective panel E2E (issue #486 / ADR-0071).
  *
  * Verifies the panel renders for the active sprint, the user can add an
- * action item with the promote checkbox, save fires the POST with the
- * promote flag set, and the persisted promoted_task_id renders as a
- * `T-XXX` chip on subsequent loads.
+ * action item, save fires the POST without auto-promote, the explicit
+ * Promote button calls the new promote endpoint, and the persisted
+ * `promoted_task_id` renders as a `T-XXX` chip on subsequent loads.
+ *
+ * The legacy ``promote=true`` checkbox is gone in this build per ADR-0071;
+ * promotion is now per-item and explicit.
  */
 import { test, expect } from '@playwright/test';
 
@@ -36,9 +39,11 @@ const ACTIVE_SPRINT = {
 const PLANNED_SPRINT = { ...ACTIVE_SPRINT, id: 'sp-next', short_id_display: 'SP-N1', name: 'Next sprint', state: 'PLANNED', start_date: '2026-04-15', finish_date: '2026-04-28' };
 
 const SAVED_RETRO = {
+  kind: 'full',
   id: 'retro-1',
   sprint: 'sp-active',
   notes: 'Burndown skewed by mid-sprint scope-add.',
+  team_visibility: 'team_only',
   created_by: null,
   created_at: '2026-04-15T00:00:00Z',
   updated_at: '2026-04-15T00:00:00Z',
@@ -102,6 +107,11 @@ async function setupCommon(
   );
   // Retro endpoint — GET returns either the saved retro or 404; POST echoes payload.
   await page.route(/\/api\/v1\/sprints\/.*\/retro\//, (route) => {
+    const url = route.request().url();
+    // Prior-retro endpoint: empty 404 in this fixture (no prior sprint).
+    if (url.includes('/retrospective/prior/')) {
+      return route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"None"}' });
+    }
     if (route.request().method() === 'POST') {
       const body = route.request().postDataJSON() as { notes?: string; action_items?: unknown[] };
       const items = (body.action_items ?? []).map((it, i) => ({
@@ -110,18 +120,18 @@ async function setupCommon(
         assignee: null,
         assignee_username: null,
         story_points: (it as { story_points?: number | null }).story_points ?? null,
-        promoted_task_id: (it as { promote?: boolean }).promote
-          ? `task-promoted-${i}-aaaaaa`
-          : null,
+        promoted_task_id: null,
         created_at: '2026-04-15T00:00:00Z',
       }));
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
+          kind: 'full',
           id: 'retro-1',
           sprint: 'sp-active',
           notes: body.notes ?? '',
+          team_visibility: 'team_only',
           created_by: null,
           created_at: '2026-04-15T00:00:00Z',
           updated_at: '2026-04-15T00:00:00Z',
@@ -157,7 +167,9 @@ async function setupCommon(
 }
 
 test.describe('Wave 10 — Sprint retrospective panel', () => {
-  test('renders the panel and saves an action item with promote=true', async ({ page }) => {
+  test('renders the panel and saves an action item without auto-promote (ADR-0071)', async ({
+    page,
+  }) => {
     await setupCommon(page, null);
 
     const postPromise = page.waitForRequest(
@@ -169,29 +181,26 @@ test.describe('Wave 10 — Sprint retrospective panel', () => {
 
     const panel = page.getByRole('region', { name: /Retrospective/i });
     await expect(panel).toBeVisible();
-    await expect(panel.getByText(/promotion happens on save/i)).toBeVisible();
+    await expect(panel.getByText(/promote each explicitly/i)).toBeVisible();
 
     await panel.getByRole('textbox', { name: /Notes/i }).fill('Burndown skewed');
     await panel.getByRole('button', { name: /\+ Add item/i }).click();
     await panel.getByLabel(/Action item 1 text/i).fill('Add deploy gate');
     await panel.getByLabel(/Action item 1 story points/i).fill('3');
-    // Promote checkbox is checked by default; verify state.
-    await expect(
-      panel.getByLabel(/Promote action item 1 to next sprint backlog/i),
-    ).toBeChecked();
 
     await panel.getByRole('button', { name: /Save retro/i }).click();
 
     const post = await postPromise;
     const body = post.postDataJSON() as Record<string, unknown>;
     expect(body.notes).toBe('Burndown skewed');
-    expect(body.action_items).toEqual([
-      { text: 'Add deploy gate', promote: true, story_points: 3 },
-    ]);
-    expect(body.promote_to_sprint_id).toBe('sp-next');
+    expect(body.action_items).toEqual([{ text: 'Add deploy gate', story_points: 3 }]);
+    // Legacy fields are gone — no promote=true, no promote_to_sprint_id.
+    expect(body.promote_to_sprint_id).toBeUndefined();
   });
 
-  test('hydrates the form from a saved retro and shows the promoted task chip', async ({ page }) => {
+  test('hydrates the form from a saved retro and shows the promoted task chip', async ({
+    page,
+  }) => {
     await setupCommon(page, SAVED_RETRO);
 
     await page.goto(BASE_URL);

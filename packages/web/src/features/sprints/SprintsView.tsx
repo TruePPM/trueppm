@@ -18,6 +18,7 @@ import { SprintTimelineStrip } from './SprintTimelineStrip';
 import { BurnChart } from '@/features/reports/BurnChart';
 import { CapacityPreflight } from './CapacityPreflight';
 import { VelocityPanel } from './VelocityPanel';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { SprintBacklogTable } from './SprintBacklogTable';
 import { MultiTeamLens } from './MultiTeamLens';
 import { PlanSprintModal } from './PlanSprintModal';
@@ -86,6 +87,9 @@ export function SprintsView() {
   const buckets = useSprintsByState(projectId);
   const { closeSprint, activateSprint } = useSprintMutations(projectId);
   const { resourceId: myResourceId } = useCurrentUserResourceId(projectId ?? undefined);
+  // SCHEDULER+ (role >= 2) can pull retro action items into a PLANNED sprint.
+  const { role: currentRole } = useCurrentUserRole(projectId ?? undefined);
+  const canPullCarryover = (currentRole ?? -1) >= 2;
 
   // Sprint number is 1-based chronological index across all sprints (any state).
   // Derived once per data update so every child can read the same answer.
@@ -438,6 +442,8 @@ export function SprintsView() {
             tasks={plannedBacklogTasks}
             onAddTask={() => setAddTaskForSprintId(plannedSprint.id)}
             onRemoveTask={handleRemoveFromSprint}
+            showCarryoverLane
+            canPullCarryover={canPullCarryover}
           />
         )}
 
@@ -451,7 +457,6 @@ export function SprintsView() {
             <RetroPanel
               sprintId={target.id}
               isClosed={target.state === 'COMPLETED'}
-              promoteToSprintId={buckets.planned[0]?.id ?? null}
             />
           );
         })()}
