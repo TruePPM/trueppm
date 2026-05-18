@@ -357,6 +357,44 @@ class CanAssignResource(BasePermission):
         return role is not None and role >= Role.SCHEDULER
 
 
+class IsTokenForProject(BasePermission):
+    """Verify that request.auth (a ProjectApiToken) belongs to the URL project.
+
+    Raises AuthenticationFailed (401, not PermissionDenied/403) on mismatch
+    so callers cannot enumerate whether the URL project exists — a project_id
+    not covered by the token is indistinguishable from a project_id that does
+    not exist at all.
+
+    Returns True unconditionally when request.auth is not a ProjectApiToken
+    (i.e. JWT/Session requests) so the class is safely composable without
+    side-effects on non-token views.
+
+    Used on: TaskSyncView (token-authenticated inbound sync endpoint).
+    """
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        import uuid
+
+        from rest_framework.exceptions import AuthenticationFailed
+
+        from trueppm_api.apps.projects.models import ProjectApiToken
+
+        token = request.auth
+        if not isinstance(token, ProjectApiToken):
+            return True  # Non-token auth path; other classes handle it.
+
+        pk = view.kwargs.get("pk") or view.kwargs.get("project_pk")
+        try:
+            url_project_id = uuid.UUID(str(pk))
+        except (TypeError, ValueError, AttributeError):
+            raise AuthenticationFailed("Invalid project id.") from None
+
+        if token.project_id != url_project_id:
+            raise AuthenticationFailed("Token does not belong to this project.")
+
+        return True
+
+
 # ---------------------------------------------------------------------------
 # ProjectScopedViewSet mixin
 # ---------------------------------------------------------------------------
