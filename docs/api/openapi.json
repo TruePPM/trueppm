@@ -1436,7 +1436,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Project"
+                                    "$ref": "#/components/schemas/ProjectDetail"
                                 }
                             }
                         },
@@ -2281,6 +2281,30 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/task-sync/": {
+            "post": {
+                "operationId": "v1_projects_task_sync_create",
+                "description": "``POST /api/v1/projects/{project_id}/task-sync/`` — inbound task push.\n\nAuthenticated via project-scoped API token (Authorization: Bearer tppm_…).\nThe auth class sets ``request.user`` to the token creator and\n``request.auth`` to the token itself.\n\nIDOR defense: verifies the token's project matches the URL ``project_id``.\nA mismatch returns ``401`` (not ``403``) to avoid leaking whether the URL\nproject exists.\n\nPer-project rate limit applies via ``TaskSyncThrottle`` (100 req/min steady,\n1000 req/min during the first 60 minutes after token creation).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/tasks/{task_id}/indent/": {
             "post": {
                 "operationId": "v1_projects_tasks_indent_create",
@@ -2705,6 +2729,269 @@
                         "description": ""
                     },
                     "409": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/api-token-audit/": {
+            "get": {
+                "operationId": "v1_projects_api_token_audit_list",
+                "description": "``GET /api/v1/projects/{project_pk}/api-token-audit/`` — per-project audit log.\n\nVisible to any project member (Viewer+) — the team can see when integration\ntokens are minted, revoked, and used (Morgan's VoC 🟡 sprint-sovereignty\nconcern is resolved by visibility, not by gating writes more tightly).\n\nThe ``project_id=project_pk`` filter in get_queryset is defense-in-depth\nagainst a future refactor that changes how ``project_pk`` is sourced;\nthe primary gate is ``IsProjectMember.has_permission`` reading the same\nURL kwarg.",
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "required": false,
+                        "in": "query",
+                        "description": "The initial index from which to return the results.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedApiTokenAuditEntryList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/api-tokens/": {
+            "get": {
+                "operationId": "v1_projects_api_tokens_list",
+                "description": "``/api/v1/projects/{project_pk}/api-tokens/`` — token CRUD for Admin/PM.\n\n``list`` / ``retrieve`` are open to any project member so the team can see\nwhat integrations exist (Morgan's VoC 🟡 — sprint sovereignty signal).\n``create`` / ``destroy`` require Admin/PM (role ≥ 3).\n\nThe raw token is returned only on ``create``, in a one-time response field\n``token``.  Subsequent reads never expose it.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedProjectApiTokenList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_projects_api_tokens_create",
+                "description": "Mint a new token and return the raw value once.\n\nAfter the response is sent the raw token is not retrievable; it must\nbe copied at this moment.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectApiToken"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/api-tokens/{id}/": {
+            "get": {
+                "operationId": "v1_projects_api_tokens_retrieve",
+                "description": "``/api/v1/projects/{project_pk}/api-tokens/`` — token CRUD for Admin/PM.\n\n``list`` / ``retrieve`` are open to any project member so the team can see\nwhat integrations exist (Morgan's VoC 🟡 — sprint sovereignty signal).\n``create`` / ``destroy`` require Admin/PM (role ≥ 3).\n\nThe raw token is returned only on ``create``, in a one-time response field\n``token``.  Subsequent reads never expose it.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectApiToken"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_projects_api_tokens_destroy",
+                "description": "Revoke (soft-delete) a token.  Idempotent — re-revoking is a no-op.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
                         "description": "No response body"
                     }
                 }
@@ -7540,6 +7827,80 @@
     },
     "components": {
         "schemas": {
+            "ActionEnum": {
+                "enum": [
+                    "minted",
+                    "revoked",
+                    "used"
+                ],
+                "type": "string",
+                "description": "* `minted` - Minted\n* `revoked` - Revoked\n* `used` - Used"
+            },
+            "ApiTokenAuditEntry": {
+                "type": "object",
+                "description": "Read-only serializer for the per-project audit log.\n\nCallers MUST construct this from a queryset with\n``.select_related(\"actor\", \"token\")`` — ``get_actor_email`` accesses\n``obj.actor.email`` and will issue one extra query per row otherwise.\n``ApiTokenAuditView.get_queryset`` provides this; other call sites must\nmatch the pattern.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "token": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "token_prefix": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Denormalized — preserved after token deletion."
+                    },
+                    "actor": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "The user who performed the action.  NULL for 'used' entries (inbound requests have no Django user — the actor is the token itself)."
+                    },
+                    "actor_email": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "action": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ActionEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "source_ip": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "detail": {
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "action",
+                    "actor",
+                    "actor_email",
+                    "created_at",
+                    "detail",
+                    "id",
+                    "source_ip",
+                    "token",
+                    "token_prefix"
+                ]
+            },
             "Baseline": {
                 "type": "object",
                 "description": "List / create response shape for Baseline.\n\ntask_count is annotated by BaselineViewSet.get_queryset() and is read-only.\nname is optional on create — the view supplies an auto-generated default.",
@@ -8204,6 +8565,37 @@
                     null
                 ]
             },
+            "PaginatedApiTokenAuditEntryList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?offset=400&limit=100"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?offset=200&limit=100"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ApiTokenAuditEntry"
+                        }
+                    }
+                }
+            },
             "PaginatedBaselineList": {
                 "type": "object",
                 "required": [
@@ -8355,6 +8747,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/MeWorkTask"
+                        }
+                    }
+                }
+            },
+            "PaginatedProjectApiTokenList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectApiToken"
                         }
                     }
                 }
@@ -9406,6 +9829,121 @@
                     "name",
                     "server_version",
                     "start_date"
+                ]
+            },
+            "ProjectApiToken": {
+                "type": "object",
+                "description": "Read-only serializer for the list/detail token views.\n\n``token_hash`` and the raw token are never exposed.  Clients see\n``token_prefix`` only — enough to identify which token is which without\nrevealing the secret.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Human-readable label (e.g. 'Jira Production').  Not unique."
+                    },
+                    "token_prefix": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "First 8 hex chars of the raw token (for audit identification)."
+                    },
+                    "status_map": {
+                        "readOnly": true,
+                        "description": "Maps external source-status strings → TaskStatus values.  Empty dict falls back to the default map: {'todo': 'NOT_STARTED', 'in_progress': 'IN_PROGRESS', 'done': 'COMPLETE'}."
+                    },
+                    "created_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "last_used_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Updated by the authenticator on each successful inbound request."
+                    },
+                    "revoked_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Set when an Admin/PM revokes the token.  Non-null = inactive."
+                    },
+                    "is_revoked": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "created_by",
+                    "id",
+                    "is_revoked",
+                    "last_used_at",
+                    "name",
+                    "revoked_at",
+                    "status_map",
+                    "token_prefix"
+                ]
+            },
+            "ProjectDetail": {
+                "type": "object",
+                "description": "Project detail response with inbound-sync triage fields.\n\nAdds ``unresolved_assignee_count`` so PMs have a single-number signal that\ninbound pushes are landing in the pending-assignee queue (Sarah's VoC 🟡).\nBacked by the partial index ``inbound_link_pending_idx`` — O(log n) per\nproject regardless of total inbound-link count.\n\nList responses keep the base ``ProjectSerializer`` (no count) so the\nproject list stays cheap.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "calendar": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "estimation_mode": {
+                        "$ref": "#/components/schemas/EstimationModeEnum"
+                    },
+                    "agile_features": {
+                        "type": "boolean"
+                    },
+                    "methodology": {
+                        "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "unresolved_assignee_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "server_version",
+                    "start_date",
+                    "unresolved_assignee_count"
                 ]
             },
             "ProjectMembershipRead": {

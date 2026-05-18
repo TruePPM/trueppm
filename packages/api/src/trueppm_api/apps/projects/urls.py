@@ -6,6 +6,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from trueppm_api.apps.projects.views import (
+    ApiTokenAuditView,
     BaselineActivateView,
     BaselineViewSet,
     BoardColumnConfigView,
@@ -16,6 +17,7 @@ from trueppm_api.apps.projects.views import (
     MeActiveSprintsView,
     MeWorkView,
     PhaseReorderView,
+    ProjectApiTokenViewSet,
     ProjectAttentionView,
     ProjectBurnView,
     ProjectMyTasksView,
@@ -33,6 +35,7 @@ from trueppm_api.apps.projects.views import (
     TaskOutdentView,
     TaskReorderView,
     TaskReparentView,
+    TaskSyncView,
     TaskViewSet,
 )
 
@@ -232,5 +235,26 @@ urlpatterns = [
         "me/work/",
         MeWorkView.as_view(),
         name="me-work",
+    ),
+    # Inbound task-sync — ADR-0068 (ADR-0065 Gap 3, issue #500)
+    path(
+        "projects/<pk>/task-sync/",
+        TaskSyncView.as_view(),
+        name="project-task-sync",
+    ),
+    path(
+        "projects/<project_pk>/api-tokens/",
+        ProjectApiTokenViewSet.as_view({"get": "list", "post": "create"}),
+        name="project-api-tokens-list",
+    ),
+    path(
+        "projects/<project_pk>/api-tokens/<pk>/",
+        ProjectApiTokenViewSet.as_view({"get": "retrieve", "delete": "destroy"}),
+        name="project-api-tokens-detail",
+    ),
+    path(
+        "projects/<project_pk>/api-token-audit/",
+        ApiTokenAuditView.as_view(),
+        name="project-api-token-audit",
     ),
 ]

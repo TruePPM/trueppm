@@ -451,3 +451,77 @@ scan on the full task table.
 - React Native client for #499 once `packages/mobile/` lands
 - Full historical-record source tracking (add `source` field to Task model)
 - `is_blocked` and `?include=blocking` query param (v1.2, per parent ADR)
+
+## Addendum — Gap 3 Implementation Refinements (2026-05-17)
+
+Refinements adopted during the implementation of issue #500 (inbound
+task-sync). Full design in [ADR-0068](./0068-inbound-task-sync-protocol-project-api-tokens-audit-and-status-map.md).
+
+### Token format and storage
+
+The original Gap 3 sketch specified `token_hash: CharField(64)` (SHA-256 hex)
+but did not name a prefix scheme. Implemented as:
+
+- Raw token format: `tppm_<64-hex>` (69 chars total). The `tppm_` prefix is
+  greppable by secret scanners (GitGuardian, GitHub secret scanning).
+- `token_prefix` (first 8 hex chars) is stored alongside `token_hash` so
+  audit-log entries can identify which token was used without revealing it.
+- Constant-time compare is unnecessary — the hash is the index lookup key,
+  so a non-match returns no row.
+
+### Status_map immutability
+
+`ProjectApiToken.status_map` is **immutable after creation**. Changing the
+mapping requires minting a new token and revoking the old one, which appears
+in the audit log so the team sees it. Resolves Morgan's VoC 🟡 about quiet
+remapping of `"done"` to a non-`COMPLETE` value.
+
+### Rate limit — Redis-backed with a backfill window
+
+Per-project rate limit (originally `100 req/min`) was refined to a two-tier
+limit:
+- **Steady state**: 100 req/min/project.
+- **Backfill window**: 1000 req/min/project for the first 60 minutes after
+  the token's `created_at`. Resolves Jordan's VoC 🟡 — a 2000-ticket Jira
+  project imports in ~2 minutes instead of 20.
+
+Token-issuance endpoint (`POST /api-tokens/`) has its own throttle: 5
+req/min per user. Caps blast radius even if RBAC is satisfied. Backed by
+raw `redis-py` against `settings.REDIS_URL` (database `/2`) — no new
+`django-redis` dependency.
+
+### Audit log model
+
+A dedicated `ApiTokenAuditEntry` model was added (originally Gap 3 deferred
+audit to the existing `django-simple-history`). Reasons:
+
+- SOC 2 evidence needs a queryable, append-only table per project — not log
+  lines + DB diffs across two systems (Marcus's VoC 🟡).
+- Every project member can read the audit log (`GET /api-token-audit/`),
+  resolving Morgan's team-visibility concern without building the
+  notifications app from ADR-0049 in this MR.
+
+### Pending-assignee surface
+
+Added `unresolved_assignee_count` to the project DETAIL response (not list).
+Backed by a partial index `inbound_link_pending_idx` — O(log n) per project,
+fast at portfolio scale. Resolves Sarah's VoC 🟡 (PM has a triage signal
+that imports are landing waiting for member onboarding).
+
+### Sprint binding deferred
+
+All inbound tasks land in `status=BACKLOG, sprint=null`. Binding from a
+`sprint_external_id` field in the payload requires a companion
+`InboundSprintLink` model and is deferred to a future ADR after the
+first-class Sprint entity (#482) stabilizes. Alex's VoC 🟡 is deferred with
+documentation.
+
+### Cross-source parent rejection
+
+`parent_external_id` resolution is scoped to the same `(project, source)`.
+A Linear push cannot attach a task as a child of a Jira epic — prevents the
+downgrade-attack class from the STRIDE EoP analysis.
+
+### Tracking issue closed
+
+- Gap 3 — Inbound task-sync protocol: #500 ✅
