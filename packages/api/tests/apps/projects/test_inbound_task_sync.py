@@ -619,9 +619,14 @@ def test_audit_list_endpoint_returns_member_visible_log(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_inbound_create_fires_board_event(project: Project, admin_user: Any) -> None:
-    """task_created event fires on commit so live boards refresh."""
+    """task_created event fires on commit so live boards refresh.
+
+    Requires ``transaction=True`` so the request's outermost atomic block
+    actually commits and Django fires the queued on_commit callbacks —
+    same pattern used for the broadcast tests in ``test_risks.py``.
+    """
     _token, raw = _mint_token(project, admin_user)
     client = _bearer(APIClient(), raw)
     with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast_mock:
@@ -631,14 +636,10 @@ def test_inbound_create_fires_board_event(project: Project, admin_user: Any) -> 
             format="json",
         )
         assert resp.status_code == 201
-        # transaction.on_commit() fires before the test transaction is rolled
-        # back by pytest-django because ATOMIC_REQUESTS wraps the view; the
-        # outer test transaction wraps that.  on_commit callbacks queued
-        # inside the inner transaction fire when the inner one commits.
         assert broadcast_mock.called
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_inbound_update_fires_task_updated_event(project: Project, admin_user: Any) -> None:
     _token, raw = _mint_token(project, admin_user)
     client = _bearer(APIClient(), raw)
