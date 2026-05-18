@@ -15,6 +15,7 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     _VALID_EVM_MODES,
     _VALID_SORT_KEYS,
+    ApiTokenAuditEntry,
     Baseline,
     BaselineTask,
     BoardSavedView,
@@ -23,7 +24,9 @@ from trueppm_api.apps.projects.models import (
     Dependency,
     EstimateStatus,
     EstimationMode,
+    InboundTaskLink,
     Project,
+    ProjectApiToken,
     RetroActionItem,
     Risk,
     RiskComment,
@@ -1524,3 +1527,176 @@ class MeWorkActiveSprintSerializer(serializers.Serializer[Any]):
     def get_days_remaining(self, obj: Any) -> int:
         today = timezone.localdate()
         return max(0, int((obj.finish_date - today).days))
+
+
+# ---------------------------------------------------------------------------
+# Inbound task-sync — ADR-0068 / issue #500
+# ---------------------------------------------------------------------------
+
+
+class ProjectDetailSerializer(ProjectSerializer):
+    """Project detail response with inbound-sync triage fields.
+
+    Adds ``unresolved_assignee_count`` so PMs have a single-number signal that
+    inbound pushes are landing in the pending-assignee queue (Sarah's VoC 🟡).
+    Backed by the partial index ``inbound_link_pending_idx`` — O(log n) per
+    project regardless of total inbound-link count.
+
+    List responses keep the base ``ProjectSerializer`` (no count) so the
+    project list stays cheap.
+    """
+
+    unresolved_assignee_count = serializers.SerializerMethodField()
+
+    class Meta(ProjectSerializer.Meta):
+        fields = [*ProjectSerializer.Meta.fields, "unresolved_assignee_count"]
+
+    def get_unresolved_assignee_count(self, obj: Project) -> int:
+        return InboundTaskLink.objects.filter(
+            project=obj,
+            is_deleted=False,
+            pending_assignee_email__isnull=False,
+        ).count()
+
+
+class ProjectApiTokenSerializer(serializers.ModelSerializer[ProjectApiToken]):
+    """Read-only serializer for the list/detail token views.
+
+    ``token_hash`` and the raw token are never exposed.  Clients see
+    ``token_prefix`` only — enough to identify which token is which without
+    revealing the secret.
+    """
+
+    is_revoked = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProjectApiToken
+        fields = [
+            "id",
+            "name",
+            "token_prefix",
+            "status_map",
+            "created_by",
+            "created_at",
+            "last_used_at",
+            "revoked_at",
+            "is_revoked",
+        ]
+        read_only_fields = fields
+
+    def get_is_revoked(self, obj: ProjectApiToken) -> bool:
+        return obj.revoked_at is not None
+
+
+class ProjectApiTokenCreateSerializer(serializers.ModelSerializer[ProjectApiToken]):
+    """Write serializer for minting a new token.
+
+    Accepts ``name`` and optional ``status_map`` only — the raw token is
+    generated server-side and returned to the caller once via a separate
+    response shape (see ``ProjectApiTokenViewSet.create``).  ``status_map``
+    is immutable after creation by design; this serializer is the only
+    code path that writes it.
+    """
+
+    class Meta:
+        model = ProjectApiToken
+        fields = ["name", "status_map"]
+
+    def validate_name(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("name is required.")
+        return value
+
+    def validate_status_map(self, value: dict[str, str]) -> dict[str, str]:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("status_map must be an object.")
+        valid_statuses = set(TaskStatus.values)
+        for ext_status, internal in value.items():
+            if not isinstance(ext_status, str) or not isinstance(internal, str):
+                raise serializers.ValidationError("status_map keys and values must be strings.")
+            if internal not in valid_statuses:
+                raise serializers.ValidationError(
+                    f"status_map value {internal!r} is not a valid TaskStatus.  "
+                    f"Valid values: {sorted(valid_statuses)}"
+                )
+        return value
+
+
+_INBOUND_SOURCE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+
+
+class InboundTaskSyncPayloadSerializer(serializers.Serializer):
+    """Validates the inbound push payload.
+
+    Loose by design: most fields are optional so a wide range of external
+    sources can integrate without re-shaping their data.  Strict only on the
+    identifiers (``source``, ``external_id``) and on the assignee email
+    format.
+    """
+
+    source = serializers.CharField(max_length=32)
+    external_id = serializers.CharField(max_length=255)
+    name = serializers.CharField(max_length=512, required=False, allow_blank=True)
+    # 100 KB cap matches the practical ceiling Jira/Linear apply to descriptions
+    # and prevents an integration with a misconfigured token from inflating
+    # storage or response sizes with megabyte-scale bodies.
+    description = serializers.CharField(required=False, allow_blank=True, max_length=100_000)
+    status = serializers.CharField(max_length=64, required=False, allow_blank=True)
+    assignee_email = serializers.EmailField(required=False, allow_blank=True)
+    story_points = serializers.IntegerField(required=False, min_value=0, max_value=999)
+    external_url = serializers.URLField(max_length=2000, required=False, allow_blank=True)
+    parent_external_id = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+    )
+
+    def validate_source(self, value: str) -> str:
+        # Lowercase ASCII letters, digits, underscore; starts with a letter.
+        # Matches the ADR-0049 ProviderRegistry CharField shape (max_length=32).
+        if not _INBOUND_SOURCE_PATTERN.match(value):
+            raise serializers.ValidationError(
+                "source must match [a-z][a-z0-9_]{0,31} — "
+                "lowercase ASCII letter followed by letters, digits, or underscores."
+            )
+        return value
+
+    def validate_external_id(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("external_id is required.")
+        return value
+
+
+class ApiTokenAuditEntrySerializer(serializers.ModelSerializer[ApiTokenAuditEntry]):
+    """Read-only serializer for the per-project audit log.
+
+    Callers MUST construct this from a queryset with
+    ``.select_related("actor", "token")`` — ``get_actor_email`` accesses
+    ``obj.actor.email`` and will issue one extra query per row otherwise.
+    ``ApiTokenAuditView.get_queryset`` provides this; other call sites must
+    match the pattern.
+    """
+
+    actor_email = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ApiTokenAuditEntry
+        fields = [
+            "id",
+            "token",
+            "token_prefix",
+            "actor",
+            "actor_email",
+            "action",
+            "source_ip",
+            "detail",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_actor_email(self, obj: ApiTokenAuditEntry) -> str | None:
+        if obj.actor is None:
+            return None
+        return str(obj.actor.email)

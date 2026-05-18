@@ -1334,3 +1334,241 @@ class SprintScopeChange(models.Model):
 
     def __str__(self) -> str:
         return f"SprintScopeChange(task={self.task_id}, sprint={self.sprint_id})"
+
+
+# ---------------------------------------------------------------------------
+# Inbound task-sync — ADR-0068 / issue #500 (Gap 3 of ADR-0065)
+# ---------------------------------------------------------------------------
+
+
+class ProjectApiToken(VersionedModel):
+    """Project-scoped API token for inbound integrations (Jira, Linear, GitHub, ...).
+
+    The raw token is shown exactly once at creation, then stored as a SHA-256 hex
+    digest in ``token_hash``.  Lookup is O(1) via the unique index on the hash;
+    a non-match returns no row, which prevents the timing-attack class that
+    constant-time string compare would defend against.
+
+    ``token_prefix`` carries the first 8 hex chars of the raw token so audit-log
+    entries can identify which token was used without revealing it.  The
+    ``tppm_`` prefix on the raw token is greppable for secret-scanners
+    (GitGuardian, GitHub) but is *not* stored — only the random portion counts.
+
+    ``status_map`` is immutable after creation by design: changing it requires
+    minting a new token and revoking the old one, so the team can see (via the
+    audit log + broadcast) when their status mapping changes.  Prevents the
+    silent-remap-of-done failure mode (Morgan's 🟡 VoC concern).
+    """
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="api_tokens",
+    )
+    name = models.CharField(
+        max_length=128,
+        help_text="Human-readable label (e.g. 'Jira Production').  Not unique.",
+    )
+    token_prefix = models.CharField(
+        max_length=8,
+        db_index=True,
+        help_text="First 8 hex chars of the raw token (for audit identification).",
+    )
+    token_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text="SHA-256 hex digest of the raw token.",
+    )
+    status_map = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Maps external source-status strings → TaskStatus values.  "
+        "Empty dict falls back to the default map: "
+        "{'todo': 'NOT_STARTED', 'in_progress': 'IN_PROGRESS', 'done': 'COMPLETE'}.",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="api_tokens_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Updated by the authenticator on each successful inbound request.",
+    )
+    revoked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Set when an Admin/PM revokes the token.  Non-null = inactive.",
+    )
+
+    class Meta:
+        db_table = "projects_api_token"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["project", "revoked_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"ProjectApiToken({self.token_prefix}…, project={self.project_id})"
+
+
+class InboundTaskLink(VersionedModel):
+    """One row per (project, source, external_id) — links a Task to its external origin.
+
+    The unique constraint is partial on ``is_deleted=False`` so a re-push of the
+    same external_id after the Task is soft-deleted creates a new link + new
+    Task.  The historical link row is preserved for audit.
+
+    ``parent_external_id`` records the external system's parent (e.g. Jira epic
+    key) so the receiver can re-establish hierarchy when the parent's own link
+    row arrives.  Resolution happens at write time: if a matching parent link
+    exists in the same (project, source) scope, the new Task is created as a
+    subtask under the parent's wbs_path.  No match → flat BACKLOG item.
+
+    ``pending_assignee_email`` is populated when the inbound assignee_email
+    does not match any project member.  The PM-visible
+    ``unresolved_assignee_count`` field on the project detail response surfaces
+    this so PMs have a triage signal (Sarah's 🟡 VoC concern).
+
+    ``created_via_token`` and ``last_synced_via_token`` are SET_NULL so token
+    deletion does not cascade-delete the link rows that depended on it.
+    """
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="inbound_links",
+    )
+    task = models.ForeignKey(
+        Task,
+        on_delete=models.CASCADE,
+        related_name="inbound_links",
+    )
+    source = models.CharField(
+        max_length=32,
+        help_text="External source key — 'jira', 'linear', 'github', 'custom'.",
+    )
+    external_id = models.CharField(
+        max_length=255,
+        help_text="The external system's identifier (e.g. 'PROJ-123').",
+    )
+    external_url = models.URLField(  # noqa: DJ001 — null distinguishes "not provided" from ""
+        max_length=2000,
+        null=True,
+        blank=True,
+        help_text="Optional canonical URL of the external task.",
+    )
+    parent_external_id = models.CharField(  # noqa: DJ001
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="External system's parent identifier (e.g. Jira epic key).",
+    )
+    pending_assignee_email = models.EmailField(  # noqa: DJ001
+        max_length=254,
+        null=True,
+        blank=True,
+        help_text="Set when assignee_email did not match a project member.  "
+        "Resolved on a subsequent push if the user joins the project.",
+    )
+    created_via_token = models.ForeignKey(
+        ProjectApiToken,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_links",
+    )
+    last_synced_via_token = models.ForeignKey(
+        ProjectApiToken,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    last_synced_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "projects_inbound_task_link"
+        ordering = ["-last_synced_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "source", "external_id"],
+                condition=Q(is_deleted=False),
+                name="uniq_inbound_link_per_source",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["project", "pending_assignee_email"],
+                condition=Q(is_deleted=False, pending_assignee_email__isnull=False),
+                name="inbound_link_pending_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"InboundTaskLink({self.source}:{self.external_id} → task={self.task_id})"
+
+
+class ApiTokenAuditAction(models.TextChoices):
+    MINTED = "minted", "Minted"
+    REVOKED = "revoked", "Revoked"
+    USED = "used", "Used"
+
+
+class ApiTokenAuditEntry(models.Model):
+    """Append-only audit log for project API token lifecycle and use.
+
+    Resolves Marcus + Morgan VoC 🟡: every mint/revoke/use is queryable for the
+    auditor and visible to project members.  Status-map changes are not a
+    distinct action because status_map is immutable (a change requires a new
+    token, which lands as a ``minted`` entry).
+
+    ``token_prefix`` is denormalized so the row remains identifiable after the
+    parent token is deleted (FK is SET_NULL).  Plain models.Model (not
+    VersionedModel) — audit rows are not synced to mobile.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="api_token_audit",
+    )
+    token = models.ForeignKey(
+        ProjectApiToken,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="audit_entries",
+    )
+    token_prefix = models.CharField(
+        max_length=8,
+        help_text="Denormalized — preserved after token deletion.",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="The user who performed the action.  NULL for 'used' entries "
+        "(inbound requests have no Django user — the actor is the token itself).",
+    )
+    action = models.CharField(max_length=16, choices=ApiTokenAuditAction.choices)
+    source_ip = models.GenericIPAddressField(null=True, blank=True)
+    detail = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        db_table = "projects_api_token_audit"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["project", "-created_at"], name="api_token_audit_proj_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ApiTokenAuditEntry({self.action} {self.token_prefix} project={self.project_id})"

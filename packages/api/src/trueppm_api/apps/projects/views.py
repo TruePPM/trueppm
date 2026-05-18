@@ -67,6 +67,7 @@ from trueppm_api.apps.projects.models import (
 )
 from trueppm_api.apps.projects.serializers import (
     _DEFAULT_COLUMNS,
+    ApiTokenAuditEntrySerializer,
     BaselineDetailSerializer,
     BaselineSerializer,
     BoardColumnConfigSerializer,
@@ -74,9 +75,13 @@ from trueppm_api.apps.projects.serializers import (
     CalendarSerializer,
     CycleDetectedError,
     DependencySerializer,
+    InboundTaskSyncPayloadSerializer,
     MeWorkActiveSprintSerializer,
     MeWorkTaskSerializer,
     ProgressAnchorError,
+    ProjectApiTokenCreateSerializer,
+    ProjectApiTokenSerializer,
+    ProjectDetailSerializer,
     ProjectSerializer,
     RiskCommentSerializer,
     RiskSerializer,
@@ -151,6 +156,14 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name"]
     ordering_fields = ["start_date", "name"]
+
+    def get_serializer_class(self) -> type[BaseSerializer[Project]]:
+        # Detail view includes unresolved_assignee_count (Sarah's VoC 🟡, ADR-0068).
+        # List stays on the lightweight ProjectSerializer to keep the project
+        # list fast at portfolio scale.
+        if self.action == "retrieve":
+            return ProjectDetailSerializer
+        return ProjectSerializer
 
     def perform_create(self, serializer: BaseSerializer[Project]) -> None:
         """Create the project and auto-assign the creator as Owner.
@@ -3869,3 +3882,294 @@ class ProjectBurnView(APIView):
             return datetime.date.fromisoformat(raw)
         except ValueError:
             return None
+
+
+# ---------------------------------------------------------------------------
+# Inbound task-sync — ADR-0068 / issue #500 (closes ADR-0065 Gap 3)
+# ---------------------------------------------------------------------------
+
+
+def _client_ip(request: Request) -> str | None:
+    """Best-effort client-IP extraction for audit rows.
+
+    Reads ``X-Forwarded-For`` first (most TruePPM deployments sit behind a
+    reverse proxy or ingress), falling back to ``REMOTE_ADDR``.  Returns the
+    first hop from XFF — the chain after that is forgeable.  ``None`` if
+    neither is present (e.g. test client).
+    """
+    xff = request.META.get("HTTP_X_FORWARDED_FOR")
+    if xff:
+        # Comma-separated; take the leftmost (client) hop.
+        return xff.split(",")[0].strip() or None
+    return request.META.get("REMOTE_ADDR") or None
+
+
+class TaskSyncView(APIView):
+    """``POST /api/v1/projects/{project_id}/task-sync/`` — inbound task push.
+
+    Authenticated via project-scoped API token (Authorization: Bearer tppm_…).
+    The auth class sets ``request.user`` to the token creator and
+    ``request.auth`` to the token itself.
+
+    IDOR defense: verifies the token's project matches the URL ``project_id``.
+    A mismatch returns ``401`` (not ``403``) to avoid leaking whether the URL
+    project exists.
+
+    Per-project rate limit applies via ``TaskSyncThrottle`` (100 req/min steady,
+    1000 req/min during the first 60 minutes after token creation).
+    """
+
+    # Only token auth — explicitly disable JWT/Session so a logged-in user
+    # cannot hit this endpoint with their normal credentials and bypass the
+    # token-creation audit trail.
+    from trueppm_api.apps.projects.authentication import ProjectApiTokenAuthentication
+    from trueppm_api.apps.projects.throttles import TaskSyncThrottle
+
+    authentication_classes = [ProjectApiTokenAuthentication]
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [TaskSyncThrottle]
+
+    def post(self, request: Request, pk: str) -> Response:
+        # request.auth is the ProjectApiToken; request.user is its creator.
+        from trueppm_api.apps.projects.inbound_sync import upsert_inbound_task
+        from trueppm_api.apps.projects.models import ProjectApiToken
+
+        token = request.auth
+        if not isinstance(token, ProjectApiToken):
+            # Belt-and-braces; the auth class already guaranteed this.
+            return Response(
+                {"detail": "Token authentication required."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # IDOR check — confirms the token's project matches the URL.
+        try:
+            url_project_id = uuid.UUID(str(pk))
+        except (ValueError, AttributeError):
+            return Response(
+                {"detail": "Invalid project id."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        if token.project_id != url_project_id:
+            # 401, not 403 — avoids enumeration of project existence.
+            return Response(
+                {"detail": "Token does not belong to this project."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        serializer = InboundTaskSyncPayloadSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload: dict[str, Any] = serializer.validated_data
+
+        result = upsert_inbound_task(
+            project=token.project,
+            token=token,
+            payload=payload,
+            source_ip=_client_ip(request),
+        )
+
+        return Response(
+            {
+                "task_id": str(result.task.pk),
+                "short_id": result.task.short_id,
+                "created": result.created,
+                "assignee_resolved": result.assignee_resolved,
+            },
+            # 201 on first push (resource created); 200 on idempotent re-push
+            # (resource existed and was updated).  The `created` boolean
+            # carries the same signal, but proxies and clients that switch on
+            # the status code see the correct semantics.
+            status=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK,
+        )
+
+
+class ProjectApiTokenViewSet(viewsets.ModelViewSet[Any]):
+    """``/api/v1/projects/{project_pk}/api-tokens/`` — token CRUD for Admin/PM.
+
+    ``list`` / ``retrieve`` are open to any project member so the team can see
+    what integrations exist (Morgan's VoC 🟡 — sprint sovereignty signal).
+    ``create`` / ``destroy`` require Admin/PM (role ≥ 3).
+
+    The raw token is returned only on ``create``, in a one-time response field
+    ``token``.  Subsequent reads never expose it.
+    """
+
+    from trueppm_api.apps.projects.throttles import TokenIssuanceThrottle
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+    serializer_class = ProjectApiTokenSerializer
+    http_method_names = ["get", "post", "delete", "head", "options"]
+
+    def get_throttles(self) -> list[Any]:
+        from trueppm_api.apps.projects.throttles import TokenIssuanceThrottle as _TIT
+
+        if self.action == "create":
+            return [_TIT()]
+        return []
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action in ("create", "destroy"):
+            return [IsAuthenticated(), IsProjectAdmin()]
+        return [IsAuthenticated(), IsProjectMember()]
+
+    def get_queryset(self) -> QuerySet[Any]:
+        from trueppm_api.apps.projects.models import ProjectApiToken
+
+        project_pk = self.kwargs["project_pk"]
+        return (
+            ProjectApiToken.objects.filter(project_id=project_pk, is_deleted=False)
+            .select_related("created_by")
+            .order_by("-created_at")
+        )
+
+    def get_object(self) -> Any:
+        obj = super().get_object()
+        # IsProjectAdmin checks against the project on the object.
+        self.check_object_permissions(self.request, obj.project)
+        return obj
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Mint a new token and return the raw value once.
+
+        After the response is sent the raw token is not retrievable; it must
+        be copied at this moment.
+        """
+        import secrets
+
+        from trueppm_api.apps.projects.authentication import (
+            TOKEN_PREFIX,
+            sha256_hex,
+        )
+        from trueppm_api.apps.projects.models import (
+            ApiTokenAuditAction,
+            ApiTokenAuditEntry,
+            ProjectApiToken,
+        )
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_pk = self.kwargs["project_pk"]
+        project = self._get_project_or_404(project_pk)
+
+        write_serializer = ProjectApiTokenCreateSerializer(data=request.data)
+        write_serializer.is_valid(raise_exception=True)
+
+        raw_token = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+        token_prefix = raw_token[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8]
+
+        with transaction.atomic():
+            token = ProjectApiToken.objects.create(
+                project=project,
+                name=write_serializer.validated_data["name"],
+                status_map=write_serializer.validated_data.get("status_map", {}),
+                token_prefix=token_prefix,
+                token_hash=sha256_hex(raw_token),
+                created_by=request.user if request.user.is_authenticated else None,
+            )
+            ApiTokenAuditEntry.objects.create(
+                project=project,
+                token=token,
+                token_prefix=token_prefix,
+                actor=request.user if request.user.is_authenticated else None,
+                action=ApiTokenAuditAction.MINTED.value,
+                source_ip=_client_ip(request),
+                detail={"name": token.name},
+            )
+            # Capture plain strings inside the atomic block, then bind via
+            # default-argument so the lambda freezes the values at registration
+            # time (defensive against any later closure-variable mutation).
+            project_id = str(project.pk)
+            token_name = token.name
+            transaction.on_commit(
+                lambda pid=project_id, pfx=token_prefix, nm=token_name: broadcast_board_event(
+                    pid, "api_token_minted", {"token_prefix": pfx, "name": nm}
+                )
+            )
+
+        # Single-shot response: token field is present here, never on subsequent reads.
+        read_data = ProjectApiTokenSerializer(token).data
+        return Response(
+            {**read_data, "token": raw_token},
+            status=status.HTTP_201_CREATED,
+        )
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Revoke (soft-delete) a token.  Idempotent — re-revoking is a no-op."""
+        from django.utils import timezone
+
+        from trueppm_api.apps.projects.models import (
+            ApiTokenAuditAction,
+            ApiTokenAuditEntry,
+        )
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        token = self.get_object()
+        if token.revoked_at is None:
+            with transaction.atomic():
+                token.revoked_at = timezone.now()
+                token.save(update_fields=["revoked_at"])
+                ApiTokenAuditEntry.objects.create(
+                    project=token.project,
+                    token=token,
+                    token_prefix=token.token_prefix,
+                    actor=request.user if request.user.is_authenticated else None,
+                    action=ApiTokenAuditAction.REVOKED.value,
+                    source_ip=_client_ip(request),
+                    detail={"name": token.name},
+                )
+                project_id = str(token.project_id)
+                token_prefix = token.token_prefix
+                token_name = token.name
+                transaction.on_commit(
+                    lambda pid=project_id, pfx=token_prefix, nm=token_name: broadcast_board_event(
+                        pid, "api_token_revoked", {"token_prefix": pfx, "name": nm}
+                    )
+                )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _get_project_or_404(self, project_pk: Any) -> Project:
+        # Re-uses the standard project-existence check.  ``IsProjectMember``
+        # already gated access; this just resolves the FK target.
+        try:
+            return Project.objects.get(pk=project_pk, is_deleted=False)
+        except Project.DoesNotExist as exc:
+            from django.http import Http404
+
+            raise Http404("Project not found.") from exc
+
+
+class _ApiTokenAuditPagination(pagination.LimitOffsetPagination):
+    """Bounded pagination for the audit log — prevents a member from pulling
+    an unbounded page (a project with a noisy integration can accumulate
+    millions of audit rows; the unbounded default would be a DoS vector
+    against the DB even for an authenticated request)."""
+
+    default_limit = 50
+    max_limit = 500
+
+
+class ApiTokenAuditView(generics.ListAPIView):
+    """``GET /api/v1/projects/{project_pk}/api-token-audit/`` — per-project audit log.
+
+    Visible to any project member (Viewer+) — the team can see when integration
+    tokens are minted, revoked, and used (Morgan's VoC 🟡 sprint-sovereignty
+    concern is resolved by visibility, not by gating writes more tightly).
+
+    The ``project_id=project_pk`` filter in get_queryset is defense-in-depth
+    against a future refactor that changes how ``project_pk`` is sourced;
+    the primary gate is ``IsProjectMember.has_permission`` reading the same
+    URL kwarg.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+    serializer_class = ApiTokenAuditEntrySerializer
+    pagination_class = _ApiTokenAuditPagination
+
+    def get_queryset(self) -> QuerySet[Any]:
+        from trueppm_api.apps.projects.models import ApiTokenAuditEntry
+
+        project_pk = self.kwargs["project_pk"]
+        return (
+            ApiTokenAuditEntry.objects.filter(project_id=project_pk)
+            .select_related("actor", "token")
+            .order_by("-created_at")
+        )

@@ -125,6 +125,7 @@ export default defineConfig({
             { slug: "features/offline-sync" },
             // Integrations
             { slug: "features/webhooks" },
+            { slug: "features/inbound-task-sync" },
           ],
         },
         // --- API + integrations ---
