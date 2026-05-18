@@ -45,6 +45,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectMemberWriteOrOwn,
     IsProjectOwner,
     IsProjectScheduler,
+    IsTokenForProject,
     ProjectScopedViewSet,
 )
 from trueppm_api.apps.projects.models import (
@@ -3926,34 +3927,25 @@ class TaskSyncView(APIView):
     from trueppm_api.apps.projects.throttles import TaskSyncThrottle
 
     authentication_classes = [ProjectApiTokenAuthentication]
-    permission_classes = [IsAuthenticated]
+    # IsTokenForProject enforces the IDOR check structurally (token.project_id
+    # must match the URL pk) and raises AuthenticationFailed (401) on mismatch
+    # so callers cannot enumerate project existence.
+    permission_classes = [IsAuthenticated, IsTokenForProject]
     throttle_classes = [TaskSyncThrottle]
 
     def post(self, request: Request, pk: str) -> Response:
         # request.auth is the ProjectApiToken; request.user is its creator.
+        # IsTokenForProject in permission_classes has already verified that
+        # token.project_id == URL pk before this method runs.
         from trueppm_api.apps.projects.inbound_sync import upsert_inbound_task
         from trueppm_api.apps.projects.models import ProjectApiToken
 
         token = request.auth
         if not isinstance(token, ProjectApiToken):
-            # Belt-and-braces; the auth class already guaranteed this.
+            # Unreachable in practice — IsTokenForProject already guarantees this.
+            # Kept for type narrowing so mypy understands token.project below.
             return Response(
                 {"detail": "Token authentication required."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        # IDOR check — confirms the token's project matches the URL.
-        try:
-            url_project_id = uuid.UUID(str(pk))
-        except (ValueError, AttributeError):
-            return Response(
-                {"detail": "Invalid project id."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-        if token.project_id != url_project_id:
-            # 401, not 403 — avoids enumeration of project existence.
-            return Response(
-                {"detail": "Token does not belong to this project."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -4018,7 +4010,7 @@ class ProjectApiTokenViewSet(viewsets.ModelViewSet[Any]):
         project_pk = self.kwargs["project_pk"]
         return (
             ProjectApiToken.objects.filter(project_id=project_pk, is_deleted=False)
-            .select_related("created_by")
+            .select_related("created_by", "project")
             .order_by("-created_at")
         )
 

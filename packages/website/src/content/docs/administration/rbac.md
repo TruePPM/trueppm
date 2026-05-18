@@ -7,27 +7,50 @@ TruePPM uses a 5-role per-project permission model stored in `ProjectMembership`
 
 ## Roles
 
-| Role | Ordinal | Description |
-|------|---------|-------------|
-| **Owner** | 4 | Full control. Manages members, can assign any role below Owner. |
-| **Admin** | 3 | Modifies project settings, tasks, dependencies, resources. |
-| **Scheduler** | 2 | Creates and modifies tasks and dependencies. |
-| **Member** | 1 | Views all project data. Logs time. |
-| **Viewer** | 0 | Read-only. Can sync to mobile. |
+| Role | Ordinal | Label | Description |
+|------|---------|-------|-------------|
+| **Owner** | 4 | Project Admin | Full control. Manages members, can assign any role below Owner, deletes project. |
+| **Admin** | 3 | Project Manager | Full task and dependency edit, project settings, baseline creation. |
+| **Scheduler** | 2 | Resource Manager | Assigns resources and edits dependencies. Cannot edit task content. |
+| **Member** | 1 | Team Member | Edits own assigned tasks. Logs time. |
+| **Viewer** | 0 | Viewer | Read-only. Can pull delta sync to mobile. |
 
 ## Permission matrix
 
 | Action | Owner | Admin | Scheduler | Member | Viewer |
 |--------|:-----:|:-----:|:---------:|:------:|:------:|
-| View project data | Yes | Yes | Yes | Yes | Yes |
-| Pull delta sync | Yes | Yes | Yes | Yes | Yes |
-| Connect WebSocket | Yes | Yes | Yes | Yes | — |
-| Create/edit tasks | Yes | Yes | Yes | — | — |
-| Create/edit dependencies | Yes | Yes | Yes | — | — |
-| Manage resources | Yes | Yes | — | — | — |
-| Edit project settings | Yes | Yes | — | — | — |
-| Manage members | Yes | — | — | — | — |
-| Self-remove | Yes | Yes | Yes | Yes | Yes |
+| View project data | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Pull delta sync | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Connect WebSocket | ✓ | ✓ | ✓ | ✓ | — |
+| Edit own assigned tasks | ✓ | ✓ | — | ✓ | — |
+| Create/edit any task | ✓ | ✓ | — | — | — |
+| Create/edit dependencies | ✓ | ✓ | ✓ | — | — |
+| Assign resources | ✓ | ✓ | ✓ | — | — |
+| Edit project settings | ✓ | ✓ | — | — | — |
+| Manage members | ✓ | — | — | — | — |
+| Delete project | ✓ | — | — | — | — |
+| Self-remove | ✓ | ✓ | ✓ | ✓ | ✓ |
+
+## Recommended role by persona
+
+The 5 roles are capability levels, not job titles. The same role may serve different personas depending on the team's delivery method (waterfall, agile, or hybrid).
+
+| Persona | Recommended role | Rationale |
+|---------|-----------------|-----------|
+| Executive Sponsor / COO | Viewer | Reads status and reports; no editing needed. |
+| PMO Director | Viewer | Portfolio-level visibility; project edits belong to the PM. |
+| Project Manager | Project Manager (Admin) | Full task/dependency edit, baseline management. |
+| Product Owner | Project Manager (Admin) | Backlog and sprint content authority requires the same write access as a PM. |
+| Scrum Master / Agile Delivery Lead | Project Manager (Admin) | Opens/closes sprints, manages velocity, runs ceremonies — same capability tier as a PM. |
+| Resource Manager | Resource Manager (Scheduler) | Assigns resources without touching task content or the schedule directly. |
+| Team Member / Contributor | Team Member (Member) | Edits their own assigned tasks and logs time. |
+| Agile Coach | Viewer | Observes team health signals; editing authority belongs to the team, not the coach. |
+
+### Waterfall and agile on the same role tier
+
+Product Owners and Scrum Masters hold the same **Project Manager** role as a traditional PM. This is intentional: sprint sovereignty and scope-change protection are enforced at the **application layer** (sprint open/close rules, explicit scope-injection approval), not by RBAC. A PM cannot silently add tasks to an active sprint regardless of their role, because the sprint model rejects mid-sprint mutations without team notification — the guardrail is in the workflow, not the permission level.
+
+This means you do not need separate "Product Owner" or "Scrum Master" role slots. A project board with a Scrum Master assigned Admin and a PM also assigned Admin will have both respect the sprint boundary because the system enforces it uniformly.
 
 ## Managing members
 

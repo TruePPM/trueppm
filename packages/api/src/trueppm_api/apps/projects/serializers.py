@@ -1703,3 +1703,17 @@ class ApiTokenAuditEntrySerializer(serializers.ModelSerializer[ApiTokenAuditEntr
         if obj.actor is None:
             return None
         return str(obj.actor.email)
+
+    def to_representation(self, instance: ApiTokenAuditEntry) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        # source_ip reveals integration infrastructure topology (Jira egress IPs,
+        # webhook relay addresses). Restrict to Project Manager+ callers only.
+        request = self.context.get("request")
+        if request is not None:
+            from trueppm_api.apps.access.models import Role
+            from trueppm_api.apps.access.permissions import _membership_role
+
+            role = _membership_role(request, instance.project_id)
+            if role is None or role < Role.ADMIN:
+                data["source_ip"] = None
+        return data
