@@ -40,6 +40,7 @@ const firstPage: MyWorkPage = {
   ],
   due_today_count: 3,
   server_version_high_water: 100,
+  retro_action_items: [],
 };
 
 const getMock = vi.hoisted(() => vi.fn());

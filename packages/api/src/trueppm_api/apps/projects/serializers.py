@@ -1397,9 +1397,18 @@ class RetroActionItemSerializer(serializers.ModelSerializer[RetroActionItem]):
 
 
 class SprintRetroSerializer(serializers.ModelSerializer[SprintRetro]):
-    """Sprint retrospective + nested action items."""
+    """Sprint retrospective + nested action items — full content (ADR-0071).
+
+    Returned to MEMBER+ on the project's team when team_visibility=TEAM_ONLY,
+    or to VIEWER+ when team_visibility=PROJECT. Below the visibility
+    threshold, use ``SprintRetroSummarySerializer`` instead.
+    """
 
     action_items = RetroActionItemSerializer(many=True, read_only=True)
+    kind = serializers.SerializerMethodField()
+
+    def get_kind(self, obj: SprintRetro) -> str:
+        return "full"
 
     class Meta:
         model = SprintRetro
@@ -1407,10 +1416,12 @@ class SprintRetroSerializer(serializers.ModelSerializer[SprintRetro]):
             "id",
             "sprint",
             "notes",
+            "team_visibility",
             "created_by",
             "created_at",
             "updated_at",
             "action_items",
+            "kind",
         ]
         read_only_fields = [
             "id",
@@ -1419,7 +1430,97 @@ class SprintRetroSerializer(serializers.ModelSerializer[SprintRetro]):
             "created_at",
             "updated_at",
             "action_items",
+            "kind",
         ]
+
+
+class SprintRetroSummarySerializer(serializers.ModelSerializer[SprintRetro]):
+    """Counts-only retro view for callers below the visibility threshold.
+
+    Surfaces ``action_items_count`` and ``promoted_count`` so the UI can
+    render a "team only" summary card with shape but never the raw text.
+    Enterprise rollups read this serializer (ADR-0071 §6).
+    """
+
+    action_items_count = serializers.SerializerMethodField()
+    promoted_count = serializers.SerializerMethodField()
+    kind = serializers.SerializerMethodField()
+
+    def get_kind(self, obj: SprintRetro) -> str:
+        return "summary"
+
+    def get_action_items_count(self, obj: SprintRetro) -> int:
+        return obj.action_items.filter(is_deleted=False).count()
+
+    def get_promoted_count(self, obj: SprintRetro) -> int:
+        return obj.action_items.filter(
+            is_deleted=False,
+            promoted_task_id__isnull=False,
+        ).count()
+
+    class Meta:
+        model = SprintRetro
+        fields = [
+            "id",
+            "sprint",
+            "team_visibility",
+            "created_at",
+            "updated_at",
+            "action_items_count",
+            "promoted_count",
+            "kind",
+        ]
+        read_only_fields = fields
+
+
+class RetroCarryoverItemSerializer(serializers.Serializer[Any]):
+    """A single carryover row for the Sprint Planning "From last retro" lane.
+
+    Built from a RetroActionItem + its source SprintRetro + Sprint short_id.
+    Used by ``GET /projects/{pk}/retrospective/carryover/``.
+    """
+
+    action_item_id = serializers.UUIDField()
+    text = serializers.CharField()
+    from_retro_id = serializers.UUIDField()
+    from_sprint_short_id = serializers.CharField(allow_null=True)
+    from_sprint_id = serializers.UUIDField()
+    promoted_task_id = serializers.UUIDField(allow_null=True)
+    promoted_task_status = serializers.CharField(allow_null=True)
+    promoted_task_short_id = serializers.CharField(allow_null=True)
+    age_days = serializers.IntegerField()
+    assignee_id = serializers.IntegerField(allow_null=True)
+    assignee_username = serializers.CharField(allow_null=True)
+    story_points = serializers.IntegerField(allow_null=True)
+
+
+class TaskSuggestedAssigneeSerializer(serializers.Serializer[Any]):
+    """Read serializer for TaskSuggestedAssignee (ADR-0071 §5).
+
+    Exposed on the My Work surface and on the task detail. Mutations go
+    through dedicated accept/decline/revoke endpoints, not this serializer.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    task_id = serializers.UUIDField(read_only=True)
+    suggested_user_id = serializers.IntegerField(read_only=True)
+    suggested_user_username = serializers.SerializerMethodField()
+    suggested_by_id = serializers.IntegerField(read_only=True, allow_null=True)
+    suggested_by_username = serializers.SerializerMethodField()
+    reason = serializers.CharField(read_only=True)
+    # ``source`` shadows DRF Field.source at the class level — typed as a
+    # CharField at runtime, suppressed for mypy strict.
+    source: serializers.CharField = serializers.CharField(read_only=True)  # type: ignore[assignment]
+    state = serializers.CharField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    accepted_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    declined_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+    def get_suggested_user_username(self, obj: Any) -> str | None:
+        return getattr(obj.suggested_user, "username", None) if obj.suggested_user_id else None
+
+    def get_suggested_by_username(self, obj: Any) -> str | None:
+        return getattr(obj.suggested_by, "username", None) if obj.suggested_by_id else None
 
 
 # ---------------------------------------------------------------------------

@@ -355,14 +355,35 @@ export interface SprintRetroActionItem {
   created_at: string;
 }
 
+export type RetroVisibility = 'team_only' | 'project' | 'org';
+
 export interface SprintRetroPayload {
+  kind: 'full';
   id: string;
   sprint: string;
   notes: string;
+  team_visibility: RetroVisibility;
   created_by: string | null;
   created_at: string;
   updated_at: string;
   action_items: SprintRetroActionItem[];
+}
+
+export interface SprintRetroSummaryPayload {
+  kind: 'summary';
+  id: string;
+  sprint: string;
+  team_visibility: RetroVisibility;
+  created_at: string;
+  updated_at: string;
+  action_items_count: number;
+  promoted_count: number;
+}
+
+export type SprintRetroResponse = SprintRetroPayload | SprintRetroSummaryPayload;
+
+export function isFullRetro(payload: SprintRetroResponse): payload is SprintRetroPayload {
+  return payload.kind === 'full';
 }
 
 /** GET /api/v1/sprints/{id}/retro/ — current retrospective (404 = not yet written). */
@@ -371,7 +392,7 @@ export function useSprintRetro(sprintId: string | null | undefined) {
     queryKey: ['sprint', sprintId, 'retro'],
     queryFn: async () => {
       try {
-        const res = await apiClient.get<SprintRetroPayload>(`/sprints/${sprintId}/retro/`);
+        const res = await apiClient.get<SprintRetroResponse>(`/sprints/${sprintId}/retro/`);
         return res.data;
       } catch (err) {
         // Translate the 404 into a sentinel `null` so consumers can branch
@@ -388,7 +409,7 @@ export function useSprintRetro(sprintId: string | null | undefined) {
 export interface SaveRetroPayload {
   notes: string;
   action_items: SprintRetroActionItemInput[];
-  promote_to_sprint_id?: string | null;
+  team_visibility?: RetroVisibility;
 }
 
 /** POST /api/v1/sprints/{id}/retro/ — upsert notes + replace action item set. */
@@ -396,7 +417,7 @@ export function useSaveSprintRetro(sprintId: string | null | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (payload: SaveRetroPayload) => {
-      const res = await apiClient.post<SprintRetroPayload>(
+      const res = await apiClient.post<SprintRetroResponse>(
         `/sprints/${sprintId}/retro/`,
         payload,
       );
@@ -404,11 +425,172 @@ export function useSaveSprintRetro(sprintId: string | null | undefined) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sprint', sprintId, 'retro'] });
-      // Promotion may have created tasks in another sprint — bust the
-      // sprint backlog cache too.
-      void queryClient.invalidateQueries({ queryKey: ['sprint-backlog'] });
     },
   });
+}
+
+/** PATCH /api/v1/sprints/{id}/retro/ — partial update (visibility toggle). */
+export function useUpdateRetroVisibility(sprintId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (team_visibility: RetroVisibility) => {
+      const res = await apiClient.patch<SprintRetroResponse>(`/sprints/${sprintId}/retro/`, {
+        team_visibility,
+      });
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sprint', sprintId, 'retro'] });
+    },
+  });
+}
+
+/** GET /api/v1/sprints/{id}/retrospective/prior/ — most recent prior retro. */
+export function useSprintRetroPrior(sprintId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['sprint', sprintId, 'retro', 'prior'],
+    queryFn: async () => {
+      try {
+        const res = await apiClient.get<SprintRetroResponse>(
+          `/sprints/${sprintId}/retrospective/prior/`,
+        );
+        return res.data;
+      } catch (err) {
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (status === 404) return null;
+        throw err;
+      }
+    },
+    enabled: !!sprintId,
+  });
+}
+
+export interface PromotedTaskPayload {
+  task: {
+    id: string;
+    short_id: string;
+    name: string;
+    status: string;
+    sprint: string | null;
+    assignee: string | null;
+  };
+}
+
+/** POST /api/v1/sprints/{sprintId}/retrospective/action-items/{itemId}/promote/ */
+export function usePromoteRetroActionItem(sprintId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (itemId: string) => {
+      const res = await apiClient.post<PromotedTaskPayload>(
+        `/sprints/${sprintId}/retrospective/action-items/${itemId}/promote/`,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sprint', sprintId, 'retro'] });
+      void queryClient.invalidateQueries({ queryKey: ['sprint-backlog'] });
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      void queryClient.invalidateQueries({ queryKey: ['project'] });
+    },
+  });
+}
+
+/** POST /api/v1/sprints/{sprintId}/retrospective/action-items/{itemId}/pull-to-sprint/ */
+export function usePullCarryoverToSprint(sprintId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      itemId,
+      targetSprintId,
+    }: {
+      itemId: string;
+      targetSprintId: string;
+    }) => {
+      const res = await apiClient.post<PromotedTaskPayload>(
+        `/sprints/${sprintId}/retrospective/action-items/${itemId}/pull-to-sprint/`,
+        { target_sprint_id: targetSprintId },
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sprint-backlog'] });
+      void queryClient.invalidateQueries({ queryKey: ['project'] });
+    },
+  });
+}
+
+export interface CarryoverItem {
+  action_item_id: string;
+  text: string;
+  from_retro_id: string;
+  from_sprint_id: string;
+  from_sprint_short_id: string | null;
+  promoted_task_id: string | null;
+  promoted_task_status: string | null;
+  promoted_task_short_id: string | null;
+  age_days: number;
+  assignee_id: number | null;
+  assignee_username: string | null;
+  story_points: number | null;
+}
+
+/** GET /api/v1/projects/{id}/retrospective/carryover/ */
+export function useProjectRetroCarryover(projectId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['project', projectId, 'retro', 'carryover'],
+    queryFn: async () => {
+      const res = await apiClient.get<{ items: CarryoverItem[] }>(
+        `/projects/${projectId}/retrospective/carryover/`,
+      );
+      return res.data.items;
+    },
+    enabled: !!projectId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// TaskSuggestedAssignee mutations (ADR-0071 §5)
+// ---------------------------------------------------------------------------
+
+interface SuggestionMutationResponse {
+  id: string;
+  state: 'pending' | 'accepted' | 'declined' | 'revoked';
+  accepted_at?: string | null;
+  declined_at?: string | null;
+}
+
+function useSuggestionAction(action: 'accept' | 'decline' | 'revoke') {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      taskId,
+      suggestionId,
+    }: {
+      taskId: string;
+      suggestionId: string;
+    }) => {
+      const res = await apiClient.post<SuggestionMutationResponse>(
+        `/tasks/${taskId}/suggestions/${suggestionId}/${action}/`,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['me', 'work'] });
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    },
+  });
+}
+
+export function useAcceptSuggestion() {
+  return useSuggestionAction('accept');
+}
+
+export function useDeclineSuggestion() {
+  return useSuggestionAction('decline');
+}
+
+export function useRevokeSuggestion() {
+  return useSuggestionAction('revoke');
 }
 
 

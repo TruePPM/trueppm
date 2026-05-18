@@ -11,7 +11,17 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from trueppm_api.apps.access.models import ProjectMembership
-from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Risk, Task
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    Dependency,
+    Project,
+    RetroActionItem,
+    Risk,
+    Sprint,
+    SprintRetro,
+    Task,
+    TaskSuggestedAssignee,
+)
 
 
 class SyncCalendarSerializer(serializers.ModelSerializer[Calendar]):
@@ -94,6 +104,84 @@ class SyncMembershipSerializer(serializers.ModelSerializer[ProjectMembership]):
     class Meta:
         model = ProjectMembership
         fields = ["id", "server_version", "project", "user", "role"]
+
+
+class SyncSprintSerializer(serializers.ModelSerializer[Sprint]):
+    """Sync payload for Sprint — enables offline sprint context for retros (ADR-0071)."""
+
+    class Meta:
+        model = Sprint
+        fields = [
+            "id",
+            "server_version",
+            "short_id",
+            "project",
+            "name",
+            "goal",
+            "start_date",
+            "finish_date",
+            "state",
+        ]
+
+
+class SyncSprintRetroSerializer(serializers.ModelSerializer[SprintRetro]):
+    """Sync payload for SprintRetro (ADR-0071).
+
+    Mobile receives the raw notes only when the caller's role meets the
+    retro's team_visibility threshold; the sync view is responsible for
+    filtering retros the caller cannot see. WatermelonDB stores what it
+    receives — the server-side visibility gate is the only check.
+    """
+
+    class Meta:
+        model = SprintRetro
+        fields = [
+            "id",
+            "server_version",
+            "sprint",
+            "notes",
+            "team_visibility",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class SyncRetroActionItemSerializer(serializers.ModelSerializer[RetroActionItem]):
+    """Sync payload for RetroActionItem (ADR-0071)."""
+
+    class Meta:
+        model = RetroActionItem
+        fields = [
+            "id",
+            "server_version",
+            "retro",
+            "text",
+            "assignee",
+            "story_points",
+            "promoted_task_id",
+            "created_at",
+        ]
+
+
+class SyncTaskSuggestedAssigneeSerializer(serializers.ModelSerializer[TaskSuggestedAssignee]):
+    """Sync payload for TaskSuggestedAssignee (ADR-0071 §5)."""
+
+    class Meta:
+        model = TaskSuggestedAssignee
+        fields = [
+            "id",
+            "server_version",
+            "task",
+            "suggested_user",
+            "suggested_by",
+            "reason",
+            "source",
+            "state",
+            "created_at",
+            "accepted_at",
+            "declined_at",
+        ]
 
 
 class SyncRiskSerializer(serializers.ModelSerializer[Risk]):

@@ -48,6 +48,23 @@ export interface MyWorkActiveSprint {
   task_count: number;
 }
 
+export interface MyWorkRetroActionItem {
+  suggestion_state: 'suggested' | 'owned';
+  suggestion_id: string | null;
+  task_id: string;
+  task_status: TaskStatus;
+  task_short_id: string | null;
+  text: string;
+  from_retro_id: string;
+  from_sprint_id: string;
+  from_sprint_short_id: string | null;
+  suggested_by_id: number | null;
+  suggested_by_username: string | null;
+  reason: string;
+  age_days: number;
+  story_points: number | null;
+}
+
 export interface MyWorkPage {
   results: MyWorkTask[];
   next: string | null;
@@ -55,6 +72,8 @@ export interface MyWorkPage {
   active_sprints: MyWorkActiveSprint[];
   due_today_count: number;
   server_version_high_water: number;
+  /** Retro action items relevant to the requesting user (ADR-0071 §4c). */
+  retro_action_items: MyWorkRetroActionItem[];
 }
 
 /**

@@ -19,6 +19,7 @@ import { useMyWork, type MyWorkActiveSprint, type MyWorkTask } from '@/hooks/use
 import { useProjects } from '@/hooks/useProjects';
 import { MyWorkTaskRow } from './MyWorkTaskRow';
 import { MyWorkEmptyState } from './MyWorkEmptyState';
+import { MyWorkRetroSection } from './MyWorkRetroSection';
 
 interface SprintGroup {
   sprint: MyWorkActiveSprint;
@@ -58,7 +59,11 @@ export function MyWorkPage() {
     [data],
   );
   const firstPage = data?.pages[0];
-  const totalCount = allTasks.length;
+  const retroItemCount = firstPage?.retro_action_items?.length ?? 0;
+  // Surface count includes retro suggestions/owned items so an empty task list
+  // doesn't suppress the "From retros" section when a user has pending
+  // suggestions but no other assigned work (ADR-0071 §4c).
+  const totalCount = allTasks.length + retroItemCount;
   const dueTodayCount = firstPage?.due_today_count ?? 0;
 
   const { sprintGroups, orphanTasks } = useMemo(
@@ -104,6 +109,9 @@ export function MyWorkPage() {
         <MyWorkEmptyState hasProjects={(projects ?? []).length > 0} />
       ) : (
         <div className="flex flex-col gap-1 px-0 md:px-2 lg:px-6 max-w-[1100px] mx-auto w-full">
+          {firstPage?.retro_action_items && firstPage.retro_action_items.length > 0 && (
+            <MyWorkRetroSection items={firstPage.retro_action_items} />
+          )}
           {sprintGroups.map((group) => (
             <section
               key={group.sprint.id}

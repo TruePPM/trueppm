@@ -212,8 +212,45 @@ urlpatterns = [
     ),
     path(
         "sprints/<pk>/retro/",
-        SprintViewSet.as_view({"get": "retro", "post": "retro"}),
+        SprintViewSet.as_view({"get": "retro", "post": "retro", "patch": "retro"}),
         name="sprints-retro",
+    ),
+    # Retrospective sub-resource endpoints (ADR-0071)
+    path(
+        "sprints/<pk>/retrospective/prior/",
+        SprintViewSet.as_view({"get": "retro_prior"}),
+        name="sprints-retro-prior",
+    ),
+    path(
+        "sprints/<pk>/retrospective/action-items/<uuid:item_pk>/promote/",
+        SprintViewSet.as_view({"post": "promote_action_item"}),
+        name="sprints-retro-promote",
+    ),
+    path(
+        "sprints/<pk>/retrospective/action-items/<uuid:item_pk>/pull-to-sprint/",
+        SprintViewSet.as_view({"post": "pull_action_item_to_sprint"}),
+        name="sprints-retro-pull-to-sprint",
+    ),
+    path(
+        "projects/<pk>/retrospective/carryover/",
+        ProjectViewSet.as_view({"get": "retro_carryover"}),
+        name="project-retro-carryover",
+    ),
+    # TaskSuggestedAssignee endpoints (ADR-0071 §5)
+    path(
+        "tasks/<pk>/suggestions/<uuid:suggestion_pk>/accept/",
+        TaskViewSet.as_view({"post": "accept_suggestion"}),
+        name="task-suggestion-accept",
+    ),
+    path(
+        "tasks/<pk>/suggestions/<uuid:suggestion_pk>/decline/",
+        TaskViewSet.as_view({"post": "decline_suggestion"}),
+        name="task-suggestion-decline",
+    ),
+    path(
+        "tasks/<pk>/suggestions/<uuid:suggestion_pk>/revoke/",
+        TaskViewSet.as_view({"post": "revoke_suggestion"}),
+        name="task-suggestion-revoke",
     ),
     path(
         "projects/<pk>/velocity/",

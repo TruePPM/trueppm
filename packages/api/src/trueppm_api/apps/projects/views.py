@@ -9,6 +9,7 @@ import re
 import uuid
 from typing import Any, cast
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db import models as db_models
 from django.db.models import (
@@ -626,6 +627,92 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             status=status.HTTP_200_OK,
         )
 
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="retrospective/carryover",
+    )
+    def retro_carryover(self, request: Request, pk: str | None = None) -> Response:
+        """Unresolved retro action items from the last 1–2 completed retros.
+
+        Used by the Sprint Planning "From last retro" lane (ADR-0071 §4b).
+
+        An item is "unresolved" when:
+          - ``promoted_task_id IS NULL`` (never promoted to a Task), OR
+          - the promoted Task is not yet COMPLETE.
+
+        Items are scoped to the project; the response is the union over the
+        most recent two COMPLETED retros for the project, sorted by source
+        sprint finish_date descending then by action item created_at.
+        """
+        from trueppm_api.apps.projects.models import (
+            RetroActionItem,
+            Task,
+            TaskStatus,
+        )
+
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+
+        # Last two COMPLETED sprints with a retro.
+        prior_sprints = list(
+            Sprint.objects.filter(
+                project_id=project.pk,
+                state=SprintState.COMPLETED,
+                is_deleted=False,
+                retro__isnull=False,
+            )
+            .order_by("-finish_date")
+            .values_list("pk", "short_id", "finish_date")[:2]
+        )
+        if not prior_sprints:
+            return Response({"items": []}, status=status.HTTP_200_OK)
+
+        sprint_pks = [pk_ for pk_, _, _ in prior_sprints]
+        items = (
+            RetroActionItem.objects.filter(
+                retro__sprint_id__in=sprint_pks,
+                is_deleted=False,
+            )
+            .select_related("retro__sprint", "assignee")
+            .order_by("-retro__sprint__finish_date", "created_at")
+        )
+
+        # Resolve the promoted Tasks in a single query to avoid N+1.
+        promoted_ids = [it.promoted_task_id for it in items if it.promoted_task_id is not None]
+        tasks_by_id: dict[uuid.UUID, Task] = {}
+        if promoted_ids:
+            for task in Task.objects.filter(pk__in=promoted_ids, is_deleted=False):
+                tasks_by_id[task.pk] = task
+
+        today = timezone.now().date()
+        rows: list[dict[str, Any]] = []
+        for it in items:
+            promoted_task = tasks_by_id.get(it.promoted_task_id) if it.promoted_task_id else None
+            # Skip if the action item has been promoted AND that task is COMPLETE.
+            if promoted_task is not None and promoted_task.status == TaskStatus.COMPLETE:
+                continue
+            from_sprint = it.retro.sprint
+            rows.append(
+                {
+                    "action_item_id": it.pk,
+                    "text": it.text,
+                    "from_retro_id": it.retro_id,
+                    "from_sprint_id": from_sprint.pk,
+                    "from_sprint_short_id": from_sprint.short_id,
+                    "promoted_task_id": it.promoted_task_id,
+                    "promoted_task_status": promoted_task.status if promoted_task else None,
+                    "promoted_task_short_id": promoted_task.short_id if promoted_task else None,
+                    "age_days": (today - it.created_at.date()).days,
+                    "assignee_id": it.assignee_id,
+                    "assignee_username": (
+                        getattr(it.assignee, "username", None) if it.assignee_id else None
+                    ),
+                    "story_points": it.story_points,
+                }
+            )
+        return Response({"items": rows}, status=status.HTTP_200_OK)
+
 
 class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     """CRUD for tasks within a project.
@@ -1104,6 +1191,227 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
 
         serializer = self.get_serializer(task)
         return Response(serializer.data)
+
+    # -----------------------------------------------------------------
+    # TaskSuggestedAssignee actions (ADR-0071 §5)
+    # -----------------------------------------------------------------
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="suggestions/accept",
+    )
+    def accept_suggestion(
+        self,
+        request: Request,
+        pk: str | None = None,
+        suggestion_pk: str | None = None,
+        **kwargs: Any,
+    ) -> Response:
+        """Accept a PENDING TaskSuggestedAssignee — binds Task.assignee.
+
+        Only the ``suggested_user`` may call. If ``Task.assignee`` is already
+        non-null (another path set it concurrently), returns 409 and the
+        suggestion is marked ACCEPTED without overwriting — the suggestion
+        is resolved either way.
+        """
+        from django.contrib.auth.models import User as _User
+
+        from trueppm_api.apps.projects.models import (
+            SuggestionState,
+            TaskSuggestedAssignee,
+        )
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        if pk is None or suggestion_pk is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        suggestion = (
+            TaskSuggestedAssignee.objects.select_related("task")
+            .filter(pk=suggestion_pk, task_id=pk, is_deleted=False)
+            .first()
+        )
+        if suggestion is None:
+            return Response(
+                {"detail": "Suggestion not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        caller = cast(_User, request.user)
+        if suggestion.suggested_user_id != caller.pk:
+            return Response(
+                {"detail": "Only the suggested user can accept this suggestion."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if suggestion.state != SuggestionState.PENDING:
+            return Response(
+                {"detail": f"Suggestion is already {suggestion.state}."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        with transaction.atomic():
+            task = Task.objects.select_for_update().get(pk=suggestion.task_id)
+            assignee_conflict = False
+            if task.assignee_id is None:
+                task.assignee_id = suggestion.suggested_user_id
+                task.save(update_fields=["assignee", "server_version"])
+            elif task.assignee_id != suggestion.suggested_user_id:
+                assignee_conflict = True
+            suggestion.state = SuggestionState.ACCEPTED
+            suggestion.accepted_at = timezone.now()
+            suggestion.save(update_fields=["state", "accepted_at", "server_version"])
+
+            project_id = str(task.project_id)
+            task_id = str(task.pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    project_id, "task_updated", {"id": task_id, "source": "suggestion_accept"}
+                )
+            )
+
+        if assignee_conflict:
+            return Response(
+                {
+                    "detail": (
+                        "Task is already assigned to another user. "
+                        "Suggestion resolved without binding."
+                    ),
+                    "task_id": str(task.pk),
+                    "current_assignee_id": task.assignee_id,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(
+            {
+                "id": str(suggestion.pk),
+                "state": suggestion.state,
+                "accepted_at": suggestion.accepted_at,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="suggestions/decline",
+    )
+    def decline_suggestion(
+        self,
+        request: Request,
+        pk: str | None = None,
+        suggestion_pk: str | None = None,
+        **kwargs: Any,
+    ) -> Response:
+        """Decline a PENDING TaskSuggestedAssignee.
+
+        Only the ``suggested_user`` may call. No broadcast — declines are
+        private (Priya's psych-safety note in the VoC).
+        """
+        from django.contrib.auth.models import User as _User
+
+        from trueppm_api.apps.projects.models import (
+            SuggestionState,
+            TaskSuggestedAssignee,
+        )
+
+        if pk is None or suggestion_pk is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        suggestion = TaskSuggestedAssignee.objects.filter(
+            pk=suggestion_pk, task_id=pk, is_deleted=False
+        ).first()
+        if suggestion is None:
+            return Response(
+                {"detail": "Suggestion not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        caller = cast(_User, request.user)
+        if suggestion.suggested_user_id != caller.pk:
+            return Response(
+                {"detail": "Only the suggested user can decline this suggestion."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if suggestion.state != SuggestionState.PENDING:
+            return Response(
+                {"detail": f"Suggestion is already {suggestion.state}."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        suggestion.state = SuggestionState.DECLINED
+        suggestion.declined_at = timezone.now()
+        suggestion.save(update_fields=["state", "declined_at", "server_version"])
+        return Response(
+            {
+                "id": str(suggestion.pk),
+                "state": suggestion.state,
+                "declined_at": suggestion.declined_at,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="suggestions/revoke",
+    )
+    def revoke_suggestion(
+        self,
+        request: Request,
+        pk: str | None = None,
+        suggestion_pk: str | None = None,
+        **kwargs: Any,
+    ) -> Response:
+        """Revoke a PENDING TaskSuggestedAssignee.
+
+        Allowed callers: the original ``suggested_by`` user, or any Project
+        ADMIN+ on the suggestion's project.
+        """
+        from django.contrib.auth.models import User as _User
+
+        from trueppm_api.apps.access.models import ProjectMembership, Role
+        from trueppm_api.apps.projects.models import (
+            SuggestionState,
+            TaskSuggestedAssignee,
+        )
+
+        if pk is None or suggestion_pk is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        suggestion = (
+            TaskSuggestedAssignee.objects.select_related("task")
+            .filter(pk=suggestion_pk, task_id=pk, is_deleted=False)
+            .first()
+        )
+        if suggestion is None:
+            return Response(
+                {"detail": "Suggestion not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        caller = cast(_User, request.user)
+        is_originator = suggestion.suggested_by_id == caller.pk
+        caller_role: int = (
+            ProjectMembership.objects.filter(
+                project_id=suggestion.task.project_id, user=caller, is_deleted=False
+            )
+            .values_list("role", flat=True)
+            .first()
+            or -1
+        )
+        if not is_originator and caller_role < Role.ADMIN:
+            return Response(
+                {
+                    "detail": (
+                        "Only the suggesting user or a Project Admin can revoke this suggestion."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if suggestion.state != SuggestionState.PENDING:
+            return Response(
+                {"detail": f"Suggestion is already {suggestion.state}."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        suggestion.state = SuggestionState.REVOKED
+        suggestion.save(update_fields=["state", "server_version"])
+        return Response(
+            {"id": str(suggestion.pk), "state": suggestion.state},
+            status=status.HTTP_200_OK,
+        )
 
 
 class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
@@ -3102,10 +3410,17 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve", "burndown", "capacity"):
             return [IsAuthenticated(), IsProjectMember()]
-        # `retro` accepts both GET (read) and POST (write); the read path
-        # only needs membership, the write path needs write.
+        # `retro` accepts GET (read) / POST (write) / PATCH (partial write).
+        # Read needs membership; writes need write role.
         if self.action == "retro" and self.request.method == "GET":
             return [IsAuthenticated(), IsProjectMember()]
+        # Retro-related read-only actions (prior retro): Viewer+ on the project.
+        if self.action == "retro_prior":
+            return [IsAuthenticated(), IsProjectMember()]
+        # Pulling a carryover item into the sprint requires SCHEDULER+ — the
+        # sole path that can assign a retro action item to a sprint per ADR-0071.
+        if self.action == "pull_action_item_to_sprint":
+            return [IsAuthenticated(), IsProjectScheduler()]
         if self.action == "destroy":
             return [IsAuthenticated(), IsProjectAdmin()]
         return [IsAuthenticated(), IsProjectMemberWrite()]
@@ -3355,26 +3670,35 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         self.check_object_permissions(request, sprint)
         return Response(capacity_summary(sprint), status=status.HTTP_200_OK)
 
-    @action(detail=True, methods=["get", "post"])
+    @action(detail=True, methods=["get", "post", "patch"])
     def retro(self, request: Request, pk: str | None = None) -> Response:
-        """Sprint retrospective (#231).
+        """Sprint retrospective (#486 / ADR-0071).
 
-        ``GET`` returns the existing retro (or 404 if none has been written).
-        ``POST`` upserts the retro notes and replaces the action item set.
-        Items flagged with ``promote=true`` are created as tasks in the
-        target sprint (``promote_to_sprint_id``, defaults to the next
-        ``PLANNED`` sprint in the project) and the resulting task UUID is
-        recorded on the action item via ``promoted_task_id``.
+        ``GET`` returns the retro using the visibility-aware serializer:
+        callers whose role meets the retro's ``team_visibility`` threshold
+        receive the full serializer (``notes``, ``action_items`` with text
+        and assignees); below the threshold, a summary serializer (counts
+        only) is returned. 404 when no retro exists.
+
+        ``POST`` upserts the retro: replaces ``notes`` and the action-item
+        set. Action items no longer auto-promote (sprint sovereignty per
+        ADR-0071); use the explicit ``/promote/`` action below.
+
+        ``PATCH`` partially updates the retro — currently scoped to
+        ``team_visibility``. Only the retro ``created_by`` or a Project
+        ADMIN+ may change visibility; lower roles get 403.
 
         Permissions: read = IsProjectMember; write = IsProjectMemberWrite.
-        Both gate through the parent sprint's project.
         """
+        from trueppm_api.apps.access.models import ProjectMembership, Role
         from trueppm_api.apps.projects.models import (
             RetroActionItem,
+            RetroVisibility,
             SprintRetro,
         )
         from trueppm_api.apps.projects.serializers import (
             SprintRetroSerializer,
+            SprintRetroSummarySerializer,
         )
 
         sprint = get_object_or_404(
@@ -3384,87 +3708,325 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         )
         self.check_object_permissions(request, sprint)
 
+        from django.contrib.auth.models import User as _User
+
+        caller = cast(_User, request.user)
+        caller_role: int = (
+            ProjectMembership.objects.filter(
+                project_id=sprint.project_id, user=caller, is_deleted=False
+            )
+            .values_list("role", flat=True)
+            .first()
+            or -1
+        )
+
+        def _pick_serializer(retro_obj: SprintRetro) -> type:
+            """Visibility × role gate (ADR-0071 §3).
+
+            TEAM_ONLY → MEMBER+ sees full; VIEWER sees summary.
+            PROJECT  → any project member sees full.
+            ORG      → falls back to PROJECT behaviour until Program ships.
+            """
+            vis = retro_obj.team_visibility
+            if vis == RetroVisibility.TEAM_ONLY:
+                return (
+                    SprintRetroSerializer
+                    if caller_role >= Role.MEMBER
+                    else SprintRetroSummarySerializer
+                )
+            return SprintRetroSerializer
+
         if request.method == "GET":
-            retro = SprintRetro.objects.filter(sprint=sprint).first()
+            retro = SprintRetro.objects.filter(sprint=sprint, is_deleted=False).first()
             if retro is None:
                 return Response(
                     {"detail": "No retro recorded for this sprint."},
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            return Response(SprintRetroSerializer(retro).data, status=status.HTTP_200_OK)
+            serializer_cls = _pick_serializer(retro)
+            return Response(serializer_cls(retro).data, status=status.HTTP_200_OK)
 
-        # POST — write permission already enforced via get_permissions().
+        # PATCH — partial update, currently scoped to team_visibility.
+        if request.method == "PATCH":
+            retro = SprintRetro.objects.filter(sprint=sprint, is_deleted=False).first()
+            if retro is None:
+                return Response(
+                    {"detail": "No retro recorded for this sprint."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            new_visibility = request.data.get("team_visibility")
+            if new_visibility is not None:
+                # Author or Project ADMIN+ only.
+                is_author = retro.created_by_id == caller.pk
+                if not is_author and caller_role < Role.ADMIN:
+                    return Response(
+                        {
+                            "detail": (
+                                "Only the retro author or a Project Admin can change visibility."
+                            )
+                        },
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+                if new_visibility not in RetroVisibility.values:
+                    return Response(
+                        {"team_visibility": f"Invalid value '{new_visibility}'."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                retro.team_visibility = new_visibility
+                retro.save(update_fields=["team_visibility", "server_version"])
+            return Response(_pick_serializer(retro)(retro).data, status=status.HTTP_200_OK)
+
+        # POST — upsert. Write permission already enforced via get_permissions().
+        # ADR-0071: this path no longer auto-promotes. Action items land as
+        # RetroActionItem rows only; the explicit /promote/ action converts
+        # them to BACKLOG Tasks under sprint sovereignty.
         notes = request.data.get("notes", "")
         items_in: list[dict[str, Any]] = list(request.data.get("action_items", []) or [])
+        new_visibility = request.data.get("team_visibility")
 
-        # Resolve promote target: explicit id, or the next PLANNED sprint
-        # in the same project (chronological start_date).
-        promote_to_id_raw = request.data.get("promote_to_sprint_id")
-        promote_target: Sprint | None = None
-        if promote_to_id_raw:
-            promote_target = Sprint.objects.filter(
-                pk=promote_to_id_raw,
-                project_id=sprint.project_id,
-                is_deleted=False,
-            ).first()
-            if promote_target is None:
-                return Response(
-                    {"promote_to_sprint_id": "Target sprint must exist in the same project."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-        else:
-            promote_target = (
-                Sprint.objects.filter(
-                    project_id=sprint.project_id,
-                    state=SprintState.PLANNED,
-                    is_deleted=False,
-                )
-                .order_by("start_date")
-                .first()
-            )
-
-        # IsAuthenticated permission guarantees request.user is a real user, not
-        # an AnonymousUser; cast for mypy since DRF's request.user union still
-        # includes AnonymousUser at the type level.
-        from django.contrib.auth.models import User
-
-        retro_user = cast(User, request.user)
         with transaction.atomic():
+            defaults: dict[str, Any] = {"notes": notes, "created_by": caller}
+            if new_visibility is not None:
+                if new_visibility not in RetroVisibility.values:
+                    return Response(
+                        {"team_visibility": f"Invalid value '{new_visibility}'."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                defaults["team_visibility"] = new_visibility
             retro, _ = SprintRetro.objects.update_or_create(
                 sprint=sprint,
-                defaults={"notes": notes, "created_by": retro_user},
+                defaults=defaults,
             )
-            # Replace the action item set — retros are append-on-save semantics
-            # at the meeting boundary, not a continuously-edited document.
-            retro.action_items.all().delete()
-            new_items: list[RetroActionItem] = []
+            # Replace the action item set on each save — retros are
+            # append-on-save semantics at the meeting boundary.
+            retro.action_items.filter(is_deleted=False).delete()
             for entry in items_in:
                 text = (entry.get("text") or "").strip()
                 if not text:
                     continue
-                item = RetroActionItem(
+                RetroActionItem.objects.create(
                     retro=retro,
                     text=text,
                     assignee_id=entry.get("assignee") or None,
                     story_points=entry.get("story_points"),
                 )
-                new_items.append(item)
-                if entry.get("promote") and promote_target is not None:
-                    task = Task.objects.create(
-                        project=sprint.project,
-                        name=text[:255],
-                        duration=1,
-                        sprint=promote_target,
-                        assignee_id=entry.get("assignee") or None,
-                        story_points=entry.get("story_points"),
-                        status=TaskStatus.BACKLOG,
-                    )
-                    item.promoted_task_id = task.pk
-            for item in new_items:
-                item.save()
 
         retro.refresh_from_db()
-        return Response(SprintRetroSerializer(retro).data, status=status.HTTP_200_OK)
+        return Response(_pick_serializer(retro)(retro).data, status=status.HTTP_200_OK)
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="retrospective/prior",
+    )
+    def retro_prior(self, request: Request, pk: str | None = None) -> Response:
+        """Most-recent prior completed retro for the same project (ADR-0071 §4a).
+
+        Returns 404 if no prior COMPLETED sprint with a retro exists. Filters
+        out CANCELLED sprints — the prior context is the team's most recent
+        actually-finished sprint, not the most recent of any state.
+        """
+        from trueppm_api.apps.access.models import ProjectMembership, Role
+        from trueppm_api.apps.projects.models import (
+            RetroVisibility,
+            SprintRetro,
+        )
+        from trueppm_api.apps.projects.serializers import (
+            SprintRetroSerializer,
+            SprintRetroSummarySerializer,
+        )
+
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"),
+            pk=pk,
+            is_deleted=False,
+        )
+        self.check_object_permissions(request, sprint)
+
+        # Find the most-recent prior COMPLETED sprint with a retro.
+        prior = (
+            Sprint.objects.filter(
+                project_id=sprint.project_id,
+                state=SprintState.COMPLETED,
+                is_deleted=False,
+                finish_date__lt=sprint.start_date,
+            )
+            .order_by("-finish_date")
+            .first()
+        )
+        if prior is None:
+            return Response(
+                {"detail": "No prior retrospective."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        prior_retro = SprintRetro.objects.filter(sprint=prior, is_deleted=False).first()
+        if prior_retro is None:
+            return Response(
+                {"detail": "No prior retrospective."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from django.contrib.auth.models import User as _User
+
+        caller = cast(_User, request.user)
+        caller_role: int = (
+            ProjectMembership.objects.filter(
+                project_id=sprint.project_id, user=caller, is_deleted=False
+            )
+            .values_list("role", flat=True)
+            .first()
+            or -1
+        )
+        serializer_cls = (
+            SprintRetroSerializer
+            if prior_retro.team_visibility != RetroVisibility.TEAM_ONLY
+            or caller_role >= Role.MEMBER
+            else SprintRetroSummarySerializer
+        )
+        return Response(serializer_cls(prior_retro).data, status=status.HTTP_200_OK)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="retrospective/action-items/promote",
+    )
+    def promote_action_item(
+        self,
+        request: Request,
+        pk: str | None = None,
+        item_pk: str | None = None,
+    ) -> Response:
+        """Promote a RetroActionItem into a project-backlog Task (ADR-0071 §2).
+
+        The created Task is unconditionally ``status=BACKLOG, sprint=NULL``.
+        Any ``sprint_id`` field in the request body is structurally ignored —
+        the serializer does not accept it, so sprint sovereignty cannot be
+        bypassed via this endpoint.
+
+        Returns 409 with the existing task_id if the action item is already
+        promoted (idempotent client retry).
+        """
+        from trueppm_api.apps.projects.models import (
+            RetroActionItem,
+            Task,
+        )
+        from trueppm_api.apps.projects.retro_services import (
+            AlreadyPromotedError,
+            promote_retro_action_item,
+        )
+        from trueppm_api.apps.projects.serializers import TaskSerializer
+
+        if pk is None or item_pk is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"),
+            pk=pk,
+            is_deleted=False,
+        )
+        self.check_object_permissions(request, sprint)
+
+        action_item = (
+            RetroActionItem.objects.select_related("retro__sprint")
+            .filter(pk=item_pk, retro__sprint=sprint, is_deleted=False)
+            .first()
+        )
+        if action_item is None:
+            return Response(
+                {"detail": "Action item not found on this sprint's retrospective."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from django.contrib.auth.models import User as _User
+
+        actor = cast(_User, request.user)
+        try:
+            task = promote_retro_action_item(action_item, actor)
+        except AlreadyPromotedError as exc:
+            return Response(
+                {"detail": "Already promoted.", "task_id": exc.existing_task_id},
+                status=status.HTTP_409_CONFLICT,
+            )
+        # Reload with select_related so the TaskSerializer doesn't emit follow-up queries.
+        task = Task.objects.select_related("project", "assignee", "sprint").get(pk=task.pk)
+        return Response({"task": TaskSerializer(task).data}, status=status.HTTP_201_CREATED)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="retrospective/action-items/pull-to-sprint",
+    )
+    def pull_action_item_to_sprint(
+        self,
+        request: Request,
+        pk: str | None = None,
+        item_pk: str | None = None,
+    ) -> Response:
+        """Atomically promote + assign a retro action item to a PLANNED sprint.
+
+        SCHEDULER+ gated (the only path that can put a retro action item into
+        a sprint per ADR-0071 §4b). The target sprint must be in the same
+        project and in PLANNED state.
+
+        Request body: ``{"target_sprint_id": "<uuid>"}``.
+        """
+        from django.contrib.auth.models import User as _User
+
+        from trueppm_api.apps.projects.models import (
+            RetroActionItem,
+            Task,
+        )
+        from trueppm_api.apps.projects.retro_services import (
+            pull_carryover_item_to_sprint,
+        )
+        from trueppm_api.apps.projects.serializers import TaskSerializer
+
+        if pk is None or item_pk is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        sprint = get_object_or_404(
+            Sprint.objects.select_related("project"),
+            pk=pk,
+            is_deleted=False,
+        )
+        self.check_object_permissions(request, sprint)
+
+        action_item = (
+            RetroActionItem.objects.select_related("retro__sprint")
+            .filter(pk=item_pk, retro__sprint=sprint, is_deleted=False)
+            .first()
+        )
+        if action_item is None:
+            return Response(
+                {"detail": "Action item not found on this sprint's retrospective."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        target_sprint_id = request.data.get("target_sprint_id")
+        if not target_sprint_id:
+            return Response(
+                {"target_sprint_id": "Required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        target_sprint = Sprint.objects.filter(
+            pk=target_sprint_id,
+            project_id=sprint.project_id,
+            is_deleted=False,
+        ).first()
+        if target_sprint is None:
+            return Response(
+                {"target_sprint_id": "Sprint not found in this project."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        actor = cast(_User, request.user)
+        try:
+            task = pull_carryover_item_to_sprint(action_item, target_sprint, actor)
+        except DjangoValidationError as exc:
+            return Response(
+                {"detail": "; ".join(exc.messages)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        task = Task.objects.select_related("project", "assignee", "sprint").get(pk=task.pk)
+        return Response({"task": TaskSerializer(task).data}, status=status.HTTP_200_OK)
 
 
 class MeActiveSprintsView(APIView):
@@ -3740,12 +4302,18 @@ class MeWorkView(generics.ListAPIView[Task]):
 
         active_sprints_payload = MeWorkActiveSprintSerializer(active_sprints_qs, many=True).data
 
+        # Retro action items relevant to this user (ADR-0071 §4c):
+        #   - Suggestions PENDING for this user
+        #   - Action items whose promoted Task is assigned to this user AND not COMPLETE
+        retro_items_payload = _me_work_retro_action_items(request.user)
+
         if page is not None:
             paginated = self.get_paginated_response(serializer.data).data
             assert isinstance(paginated, dict)
             paginated["active_sprints"] = active_sprints_payload
             paginated["due_today_count"] = due_today_count
             paginated["server_version_high_water"] = server_version_high_water
+            paginated["retro_action_items"] = retro_items_payload
             return Response(paginated, status=status.HTTP_200_OK)
 
         return Response(
@@ -3756,9 +4324,131 @@ class MeWorkView(generics.ListAPIView[Task]):
                 "active_sprints": active_sprints_payload,
                 "due_today_count": due_today_count,
                 "server_version_high_water": server_version_high_water,
+                "retro_action_items": retro_items_payload,
             },
             status=status.HTTP_200_OK,
         )
+
+
+def _me_work_retro_action_items(user: Any) -> list[dict[str, Any]]:
+    """Build the ``retro_action_items`` payload for ``GET /me/work/`` (ADR-0071 §4c).
+
+    Two row sources merged into a single ordered list (most recent retro first):
+      - PENDING TaskSuggestedAssignee rows where ``suggested_user = user`` →
+        ``suggestion_state = "suggested"``.
+      - RetroActionItem rows whose promoted Task is assigned to ``user`` and
+        whose Task status is not COMPLETE → ``suggestion_state = "owned"``.
+
+    Items appear at most once (suggestion takes precedence over owned). Owned
+    items whose Task is in a sprint do not show here — those already appear in
+    the user's My Work sprint groups.
+    """
+    from trueppm_api.apps.projects.models import (
+        RetroActionItem,
+        SuggestionState,
+        Task,
+        TaskStatus,
+        TaskSuggestedAssignee,
+    )
+
+    today = timezone.now().date()
+    rows: list[dict[str, Any]] = []
+    seen_task_ids: set[uuid.UUID] = set()
+
+    # PENDING suggestions for this user.
+    suggestion_rows = (
+        TaskSuggestedAssignee.objects.filter(
+            suggested_user=user,
+            state=SuggestionState.PENDING,
+            is_deleted=False,
+        )
+        .select_related("task", "suggested_by")
+        .order_by("-created_at")
+    )
+    # Resolve action items via reverse lookup on promoted_task_id (one query).
+    suggested_task_ids = [s.task_id for s in suggestion_rows]
+    items_by_task_id: dict[uuid.UUID, RetroActionItem] = {}
+    if suggested_task_ids:
+        for it in RetroActionItem.objects.filter(
+            promoted_task_id__in=suggested_task_ids, is_deleted=False
+        ).select_related("retro__sprint"):
+            # promoted_task_id is non-null by the filter above; satisfy mypy.
+            if it.promoted_task_id is not None:
+                items_by_task_id[it.promoted_task_id] = it
+
+    for s in suggestion_rows:
+        action_item = items_by_task_id.get(s.task_id)
+        if action_item is None:
+            continue  # task isn't from a retro — skip
+        from_sprint = action_item.retro.sprint
+        rows.append(
+            {
+                "suggestion_state": "suggested",
+                "suggestion_id": str(s.pk),
+                "task_id": str(s.task_id),
+                "task_status": s.task.status,
+                "task_short_id": s.task.short_id,
+                "text": action_item.text,
+                "from_retro_id": str(action_item.retro_id),
+                "from_sprint_id": str(from_sprint.pk),
+                "from_sprint_short_id": from_sprint.short_id,
+                "suggested_by_id": s.suggested_by_id,
+                "suggested_by_username": (
+                    getattr(s.suggested_by, "username", None) if s.suggested_by_id else None
+                ),
+                "reason": s.reason,
+                "age_days": (today - action_item.created_at.date()).days,
+                "story_points": action_item.story_points,
+            }
+        )
+        seen_task_ids.add(s.task_id)
+
+    # Owned retro action items: promoted Task is assigned to user, not COMPLETE,
+    # and not in any sprint (sprint-tracked owned items already show in the
+    # sprint groups of My Work — surface only the orphan-backlog retro items
+    # here to avoid double-counting).
+    owned_items = RetroActionItem.objects.filter(
+        promoted_task_id__isnull=False,
+        is_deleted=False,
+    ).select_related("retro__sprint")
+    owned_task_ids = [it.promoted_task_id for it in owned_items if it.promoted_task_id]
+    owned_tasks: dict[uuid.UUID, Task] = {}
+    if owned_task_ids:
+        for task in Task.objects.filter(
+            pk__in=owned_task_ids,
+            assignee=user,
+            sprint__isnull=True,
+            is_deleted=False,
+        ).exclude(status=TaskStatus.COMPLETE):
+            owned_tasks[task.pk] = task
+
+    for it in owned_items:
+        if it.promoted_task_id not in owned_tasks:
+            continue
+        if it.promoted_task_id in seen_task_ids:
+            continue
+        task = owned_tasks[it.promoted_task_id]
+        from_sprint = it.retro.sprint
+        rows.append(
+            {
+                "suggestion_state": "owned",
+                "suggestion_id": None,
+                "task_id": str(task.pk),
+                "task_status": task.status,
+                "task_short_id": task.short_id,
+                "text": it.text,
+                "from_retro_id": str(it.retro_id),
+                "from_sprint_id": str(from_sprint.pk),
+                "from_sprint_short_id": from_sprint.short_id,
+                "suggested_by_id": None,
+                "suggested_by_username": None,
+                "reason": "",
+                "age_days": (today - it.created_at.date()).days,
+                "story_points": it.story_points,
+            }
+        )
+
+    return rows
 
 
 class ProjectVelocityView(APIView):

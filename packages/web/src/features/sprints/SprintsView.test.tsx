@@ -31,12 +31,27 @@ vi.mock('@/hooks/useSprints', () => ({
   useSprintCapacity: () => ({ data: undefined, isLoading: false, error: null }),
   useProjectVelocity: () => ({ data: undefined, isLoading: false, error: null }),
   useSprintRetro: () => ({ data: null, isLoading: false, error: null }),
+  useSprintRetroPrior: () => ({ data: null, isLoading: false, error: null }),
   useSaveSprintRetro: () => ({
     mutate: vi.fn(),
     isPending: false,
     isError: false,
     isSuccess: false,
   }),
+  useUpdateRetroVisibility: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isError: false,
+    isSuccess: false,
+  }),
+  usePromoteRetroActionItem: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isError: false,
+    isSuccess: false,
+  }),
+  isFullRetro: (payload: { kind?: string } | null | undefined) =>
+    !!payload && payload.kind === 'full',
 }));
 
 const useMyActiveSprintsMock = vi.fn(() => ({

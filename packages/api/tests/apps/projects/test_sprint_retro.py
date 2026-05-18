@@ -1,8 +1,13 @@
-"""Tests for the Sprint retrospective endpoint (issue #231).
+"""Tests for the Sprint retrospective endpoint (issue #486 / ADR-0071).
 
-`POST /api/v1/sprints/{sprint_id}/retro/` upserts the retro notes and
-replaces the action item set. Items flagged with ``promote=true`` are
-created as tasks in the next planned sprint (or an explicit target).
+Behaviour changes from the original #231 retro endpoint:
+- POST no longer auto-promotes action items. ``promote=true`` on items is
+  silently ignored. The new explicit ``POST .../action-items/{pk}/promote/``
+  action is the only path that creates BACKLOG Tasks from action items.
+- ``promote_to_sprint_id`` request field is no longer accepted (it conflicted
+  with sprint sovereignty per ADR-0069 / ADR-0071).
+- Visibility rule: TEAM_ONLY retros (default) require MEMBER+ to read raw
+  ``notes`` / action item text. VIEWER receives a counts-only summary.
 """
 
 from __future__ import annotations
@@ -18,10 +23,10 @@ from trueppm_api.apps.projects.models import (
     Calendar,
     Project,
     RetroActionItem,
+    RetroVisibility,
     Sprint,
     SprintRetro,
     SprintState,
-    Task,
 )
 
 User = get_user_model()
@@ -48,6 +53,13 @@ def member(project: Project) -> object:
 def viewer(project: Project) -> object:
     u = User.objects.create_user(username="viewer", password="pw")
     ProjectMembership.objects.create(project=project, user=u, role=Role.VIEWER)
+    return u
+
+
+@pytest.fixture
+def admin_user(project: Project) -> object:
+    u = User.objects.create_user(username="admin_user", password="pw")
+    ProjectMembership.objects.create(project=project, user=u, role=Role.ADMIN)
     return u
 
 
@@ -95,17 +107,49 @@ def test_get_returns_404_when_no_retro(project: Project, member: object) -> None
 
 
 @pytest.mark.django_db
-def test_get_returns_existing_retro(project: Project, member: object) -> None:
+def test_get_returns_full_retro_for_member(project: Project, member: object) -> None:
     s = _closed_sprint(project)
     SprintRetro.objects.create(sprint=s, notes="What went well: telemetry stable.")
     resp = _client(member).get(f"/api/v1/sprints/{s.pk}/retro/")
     assert resp.status_code == 200
+    assert resp.data["kind"] == "full"
     assert resp.data["notes"] == "What went well: telemetry stable."
     assert resp.data["action_items"] == []
+    assert resp.data["team_visibility"] == "team_only"
+
+
+@pytest.mark.django_db
+def test_viewer_on_team_only_retro_gets_summary(project: Project, viewer: object) -> None:
+    s = _closed_sprint(project)
+    retro = SprintRetro.objects.create(sprint=s, notes="sensitive content")
+    RetroActionItem.objects.create(retro=retro, text="action 1")
+    RetroActionItem.objects.create(retro=retro, text="action 2")
+
+    resp = _client(viewer).get(f"/api/v1/sprints/{s.pk}/retro/")
+    assert resp.status_code == 200
+    assert resp.data["kind"] == "summary"
+    assert "notes" not in resp.data
+    assert "action_items" not in resp.data
+    assert resp.data["action_items_count"] == 2
+    assert resp.data["promoted_count"] == 0
+
+
+@pytest.mark.django_db
+def test_viewer_on_project_visibility_retro_gets_full(project: Project, viewer: object) -> None:
+    s = _closed_sprint(project)
+    SprintRetro.objects.create(
+        sprint=s,
+        notes="shared content",
+        team_visibility=RetroVisibility.PROJECT,
+    )
+    resp = _client(viewer).get(f"/api/v1/sprints/{s.pk}/retro/")
+    assert resp.status_code == 200
+    assert resp.data["kind"] == "full"
+    assert resp.data["notes"] == "shared content"
 
 
 # ---------------------------------------------------------------------------
-# POST — upsert + items
+# POST — upsert (no auto-promote)
 # ---------------------------------------------------------------------------
 
 
@@ -126,8 +170,34 @@ def test_post_creates_retro_with_action_items(project: Project, member: object) 
     assert resp.status_code == 200
     assert resp.data["notes"].startswith("Burndown skewed")
     assert len(resp.data["action_items"]) == 2
-    # No items were promoted — every promoted_task_id is null.
     assert all(item["promoted_task_id"] is None for item in resp.data["action_items"])
+
+
+@pytest.mark.django_db
+def test_post_with_promote_flag_does_not_auto_promote(project: Project, member: object) -> None:
+    """ADR-0071 §2: the legacy ``promote=true`` flag is silently ignored.
+
+    Promotion must go through the explicit ``/promote/`` endpoint so sprint
+    sovereignty cannot be bypassed via the bulk upsert path.
+    """
+    _planned_sprint(project)  # would have been the auto-promote target pre-ADR-0071
+    closed = _closed_sprint(project)
+    resp = _client(member).post(
+        f"/api/v1/sprints/{closed.pk}/retro/",
+        {
+            "notes": "",
+            "action_items": [
+                {"text": "Add deploy gate", "promote": True, "story_points": 3},
+            ],
+        },
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["action_items"][0]["promoted_task_id"] is None
+    # And no Task created.
+    from trueppm_api.apps.projects.models import Task
+
+    assert Task.objects.filter(name="Add deploy gate").count() == 0
 
 
 @pytest.mark.django_db
@@ -143,103 +213,37 @@ def test_post_replaces_existing_action_items(project: Project, member: object) -
     )
     assert resp.status_code == 200
     assert SprintRetro.objects.filter(sprint=s).count() == 1
-    items = list(retro.action_items.all())
+    items = list(retro.action_items.filter(is_deleted=False))
     assert len(items) == 1
     assert items[0].text == "fresh item"
 
 
 @pytest.mark.django_db
-def test_promoted_action_item_creates_task_in_next_planned_sprint(
-    project: Project, member: object
-) -> None:
-    closed = _closed_sprint(project)
-    next_sprint = _planned_sprint(project)
-
+def test_post_accepts_team_visibility(project: Project, member: object) -> None:
+    s = _closed_sprint(project)
     resp = _client(member).post(
-        f"/api/v1/sprints/{closed.pk}/retro/",
+        f"/api/v1/sprints/{s.pk}/retro/",
         {
             "notes": "",
-            "action_items": [
-                {"text": "Add deploy gate", "promote": True, "story_points": 3},
-                {"text": "Talk to QA"},
-            ],
+            "team_visibility": "project",
+            "action_items": [],
         },
         format="json",
     )
     assert resp.status_code == 200
-    items = resp.data["action_items"]
-    promoted = next(i for i in items if i["text"] == "Add deploy gate")
-    assert promoted["promoted_task_id"] is not None
-    task = Task.objects.get(pk=promoted["promoted_task_id"])
-    assert task.sprint_id == next_sprint.pk
-    assert task.story_points == 3
+    assert resp.data["team_visibility"] == "project"
 
 
 @pytest.mark.django_db
-def test_promote_to_explicit_sprint(project: Project, member: object) -> None:
-    closed = _closed_sprint(project)
-    target = Sprint.objects.create(
-        project=project,
-        name="Future",
-        start_date=date(2026, 5, 1),
-        finish_date=date(2026, 5, 14),
-        state=SprintState.PLANNED,
-    )
-
+def test_post_rejects_invalid_team_visibility(project: Project, member: object) -> None:
+    s = _closed_sprint(project)
     resp = _client(member).post(
-        f"/api/v1/sprints/{closed.pk}/retro/",
-        {
-            "notes": "",
-            "promote_to_sprint_id": str(target.pk),
-            "action_items": [{"text": "Targeted promotion", "promote": True}],
-        },
-        format="json",
-    )
-    assert resp.status_code == 200
-    promoted_id = resp.data["action_items"][0]["promoted_task_id"]
-    task = Task.objects.get(pk=promoted_id)
-    assert task.sprint_id == target.pk
-
-
-@pytest.mark.django_db
-def test_promote_target_must_belong_to_same_project(
-    project: Project, calendar: Calendar, member: object
-) -> None:
-    closed = _closed_sprint(project)
-    other_project = Project.objects.create(
-        name="Other", start_date=date(2026, 4, 1), calendar=calendar
-    )
-    foreign = Sprint.objects.create(
-        project=other_project,
-        name="Foreign",
-        start_date=date(2026, 5, 1),
-        finish_date=date(2026, 5, 14),
-        state=SprintState.PLANNED,
-    )
-
-    resp = _client(member).post(
-        f"/api/v1/sprints/{closed.pk}/retro/",
-        {"notes": "", "promote_to_sprint_id": str(foreign.pk), "action_items": []},
+        f"/api/v1/sprints/{s.pk}/retro/",
+        {"notes": "", "team_visibility": "world", "action_items": []},
         format="json",
     )
     assert resp.status_code == 400
-    assert "promote_to_sprint_id" in resp.data
-
-
-@pytest.mark.django_db
-def test_post_skips_promotion_when_no_planned_sprint_exists(
-    project: Project, member: object
-) -> None:
-    """Without a target sprint the items are still saved — just unpromoted."""
-    closed = _closed_sprint(project)
-    resp = _client(member).post(
-        f"/api/v1/sprints/{closed.pk}/retro/",
-        {"notes": "", "action_items": [{"text": "Will be unpromoted", "promote": True}]},
-        format="json",
-    )
-    assert resp.status_code == 200
-    assert resp.data["action_items"][0]["promoted_task_id"] is None
-    assert Task.objects.filter(name="Will be unpromoted").count() == 0
+    assert "team_visibility" in resp.data
 
 
 @pytest.mark.django_db
@@ -263,17 +267,104 @@ def test_blank_action_item_text_is_dropped(project: Project, member: object) -> 
 
 
 # ---------------------------------------------------------------------------
+# PATCH — visibility toggle
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_patch_visibility_by_author(project: Project, member: object) -> None:
+    s = _closed_sprint(project)
+    SprintRetro.objects.create(sprint=s, created_by=member)
+    resp = _client(member).patch(
+        f"/api/v1/sprints/{s.pk}/retro/",
+        {"team_visibility": "project"},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["team_visibility"] == "project"
+
+
+@pytest.mark.django_db
+def test_patch_visibility_by_admin(project: Project, member: object, admin_user: object) -> None:
+    s = _closed_sprint(project)
+    SprintRetro.objects.create(sprint=s, created_by=member)
+    resp = _client(admin_user).patch(
+        f"/api/v1/sprints/{s.pk}/retro/",
+        {"team_visibility": "org"},
+        format="json",
+    )
+    assert resp.status_code == 200
+    assert resp.data["team_visibility"] == "org"
+
+
+@pytest.mark.django_db
+def test_patch_visibility_forbidden_for_other_member(project: Project, member: object) -> None:
+    s = _closed_sprint(project)
+    author = User.objects.create_user(username="author", password="pw")
+    ProjectMembership.objects.create(project=project, user=author, role=Role.MEMBER)
+    SprintRetro.objects.create(sprint=s, created_by=author)
+
+    resp = _client(member).patch(
+        f"/api/v1/sprints/{s.pk}/retro/",
+        {"team_visibility": "project"},
+        format="json",
+    )
+    assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Prior retro endpoint
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_prior_returns_most_recent_completed_retro(project: Project, member: object) -> None:
+    s_prior = Sprint.objects.create(
+        project=project,
+        name="S0",
+        start_date=date(2026, 3, 17),
+        finish_date=date(2026, 3, 31),
+        state=SprintState.COMPLETED,
+    )
+    SprintRetro.objects.create(sprint=s_prior, notes="from S0")
+    s_current = _closed_sprint(project, name="S1")  # starts 2026-04-01
+
+    resp = _client(member).get(f"/api/v1/sprints/{s_current.pk}/retrospective/prior/")
+    assert resp.status_code == 200
+    assert resp.data["sprint"] == s_prior.pk
+
+
+@pytest.mark.django_db
+def test_prior_returns_404_when_no_prior_retro(project: Project, member: object) -> None:
+    s = _closed_sprint(project)
+    resp = _client(member).get(f"/api/v1/sprints/{s.pk}/retrospective/prior/")
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_prior_skips_cancelled_sprints(project: Project, member: object) -> None:
+    Sprint.objects.create(
+        project=project,
+        name="Cancelled",
+        start_date=date(2026, 3, 17),
+        finish_date=date(2026, 3, 31),
+        state=SprintState.CANCELLED,
+    )
+    s = _closed_sprint(project, name="S1")
+    resp = _client(member).get(f"/api/v1/sprints/{s.pk}/retrospective/prior/")
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
 # Permissions
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.django_db
-def test_viewer_can_read_but_not_write(project: Project, viewer: object) -> None:
+def test_viewer_cannot_write(project: Project, viewer: object) -> None:
     s = _closed_sprint(project)
     SprintRetro.objects.create(sprint=s, notes="hi")
-    c = _client(viewer)
-    assert c.get(f"/api/v1/sprints/{s.pk}/retro/").status_code == 200
-    resp = c.post(
+    resp = _client(viewer).post(
         f"/api/v1/sprints/{s.pk}/retro/",
         {"notes": "hijack", "action_items": []},
         format="json",

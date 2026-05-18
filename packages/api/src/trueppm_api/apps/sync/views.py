@@ -11,16 +11,31 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from trueppm_api.apps.access.models import ProjectMembership
+from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import _membership_role
-from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Risk, Task
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    Dependency,
+    Project,
+    RetroActionItem,
+    RetroVisibility,
+    Risk,
+    Sprint,
+    SprintRetro,
+    Task,
+    TaskSuggestedAssignee,
+)
 from trueppm_api.apps.sync.serializers import (
     SyncCalendarSerializer,
     SyncDependencySerializer,
     SyncMembershipSerializer,
     SyncProjectSerializer,
+    SyncRetroActionItemSerializer,
     SyncRiskSerializer,
+    SyncSprintRetroSerializer,
+    SyncSprintSerializer,
     SyncTaskSerializer,
+    SyncTaskSuggestedAssigneeSerializer,
 )
 
 
@@ -58,7 +73,8 @@ class ProjectSyncView(APIView):
             raise NotFound("Project not found.") from err
 
         # RBAC — any project member (Viewer+) may pull.
-        if _membership_role(request, project.pk) is None:
+        caller_role = _membership_role(request, project.pk)
+        if caller_role is None:
             from rest_framework.exceptions import PermissionDenied
 
             raise PermissionDenied("You must be a member of this project.")
@@ -66,6 +82,22 @@ class ProjectSyncView(APIView):
         # Snapshot the high-water mark before running delta queries.
         # Using REPEATABLE READ ensures we don't miss rows written concurrently.
         timestamp = self._snapshot_max_version(project)
+
+        # Retros are visibility-gated per ADR-0071 §3. A VIEWER on a TEAM_ONLY
+        # retro does not receive the retro's raw notes — the sync filters them
+        # out at the queryset level. The sync protocol delivers tombstones for
+        # visibility-removed rows so WatermelonDB can drop them client-side.
+        retro_qs = SprintRetro.objects.filter(sprint__project=project, server_version__gt=since)
+        if caller_role < Role.MEMBER:
+            retro_qs = retro_qs.exclude(team_visibility=RetroVisibility.TEAM_ONLY)
+
+        retro_action_item_qs = RetroActionItem.objects.filter(
+            retro__sprint__project=project, server_version__gt=since
+        ).select_related("retro")
+        if caller_role < Role.MEMBER:
+            retro_action_item_qs = retro_action_item_qs.exclude(
+                retro__team_visibility=RetroVisibility.TEAM_ONLY
+            )
 
         changes = {
             "projects": self._collect(
@@ -97,6 +129,20 @@ class ProjectSyncView(APIView):
                     "tasks"
                 ),
                 SyncRiskSerializer,
+            ),
+            "sprints": self._collect(
+                Sprint.objects.filter(project=project, server_version__gt=since),
+                SyncSprintSerializer,
+            ),
+            "sprint_retros": self._collect(retro_qs, SyncSprintRetroSerializer),
+            "retro_action_items": self._collect(
+                retro_action_item_qs, SyncRetroActionItemSerializer
+            ),
+            "task_suggested_assignees": self._collect(
+                TaskSuggestedAssignee.objects.filter(
+                    task__project=project, server_version__gt=since
+                ),
+                SyncTaskSuggestedAssigneeSerializer,
             ),
         }
 
@@ -152,9 +198,39 @@ class ProjectSyncView(APIView):
                     UNION ALL
                     SELECT MAX(server_version)
                       FROM projects_risk WHERE project_id = %s
+                    UNION ALL
+                    SELECT MAX(server_version)
+                      FROM projects_sprint WHERE project_id = %s
+                    UNION ALL
+                    SELECT MAX(r.server_version)
+                      FROM projects_sprintretro r
+                      JOIN projects_sprint s ON r.sprint_id = s.id
+                     WHERE s.project_id = %s
+                    UNION ALL
+                    SELECT MAX(a.server_version)
+                      FROM projects_retroactionitem a
+                      JOIN projects_sprintretro r ON a.retro_id = r.id
+                      JOIN projects_sprint s ON r.sprint_id = s.id
+                     WHERE s.project_id = %s
+                    UNION ALL
+                    SELECT MAX(sa.server_version)
+                      FROM projects_tasksuggestedassignee sa
+                      JOIN projects_task t ON sa.task_id = t.id
+                     WHERE t.project_id = %s
                 ) sub
                 """,
-                [project_pk, project_pk, project_pk, project_pk, project_pk, project_pk],
+                [
+                    project_pk,
+                    project_pk,
+                    project_pk,
+                    project_pk,
+                    project_pk,
+                    project_pk,
+                    project_pk,
+                    project_pk,
+                    project_pk,
+                    project_pk,
+                ],
             )
             result = cursor.fetchone()
         return int(result[0]) if result and result[0] is not None else 0

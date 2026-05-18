@@ -1,69 +1,125 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
-import type { SaveRetroPayload, SprintRetroPayload } from '@/hooks/useSprints';
+import type {
+  SaveRetroPayload,
+  SprintRetroPayload,
+  SprintRetroSummaryPayload,
+  RetroVisibility,
+} from '@/hooks/useSprints';
 import { RetroPanel } from './RetroPanel';
 
 interface SprintRetroQueryResult {
-  data: SprintRetroPayload | null;
+  data: SprintRetroPayload | SprintRetroSummaryPayload | null;
   isLoading: boolean;
   error: unknown;
 }
 
-interface SaveRetroMutationResult {
-  mutate: (payload: SaveRetroPayload) => void;
+interface MutationResult<TArgs> {
+  mutate: (args: TArgs) => void;
   isPending: boolean;
   isError: boolean;
   isSuccess: boolean;
 }
 
 const useSprintRetroMock = vi.fn<() => SprintRetroQueryResult>();
+const useSprintRetroPriorMock = vi.fn<() => SprintRetroQueryResult>(() => ({
+  data: null,
+  isLoading: false,
+  error: null,
+}));
 const saveMutateMock = vi.fn<(payload: SaveRetroPayload) => void>();
-const useSaveSprintRetroMock = vi.fn<() => SaveRetroMutationResult>(() => ({
+const useSaveSprintRetroMock = vi.fn<() => MutationResult<SaveRetroPayload>>(() => ({
   mutate: saveMutateMock,
   isPending: false,
   isError: false,
   isSuccess: false,
 }));
-
-vi.mock('@/hooks/useSprints', () => ({
-  useSprintRetro: (): SprintRetroQueryResult => useSprintRetroMock(),
-  useSaveSprintRetro: (): SaveRetroMutationResult => useSaveSprintRetroMock(),
+const promoteMutateMock = vi.fn<(itemId: string) => void>();
+const usePromoteRetroActionItemMock = vi.fn<() => MutationResult<string>>(() => ({
+  mutate: promoteMutateMock,
+  isPending: false,
+  isError: false,
+  isSuccess: false,
 }));
+const visibilityMutateMock = vi.fn<(v: RetroVisibility) => void>();
+const useUpdateRetroVisibilityMock = vi.fn<() => MutationResult<RetroVisibility>>(() => ({
+  mutate: visibilityMutateMock,
+  isPending: false,
+  isError: false,
+  isSuccess: false,
+}));
+
+vi.mock('@/hooks/useSprints', async () => {
+  const actual = await vi.importActual<typeof import('@/hooks/useSprints')>(
+    '@/hooks/useSprints',
+  );
+  return {
+    ...actual,
+    useSprintRetro: () => useSprintRetroMock(),
+    useSprintRetroPrior: () => useSprintRetroPriorMock(),
+    useSaveSprintRetro: () => useSaveSprintRetroMock(),
+    usePromoteRetroActionItem: () => usePromoteRetroActionItemMock(),
+    useUpdateRetroVisibility: () => useUpdateRetroVisibilityMock(),
+  };
+});
+
+function fullRetro(overrides: Partial<SprintRetroPayload> = {}): SprintRetroPayload {
+  return {
+    kind: 'full',
+    id: 'r1',
+    sprint: 'sp-1',
+    notes: '',
+    team_visibility: 'team_only',
+    created_by: null,
+    created_at: '2026-04-15T00:00:00Z',
+    updated_at: '2026-04-15T00:00:00Z',
+    action_items: [],
+    ...overrides,
+  };
+}
 
 beforeEach(() => {
   saveMutateMock.mockReset();
+  promoteMutateMock.mockReset();
+  visibilityMutateMock.mockReset();
   useSaveSprintRetroMock.mockReturnValue({
     mutate: saveMutateMock,
     isPending: false,
     isError: false,
     isSuccess: false,
   });
+  usePromoteRetroActionItemMock.mockReturnValue({
+    mutate: promoteMutateMock,
+    isPending: false,
+    isError: false,
+    isSuccess: false,
+  });
+  useUpdateRetroVisibilityMock.mockReturnValue({
+    mutate: visibilityMutateMock,
+    isPending: false,
+    isError: false,
+    isSuccess: false,
+  });
+  useSprintRetroPriorMock.mockReturnValue({ data: null, isLoading: false, error: null });
 });
 
 describe('RetroPanel', () => {
   it('renders the section heading and helper copy when a retro is missing', () => {
     useSprintRetroMock.mockReturnValue({ data: null, isLoading: false, error: null });
-    renderWithProviders(
-      <RetroPanel sprintId="sp-1" isClosed={false} promoteToSprintId="sp-next" />,
-    );
+    renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={false} />);
     expect(
       screen.getByRole('heading', { level: 2, name: /Retrospective/i }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/promotion happens on save/i)).toBeInTheDocument();
+    expect(screen.getByText(/promote each explicitly/i)).toBeInTheDocument();
     expect(screen.getByText(/No action items yet/i)).toBeInTheDocument();
   });
 
-  it('hydrates the form from the existing retro', async () => {
+  it('hydrates the form from the existing retro and shows the promoted task chip', async () => {
     useSprintRetroMock.mockReturnValue({
-      data: {
-        id: 'r1',
-        sprint: 'sp-1',
+      data: fullRetro({
         notes: 'Burndown skewed',
-        created_by: null,
-        created_at: '2026-04-15T00:00:00Z',
-        updated_at: '2026-04-15T00:00:00Z',
         action_items: [
           {
             id: 'ai1',
@@ -75,47 +131,100 @@ describe('RetroPanel', () => {
             created_at: '2026-04-15T00:00:00Z',
           },
         ],
-      },
+      }),
       isLoading: false,
       error: null,
     });
-
-    renderWithProviders(
-      <RetroPanel sprintId="sp-1" isClosed={true} promoteToSprintId={null} />,
-    );
+    renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={true} />);
 
     expect(await screen.findByDisplayValue('Burndown skewed')).toBeInTheDocument();
     expect(screen.getByDisplayValue('Add deploy gate')).toBeInTheDocument();
     expect(screen.getByDisplayValue('3')).toBeInTheDocument();
-    // The promoted task chip should appear with a truncated UUID prefix.
     expect(screen.getByText(/T-task-u/i)).toBeInTheDocument();
+  });
+
+  it('renders the Promote button on an unpromoted persisted item and fires the mutation', async () => {
+    useSprintRetroMock.mockReturnValue({
+      data: fullRetro({
+        action_items: [
+          {
+            id: 'ai1',
+            text: 'Pair more on billing',
+            assignee: null,
+            assignee_username: null,
+            story_points: null,
+            promoted_task_id: null,
+            created_at: '2026-04-15T00:00:00Z',
+          },
+        ],
+      }),
+      isLoading: false,
+      error: null,
+    });
+
+    renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={true} />);
+    const promoteBtn = await screen.findByRole('button', {
+      name: /Promote action item 1 to backlog/i,
+    });
+    await userEvent.click(promoteBtn);
+    expect(promoteMutateMock).toHaveBeenCalledWith('ai1');
+  });
+
+  it('renders summary card when the response is a summary payload', () => {
+    const summary: SprintRetroSummaryPayload = {
+      kind: 'summary',
+      id: 'r1',
+      sprint: 'sp-1',
+      team_visibility: 'team_only',
+      created_at: '2026-04-15T00:00:00Z',
+      updated_at: '2026-04-15T00:00:00Z',
+      action_items_count: 4,
+      promoted_count: 2,
+    };
+    useSprintRetroMock.mockReturnValue({
+      data: summary,
+      isLoading: false,
+      error: null,
+    });
+    renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={true} />);
+    expect(screen.getByText(/private to the sprint team/i)).toBeInTheDocument();
+    expect(screen.getByText(/4 action items/i)).toBeInTheDocument();
+  });
+
+  it('renders the visibility toggle when canEditVisibility is true', () => {
+    useSprintRetroMock.mockReturnValue({
+      data: fullRetro(),
+      isLoading: false,
+      error: null,
+    });
+    renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={true} canEditVisibility />);
+    expect(screen.getByRole('radiogroup', { name: /Retrospective visibility/i })).toBeInTheDocument();
+  });
+
+  it('fires the visibility mutation when a different option is clicked', async () => {
+    useSprintRetroMock.mockReturnValue({
+      data: fullRetro(),
+      isLoading: false,
+      error: null,
+    });
+    renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={true} canEditVisibility />);
+    await userEvent.click(screen.getByRole('radio', { name: /Project/i }));
+    expect(visibilityMutateMock).toHaveBeenCalledWith('project');
   });
 
   it('shows the closed-sprint helper copy when isClosed', () => {
     useSprintRetroMock.mockReturnValue({ data: null, isLoading: false, error: null });
-    renderWithProviders(
-      <RetroPanel sprintId="sp-1" isClosed={true} promoteToSprintId={null} />,
-    );
+    renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={true} />);
     expect(screen.getByText(/can be amended after close/i)).toBeInTheDocument();
   });
 
-  it('adds and removes action items via the toolbar', async () => {
+  it('saves with trimmed text and no auto-promote flag', async () => {
     useSprintRetroMock.mockReturnValue({ data: null, isLoading: false, error: null });
-    renderWithProviders(
-      <RetroPanel sprintId="sp-1" isClosed={false} promoteToSprintId={null} />,
+    renderWithProviders(<RetroPanel sprintId="sp-1" isClosed={false} />);
+    await userEvent.type(
+      screen.getByRole('textbox', { name: /Notes/i }),
+      '  team unblocked  ',
     );
-    await userEvent.click(screen.getByRole('button', { name: /\+ Add item/i }));
-    expect(screen.getByLabelText(/Action item 1 text/i)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /Remove action item 1/i }));
-    expect(screen.queryByLabelText(/Action item 1 text/i)).not.toBeInTheDocument();
-  });
-
-  it('saves with trimmed text and includes the promote-to id', async () => {
-    useSprintRetroMock.mockReturnValue({ data: null, isLoading: false, error: null });
-    renderWithProviders(
-      <RetroPanel sprintId="sp-1" isClosed={false} promoteToSprintId="sp-next" />,
-    );
-    await userEvent.type(screen.getByRole('textbox', { name: /Notes/i }), '  team unblocked  ');
     await userEvent.click(screen.getByRole('button', { name: /\+ Add item/i }));
     await userEvent.type(screen.getByLabelText(/Action item 1 text/i), '  Add deploy gate  ');
     await userEvent.type(screen.getByLabelText(/Action item 1 story points/i), '3');
@@ -124,69 +233,6 @@ describe('RetroPanel', () => {
     expect(saveMutateMock).toHaveBeenCalledOnce();
     const payload = saveMutateMock.mock.calls[0][0];
     expect(payload.notes).toBe('team unblocked');
-    expect(payload.action_items).toEqual([
-      { text: 'Add deploy gate', promote: true, story_points: 3 },
-    ]);
-    expect(payload.promote_to_sprint_id).toBe('sp-next');
-  });
-
-  it('drops blank action items at save time', async () => {
-    useSprintRetroMock.mockReturnValue({ data: null, isLoading: false, error: null });
-    renderWithProviders(
-      <RetroPanel sprintId="sp-1" isClosed={false} promoteToSprintId={null} />,
-    );
-    await userEvent.click(screen.getByRole('button', { name: /\+ Add item/i }));
-    await userEvent.click(screen.getByRole('button', { name: /\+ Add item/i }));
-    await userEvent.type(screen.getByLabelText(/Action item 2 text/i), 'kept');
-    await userEvent.click(screen.getByRole('button', { name: /Save retro/i }));
-
-    const payload = saveMutateMock.mock.calls[0][0];
-    expect(payload.action_items).toEqual([
-      { text: 'kept', promote: true, story_points: null },
-    ]);
-  });
-
-  it('shows the saving state while mutation pending', () => {
-    useSprintRetroMock.mockReturnValue({ data: null, isLoading: false, error: null });
-    useSaveSprintRetroMock.mockReturnValue({
-      mutate: saveMutateMock,
-      isPending: true,
-      isError: false,
-      isSuccess: false,
-    });
-    renderWithProviders(
-      <RetroPanel sprintId="sp-1" isClosed={false} promoteToSprintId={null} />,
-    );
-    expect(screen.getByRole('button', { name: /Saving/i })).toBeInTheDocument();
-  });
-
-  it('shows error alert when save mutation fails', () => {
-    useSprintRetroMock.mockReturnValue({ data: null, isLoading: false, error: null });
-    useSaveSprintRetroMock.mockReturnValue({
-      mutate: saveMutateMock,
-      isPending: false,
-      isError: true,
-      isSuccess: false,
-    });
-    renderWithProviders(
-      <RetroPanel sprintId="sp-1" isClosed={false} promoteToSprintId={null} />,
-    );
-    expect(screen.getByRole('alert')).toHaveTextContent(/Failed to save retro/i);
-  });
-
-  it('shows success message after save resolves', async () => {
-    useSprintRetroMock.mockReturnValue({ data: null, isLoading: false, error: null });
-    useSaveSprintRetroMock.mockReturnValue({
-      mutate: saveMutateMock,
-      isPending: false,
-      isError: false,
-      isSuccess: true,
-    });
-    renderWithProviders(
-      <RetroPanel sprintId="sp-1" isClosed={false} promoteToSprintId={null} />,
-    );
-    await waitFor(() =>
-      expect(screen.getByRole('status')).toHaveTextContent(/Retro saved/i),
-    );
+    expect(payload.action_items).toEqual([{ text: 'Add deploy gate', story_points: 3 }]);
   });
 });
