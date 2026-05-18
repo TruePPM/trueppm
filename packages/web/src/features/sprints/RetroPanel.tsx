@@ -64,8 +64,10 @@ export function RetroPanel({ sprintId, isClosed, canEditVisibility = false }: Pr
     );
   }
 
-  // ``data`` is now either null or full (the summary branch returned above).
-  const retro: SprintRetroPayload | null = retroQuery.data ?? null;
+  // ``data`` is undefined while loading, null after a 404, or full
+  // (the summary branch returned above). Preserve the undefined → null
+  // distinction so the FullEditor knows when to defer hydration.
+  const retro: SprintRetroPayload | null | undefined = retroQuery.data;
   return (
     <RetroPanelLayout>
       <PriorRetroSection prior={priorQuery.data ?? null} />
@@ -101,7 +103,10 @@ function RetroPanelLayout({ children }: { children: ReactNode }) {
 interface FullEditorProps {
   sprintId: string;
   isClosed: boolean;
-  retro: SprintRetroPayload | null;
+  // ``undefined`` while the query is still loading; ``null`` after a 404.
+  // Hydration must wait until the request settles so a saved retro isn't
+  // missed on first paint.
+  retro: SprintRetroPayload | null | undefined;
   canEditVisibility: boolean;
 }
 
@@ -116,6 +121,7 @@ function FullEditor({ sprintId, isClosed, retro, canEditVisibility }: FullEditor
 
   useEffect(() => {
     if (hydrated) return;
+    if (retro === undefined) return;
     if (retro === null) {
       setHydrated(true);
       return;
