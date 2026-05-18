@@ -624,7 +624,7 @@ def test_inbound_create_fires_board_event(project: Project, admin_user: Any) -> 
     """task_created event fires on commit so live boards refresh."""
     _token, raw = _mint_token(project, admin_user)
     client = _bearer(APIClient(), raw)
-    with patch("trueppm_api.apps.projects.inbound_sync.broadcast_board_event") as broadcast_mock:
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast_mock:
         resp = client.post(
             f"/api/v1/projects/{project.pk}/task-sync/",
             {"source": "jira", "external_id": "X-CREATE"},
@@ -647,7 +647,7 @@ def test_inbound_update_fires_task_updated_event(project: Project, admin_user: A
         {"source": "jira", "external_id": "X-UP"},
         format="json",
     )
-    with patch("trueppm_api.apps.projects.inbound_sync.broadcast_board_event") as broadcast_mock:
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast_mock:
         resp = client.post(
             f"/api/v1/projects/{project.pk}/task-sync/",
             {"source": "jira", "external_id": "X-UP", "name": "renamed"},
