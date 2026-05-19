@@ -121,6 +121,7 @@ export default defineConfig({
               collapsed: false,
               items: [
                 { slug: "features/board" },
+                { slug: "features/board-sprint-panel" },
                 { slug: "features/wip-overload" },
                 { slug: "features/sprints" },
                 { slug: "features/plan-sprint" },

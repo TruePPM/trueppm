@@ -1371,11 +1371,47 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
                 {"finish_date": "finish_date must be after start_date."}
             )
         # Only PLANNED sprints accept name/goal/date edits via PATCH.
+        # capacity_points is intentionally excluded (ADR-0073) — a PM/SM
+        # may revise the team's points ceiling mid-sprint as the team
+        # changes (PTO, joiners). It is locked only once the sprint is
+        # closed or cancelled.
         if self.instance and self.instance.state != SprintState.PLANNED:
             mutating = {k for k in attrs if k in {"name", "goal", "start_date", "finish_date"}}
             if mutating:
                 raise serializers.ValidationError(
                     f"Sprint is {self.instance.state}; cannot modify {sorted(mutating)}."
+                )
+        if (
+            self.instance
+            and self.instance.state in {SprintState.COMPLETED, SprintState.CANCELLED}
+            and "capacity_points" in attrs
+        ):
+            raise serializers.ValidationError(
+                {
+                    "capacity_points": (
+                        f"Sprint is {self.instance.state}; capacity_points is locked."
+                    )
+                }
+            )
+        # capacity_points is the team's planning target, owned by the Scrum
+        # Master / lead — not a per-contributor field (ADR-0073 sovereignty
+        # rule). Field-level RBAC: SCHEDULER+ writes only. The viewset's
+        # IsProjectMemberWrite gate still applies to every other field; this
+        # check is layered on top for capacity_points specifically.
+        if "capacity_points" in attrs and self.instance is not None:
+            from trueppm_api.apps.access.models import ProjectMembership, Role
+
+            request = self.context.get("request")
+            user = getattr(request, "user", None) if request else None
+            if user is None or not getattr(user, "is_authenticated", False):
+                raise serializers.ValidationError({"capacity_points": "Authentication required."})
+            membership = ProjectMembership.objects.filter(
+                project_id=self.instance.project_id,
+                user=user,
+            ).first()
+            if membership is None or membership.role < Role.SCHEDULER:
+                raise serializers.ValidationError(
+                    {"capacity_points": ("Only Scheduler+ may set sprint capacity.")}
                 )
         return attrs
 
@@ -1395,6 +1431,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
             "state",
             "target_milestone",
             "target_milestone_detail",
+            "capacity_points",
             "committed_points",
             "committed_task_count",
             "completed_points",

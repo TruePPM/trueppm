@@ -10976,6 +10976,12 @@
                         "format": "uuid",
                         "nullable": true,
                         "description": "Optional milestone task this sprint progresses toward."
+                    },
+                    "capacity_points": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
                     }
                 }
             },
@@ -12466,6 +12472,12 @@
                         "description": "Inline the milestone task so the Sprints UI can render the\n\"Advancing to milestone\" card without a second round-trip.\n\nReturns ``None`` when no milestone is linked. The nested shape is\nread-only — writes still go through ``target_milestone`` (the FK id).",
                         "readOnly": true
                     },
+                    "capacity_points": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
                     "committed_points": {
                         "type": "integer",
                         "readOnly": true,
@@ -12578,6 +12590,12 @@
                         "format": "uuid",
                         "nullable": true,
                         "description": "Optional milestone task this sprint progresses toward."
+                    },
+                    "capacity_points": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
                     }
                 },
                 "required": [

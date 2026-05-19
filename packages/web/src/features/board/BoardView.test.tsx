@@ -206,8 +206,20 @@ vi.mock('@/features/schedule/TaskDetailDrawer', () => ({
 
 // useSprints is invoked by the popover when a task has sprintId — return an
 // empty list so the chip renders as "Sprint: …" placeholder without an API hit.
+// The SprintPanel embedded in BoardView also pulls useActiveSprint /
+// useProjectVelocity / useSprintMutations from this module (ADR-0073); stub
+// them all so BoardView renders without hitting the network. Each stub
+// returns the "no active sprint" shape so SprintPanel renders nothing.
 vi.mock('@/hooks/useSprints', () => ({
   useSprints: () => ({ sprints: [], isLoading: false }),
+  useActiveSprint: () => ({ sprint: null, isLoading: false }),
+  useProjectVelocity: () => ({ data: undefined, isLoading: false }),
+  useSprintMutations: () => ({
+    createSprint: { mutate: () => undefined, isPending: false },
+    closeSprint: { mutate: () => undefined, isPending: false },
+    activateSprint: { mutate: () => undefined, isPending: false },
+    updateSprint: { mutate: () => undefined, isPending: false },
+  }),
 }));
 
 vi.mock('@/hooks/useTaskDependencies', () => ({

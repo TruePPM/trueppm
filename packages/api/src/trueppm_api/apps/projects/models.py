@@ -1101,6 +1101,15 @@ class Sprint(VersionedModel):
         related_name="targeting_sprints",
         help_text="Optional milestone task this sprint progresses toward.",
     )
+    # Planning target — what the team thinks they can take on at planning
+    # time, set pre-activation by SCHEDULER+ and revisable mid-sprint as
+    # people join/leave or take PTO (ADR-0073). Distinct from
+    # committed_points (the immutable snapshot of what the backlog actually
+    # held at activation) and from services.capacity_summary (which is
+    # resource-allocation-based in hours). Null = "no points-based
+    # planning target set" — the correct sentinel for teams that don't
+    # size in points and for sprints created before ADR-0073.
+    capacity_points = models.PositiveIntegerField(null=True, blank=True)
     # Snapshotted on activation; never recomputed.  Stored values survive
     # HistoricalTask retention pruning (90-day cap).
     committed_points = models.PositiveIntegerField(null=True, blank=True)
