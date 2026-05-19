@@ -25,7 +25,7 @@ TruePPM is built under [MacroDream](https://macrodream.co), an open-core venture
 
 | Product | Status | Description |
 |---------|--------|-------------|
-| [Visiban](https://docs.visiban.com) | v1.0 live | Kanban platform for customer-facing teams — real-time collaboration, audit trails, dwell-time analytics. Built on Django and React. |
+| [Visiban](https://visiban.com) | v1.0 live | Kanban platform for customer-facing teams — real-time collaboration, audit trails, dwell-time analytics. Built on Django and React. |
 | TruePPM | Community alpha | Open-core P3M platform bridging Agile and Waterfall on a single task model. |
 | Blueprint | WIP | Governance template for GitLab + Claude Code teams. |
 
