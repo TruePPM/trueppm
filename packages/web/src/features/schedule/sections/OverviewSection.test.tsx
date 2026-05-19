@@ -239,3 +239,100 @@ describe('OverviewSection — progress field', () => {
     expect(updateMock).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Milestone rollup (ADR-0074, issue #409)
+// ---------------------------------------------------------------------------
+
+describe('OverviewSection — milestone rollup', () => {
+  it('renders the rolled-up percent + lock copy when milestoneRollup is present', () => {
+    mockTasks.splice(0, mockTasks.length, {
+      ...baseTask,
+      isMilestone: true,
+      progress: 0,
+      milestoneRollup: {
+        percent_complete: 73,
+        rollup_basis: 'points',
+        variance_days: 3,
+        sprint_scope_changed: false,
+        sprint_count: 1,
+      },
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument();
+    expect(screen.getByText(/73%/)).toBeInTheDocument();
+    expect(screen.getByText(/by points/i)).toBeInTheDocument();
+    expect(screen.getByText(/Progress rolls up from sprint/i)).toBeInTheDocument();
+    expect(screen.getByText(/Progress \(sprint rollup\)/i)).toBeInTheDocument();
+  });
+
+  it('shows "across N sprints" copy + positive variance when multi-sprint slip', () => {
+    mockTasks.splice(0, mockTasks.length, {
+      ...baseTask,
+      isMilestone: true,
+      progress: 0,
+      milestoneRollup: {
+        percent_complete: 50,
+        rollup_basis: 'points',
+        variance_days: 8,
+        sprint_scope_changed: false,
+        sprint_count: 3,
+      },
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    expect(screen.getByText(/across 3 sprints/i)).toBeInTheDocument();
+    const variance = screen.getByText(/Sprint plan: \+8d slip/i);
+    expect(variance.className).toMatch(/text-semantic-critical/);
+  });
+
+  it('shows "scope changed" pill when sprint_scope_changed is true', () => {
+    mockTasks.splice(0, mockTasks.length, {
+      ...baseTask,
+      isMilestone: true,
+      progress: 0,
+      milestoneRollup: {
+        percent_complete: 60,
+        rollup_basis: 'points',
+        variance_days: 0,
+        sprint_scope_changed: true,
+        sprint_count: 1,
+      },
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    expect(screen.getByText(/scope changed/i)).toBeInTheDocument();
+  });
+
+  it('falls back to editable input when basis is "none"', () => {
+    mockTasks.splice(0, mockTasks.length, {
+      ...baseTask,
+      isMilestone: true,
+      milestoneRollup: {
+        percent_complete: null,
+        rollup_basis: 'none',
+        variance_days: null,
+        sprint_scope_changed: false,
+        sprint_count: 0,
+      },
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    // Editable input still rendered — no rollup-driven lock when basis=none.
+    expect(screen.getByRole('spinbutton', { name: /Task progress/i })).toBeInTheDocument();
+  });
+
+  it('shows "by tasks" copy for throughput-basis rollup', () => {
+    mockTasks.splice(0, mockTasks.length, {
+      ...baseTask,
+      isMilestone: true,
+      progress: 0,
+      milestoneRollup: {
+        percent_complete: 65,
+        rollup_basis: 'tasks',
+        variance_days: null,
+        sprint_scope_changed: false,
+        sprint_count: 1,
+      },
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" />);
+    expect(screen.getByText(/by tasks/i)).toBeInTheDocument();
+  });
+});

@@ -229,6 +229,19 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         event_type === 'sprint_closed'
       ) {
         void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
+        // Sprint state changes drive milestone rollup recompute (ADR-0074);
+        // refresh task data so the Gantt milestone reflects the new value
+        // even if the milestone_rollup_updated event lands first.
+        void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+      }
+
+      // --- Milestone rollup events (ADR-0074) ---
+      else if (event_type === 'milestone_rollup_updated') {
+        // Aggregated rollup payload arrives independent of the task feed.
+        // Invalidate both tasks (Gantt + drawer) and sprints (the rollup
+        // mirrors onto SprintTargetMilestone.rollup).
+        void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+        void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
       }
 
       // --- Resource assignment events ---

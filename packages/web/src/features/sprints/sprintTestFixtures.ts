@@ -1,4 +1,4 @@
-import type { ApiSprint, SprintTargetMilestone } from '@/types';
+import type { ApiSprint, MilestoneRollup, SprintTargetMilestone } from '@/types';
 
 /**
  * Build a deterministic ApiSprint for tests. Override only the fields the
@@ -39,6 +39,22 @@ export function makeMilestone(overrides: Partial<SprintTargetMilestone> = {}): S
     name: 'FAT review',
     wbs_path: '1.4.2',
     finish: '2026-04-21',
+    rollup: null,
+    ...overrides,
+  };
+}
+
+/**
+ * Build a deterministic {@link MilestoneRollup} payload for tests.
+ * Defaults to a healthy `points`-basis rollup at 73% with no scope change.
+ */
+export function makeRollup(overrides: Partial<MilestoneRollup> = {}): MilestoneRollup {
+  return {
+    percent_complete: 73,
+    rollup_basis: 'points',
+    variance_days: 3,
+    sprint_scope_changed: false,
+    sprint_count: 1,
     ...overrides,
   };
 }

@@ -2,7 +2,7 @@ import { screen } from '@testing-library/react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { renderWithRouter } from '@/test/utils';
 import { AdvancingToMilestoneCard } from './AdvancingToMilestoneCard';
-import { makeSprint, makeMilestone } from './sprintTestFixtures';
+import { makeSprint, makeMilestone, makeRollup } from './sprintTestFixtures';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -80,5 +80,128 @@ describe('AdvancingToMilestoneCard', () => {
     );
     const chip = screen.getByLabelText(/20 days until milestone/i);
     expect(chip.className).toMatch(/text-semantic-on-track/);
+  });
+
+  // ADR-0074: sprint→milestone rollup display ---------------------------
+
+  it('shows the rolled-up percent + basis label when rollup is present', () => {
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone({
+            rollup: makeRollup({ percent_complete: 73, rollup_basis: 'points', variance_days: 0 }),
+          }),
+        })}
+        projectId="proj-1"
+      />,
+    );
+    expect(screen.getByText(/73%/)).toBeInTheDocument();
+    expect(screen.getByText(/by points/i)).toBeInTheDocument();
+  });
+
+  it('shows "by tasks" when basis is throughput fallback', () => {
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone({
+            rollup: makeRollup({ percent_complete: 70, rollup_basis: 'tasks', variance_days: 0 }),
+          }),
+        })}
+        projectId="proj-1"
+      />,
+    );
+    expect(screen.getByText(/by tasks/i)).toBeInTheDocument();
+  });
+
+  it('suppresses the rollup block when basis is "none"', () => {
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone({
+            rollup: makeRollup({
+              percent_complete: null,
+              rollup_basis: 'none',
+              variance_days: null,
+            }),
+          }),
+        })}
+        projectId="proj-1"
+      />,
+    );
+    expect(screen.queryByText(/by points/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/by tasks/i)).not.toBeInTheDocument();
+  });
+
+  it('shows scope-changed indicator (ⓘ) when sprint_scope_changed is true', () => {
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone({
+            rollup: makeRollup({ sprint_scope_changed: true }),
+          }),
+        })}
+        projectId="proj-1"
+      />,
+    );
+    expect(screen.getByLabelText(/Sprint scope changed/i)).toBeInTheDocument();
+  });
+
+  it('shows positive variance chip with at-risk color (+3d slip)', () => {
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone({
+            rollup: makeRollup({ variance_days: 3 }),
+          }),
+        })}
+        projectId="proj-1"
+      />,
+    );
+    const chip = screen.getByLabelText(/Sprint plan: \+3d slip/i);
+    expect(chip.className).toMatch(/text-semantic-at-risk/);
+  });
+
+  it('shows critical color when variance exceeds 5d', () => {
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone({
+            rollup: makeRollup({ variance_days: 8 }),
+          }),
+        })}
+        projectId="proj-1"
+      />,
+    );
+    const chip = screen.getByLabelText(/Sprint plan: \+8d slip/i);
+    expect(chip.className).toMatch(/text-semantic-critical/);
+  });
+
+  it('shows negative variance chip with on-track color', () => {
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone({
+            rollup: makeRollup({ variance_days: -2 }),
+          }),
+        })}
+        projectId="proj-1"
+      />,
+    );
+    const chip = screen.getByLabelText(/Sprint plan: -2d ahead/i);
+    expect(chip.className).toMatch(/text-semantic-on-track/);
+  });
+
+  it('says "across N sprints" when multiple sprints target the milestone', () => {
+    renderWithRouter(
+      <AdvancingToMilestoneCard
+        sprint={makeSprint({
+          target_milestone_detail: makeMilestone({
+            rollup: makeRollup({ sprint_count: 3 }),
+          }),
+        })}
+        projectId="proj-1"
+      />,
+    );
+    expect(screen.getByText(/across 3 sprints/i)).toBeInTheDocument();
   });
 });

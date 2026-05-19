@@ -438,6 +438,32 @@ export function parseProgressAnchorError(err: unknown): ProgressAnchorError | nu
   return data as ProgressAnchorError;
 }
 
+/**
+ * Milestone rollup lock error — issued by `PATCH /tasks/{id}/` when
+ * `percent_complete` is written on a milestone task that has at least one
+ * live targeting sprint (ADR-0074). The UI surfaces a toast with the lock
+ * copy and points the user at the linked sprint(s).
+ */
+export interface MilestoneRollupLockedError {
+  code: 'milestone_rollup_locked';
+  detail: string;
+  suggested_action: 'unlink_or_close_sprint';
+}
+
+/**
+ * Narrow an unknown caught error to a {@link MilestoneRollupLockedError} payload.
+ */
+export function parseMilestoneRollupLockedError(
+  err: unknown,
+): MilestoneRollupLockedError | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const data = (err as { response?: { data?: unknown } }).response?.data;
+  if (typeof data !== 'object' || data === null) return null;
+  const code = (data as { code?: unknown }).code;
+  if (code !== 'milestone_rollup_locked') return null;
+  return data as MilestoneRollupLockedError;
+}
+
 export interface AddDependencyPayload {
   /** UUID of the predecessor task. */
   predecessor: string;

@@ -80,6 +80,7 @@ from trueppm_api.apps.projects.serializers import (
     InboundTaskSyncPayloadSerializer,
     MeWorkActiveSprintSerializer,
     MeWorkTaskSerializer,
+    MilestoneRollupLockedError,
     ProgressAnchorError,
     ProjectApiTokenCreateSerializer,
     ProjectApiTokenSerializer,
@@ -1119,6 +1120,18 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except MilestoneRollupLockedError:
+            return Response(
+                {
+                    "code": "milestone_rollup_locked",
+                    "detail": (
+                        "This milestone's progress is rolled up from its linked sprint(s) "
+                        "and cannot be edited manually. Close or unlink the sprint to edit."
+                    ),
+                    "suggested_action": "unlink_or_close_sprint",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
@@ -1131,6 +1144,18 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                         "Cannot record progress without a planned start date or sprint assignment."
                     ),
                     "suggested_action": "set_planned_start",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except MilestoneRollupLockedError:
+            return Response(
+                {
+                    "code": "milestone_rollup_locked",
+                    "detail": (
+                        "This milestone's progress is rolled up from its linked sprint(s) "
+                        "and cannot be edited manually. Close or unlink the sprint to edit."
+                    ),
+                    "suggested_action": "unlink_or_close_sprint",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
@@ -2302,6 +2327,20 @@ class TaskBulkView(APIView):
                             },
                             status=status.HTTP_400_BAD_REQUEST,
                         )
+                    except MilestoneRollupLockedError:
+                        return Response(
+                            {
+                                "code": "milestone_rollup_locked",
+                                "detail": (
+                                    "This milestone's progress is rolled up from its linked "
+                                    "sprint(s) and cannot be edited manually. Close or unlink "
+                                    "the sprint to edit."
+                                ),
+                                "suggested_action": "unlink_or_close_sprint",
+                                "task_id": str(op["id"]),
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
                     task = task_serializer.save()
                     result["updated"].append(TaskSerializer(task).data)
 
@@ -3436,6 +3475,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         return qs
 
     def perform_create(self, serializer: BaseSerializer[Sprint]) -> None:
+        from trueppm_api.apps.projects.services import recompute_milestone_rollup
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project_pk = self.kwargs["project_pk"]
@@ -3448,30 +3488,48 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         transaction.on_commit(
             lambda: broadcast_board_event(project_id_str, "sprint_created", {"id": sprint_id})
         )
+        # ADR-0074: a PLANNED sprint with a target milestone contributes to
+        # the denominator immediately so the milestone shows "0% of 24 pts."
+        if instance.target_milestone_id is not None:
+            recompute_milestone_rollup(instance.target_milestone_id)
 
     def perform_update(self, serializer: BaseSerializer[Sprint]) -> None:
+        from trueppm_api.apps.projects.services import recompute_milestone_rollup
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
+        # ADR-0074: capture pre-save target_milestone so a re-link recomputes
+        # both the OLD and NEW milestones — neither holds a stale rollup.
+        old_milestone_id = serializer.instance.target_milestone_id if serializer.instance else None
         instance = serializer.save()
         project_id = str(instance.project_id)
         sprint_id = str(instance.pk)
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "sprint_updated", {"id": sprint_id})
         )
+        new_milestone_id = instance.target_milestone_id
+        if old_milestone_id is not None and old_milestone_id != new_milestone_id:
+            recompute_milestone_rollup(old_milestone_id)
+        if new_milestone_id is not None:
+            recompute_milestone_rollup(new_milestone_id)
 
     def perform_destroy(self, instance: Sprint) -> None:
         if instance.state not in (SprintState.PLANNED, SprintState.CANCELLED):
             raise serializers.ValidationError(
                 {"detail": "Only PLANNED or CANCELLED sprints can be deleted."}
             )
+        from trueppm_api.apps.projects.services import recompute_milestone_rollup
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project_id = str(instance.project_id)
         sprint_id = str(instance.pk)
+        target_milestone_id = instance.target_milestone_id
         instance.soft_delete()
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "sprint_deleted", {"id": sprint_id})
         )
+        # ADR-0074: a deleted sprint stops contributing to the rollup.
+        if target_milestone_id is not None:
+            recompute_milestone_rollup(target_milestone_id)
 
     @action(detail=True, methods=["post"])
     def activate(self, request: Request, pk: str | None = None) -> Response:
@@ -3485,6 +3543,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         """
         from trueppm_api.apps.projects.services import (
             capacity_check,
+            recompute_milestone_rollup,
             snapshot_committed_metrics,
         )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -3546,6 +3605,11 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                     project_id_str, "sprint_activated", {"id": sprint_id_str}
                 )
             )
+            # ADR-0074: recompute the linked milestone's rollup so the Gantt
+            # reflects the now-active sprint immediately. No-op when the
+            # sprint has no target milestone.
+            if sprint.target_milestone_id is not None:
+                recompute_milestone_rollup(sprint.target_milestone_id)
 
         data = SprintSerializer(sprint).data
         data["warnings"] = warnings
@@ -3633,6 +3697,13 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
                     project_id_str, "sprint_cancelled", {"id": sprint_id_str}
                 )
             )
+            # ADR-0074: cancelled sprints contribute nothing to the rollup;
+            # recompute so the milestone drops the cancelled sprint's
+            # denominator contribution immediately.
+            if sprint.target_milestone_id is not None:
+                from trueppm_api.apps.projects.services import recompute_milestone_rollup
+
+                recompute_milestone_rollup(sprint.target_milestone_id)
         return Response(SprintSerializer(sprint).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["get"])

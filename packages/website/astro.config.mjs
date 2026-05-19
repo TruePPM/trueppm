@@ -127,6 +127,7 @@ export default defineConfig({
                 { slug: "features/plan-sprint" },
                 { slug: "features/sprint-backlog" },
                 { slug: "features/sprint-burndown" },
+                { slug: "features/sprint-milestone-rollup" },
                 { slug: "features/capacity-preflight" },
                 { slug: "features/velocity" },
                 { slug: "features/velocity-calibration" },

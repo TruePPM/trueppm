@@ -135,6 +135,28 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
       queryKey: ['dependencies', 'proj-1'],
     });
   });
+
+  // ADR-0074 — sprint state and rollup events both refresh tasks ----------
+
+  it('invalidates tasks AND sprints on sprint_closed (rollup may have changed)', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchEvent('sprint_closed');
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprints', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it('invalidates tasks and sprints on milestone_rollup_updated', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchEvent('milestone_rollup_updated');
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprints', 'proj-1'] });
+  });
 });
 
 describe('useProjectWebSocket — auth close-code handling (#352)', () => {

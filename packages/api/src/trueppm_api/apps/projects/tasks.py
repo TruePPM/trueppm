@@ -138,6 +138,15 @@ def close_sprint(self: object, request_id: str) -> None:
 
             apply_carry_over(sprint, req.carry_over_to)
 
+            # ADR-0074: recompute the milestone rollup with the final
+            # completed_* snapshot. Runs here (inside the drain transaction,
+            # after carry-over) so the milestone reflects the closed sprint's
+            # final contribution before the sprint_closed broadcast goes out.
+            if sprint.target_milestone_id is not None:
+                from trueppm_api.apps.projects.services import recompute_milestone_rollup
+
+                recompute_milestone_rollup(sprint.target_milestone_id)
+
             SprintCloseRequest.objects.filter(pk=req.pk).update(
                 status=SprintCloseRequestStatus.COMPLETED,
                 completed_at=timezone.now(),

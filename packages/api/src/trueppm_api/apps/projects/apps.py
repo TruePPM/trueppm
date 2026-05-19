@@ -15,3 +15,7 @@ class ProjectsConfig(AppConfig):
         # Register the post_save handler that resets RetroActionItem.promoted_task_id
         # when a Task is soft-deleted (ADR-0071 §2 rollback).
         receivers._register_task_soft_delete_receiver()
+
+        # Register the post_save handler that recomputes the linked milestone
+        # rollup live when a sprint-tracked task changes (ADR-0074).
+        receivers._register_milestone_rollup_receiver()
