@@ -8,6 +8,7 @@ import { useScheduleStore } from '@/stores/scheduleStore';
 import {
   useUpdateTask,
   useReorderTasks,
+  parseMilestoneRollupLockedError,
   parseProgressAnchorError,
   useToggleComplete,
   useDuplicateTask,
@@ -919,6 +920,12 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
       )}
 
       {/* ── % complete column ───────────────────────────────────────────────── */}
+      {/*
+       * Milestone tasks with a sprint rollup (ADR-0074) render the rolled-up
+       * percent as read-only — manual edits are server-rejected with a
+       * structured 400. The cell also surfaces a lock affordance and a
+       * compact variance pill when the sprint is anchored to the milestone.
+       */}
       {!isEditing && visible.progress && (
         buildMode && !task.isMilestone ? (
           <EditableCell
@@ -945,6 +952,11 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
                           `Set a Planned Start date (or assign a sprint) before recording progress.`,
                         );
                         setTimeout(() => setScheduleError(null), 5000);
+                      } else if (parseMilestoneRollupLockedError(err)) {
+                        setScheduleError(
+                          `Progress rolls up from sprint(s) — close or unlink to edit.`,
+                        );
+                        setTimeout(() => setScheduleError(null), 5000);
                       }
                     },
                   },
@@ -957,15 +969,7 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
             onTabBackward={() => buildMode.focus.tabBackward()}
           />
         ) : (
-          <div
-            className="flex items-center justify-end shrink-0
-              text-right text-neutral-text-secondary tabular-nums pr-2 border-r border-neutral-border/20"
-            style={{ width: widths.progress }}
-            role="gridcell"
-            aria-label={`${task.progress}% complete`}
-          >
-            {!task.isMilestone && `${task.progress}%`}
-          </div>
+          <MilestoneProgressCell task={task} widthPx={widths.progress} />
         )
       )}
 
@@ -1031,3 +1035,81 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
  *     we actually want re-renders to track.
  */
 export const TaskListRow = memo(TaskListRowInner);
+
+/**
+ * % cell for non-build-mode and milestone rows (ADR-0074).
+ *
+ * Non-milestone tasks: render the existing percentage value.
+ * Milestone tasks: render the rolled-up percent when present (with lock icon
+ * + variance pill), otherwise leave the cell empty (today's behaviour).
+ */
+function MilestoneProgressCell({ task, widthPx }: { task: Task; widthPx: number }) {
+  const rollup = task.milestoneRollup ?? null;
+  const hasRollup =
+    task.isMilestone && rollup && rollup.rollup_basis !== 'none' && rollup.percent_complete != null;
+
+  if (task.isMilestone && hasRollup && rollup) {
+    const pct = Math.round(rollup.percent_complete!);
+    const variance = rollup.variance_days;
+    const varianceLabel =
+      variance == null
+        ? null
+        : variance < 0
+          ? `${variance}d`
+          : variance === 0
+            ? '0d'
+            : `+${variance}d`;
+    const varianceClass =
+      variance == null || variance === 0
+        ? 'text-neutral-text-secondary'
+        : variance < 0
+          ? 'text-semantic-on-track'
+          : variance <= 5
+            ? 'text-semantic-at-risk'
+            : 'text-semantic-critical';
+    const ariaLabelParts = [`Progress ${pct}% (sprint rollup, locked)`];
+    if (variance != null && variance !== 0) {
+      ariaLabelParts.push(
+        variance < 0
+          ? `Sprint plan ${Math.abs(variance)} days ahead.`
+          : `Sprint plan ${variance} days slip.`,
+      );
+    }
+    if (rollup.sprint_scope_changed) {
+      ariaLabelParts.push('Sprint scope changed since activation.');
+    }
+    return (
+      <div
+        className="flex items-center justify-end shrink-0 gap-1
+          text-right text-neutral-text-primary tabular-nums pr-2 border-r border-neutral-border/20"
+        style={{ width: widthPx }}
+        role="gridcell"
+        aria-label={ariaLabelParts.join(' ')}
+        aria-readonly="true"
+        title={ariaLabelParts.join(' ')}
+      >
+        <span className="tppm-mono">{pct}%</span>
+        <span aria-hidden="true" className="text-neutral-text-secondary">
+          🔒
+        </span>
+        {varianceLabel && (
+          <span className={`tppm-mono text-xs ${varianceClass}`} aria-hidden="true">
+            {varianceLabel}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="flex items-center justify-end shrink-0
+        text-right text-neutral-text-secondary tabular-nums pr-2 border-r border-neutral-border/20"
+      style={{ width: widthPx }}
+      role="gridcell"
+      aria-label={`${task.progress}% complete`}
+    >
+      {!task.isMilestone && `${task.progress}%`}
+    </div>
+  );
+}

@@ -12469,7 +12469,7 @@
                         "type": "object",
                         "additionalProperties": {},
                         "nullable": true,
-                        "description": "Inline the milestone task so the Sprints UI can render the\n\"Advancing to milestone\" card without a second round-trip.\n\nReturns ``None`` when no milestone is linked. The nested shape is\nread-only — writes still go through ``target_milestone`` (the FK id).",
+                        "description": "Inline the milestone task so the Sprints UI can render the\n\"Advancing to milestone\" card without a second round-trip.\n\nReturns ``None`` when no milestone is linked. The nested shape is\nread-only — writes still go through ``target_milestone`` (the FK id).\n\nIncludes ``rollup`` (ADR-0074): the same payload that appears on\n``TaskSerializer.milestone_rollup`` so the AdvancingToMilestoneCard\nand the Gantt show one number, not two.",
                         "readOnly": true
                     },
                     "capacity_points": {
@@ -12876,6 +12876,13 @@
                         },
                         "description": "Return scope-change audit rows for the sprint-scope indicator chip.",
                         "readOnly": true
+                    },
+                    "milestone_rollup": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "description": "Sprint-driven rollup payload for milestone tasks (ADR-0074).\n\nReturns ``None`` for non-milestone tasks and for milestones with no\nlive targeting sprints — both cases let the manual ``percent_complete``\napply unchanged. Aggregated only — never includes per-assignee task\nlists or raw point counts (Morgan VoC guardrail, ADR-0074 §Broadcast\npayload shape).",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -12894,6 +12901,7 @@
                     "late_start",
                     "linked_risks_count",
                     "linked_risks_max_severity",
+                    "milestone_rollup",
                     "name",
                     "parent_id",
                     "predecessor_count",

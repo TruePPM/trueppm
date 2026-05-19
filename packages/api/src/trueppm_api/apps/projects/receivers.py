@@ -88,3 +88,55 @@ def _register_task_soft_delete_receiver() -> None:
                 "task soft-delete: failed to reset promoted_task_id for task=%s",
                 instance.pk,
             )
+
+
+def _register_milestone_rollup_receiver() -> None:
+    """Register the Task post_save receiver that fires the milestone rollup.
+
+    ADR-0074: when a task assigned to a sprint changes (status, story points,
+    sprint membership), and that sprint targets a milestone, recompute the
+    milestone rollup live. This is the "instant Gantt update" path — the
+    authoritative recompute on sprint close still runs inside the drain.
+
+    Bails out early for the common case (no sprint, no target milestone) so
+    the receiver adds negligible overhead to non-sprint task writes. Errors
+    are logged and swallowed; the rollup is a cosmetic side effect and must
+    never block a primary task write.
+
+    Wrapped in a function for the same import-timing reason as the soft-delete
+    receiver above. Called from ``ProjectsConfig.ready()``.
+    """
+    from trueppm_api.apps.projects.models import Task
+
+    @receiver(post_save, sender=Task, dispatch_uid="milestone_rollup_on_task_save")
+    def _on_task_save_recompute_rollup(
+        sender: Any,
+        instance: Any,
+        created: bool,
+        **kwargs: Any,
+    ) -> None:
+        sprint_id = getattr(instance, "sprint_id", None)
+        if sprint_id is None or getattr(instance, "is_deleted", False):
+            return
+        from trueppm_api.apps.projects.models import Sprint
+
+        # One small query — index hit on PK. The cheap filter is paying for
+        # itself by short-circuiting the common "task not linked to a
+        # sprint-with-milestone" case before any rollup work.
+        milestone_id = (
+            Sprint.objects.filter(pk=sprint_id, is_deleted=False)
+            .values_list("target_milestone_id", flat=True)
+            .first()
+        )
+        if milestone_id is None:
+            return
+        from trueppm_api.apps.projects.services import recompute_milestone_rollup
+
+        try:
+            recompute_milestone_rollup(milestone_id)
+        except Exception:
+            logger.exception(
+                "milestone rollup: recompute failed for task=%s milestone=%s",
+                instance.pk,
+                milestone_id,
+            )

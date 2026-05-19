@@ -60,6 +60,14 @@ export interface ApiTask {
   is_subtask?: boolean;
   // Sprint scope-change audit rows (ADR-0060 #308) — non-empty when subtasks were added after sprint start.
   sprint_scope_changes?: Array<{ subtask_name: string; added_by_name: string | null; added_at: string }>;
+  // Sprint→milestone rollup payload (ADR-0074) — non-null only on milestone tasks with linked sprints.
+  milestone_rollup?: {
+    percent_complete: number | null;
+    rollup_basis: 'points' | 'tasks' | 'none';
+    variance_days: number | null;
+    sprint_scope_changed: boolean;
+    sprint_count: number;
+  } | null;
   // 8-hex-digit project-scoped ID (ADR-0016 / issue #50).
   short_id?: string;
   assignments?: Array<{
@@ -176,6 +184,7 @@ export function mapTask(t: ApiTask): Task {
       addedByName: s.added_by_name,
       addedAt: s.added_at,
     })),
+    milestoneRollup: t.milestone_rollup ?? null,
     shortId: t.short_id,
   };
 }

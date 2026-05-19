@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import type { ApiSprint } from '@/types';
+import type { ApiSprint, MilestoneRollup } from '@/types';
 import { daysUntil, formatShortDate } from './sprintMath';
 
 interface Props {
@@ -16,9 +16,16 @@ interface Props {
  *   > 7 days  → semantic-on-track
  *   0–7 days  → semantic-at-risk
  *   < 0 days  → semantic-critical (overdue)
+ *
+ * Rollup (ADR-0074): when `sprint.target_milestone_detail.rollup` is present,
+ * surface the rolled-up percent_complete, rollup_basis label, and the sprint
+ * vs. milestone variance. Days-out (today vs milestone) and variance (sprint
+ * finish vs milestone) answer different questions and are stacked, not
+ * collapsed.
  */
 export function AdvancingToMilestoneCard({ sprint, projectId }: Props) {
   const detail = sprint.target_milestone_detail;
+  const rollup = detail?.rollup ?? null;
 
   return (
     <section
@@ -49,6 +56,10 @@ export function AdvancingToMilestoneCard({ sprint, projectId }: Props) {
             </div>
           </div>
 
+          {rollup && rollup.rollup_basis !== 'none' && rollup.percent_complete != null && (
+            <RollupBlock rollup={rollup} />
+          )}
+
           <Link
             to={`/projects/${projectId}/schedule#task-${detail.id}`}
             className="self-start text-xs font-medium text-brand-primary hover:text-brand-primary-dark
@@ -63,6 +74,83 @@ export function AdvancingToMilestoneCard({ sprint, projectId }: Props) {
         </p>
       )}
     </section>
+  );
+}
+
+interface RollupBlockProps {
+  rollup: MilestoneRollup;
+}
+
+/**
+ * Stacked rollup display: the rolled-up percent (large mono number),
+ * the basis label ("by points · 18 of 24"), and a variance chip when the
+ * sprint plan is anchored against the milestone. Scope-change indicator (ⓘ)
+ * sits inline with the percent and surfaces a native `title=` tooltip — never
+ * a banner (deliberate: rule "no banners for soft signals").
+ */
+function RollupBlock({ rollup }: RollupBlockProps) {
+  const percent = rollup.percent_complete!;
+  return (
+    <div className="flex flex-col gap-1" aria-label={`Milestone progress ${Math.round(percent)} percent`}>
+      <div className="flex items-baseline gap-1">
+        <span className="text-2xl tppm-mono text-neutral-text-primary leading-none">
+          {Math.round(percent)}%
+        </span>
+        {rollup.sprint_scope_changed && (
+          <span
+            aria-label="Sprint scope changed since activation"
+            title="Sprint scope changed since activation — committed baseline preserved."
+            className="ml-1 text-neutral-text-secondary cursor-help"
+          >
+            ⓘ
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-neutral-text-secondary">
+        {rollup.rollup_basis === 'tasks' ? 'by tasks' : 'by points'}
+        {' · '}
+        {rollup.sprint_count > 1 ? `across ${rollup.sprint_count} sprints` : 'this sprint'}
+      </p>
+      {rollup.variance_days != null && (
+        <VarianceChip days={rollup.variance_days} />
+      )}
+    </div>
+  );
+}
+
+interface VarianceChipProps {
+  days: number;
+}
+
+/**
+ * Sprint-plan variance vs the milestone date. Different signal from
+ * DaysOutChip: that one is anchored to TODAY, this one is anchored to the
+ * SPRINT'S planned finish. Both can be informative simultaneously — sprint
+ * ends in 5d but milestone is 8d out → variance is -3 (ahead).
+ */
+function VarianceChip({ days }: VarianceChipProps) {
+  let className: string;
+  let label: string;
+  if (days < 0) {
+    className = 'border-semantic-on-track/40 text-semantic-on-track';
+    label = `Sprint plan: ${days}d ahead`;
+  } else if (days === 0) {
+    className = 'border-neutral-border text-neutral-text-primary';
+    label = `Sprint plan: on time`;
+  } else if (days <= 5) {
+    className = 'border-semantic-at-risk/40 text-semantic-at-risk';
+    label = `Sprint plan: +${days}d slip`;
+  } else {
+    className = 'border-semantic-critical/40 text-semantic-critical';
+    label = `Sprint plan: +${days}d slip`;
+  }
+  return (
+    <span
+      className={`tppm-mono inline-flex self-start items-center px-2 py-0.5 rounded border bg-transparent text-xs ${className}`}
+      aria-label={label}
+    >
+      {label}
+    </span>
   );
 }
 

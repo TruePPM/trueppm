@@ -693,3 +693,184 @@ def all_active_sprint_ids(project_id: str | uuid.UUID) -> Iterable[Any]:
     return Sprint.objects.filter(
         project_id=project_id, state=SprintState.ACTIVE, is_deleted=False
     ).values_list("pk", flat=True)
+
+
+# ---------------------------------------------------------------------------
+# Sprint → milestone rollup (ADR-0074)
+# ---------------------------------------------------------------------------
+
+
+def compute_milestone_rollup_payload(milestone: Any) -> dict[str, Any] | None:
+    """Compute the rollup payload for a milestone task from its targeting sprints.
+
+    Returns ``None`` when the milestone has no live targeting sprints — caller
+    treats this as "no rollup, manual percent_complete applies."
+
+    Reads ``Sprint.committed_*`` / ``Sprint.completed_*`` snapshots; never
+    recomputes them. ACTIVE sprints contribute live ``Task.status=COMPLETE``
+    counts (because their snapshot only fires on close). PLANNED sprints
+    contribute committed points to the denominator but zero to the numerator
+    (no work yet). COMPLETED sprints contribute their immutable snapshots.
+
+    Variance is the gap between the latest ACTIVE/PLANNED sprint's
+    ``finish_date`` and the milestone's ``early_finish`` (positive = slip).
+    COMPLETED sprints do not contribute to variance — once closed their dates
+    are historic, not predictive.
+
+    ``sprint_scope_changed`` is True when any ACTIVE sprint's current
+    backlog-points sum diverges from its activation-snapshot ``committed_points``
+    — surfaced so the % can be trusted even when scope has shifted mid-sprint.
+    """
+    from trueppm_api.apps.projects.models import Sprint, SprintState, Task, TaskStatus
+
+    targeting = list(
+        Sprint.objects.filter(target_milestone_id=milestone.pk, is_deleted=False).only(
+            "pk",
+            "state",
+            "finish_date",
+            "committed_points",
+            "committed_task_count",
+            "completed_points",
+            "completed_task_count",
+        )
+    )
+    if not targeting:
+        return None
+
+    committed_points = 0
+    committed_tasks = 0
+    completed_points = 0
+    completed_tasks = 0
+    latest_active_planned_finish: Any = None
+    scope_changed = False
+
+    for sprint in targeting:
+        # CANCELLED sprints are skipped entirely — they contribute nothing
+        # to the denominator OR numerator. ``sprint_count`` still includes
+        # them in the count because the milestone-detail UI surfaces total
+        # link count regardless of state (PMs need to see "5 sprints linked,
+        # 1 cancelled" without a second query).
+        if sprint.state == SprintState.CANCELLED:
+            continue
+
+        committed_points += sprint.committed_points or 0
+        committed_tasks += sprint.committed_task_count or 0
+
+        if sprint.state == SprintState.COMPLETED:
+            # Closed: use the immutable snapshot.
+            completed_points += sprint.completed_points or 0
+            completed_tasks += sprint.completed_task_count or 0
+        elif sprint.state == SprintState.ACTIVE:
+            # Live: count current COMPLETE tasks; the snapshot only fires on close.
+            live = list(
+                Task.objects.filter(
+                    sprint_id=sprint.pk, status=TaskStatus.COMPLETE, is_deleted=False
+                ).values_list("story_points", flat=True)
+            )
+            completed_points += sum(p for p in live if p is not None)
+            completed_tasks += len(live)
+
+            # Scope-change detection: compare current backlog points to the
+            # activation-time snapshot. Diverges when the PM adds or removes
+            # tasks from the sprint after activation.
+            if sprint.committed_points is not None:
+                current_points = sum(
+                    p
+                    for p in Task.objects.filter(sprint_id=sprint.pk, is_deleted=False).values_list(
+                        "story_points", flat=True
+                    )
+                    if p is not None
+                )
+                if current_points != sprint.committed_points:
+                    scope_changed = True
+
+            if sprint.finish_date is not None and (
+                latest_active_planned_finish is None
+                or sprint.finish_date > latest_active_planned_finish
+            ):
+                latest_active_planned_finish = sprint.finish_date
+        elif sprint.state == SprintState.PLANNED:
+            # Denominator-only contribution — no completed work yet.
+            if sprint.finish_date is not None and (
+                latest_active_planned_finish is None
+                or sprint.finish_date > latest_active_planned_finish
+            ):
+                latest_active_planned_finish = sprint.finish_date
+
+    # Rollup basis: prefer points, fall back to task count, otherwise N/A.
+    percent_complete: float | None
+    rollup_basis: str
+    if committed_points > 0:
+        percent_complete = min(100.0, round((completed_points / committed_points) * 100, 2))
+        rollup_basis = "points"
+    elif committed_tasks > 0:
+        percent_complete = min(100.0, round((completed_tasks / committed_tasks) * 100, 2))
+        rollup_basis = "tasks"
+    else:
+        percent_complete = None
+        rollup_basis = "none"
+
+    variance_days: int | None
+    if latest_active_planned_finish is not None and milestone.early_finish is not None:
+        variance_days = (latest_active_planned_finish - milestone.early_finish).days
+    else:
+        variance_days = None
+
+    return {
+        "percent_complete": percent_complete,
+        "rollup_basis": rollup_basis,
+        "variance_days": variance_days,
+        "sprint_scope_changed": scope_changed,
+        "sprint_count": len(targeting),
+    }
+
+
+def recompute_milestone_rollup(
+    milestone_id: str | uuid.UUID,
+    *,
+    broadcast: bool = True,
+) -> dict[str, Any] | None:
+    """Recompute the milestone rollup and broadcast the result.
+
+    Idempotent — every call produces the truth from current sprint/task state.
+    Safe to call concurrently; broadcast deduplication is handled by the
+    on_commit registry (one broadcast per milestone per transaction).
+
+    Returns the payload (also broadcast). Returns ``None`` when the milestone
+    no longer exists or is not actually a milestone — caller handles silently.
+    """
+    from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    milestone = (
+        Task.objects.filter(pk=milestone_id, is_milestone=True, is_deleted=False)
+        .only("pk", "project_id", "early_finish")
+        .first()
+    )
+    if milestone is None:
+        return None
+
+    payload = compute_milestone_rollup_payload(milestone)
+    if payload is None:
+        # No targeting sprints — emit a clear-state event so the UI drops the
+        # rollup chrome on the milestone. Distinguished from "no broadcast" by
+        # the explicit rollup_basis=none sentinel.
+        payload = {
+            "percent_complete": None,
+            "rollup_basis": "none",
+            "variance_days": None,
+            "sprint_scope_changed": False,
+            "sprint_count": 0,
+        }
+
+    if broadcast:
+        project_id_str = str(milestone.project_id)
+        milestone_id_str = str(milestone.pk)
+        event_payload = {"milestone_id": milestone_id_str, **payload}
+
+        def _broadcast() -> None:
+            broadcast_board_event(project_id_str, "milestone_rollup_updated", event_payload)
+
+        transaction.on_commit(_broadcast)
+
+    return payload

@@ -294,6 +294,12 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # viewset (e.g. in tests or nested serializers).
     assignee_is_overallocated = serializers.BooleanField(read_only=True, default=False)
 
+    # Sprint → milestone rollup payload (ADR-0074). Populated only on milestone
+    # tasks with at least one live targeting sprint; ``None`` otherwise. The
+    # web Gantt and the sprint AdvancingToMilestoneCard both consume this as
+    # the single source of truth for milestone progress + variance.
+    milestone_rollup = serializers.SerializerMethodField()
+
     class Meta:
         model = Task
         fields = [
@@ -342,6 +348,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "remaining_points",
             "is_subtask",
             "sprint_scope_changes",
+            "milestone_rollup",
         ]
         read_only_fields = [
             "id",
@@ -368,6 +375,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "status_changed_at",
             "assignee_is_overallocated",
             "sprint_scope_changes",
+            "milestone_rollup",
         ]
 
     def _get_caller_role(self, project: Project | None) -> int | None:
@@ -453,6 +461,21 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 if role is None or role < Role.ADMIN:
                     raise ProgressAnchorError()
 
+        # Milestone-rollup lock (ADR-0074): a milestone task with live targeting
+        # sprints has its percent_complete computed from sprint state — manual
+        # writes would silently revert on the next rollup recompute, so reject
+        # them at validate time with a structured error code the frontend can
+        # map to its lock affordance. Carries no role exemption: even admins
+        # close or unlink the sprint to override (audit-by-design).
+        if "percent_complete" in attrs and self.instance is not None and self.instance.is_milestone:
+            from trueppm_api.apps.projects.models import Sprint
+
+            has_live_targeting_sprint = Sprint.objects.filter(
+                target_milestone_id=self.instance.pk, is_deleted=False
+            ).exists()
+            if has_live_targeting_sprint:
+                raise MilestoneRollupLockedError()
+
         return attrs
 
     def get_schedule_variance_days(self, obj: Task) -> int | None:
@@ -508,16 +531,42 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             for r in rows
         ]
 
+    def get_milestone_rollup(self, obj: Task) -> dict[str, Any] | None:
+        """Sprint-driven rollup payload for milestone tasks (ADR-0074).
+
+        Returns ``None`` for non-milestone tasks and for milestones with no
+        live targeting sprints — both cases let the manual ``percent_complete``
+        apply unchanged. Aggregated only — never includes per-assignee task
+        lists or raw point counts (Morgan VoC guardrail, ADR-0074 §Broadcast
+        payload shape).
+        """
+        if not obj.is_milestone:
+            return None
+        from trueppm_api.apps.projects.services import compute_milestone_rollup_payload
+
+        return compute_milestone_rollup_payload(obj)
+
     def to_representation(self, instance: Task) -> dict[str, Any]:
         """Override percent_complete for summary tasks with duration-weighted child average.
 
         Uses the percent_complete_rollup annotation from TaskViewSet.get_queryset()
         to avoid one raw SQL query per summary task on list responses.
+
+        Also overrides ``percent_complete`` on milestone tasks with their
+        sprint-driven rollup value (ADR-0074) so the Gantt and the sprint card
+        agree on a single number. Falls back to the stored field when the
+        rollup is unavailable (basis="none" or no targeting sprints).
         """
         data = super().to_representation(instance)
         rollup = getattr(instance, "percent_complete_rollup", None)
         if rollup is not None:
             data["percent_complete"] = round(float(rollup), 2)
+        # Milestone rollup wins over the stored value when available, so the
+        # number the user edits via the sprint flows back as the number they
+        # see in every surface.
+        ms_rollup = data.get("milestone_rollup")
+        if ms_rollup and ms_rollup.get("percent_complete") is not None:
+            data["percent_complete"] = ms_rollup["percent_complete"]
         return data
 
     def update(self, instance: Task, validated_data: dict[str, Any]) -> Task:
@@ -822,6 +871,23 @@ class ProgressAnchorError(Exception):
     :class:`CycleDetectedError` — the frontend expects a structured
     ``{"code": ..., "detail": ..., "suggested_action": ...}`` response body
     without ``ErrorDetail`` wrapping (ADR-0055).
+    """
+
+    pass
+
+
+class MilestoneRollupLockedError(Exception):
+    """Raised by ``TaskSerializer.validate`` when ``percent_complete`` is written
+    on a milestone task that has one or more live targeting sprints.
+
+    A milestone whose progress rolls up from linked sprint(s) cannot be
+    edited manually — the rolled-up value is the source of truth. PMs who
+    need to override unlink or close the sprint first; subsequent edits
+    unlock automatically (ADR-0074).
+
+    Bypasses DRF's :class:`serializers.ValidationError` so the frontend
+    receives a stable error code (``milestone_rollup_locked``) the UI can
+    map to its lock affordance and toast copy without scraping a message.
     """
 
     pass
@@ -1351,16 +1417,23 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
 
         Returns ``None`` when no milestone is linked. The nested shape is
         read-only — writes still go through ``target_milestone`` (the FK id).
+
+        Includes ``rollup`` (ADR-0074): the same payload that appears on
+        ``TaskSerializer.milestone_rollup`` so the AdvancingToMilestoneCard
+        and the Gantt show one number, not two.
         """
         milestone = obj.target_milestone
         if milestone is None:
             return None
+        from trueppm_api.apps.projects.services import compute_milestone_rollup_payload
+
         wbs = milestone.wbs_path
         return {
             "id": str(milestone.pk),
             "name": milestone.name,
             "wbs_path": str(wbs) if wbs else None,
             "finish": milestone.early_finish.isoformat() if milestone.early_finish else None,
+            "rollup": compute_milestone_rollup_payload(milestone),
         }
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:

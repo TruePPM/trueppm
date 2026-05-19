@@ -1,0 +1,312 @@
+/**
+ * Sprint → milestone rollup E2E (ADR-0074 / issue #409).
+ *
+ * Verifies that the AdvancingToMilestoneCard on the SprintsView renders the
+ * rolled-up percent, rollup basis, variance chip, and scope-change indicator
+ * the way the server payload encodes them. Driven entirely off the server
+ * response shape so a regression in any of the surfaces would surface here.
+ */
+import { test, expect } from '@playwright/test';
+import { setupCatchAll } from './fixtures';
+
+const PROJECT_ID = 'e2e-mrollup-00000000-0000-0000-0000-000000000074';
+const BASE_URL = `/projects/${PROJECT_ID}/sprints`;
+
+const FIXTURE_PROJECTS = [
+  {
+    id: PROJECT_ID,
+    name: 'Milestone Rollup Test',
+    description: '',
+    start_date: '2026-01-01',
+    calendar: 'default',
+    methodology: 'AGILE',
+  },
+];
+
+const PROJECT_DETAIL = {
+  ...FIXTURE_PROJECTS[0],
+  server_version: 1,
+  calendar: null,
+  estimation_mode: 'open',
+  agile_features: true,
+};
+
+interface RollupShape {
+  percent_complete: number | null;
+  rollup_basis: 'points' | 'tasks' | 'none';
+  variance_days: number | null;
+  sprint_scope_changed: boolean;
+  sprint_count: number;
+}
+
+function makeSprint(rollup: RollupShape, scopeChanged = false): object {
+  return {
+    id: 'sp-active',
+    server_version: 1,
+    short_id: 'C0FF',
+    short_id_display: 'SP-C0FF',
+    name: 'Telemetry & FAT prep',
+    goal: 'Close out telemetry firmware channel sweep and prep FAT review.',
+    notes: '',
+    start_date: '2026-04-01',
+    finish_date: '2026-04-14',
+    state: 'ACTIVE',
+    target_milestone: 'task-fat',
+    target_milestone_detail: {
+      id: 'task-fat',
+      name: 'FAT review',
+      wbs_path: '1.4.2',
+      finish: '2026-04-21',
+      rollup: { ...rollup, sprint_scope_changed: scopeChanged },
+    },
+    capacity_points: 40,
+    committed_points: 47,
+    committed_task_count: 18,
+    completed_points: 24,
+    completed_task_count: 9,
+    completion_ratio_points: 0.5106,
+    completion_ratio_tasks: 0.5,
+    activated_at: '2026-04-01T00:00:00Z',
+    closed_at: null,
+    created_at: '2026-04-01T00:00:00Z',
+    updated_at: '2026-04-04T12:00:00Z',
+  };
+}
+
+async function setupCommon(page: import('@playwright/test').Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'trueppm-auth',
+      JSON.stringify({
+        state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
+        version: 0,
+      }),
+    );
+  });
+
+  // Catch-all returns 404 for unmocked endpoints. Register FIRST so
+  // more-specific routes registered below win. Without this, unmocked
+  // requests proxy to the dev backend, fail, and trigger the global
+  // session-expired dialog under test.
+  await setupCatchAll(page);
+
+  await page.route('**/api/v1/projects/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 1, next: null, previous: null, results: FIXTURE_PROJECTS }),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(PROJECT_DETAIL),
+    }),
+  );
+  await page.route('**/api/v1/projects/*/presence/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+  await page.route('**/api/v1/projects/*/status-summary/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        task_count: 0, critical_path_count: 0, monte_carlo_p80: null,
+        at_risk_count: 0, critical_count: 0, at_risk_tasks: [], critical_tasks: [],
+        last_saved: null, recalculated_at: null,
+      }),
+    }),
+  );
+  await page.route('**/api/v1/edition/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ edition: 'community' }),
+    }),
+  );
+  await page.route('**/api/v1/auth/me/', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'e2e-user', username: 'e2e', display_name: 'E2E',
+        initials: 'E', email: 'e2e@example.com',
+      }),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/members/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{ id: 'mem-1', role: 300 }]),
+    }),
+  );
+  await page.route(/\/api\/v1\/sprints\/.*\/burndown\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ sprint: makeSprint(BASELINE_ROLLUP), snapshots: [] }),
+    }),
+  );
+  await page.route(/\/api\/v1\/sprints\/.*\/capacity\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        members: [],
+        totals: { committed_hours: 0, available_hours: 0, ratio: 0, buffer_hours: 0, label: 'on_track', pto_days: 0 },
+        working_days: 0, hours_per_day: 8,
+      }),
+    }),
+  );
+  await page.route(`**/api/v1/projects/${PROJECT_ID}/velocity/`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        sprints: [], rolling_avg_points: null, rolling_stdev_points: null,
+        forecast_range_low: null, forecast_range_high: null,
+        rolling_avg_tasks: null, rolling_stdev_tasks: null,
+      }),
+    }),
+  );
+  await page.route(/\/api\/v1\/tasks\//, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
+  await page.route(/\/api\/v1\/sprints\/.*\/retro\//, (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: '{"detail":"None"}',
+    }),
+  );
+  await page.route('**/api/v1/me/active-sprints/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+  );
+}
+
+const BASELINE_ROLLUP: RollupShape = {
+  percent_complete: 73,
+  rollup_basis: 'points',
+  variance_days: 3,
+  sprint_scope_changed: false,
+  sprint_count: 1,
+};
+
+test.describe('Sprint → milestone rollup card (ADR-0074)', () => {
+  test('renders the rolled-up percent + "by points" basis + +3d slip variance', async ({
+    page,
+  }) => {
+    await setupCommon(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [makeSprint(BASELINE_ROLLUP)],
+        }),
+      }),
+    );
+
+    await page.goto(BASE_URL);
+    const card = page.getByRole('region', { name: /Advancing to Milestone/i });
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    await expect(card.getByText('FAT review')).toBeVisible();
+    await expect(card.getByText('73%')).toBeVisible();
+    await expect(card.getByText(/by points/i)).toBeVisible();
+    await expect(card.getByLabel(/Sprint plan: \+3d slip/i)).toBeVisible();
+  });
+
+  test('shows scope-changed indicator when sprint_scope_changed is true', async ({
+    page,
+  }) => {
+    await setupCommon(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [makeSprint(BASELINE_ROLLUP, /* scopeChanged */ true)],
+        }),
+      }),
+    );
+
+    await page.goto(BASE_URL);
+    const card = page.getByRole('region', { name: /Advancing to Milestone/i });
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    await expect(card.getByLabel(/Sprint scope changed/i)).toBeVisible();
+  });
+
+  test('falls back to "by tasks" when rollup_basis is tasks', async ({ page }) => {
+    await setupCommon(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [
+            makeSprint({
+              percent_complete: 70,
+              rollup_basis: 'tasks',
+              variance_days: 0,
+              sprint_scope_changed: false,
+              sprint_count: 1,
+            }),
+          ],
+        }),
+      }),
+    );
+
+    await page.goto(BASE_URL);
+    const card = page.getByRole('region', { name: /Advancing to Milestone/i });
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    await expect(card.getByText('70%')).toBeVisible();
+    await expect(card.getByText(/by tasks/i)).toBeVisible();
+  });
+
+  test('suppresses the rollup block entirely when basis is "none"', async ({ page }) => {
+    await setupCommon(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [
+            makeSprint({
+              percent_complete: null,
+              rollup_basis: 'none',
+              variance_days: null,
+              sprint_scope_changed: false,
+              sprint_count: 0,
+            }),
+          ],
+        }),
+      }),
+    );
+
+    await page.goto(BASE_URL);
+    const card = page.getByRole('region', { name: /Advancing to Milestone/i });
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    // Card still renders the milestone identity, but the rollup block is suppressed.
+    await expect(card.getByText('FAT review')).toBeVisible();
+    await expect(card.getByText(/by points/i)).not.toBeVisible();
+    await expect(card.getByText(/by tasks/i)).not.toBeVisible();
+  });
+});

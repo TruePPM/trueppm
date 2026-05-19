@@ -55,6 +55,16 @@ export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
   const progressDisplay =
     localProgress !== null ? localProgress : String(Math.round(task.progress));
 
+  // Milestone with a live sprint rollup (ADR-0074): show locked, rolled-up
+  // value instead of the editable input. Distinct from `task.isSummary` —
+  // milestones are leaves, not summaries, so this branch is independent.
+  const milestoneRollupActive = Boolean(
+    task.isMilestone &&
+      task.milestoneRollup &&
+      task.milestoneRollup.rollup_basis !== 'none' &&
+      task.milestoneRollup.percent_complete != null,
+  );
+
   function handleStatusChange(e: ChangeEvent<HTMLSelectElement>) {
     const next = e.target.value as TaskStatus;
     if (next === 'BACKLOG' && DEMOTION_GUARD.has(task!.status)) {
@@ -150,12 +160,19 @@ export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
         )}
       </div>
 
-      {/* Progress — editable for leaf tasks, read-only for summary (#406) */}
+      {/* Progress — editable for leaf tasks, read-only for summary (#406)
+       *   and for milestones with a sprint rollup (ADR-0074). */}
       <div>
         <div className={LABEL_CLASS}>
-          {task.isSummary ? 'Progress (rolled up)' : 'Progress'}
+          {milestoneRollupActive
+            ? 'Progress (sprint rollup)'
+            : task.isSummary
+              ? 'Progress (rolled up)'
+              : 'Progress'}
         </div>
-        {task.isSummary ? (
+        {milestoneRollupActive && task.milestoneRollup ? (
+          <MilestoneRollupReadOnly rollup={task.milestoneRollup} />
+        ) : task.isSummary ? (
           <p className="text-sm tppm-mono text-neutral-text-primary">
             {Math.round(task.progress)}%
           </p>
@@ -195,6 +212,60 @@ export function OverviewSection({ taskId, projectId }: DrawerSectionProps) {
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+function MilestoneRollupReadOnly({
+  rollup,
+}: {
+  rollup: NonNullable<ReturnType<typeof useScheduleTasks>['tasks']>[number]['milestoneRollup'];
+}) {
+  if (!rollup || rollup.percent_complete == null) return null;
+  const pct = Math.round(rollup.percent_complete);
+  const basis = rollup.rollup_basis === 'tasks' ? 'tasks' : 'points';
+  const variance = rollup.variance_days;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p
+        className="text-sm tppm-mono text-neutral-text-primary"
+        aria-readonly="true"
+        aria-label={`Milestone progress ${pct} percent, rolled up from ${rollup.sprint_count} sprint${rollup.sprint_count === 1 ? '' : 's'}`}
+      >
+        {pct}%
+      </p>
+      <p className="text-xs text-neutral-text-secondary">
+        by {basis}
+        {rollup.sprint_count > 1 ? ` across ${rollup.sprint_count} sprints` : ''}
+        {rollup.sprint_scope_changed && (
+          <>
+            {' · '}
+            <span title="Sprint scope changed since activation — committed baseline preserved.">
+              scope changed
+            </span>
+          </>
+        )}
+      </p>
+      <p className="text-xs text-neutral-text-secondary flex items-start gap-1.5 mt-1">
+        <span aria-hidden="true">🔒</span>
+        <span>Progress rolls up from sprint(s) — close or unlink to edit.</span>
+      </p>
+      {variance != null && variance !== 0 && (
+        <p
+          className={[
+            'text-xs tppm-mono',
+            variance < 0
+              ? 'text-semantic-on-track'
+              : variance <= 5
+                ? 'text-semantic-at-risk'
+                : 'text-semantic-critical',
+          ].join(' ')}
+        >
+          {variance < 0
+            ? `Sprint plan: ${variance}d ahead`
+            : `Sprint plan: +${variance}d slip`}
+        </p>
+      )}
     </div>
   );
 }

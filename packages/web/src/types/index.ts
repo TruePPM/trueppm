@@ -119,6 +119,14 @@ export interface Task {
   shortId?: string;
   /** Sprint scope-change audit rows — populated when subtasks are added to an in-sprint task (ADR-0060). */
   sprintScopeChanges?: Array<{ subtaskName: string; addedByName: string | null; addedAt: string }>;
+  /**
+   * Sprint→milestone rollup payload (ADR-0074). Populated only on milestone
+   * tasks with at least one live targeting sprint; `null` for non-milestones
+   * and for milestones without sprint links. When `rollup_basis === 'none'`
+   * the manual `percent_complete` value still applies; the UI surfaces no
+   * lock chrome in that case.
+   */
+  milestoneRollup?: MilestoneRollup | null;
 }
 
 /** Estimation governance mode on Project (issue #141 / ADR-0032). */
@@ -174,6 +182,32 @@ export interface Project {
 export type SprintState = 'PLANNED' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
 
 /**
+ * Sprint → milestone rollup payload (ADR-0074).
+ *
+ * Aggregated only — never contains per-assignee task lists or raw
+ * committed/completed point counts (Morgan VoC guardrail). The rolled-up
+ * `percent_complete` is the single source of truth that both the
+ * AdvancingToMilestoneCard and the Gantt milestone diamond render.
+ */
+export interface MilestoneRollup {
+  /** 0–100, capped. Null when basis is "none" (no points and no committed tasks). */
+  percent_complete: number | null;
+  /** "points" when the team sizes in story points; "tasks" when only counting completion;
+   *  "none" when neither input is available. */
+  rollup_basis: 'points' | 'tasks' | 'none';
+  /** Days between the latest ACTIVE/PLANNED sprint's finish_date and the
+   *  milestone's early_finish. Positive = sprint plan slips past the
+   *  milestone date. Null when there is no live sprint or no CPM date. */
+  variance_days: number | null;
+  /** True when an active sprint's current backlog points sum diverges from
+   *  its activation-snapshot committed_points. The PM cap on % at 100% is
+   *  honest when this flag is set. */
+  sprint_scope_changed: boolean;
+  /** Total number of sprints targeting this milestone (any state). */
+  sprint_count: number;
+}
+
+/**
  * Optional milestone link surfaced inline on the sprint detail.
  *
  * The Sprint serializer expands the foreign key into a small object so the
@@ -186,6 +220,10 @@ export interface SprintTargetMilestone {
   wbs_path?: string | null;
   /** ISO date string for the milestone's planned finish. */
   finish?: string | null;
+  /** Rolled-up progress + variance (ADR-0074). Null when no live targeting
+   *  sprints OR when this serializer was called from a legacy path that
+   *  predates the rollup. */
+  rollup?: MilestoneRollup | null;
 }
 
 /**
