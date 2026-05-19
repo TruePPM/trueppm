@@ -75,6 +75,7 @@ export default defineConfig({
           items: [
             { slug: "guides/project-managers" },
             { slug: "guides/scrum-masters" },
+            { slug: "guides/product-owners" },
             { slug: "guides/team-members" },
             { slug: "guides/resource-managers" },
             { slug: "guides/executives" },

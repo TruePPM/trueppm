@@ -35,7 +35,7 @@ TruePPM is designed around eight roles that exist in real hybrid-delivery organi
 |---------|------|----------------|
 | **Sarah** | Project Manager | Schedule (Gantt), CPM, Monte Carlo |
 | **Alex** | Scrum Master / Agile Delivery Lead | Board, Sprints, Velocity, Retrospective |
-| **Jordan** | Product Owner | Backlog, Sprint planning, Burn charts |
+| **Jordan** | Product Owner | Backlog management, velocity-based release forecasting, sprint scope protection |
 | **Priya** | Team Member / Contributor | Board cards, Sprint backlog, My Work |
 | **David** | Resource Manager | Capacity preflight, Allocation |
 | **Marcus** | PMO Director | Programs, Portfolio (Enterprise) |
