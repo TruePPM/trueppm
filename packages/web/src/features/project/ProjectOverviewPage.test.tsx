@@ -126,6 +126,43 @@ describe('ProjectOverviewPage', () => {
     });
   });
 
+  // #506: long milestone names clipped at narrow card widths. The fix uses
+  // container-query fluid type (`cqi`), `break-words`, and `min-w-0 overflow-hidden`
+  // so the value element stays inside the card and wraps rather than overflowing.
+  it('KpiCard value uses fluid container-query type and wraps long text (#506)', async () => {
+    mockedGet.mockImplementation((url: string) => {
+      if (url.endsWith('/overview/')) {
+        return Promise.resolve({
+          data: {
+            ...OVERVIEW_RESPONSE,
+            next_milestone: {
+              id: 'm1',
+              name: 'Production Launch Phase 2',
+              date: '2026-05-01',
+              percent_complete: 0,
+            },
+          },
+        });
+      }
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+    renderPage();
+    const valueEl = await screen.findByText('Production Launch Phase 2');
+    expect(valueEl.className).toMatch(/break-words/);
+    expect(valueEl.className).toMatch(/leading-tight/);
+    expect(valueEl.className).toMatch(/text-\[clamp\(0\.875rem,7cqi,1\.5rem\)\]/);
+
+    // The card container must allow shrinking + clipping for the fluid type to work
+    const card = valueEl.parentElement;
+    expect(card?.className).toMatch(/min-w-0/);
+    expect(card?.className).toMatch(/overflow-hidden/);
+    expect(card?.className).toMatch(/\[container-type:inline-size\]/);
+  });
+
   it('renders project header with health badge', async () => {
     renderPage();
     await waitFor(() => {

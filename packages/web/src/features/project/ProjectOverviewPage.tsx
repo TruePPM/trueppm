@@ -224,13 +224,22 @@ function KpiCard({ label, value, sub, variant = 'neutral' }: KpiCardProps) {
     neutral: 'text-neutral-text-primary',
   }[variant];
 
+  // `container-type: inline-size` + `cqi` units make the value font scale with the
+  // card's own width rather than the viewport, so long values (milestone names,
+  // dates) stay legible when the 6-column grid squeezes each card under ~180px
+  // (#506). `break-words` is the last-resort wrap for unbreakable strings;
+  // `min-w-0 overflow-hidden` allows the grid track to shrink past content width.
   return (
-    <div className="flex flex-col gap-1 p-4 rounded border border-neutral-border bg-neutral-surface-raised">
-      <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary">
+    <div className="flex flex-col gap-1 p-4 rounded border border-neutral-border bg-neutral-surface-raised min-w-0 overflow-hidden [container-type:inline-size]">
+      <span className="text-xs font-medium uppercase tracking-wide text-neutral-text-secondary truncate">
         {label}
       </span>
-      <span className={`text-2xl font-semibold tppm-mono ${valueColor}`}>{value}</span>
-      {sub && <span className="text-xs text-neutral-text-disabled tppm-mono">{sub}</span>}
+      <span
+        className={`font-semibold tppm-mono break-words leading-tight text-[clamp(0.875rem,7cqi,1.5rem)] ${valueColor}`}
+      >
+        {value}
+      </span>
+      {sub && <span className="text-xs text-neutral-text-disabled tppm-mono truncate">{sub}</span>}
     </div>
   );
 }

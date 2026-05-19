@@ -222,4 +222,95 @@ test.describe('Project overview page', () => {
     await expect(page.getByRole('region', { name: /monte carlo forecast/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /run forecast/i })).toBeVisible();
   });
+
+  // #506: at the lg+ breakpoint the KPI strip switches to 6 columns so each card
+  // collapses to ~150–180px. A long milestone name (or any long text value) used
+  // to clip mid-word. Container-query fluid type + `break-words` should now keep
+  // the visible text fully contained in the card. Uses the same reload-after-route
+  // pattern as the 'error state' test so it benefits from setupRoutes priming.
+  test('stat card values do not clip horizontally at 1024px with long text (#506)', async ({ page }) => {
+    // Auth/membership stubs scoped to this test — prevent the session-expired
+    // race (any unhandled 401 → token-refresh-on-second-401 → expireSession()
+    // overlays the page with a dialog). The default setupRoutes() doesn't stub
+    // these because most tests don't actually need the data to load before they
+    // assert, but our visual-clipping assertion does.
+    await page.route('**/api/v1/auth/me/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: 'e2e-user',
+          email: 'e2e@trueppm.local',
+          username: 'e2e',
+          first_name: 'E2E',
+          last_name: 'User',
+          is_active: true,
+        }),
+      }),
+    );
+    await page.route('**/api/v1/auth/token/refresh/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ access: 'e2e-token-refreshed' }),
+      }),
+    );
+    await page.route('**/api/v1/programs/**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+      }),
+    );
+    await page.route('**/api/v1/me/work/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ tasks: [] }),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(FIXTURE_PROJECTS[0]),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+      }),
+    );
+
+    await page.unroute(`**/api/v1/projects/${PROJECT_ID}/overview/`);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...FIXTURE_OVERVIEW,
+          next_milestone: {
+            id: 'm1',
+            name: 'Production Launch Phase 2',
+            date: '2026-05-01',
+            percent_complete: 0,
+          },
+        }),
+      }),
+    );
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.reload();
+
+    const milestoneValue = page.getByText('Production Launch Phase 2');
+    await expect(milestoneValue).toBeVisible({ timeout: 10_000 });
+
+    // overflow-hidden + break-words means the visible text fully fits — scrollWidth
+    // should not exceed clientWidth (allow 1px for sub-pixel rendering).
+    const overflowPx = await milestoneValue.evaluate(
+      (el) => (el as HTMLElement).scrollWidth - (el as HTMLElement).clientWidth,
+    );
+    expect(overflowPx).toBeLessThanOrEqual(1);
+  });
 });

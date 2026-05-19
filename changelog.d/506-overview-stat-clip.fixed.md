@@ -1,0 +1,1 @@
+Overview KPI cards no longer clip long values (long milestone names, multi-word health labels) at narrow card widths. The primary value now scales fluidly with the card's own width via container-query units and wraps as a last resort, so the six-card strip at `lg`+ breakpoints stays legible when the sidebar is open. (#506)
