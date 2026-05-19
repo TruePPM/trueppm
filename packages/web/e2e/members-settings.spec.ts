@@ -180,9 +180,9 @@ test.describe('Members Settings — role change', () => {
     });
 
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
-    // Bob's row has the role picker (Team Member, role=1)
+    // Bob's row has the role picker (Team Member, role=100)
     const bobRow = page.locator('li').filter({ hasText: 'bob' }).first();
-    await bobRow.getByRole('combobox').selectOption('2');
+    await bobRow.getByRole('combobox').selectOption('200');
 
     await expect.poll(() => patchBody).toEqual({ role: 200 });
   });
