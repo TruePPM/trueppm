@@ -161,6 +161,11 @@ export default defineConfig({
             { slug: "contributing/release" },
           ],
         },
+        // --- About ---
+        {
+          label: "About",
+          items: [{ slug: "about" }],
+        },
       ],
     }),
   ],

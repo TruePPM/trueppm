@@ -3,6 +3,10 @@ title: Velocity calibration
 description: On sprint close, TruePPM uses team velocity to suggest a more accurate most-likely duration for each task — non-destructively.
 ---
 
+:::caution[Roadmap — 0.2]
+This feature is designed and documented but not yet shipped. Target release: **0.2**.
+:::
+
 When a sprint closes, TruePPM computes the team's rolling six-sprint velocity (points completed per working day) and, for each task in the closing sprint with story points set, suggests a new **most-likely duration**. The suggestion appears in the Task Detail Drawer's **Estimates** section as a "Revise estimate from Sprint N?" banner. The PM accepts or dismisses it; the underlying value is never overwritten without consent.
 
 This is the agile → CPM half of the [hybrid PM bridge](/the-story/#7-forecast--monte-carlo-across-both-worlds) — sprint reality feeding back into the Monte Carlo forecast.

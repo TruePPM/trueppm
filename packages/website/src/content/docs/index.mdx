@@ -20,6 +20,43 @@ import { Card, CardGrid, Badge } from "@astrojs/starlight/components";
 TruePPM is under active development. The scheduling engine, REST API, and real-time backend are functional and tested. The web UI is in early development. Not yet suitable for production use.
 :::
 
+## 5-minute local demo
+
+```bash
+git clone https://gitlab.com/trueppm/trueppm.git && cd trueppm
+docker compose up -d
+docker compose exec api python manage.py seed_demo_project --with-personas
+# Web UI → http://localhost:5173   (six persona logins, password: demo)
+# API    → http://localhost:8000/api/schema/swagger-ui/
+```
+
+Or use the scheduling engine standalone — no server required:
+
+```bash
+pip install trueppm-scheduler
+```
+
+```python
+from datetime import date, timedelta
+from trueppm_scheduler import schedule, Calendar, Project, Task, Dependency
+
+calendar = Calendar()  # Mon–Fri working days
+project = Project(
+    id="p-1", name="My Project", start_date=date(2026, 1, 5),
+    tasks=[
+        Task(id="t-1", name="Design", duration=timedelta(days=5)),
+        Task(id="t-2", name="Build",  duration=timedelta(days=10)),
+    ],
+    dependencies=[Dependency(predecessor_id="t-1", successor_id="t-2")],
+    calendar=calendar,
+)
+result = schedule(project)
+print(result.tasks[1].early_finish)   # 2026-01-21
+print(result.critical_path)           # ['t-1', 't-2']
+```
+
+**Stack:** Django 5.1 + Channels · React 19 + Vite · PostgreSQL 16 + ltree · Apache 2.0
+
 ## Why TruePPM?
 
 <CardGrid stagger>
