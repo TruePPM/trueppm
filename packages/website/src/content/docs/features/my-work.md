@@ -3,6 +3,10 @@ title: My Work
 description: A contributor's personal task list across every project, with zero project-management vocabulary.
 ---
 
+:::caution[Roadmap — 0.2]
+This feature is designed and documented but not yet shipped. Target release: **0.2**.
+:::
+
 **My Work** is the contributor's page. It lists every task assigned to you, across every project you're on, grouped by your active sprints. There's no Gantt chart, no work-breakdown tree, no critical-path math — just a flat list of what's yours, what's due, and what you can update with a tap.
 
 Open it from the **Me** section in the sidebar (`My Work`) or from your avatar menu. The route is `/me/work`.

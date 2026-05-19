@@ -167,6 +167,10 @@ See `CLAUDE.md` for coding conventions, two-repo rules, and the complete develop
 
 The community edition is fully functional on its own — it never imports from the enterprise repo. The dependency is strictly one-way.
 
+## Maintainer
+
+**Kelly Hair** — [GitLab](https://gitlab.com/kellyhair) · [LinkedIn](https://www.linkedin.com/in/kellyhair) · [kelly@trueppm.com](mailto:kelly@trueppm.com)
+
 ## Contributing
 
 TruePPM welcomes contributions.
@@ -176,7 +180,20 @@ TruePPM welcomes contributions.
 3. Add a changelog fragment in `changelog.d/` (e.g. `my-change.added.md`) — CI checks for this
 4. All MRs require a green pipeline before merge
 
-See [Contributing guide](https://docs.trueppm.com/contributing/guide/) for the full workflow.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, test layer expectations, and DCO sign-off requirement.
+
+## Security
+
+Report vulnerabilities privately via [SECURITY.md](SECURITY.md) — do not open public issues for security bugs.
+
+## Roadmap
+
+Public milestones: [gitlab.com/trueppm/trueppm/-/milestones](https://gitlab.com/trueppm/trueppm/-/milestones)
+
+- **0.2** — core hybrid bridge: program backlog, velocity feedback loop, "My Work" contributor surface
+- **0.3** — PO experience: epic task type, unified sprint planning, MCP server integration
+- **0.4** — mobile: React Native app, offline-first sync
+- **0.5** — migration imports + durability hardening
 
 ## License
 

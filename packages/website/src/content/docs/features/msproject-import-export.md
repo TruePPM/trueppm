@@ -3,6 +3,10 @@ title: MS Project Import / Export
 description: Import and export Microsoft Project .xml and .mpp files from TruePPM.
 ---
 
+:::caution[Roadmap — 0.5]
+This feature is designed and documented but not yet shipped. Target release: **0.5**.
+:::
+
 TruePPM can import project schedules from Microsoft Project XML (`.xml`) and binary (`.mpp`) files, and export any project back to MS Project XML. This page documents which MS Project fields are mapped, which are silently ignored, and what warnings to expect for edge-case inputs.
 
 ## Import formats

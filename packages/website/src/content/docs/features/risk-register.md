@@ -3,6 +3,10 @@ title: Risk Register
 description: PMBOK-aligned risk tracking with probability × impact scoring, task links, and real-time board integration.
 ---
 
+:::caution[Roadmap]
+This feature is designed and documented but not yet shipped.
+:::
+
 The Risk Register surfaces project risks in a dedicated **Risks** tab within the project workspace. Each risk is scored by probability × impact, tracked through a lifecycle, and can be linked to the tasks it affects.
 
 ## Risk scoring
