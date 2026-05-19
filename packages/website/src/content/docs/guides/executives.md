@@ -63,4 +63,4 @@ If you're evaluating TruePPM for your organization:
 1. **Try the scheduling engine** — [install locally](/getting-started/installation/) and run the [quickstart](/getting-started/quickstart/). The CPM and Monte Carlo capabilities are the core differentiator.
 2. **Review the architecture** — the [architecture overview](/architecture/overview/) explains how the pieces fit together and how the platform scales.
 3. **Check the roadmap** — the [roadmap](/overview/roadmap/) shows what's built, what's in progress, and what's planned for each edition.
-4. **Talk to us** — if the enterprise features are what you need, reach out via the [GitLab repository](https://gitlab.com/trueppm/trueppm) to discuss timelines and early access.
+4. **Talk to us** — if the enterprise features are what you need, reach out via the GitLab repository to discuss timelines and early access.

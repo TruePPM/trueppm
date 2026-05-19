@@ -26,13 +26,13 @@ Most P3M tools force a choice. TruePPM is designed from the ground up so teams c
 
 <CardGrid>
   <Card title="Waterfall" icon="document">
-    CPM forward/backward pass, milestones, baselines, Monte Carlo risk, EVM. The Project Manager gets a Gantt that actually computes the math — not a timeline disguised as a spreadsheet.
+    CPM forward/backward pass, milestones, baselines, Monte Carlo risk. The Project Manager gets a Gantt that computes the math — P50, P80, P95 confidence intervals, not a single optimistic date. [PM guide →](/guides/project-managers/)
   </Card>
   <Card title="Agile" icon="rocket">
-    Sprint boards, WIP limits, velocity tracking, burndown charts, retrospectives. The Scrum Master lives in the board view and never has to open a Gantt.
+    Sprint boards, WIP limits, velocity tracking, burndown charts, retrospectives. The Scrum Master lives in the board view and never has to open a Gantt. [Scrum Master guide →](/guides/scrum-masters/)
   </Card>
   <Card title="Hybrid" icon="random">
-    The same task is both a WBS node and a sprint story. Velocity auto-feeds the CPM forecast. Zero reconciliation meetings. [Read the full story →](/the-story/)
+    The same task is both a WBS node and a sprint story. Sprint velocity auto-feeds the CPM forecast. Zero reconciliation meetings. [Read the full story →](/the-story/)
   </Card>
 </CardGrid>
 
@@ -92,26 +92,29 @@ print(result.critical_path)           # ['t-1', 't-2']
 
 ## Who is it for?
 
-| Role | Methodology | TruePPM helps you... | Status |
-|------|-------------|---------------------|--------|
-| **Project Managers** | Waterfall / Hybrid | Build and maintain CPM schedules, run Monte Carlo simulations, track critical path and float | Available now |
-| **Scrum Masters** | Agile / Hybrid | Run sprints, track velocity, manage WIP limits, facilitate retros | Available now |
-| **Team Members** | Any | See assignments, log progress, get real-time updates when the plan changes | Available now |
-| **Resource Managers** | Any | Assign people to tasks, track allocations across projects | Basic now, full in enterprise |
-| **PMO Directors** | Any | Evaluate schedule confidence with probabilistic forecasting, enforce governance | Enterprise roadmap |
-| **Executives** | Any | Get portfolio visibility, RAG status, board-ready reporting | Enterprise roadmap |
+| Persona | Methodology | TruePPM gives them... | Guide |
+|---------|-------------|----------------------|-------|
+| **Project Managers** | Waterfall / Hybrid | CPM schedules, Monte Carlo confidence intervals, critical path, Gantt that re-forecasts from sprint velocity | [Guide →](/guides/project-managers/) |
+| **Scrum Masters** | Agile / Hybrid | Sprint board, WIP limits, velocity tracking, burndown, retrospective-to-backlog automation | [Guide →](/guides/scrum-masters/) |
+| **Product Owners** | Agile / Hybrid | Backlog management, velocity-based release forecasting, sprint scope protection | Roadmap (0.3) |
+| **Team Members** | Any | Board-first task view, My Work cross-project surface, real-time updates, offline sync | [Guide →](/guides/team-members/) |
+| **Resource Managers** | Any | Per-project capacity preflight, allocation tracking; cross-program leveling in Enterprise | [Guide →](/guides/resource-managers/) |
+| **PMO Directors** | Any | Program coordination; portfolio health scores, demand intake, governance in Enterprise | [Guide →](/guides/executives/) |
+| **Executives** | Any | Monte Carlo confidence intervals per project; portfolio RAG status, board-ready reports in Enterprise | [Guide →](/guides/executives/) |
 
 ## What's built today
 
 | Component | Status | Description |
 |-----------|--------|-------------|
-| Scheduling engine | **Stable** | CPM + Monte Carlo. Ships as `trueppm-scheduler` on PyPI. |
-| REST API | **Stable** | Full CRUD for projects, tasks, dependencies, resources, calendars, members. |
-| RBAC | **Stable** | 5-role per-project permissions on every endpoint. |
-| Real-time | **Stable** | WebSocket broadcasts for all mutations. |
-| Offline sync | **Stable** | Delta protocol with version tracking and soft-delete tombstones. |
-| Web UI | **Functional** | Schedule view (Gantt-style) with critical path, baselines, milestones; Board, Sprints, supporting views all wired against the live API. |
-| Helm chart | **Draft** | Kubernetes deployment with PostgreSQL and Redis sub-charts. |
+| Scheduling engine | **Stable** | CPM + Monte Carlo. Ships standalone as `trueppm-scheduler` on PyPI. |
+| REST API | **Stable** | Full CRUD for projects, tasks, dependencies, resources, calendars, members, sprints. OpenAPI 3.1 schema. |
+| RBAC | **Stable** | 5-role per-project permissions (Owner / Admin / Scheduler / Member / Viewer) on every endpoint. |
+| Real-time | **Stable** | WebSocket broadcasts for all mutations, deferred to transaction commit. |
+| Offline sync | **Stable** | WatermelonDB-compatible delta protocol with soft-delete tombstones. |
+| Schedule (Gantt) | **Stable** | Custom canvas renderer — critical path, baselines, milestones, build mode. |
+| Board / Kanban | **Stable** | 5-column board with WIP limit overload detection and drag-to-status. |
+| Sprints | **Stable** | Full plan → activate → close lifecycle, burndown, velocity, capacity preflight, retrospective. |
+| Helm chart | **Functional** | Kubernetes deployment with Bitnami sub-charts for PostgreSQL and Valkey. |
 
 ## Next steps
 

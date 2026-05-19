@@ -17,7 +17,7 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "TruePPM",
-      tagline: "Open-source project scheduling that actually computes the math.",
+      tagline: "One data model for waterfall, agile, and hybrid programs.",
       // Default first-time visitors to light mode. Starlight has no
       // `defaultTheme` option; instead we seed localStorage before its
       // theme script reads it. Subsequent visits respect the user's choice.
@@ -74,6 +74,7 @@ export default defineConfig({
           label: "Guides",
           items: [
             { slug: "guides/project-managers" },
+            { slug: "guides/scrum-masters" },
             { slug: "guides/team-members" },
             { slug: "guides/resource-managers" },
             { slug: "guides/executives" },
@@ -90,54 +91,78 @@ export default defineConfig({
             { slug: "administration/security" },
           ],
         },
-        // --- Feature reference ---
+        // --- Feature reference (sub-grouped) ---
         {
           label: "Features",
           items: [
-            { slug: "features/unified-data-model" },
-            { slug: "features/programs" },
-            { slug: "features/scheduler" },
-            { slug: "features/schedule" },
-            { slug: "features/methodology-preset" },
-            // Sprint surface (wave/10)
-            { slug: "features/sprints" },
-            { slug: "features/plan-sprint" },
-            { slug: "features/sprint-backlog" },
-            { slug: "features/sprint-burndown" },
-            { slug: "features/capacity-preflight" },
-            { slug: "features/velocity" },
-            { slug: "features/velocity-calibration" },
-            { slug: "features/my-work" },
-            { slug: "features/multi-team-lens" },
-            { slug: "features/retrospective" },
-            // Board surface
-            { slug: "features/board" },
-            { slug: "features/wip-overload" },
-            { slug: "features/subtasks" },
-            // Risk management
-            { slug: "features/risk-register" },
-            // Schedule authoring
-            { slug: "features/schedule-toolbar" },
-            { slug: "features/schedule-build-mode" },
-            // Reporting
-            { slug: "features/burn-charts" },
-            // Cross-cutting
-            { slug: "features/real-time" },
-            { slug: "features/offline-sync" },
-            // Integrations
-            { slug: "features/webhooks" },
-            { slug: "features/inbound-task-sync" },
+            {
+              label: "Foundations",
+              collapsed: false,
+              items: [
+                { slug: "features/unified-data-model" },
+                { slug: "features/methodology-preset" },
+                { slug: "features/programs" },
+              ],
+            },
+            {
+              label: "Scheduling",
+              collapsed: false,
+              items: [
+                { slug: "features/schedule" },
+                { slug: "features/schedule-toolbar" },
+                { slug: "features/schedule-build-mode" },
+                { slug: "features/summary-tasks" },
+                { slug: "features/subtasks" },
+              ],
+            },
+            {
+              label: "Agile",
+              collapsed: false,
+              items: [
+                { slug: "features/board" },
+                { slug: "features/wip-overload" },
+                { slug: "features/sprints" },
+                { slug: "features/plan-sprint" },
+                { slug: "features/sprint-backlog" },
+                { slug: "features/sprint-burndown" },
+                { slug: "features/capacity-preflight" },
+                { slug: "features/velocity" },
+                { slug: "features/velocity-calibration" },
+                { slug: "features/retrospective" },
+                { slug: "features/my-work" },
+                { slug: "features/multi-team-lens" },
+              ],
+            },
+            {
+              label: "Reporting & Risk",
+              collapsed: false,
+              items: [
+                { slug: "features/burn-charts" },
+                { slug: "features/risk-register" },
+              ],
+            },
+            {
+              label: "Collaboration",
+              collapsed: false,
+              items: [
+                { slug: "features/real-time" },
+                { slug: "features/offline-sync" },
+                { slug: "features/webhooks" },
+                { slug: "features/inbound-task-sync" },
+              ],
+            },
           ],
         },
-        // --- API + integrations ---
+        // --- API ---
         {
           label: "API",
           items: [{ slug: "api/reference" }],
         },
-        // --- Integration guides ---
+        // --- Scheduler Library (standalone PyPI package + platform integration) ---
         {
-          label: "Integration",
+          label: "Scheduler Library",
           items: [
+            { slug: "features/scheduler" },
             { slug: "integration/standalone" },
             { slug: "integration/django" },
             { slug: "integration/fastapi" },

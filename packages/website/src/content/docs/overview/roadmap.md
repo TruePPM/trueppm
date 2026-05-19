@@ -3,7 +3,7 @@ title: Roadmap
 description: What's available now, what's coming next, and what's planned for the enterprise edition.
 ---
 
-TruePPM is pre-alpha. This page tracks what's built, what's in progress, and what's planned. For the latest, see the [GitLab issue board](https://gitlab.com/trueppm/trueppm/-/issues).
+TruePPM is pre-alpha. This page tracks what's built, what's in progress, and what's planned.
 
 ## Available now (community edition)
 
@@ -15,7 +15,7 @@ TruePPM is pre-alpha. This page tracks what's built, what's in progress, and wha
 | 5-role RBAC | Stable | Owner / Admin / Scheduler / Member / Viewer, per-endpoint enforcement |
 | Real-time WebSocket | Stable | Broadcasts for all mutations, deferred to transaction commit |
 | Offline sync protocol | Stable | WatermelonDB-compatible delta sync with soft-delete tombstones |
-| Auto-scheduling | Stable | Celery recalculates CPM on every write, Redis-locked for idempotency |
+| Auto-scheduling | Stable | Celery recalculates CPM on every write, Valkey-locked for idempotency |
 | Schedule view (Gantt-style) | Stable | Canvas renderer with critical path, baselines, milestones, unscheduled gutter, drag-to-reschedule |
 | Board / Kanban | Stable | 5-column model, swimlanes, WIP limit overload detection, workshop mode |
 | Sprints workspace | Stable | Header + goal + milestone link + cadence timeline + backlog + burndown + capacity + velocity + retro |
@@ -41,7 +41,7 @@ TruePPM is pre-alpha. This page tracks what's built, what's in progress, and wha
 Past 0.1, the OSS surface continues to expand. Current priorities:
 
 - WASM CPM on the client (incremental recompute for sub-100ms drag preview, ADR-0027)
-- Time tracking (passive signals where possible — commits, calendar — per Tom's persona)
+- Time tracking (passive signals where possible — commits, calendar — minimize manual entry for contributors)
 - Multi-baseline support with structured rebaseline reasons
 - EVM (BCWS / BCWP / ACWP / CPI / SPI) on the Schedule view
 - Sub-tasks and checklists on stories
@@ -49,7 +49,7 @@ Past 0.1, the OSS surface continues to expand. Current priorities:
 - Mobile app (React Native + WatermelonDB) — read + simple updates first
 - Additional migration importers (Primavera P6 .xer, GanttProject, Linear, Trello, Notion CSV)
 
-The full list lives as open issues in [the GitLab project](https://gitlab.com/trueppm/trueppm/-/issues).
+The full list lives as open issues in the GitLab project.
 
 ## Planned (enterprise edition)
 

@@ -5,11 +5,11 @@
 [![Pipeline status](https://gitlab.com/trueppm/trueppm/badges/main/pipeline.svg)](https://gitlab.com/trueppm/trueppm/-/pipelines)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-**Open-source project scheduling that actually computes the math.**
+**Waterfall, agile, and hybrid programs — one platform, one data model.**
 
-Most project management tools are glorified to-do lists. They let you draw bars on a timeline, but they don't calculate the critical path, don't tell you which tasks have float, and don't warn you when a dependency change pushes your delivery date. TruePPM does.
+Most project management tools force a choice: Jira speaks Agile and translates poorly to a Gantt; MS Project speaks Waterfall and ignores the team's actual cadence. TruePPM is built so a Scrum Master and a Project Manager look at the same underlying data and each sees the view they need.
 
-TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platform for teams that need reliable schedule control — not just task tracking.
+TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platform — built scheduling-first, with a fully native agile surface layered on top. CPM is the engine, not a bolt-on. Agile boards and sprints are an overlay on the schedule, not a parallel system.
 
 > **Status: 0.1-alpha — first public alpha. Not ready for production use.**
 > The core engine and API are solid. The UI is functional but rough. Expect breaking API changes between alpha and beta. **Hold off on deploying for real teams until the first beta release** — we don't know yet what needs to change based on early feedback, and locking in users before we do will make that harder.
@@ -19,6 +19,10 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 **Real scheduling, not just task lists.** TruePPM runs Critical Path Method (CPM) calculations on every change — forward pass, backward pass, float, and critical-path identification. You always know which tasks drive your deadline and where you have slack.
 
 **Monte Carlo risk analysis built in.** Add three-point estimates (optimistic / most likely / pessimistic) to any task and run a probabilistic simulation. Get P50, P80, and P95 completion dates instead of a single optimistic number. That P80 date is the one you should commit to stakeholders.
+
+**Agile-native, schedule-aware.** Full sprint lifecycle (plan → activate → close), board with WIP limits, velocity tracking, burndown charts, retrospective-to-backlog automation. The Scrum Master gets a native agile surface and never opens the Gantt. Sprint velocity automatically feeds the CPM forecast.
+
+**Hybrid bridge built in.** The same task is both a WBS node and a sprint story. When a team member marks a story done, the PM's Gantt re-forecasts in real time. No status meetings, no reconciliation spreadsheets.
 
 **Open source, self-hosted, no vendor lock-in.** The community edition is Apache 2.0. Run it on your own infrastructure. Your data stays yours. The scheduling engine ships as a standalone Python package — use it without the API if you just need the math.
 
@@ -105,7 +109,10 @@ Seed a populated demo project:
 
 ```bash
 docker compose exec api python manage.py seed_demo_project --with-personas
-# Six persona logins (Maya, Raj, Diana, Sarah, Carlos, Tom) — all password: demo
+# Demo logins (password: demo):
+#   maya  — Scrum Master    raj    — Project Manager
+#   diana — PMO Director    sarah  — Resource Manager
+#   carlos — Exec Sponsor   tom    — Team Member
 ```
 
 ### Production (single server)
@@ -161,7 +168,7 @@ See `CLAUDE.md` for coding conventions, two-repo rules, and the complete develop
 
 ## Open-Core Model
 
-**Community edition** (this repo) is Apache 2.0 — scheduling engine, CPM, Monte Carlo, Schedule (Gantt), Board, Sprints, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, Helm chart. Everything an individual PM or small team needs.
+**Community edition** (this repo) is Apache 2.0 — scheduling engine (CPM + Monte Carlo, standalone on PyPI), Schedule (Gantt), Board / Kanban, Sprints (full lifecycle + velocity + burndown + retro), Programs, MS Project import/export, offline sync, real-time collaboration, 5-role RBAC, REST/WS API, Helm chart. Everything an individual PM or program team needs.
 
 **Enterprise edition** (separate repo, proprietary) adds features for organizations managing a portfolio across multiple programs: portfolio analytics, SSO/SAML/OIDC, immutable audit trail, cross-program resource leveling, AI scheduling, Jira/GitLab/ServiceNow connectors.
 
@@ -190,10 +197,10 @@ Report vulnerabilities privately via [SECURITY.md](SECURITY.md) — do not open 
 
 Public milestones: [gitlab.com/trueppm/trueppm/-/milestones](https://gitlab.com/trueppm/trueppm/-/milestones)
 
-- **0.2** — core hybrid bridge: program backlog, velocity feedback loop, "My Work" contributor surface
-- **0.3** — PO experience: epic task type, unified sprint planning, MCP server integration
-- **0.4** — mobile: React Native app, offline-first sync
-- **0.5** — migration imports + durability hardening
+- **0.2** — hybrid bridge depth: program backlog, velocity feedback loop, "My Work" cross-project surface, backup/replay hardening
+- **0.3** — PO experience: epic task type, unified sprint planning, multi-team agile, MCP server integration
+- **0.4** — mobile: React Native app, offline-first sync, time tracking
+- **0.5** — migration imports (MS Project, Primavera, Linear, Jira) + Helm/HA hardening
 
 ## License
 
