@@ -177,14 +177,14 @@ def test_put_is_idempotent(scheduler_client, project):
 
 @pytest.mark.django_db
 def test_member_can_read_config(member_client, project):
-    """A MEMBER (role=1) can read the config."""
+    """A MEMBER (role == Role.MEMBER) can read the config."""
     resp = member_client.get(f"/api/v1/projects/{project.pk}/board-config/")
     assert resp.status_code == 200
 
 
 @pytest.mark.django_db
 def test_member_cannot_write_config(member_client, project):
-    """A MEMBER (role=1) cannot PUT the config (requires SCHEDULER)."""
+    """A MEMBER (role == Role.MEMBER) cannot PUT the config (requires SCHEDULER)."""
     resp = member_client.put(
         f"/api/v1/projects/{project.pk}/board-config/",
         data={"columns": DEFAULT_COLUMNS},

@@ -157,7 +157,7 @@ def test_open_mode_contributor_writes_estimates(
 
 @pytest.mark.django_db
 def test_open_mode_partial_save_allowed(project: Project, task: Task) -> None:
-    # Project Manager (ADMIN, role=3) can edit any task — no assignee needed.
+    # Project Manager (ADMIN, role=Role.ADMIN) can edit any task — no assignee needed.
     pm = _make_user("pm_partial")
     _make_membership(project, pm, Role.ADMIN)
     c = _client(pm)

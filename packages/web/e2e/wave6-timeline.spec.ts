@@ -89,8 +89,8 @@ const FIXTURE_ALLOCATION = {
   ],
 };
 
-const MEMBER_SCHEDULER = [{ id: 'mem-sched', role: 2 }];
-const MEMBER_MEMBER = [{ id: 'mem-member', role: 1 }];
+const MEMBER_SCHEDULER = [{ id: 'mem-sched', role: 200 }];
+const MEMBER_MEMBER = [{ id: 'mem-member', role: 100 }];
 
 // ---------------------------------------------------------------------------
 // Setup helper

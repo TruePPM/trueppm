@@ -68,7 +68,7 @@ describe('InviteForm', () => {
     await userEvent.click(await screen.findByRole('option', { name: /dave/i }));
     await userEvent.click(screen.getByRole('button', { name: /^add$/i }));
     expect(mockAddMember).toHaveBeenCalledWith(
-      { user: 'user-dave', role: 1 },
+      { user: 'user-dave', role: 100 },
       expect.any(Object),
     );
   });

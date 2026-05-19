@@ -33,7 +33,7 @@ describe('useMyTasksFilter', () => {
       },
       isLoading: false,
     });
-    useCurrentUserRoleMock.mockReturnValue({ role: 1, isLoading: false });
+    useCurrentUserRoleMock.mockReturnValue({ role: 100, isLoading: false });
     const { result } = renderHook(() => useMyTasksFilter('p1'));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.enabled).toBe(true);
@@ -50,7 +50,7 @@ describe('useMyTasksFilter', () => {
       },
       isLoading: false,
     });
-    useCurrentUserRoleMock.mockReturnValue({ role: 2, isLoading: false });
+    useCurrentUserRoleMock.mockReturnValue({ role: 200, isLoading: false });
     const { result } = renderHook(() => useMyTasksFilter('p1'));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.enabled).toBe(false);
@@ -68,7 +68,7 @@ describe('useMyTasksFilter', () => {
       },
       isLoading: false,
     });
-    useCurrentUserRoleMock.mockReturnValue({ role: 1, isLoading: false });
+    useCurrentUserRoleMock.mockReturnValue({ role: 100, isLoading: false });
     const { result } = renderHook(() => useMyTasksFilter('p1'));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     // Stored '0' beats the MEMBER default of on.
@@ -86,7 +86,7 @@ describe('useMyTasksFilter', () => {
       },
       isLoading: false,
     });
-    useCurrentUserRoleMock.mockReturnValue({ role: 2, isLoading: false });
+    useCurrentUserRoleMock.mockReturnValue({ role: 200, isLoading: false });
     const { result } = renderHook(() => useMyTasksFilter('p9'));
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     act(() => result.current.setEnabled(true));

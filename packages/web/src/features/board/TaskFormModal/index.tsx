@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import type { Task, TaskStatus } from '@/types';
+import { ROLE_VIEWER, ROLE_MEMBER, ROLE_ADMIN } from '@/lib/roles';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useSprints } from '@/hooks/useSprints';
 import { useProject } from '@/hooks/useProject';
@@ -72,8 +73,6 @@ const STATUS_OPTIONS: Array<{ value: TaskStatus; label: string }> = [
   { value: 'REVIEW', label: 'Review' },
   { value: 'COMPLETE', label: 'Complete' },
 ];
-
-const ROLE_PROJECT_MANAGER = 3;
 
 interface FormState {
   name: string;
@@ -269,9 +268,9 @@ export function TaskFormModal({
   // Permission gate for Delete action — PM+ only. Members with task ownership
   // can still delete via existing surfaces (board card menu); the modal
   // takes the safe-narrow path of role >= PROJECT_MANAGER (3).
-  const canDelete = isEdit && role !== null && role >= ROLE_PROJECT_MANAGER;
-  const isViewer = role !== null && role === 0;
-  const isReadOnly = isViewer || (mode === 'edit' && role === 1 && task?.assignees.every(
+  const canDelete = isEdit && role !== null && role >= ROLE_ADMIN;
+  const isViewer = role !== null && role === ROLE_VIEWER;
+  const isReadOnly = isViewer || (mode === 'edit' && role === ROLE_MEMBER && task?.assignees.every(
     // Member without ownership has read-only view (best-effort heuristic;
     // server is the source of truth — if PATCH fails with 403 we surface it).
     () => false,

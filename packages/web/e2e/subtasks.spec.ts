@@ -168,7 +168,7 @@ async function setupRoutes(page: Page, tasks: object[]) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ id: 'mem-e2e', role: 3, user_id: 'e2e-user' }),
+      body: JSON.stringify({ id: 'mem-e2e', role: 300, user_id: 'e2e-user' }),
     }),
   );
   await page.route('**/api/v1/tasks/**', (route) =>

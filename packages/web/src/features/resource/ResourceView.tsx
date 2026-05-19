@@ -11,6 +11,7 @@
  * The active mode is stored in localStorage so it persists per-session.
  */
 import { useState, useRef, useEffect } from 'react';
+import { ROLE_SCHEDULER } from '@/lib/roles';
 import { ResourceToolbar, type ViewMode } from './ResourceToolbar';
 import { ResourceGrid } from './ResourceGrid';
 import { ResourceEmptyState } from './ResourceEmptyState';
@@ -33,7 +34,6 @@ import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useTriggerScheduler } from '@/hooks/useTriggerScheduler';
 
-const SCHEDULER_ROLE = 2;
 
 const MODE_STORAGE_KEY = 'trueppm.resources.viewMode';
 
@@ -116,7 +116,7 @@ export function ResourceView({
 
   // --- Permission gate (rule 94) ---
   const { role, isLoading: roleLoading } = useCurrentUserRole(projectId);
-  if (!roleLoading && (role === null || role < SCHEDULER_ROLE)) {
+  if (!roleLoading && (role === null || role < ROLE_SCHEDULER)) {
     return (
       <div className="flex flex-col h-full overflow-hidden">
         <PermissionDeniedNotice />

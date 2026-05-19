@@ -44,7 +44,7 @@ class ProjectMembershipViewSet(viewsets.GenericViewSet[ProjectMembership]):
 
     Permission matrix:
       list/retrieve  — any project member (Viewer+)
-      create         — Owner only (role=4)
+      create         — Owner only (role == Role.OWNER)
       partial_update — Owner only; caller may not assign role >= their own
       destroy        — Owner only for others; any member may self-remove
                        (last-Owner guard prevents stranding a project)

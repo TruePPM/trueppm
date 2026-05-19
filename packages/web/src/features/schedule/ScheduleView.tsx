@@ -23,6 +23,7 @@ import { ScheduleLegend } from './ScheduleLegend';
 import { useScheduleKeyboard } from './useScheduleKeyboard';
 import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { ROLE_MEMBER } from '@/lib/roles';
 import { MonteCarloRow } from './MonteCarloRow';
 import { MonteCarloGanttMarkers } from './MonteCarloGanttMarkers';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
@@ -669,9 +670,9 @@ export function ScheduleView() {
   const buildModeFlag = useFeatureFlag('schedule_build_mode_v1');
   const buildModeActive = buildModeFlag && !isMobile;
 
-  // Role gate for milestone insert (#340) — VIEWER (0) cannot author.
+  // Role gate for milestone insert (#340) — VIEWER cannot author.
   const { role: currentRole } = useCurrentUserRole(projectId ?? undefined);
-  const readOnly = currentRole !== null && currentRole < 1;
+  const readOnly = currentRole !== null && currentRole < ROLE_MEMBER;
   const focus = useScheduleFocus();
   const indentTask = useIndentTask(projectId ?? null);
   const outdentTask = useOutdentTask(projectId ?? null);
@@ -1143,7 +1144,7 @@ export function ScheduleView() {
         />
       )}
 
-      {(currentRole === null || currentRole >= 1) && (
+      {(currentRole === null || currentRole >= ROLE_MEMBER) && (
         <MonteCarloRow
           engine={engine}
           projectId={projectId ?? undefined}

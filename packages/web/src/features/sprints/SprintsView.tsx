@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { ROLE_SCHEDULER } from '@/lib/roles';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useUpdateTask } from '@/hooks/useTaskMutations';
@@ -87,9 +88,9 @@ export function SprintsView() {
   const buckets = useSprintsByState(projectId);
   const { closeSprint, activateSprint } = useSprintMutations(projectId);
   const { resourceId: myResourceId } = useCurrentUserResourceId(projectId ?? undefined);
-  // SCHEDULER+ (role >= 2) can pull retro action items into a PLANNED sprint.
+  // SCHEDULER+ can pull retro action items into a PLANNED sprint.
   const { role: currentRole } = useCurrentUserRole(projectId ?? undefined);
-  const canPullCarryover = (currentRole ?? -1) >= 2;
+  const canPullCarryover = (currentRole ?? -1) >= ROLE_SCHEDULER;
 
   // Sprint number is 1-based chronological index across all sprints (any state).
   // Derived once per data update so every child can read the same answer.

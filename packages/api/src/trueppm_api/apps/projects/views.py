@@ -1423,7 +1423,7 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
     Permission matrix:
       list / retrieve — any project member (Viewer+)
       create          — Project Manager+ (IsProjectAdmin, role ≥ 3)
-      destroy         — Project Owner only (IsProjectOwner, role = 4)
+      destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)
     """
 
     queryset = Baseline.objects.filter(is_deleted=False)

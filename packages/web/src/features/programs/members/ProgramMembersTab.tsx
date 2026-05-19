@@ -8,8 +8,7 @@ import {
 } from '../hooks/useProgramMemberMutations';
 import { ProgramInviteForm } from './ProgramInviteForm';
 import { ProgramMemberRow } from './ProgramMemberRow';
-
-const OWNER_ROLE = 4;
+import { ROLE_OWNER } from '@/lib/roles';
 
 /**
  * /programs/:programId/members — manage program membership (ADR-0070).
@@ -31,8 +30,8 @@ export function ProgramMembersTab() {
 
   if (!programId) return null;
 
-  const isOwnerRole = program?.my_role === OWNER_ROLE;
-  const ownerCount = members.filter((m) => m.role === OWNER_ROLE).length;
+  const isOwnerRole = program?.my_role === ROLE_OWNER;
+  const ownerCount = members.filter((m) => m.role === ROLE_OWNER).length;
 
   return (
     <div className="mx-auto max-w-2xl space-y-8 px-4 py-8">
@@ -95,7 +94,7 @@ export function ProgramMembersTab() {
                 membership={m}
                 isSelf={user?.id === m.user}
                 isOwnerRole={isOwnerRole}
-                isSoleOwner={m.role === OWNER_ROLE && ownerCount === 1}
+                isSoleOwner={m.role === ROLE_OWNER && ownerCount === 1}
                 onChangeRole={(membershipId, role) => updateRole({ membershipId, role })}
                 onRemove={(membershipId) => removeMember(membershipId)}
                 isUpdatingRole={isUpdatingRole}

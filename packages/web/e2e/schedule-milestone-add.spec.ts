@@ -105,7 +105,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ user_id: 'self', role: 3 }]),
+      body: JSON.stringify([{ user_id: 'self', role: 300 }]),
     }),
   );
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/sprints/**`, (route) =>

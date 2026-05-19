@@ -5,6 +5,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProject } from '@/hooks/useProject';
 import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
+import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { ComponentType } from 'react';
 
 interface Tab {
@@ -40,7 +41,6 @@ const TABS: Tab[] = [
  * shareable URL.  Hidden when no project is selected (no projectId in params).
  */
 // SCHEDULER role ordinal — same value as Role.SCHEDULER in the Django model.
-const SCHEDULER_ROLE = 2;
 
 export function ViewTabs() {
   const location = useLocation();
@@ -67,7 +67,7 @@ export function ViewTabs() {
   const visibleTabs = TABS.filter(
     (t) =>
       isTabVisibleForMethodology(t.view, methodology) &&
-      (t.view !== 'resources' || (role !== null && role >= SCHEDULER_ROLE)),
+      (t.view !== 'resources' || (role !== null && role >= ROLE_SCHEDULER)),
   );
 
   return (

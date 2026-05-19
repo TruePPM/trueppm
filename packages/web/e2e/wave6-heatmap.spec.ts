@@ -53,8 +53,8 @@ const FIXTURE_SUMMARY = {
 };
 
 // SCHEDULER = 2, MEMBER = 1
-const MEMBER_SCHEDULER = [{ id: 'mem-sched', role: 2 }];
-const MEMBER_MEMBER   = [{ id: 'mem-member', role: 1 }];
+const MEMBER_SCHEDULER = [{ id: 'mem-sched', role: 200 }];
+const MEMBER_MEMBER   = [{ id: 'mem-member', role: 100 }];
 
 // ---------------------------------------------------------------------------
 // Setup helpers

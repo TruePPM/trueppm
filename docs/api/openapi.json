@@ -12250,13 +12250,13 @@
             "RoleEnum": {
                 "enum": [
                     0,
-                    1,
-                    2,
-                    3,
-                    4
+                    100,
+                    200,
+                    300,
+                    400
                 ],
                 "type": "integer",
-                "description": "* `0` - Viewer\n* `1` - Team Member\n* `2` - Resource Manager\n* `3` - Project Manager\n* `4` - Project Admin"
+                "description": "* `0` - Viewer\n* `100` - Team Member\n* `200` - Resource Manager\n* `300` - Project Manager\n* `400` - Project Admin\n\nOrdinals are spaced in 100-unit bands per ADR-0072 to reserve slot space for Enterprise custom roles. External consumers should compare with band ranges (e.g. `role >= 200`) rather than equality on intermediate values, and migrate hardcoded numeric literals (e.g. `role >= 3`) to the new ordinals."
             },
             "SchedulerRun": {
                 "type": "object",

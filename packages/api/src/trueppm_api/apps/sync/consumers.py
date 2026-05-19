@@ -8,6 +8,8 @@ from typing import Any
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
+from trueppm_api.apps.access.models import Role
+
 logger = logging.getLogger(__name__)
 
 _PRESENCE_TTL = 60  # seconds — refreshed on every received message (heartbeat)
@@ -25,7 +27,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                      the token is missing, invalid, or expired.
 
     Authorization:   The user must hold at least the Member role (ordinal ≥ 1)
-                     on the requested project. Viewers (role=0) are rejected.
+                     on the requested project. Viewers (role == Role.VIEWER) are rejected.
 
     Presence:        On connect, the user is added to a Redis hash keyed by
                      `project:{pk}:presence`.  A `presence.join` event is
@@ -60,9 +62,10 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         # Resolve project PK from URL route kwargs.
         project_pk = str(scope["url_route"]["kwargs"]["pk"])
 
-        # Check membership ≥ Member (Viewers cannot connect).
+        # Check membership ≥ Member (Viewers cannot connect). Symbolic comparison
+        # so the gate stays correct under ADR-0072 role-ordinal re-spacing.
         role = await self._get_role(user, project_pk)
-        if role is None or role < 1:
+        if role is None or role < Role.MEMBER:
             await self.close(code=4003)
             return
 

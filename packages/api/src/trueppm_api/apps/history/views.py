@@ -134,7 +134,7 @@ def _count_field_changes(records: list[Any]) -> dict[str, int]:
 
 
 def _caller_can_see_user(request: Request, project: Project) -> bool:
-    """True if the caller holds Owner or Admin role (>= ADMIN = 3)."""
+    """True if the caller holds Owner or Admin role (>= Role.ADMIN)."""
     try:
         m = ProjectMembership.objects.get(
             user=request.user,  # type: ignore[misc]
@@ -152,7 +152,7 @@ class TaskHistoryListView(APIView):
     GET /api/v1/projects/{project_pk}/tasks/{task_pk}/history/
 
     Permissions: any project member (Viewer+) may read. history_user details
-    are visible only to Owner/Admin (role >= 3); lower-privilege callers
+    are visible only to Owner/Admin (role >= Role.ADMIN); lower-privilege callers
     receive null for that field.
     """
 

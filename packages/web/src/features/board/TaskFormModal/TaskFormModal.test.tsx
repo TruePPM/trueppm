@@ -10,7 +10,7 @@ import { TaskFormModal } from './index';
 // mocked at module scope; per-test behavior is steered via the let-bound
 // fixtures below.
 let mockProjectAgile = false;
-let mockUserRole = 3; // PM by default; tests override to flex permissions
+let mockUserRole = 300; // PM by default; tests override to flex permissions
 let mockResourcePool: Array<{ resource: { id: string; name: string }; roleTitle: string }> = [];
 let mockSprints: Array<{ id: string; name: string; state: string }> = [];
 let mockHistory: Array<{ history_date: string; history_user: string | null; diff: unknown[] }> = [];
@@ -145,7 +145,7 @@ describe('TaskFormModal (issue #305)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockProjectAgile = false;
-    mockUserRole = 3;
+    mockUserRole = 300;
     mockResourcePool = [];
     mockSprints = [];
     mockHistory = [];
@@ -303,25 +303,25 @@ describe('TaskFormModal (issue #305)', () => {
   // ----- Delete + role gate ------------------------------------------------
 
   it('shows the Delete button in edit mode when role is PROJECT_MANAGER (3)', () => {
-    mockUserRole = 3;
+    mockUserRole = 300;
     renderModal({ task: baseTask() });
     expect(screen.getByRole('button', { name: 'Delete task' })).toBeInTheDocument();
   });
 
-  it('hides the Delete button when the user is a Member (role=1)', () => {
-    mockUserRole = 1;
+  it('hides the Delete button when the user is a Member (ROLE_MEMBER)', () => {
+    mockUserRole = 100;
     renderModal({ task: baseTask() });
     expect(screen.queryByRole('button', { name: 'Delete task' })).not.toBeInTheDocument();
   });
 
-  it('hides the Delete button when the user is a Resource Manager (role=2 — API forbids)', () => {
-    mockUserRole = 2;
+  it('hides the Delete button when the user is a Resource Manager (ROLE_SCHEDULER — API forbids)', () => {
+    mockUserRole = 200;
     renderModal({ task: baseTask() });
     expect(screen.queryByRole('button', { name: 'Delete task' })).not.toBeInTheDocument();
   });
 
   it('opens the destructive confirm dialog when Delete is clicked', () => {
-    mockUserRole = 4;
+    mockUserRole = 400;
     renderModal({ task: baseTask({ name: 'To be deleted' }) });
     fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
@@ -329,7 +329,7 @@ describe('TaskFormModal (issue #305)', () => {
   });
 
   it('calls deleteTask.mutateAsync on confirm and notifies onDeleted', async () => {
-    mockUserRole = 4;
+    mockUserRole = 400;
     const onClose = vi.fn();
     const onDeleted = vi.fn();
     renderModal({ task: baseTask(), onClose, onDeleted });
@@ -377,7 +377,7 @@ describe('TaskFormModal (issue #305)', () => {
 
   // ----- Readonly viewer ---------------------------------------------------
 
-  it('renders read-only mode for a viewer (role=0): Save and Delete are hidden, footer shows only Close', () => {
+  it('renders read-only mode for a viewer (ROLE_VIEWER): Save and Delete are hidden, footer shows only Close', () => {
     mockUserRole = 0;
     renderModal({ task: baseTask() });
     expect(screen.getByText('VIEW TASK')).toBeInTheDocument();
@@ -401,7 +401,7 @@ describe('TaskFormModal (issue #305)', () => {
   });
 
   it('renders the destructive confirm dialog inside the mobile shell as well', () => {
-    mockUserRole = 4;
+    mockUserRole = 400;
     renderModal({ task: baseTask({ name: 'Mobile delete' }), isMobile: true });
     fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
     expect(screen.getByRole('alertdialog')).toBeInTheDocument();
@@ -450,7 +450,7 @@ describe('TaskFormModal (issue #305)', () => {
   });
 
   it('Esc is a no-op while the destructive confirm dialog is open (the dialog handles its own Esc)', () => {
-    mockUserRole = 4;
+    mockUserRole = 400;
     const onClose = vi.fn();
     renderModal({ task: baseTask(), onClose });
     fireEvent.click(screen.getByRole('button', { name: 'Delete task' }));
@@ -474,7 +474,7 @@ describe('TaskFormModal (issue #305)', () => {
   });
 
   it('surfaces the delete error and keeps the modal open when deleteMutate rejects', async () => {
-    mockUserRole = 4;
+    mockUserRole = 400;
     deleteMutate.mockRejectedValueOnce(new Error('Forbidden'));
     const onClose = vi.fn();
     renderModal({ task: baseTask(), onClose });

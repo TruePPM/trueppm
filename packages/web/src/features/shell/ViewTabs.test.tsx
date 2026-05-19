@@ -11,7 +11,7 @@ vi.mock('@/hooks/useProjectId', () => ({
 // Default: SCHEDULER role so the Team tab is visible.
 // Tests that exercise role gating can override with mockReturnValue.
 vi.mock('@/hooks/useCurrentUserRole', () => ({
-  useCurrentUserRole: vi.fn(() => ({ role: 2, isLoading: false })),
+  useCurrentUserRole: vi.fn(() => ({ role: 200, isLoading: false })),
 }));
 
 // Default: HYBRID methodology (all tabs visible). Methodology-filter tests
