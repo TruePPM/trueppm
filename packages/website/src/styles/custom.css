@@ -1,13 +1,18 @@
 /* TruePPM brand colors for Starlight
  *
  * Starlight cascade:
- *   :root            — dark mode (the default; no data-theme attribute)
+ *   :root                — dark mode (Starlight default; no data-theme attribute)
  *   [data-theme='light'] — light mode override
  *
- * --sl-color-white is the FOREGROUND text color used by asides and prose.
- * It must be near-white in dark mode and near-black in light mode.
- * Never override it to a dark value inside a [data-theme="dark"] block —
- * that produces invisible text on dark aside backgrounds.
+ * Light mode is seeded as the default in astro.config.mjs via a <head> script
+ * that sets localStorage + data-theme='light' before Starlight's theme script runs.
+ *
+ * Layer note: Starlight's props.css is in @layer starlight.base. Unlayered styles
+ * (like this file) always win over layered ones regardless of specificity. This
+ * means our :root rule wins over Starlight's :root[data-theme='light'] for any
+ * variable we declare in :root. We apply the light-mode overrides in
+ * :root[data-theme="light"] — a higher-specificity unlayered rule — to win
+ * correctly in both modes.
  */
 
 /* Dark mode — Starlight default */
@@ -16,7 +21,7 @@
   --sl-color-accent: #3b5bdb;
   --sl-color-accent-high: #c5d0f6;
 
-  /* Foreground text (near-white for dark bg) */
+  /* Foreground text — near-white for dark page body */
   --sl-color-white: #f0f2f9;
 
   /* Gray scale: 1 = lightest (text), 6 = darkest (bg elements) */
@@ -27,7 +32,7 @@
   --sl-color-gray-5: #353847;
   --sl-color-gray-6: #24262f;
 
-  /* Page background */
+  /* Page background — dark but not pure black */
   --sl-color-black: #17181c;
 }
 
@@ -37,7 +42,7 @@
   --sl-color-accent: #3b5bdb;
   --sl-color-accent-high: #1e2f6b;
 
-  /* Foreground text (near-black for light bg) */
+  /* Foreground text — near-black for light page body */
   --sl-color-white: #17181c;
 
   /* Gray scale inverted: 1 = darkest (text), 6 = lightest (bg elements) */
@@ -48,6 +53,24 @@
   --sl-color-gray-5: #c2c6d3;
   --sl-color-gray-6: #eef0f6;
 
-  /* Page background */
+  /* Page background — white */
   --sl-color-black: #ffffff;
+}
+
+/* Fix admonition (aside) text contrast.
+ *
+ * Starlight asides use `color: var(--sl-color-white)` for body text.
+ * --sl-color-white is tuned for the page body background (dark in dark mode,
+ * white in light mode). Aside backgrounds are coloured (amber, green, blue,
+ * red) and their lightness flips between modes:
+ *
+ *   dark mode  — ~22% lightness  (dark amber/green/…)  → near-white text is fine
+ *   light mode — ~88% lightness  (pale amber/green/…)  → near-white text fails WCAG
+ *
+ * --sl-color-gray-1 resolves to the correct foreground in each mode:
+ *   dark mode  → #eef0f6  (near-white  on dark  aside bg — ~9:1 contrast)
+ *   light mode → #24262f  (near-black  on light aside bg — ~12:1 contrast)
+ */
+.starlight-aside {
+  color: var(--sl-color-gray-1);
 }

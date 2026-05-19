@@ -1,9 +1,9 @@
 ---
 title: TruePPM
-description: Open-source project scheduling that actually computes the math.
+description: Open-source P3M platform built for waterfall, agile, and hybrid programs. One data model, every stakeholder, every methodology.
 template: splash
 hero:
-  tagline: Open-source project scheduling that actually computes the math. CPM, Monte Carlo, real-time collaboration — not just task lists.
+  tagline: Built for waterfall, agile, and hybrid programs. Every stakeholder — the Scrum Master, the Project Manager, the PMO Director, the Executive — gets the view they need, from the same source of truth.
   actions:
     - text: Get Started
       link: /getting-started/installation/
@@ -19,6 +19,22 @@ import { Card, CardGrid, Badge } from "@astrojs/starlight/components";
 :::caution[Pre-Alpha]
 TruePPM is under active development. The scheduling engine, REST API, and real-time backend are functional and tested. The web UI is in early development. Not yet suitable for production use.
 :::
+
+## One platform, every methodology
+
+Most P3M tools force a choice. TruePPM is designed from the ground up so teams can work the way they work — and every stakeholder still sees what they need.
+
+<CardGrid>
+  <Card title="Waterfall" icon="document">
+    CPM forward/backward pass, milestones, baselines, Monte Carlo risk, EVM. The Project Manager gets a Gantt that actually computes the math — not a timeline disguised as a spreadsheet.
+  </Card>
+  <Card title="Agile" icon="rocket">
+    Sprint boards, WIP limits, velocity tracking, burndown charts, retrospectives. The Scrum Master lives in the board view and never has to open a Gantt.
+  </Card>
+  <Card title="Hybrid" icon="random">
+    The same task is both a WBS node and a sprint story. Velocity auto-feeds the CPM forecast. Zero reconciliation meetings. [Read the full story →](/the-story/)
+  </Card>
+</CardGrid>
 
 ## 5-minute local demo
 
@@ -76,13 +92,14 @@ print(result.critical_path)           # ['t-1', 't-2']
 
 ## Who is it for?
 
-| Role | TruePPM helps you... | Status |
-|------|---------------------|--------|
-| **Project Managers** | Build and maintain CPM schedules, run Monte Carlo simulations, track critical path and float | Available now |
-| **Team Members** | See assignments, log progress, get real-time updates when the plan changes | Available now |
-| **Resource Managers** | Assign people to tasks, track allocations across projects | Basic now, full in enterprise |
-| **PMO Directors** | Evaluate schedule confidence with probabilistic forecasting, enforce governance | Enterprise roadmap |
-| **Executives** | Get portfolio visibility, RAG status, board-ready reporting | Enterprise roadmap |
+| Role | Methodology | TruePPM helps you... | Status |
+|------|-------------|---------------------|--------|
+| **Project Managers** | Waterfall / Hybrid | Build and maintain CPM schedules, run Monte Carlo simulations, track critical path and float | Available now |
+| **Scrum Masters** | Agile / Hybrid | Run sprints, track velocity, manage WIP limits, facilitate retros | Available now |
+| **Team Members** | Any | See assignments, log progress, get real-time updates when the plan changes | Available now |
+| **Resource Managers** | Any | Assign people to tasks, track allocations across projects | Basic now, full in enterprise |
+| **PMO Directors** | Any | Evaluate schedule confidence with probabilistic forecasting, enforce governance | Enterprise roadmap |
+| **Executives** | Any | Get portfolio visibility, RAG status, board-ready reporting | Enterprise roadmap |
 
 ## What's built today
 
@@ -106,7 +123,7 @@ print(result.critical_path)           # ['t-1', 't-2']
     [Create a project and schedule](/getting-started/quickstart/) — tasks, dependencies, and CPM results via curl.
   </Card>
   <Card title="Find your guide" icon="star">
-    Read the guide for [project managers](/guides/project-managers/), [team members](/guides/team-members/), [resource managers](/guides/resource-managers/), or [executives](/guides/executives/).
+    [Project managers & waterfall PMs](/guides/project-managers/), [team members & agile teams](/guides/team-members/), [resource managers](/guides/resource-managers/), [executives & PMO directors](/guides/executives/).
   </Card>
   <Card title="Evaluate" icon="magnifier">
     [Architecture overview](/architecture/overview/) and [API reference](/api/reference/) for technical evaluation.
