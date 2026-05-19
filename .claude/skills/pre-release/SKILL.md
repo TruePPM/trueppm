@@ -142,6 +142,20 @@ That distribution puts roughly a third of agents on Opus, concentrated on the au
 
 ---
 
+## Step 0.7 — Harness pre-flight (kaizen) — full audits only
+
+Before running the codebase audit, invoke `/kaizen --silent` once. Kaizen audits the **development harness itself** (agent gates, CI duration, MR cycle-time, override frequency) and produces a small ranked list of speed wins against the next minor milestone.
+
+Why this lives here: release time is a natural reflection point on how the cycle felt. Kaizen findings target the **next** minor — never the current `$WORKING_RELEASE` — so this step does not extend the current release gate. It is a one-pass capture, not an iterative loop.
+
+Skip this step entirely if:
+- Audit type is not `full` (targeted audits don't need a harness review)
+- A kaizen report has been filed in the last 14 days (check via `glab issue list --repo trueppm/trueppm --label "chore,tooling,dx" --search "kaizen" --created-after "$(date -v-14d +%Y-%m-%d 2>/dev/null || date -d '14 days ago' +%Y-%m-%d)"`)
+
+Include the kaizen report as a separate section at the top of the final consolidated audit report under the heading **"Harness review (kaizen, targets next minor)"**. Do not let kaizen findings influence the $WORKING_RELEASE gate check in Step 4 — harness improvements ship in their own cycle.
+
+---
+
 ## Step 1 — Run the audit
 
 For each agent below, the prompt must be written for **full codebase audit mode** — not "what changed in this branch". Frame every prompt as: "Audit the full TruePPM codebase as if preparing the **$WORKING_RELEASE** public release. Identify any issues that would become public commitments we can't easily reverse once $WORKING_RELEASE ships."
