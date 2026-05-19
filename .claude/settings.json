@@ -1,4 +1,14 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(glab milestone list *)",
+      "Bash(glab issue list *)",
+      "Bash(glab mr list *)",
+      "Bash(glab mr view *)",
+      "Bash(glab issue view *)",
+      "Bash(glab ci status *)"
+    ]
+  },
   "hooks": {
     "UserPromptSubmit": [
       {
