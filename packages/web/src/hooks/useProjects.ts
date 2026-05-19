@@ -16,6 +16,8 @@ interface ApiProject {
   start_date: string;
   calendar: string;
   methodology?: Methodology;
+  /** Optional program FK (ADR-0070). Null for standalone projects. */
+  program?: string | null;
 }
 
 // Deterministic palette cycled by index — no server-side color assignment yet.
@@ -43,6 +45,7 @@ function mapProject(p: ApiProject, index: number): Project {
     // Default to HYBRID for projects created before ADR-0041 landed (preserves
     // pre-methodology behavior — all tabs visible).
     methodology: p.methodology ?? 'HYBRID',
+    programId: p.program ?? null,
   };
 }
 

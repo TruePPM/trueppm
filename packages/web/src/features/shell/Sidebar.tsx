@@ -5,6 +5,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useMyWork } from '@/hooks/useMyWork';
 import { ProjectListItem } from './ProjectListItem';
 import { NewProjectModal } from './NewProjectModal';
+import { ProgramsSection } from './ProgramsSection';
 
 interface Props {
   isDrawer?: boolean;
@@ -169,6 +170,11 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           </NavLink>
         </div>
       )}
+
+      {/* Programs section (ADR-0070) — sits between Me and PROJECTS so the
+          program shell is the natural way up from a project. Hidden in
+          collapsed mode without isDrawer; shown as an icon-only entry there. */}
+      <ProgramsSection collapsed={sidebarCollapsed} isDrawer={isDrawer} onNavigated={onClose} />
 
       {/* Project list */}
       <nav aria-label="Project list" className="flex-1 overflow-y-auto overflow-x-hidden py-2">

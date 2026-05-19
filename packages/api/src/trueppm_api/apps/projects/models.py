@@ -185,6 +185,50 @@ class Methodology(models.TextChoices):
     HYBRID = "HYBRID", "Hybrid"
 
 
+class Program(VersionedModel):
+    """Named grouping of related projects for one PM or program team (ADR-0070).
+
+    A program is the OSS unit of coordination — one PM's set of related
+    projects with a shared backlog (#501), program-level membership, and
+    a future combined burndown (0.3). Portfolio (cross-program governance,
+    PMO oversight, multi-tenancy) is Enterprise scope per the Two-Repo Rule.
+
+    Projects are optional members: ``Project.program=NULL`` is a fully
+    supported standalone project. No existing rows are migrated when this
+    model is added — assignment is at the PM's discretion.
+
+    The OWNER membership row is created in the same transaction as the
+    Program (see ``access.services.create_program``) so a Program can never
+    exist without at least one Owner who can manage it.
+    """
+
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default="")
+    methodology = models.CharField(
+        max_length=16,
+        choices=Methodology.choices,
+        default=Methodology.HYBRID,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="programs_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
+
+    class Meta:
+        db_table = "projects_program"
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class EstimationMode(models.TextChoices):
     """Controls who may write three-point estimates on tasks within a project.
 
@@ -240,6 +284,18 @@ class Project(VersionedModel):
         max_length=16,
         choices=Methodology.choices,
         default=Methodology.HYBRID,
+    )
+    # Optional grouping into a Program (ADR-0070). NULL = standalone project.
+    # SET_NULL on program delete so projects survive the cascade as standalone.
+    # Program membership is independent of project membership: a project member
+    # is not implicitly a program member, and vice versa.
+    program = models.ForeignKey(
+        "projects.Program",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=True,
+        related_name="projects",
     )
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)

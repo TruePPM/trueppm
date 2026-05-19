@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from trueppm_api.apps.projects.program_views import ProgramViewSet
 from trueppm_api.apps.projects.views import (
     ApiTokenAuditView,
     BaselineActivateView,
@@ -42,6 +43,7 @@ from trueppm_api.apps.projects.views import (
 router = DefaultRouter()
 router.register(r"calendars", CalendarViewSet, basename="calendar")
 router.register(r"projects", ProjectViewSet, basename="project")
+router.register(r"programs", ProgramViewSet, basename="program")
 router.register(r"tasks", TaskViewSet, basename="task")
 router.register(r"dependencies", DependencyViewSet, basename="dependency")
 

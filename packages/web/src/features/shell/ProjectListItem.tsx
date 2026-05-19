@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import { NavLink, useLocation, useParams } from 'react-router';
 import type { Project, HealthState } from '@/types';
+import { usePrograms } from '@/hooks/usePrograms';
 
 const HEALTH_LABELS: Record<HealthState, string> = {
   'on-track': 'On track',
@@ -47,6 +48,13 @@ export function ProjectListItem({ project, collapsed }: Props) {
   const { projectId: currentProjectId } = useParams<{ projectId: string }>();
   const isThisProject = currentProjectId === project.id;
   const location = useLocation();
+  // Programs are cached at the app shell level by usePrograms; this is a free
+  // lookup (TanStack Query dedupes shared queryKey). The badge surfaces the
+  // owning program for grouped projects (ADR-0070).
+  const { data: programs } = usePrograms();
+  const programName = project.programId
+    ? programs?.find((p) => p.id === project.programId)?.name ?? null
+    : null;
 
   // Preserve the active tab when switching projects (#160).
   // Extract the path suffix after the current project segment (e.g. "/schedule", "/resources/roster").
@@ -86,6 +94,14 @@ export function ProjectListItem({ project, collapsed }: Props) {
             <span className={`block text-xs ${HEALTH_COLORS[project.healthState]}`}>
               {HEALTH_LABELS[project.healthState]}
             </span>
+            {programName && (
+              <span
+                className="tppm-mono block truncate text-xs text-chrome-text-secondary"
+                title={`Program: ${programName}`}
+              >
+                Program · {programName}
+              </span>
+            )}
           </span>
         )}
       </NavLink>

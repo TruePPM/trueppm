@@ -46,6 +46,44 @@ export interface UserSearchResult {
 }
 
 // ---------------------------------------------------------------------------
+// Program types (ADR-0070, #502)
+// ---------------------------------------------------------------------------
+
+/**
+ * Program planning methodology — mirrors the API's Methodology enum and is
+ * intentionally a string literal union so it survives JSON round-trips and
+ * narrows naturally in switch statements.
+ */
+export type ProgramMethodology = 'WATERFALL' | 'AGILE' | 'HYBRID';
+
+export interface Program {
+  id: string;
+  server_version: number;
+  name: string;
+  description: string;
+  methodology: ProgramMethodology;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  /** Caller's role on the program (0–4) or null when not a member. */
+  my_role: number | null;
+  my_role_label: string | null;
+  /** Live counts annotated on the list endpoint — defaults to 0. */
+  project_count: number;
+  member_count: number;
+}
+
+export interface ProgramMembership {
+  id: string;
+  server_version: number;
+  program: string;
+  user: string;
+  user_detail: UserSummary;
+  role: number;
+  role_label: string;
+}
+
+// ---------------------------------------------------------------------------
 // Risk Register types (issues #52, #221). Hand-authored until openapi-typescript regeneration.
 export interface Risk {
   id: string;

@@ -7,7 +7,7 @@ from typing import Any
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 
 User = get_user_model()
 
@@ -54,6 +54,43 @@ class ProjectMembershipWriteSerializer(serializers.ModelSerializer[ProjectMember
 
     def validate_role(self, value: int) -> int:
         # Role must be a valid Role ordinal.
+        valid = {r.value for r in Role}
+        if value not in valid:
+            raise serializers.ValidationError(f"Invalid role. Choose from {sorted(valid)}.")
+        return value
+
+
+class ProgramMembershipReadSerializer(serializers.ModelSerializer[ProgramMembership]):
+    """Response serializer for ProgramMembership — mirrors the project version."""
+
+    user_detail = _UserSummarySerializer(source="user", read_only=True)
+    role_label = serializers.SerializerMethodField()
+
+    def get_role_label(self, obj: ProgramMembership) -> str:
+        return Role(obj.role).label
+
+    class Meta:
+        model = ProgramMembership
+        fields = [
+            "id",
+            "server_version",
+            "program",
+            "user",
+            "user_detail",
+            "role",
+            "role_label",
+        ]
+        read_only_fields = ["id", "server_version", "program", "user", "user_detail", "role_label"]
+
+
+class ProgramMembershipWriteSerializer(serializers.ModelSerializer[ProgramMembership]):
+    """Write serializer — accepts user (UUID) and role; program is injected from URL."""
+
+    class Meta:
+        model = ProgramMembership
+        fields = ["user", "role"]
+
+    def validate_role(self, value: int) -> int:
         valid = {r.value for r in Role}
         if value not in valid:
             raise serializers.ValidationError(f"Invalid role. Choose from {sorted(valid)}.")

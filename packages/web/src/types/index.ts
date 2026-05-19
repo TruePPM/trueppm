@@ -156,6 +156,12 @@ export interface Project {
   healthState: HealthState;
   /** Project methodology preset — drives default tab visibility (ADR-0041). */
   methodology: Methodology;
+  /**
+   * Program UUID this project belongs to (ADR-0070), or null for standalone.
+   * The sidebar badge and project-list grouping switch on the presence of
+   * this field; the program name is fetched on demand via useProgram(id).
+   */
+  programId: string | null;
 }
 
 /**

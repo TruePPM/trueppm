@@ -95,6 +95,7 @@ export default defineConfig({
           label: "Features",
           items: [
             { slug: "features/unified-data-model" },
+            { slug: "features/programs" },
             { slug: "features/scheduler" },
             { slug: "features/schedule" },
             { slug: "features/methodology-preset" },

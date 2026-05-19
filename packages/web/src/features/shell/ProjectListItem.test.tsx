@@ -33,6 +33,7 @@ const PROJECT: Project = {
   colorDot: '#1C6B3A',
   healthState: 'on-track',
   methodology: 'HYBRID',
+  programId: null,
 };
 
 const PROJECT_AT_RISK: Project = {
@@ -41,6 +42,7 @@ const PROJECT_AT_RISK: Project = {
   colorDot: '#E8A020',
   healthState: 'at-risk',
   methodology: 'HYBRID',
+  programId: null,
 };
 
 const PROJECT_CRITICAL: Project = {
@@ -49,6 +51,7 @@ const PROJECT_CRITICAL: Project = {
   colorDot: '#B91C1C',
   healthState: 'critical',
   methodology: 'HYBRID',
+  programId: null,
 };
 
 const PROJECT_UNKNOWN: Project = {
@@ -57,6 +60,7 @@ const PROJECT_UNKNOWN: Project = {
   colorDot: '#6B6965',
   healthState: 'unknown',
   methodology: 'HYBRID',
+  programId: null,
 };
 
 describe('ProjectListItem — expanded (collapsed=false)', () => {

@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect, type FormEvent } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCreateProject } from '@/hooks/useProjectMutations';
 import type { Methodology } from '@/types';
 
@@ -6,6 +7,14 @@ interface Props {
   onClose: () => void;
   /** Called after the project is created so the caller can navigate to it. */
   onCreated: (projectId: string) => void;
+  /**
+   * Optional program to assign the new project to at creation time (ADR-0070).
+   * When provided, the modal sends ``program`` in the create payload and
+   * invalidates the program-projects cache so the source page reflects the
+   * new row without a manual refetch. Caller must already hold ADMIN on the
+   * target program — the server gate raises 400 otherwise.
+   */
+  programId?: string;
 }
 
 type Step = 1 | 2 | 3;
@@ -37,7 +46,7 @@ function getFocusable(container: HTMLElement): HTMLElement[] {
  * Step 1: Name + description. Step 2: Schedule dates. Step 3: Template.
  * Focus is trapped within the dialog and restored to the trigger element on close.
  */
-export function NewProjectModal({ onClose, onCreated }: Props) {
+export function NewProjectModal({ onClose, onCreated, programId }: Props) {
   const [step, setStep] = useState<Step>(1);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -49,6 +58,7 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<Element | null>(null);
 
+  const queryClient = useQueryClient();
   const createProject = useCreateProject();
 
   // Capture trigger before modal opens; restore focus on unmount.
@@ -110,8 +120,16 @@ export function NewProjectModal({ onClose, onCreated }: Props) {
         description: description.trim() || undefined,
         methodology,
         agile_features: methodology !== 'WATERFALL',
+        ...(programId ? { program: programId } : {}),
       },
-      { onSuccess: (data) => onCreated(data.id) },
+      {
+        onSuccess: (data) => {
+          if (programId) {
+            void queryClient.invalidateQueries({ queryKey: ['programs', programId, 'projects'] });
+          }
+          onCreated(data.id);
+        },
+      },
     );
   }
 

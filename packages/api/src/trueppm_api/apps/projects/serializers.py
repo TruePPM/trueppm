@@ -25,6 +25,7 @@ from trueppm_api.apps.projects.models import (
     EstimateStatus,
     EstimationMode,
     InboundTaskLink,
+    Program,
     Project,
     ProjectApiToken,
     RetroActionItem,
@@ -80,6 +81,11 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     estimation_mode controls who may write three-point estimates on tasks.
     Defaults to 'open'; writable by IsProjectScheduler+ only (enforced in
     ProjectViewSet.update via permission check on the field).
+
+    program is optional and writable on update (ADR-0070). Cross-permission
+    check: assigning or moving requires the caller to hold ADMIN on the
+    *new* program AND ADMIN on this project (and ADMIN on the *old* program
+    when reassigning away from one). Enforced in ``validate_program``.
     """
 
     class Meta:
@@ -94,8 +100,130 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "estimation_mode",
             "agile_features",
             "methodology",
+            "program",
         ]
         read_only_fields = ["id", "server_version"]
+
+    def validate_program(self, value: Program | None) -> Program | None:
+        """Enforce ADR-0070 cross-permission gates on Project.program changes.
+
+        Rules (let X = the program being added/moved-to, A = the program being
+        moved-away-from, P = this project):
+          - Set/replace: caller must be ADMIN on P AND ADMIN on X.
+          - Unset (program → null): caller must be ADMIN on P AND ADMIN on A.
+          - Move (program A → B): caller must be ADMIN on P AND ADMIN on A AND ADMIN on B.
+
+        Why the project-side ADMIN: assigning a project to a program is
+        program-shaping, which the project's owners should authorize. Why the
+        program-side ADMIN: the program's owners must consent to absorbing the
+        project. The combined gate prevents one side unilaterally rearranging
+        the other's container.
+
+        Returns ``value`` unchanged on success; raises 400 with an actionable
+        message on any failure. On create flows (``instance is None``) the
+        project-side and old-program checks are skipped — only the new-program
+        ADMIN gate applies, so a caller assigning ``program`` at creation must
+        already be ADMIN on the target program.
+        """
+        from trueppm_api.apps.access.permissions import _membership_role, _program_membership_role
+
+        request = self.context.get("request")
+        if request is None or not request.user.is_authenticated:
+            return value
+
+        instance: Project | None = self.instance
+        old_program = instance.program if instance is not None else None
+        new_program = value
+
+        # No change — nothing to enforce.
+        if (old_program is None and new_program is None) or (
+            old_program is not None and new_program is not None and old_program.pk == new_program.pk
+        ):
+            return value
+
+        # Project-side ADMIN required for any change.
+        if instance is not None:
+            project_role = _membership_role(request, instance.pk)
+            if project_role is None or project_role < Role.ADMIN:
+                raise serializers.ValidationError(
+                    "You need at least Project Manager role on this project to change its program."
+                )
+
+        # Old program ADMIN required when leaving or moving away.
+        if old_program is not None:
+            old_role = _program_membership_role(request, old_program.pk)
+            if old_role is None or old_role < Role.ADMIN:
+                raise serializers.ValidationError(
+                    f"You need at least Project Manager role on '{old_program.name}' "
+                    "to move this project out of it."
+                )
+
+        # New program ADMIN required when assigning to or moving to a program.
+        if new_program is not None:
+            new_role = _program_membership_role(request, new_program.pk)
+            if new_role is None or new_role < Role.ADMIN:
+                raise serializers.ValidationError(
+                    f"You need at least Project Manager role on '{new_program.name}' "
+                    "to add this project to it."
+                )
+
+        return value
+
+
+class ProgramSerializer(serializers.ModelSerializer[Program]):
+    """Read/write serializer for Program (ADR-0070).
+
+    ``my_role`` is the requesting user's role on this program — provided here
+    so the list endpoint does not require a second per-program call to render
+    the role chip. ``project_count`` and ``member_count`` are computed in the
+    viewset queryset via annotate() to avoid N+1.
+    """
+
+    my_role = serializers.SerializerMethodField()
+    my_role_label = serializers.SerializerMethodField()
+    project_count = serializers.IntegerField(read_only=True, default=0)
+    member_count = serializers.IntegerField(read_only=True, default=0)
+
+    class Meta:
+        model = Program
+        fields = [
+            "id",
+            "server_version",
+            "name",
+            "description",
+            "methodology",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "my_role",
+            "my_role_label",
+            "project_count",
+            "member_count",
+        ]
+        read_only_fields = [
+            "id",
+            "server_version",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "my_role",
+            "my_role_label",
+            "project_count",
+            "member_count",
+        ]
+
+    def get_my_role(self, obj: Program) -> int | None:
+        # The viewset attaches ``_my_role`` to each instance (annotated on the
+        # queryset). Falls back to None if absent (e.g. when serializing a
+        # freshly-created instance before re-fetch — but the viewset re-fetches
+        # via the queryset in those paths, so this branch is defensive only).
+        return getattr(obj, "_my_role", None)
+
+    def get_my_role_label(self, obj: Program) -> str | None:
+        role = getattr(obj, "_my_role", None)
+        if role is None:
+            return None
+        return Role(role).label
 
 
 class TaskAssignmentSerializer(serializers.ModelSerializer[TaskResource]):
