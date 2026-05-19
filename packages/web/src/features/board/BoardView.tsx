@@ -72,6 +72,7 @@ import { BacklogDrawer } from './BacklogDrawer';
 import { QueueLayout } from './QueueLayout';
 import { BacklogDemoteConfirmDialog } from './BacklogDemoteConfirmDialog';
 import { CalmToolbar } from './CalmToolbar';
+import { SprintPanel } from './SprintPanel';
 import { useBoardToolbarPrefs } from '@/hooks/useBoardToolbarPrefs';
 import { useProject } from '@/hooks/useProject';
 
@@ -1477,6 +1478,15 @@ export function BoardView() {
               session={workshopSession}
               onEnd={() => setShowExitConfirm(true)}
               isEnding={endWorkshop.isPending}
+            />
+          )}
+
+          {/* Active-sprint summary (ADR-0073) — hidden on WATERFALL projects
+              and on projects with no active sprint. */}
+          {projectId && (
+            <SprintPanel
+              projectId={projectId}
+              methodology={projectDetail?.methodology}
             />
           )}
 

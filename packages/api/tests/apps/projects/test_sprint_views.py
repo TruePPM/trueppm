@@ -87,6 +87,25 @@ def member_client(member_user: object, member_membership: ProjectMembership) -> 
 
 
 @pytest.fixture
+def scheduler_user(db: object) -> object:
+    return User.objects.create_user(username="scheduler", password="pw")
+
+
+@pytest.fixture
+def scheduler_membership(scheduler_user: object, project: Project) -> ProjectMembership:
+    return ProjectMembership.objects.create(
+        project=project, user=scheduler_user, role=Role.SCHEDULER
+    )
+
+
+@pytest.fixture
+def scheduler_client(scheduler_user: object, scheduler_membership: ProjectMembership) -> APIClient:
+    c = APIClient()
+    c.force_authenticate(user=scheduler_user)
+    return c
+
+
+@pytest.fixture
 def viewer_client(viewer_user: object, viewer_membership: ProjectMembership) -> APIClient:
     c = APIClient()
     c.force_authenticate(user=viewer_user)
@@ -216,6 +235,102 @@ def test_active_sprint_rejects_name_patch(client: APIClient, project: Project) -
     s = _make_sprint(project, name="Original", state=SprintState.ACTIVE)
     resp = client.patch(f"/api/v1/sprints/{s.pk}/", {"name": "X"}, format="json")
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# capacity_points (ADR-0073) — planning target distinct from committed_points
+# ---------------------------------------------------------------------------
+
+
+def test_planned_sprint_accepts_capacity_points(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    resp = client.patch(f"/api/v1/sprints/{s.pk}/", {"capacity_points": 40}, format="json")
+    assert resp.status_code == 200, resp.content
+    s.refresh_from_db()
+    assert s.capacity_points == 40
+
+
+def test_active_sprint_accepts_capacity_points_patch(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, state=SprintState.ACTIVE)
+    resp = client.patch(f"/api/v1/sprints/{s.pk}/", {"capacity_points": 35}, format="json")
+    assert resp.status_code == 200, resp.content
+    s.refresh_from_db()
+    assert s.capacity_points == 35
+
+
+def test_completed_sprint_rejects_capacity_points_patch(
+    client: APIClient, project: Project
+) -> None:
+    s = _make_sprint(project, state=SprintState.COMPLETED, capacity_points=30)
+    resp = client.patch(f"/api/v1/sprints/{s.pk}/", {"capacity_points": 50}, format="json")
+    assert resp.status_code == 400
+
+
+def test_cancelled_sprint_rejects_capacity_points_patch(
+    client: APIClient, project: Project
+) -> None:
+    s = _make_sprint(project, state=SprintState.CANCELLED, capacity_points=30)
+    resp = client.patch(f"/api/v1/sprints/{s.pk}/", {"capacity_points": 50}, format="json")
+    assert resp.status_code == 400
+
+
+def test_viewer_cannot_patch_capacity_points(viewer_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    resp = viewer_client.patch(f"/api/v1/sprints/{s.pk}/", {"capacity_points": 40}, format="json")
+    assert resp.status_code == 403
+
+
+def test_member_cannot_patch_capacity_points(member_client: APIClient, project: Project) -> None:
+    """Capacity is the team's planning target — SCHEDULER+ only (ADR-0073)."""
+    s = _make_sprint(project)
+    resp = member_client.patch(f"/api/v1/sprints/{s.pk}/", {"capacity_points": 40}, format="json")
+    assert resp.status_code == 400, resp.content
+    s.refresh_from_db()
+    assert s.capacity_points is None
+
+
+def test_scheduler_can_patch_capacity_points(scheduler_client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    resp = scheduler_client.patch(
+        f"/api/v1/sprints/{s.pk}/", {"capacity_points": 40}, format="json"
+    )
+    assert resp.status_code == 200, resp.content
+    s.refresh_from_db()
+    assert s.capacity_points == 40
+
+
+def test_capacity_points_null_is_default(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    resp = client.get(f"/api/v1/sprints/{s.pk}/")
+    assert resp.status_code == 200
+    assert resp.json()["capacity_points"] is None
+
+
+def test_capacity_points_can_be_cleared(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, capacity_points=40)
+    resp = client.patch(f"/api/v1/sprints/{s.pk}/", {"capacity_points": None}, format="json")
+    assert resp.status_code == 200, resp.content
+    s.refresh_from_db()
+    assert s.capacity_points is None
+
+
+def test_capacity_points_patch_bumps_server_version(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project, capacity_points=10)
+    initial_version = s.server_version
+    resp = client.patch(f"/api/v1/sprints/{s.pk}/", {"capacity_points": 20}, format="json")
+    assert resp.status_code == 200
+    s.refresh_from_db()
+    assert s.server_version > initial_version
+
+
+def test_capacity_points_history_recorded(client: APIClient, project: Project) -> None:
+    s = _make_sprint(project)
+    client.patch(f"/api/v1/sprints/{s.pk}/", {"capacity_points": 30}, format="json")
+    client.patch(f"/api/v1/sprints/{s.pk}/", {"capacity_points": 35}, format="json")
+    s.refresh_from_db()
+    history = list(s.history.order_by("history_date").values_list("capacity_points", flat=True))
+    assert 30 in history
+    assert 35 in history
 
 
 def test_destroy_only_when_planned(client: APIClient, project: Project) -> None:

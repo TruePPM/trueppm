@@ -214,6 +214,14 @@ export interface ApiSprint {
   target_milestone: string | null;
   /** Inline milestone detail returned by the serializer (read-only). */
   target_milestone_detail: SprintTargetMilestone | null;
+  /**
+   * Planning target — points the team thinks they can take on at planning
+   * time (ADR-0073). Writable by SCHEDULER+ on PLANNED and ACTIVE sprints;
+   * locked on COMPLETED and CANCELLED. Null = no points-based planning
+   * target set (the correct sentinel for teams that do not size in points).
+   * Distinct from committed_points (snapshot of the backlog at activation).
+   */
+  capacity_points: number | null;
   committed_points: number | null;
   committed_task_count: number | null;
   completed_points: number | null;

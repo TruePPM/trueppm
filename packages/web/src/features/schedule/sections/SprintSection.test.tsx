@@ -63,6 +63,7 @@ const activeSprint: ApiSprint = {
   state: 'ACTIVE',
   target_milestone: null,
   target_milestone_detail: null,
+  capacity_points: null,
   committed_points: 8,
   committed_task_count: 1,
   completed_points: 0,

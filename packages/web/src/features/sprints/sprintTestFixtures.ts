@@ -18,6 +18,7 @@ export function makeSprint(overrides: Partial<ApiSprint> = {}): ApiSprint {
     state: 'PLANNED',
     target_milestone: null,
     target_milestone_detail: null,
+    capacity_points: null,
     committed_points: null,
     committed_task_count: null,
     completed_points: null,

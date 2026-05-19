@@ -126,6 +126,11 @@ export interface UpdateSprintPayload {
   start_date?: string;
   finish_date?: string;
   target_milestone?: string | null;
+  /**
+   * Planning capacity in points (ADR-0073). Writable on PLANNED and ACTIVE
+   * sprints; locked on COMPLETED and CANCELLED. Set to null to clear.
+   */
+  capacity_points?: number | null;
 }
 
 export interface CapacityWarning {
