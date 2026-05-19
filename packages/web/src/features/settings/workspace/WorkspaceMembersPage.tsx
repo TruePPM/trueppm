@@ -1,0 +1,249 @@
+import { SettingsPageTitle } from '../SettingsShell';
+import { useWorkspaceMembers, type WorkspaceMember } from '../hooks/useWorkspaceMembers';
+
+const ROLE_PALETTE: Record<string, { bg: string; text: string }> = {
+  Admin:  { bg: 'bg-[#7C3AED]/10', text: 'text-[#7C3AED]' },
+  PM:     { bg: 'bg-brand-primary-light', text: 'text-brand-primary' },
+  Lead:   { bg: 'bg-brand-accent-light',  text: 'text-brand-accent-dark' },
+  Member: { bg: 'bg-neutral-surface-sunken', text: 'text-neutral-text-secondary' },
+  Viewer: { bg: 'bg-neutral-surface-sunken', text: 'text-neutral-text-secondary' },
+};
+
+const STATUS_DOT: Record<string, string> = {
+  active:      'bg-semantic-on-track',
+  guest:       'bg-semantic-warning',
+  deactivated: 'bg-neutral-text-disabled',
+};
+
+function RoleBadge({ role }: { role: string }) {
+  const p = ROLE_PALETTE[role] ?? ROLE_PALETTE.Member;
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${p.bg} ${p.text}`}>
+      {role}
+    </span>
+  );
+}
+
+function Avatar({ initials, color, size = 26 }: { initials: string; color: string; size?: number }) {
+  return (
+    <span
+      className="rounded-full inline-flex items-center justify-center text-white font-semibold shrink-0"
+      style={{ width: size, height: size, background: color, fontSize: size * 0.42 }}
+      aria-hidden="true"
+    >
+      {initials}
+    </span>
+  );
+}
+
+function MemberTableRow({ m, last }: { m: WorkspaceMember; last: boolean }) {
+  return (
+    <div
+      className={[
+        'grid items-center gap-2.5 px-3.5 py-2.5 text-[13px]',
+        !last ? 'border-b border-neutral-border/55' : '',
+      ].join(' ')}
+      style={{ gridTemplateColumns: '32px 1.5fr 100px 1.4fr 60px 110px 100px 72px' }}
+    >
+      {/* Checkbox */}
+      <span
+        className="w-3.5 h-3.5 rounded border border-neutral-border inline-block shrink-0"
+        aria-hidden="true"
+      />
+      {/* Name */}
+      <span className="flex items-center gap-2.5 min-w-0">
+        <Avatar initials={m.initials} color={m.color} />
+        <span className="flex flex-col min-w-0">
+          <span className="font-medium truncate text-neutral-text-primary flex items-center gap-1.5">
+            {m.name}
+            {m.status === 'guest' && (
+              <span className="text-[10px] px-1 py-px rounded bg-brand-accent-light text-brand-accent-dark font-semibold">
+                GUEST
+              </span>
+            )}
+          </span>
+          <span className="text-[11px] text-neutral-text-secondary truncate">{m.email}</span>
+        </span>
+      </span>
+      {/* Role */}
+      <span><RoleBadge role={m.role} /></span>
+      {/* Groups */}
+      <span className="flex flex-wrap gap-1">
+        {m.groups.slice(0, 2).map((g) => (
+          <span key={g} className="text-[10px] px-1.5 py-px rounded border border-neutral-border/55 bg-neutral-surface-sunken text-neutral-text-secondary font-medium">
+            {g}
+          </span>
+        ))}
+        {m.groups.length > 2 && (
+          <span className="text-[10px] text-neutral-text-disabled">+{m.groups.length - 2}</span>
+        )}
+      </span>
+      {/* Projects */}
+      <span className="tppm-mono text-[12px] text-neutral-text-secondary">{m.projectCount}</span>
+      {/* Last active */}
+      <span className="text-[12px] text-neutral-text-secondary">{m.lastActive}</span>
+      {/* Status */}
+      <span className="flex items-center gap-1.5">
+        <span
+          className={`w-[7px] h-[7px] rounded-full shrink-0 ${STATUS_DOT[m.status] ?? 'bg-neutral-text-disabled'}`}
+          aria-hidden="true"
+        />
+        <span className="text-[11px] text-neutral-text-secondary capitalize">{m.status}</span>
+      </span>
+      {/* Badges */}
+      <span className="flex items-center gap-1 justify-end">
+        {m.sso  && <span className="text-[9px] px-1 py-px rounded bg-neutral-surface-sunken text-neutral-text-secondary font-bold">SSO</span>}
+        {m.twoFa && <span className="text-[9px] px-1 py-px rounded bg-semantic-on-track-bg text-semantic-on-track font-bold">2FA</span>}
+      </span>
+    </div>
+  );
+}
+
+/** Workspace > Members management page. */
+export function WorkspaceMembersPage() {
+  const { members, pendingInvites, isLoading } = useWorkspaceMembers();
+
+  if (isLoading) {
+    return (
+      <div className="px-6 py-8 space-y-2">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-12 rounded bg-neutral-surface-raised animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <SettingsPageTitle
+        title="Members"
+        count={`${members.length} members · ${pendingInvites.length} pending`}
+        subtitle="People with access to this workspace. Workspace role is the highest a member can act with anywhere."
+        action={
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            >
+              Export CSV
+            </button>
+            <button
+              type="button"
+              className="px-3 py-1.5 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              + Invite members
+            </button>
+          </div>
+        }
+      />
+
+      {/* Search + filters */}
+      <div className="px-6 py-3 flex items-center gap-2 border-b border-neutral-border/55 flex-wrap">
+        <div className="flex items-center gap-2 h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] w-[280px]">
+          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="text-neutral-text-disabled shrink-0">
+            <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
+            <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+          <span className="text-neutral-text-disabled">Search by name or email…</span>
+        </div>
+        {(['Role', 'Group', 'Status', 'Last active'] as const).map((f) => (
+          <button
+            key={f}
+            type="button"
+            className="flex items-center gap-1 px-2.5 py-1 rounded border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+          >
+            {f}
+            <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
+            </svg>
+          </button>
+        ))}
+        <div className="flex-1" />
+        <span className="text-[11px] text-neutral-text-secondary">Showing all {members.length}</span>
+      </div>
+
+      {/* Pending invite banner */}
+      {pendingInvites.length > 0 && (
+        <div className="px-6 pt-3">
+          <div className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-brand-accent-light border border-brand-accent text-[13px]">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" className="text-brand-accent-dark shrink-0">
+              <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3.5a1 1 0 0 1 0 2 1 1 0 0 1 0-2zm0 3.5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+            </svg>
+            <span className="font-medium text-neutral-text-primary">{pendingInvites.length} pending invites</span>
+            <div className="flex-1" />
+            <span className="text-[12px] text-brand-accent-dark font-semibold">Resend all →</span>
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="px-6 py-4">
+        <div className="rounded-lg border border-neutral-border overflow-hidden">
+          {/* Header */}
+          <div
+            className="grid gap-2.5 px-3.5 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border text-[10px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
+            style={{ gridTemplateColumns: '32px 1.5fr 100px 1.4fr 60px 110px 100px 72px' }}
+          >
+            <span
+              className="w-3.5 h-3.5 rounded border border-neutral-border inline-block"
+              aria-hidden="true"
+            />
+            <span>Name</span>
+            <span>Role</span>
+            <span>Groups</span>
+            <span>Projects</span>
+            <span>Last active</span>
+            <span>Status</span>
+            <span />
+          </div>
+
+          {/* Rows */}
+          {members.map((m, i) => (
+            <MemberTableRow key={m.id} m={m} last={i === members.length - 1 && pendingInvites.length === 0} />
+          ))}
+
+          {/* Pending invites section */}
+          {pendingInvites.length > 0 && (
+            <>
+              <div className="px-3.5 py-2 bg-neutral-surface-sunken border-t border-neutral-border text-[10px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary border-b border-neutral-border/55">
+                Pending invites · {pendingInvites.length}
+              </div>
+              {pendingInvites.map((p, i) => (
+                <div
+                  key={p.email}
+                  className={[
+                    'grid items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-neutral-text-secondary',
+                    i < pendingInvites.length - 1 ? 'border-b border-neutral-border/55' : '',
+                  ].join(' ')}
+                  style={{ gridTemplateColumns: '32px 1.5fr 100px 1.4fr 60px 110px 100px 72px' }}
+                >
+                  <span />
+                  <span className="flex items-center gap-2.5">
+                    <span
+                      className="w-[26px] h-[26px] rounded-full border border-dashed border-neutral-border inline-flex items-center justify-center text-neutral-text-disabled shrink-0"
+                      aria-hidden="true"
+                    >
+                      <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3.5a1 1 0 0 1 0 2 1 1 0 0 1 0-2zm0 3.5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
+                      </svg>
+                    </span>
+                    <span className="truncate">{p.email}</span>
+                  </span>
+                  <span><RoleBadge role={p.role} /></span>
+                  <span /><span />
+                  <span className="text-[11px]">Sent {p.sentAt}</span>
+                  <span className="text-[11px]">by {p.sentBy}</span>
+                  <span className="flex justify-end">
+                    <button type="button" className="text-[11px] text-brand-primary font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded">
+                      Resend
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

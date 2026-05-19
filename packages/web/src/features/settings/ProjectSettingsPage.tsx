@@ -1,56 +1,75 @@
-import { NavLink, Outlet } from 'react-router';
+import { Navigate } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
+import { useProject } from '@/hooks/useProject';
+import { usePrograms } from '@/hooks/usePrograms';
+import { SettingsShell, type SettingsNavGroup } from './SettingsShell';
+import {
+  OverviewIcon,
+  ResourcesIcon,
+  SprintIcon,
+  WbsIcon,
+  SettingsIcon,
+  WarningIcon,
+} from '@/components/Icons';
 
-interface SettingsTab {
-  path: string;
-  label: string;
+function NavIcon({ children }: { children: React.ReactNode }) {
+  return <span className="w-4 h-4 inline-flex items-center justify-center shrink-0">{children}</span>;
 }
 
-const SETTINGS_TABS: SettingsTab[] = [
-  { path: 'members', label: 'Members' },
-];
-
 /**
- * Settings page shell with a secondary tab nav for settings sub-sections.
- *
- * Currently has one sub-section (Members); future sub-sections (General,
- * Integrations) add entries to SETTINGS_TABS without changing this component.
+ * Project settings layout — renders the shared SettingsShell with project-scoped
+ * nav groups and the page Outlet. Lives at /projects/:projectId/settings/*.
  */
 export function ProjectSettingsPage() {
   const projectId = useProjectId();
+  const { data: project } = useProject(projectId);
+  const { data: programs } = usePrograms();
+
   if (!projectId) return null;
 
-  return (
-    <div className="flex flex-col h-full bg-neutral-surface">
-      {/* Settings sub-nav */}
-      <nav
-        aria-label="Settings"
-        className="flex items-center gap-1 border-b border-neutral-border px-4 pt-4"
-      >
-        {SETTINGS_TABS.map((tab) => (
-          <NavLink
-            key={tab.path}
-            to={`/projects/${projectId}/settings/${tab.path}`}
-            replace
-            className={({ isActive }) =>
-              [
-                'px-3 py-1.5 text-sm font-medium border-b-2 -mb-px transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                isActive
-                  ? 'border-brand-primary text-brand-primary'
-                  : 'border-transparent text-neutral-text-secondary hover:text-neutral-text-primary',
-              ].join(' ')
-            }
-          >
-            {tab.label}
-          </NavLink>
-        ))}
-      </nav>
+  const firstProgramId = programs?.[0]?.id;
 
-      {/* Sub-page content */}
-      <div className="flex-1 overflow-y-auto">
-        <Outlet />
-      </div>
-    </div>
+  const navGroups: SettingsNavGroup[] = [
+    {
+      label: 'Setup',
+      items: [
+        { id: 'general',     label: 'General',        to: `/projects/${projectId}/settings/general`,      icon: <NavIcon><OverviewIcon aria-hidden="true" /></NavIcon> },
+        { id: 'access',      label: 'Access',         to: `/projects/${projectId}/settings/access`,       icon: <NavIcon><ResourcesIcon aria-hidden="true" /></NavIcon> },
+        { id: 'methodology', label: 'Methodology',    to: `/projects/${projectId}/settings/methodology`,  icon: <NavIcon><SprintIcon aria-hidden="true" /></NavIcon> },
+      ],
+    },
+    {
+      label: 'Configuration',
+      items: [
+        { id: 'workflow',      label: 'Workflow & fields', to: `/projects/${projectId}/settings/workflow`,      icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'notifications', label: 'Notifications',     to: `/projects/${projectId}/settings/notifications`, icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
+      ],
+    },
+    {
+      label: 'Danger',
+      items: [
+        { id: 'lifecycle', label: 'Lifecycle', to: `/projects/${projectId}/settings/lifecycle`, icon: <NavIcon><WarningIcon aria-hidden="true" /></NavIcon> },
+      ],
+    },
+  ];
+
+  return (
+    <SettingsShell
+      scope="project"
+      scopeLinks={[
+        { scope: 'workspace', label: 'Workspace', to: '/settings/general' },
+        { scope: 'program',   label: 'Program',   to: firstProgramId ? `/programs/${firstProgramId}/settings/general` : '/programs' },
+        { scope: 'project',   label: 'Project',   to: `/projects/${projectId}/settings/general` },
+      ]}
+      contextName={project?.name ?? 'Project settings'}
+      navGroups={navGroups}
+    />
   );
+}
+
+/** Index redirect: /projects/:id/settings → /projects/:id/settings/general */
+export function ProjectSettingsIndex() {
+  const projectId = useProjectId();
+  if (!projectId) return null;
+  return <Navigate to={`/projects/${projectId}/settings/general`} replace />;
 }

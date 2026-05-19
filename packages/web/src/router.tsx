@@ -47,14 +47,6 @@ const ReportsView = lazy(() =>
 const ResourcesPage = lazy(() =>
   import('@/features/resources/ResourcesPage').then((m) => ({ default: m.ResourcesPage }))
 );
-const ProjectSettingsPage = lazy(() =>
-  import('@/features/settings/ProjectSettingsPage').then((m) => ({
-    default: m.ProjectSettingsPage,
-  }))
-);
-const MembersTab = lazy(() =>
-  import('@/features/settings/members/MembersTab').then((m) => ({ default: m.MembersTab }))
-);
 const MyWorkPage = lazy(() =>
   import('@/features/me/MyWorkPage').then((m) => ({ default: m.MyWorkPage }))
 );
@@ -69,7 +61,7 @@ const ProgramBacklogStubPage = lazy(() =>
     default: m.ProgramBacklogStubPage,
   }))
 );
-const ProgramProjectsPage = lazy(() =>
+const ProgramViewProjectsPage = lazy(() =>
   import('@/features/programs/ProgramProjectsPage').then((m) => ({
     default: m.ProgramProjectsPage,
   }))
@@ -77,6 +69,146 @@ const ProgramProjectsPage = lazy(() =>
 const ProgramMembersTab = lazy(() =>
   import('@/features/programs/members/ProgramMembersTab').then((m) => ({
     default: m.ProgramMembersTab,
+  }))
+);
+
+// ── Project settings ──────────────────────────────────────────────────────────
+const ProjectSettingsPage = lazy(() =>
+  import('@/features/settings/ProjectSettingsPage').then((m) => ({
+    default: m.ProjectSettingsPage,
+  }))
+);
+const ProjectSettingsIndex = lazy(() =>
+  import('@/features/settings/ProjectSettingsPage').then((m) => ({
+    default: m.ProjectSettingsIndex,
+  }))
+);
+const ProjectGeneralPage = lazy(() =>
+  import('@/features/settings/project/ProjectGeneralPage').then((m) => ({
+    default: m.ProjectGeneralPage,
+  }))
+);
+const ProjectAccessPage = lazy(() =>
+  import('@/features/settings/project/ProjectAccessPage').then((m) => ({
+    default: m.ProjectAccessPage,
+  }))
+);
+const ProjectMethodologyPage = lazy(() =>
+  import('@/features/settings/project/ProjectMethodologyPage').then((m) => ({
+    default: m.ProjectMethodologyPage,
+  }))
+);
+const ProjectWorkflowPage = lazy(() =>
+  import('@/features/settings/project/ProjectWorkflowPage').then((m) => ({
+    default: m.ProjectWorkflowPage,
+  }))
+);
+const ProjectNotificationsPage = lazy(() =>
+  import('@/features/settings/project/ProjectNotificationsPage').then((m) => ({
+    default: m.ProjectNotificationsPage,
+  }))
+);
+const ProjectArchivePage = lazy(() =>
+  import('@/features/settings/project/ProjectArchivePage').then((m) => ({
+    default: m.ProjectArchivePage,
+  }))
+);
+// ── Workspace settings ────────────────────────────────────────────────────────
+const WorkspaceSettingsPage = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceSettingsPage').then((m) => ({
+    default: m.WorkspaceSettingsPage,
+  }))
+);
+const WorkspaceSettingsIndex = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceSettingsPage').then((m) => ({
+    default: m.WorkspaceSettingsIndex,
+  }))
+);
+const WorkspaceGeneralPage = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceGeneralPage').then((m) => ({
+    default: m.WorkspaceGeneralPage,
+  }))
+);
+const WorkspaceMembersPage = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceMembersPage').then((m) => ({
+    default: m.WorkspaceMembersPage,
+  }))
+);
+const WorkspaceGroupsPage = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceGroupsPage').then((m) => ({
+    default: m.WorkspaceGroupsPage,
+  }))
+);
+const WorkspaceRolesPage = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceRolesPage').then((m) => ({
+    default: m.WorkspaceRolesPage,
+  }))
+);
+const WorkspaceMethodologyPage = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceMethodologyPage').then((m) => ({
+    default: m.WorkspaceMethodologyPage,
+  }))
+);
+const WorkspaceIntegrationsPage = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceIntegrationsPage').then((m) => ({
+    default: m.WorkspaceIntegrationsPage,
+  }))
+);
+const WorkspaceWebhooksPage = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceWebhooksPage').then((m) => ({
+    default: m.WorkspaceWebhooksPage,
+  }))
+);
+const WorkspaceDangerPage = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceDangerPage').then((m) => ({
+    default: m.WorkspaceDangerPage,
+  }))
+);
+
+// ── Program settings ──────────────────────────────────────────────────────────
+const ProgramSettingsPage = lazy(() =>
+  import('@/features/settings/ProgramSettingsPage').then((m) => ({
+    default: m.ProgramSettingsPage,
+  }))
+);
+const ProgramSettingsIndex = lazy(() =>
+  import('@/features/settings/ProgramSettingsPage').then((m) => ({
+    default: m.ProgramSettingsIndex,
+  }))
+);
+const ProgramSettingsGeneralPage = lazy(() =>
+  import('@/features/settings/program/ProgramGeneralPage').then((m) => ({
+    default: m.ProgramGeneralPage,
+  }))
+);
+const ProgramSettingsProjectsPage = lazy(() =>
+  import('@/features/settings/program/ProgramProjectsPage').then((m) => ({
+    default: m.ProgramProjectsPage,
+  }))
+);
+const ProgramSettingsAccessPage = lazy(() =>
+  import('@/features/settings/program/ProgramAccessPage').then((m) => ({
+    default: m.ProgramAccessPage,
+  }))
+);
+const ProgramRollupPage = lazy(() =>
+  import('@/features/settings/program/ProgramRollupPage').then((m) => ({
+    default: m.ProgramRollupPage,
+  }))
+);
+const ProgramCadencePage = lazy(() =>
+  import('@/features/settings/program/ProgramCadencePage').then((m) => ({
+    default: m.ProgramCadencePage,
+  }))
+);
+const ProgramRiskPolicyPage = lazy(() =>
+  import('@/features/settings/program/ProgramRiskPolicyPage').then((m) => ({
+    default: m.ProgramRiskPolicyPage,
+  }))
+);
+const ProgramArchivePage = lazy(() =>
+  import('@/features/settings/program/ProgramArchivePage').then((m) => ({
+    default: m.ProgramArchivePage,
   }))
 );
 
@@ -223,8 +355,64 @@ export const router = createBrowserRouter([
                   </Suspense>
                 ),
                 children: [
-                  { index: true, element: <Navigate to="members" replace /> },
-                  { path: 'members', element: <MembersTab /> },
+                  {
+                    index: true,
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProjectSettingsIndex />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'general',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProjectGeneralPage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'access',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProjectAccessPage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'methodology',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProjectMethodologyPage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'workflow',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProjectWorkflowPage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'notifications',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProjectNotificationsPage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'lifecycle',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProjectArchivePage />
+                      </Suspense>
+                    ),
+                  },
+                  // Legacy redirect — old bookmarks pointing at /settings/members
+                  { path: 'members', element: <Navigate to="../access" replace /> },
                 ],
               },
             ],
@@ -279,7 +467,7 @@ export const router = createBrowserRouter([
                 path: 'projects',
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProgramProjectsPage />
+                    <ProgramViewProjectsPage />
                   </Suspense>
                 ),
               },
@@ -288,6 +476,163 @@ export const router = createBrowserRouter([
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
                     <ProgramMembersTab />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'settings',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProgramSettingsPage />
+                  </Suspense>
+                ),
+                children: [
+                  {
+                    index: true,
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramSettingsIndex />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'general',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramSettingsGeneralPage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'projects',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramSettingsProjectsPage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'access',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramSettingsAccessPage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'rollup',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramRollupPage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'cadence',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramCadencePage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'risk',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramRiskPolicyPage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'lifecycle',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramArchivePage />
+                      </Suspense>
+                    ),
+                  },
+                ],
+              },
+            ],
+          },
+          // Workspace settings — lives outside any project/program scope
+          {
+            path: 'settings',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <WorkspaceSettingsPage />
+              </Suspense>
+            ),
+            children: [
+              {
+                index: true,
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <WorkspaceSettingsIndex />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'general',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <WorkspaceGeneralPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'members',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <WorkspaceMembersPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'groups',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <WorkspaceGroupsPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'roles',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <WorkspaceRolesPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'methodology',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <WorkspaceMethodologyPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'integrations',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <WorkspaceIntegrationsPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'webhooks',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <WorkspaceWebhooksPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'danger',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <WorkspaceDangerPage />
                   </Suspense>
                 ),
               },
