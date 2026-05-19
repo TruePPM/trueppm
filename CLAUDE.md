@@ -1,7 +1,8 @@
 # TruePPM — Project Intelligence
 
 ## About
-TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platform.
+Self-hosted open-core Project, Program, and Portfolio Management (P3M) platform. Built with Django 5.1, Django REST Framework, React 19 + TypeScript, and PostgreSQL. Scheduling-first alternative to MS Project and Planview — CPM is the engine, not a bolt-on; agile boards and sprints are an overlay on the schedule rather than the primary workflow. The scheduling engine ships as a standalone Apache 2.0 Python package on PyPI (`trueppm-scheduler`). Features: CPM (all 4 dependency types, calendar-aware lag, cycle detection), Monte Carlo risk analysis (P50/P80/P95), custom canvas Gantt renderer, Kanban boards and sprint lifecycle (plan/activate/close) layered on the schedule, real-time collaboration via WebSockets, 5-role RBAC per project (Owner/Admin/Scheduler/Member/Viewer), offline sync protocol (WatermelonDB-compatible delta with tombstones), MS Project import/export, time tracking, baselines, and production-ready Helm 3 chart for Kubernetes. Community edition is Apache 2.0; Enterprise adds portfolio governance, SSO/SAML/OIDC, LDAP sync, cross-program resource leveling, and approval workflows.
+
 - **Company**: TruePPM, Inc. | trueppm.com
 - **License**: Community edition is Apache 2.0. Enterprise features are proprietary.
 - **Repos**: `trueppm/trueppm-suite` (OSS), `trueppm/trueppm-enterprise` (proprietary)
