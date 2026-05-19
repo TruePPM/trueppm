@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Navigate, useParams } from 'react-router';
 import { useProgram } from '@/hooks/useProgram';
 import { useProjects } from '@/hooks/useProjects';
@@ -12,7 +13,7 @@ import {
   WarningIcon,
 } from '@/components/Icons';
 
-function NavIcon({ children }: { children: React.ReactNode }) {
+function NavIcon({ children }: { children: ReactNode }) {
   return <span className="w-4 h-4 inline-flex items-center justify-center shrink-0">{children}</span>;
 }
 

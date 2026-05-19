@@ -1,10 +1,11 @@
+import type { ReactNode } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
 
 export interface SettingsNavItem {
   id: string;
   label: string;
   to: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
 }
 
 export interface SettingsNavGroup {
@@ -71,7 +72,7 @@ export function SettingsShell({
               <button
                 key={sl.scope}
                 type="button"
-                onClick={() => navigate(sl.to)}
+                onClick={() => { void navigate(sl.to); }}
                 className={[
                   'py-1.5 px-1 rounded text-[11px] font-medium text-center transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
@@ -203,7 +204,7 @@ interface SettingsPageTitleProps {
   title: string;
   subtitle?: string;
   count?: string | number;
-  action?: React.ReactNode;
+  action?: ReactNode;
 }
 
 /** Standardised page title strip with optional count and action button. */
@@ -229,7 +230,7 @@ export function SettingsPageTitle({ title, subtitle, count, action }: SettingsPa
 interface FieldRowProps {
   label: string;
   hint?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 /** Two-column form row: 240px label+hint on left, content on right. */
@@ -248,7 +249,7 @@ export function FieldRow({ label, hint, children }: FieldRowProps) {
 }
 
 interface SettingsCardProps {
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
 }
 
