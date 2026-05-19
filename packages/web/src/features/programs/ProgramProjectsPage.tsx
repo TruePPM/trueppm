@@ -52,7 +52,7 @@ export function ProgramProjectsPage() {
           )}
         </h2>
         {isAdmin && (
-          <div className="flex items-center gap-2">
+          <div role="toolbar" aria-label="Program projects actions" className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setShowAddExistingModal(true)}

@@ -172,10 +172,8 @@ test.describe('Programs — shell tabs', () => {
   test('Projects tab shows both New project and Add existing buttons (admin)', async ({ page }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
-    // Both buttons appear in the toolbar AND in the empty state. The
-    // toolbar copies are deterministic locators; the empty-state copies
-    // would create strict-mode duplicates, so we scope to the toolbar.
-    const toolbar = page.locator('div').filter({ hasText: /^Projects/ }).first();
+    // Scope to the toolbar so we don't hit the sidebar or empty-state copies.
+    const toolbar = page.getByRole('toolbar', { name: /program projects actions/i });
     await expect(toolbar.getByRole('button', { name: /^New project$/i })).toBeVisible();
     await expect(toolbar.getByRole('button', { name: /^Add existing$/i })).toBeVisible();
   });
@@ -233,7 +231,10 @@ test.describe('Programs — shell tabs', () => {
     );
 
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
-    await page.getByRole('button', { name: /^New project$/i }).first().click();
+    // Scope to the toolbar so the sidebar's "New project" button (no programId) is not picked.
+    await page.getByRole('toolbar', { name: /program projects actions/i })
+      .getByRole('button', { name: /^New project$/i })
+      .click();
     await page.getByLabel(/^name/i).fill('Tower A Buildout');
     await page.getByRole('button', { name: /next/i }).click(); // step 1 → 2
     await page.getByRole('button', { name: /next/i }).click(); // step 2 → 3
