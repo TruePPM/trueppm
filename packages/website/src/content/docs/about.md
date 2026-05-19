@@ -7,27 +7,41 @@ sidebar:
 
 ## Maintainer
 
-**Kelly Hair** — founder and lead engineer.
+**Kelly Hair** — founder, [MacroDream](https://macrodream.co).
 
-Background: software engineer and engineering manager with experience shipping developer tooling at scale (GitLab, 2020–2022). TruePPM grew out of frustration with the state of open-source project management: the OSS options either lack scheduling math or force a choice between agile and waterfall.
+25 years at the intersection of enterprise infrastructure and open-source commercialization. The through-line across that career: being the person in the room who can architect the Kubernetes deployment, build the demo environment, read the room in a CISO review, and restructure a deal that's about to die on the vine — in the same week.
 
-- GitLab: [gitlab.com/kellyhair](https://gitlab.com/kellyhair)
+Prior roles include Strategic Alliances Architect at GitLab, Senior Specialist (OpenShift/Kubernetes) at Red Hat, Director of Global Alliances at MayaData (acquired by DataCore), and senior positions across PLUMgrid (acquired by VMware), Chef, Savvis, and HSBC. The pattern across those roles is the same one that drives TruePPM: taking technically strong platforms to market in categories where incumbents have become complacent, and doing it without overstating what the product can actually do.
+
+- GitLab: [gitlab.com/khair1](https://gitlab.com/khair1)
 - LinkedIn: [linkedin.com/in/kellyhair](https://www.linkedin.com/in/kellyhair)
 - Contact: [kelly@trueppm.com](mailto:kelly@trueppm.com)
 
+## MacroDream
+
+TruePPM is built under [MacroDream](https://macrodream.co), an open-core venture studio. MacroDream's model: identify enterprise software categories where incumbents have captured the market without earning it, build the honest alternative on open foundations, and price it so adoption comes before revenue.
+
+**Products:**
+
+| Product | Status | Description |
+|---------|--------|-------------|
+| [Visiban](https://docs.visiban.com) | v1.0 live | Kanban platform for customer-facing teams — real-time collaboration, audit trails, dwell-time analytics. Built on Django and React. |
+| TruePPM | Community alpha | Open-core P3M platform bridging Agile and Waterfall on a single task model. |
+| Blueprint | WIP | Governance template for GitLab + Claude Code teams. |
+
 ## Why TruePPM exists
 
-Every mid-size organisation running software projects has the same friction: the Scrum Master lives in Jira, the Project Manager lives in MS Project, and the two views never agree. The reconciliation happens in a spreadsheet, on a Monday morning, by hand.
+The problem is concrete: every mid-size organisation running software projects has a Project Manager who lives in a Gantt chart and a Scrum Master who lives in a sprint board, and the two views never agree. The reconciliation happens in a spreadsheet, on Monday morning, by hand.
 
-TruePPM's thesis is that the reconciliation is unnecessary — a single task model can carry both a sprint story and a CPM WBS node without translation. Build that model and both personas look at the same data, each in the view they prefer.
+That reconciliation is unnecessary. A single task can carry both a CPM WBS node (with early/late start, float, critical path) and a sprint story (with story points, sprint assignment, burndown) without any translation layer. Build that model and both personas look at the same data, each in the view they prefer.
 
-The community edition is Apache 2.0. The goal is adoption-first: a PM and their team must be fully functional without an Enterprise license. Enterprise adds governance and portfolio coordination for organisations managing multiple programs — it does not gate the core scheduling or collaboration features.
+The community edition is Apache 2.0. The goal is adoption-first — a PM and their team must be fully functional without an Enterprise license. Enterprise adds governance and portfolio coordination for organisations managing multiple programs. It does not gate the core scheduling, collaboration, or hybrid-bridge features.
+
+The scheduling engine (`trueppm-scheduler`) ships separately on [PyPI](https://pypi.org/project/trueppm-scheduler/) under the same Apache 2.0 license — use it without the full application if you just need the CPM and Monte Carlo math.
 
 ## License
 
 Apache 2.0 — see [LICENSE](https://gitlab.com/trueppm/trueppm/-/blob/main/LICENSE).
-
-The scheduling engine (`trueppm-scheduler`) ships independently on [PyPI](https://pypi.org/project/trueppm-scheduler/) under the same license.
 
 ## Support and issues
 
