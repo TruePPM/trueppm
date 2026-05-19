@@ -111,7 +111,7 @@ describe('MembersTab', () => {
 
   it('shows role picker for non-OWNER member when current user is OWNER', () => {
     render();
-    // bob is role=1 (Team Member) — editable by OWNER alice
+    // bob is ROLE_MEMBER (Team Member) — editable by OWNER alice
     const bobRow = screen.getByText('bob').closest('li')!;
     expect(within(bobRow).getByRole('combobox')).toBeInTheDocument();
   });
@@ -120,7 +120,7 @@ describe('MembersTab', () => {
     render();
     const bobRow = screen.getByText('bob').closest('li')!;
     const picker = within(bobRow).getByRole('combobox');
-    await userEvent.selectOptions(picker, '2'); // Resource Manager
+    await userEvent.selectOptions(picker, '200'); // Resource Manager
     expect(mockUpdateRole).toHaveBeenCalledWith({ membershipId: 'mem-bob', role: 200 });
   });
 

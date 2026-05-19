@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, type FormEvent } from 'react';
 import { useUserSearch } from '../hooks/useUserSearch';
 import { useAddMember } from '../hooks/useAddMember';
 import { RolePicker } from './RolePicker';
+import { ROLE_MEMBER } from '@/lib/roles';
 import type { UserSearchResult } from '@/api/types';
 
 interface InviteFormProps {
@@ -12,7 +13,7 @@ export function InviteForm({ projectId }: InviteFormProps) {
   const [query, setQuery] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserSearchResult | null>(null);
-  const [role, setRole] = useState(1); // default: Team Member
+  const [role, setRole] = useState(ROLE_MEMBER);
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -51,7 +52,7 @@ export function InviteForm({ projectId }: InviteFormProps) {
       {
         onSuccess: () => {
           clearSelection();
-          setRole(1);
+          setRole(ROLE_MEMBER);
         },
       },
     );
