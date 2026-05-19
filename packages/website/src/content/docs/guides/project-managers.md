@@ -1,21 +1,21 @@
 ---
 title: For Project Managers
-description: How TruePPM helps project managers build reliable schedules, track the critical path, and give stakeholders realistic delivery dates.
+description: How TruePPM helps project managers build reliable schedules, track the critical path, run probabilistic risk analysis, and stay in sync with agile delivery teams.
 ---
 
-You manage schedules, track progress, and need to give stakeholders delivery dates they can trust. TruePPM gives you real scheduling math — not just bars on a timeline.
+You manage schedules, track progress against commitments, and need to give stakeholders delivery dates they can trust. TruePPM gives you real scheduling math — not just bars on a timeline — and connects that schedule to your team's actual agile delivery without any manual reconciliation.
 
-## What you get today
+## Scheduling fundamentals
 
-### Automatic CPM scheduling
+### Automatic CPM on every change
 
-Every time you add a task, change a duration, or modify a dependency, TruePPM recalculates the entire schedule automatically. No manual recalculation, no "update project" button. You always see:
+Every time you add a task, change a duration, or modify a dependency, TruePPM recalculates the entire schedule automatically. No "Update Project" button. No manual recalculation. You always see:
 
-- **Critical path** — which tasks drive your deadline
-- **Float** — how much each task can slip before it affects the end date
-- **Early/late dates** — the window each task can occupy
+- **Critical path** — which tasks drive your deadline (highlighted in the Gantt)
+- **Total float** — how many working days each task can slip before it affects the end date
+- **Early/late dates** — the window each task can occupy without delaying the project
 
-All four standard dependency types are supported:
+All four standard dependency types are supported with calendar-aware lag:
 
 | Type | Meaning |
 |------|---------|
@@ -24,54 +24,115 @@ All four standard dependency types are supported:
 | Finish-to-Finish (FF) | Successor finishes after predecessor finishes |
 | Start-to-Finish (SF) | Successor finishes after predecessor starts |
 
-Lag (positive or negative) is in calendar working days — weekends and holidays are skipped automatically.
+Lag values (positive or negative) are in calendar working days — weekends and calendar exceptions are skipped automatically.
+
+→ See [Schedule view](/features/schedule/), [Scheduler engine](/features/scheduler/)
 
 ### Monte Carlo risk analysis
 
-Your CPM finish date is typically P50 — there's only a **50% chance** you'll hit it. That's the number most tools show as "the date."
+Your CPM finish date is typically P50. There's only a **50% chance** you'll hit the date shown in a traditional Gantt. That's the number most project management tools present as "the date."
 
 TruePPM lets you add three-point estimates (optimistic, most likely, pessimistic) to any task and run a Monte Carlo simulation:
 
 | Percentile | What it means |
 |-----------|--------------|
 | **P50** | 50% chance of finishing by this date. Where your CPM date usually lands. |
-| **P80** | 80% chance. **Commit to this date with stakeholders.** |
-| **P95** | 95% chance. Use this for contractual deadlines. |
+| **P80** | 80% chance. **Commit this date to stakeholders.** |
+| **P95** | 95% chance. Use for contractual or regulatory deadlines. |
 
-10,000 simulation runs on a 200-task schedule completes in under 5 seconds.
+10,000 simulation runs on a 200-task schedule completes in under 5 seconds. The P80–CPM gap is your visible schedule risk.
 
-### Calendar-aware scheduling
+→ See [Scheduler engine — Monte Carlo](/features/scheduler/)
 
-Define working calendars with weekend rules and holiday exceptions. All duration calculations and lag values use working days — you don't have to mentally convert between calendar days and work days.
+### Baselines
 
-### Real-time updates
+Capture a baseline at any point to freeze the planned dates. The Gantt overlays baseline bars alongside current dates so you can see schedule variance visually at a glance. Multiple baselines are supported for rebaseline events.
 
-When a scheduler or admin changes the plan, you see it immediately. WebSocket push means no manual refresh — the Schedule view (Gantt-style) updates in real time across all connected browsers.
+### Working calendars
 
-### Offline and mobile ready
+Define working calendars with weekend rules and holiday exceptions. All duration calculations and lag values use working days. If your team observes a shutdown in August, add it once to the calendar — every task that spans it adjusts automatically.
 
-The sync protocol is designed for unreliable connectivity. Sync when you have signal, work offline when you don't. The protocol uses server-versioned deltas with soft-delete tombstones — you never lose data.
+## Building a schedule
 
-## What's shipped
+TruePPM's schedule build mode is keyboard-first: type a task name, press Tab to indent (create a summary task), Enter to add a sibling, and the schedule fills in as you go. Dependencies are added by linking predecessor/successor IDs. The Gantt updates live.
+
+→ See [Schedule Build Mode](/features/schedule-build-mode/), [Summary tasks](/features/summary-tasks/)
+
+## Working with agile teams
+
+This is where TruePPM is different from every other scheduling tool.
+
+### The hybrid data model
+
+When your team creates sprint stories, those stories are child tasks under your WBS work packages. They're not in a separate tool. They're not imported via a connector. They're in the same task hierarchy, sharing the same row in the database, visible from both the Gantt and the board.
+
+A work package with a 10-day CPM duration might decompose into 8 stories worth 34 story points. When the sprint closes and the team delivered 28 of those points, TruePPM adjusts the work package's remaining duration based on the actual velocity. **You didn't do anything.** The schedule re-forecast itself.
+
+### What you see on your Gantt
+
+When your team is in an active sprint, the work packages they're working on show:
+
+- The CPM-derived early start/finish (your baseline commitment)
+- A forecast finish derived from current sprint velocity and remaining story points
+- A schedule variance indicator (amber/red) if the velocity-based forecast drifts materially from the baseline
+
+If the team is tracking ahead, you see it. If they're falling behind, you see it the day it starts happening — not on Friday's status call.
+
+### What you don't have to do
+
+You don't have to:
+- Ask your Scrum Master for a status update
+- Manually translate "we finished 34 points" into schedule days
+- Hold a weekly sync to reconcile the team's view with your Gantt
+- Maintain a separate resource-tracking spreadsheet
+
+The Scrum Master runs their sprints natively. Their velocity automatically becomes your forecast input.
+
+→ Read the complete hybrid walkthrough in [The Story](/the-story/)
+
+## Risk and forecasting
+
+### Risk register
+
+Log and track project risks with probability × impact scoring (1–25 scale). Link risks to specific tasks. Risk severity and count are visible on board cards so the team doesn't lose sight of risk during execution.
+
+→ See [Risk register](/features/risk-register/)
+
+### Probabilistic forecasting with stakeholders
+
+The conversation shift that Monte Carlo enables:
+
+- **Before TruePPM:** "We're on track for October 15th." (unqualified, often wishful)
+- **With TruePPM:** "P50 is October 12th. P80 is October 22nd. We should commit to October 22nd. If you need October 15th, here's what has to go right and what the risk is."
+
+P80 is the defensible number. It's the date with a real probability attached. Stakeholders who push back on P80 are asking you to commit to a coin flip.
+
+## Real-time and mobile
+
+When a scheduler or admin changes the plan, all connected browsers update immediately via WebSocket. No manual refresh, no stale data. The sync protocol is designed for unreliable connectivity — work offline, sync when you have signal.
+
+## What's available
 
 | Feature | Status |
 |---------|--------|
-| Risk register | Shipped — [full docs](/features/risk-register/) |
-| Board/Kanban view | Shipped — [full docs](/features/board/) |
-| Sprint burndown | Shipped — [full docs](/features/sprint-burndown/) |
-| Baselines | Shipped — capture and overlay on the Gantt |
-
-## What's coming
-
-| Feature | Status |
-|---------|--------|
-| Gantt drag-to-reschedule | Planned — requires WASM CPM on client |
-| Time tracking | Planned |
-| MS Project import/export | Planned |
+| CPM scheduling (all 4 dependency types) | Shipped |
+| Monte Carlo risk analysis (P50/P80/P95) | Shipped |
+| Baselines + baseline overlay on Gantt | Shipped |
+| Critical path highlighting | Shipped |
+| Risk register | Shipped |
+| Board / Kanban view | Shipped |
+| Sprint burndown | Shipped |
+| Schedule build mode (keyboard-first) | Shipped |
+| Summary tasks + WBS rollup | Shipped |
+| Hybrid velocity → CPM forecast | Shipped |
+| MS Project import/export | Roadmap (0.5) |
+| Gantt drag-to-reschedule (WASM CPM) | Roadmap |
+| EVM (CPI / SPI / BCWP) | Roadmap |
+| Time tracking | Roadmap |
 
 ## Getting started
 
 1. Ask your admin to [set up a TruePPM instance](/getting-started/installation/)
-2. Walk through the [Quickstart](/getting-started/quickstart/) to create your first project
-3. Read the [Scheduler deep dive](/features/scheduler/) for CPM and Monte Carlo details
-4. Explore the [Schedule view](/features/schedule/) — the project timeline (Gantt-style) with critical path, baselines, and milestones
+2. Walk through the [Quickstart](/getting-started/quickstart/) — seed the demo project and log in as `raj` (PM persona) to see the full hybrid view
+3. Read the [Schedule view](/features/schedule/) for Gantt details
+4. Read [The Story](/the-story/) for the end-to-end hybrid workflow with all six personas

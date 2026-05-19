@@ -30,6 +30,10 @@ The Project Manager has to write a status report on Monday. The team finished 23
 
 Hybrid PM is not abstract. It happens because six specific humans need different views of the same work. Build for all six and the tool wins. Build for any one of them and you become someone else's incumbent — the thing the next-generation tool will replace.
 
+:::note[Persona names]
+The six characters below are the narrative protagonists for this walkthrough — and the demo login names created by `seed_demo_project --with-personas` (Maya, Raj, Diana, Sarah, Carlos, Tom). TruePPM's [full product persona set](/overview/) expands these six to eight roles with more precise naming (Alex for Scrum Master, Sarah for PM, etc.). The story characters map directly to those eight personas.
+:::
+
 ### Maya — Scrum Master
 > "I just want my team to focus on this sprint. I don't want to fill in 14 fields every time the PM panics."
 

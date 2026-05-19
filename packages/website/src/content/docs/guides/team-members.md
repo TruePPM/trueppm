@@ -1,58 +1,92 @@
 ---
 title: For Team Members
-description: How TruePPM helps team members see their assignments, track progress, and stay in sync without overhead.
+description: How TruePPM keeps you focused on your work — board, sprints, tasks, and updates — without PM overhead.
 ---
 
-You want to see what's assigned to you, log progress, and get back to real work. TruePPM is designed to minimize the overhead of project management tools.
+You want to know what you're working on, move things forward, and stay in sync with your team. TruePPM is designed to minimize the overhead of project management for people doing the actual work.
 
-## What you get today
+## Where to start: the board
 
-### Clear task visibility
+The board is your primary view. Five columns: **Backlog → Not Started → In Progress → Review → Done**. Your sprint's stories are here. Move a card to the right when its status changes.
 
-See your task assignments with durations, dependencies, and scheduled dates. The API provides full access to project data scoped to your role — you see everything in your project without navigating a complex hierarchy.
+When you move a card, that update propagates everywhere automatically — the PM's Gantt re-forecasts, the Scrum Master's burndown updates, and any connected clients see the change in real time. You did one thing. Everything else updated.
 
-### Real-time updates
+### What's on a card
 
-When a scheduler changes the plan — re-sequences tasks, adjusts durations, adds dependencies — you see the update immediately. WebSocket push, no manual refresh, no stale data.
+Each card shows the task name, your avatar (if assigned), story points, the sprint it belongs to, and a progress ring. Cards with a red border have an unresolved dependency — check with your Scrum Master before pulling them into active work.
 
-### Role-based access
+### WIP limits
 
-As a **Member** (role 1), you can:
+Each column has a WIP limit. When a column is over its limit, it turns amber or red. This is intentional — the limit is there to stop work from piling up in one state. If you see a red column, the right move is to help finish something already in flight before starting something new.
+
+→ See [Board](/features/board/), [WIP overload detection](/features/wip-overload/)
+
+## Sprints
+
+Your sprint is the two-week (or whatever length your team uses) window of committed work. At the start of each sprint, you and your team have agreed on what to build. At the end, the Scrum Master runs a retrospective.
+
+### Sprint backlog
+
+The sprint backlog table shows all tasks in the active sprint, grouped by board column (Done / In Review / In Progress / Not Started / Backlog). You can update status, log hours, and see the critical path indicator for each task from here.
+
+### Subtasks
+
+Stories can have subtasks — a depth-1 checklist of smaller steps. Each subtask can have its own assignee. Progress on subtasks rolls up to the parent story automatically. Use subtasks for internal to-do lists within a story, not for work that needs to be independently scheduled.
+
+→ See [Sprint backlog](/features/sprint-backlog/), [Subtasks](/features/subtasks/)
+
+## Updates that matter
+
+When you complete work, TruePPM doesn't just record it — it recalculates:
+
+1. The sprint burndown (remaining story points drops immediately)
+2. The work package your story rolls up into (remaining work recalculated)
+3. The CPM schedule (if the work package is on the critical path, re-forecast propagates)
+4. Every connected browser (WebSocket push, no refresh needed)
+
+This is why you don't need to fill in status reports. Your board moves **are** the status.
+
+## Your assignments
+
+To see everything assigned to you across all your projects and sprints, use the **My Work** view. It surfaces your active sprint tasks first, then any tasks not yet in a sprint. You can update status directly from My Work without opening the full project.
+
+→ See [My Work](/features/my-work/)
+
+## Real-time and offline
+
+Changes you make appear instantly for everyone on the project. Changes others make appear instantly for you. No manual refresh.
+
+If you lose connectivity, TruePPM queues your updates locally and replays them when your connection returns. The sync protocol is designed for mobile and unreliable networks — you won't lose work.
+
+→ See [Real-time collaboration](/features/real-time/), [Offline sync](/features/offline-sync/)
+
+## Your role and what you can do
+
+As a **Member**, you can:
 - View all project data (tasks, dependencies, resources, calendars)
-- Log time against tasks
+- Move cards on the board
+- Update task status and log progress
 - Pull delta sync for offline/mobile access
 - Connect to the real-time WebSocket
 
-You can't accidentally modify the schedule or break dependencies. That requires the **Scheduler** role or above.
+You can't accidentally modify the schedule structure or break dependencies. That requires the **Scheduler** role or above.
 
-### API-first
+## API access
 
-If you live in the terminal or want to integrate TruePPM with other tools, the REST API is the primary interface. The [OpenAPI schema](http://localhost:8000/api/schema/swagger-ui/) documents every endpoint, and JWT auth means you can script anything.
+If you live in the terminal, the REST API is the primary interface. The OpenAPI schema documents every endpoint, and JWT auth means you can script anything.
 
 ```bash
-# Get your tasks
-curl -s "http://localhost:8000/api/v1/tasks/?project=$PROJECT_ID" \
+# Get your tasks in the active sprint
+curl -s "http://localhost:8000/api/v1/tasks/?project=$PROJECT_ID&sprint=$SPRINT_ID" \
   -H "Authorization: Bearer $TOKEN" \
-  | jq '.results[] | {name, early_start, early_finish, is_critical}'
+  | jq '.results[] | {name, status, story_points, is_critical}'
 ```
 
-## What's coming
-
-| Feature | Status |
-|---------|--------|
-| Time logging in the web UI | Planned |
-| Personal task dashboard | Planned |
-| Notification preferences | Planned |
-| Board/Kanban view | In progress |
-| Jira / GitLab connectors | Enterprise roadmap |
-
-:::note[About integrations]
-Jira and GitLab connectors are planned for the enterprise edition. The community edition API is fully documented, so building a custom integration is straightforward using the [API reference](/api/reference/).
-:::
+→ See [API reference](/api/reference/), [Quickstart](/getting-started/quickstart/)
 
 ## Getting started
 
 1. Get your credentials from your project admin
-2. Authenticate via `POST /api/token/` (see [Quickstart](/getting-started/quickstart/))
-3. Explore the [API reference](/api/reference/) for available endpoints
-4. Check the [real-time docs](/features/real-time/) if you want to subscribe to WebSocket events
+2. Log in to the web UI at the URL your admin provides
+3. Find the active sprint on the board or in the Sprints workspace
+4. Seed the demo: `seed_demo_project --with-personas` — log in as `tom` or `priya` to see the team member view
