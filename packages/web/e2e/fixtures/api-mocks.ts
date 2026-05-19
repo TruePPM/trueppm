@@ -281,9 +281,9 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
       const url = new URL(route.request().url());
       // ?self=true returns just the caller's membership row.
       if (url.searchParams.get('self') === 'true') {
-        return route.fulfill(jsonResponse({ id: 'mem-admin', role: 3, user_id: user.id }));
+        return route.fulfill(jsonResponse({ id: 'mem-admin', role: 300, user_id: user.id }));
       }
-      return route.fulfill(jsonResponse(opts.members ?? [{ id: 'mem-admin', role: 3 }]));
+      return route.fulfill(jsonResponse(opts.members ?? [{ id: 'mem-admin', role: 300 }]));
     }
     return route.continue();
   });

@@ -6,7 +6,7 @@ import { test, expect, type Page } from '@playwright/test';
  * Verifies that:
  *   - the banner renders in the Estimates section when a pending suggestion exists
  *   - clicking Accept fires POST /api/v1/velocity-suggestions/{id}/accept/
- *   - the banner is gated to PM-role users (membership.role >= 3)
+ *   - the banner is gated to PM-role users (membership.role >= ROLE_ADMIN)
  *
  * All API calls are intercepted with Playwright route mocking; no server required.
  */
@@ -70,7 +70,7 @@ const PENDING_SUGGESTION = {
 
 async function setupScheduleWithPendingSuggestion(
   page: Page,
-  opts: { role: number } = { role: 3 },
+  opts: { role: number } = { role: 300 },
 ) {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -237,7 +237,7 @@ async function openEstimates(page: Page) {
 
 test.describe('Velocity calibration suggestion banner (ADR-0065 / #498)', () => {
   test('PM sees the banner and Accept POSTs to the accept endpoint', async ({ page }) => {
-    await setupScheduleWithPendingSuggestion(page, { role: 3 });
+    await setupScheduleWithPendingSuggestion(page, { role: 300 });
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
 
     const drawer = await openEstimates(page);
@@ -257,7 +257,7 @@ test.describe('Velocity calibration suggestion banner (ADR-0065 / #498)', () => 
   });
 
   test('Dismiss button posts to the dismiss endpoint', async ({ page }) => {
-    await setupScheduleWithPendingSuggestion(page, { role: 3 });
+    await setupScheduleWithPendingSuggestion(page, { role: 300 });
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
     const drawer = await openEstimates(page);
 
@@ -274,7 +274,7 @@ test.describe('Velocity calibration suggestion banner (ADR-0065 / #498)', () => 
   });
 
   test('non-admin (Team Member) does not see the banner', async ({ page }) => {
-    await setupScheduleWithPendingSuggestion(page, { role: 1 });
+    await setupScheduleWithPendingSuggestion(page, { role: 100 });
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
     const drawer = await openEstimates(page);
 

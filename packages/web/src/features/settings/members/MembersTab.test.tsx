@@ -22,7 +22,7 @@ vi.mock('@/hooks/useCurrentUser', () => ({
 }));
 
 vi.mock('@/hooks/useCurrentUserRole', () => ({
-  useCurrentUserRole: () => ({ role: 4, isLoading: false }),
+  useCurrentUserRole: () => ({ role: 400, isLoading: false }),
 }));
 
 vi.mock('../hooks/useMembers', () => ({
@@ -59,7 +59,7 @@ const makeOwner = (overrides: Partial<ProjectMembership> = {}): ProjectMembershi
   project: 'proj-1',
   user: 'user-owner',
   user_detail: { id: 'user-owner', username: 'alice', email: 'alice@example.com' },
-  role: 4,
+  role: 400,
   role_label: 'Project Admin',
   ...overrides,
 });
@@ -70,7 +70,7 @@ const makeMember = (overrides: Partial<ProjectMembership> = {}): ProjectMembersh
   project: 'proj-1',
   user: 'user-bob',
   user_detail: { id: 'user-bob', username: 'bob', email: 'bob@example.com' },
-  role: 1,
+  role: 100,
   role_label: 'Team Member',
   ...overrides,
 });
@@ -111,7 +111,7 @@ describe('MembersTab', () => {
 
   it('shows role picker for non-OWNER member when current user is OWNER', () => {
     render();
-    // bob is role=1 (Team Member) — editable by OWNER alice
+    // bob is ROLE_MEMBER (Team Member) — editable by OWNER alice
     const bobRow = screen.getByText('bob').closest('li')!;
     expect(within(bobRow).getByRole('combobox')).toBeInTheDocument();
   });
@@ -120,8 +120,8 @@ describe('MembersTab', () => {
     render();
     const bobRow = screen.getByText('bob').closest('li')!;
     const picker = within(bobRow).getByRole('combobox');
-    await userEvent.selectOptions(picker, '2'); // Resource Manager
-    expect(mockUpdateRole).toHaveBeenCalledWith({ membershipId: 'mem-bob', role: 2 });
+    await userEvent.selectOptions(picker, '200'); // Resource Manager
+    expect(mockUpdateRole).toHaveBeenCalledWith({ membershipId: 'mem-bob', role: 200 });
   });
 
   it('calls removeMember when Remove is clicked', async () => {

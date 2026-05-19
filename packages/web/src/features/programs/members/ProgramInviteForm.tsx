@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { UserSearchResult } from '@/api/types';
 import { useUserSearch } from '@/features/settings/hooks/useUserSearch';
 import { RolePicker } from '@/features/settings/members/RolePicker';
+import { ROLE_MEMBER } from '@/lib/roles';
 import { useAddProgramMember } from '../hooks/useProgramMemberMutations';
 
 interface Props {
@@ -17,7 +18,7 @@ export function ProgramInviteForm({ programId }: Props) {
   const [query, setQuery] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
   const [selectedUser, setSelectedUser] = useState<UserSearchResult | null>(null);
-  const [role, setRole] = useState(1); // Team Member by default
+  const [role, setRole] = useState(ROLE_MEMBER);
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -57,7 +58,7 @@ export function ProgramInviteForm({ programId }: Props) {
       {
         onSuccess: () => {
           clearSelection();
-          setRole(1);
+          setRole(ROLE_MEMBER);
         },
       },
     );

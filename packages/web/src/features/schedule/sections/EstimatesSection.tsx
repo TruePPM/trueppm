@@ -1,6 +1,7 @@
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useActiveSprint } from '@/hooks/useSprints';
+import { ROLE_SCHEDULER, ROLE_ADMIN } from '@/lib/roles';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import type { Task } from '@/types';
 import { EstimatesTab } from '../EstimatesTab';
@@ -25,8 +26,8 @@ export function EstimatesSection({ taskId, projectId }: DrawerSectionProps) {
   const { tasks } = useScheduleTasks();
   const task = tasks?.find((t) => t.id === taskId);
   const { role } = useCurrentUserRole(projectId);
-  const userIsScheduler = role !== null && role >= 2;
-  const userIsAdmin = role !== null && role >= 3;
+  const userIsScheduler = role !== null && role >= ROLE_SCHEDULER;
+  const userIsAdmin = role !== null && role >= ROLE_ADMIN;
   const { sprint: activeSprint } = useActiveSprint(projectId);
 
   if (!task) return null;

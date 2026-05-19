@@ -7,6 +7,8 @@ from typing import Any
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
+from trueppm_api.apps.access.models import Role
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,8 +47,9 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             return
 
         project_pk = str(scope["url_route"]["kwargs"]["pk"])
+        # Symbolic comparison so the gate stays correct under ADR-0072 role-ordinal re-spacing.
         role = await self._get_role(user, project_pk)
-        if role is None or role < 1:
+        if role is None or role < Role.MEMBER:
             await self.close(code=4003)
             return
 

@@ -39,13 +39,13 @@ const FIXTURE_MEMBERS = [
     id: MEM_ALICE_ID, server_version: 1,
     project: PROJECT_ID, user: ME_ID,
     user_detail: { id: ME_ID, username: 'alice', email: 'alice@example.com' },
-    role: 4, role_label: 'Project Admin',
+    role: 400, role_label: 'Project Admin',
   },
   {
     id: MEM_BOB_ID, server_version: 1,
     project: PROJECT_ID, user: BOB_ID,
     user_detail: { id: BOB_ID, username: 'bob', email: 'bob@example.com' },
-    role: 1, role_label: 'Team Member',
+    role: 100, role_label: 'Team Member',
   },
 ];
 
@@ -95,14 +95,14 @@ async function setup(page: Page, { ownerCount = 1 }: { ownerCount?: number } = {
 
   // Members endpoint — distinguish ?self=true (role check) from list view
   const owners = ownerCount > 1
-    ? [FIXTURE_MEMBERS[0], { ...FIXTURE_MEMBERS[0], id: 'mem-carol', user: 'user-carol', user_detail: { id: 'user-carol', username: 'carol', email: 'carol@example.com' }, role: 4, role_label: 'Project Admin' }]
+    ? [FIXTURE_MEMBERS[0], { ...FIXTURE_MEMBERS[0], id: 'mem-carol', user: 'user-carol', user_detail: { id: 'user-carol', username: 'carol', email: 'carol@example.com' }, role: 400, role_label: 'Project Admin' }]
     : [FIXTURE_MEMBERS[0]];
   const allMembers = [...owners.slice(0, ownerCount), FIXTURE_MEMBERS[1]];
 
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (r) => {
     const url = r.request().url();
     if (url.includes('self=true')) {
-      return r.fulfill({ status: 200, contentType: 'application/json', body: pj([{ id: MEM_ALICE_ID, role: 4 }]) });
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj([{ id: MEM_ALICE_ID, role: 400 }]) });
     }
     return r.fulfill({ status: 200, contentType: 'application/json', body: pj(allMembers) });
   });
@@ -174,17 +174,17 @@ test.describe('Members Settings — role change', () => {
     await page.route(`**/api/v1/projects/${PROJECT_ID}/members/${MEM_BOB_ID}/`, (r) => {
       if (r.request().method() === 'PATCH') {
         patchBody = r.request().postDataJSON();
-        return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...FIXTURE_MEMBERS[1], role: 2, role_label: 'Resource Manager' }) });
+        return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...FIXTURE_MEMBERS[1], role: 200, role_label: 'Resource Manager' }) });
       }
       return r.continue();
     });
 
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
-    // Bob's row has the role picker (Team Member, role=1)
+    // Bob's row has the role picker (Team Member, role=100)
     const bobRow = page.locator('li').filter({ hasText: 'bob' }).first();
-    await bobRow.getByRole('combobox').selectOption('2');
+    await bobRow.getByRole('combobox').selectOption('200');
 
-    await expect.poll(() => patchBody).toEqual({ role: 2 });
+    await expect.poll(() => patchBody).toEqual({ role: 200 });
   });
 });
 
@@ -241,7 +241,7 @@ test.describe('Members Settings — invite form', () => {
         return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({
           id: 'mem-carol', server_version: 1, project: PROJECT_ID, user: 'user-carol',
           user_detail: { id: 'user-carol', username: 'carol', email: 'carol@example.com' },
-          role: 1, role_label: 'Team Member',
+          role: 100, role_label: 'Team Member',
         }) });
       }
       return r.continue();
@@ -252,7 +252,7 @@ test.describe('Members Settings — invite form', () => {
     await page.getByRole('option', { name: /carol/i }).click();
     await page.getByRole('button', { name: /^add$/i }).click();
 
-    await expect.poll(() => postBody).toMatchObject({ user: 'user-carol', role: 1 });
+    await expect.poll(() => postBody).toMatchObject({ user: 'user-carol', role: 100 });
   });
 });
 

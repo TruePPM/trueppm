@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ProgramMembership } from '@/api/types';
+import { ROLE_OWNER } from '@/lib/roles';
 import { RolePicker } from '@/features/settings/members/RolePicker';
 
 interface Props {
@@ -13,8 +14,6 @@ interface Props {
   isUpdatingRole: boolean;
   isRemoving: boolean;
 }
-
-const OWNER_ROLE = 4;
 
 /**
  * Single program-member row. Mirrors :class:`MemberRow` for projects.
@@ -36,7 +35,7 @@ export function ProgramMemberRow({
 }: Props) {
   const { user_detail, role, role_label } = membership;
   const initials = user_detail.username.slice(0, 2).toUpperCase();
-  const isOwnerMember = role === OWNER_ROLE;
+  const isOwnerMember = role === ROLE_OWNER;
 
   const canEditRole = isOwnerRole && !isOwnerMember;
   const canRemove = isOwnerRole && !(isSelf && isSoleOwner);

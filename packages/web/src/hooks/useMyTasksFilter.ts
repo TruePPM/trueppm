@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { ROLE_MEMBER } from '@/lib/roles';
 import { useCurrentUser } from './useCurrentUser';
 import { useCurrentUserRole } from './useCurrentUserRole';
 
@@ -9,8 +10,6 @@ export interface UseMyTasksFilterResult {
   isLoading: boolean;
   setEnabled: (next: boolean) => void;
 }
-
-const ROLE_MEMBER = 1;
 
 function storageKey(userId: string, projectId: string): string {
   return `trueppm.boardFilter.mine.${userId}.${projectId}`;

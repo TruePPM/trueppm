@@ -3657,7 +3657,7 @@
         "/api/v1/projects/{project_pk}/baselines/": {
             "get": {
                 "operationId": "v1_projects_baselines_list",
-                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time,\nused for plan-vs-actual tracking via ghost bars on the Gantt.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role = 4)",
+                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time,\nused for plan-vs-actual tracking via ghost bars on the Gantt.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -3713,7 +3713,7 @@
             },
             "post": {
                 "operationId": "v1_projects_baselines_create",
-                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time,\nused for plan-vs-actual tracking via ghost bars on the Gantt.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role = 4)",
+                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time,\nused for plan-vs-actual tracking via ghost bars on the Gantt.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)",
                 "parameters": [
                     {
                         "in": "path",
@@ -3812,7 +3812,7 @@
         "/api/v1/projects/{project_pk}/baselines/{id}/": {
             "get": {
                 "operationId": "v1_projects_baselines_retrieve",
-                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time,\nused for plan-vs-actual tracking via ghost bars on the Gantt.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role = 4)",
+                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time,\nused for plan-vs-actual tracking via ghost bars on the Gantt.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)",
                 "parameters": [
                     {
                         "in": "path",
@@ -3860,7 +3860,7 @@
             },
             "delete": {
                 "operationId": "v1_projects_baselines_destroy",
-                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time,\nused for plan-vs-actual tracking via ghost bars on the Gantt.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role = 4)",
+                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time,\nused for plan-vs-actual tracking via ghost bars on the Gantt.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)",
                 "parameters": [
                     {
                         "in": "path",
@@ -4031,7 +4031,7 @@
         "/api/v1/projects/{project_pk}/members/": {
             "get": {
                 "operationId": "v1_projects_members_list",
-                "description": "Nested CRUD for project memberships.\n\nURL: /api/v1/projects/{project_pk}/members/\n     /api/v1/projects/{project_pk}/members/{pk}/\n\nPermission matrix:\n  list/retrieve  — any project member (Viewer+)\n  create         — Owner only (role=4)\n  partial_update — Owner only; caller may not assign role >= their own\n  destroy        — Owner only for others; any member may self-remove\n                   (last-Owner guard prevents stranding a project)",
+                "description": "Nested CRUD for project memberships.\n\nURL: /api/v1/projects/{project_pk}/members/\n     /api/v1/projects/{project_pk}/members/{pk}/\n\nPermission matrix:\n  list/retrieve  — any project member (Viewer+)\n  create         — Owner only (role == Role.OWNER)\n  partial_update — Owner only; caller may not assign role >= their own\n  destroy        — Owner only for others; any member may self-remove\n                   (last-Owner guard prevents stranding a project)",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -4096,7 +4096,7 @@
             },
             "post": {
                 "operationId": "v1_projects_members_create",
-                "description": "Nested CRUD for project memberships.\n\nURL: /api/v1/projects/{project_pk}/members/\n     /api/v1/projects/{project_pk}/members/{pk}/\n\nPermission matrix:\n  list/retrieve  — any project member (Viewer+)\n  create         — Owner only (role=4)\n  partial_update — Owner only; caller may not assign role >= their own\n  destroy        — Owner only for others; any member may self-remove\n                   (last-Owner guard prevents stranding a project)",
+                "description": "Nested CRUD for project memberships.\n\nURL: /api/v1/projects/{project_pk}/members/\n     /api/v1/projects/{project_pk}/members/{pk}/\n\nPermission matrix:\n  list/retrieve  — any project member (Viewer+)\n  create         — Owner only (role == Role.OWNER)\n  partial_update — Owner only; caller may not assign role >= their own\n  destroy        — Owner only for others; any member may self-remove\n                   (last-Owner guard prevents stranding a project)",
                 "parameters": [
                     {
                         "in": "path",
@@ -4156,7 +4156,7 @@
         "/api/v1/projects/{project_pk}/members/{id}/": {
             "get": {
                 "operationId": "v1_projects_members_retrieve",
-                "description": "Nested CRUD for project memberships.\n\nURL: /api/v1/projects/{project_pk}/members/\n     /api/v1/projects/{project_pk}/members/{pk}/\n\nPermission matrix:\n  list/retrieve  — any project member (Viewer+)\n  create         — Owner only (role=4)\n  partial_update — Owner only; caller may not assign role >= their own\n  destroy        — Owner only for others; any member may self-remove\n                   (last-Owner guard prevents stranding a project)",
+                "description": "Nested CRUD for project memberships.\n\nURL: /api/v1/projects/{project_pk}/members/\n     /api/v1/projects/{project_pk}/members/{pk}/\n\nPermission matrix:\n  list/retrieve  — any project member (Viewer+)\n  create         — Owner only (role == Role.OWNER)\n  partial_update — Owner only; caller may not assign role >= their own\n  destroy        — Owner only for others; any member may self-remove\n                   (last-Owner guard prevents stranding a project)",
                 "parameters": [
                     {
                         "in": "path",
@@ -4203,7 +4203,7 @@
             },
             "patch": {
                 "operationId": "v1_projects_members_partial_update",
-                "description": "Nested CRUD for project memberships.\n\nURL: /api/v1/projects/{project_pk}/members/\n     /api/v1/projects/{project_pk}/members/{pk}/\n\nPermission matrix:\n  list/retrieve  — any project member (Viewer+)\n  create         — Owner only (role=4)\n  partial_update — Owner only; caller may not assign role >= their own\n  destroy        — Owner only for others; any member may self-remove\n                   (last-Owner guard prevents stranding a project)",
+                "description": "Nested CRUD for project memberships.\n\nURL: /api/v1/projects/{project_pk}/members/\n     /api/v1/projects/{project_pk}/members/{pk}/\n\nPermission matrix:\n  list/retrieve  — any project member (Viewer+)\n  create         — Owner only (role == Role.OWNER)\n  partial_update — Owner only; caller may not assign role >= their own\n  destroy        — Owner only for others; any member may self-remove\n                   (last-Owner guard prevents stranding a project)",
                 "parameters": [
                     {
                         "in": "path",
@@ -4269,7 +4269,7 @@
             },
             "delete": {
                 "operationId": "v1_projects_members_destroy",
-                "description": "Nested CRUD for project memberships.\n\nURL: /api/v1/projects/{project_pk}/members/\n     /api/v1/projects/{project_pk}/members/{pk}/\n\nPermission matrix:\n  list/retrieve  — any project member (Viewer+)\n  create         — Owner only (role=4)\n  partial_update — Owner only; caller may not assign role >= their own\n  destroy        — Owner only for others; any member may self-remove\n                   (last-Owner guard prevents stranding a project)",
+                "description": "Nested CRUD for project memberships.\n\nURL: /api/v1/projects/{project_pk}/members/\n     /api/v1/projects/{project_pk}/members/{pk}/\n\nPermission matrix:\n  list/retrieve  — any project member (Viewer+)\n  create         — Owner only (role == Role.OWNER)\n  partial_update — Owner only; caller may not assign role >= their own\n  destroy        — Owner only for others; any member may self-remove\n                   (last-Owner guard prevents stranding a project)",
                 "parameters": [
                     {
                         "in": "path",
@@ -12250,13 +12250,13 @@
             "RoleEnum": {
                 "enum": [
                     0,
-                    1,
-                    2,
-                    3,
-                    4
+                    100,
+                    200,
+                    300,
+                    400
                 ],
                 "type": "integer",
-                "description": "* `0` - Viewer\n* `1` - Team Member\n* `2` - Resource Manager\n* `3` - Project Manager\n* `4` - Project Admin"
+                "description": "* `0` - Viewer\n* `100` - Team Member\n* `200` - Resource Manager\n* `300` - Project Manager\n* `400` - Project Admin"
             },
             "SchedulerRun": {
                 "type": "object",

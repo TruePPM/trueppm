@@ -9,29 +9,48 @@ from trueppm_api.apps.projects.models import VersionedModel
 
 
 class Role(models.IntegerChoices):
-    """Project-scoped roles, ordered by privilege level.
+    """Project-scoped roles, ordered by privilege level (ADR-0072).
 
-    The ordinal value is used directly for threshold comparisons in permission
-    classes: role >= MEMBER means the user holds at least the Team Member role.
+    Ordinals are spaced in 100-unit bands so Enterprise can register custom roles
+    at intermediate values (e.g., a "Senior Scheduler" at 250) without forcing an
+    OSS renumber. The band-boundary contract:
 
-    Code name  │ Ordinal │ Issue #11 label  │ Notes
+      - role >= Role.X (inequality / threshold) — "at least the X-band";
+        Enterprise custom roles at intermediate ordinals DO inherit this band's
+        capabilities.
+      - role == Role.X (singular-tier equality) — "specifically the OSS X tier";
+        custom roles do NOT silently absorb these matches. If Enterprise wants
+        override semantics, it goes through the slot-registration pattern
+        (ADR-0029), not OSS code changes.
+
+    Code name  │ Ordinal │ Issue #11 label  │ Reserved band for Enterprise
     ───────────┼─────────┼──────────────────┼─────────────────────────────────
     VIEWER     │    0    │ Viewer           │
-    MEMBER     │    1    │ Team Member      │ edit own assigned tasks
-    SCHEDULER  │    2    │ Resource Manager │ assign resources; no task edit
-    ADMIN      │    3    │ Project Manager  │ full task/dep edit; create baseline
-    OWNER      │    4    │ Project Admin    │ delete project; manage membership
+               │  1–99   │                  │ read-augmented roles (e.g. Auditor)
+    MEMBER     │   100   │ Team Member      │ edit own assigned tasks
+               │ 101–199 │                  │ contributor extensions
+    SCHEDULER  │   200   │ Resource Manager │ assign resources; no task edit
+               │ 201–299 │                  │ resource-management extensions
+    ADMIN      │   300   │ Project Manager  │ full task/dep edit; create baseline
+               │ 301–399 │                  │ project-lead extensions
+    OWNER      │   400   │ Project Admin    │ delete project; manage membership
+               │  401+   │ (RESERVED)       │ no role above Owner; OSS contract
     ───────────┴─────────┴──────────────────┴─────────────────────────────────
+
     OWNER is kept as the code name (not renamed to PROJECT_ADMIN) because it
     carries the last-Owner guard invariant throughout the codebase. The human-
     readable label is "Project Admin" for API consumers.
+
+    NEVER compare against a raw integer literal (e.g. ``if role < 1``) — always
+    use the symbolic name (``if role < Role.MEMBER``) so the comparison stays
+    correct if ordinals change.
     """
 
     VIEWER = 0, "Viewer"
-    MEMBER = 1, "Team Member"
-    SCHEDULER = 2, "Resource Manager"
-    ADMIN = 3, "Project Manager"
-    OWNER = 4, "Project Admin"
+    MEMBER = 100, "Team Member"
+    SCHEDULER = 200, "Resource Manager"
+    ADMIN = 300, "Project Manager"
+    OWNER = 400, "Project Admin"
 
 
 class ProjectMembership(VersionedModel):

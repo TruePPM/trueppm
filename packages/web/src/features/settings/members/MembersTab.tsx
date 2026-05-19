@@ -6,8 +6,7 @@ import { useUpdateMemberRole } from '../hooks/useUpdateMemberRole';
 import { useRemoveMember } from '../hooks/useRemoveMember';
 import { MemberRow } from './MemberRow';
 import { InviteForm } from './InviteForm';
-
-const OWNER_ROLE = 4;
+import { ROLE_OWNER } from '@/lib/roles';
 
 export function MembersTab() {
   const projectId = useProjectId();
@@ -19,8 +18,8 @@ export function MembersTab() {
 
   if (!projectId) return null;
 
-  const isOwnerRole = myRole === OWNER_ROLE;
-  const ownerCount = members.filter((m) => m.role === OWNER_ROLE).length;
+  const isOwnerRole = myRole === ROLE_OWNER;
+  const ownerCount = members.filter((m) => m.role === ROLE_OWNER).length;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
@@ -66,7 +65,7 @@ export function MembersTab() {
                 membership={m}
                 isSelf={user?.id === m.user}
                 isOwnerRole={isOwnerRole}
-                isSoleOwner={m.role === OWNER_ROLE && ownerCount === 1}
+                isSoleOwner={m.role === ROLE_OWNER && ownerCount === 1}
                 onChangeRole={(membershipId, role) => updateRole({ membershipId, role })}
                 onRemove={(membershipId) => removeMember(membershipId)}
                 isUpdatingRole={isUpdatingRole}

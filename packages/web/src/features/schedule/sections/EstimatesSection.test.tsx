@@ -15,7 +15,7 @@ vi.mock('@/hooks/useScheduleTasks', () => ({
 }));
 
 vi.mock('@/hooks/useCurrentUserRole', () => ({
-  useCurrentUserRole: () => ({ role: 1 }),
+  useCurrentUserRole: () => ({ role: 100 }),
 }));
 
 let mockActiveSprint: ApiSprint | null = null;

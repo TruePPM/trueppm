@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ProjectMembership } from '@/api/types';
+import { ROLE_OWNER } from '@/lib/roles';
 import { RolePicker } from './RolePicker';
 
 interface MemberRowProps {
@@ -14,8 +15,6 @@ interface MemberRowProps {
   isRemoving: boolean;
 }
 
-const OWNER_ROLE = 4;
-
 export function MemberRow({
   membership,
   isSelf,
@@ -28,7 +27,7 @@ export function MemberRow({
 }: MemberRowProps) {
   const { user_detail, role, role_label } = membership;
   const initials = membership.user_detail.username.slice(0, 2).toUpperCase();
-  const isOwnerMember = role === OWNER_ROLE;
+  const isOwnerMember = role === ROLE_OWNER;
 
   // Non-OWNER callers cannot change the role of an OWNER member.
   const canEditRole = isOwnerRole && !isOwnerMember;

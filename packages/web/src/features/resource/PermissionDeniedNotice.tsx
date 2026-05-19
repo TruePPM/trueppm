@@ -1,4 +1,4 @@
-/** Shown when the current user's role is below SCHEDULER (role < 2). Rule 94. */
+/** Shown when the current user's role is below SCHEDULER (role < ROLE_SCHEDULER). Rule 94. */
 export function PermissionDeniedNotice() {
   return (
     <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">

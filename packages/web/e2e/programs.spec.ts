@@ -32,7 +32,7 @@ const FIXTURE_PROGRAM = {
   created_by: ME_ID,
   created_at: '2026-05-18T00:00:00Z',
   updated_at: '2026-05-18T00:00:00Z',
-  my_role: 4,
+  my_role: 400,
   my_role_label: 'Project Admin',
   project_count: 0,
   member_count: 1,
@@ -44,7 +44,7 @@ const FIXTURE_MEMBERSHIP = {
   program: PROGRAM_ID,
   user: ME_ID,
   user_detail: { id: ME_ID, username: 'alice', email: 'alice@example.com' },
-  role: 4,
+  role: 400,
   role_label: 'Project Admin',
 };
 

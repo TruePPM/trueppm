@@ -130,7 +130,7 @@ async function gotoScheduleWithMC(page: import('@playwright/test').Page) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ role: 3 }), // PM role
+      body: JSON.stringify({ role: 300 }), // PM role
     }),
   );
 

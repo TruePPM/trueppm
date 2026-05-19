@@ -119,7 +119,7 @@ async function setup(page: Page, burnStatus = 200, burnBody: unknown = BURN_RESP
   await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (r) =>
     r.fulfill({
       status: 200, contentType: 'application/json',
-      body: JSON.stringify([{ id: 'mem-1', role: 4 }]),
+      body: JSON.stringify([{ id: 'mem-1', role: 400 }]),
     }),
   );
   await page.route('**/api/v1/projects/*/risks/', (r) =>

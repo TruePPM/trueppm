@@ -46,7 +46,7 @@ vi.mock('@/hooks/useProject', () => ({
 }));
 
 vi.mock('@/hooks/useCurrentUserRole', () => ({
-  useCurrentUserRole: () => ({ role: 3, isLoading: false }),
+  useCurrentUserRole: () => ({ role: 300, isLoading: false }),
 }));
 
 vi.mock('@/hooks/useProjectResourcePool', () => ({

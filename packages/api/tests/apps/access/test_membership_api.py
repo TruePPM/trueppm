@@ -276,6 +276,6 @@ def test_partial_update_cannot_assign_equal_role(
     owner_membership: ProjectMembership,
     member_membership: ProjectMembership,
 ) -> None:
-    """Owner (role=4) cannot assign Owner role (>= own role) to another member."""
+    """Owner (role == Role.OWNER) cannot assign Owner role (>= own role) to another member."""
     resp = owner_client.patch(_url(project, member_membership.pk), {"role": Role.OWNER})
     assert resp.status_code == 400

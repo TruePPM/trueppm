@@ -282,7 +282,7 @@ class TestTaskResourceRBAC:
         resource: Resource,
         client: APIClient,
     ) -> None:
-        """Viewer (role=0) is blocked from creating an assignment — HTTP 403."""
+        """Viewer (role == Role.VIEWER) is blocked from creating an assignment — HTTP 403."""
         membership.role = Role.VIEWER
         membership.save()
         r = client.post(
@@ -298,7 +298,7 @@ class TestTaskResourceRBAC:
         resource: Resource,
         client: APIClient,
     ) -> None:
-        """Resource Manager (role=2) is permitted to create an assignment — HTTP 201."""
+        """Resource Manager (Role.SCHEDULER) is permitted to create an assignment — HTTP 201."""
         membership.role = Role.SCHEDULER
         membership.save()
         r = client.post(

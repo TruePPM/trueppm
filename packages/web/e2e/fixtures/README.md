@@ -77,7 +77,7 @@ typed defaults; pass `opts` to override for test-specific data:
 - `GET /api/v1/monte-carlo/**` → empty runs
 - `GET /api/v1/projects/{id}/overview/` → `opts.overview` merged with empty defaults
 - `GET /api/v1/projects/{id}/status-summary/` → `opts.statusSummary` merged with empty defaults
-- `GET /api/v1/projects/{id}/members/` → `opts.members` or `[{ id: 'mem-admin', role: 3 }]`
+- `GET /api/v1/projects/{id}/members/` → `opts.members` or `[{ id: 'mem-admin', role: 300 }]`
 - `GET /api/v1/projects/{id}/risks/**` → `opts.risks` or empty
 - `GET /api/v1/projects/{id}/board-config/` → `opts.boardConfig` or canonical 5-column set; `PUT` echoes the body
 - `GET /api/v1/projects/{id}/board-views/` → `opts.boardViews` or `[]`; `POST` echoes a created view

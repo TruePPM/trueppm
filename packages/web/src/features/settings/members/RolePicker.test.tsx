@@ -2,11 +2,12 @@ import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
+import { ROLE_MEMBER, ROLE_SCHEDULER, ROLE_ADMIN } from '@/lib/roles';
 import { RolePicker } from './RolePicker';
 
 describe('RolePicker', () => {
   it('renders all four grantable role options', () => {
-    renderWithProviders(<RolePicker value={1} onChange={vi.fn()} />);
+    renderWithProviders(<RolePicker value={ROLE_MEMBER} onChange={vi.fn()} />);
     const sel = screen.getByRole('combobox');
     const options = Array.from(sel.querySelectorAll('option')).map((o) => o.textContent);
     expect(options).toEqual(['Viewer', 'Team Member', 'Resource Manager', 'Project Manager']);
@@ -15,19 +16,19 @@ describe('RolePicker', () => {
   });
 
   it('reflects the current value', () => {
-    renderWithProviders(<RolePicker value={2} onChange={vi.fn()} />);
-    expect(screen.getByRole('combobox')).toHaveValue('2');
+    renderWithProviders(<RolePicker value={ROLE_SCHEDULER} onChange={vi.fn()} />);
+    expect(screen.getByRole('combobox')).toHaveValue(String(ROLE_SCHEDULER));
   });
 
   it('calls onChange with numeric role when selection changes', async () => {
     const onChange = vi.fn();
-    renderWithProviders(<RolePicker value={1} onChange={onChange} />);
-    await userEvent.selectOptions(screen.getByRole('combobox'), '3');
-    expect(onChange).toHaveBeenCalledWith(3);
+    renderWithProviders(<RolePicker value={ROLE_MEMBER} onChange={onChange} />);
+    await userEvent.selectOptions(screen.getByRole('combobox'), String(ROLE_ADMIN));
+    expect(onChange).toHaveBeenCalledWith(ROLE_ADMIN);
   });
 
   it('is disabled when disabled prop is true', () => {
-    renderWithProviders(<RolePicker value={1} onChange={vi.fn()} disabled />);
+    renderWithProviders(<RolePicker value={ROLE_MEMBER} onChange={vi.fn()} disabled />);
     expect(screen.getByRole('combobox')).toBeDisabled();
   });
 });

@@ -29,7 +29,7 @@ class FieldDiffSerializer(serializers.Serializer[Any]):
 class HistoryRecordSerializer(serializers.Serializer[Any]):
     """Serialised form of a single django-simple-history HistoricalRecord.
 
-    ``history_user`` is exposed only to Owner/Admin callers (role >= 3).  The
+    ``history_user`` is exposed only to Owner/Admin callers (role >= Role.ADMIN).  The
     view sets ``hide_user=True`` on the serializer context for lower-privilege
     callers so this field returns null.
 

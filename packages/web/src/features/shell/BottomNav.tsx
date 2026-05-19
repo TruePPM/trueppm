@@ -5,6 +5,7 @@ import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
+import { ROLE_SCHEDULER } from '@/lib/roles';
 import type { ComponentType } from 'react';
 
 interface NavItem {
@@ -27,7 +28,6 @@ const NAV_ITEMS: NavItem[] = [
   { view: 'resources', label: 'Team',     Icon: ResourcesIcon },
 ];
 
-const SCHEDULER_ROLE = 2;
 
 export function BottomNav() {
   const location = useLocation();
@@ -45,7 +45,7 @@ export function BottomNav() {
   const visibleItems = NAV_ITEMS.filter(
     (t) =>
       isTabVisibleForMethodology(t.view, methodology) &&
-      (t.view !== 'resources' || (role !== null && role >= SCHEDULER_ROLE)),
+      (t.view !== 'resources' || (role !== null && role >= ROLE_SCHEDULER)),
   );
 
   if (!projectId) return null;

@@ -32,7 +32,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     created_by: 'u-1',
     created_at: '2026-05-18T00:00:00Z',
     updated_at: '2026-05-18T00:00:00Z',
-    my_role: 4,
+    my_role: 400,
     my_role_label: 'Project Admin',
     project_count: 3,
     member_count: 5,

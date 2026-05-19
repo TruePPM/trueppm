@@ -139,7 +139,7 @@ vi.mock('@/hooks/useTaskHistory', () => ({
 }));
 
 vi.mock('@/hooks/useCurrentUserRole', () => ({
-  useCurrentUserRole: () => ({ role: 3, isLoading: false }),
+  useCurrentUserRole: () => ({ role: 300, isLoading: false }),
 }));
 
 // Workshop hooks — mutable so individual tests can simulate an active session
