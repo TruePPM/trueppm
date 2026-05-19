@@ -2,7 +2,7 @@
 
 TruePPM adopts the [Contributor Covenant 2.1](https://www.contributor-covenant.org/version/2/1/code_of_conduct/) as its code of conduct.
 
-**Summary:** Be respectful. Harassment, personal attacks, and exclusionary behaviour are not welcome. Disagreement about technical choices is fine; disrespect toward contributors is not.
+**Summary:** Be respectful. Harassment, personal attacks, and exclusionary behavior are not welcome. Disagreement about technical choices is fine; disrespect toward contributors is not.
 
 ## Enforcement
 

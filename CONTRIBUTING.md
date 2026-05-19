@@ -38,7 +38,7 @@ Branch from `main`. Branch names follow `<prefix>/<short-description>`:
 | `fix/` | Bug fixes |
 | `docs/` | Documentation only |
 | `chore/` | Build, CI, tooling |
-| `refactor/` | Code restructuring without behaviour change |
+| `refactor/` | Code restructuring without behavior change |
 | `test/` | Tests only |
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/):
@@ -77,7 +77,7 @@ make pre-push   # lint + typecheck + migrations-check + schema-check
 
 ## Changelog
 
-Every MR that changes behaviour must include a fragment file in `changelog.d/`:
+Every MR that changes behavior must include a fragment file in `changelog.d/`:
 
 - Name: `<issue-or-slug>.<type>.md` (e.g. `434.fixed.md`)
 - Valid types: `added`, `changed`, `fixed`, `security`
@@ -94,7 +94,7 @@ Before opening an MR:
 - [ ] `make pre-push` passes (lint, typecheck, migrations, schema)
 - [ ] New code has tests at all three layers
 - [ ] Changelog fragment in `changelog.d/`
-- [ ] Docs updated if user-visible behaviour changed
+- [ ] Docs updated if user-visible behavior changed
 - [ ] No `STUB:` or `WIP:` markers in shipped code
 
 ## DCO — Developer Certificate of Origin

@@ -31,11 +31,11 @@ TruePPM is built under [MacroDream](https://macrodream.co), an open-core venture
 
 ## Why TruePPM exists
 
-The problem is concrete: every mid-size organisation running software projects has a Project Manager who lives in a Gantt chart and a Scrum Master who lives in a sprint board, and the two views never agree. The reconciliation happens in a spreadsheet, on Monday morning, by hand.
+The problem is concrete: every mid-size organization running software projects has a Project Manager who lives in a Gantt chart and a Scrum Master who lives in a sprint board, and the two views never agree. The reconciliation happens in a spreadsheet, on Monday morning, by hand.
 
 That reconciliation is unnecessary. A single task can carry both a CPM WBS node (with early/late start, float, critical path) and a sprint story (with story points, sprint assignment, burndown) without any translation layer. Build that model and both personas look at the same data, each in the view they prefer.
 
-The community edition is Apache 2.0. The goal is adoption-first — a PM and their team must be fully functional without an Enterprise license. Enterprise adds governance and portfolio coordination for organisations managing multiple programs. It does not gate the core scheduling, collaboration, or hybrid-bridge features.
+The community edition is Apache 2.0. The goal is adoption-first — a PM and their team must be fully functional without an Enterprise license. Enterprise adds governance and portfolio coordination for organizations managing multiple programs. It does not gate the core scheduling, collaboration, or hybrid-bridge features.
 
 The scheduling engine (`trueppm-scheduler`) ships separately on [PyPI](https://pypi.org/project/trueppm-scheduler/) under the same Apache 2.0 license — use it without the full application if you just need the CPM and Monte Carlo math.
 
