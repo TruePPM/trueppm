@@ -6,10 +6,11 @@
  * so the component layer can render with confidence.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { ROLE_ADMIN, ROLE_MEMBER, ROLE_VIEWER } from '@/lib/roles';
 import type { MentionMemberOption } from '@/hooks/useProjectMembers';
-import { buildMentionSuggestions } from './MentionAutocomplete';
+import { buildMentionSuggestions, MentionAutocomplete } from './MentionAutocomplete';
 
 const MEMBERS: MentionMemberOption[] = [
   { id: 'u1', username: 'alice', role: ROLE_MEMBER },
@@ -86,5 +87,62 @@ describe('buildMentionSuggestions — @all role gate (ADR-0075 #2)', () => {
     for (const g of nonAll) {
       expect(g.disabled).toBe(false);
     }
+  });
+});
+
+describe('MentionAutocomplete — component render', () => {
+  it('renders "No matches" when the query filters out everything', () => {
+    const onSelect = vi.fn();
+    render(
+      <MentionAutocomplete
+        query="zzznomatch"
+        members={MEMBERS}
+        currentRole={ROLE_ADMIN}
+        highlightIndex={0}
+        listboxId="lb"
+        onSelect={onSelect}
+      />,
+    );
+    expect(screen.getByText('No matches')).toBeTruthy();
+  });
+
+  it('renders a listbox of options and calls onSelect when one is mousedown-ed', () => {
+    const onSelect = vi.fn();
+    const onSuggestionsChange = vi.fn();
+    render(
+      <MentionAutocomplete
+        query="al"
+        members={MEMBERS}
+        currentRole={ROLE_ADMIN}
+        highlightIndex={0}
+        listboxId="lb"
+        onSelect={onSelect}
+        onSuggestionsChange={onSuggestionsChange}
+      />,
+    );
+    expect(onSuggestionsChange).toHaveBeenCalled();
+    const aliceOpt = screen.getByText('@alice').closest('[role="option"]') as HTMLElement;
+    fireEvent.mouseDown(aliceOpt);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    const firstArg = onSelect.mock.calls[0]?.[0] as { value: string } | undefined;
+    expect(firstArg?.value).toBe('alice');
+  });
+
+  it('shows the Admin+ only badge and does not call onSelect for a disabled @all', () => {
+    const onSelect = vi.fn();
+    render(
+      <MentionAutocomplete
+        query="all"
+        members={MEMBERS}
+        currentRole={ROLE_MEMBER}
+        highlightIndex={0}
+        listboxId="lb"
+        onSelect={onSelect}
+      />,
+    );
+    expect(screen.getByText('Admin+ only')).toBeTruthy();
+    const allOpt = screen.getByText('@all').closest('[role="option"]') as HTMLElement;
+    fireEvent.mouseDown(allOpt);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });
