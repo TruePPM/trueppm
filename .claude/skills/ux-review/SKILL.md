@@ -87,6 +87,20 @@ These are concrete patterns derived from prior pre-release audit findings that s
 - **Hover-reveal controls** — when a button uses `opacity-0 group-hover:opacity-100`, it must also include `focus:opacity-100` (otherwise it is unreachable by keyboard). Grep: `grep -rn 'group-hover:opacity-100' packages/web/src/` and confirm every match also has `focus:opacity-100` on the same element.
 - **Conditional permission-gated affordances** — admin-only or role-restricted controls must be hidden entirely from the DOM (`{isAdmin && (...)}`), never rendered as `disabled` with reduced opacity. A disabled focusable button announces "[label], dimmed" to screen readers and is a dead affordance. Grep: `grep -rnE 'disabled=\{!(isAdmin|isOrgAdmin|isPMOAdmin|hasRole)' packages/web/src/`.
 
+### 6.2 OSS / Enterprise Boundary Affordance
+
+When the surface under review is the OSS side of a documented OSS↔Enterprise boundary (per the Two-Repo Rule), it must carry a visible on-surface affordance pointing at the Enterprise upgrade path. Absence of this affordance turns missing Enterprise features into the appearance of broken or unfinished OSS — weakens the adoption-led GTM positioning and confuses evaluators.
+
+What to check:
+- Does the surface advertise feature rows, tabs, sections, or capability cells that exist only in TruePPM Enterprise (portfolio governance, SSO, audit-trail UI, cross-program rollups, approval workflows, custom roles, etc.)? Read the relevant ADR for the OSS↔Enterprise scope statement.
+- If yes, does each of those rows / cells carry a small `EE` badge with a tooltip routing to the Enterprise marketing or docs page?
+- For surfaces that host an entire Enterprise-tier capability stack (e.g. Settings → Roles, `/programs` landing, future `/portfolio` gateway), is there a single visible upsell card or section-footer link at the natural scope boundary?
+- Conversely: does the OSS surface accidentally render Enterprise-tier functionality without an edition gate (giving the upsell away)?
+
+Flag missing affordances as MEDIUM by default. HIGH when the surface is a primary purchase-decision touchpoint (Settings → Roles & permissions, `/programs` landing, future `/portfolio` gateway) — these are where evaluators form the OSS-vs-Enterprise mental model.
+
+This check is not a greppable pattern. It requires reading the relevant ADR for the surface and confirming that any Enterprise-reserved capability noted in the ADR has a corresponding on-surface signal in the implementation. Run whenever an MR adds or modifies a surface documented as the OSS side of an OSS↔Enterprise boundary.
+
 ### 7. Information Hierarchy
 - Can a PM see project health in <2 seconds?
 - Is the most important information visible without scrolling?
