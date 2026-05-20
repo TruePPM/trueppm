@@ -54,6 +54,12 @@ const MyWorkPage = lazy(() =>
 const NotificationListPage = lazy(() =>
   import('@/features/me/NotificationListPage').then((m) => ({ default: m.NotificationListPage })),
 );
+
+const NotificationPreferencesPage = lazy(() =>
+  import('@/features/me/NotificationPreferencesPage').then((m) => ({
+    default: m.NotificationPreferencesPage,
+  })),
+);
 const ProgramListPage = lazy(() =>
   import('@/features/programs/ProgramListPage').then((m) => ({ default: m.ProgramListPage }))
 );
@@ -445,6 +451,15 @@ export const router = createBrowserRouter([
             element: (
               <Suspense fallback={<RouteLoadingFallback />}>
                 <NotificationListPage />
+              </Suspense>
+            ),
+          },
+          // Per-user notification preference matrix (#311 phase 4).
+          {
+            path: 'me/settings/notifications',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <NotificationPreferencesPage />
               </Suspense>
             ),
           },
