@@ -120,13 +120,14 @@ test.describe('Members Settings — golden path', () => {
   test('Settings tab is visible in ViewTabs', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
-    await expect(page.getByRole('link', { name: 'Settings' })).toBeVisible();
+    // Exact match — the sidebar exposes a separate "Workspace settings" link.
+    await expect(page.getByRole('link', { name: 'Settings', exact: true })).toBeVisible();
   });
 
   test('Settings tab is active when on settings route', async ({ page }) => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
-    await expect(page.getByRole('link', { name: 'Settings' })).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByRole('link', { name: 'Settings', exact: true })).toHaveAttribute('aria-current', 'page');
   });
 
   test('member list renders alice and bob', async ({ page }) => {
