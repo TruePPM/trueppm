@@ -530,3 +530,23 @@ These rules are enforced at review time. Violations block merge.
 108. **Canonical view tab order is `Overview · Board · Schedule · WBS · Table · Calendar · Team · Risks`** (issue #204, updated per VoC review 2026-04-29). Overview is first — it is the canonical landing/orientation surface (ADR-0030). Board is second — the execution surface. The route segment for the Schedule view is `/schedule`. Never change this order without a design review. `ViewTabs.tsx` is the source of truth. The mobile `BottomNav` mirrors this order and omits Risks (infrequent on mobile).
 
 109. **TopBar status pills collapse below 1024px (`lg:`)** (issue #205). At `lg+` viewports: P80 pill, at-risk badge, and critical badge render individually (`hidden lg:flex`). Below `lg:`: all three collapse into a single `HealthDropdown` button (`lg:hidden`) that expands a `role="menu"` listing the task items. The `HealthDropdown` renders nothing when there are no health signals. P80 pill is a `<button>` that opens the MC distribution panel (issue #196, shipped in wave/2-board).
+
+## Toolbar Responsive Rules (Issue #568)
+
+110. **Every toolbar control is classified as primary or secondary.** This classification is the contract — enforce it in code review, not just implementation. Primary controls are always visible at all widths ≥ 768px. Secondary controls collapse at narrow widths (see rule 111). Canonical classification per view:
+     - **Schedule toolbar**: `+ Task`, `+ Milestone`, `BUILD MODE` = primary; `CP only`, `Focus chain`, `Critical path`, `Milestones` toggles = secondary; health summary chip, `Columns`, `Today`, ZoomControl = primary.
+     - **Board toolbar** (CalmToolbar): Group, Sort, Density, Layout segmented control = primary; `My tasks`, `At-risk`, `Cost` toggles = secondary.
+     - **Resource toolbar**: view mode tabs, Prev/Today/Next date nav, `Fit to project` = primary; status filter chips = secondary.
+     Adding a new control to any toolbar requires an explicit primary/secondary declaration in the MR description.
+
+111. **Three-tier breakpoint collapse for toolbar controls:**
+     - `lg:` (≥ 1024px): all controls visible with full text labels. This is the reference layout — screenshots and design specs target this width.
+     - `md:` (768–1023px): secondary controls render icon-only — wrap the label text in `<span className="hidden lg:inline">` so it disappears but the icon and `aria-label` remain. Primary controls keep their short text labels.
+     - `< md:` (< 768px): secondary controls disappear from the toolbar entirely and move into the `ToolbarOverflowMenu` (rule 112). Primary controls remain visible with short labels. Never render a standalone secondary control below 768px.
+     Use `hidden lg:inline` on label text spans, `hidden md:flex` / `md:hidden` on visibility toggles — the same pattern already enforced on `TopBar` (rule 109).
+
+112. **`ToolbarOverflowMenu` is the shared overflow container for all views** — do not implement a per-view overflow popover. Import from `src/components/toolbar/ToolbarOverflowMenu.tsx`. The trigger is `<button aria-label="More options" aria-haspopup="menu">` rendering `⋯`. The popover is `role="menu"` with one `role="menuitem"` per secondary action or `role="menuitemcheckbox" aria-checked={…}` per secondary toggle. The overflow button is rendered only below `md:` (`md:hidden`); it must not appear at `lg:`. Keyboard: `ArrowDown`/`ArrowUp` navigate items; `Enter`/`Space` activate; `Escape` closes and returns focus to the trigger.
+
+113. **Toolbar root must be `flex flex-nowrap` — wrapping to multiple rows is a bug.** The fixed height is `h-10` for view-level toolbars (Schedule, Board, Resource) and `h-7` for sub-toolbars (GanttToolbar secondary row). If a toolbar wraps, it is missing breakpoint collapse rules (rule 111). `flex-nowrap` is explicit so lint / visual review surfaces the problem immediately rather than silently producing a two-row layout.
+
+114. **`ScheduleToolbarToggle` and any new toggle button accept a `hideLabel` prop.** When `hideLabel={true}`, the text label is omitted from the render; the button still carries `aria-label` and `title` matching the full label text. Used by the `md:` tier (rule 111) to switch secondary toggles to icon-only mode. Do not add a new size variant to the design system for this — the existing `h-7 px-3 text-xs font-medium` sizing is retained in both modes.
