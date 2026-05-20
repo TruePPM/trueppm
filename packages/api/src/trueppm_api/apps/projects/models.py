@@ -1846,6 +1846,14 @@ class TaskAttachment(models.Model):
         kind = "url" if self.external_url else "file"
         return f"TaskAttachment({kind}, task={self.task_id})"
 
+    @property
+    def project_id(self) -> Any:
+        # The RBAC helpers (`_get_project_id_from_obj`) traverse `obj.project_id`
+        # to enforce object-level membership. TaskAttachment is task-scoped, so
+        # we surface the parent project's id through this property — keeps the
+        # permission classes unchanged.
+        return self.task.project_id
+
     def soft_delete(self, *, actor: Any | None = None) -> None:
         """Soft-delete preserves `[[attachment:uuid]]` references in comments."""
         self.is_deleted = True
@@ -1905,6 +1913,12 @@ class TaskComment(models.Model):
     def __str__(self) -> str:
         return f"TaskComment({self.id}, task={self.task_id})"
 
+    @property
+    def project_id(self) -> Any:
+        # See TaskAttachment.project_id — surfaces task.project_id so the RBAC
+        # helpers can enforce object-level membership without bespoke wiring.
+        return self.task.project_id
+
     def soft_delete(self, *, actor: Any | None = None) -> None:
         self.is_deleted = True
         self.deleted_at = timezone.now()
@@ -1947,6 +1961,10 @@ class CommentAcknowledgement(models.Model):
     def __str__(self) -> str:
         return f"CommentAcknowledgement(comment={self.comment_id}, user={self.user_id})"
 
+    @property
+    def project_id(self) -> Any:
+        return self.comment.task.project_id
+
 
 class CommentReaction(models.Model):
     """Lightweight emoji reaction (ADR-0075 §A.4).
@@ -1980,3 +1998,7 @@ class CommentReaction(models.Model):
 
     def __str__(self) -> str:
         return f"CommentReaction({self.emoji}, comment={self.comment_id}, user={self.user_id})"
+
+    @property
+    def project_id(self) -> Any:
+        return self.comment.task.project_id
