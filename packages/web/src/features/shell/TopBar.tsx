@@ -15,6 +15,7 @@ import { BadgePopover } from './BadgePopover';
 import { TaskRunIndicator } from './TaskRunIndicator';
 import { PresenceAvatarStack } from './PresenceAvatarStack';
 import { MCResultPanel } from './MCResultPanel';
+import { NotificationBell } from './NotificationBell';
 import { UserMenu } from './UserMenu';
 
 interface Props {
@@ -219,6 +220,10 @@ export function TopBar({ onHamburgerClick }: Props) {
 
         {/* Online collaborators — desktop only (hidden md:flex inside component) */}
         <PresenceAvatarStack users={onlineUsers} />
+
+        {/* Notification bell — visible at all widths; opens slide-out on md+,
+            navigates to /me/notifications on mobile (#311 frontend phase 3). */}
+        <NotificationBell />
 
         {/* User menu — avatar chip with theme toggle, notifications, keyboard shortcuts, and sign out */}
         <UserMenu />

@@ -50,6 +50,10 @@ const ResourcesPage = lazy(() =>
 const MyWorkPage = lazy(() =>
   import('@/features/me/MyWorkPage').then((m) => ({ default: m.MyWorkPage }))
 );
+
+const NotificationListPage = lazy(() =>
+  import('@/features/me/NotificationListPage').then((m) => ({ default: m.NotificationListPage })),
+);
 const ProgramListPage = lazy(() =>
   import('@/features/programs/ProgramListPage').then((m) => ({ default: m.ProgramListPage }))
 );
@@ -432,6 +436,15 @@ export const router = createBrowserRouter([
             element: (
               <Suspense fallback={<RouteLoadingFallback />}>
                 <MyWorkPage />
+              </Suspense>
+            ),
+          },
+          // Notification inbox — mobile-primary, desktop secondary (#311 phase 3).
+          {
+            path: 'me/notifications',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <NotificationListPage />
               </Suspense>
             ),
           },
