@@ -1759,3 +1759,246 @@ class ApiTokenAuditEntry(models.Model):
 
     def __str__(self) -> str:
         return f"ApiTokenAuditEntry({self.action} {self.token_prefix} project={self.project_id})"
+
+
+# ---------------------------------------------------------------------------
+# Task collaboration — ADR-0075
+#   TaskAttachment, TaskComment, CommentAcknowledgement, CommentReaction
+# ---------------------------------------------------------------------------
+
+
+def _task_attachment_upload_to(instance: TaskAttachment, filename: str) -> str:
+    """Year/month-partitioned upload path scoped by task UUID.
+
+    Filename collisions are impossible because the row UUID prefixes the
+    storage key — see TaskAttachment.save() override.
+    """
+    return f"attachments/{instance.task_id}/{instance.id}_{filename}"
+
+
+class TaskAttachment(models.Model):
+    """File or external link attached to a task. First-class (ADR-0075 §A.1).
+
+    Plain Model (not VersionedModel) — synced via direct REST in 0.2; mobile
+    WatermelonDB integration deferred to post-ADR-0026. Soft-delete preserves
+    `[[attachment:uuid]]` comment references — rendered as
+    "(deleted attachment)" rather than 404.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="attachments")
+
+    # XOR: file XOR external_url (DB CheckConstraint below). Locked constraints
+    # from ADR-0075 threat-model pass: 100 MB max file size; allow-listed MIME
+    # types enforced at upload handler (TaskAttachmentSerializer). file uses
+    # the FileField default convention (empty string = "no file"), so the XOR
+    # check compares against "" rather than NULL.
+    file = models.FileField(upload_to=_task_attachment_upload_to, blank=True, default="")
+    file_name = models.CharField(max_length=255, blank=True, default="")
+    file_size = models.BigIntegerField(null=True, blank=True)  # bytes
+    file_mime = models.CharField(max_length=128, blank=True, default="")
+    # Empty string = no external URL (Django convention DJ001).
+    external_url = models.URLField(max_length=2048, blank=True, default="")
+    external_title = models.CharField(max_length=255, blank=True, default="")
+
+    is_pinned = models.BooleanField(default=False)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="uploaded_attachments",
+    )
+    # OSS-side accountability hook — captures actor without full Enterprise
+    # audit trail (trueppm-enterprise#113 covers immutable log).
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="deleted_attachments",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "projects_taskattachment"
+        ordering = ["-is_pinned", "-created_at"]
+        constraints = [
+            # file XOR external_url: exactly one of the two must be set.
+            # Both fields default to "" (per Django convention DJ001 — no
+            # nullable string-based columns).
+            models.CheckConstraint(
+                condition=(
+                    (~models.Q(file="") & models.Q(external_url=""))
+                    | (models.Q(file="") & ~models.Q(external_url=""))
+                ),
+                name="taskattachment_file_xor_url",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["task", "is_deleted", "-created_at"], name="ix_attach_task_recent"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        kind = "url" if self.external_url else "file"
+        return f"TaskAttachment({kind}, task={self.task_id})"
+
+    @property
+    def project_id(self) -> Any:
+        # The RBAC helpers (`_get_project_id_from_obj`) traverse `obj.project_id`
+        # to enforce object-level membership. TaskAttachment is task-scoped, so
+        # we surface the parent project's id through this property — keeps the
+        # permission classes unchanged.
+        return self.task.project_id
+
+    def soft_delete(self, *, actor: Any | None = None) -> None:
+        """Soft-delete preserves `[[attachment:uuid]]` references in comments."""
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.deleted_by = actor
+        self.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+
+class TaskComment(models.Model):
+    """Append-only comment thread on a task (ADR-0075 §A.2).
+
+    Mirrors RiskComment (ADR-0044) shape — plain Model, immutable after the
+    15-min edit window. Single-level reply nesting enforced at the serializer
+    layer (parent.parent_id must be NULL).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="comments")
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="replies",
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="task_comments",
+    )
+    # Renderable markdown — supports @mention syntax and [[attachment:uuid]]
+    # references. Body length capped at 10 000 chars in the serializer
+    # (ADR-0075 locked constraint #3). HTML is escaped at render time.
+    body = models.TextField()
+    edited_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="deleted_task_comments",
+    )
+
+    class Meta:
+        db_table = "projects_taskcomment"
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(
+                fields=["task", "is_deleted", "created_at"], name="ix_comment_task_chrono"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"TaskComment({self.id}, task={self.task_id})"
+
+    @property
+    def project_id(self) -> Any:
+        # See TaskAttachment.project_id — surfaces task.project_id so the RBAC
+        # helpers can enforce object-level membership without bespoke wiring.
+        return self.task.project_id
+
+    def soft_delete(self, *, actor: Any | None = None) -> None:
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.deleted_by = actor
+        self.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+
+class CommentAcknowledgement(models.Model):
+    """First-class "I saw this / I'm on it" signal (ADR-0075 §A.3).
+
+    Structurally separate from CommentReaction per Morgan VoC blocker —
+    acknowledgements are queryable by team but NOT by PMO (enforced in
+    viewset). Never triggers a notification.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    comment = models.ForeignKey(
+        TaskComment, on_delete=models.CASCADE, related_name="acknowledgements"
+    )
+    # CASCADE: an unattributed acknowledgement has no archival value once the
+    # user is hard-deleted (differs from comment authorship — the comment text
+    # survives the user via SET_NULL on TaskComment.author).
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="comment_acknowledgements",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "projects_commentacknowledgement"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["comment", "user"],
+                name="uq_commentack_comment_user",
+            ),
+        ]
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return f"CommentAcknowledgement(comment={self.comment_id}, user={self.user_id})"
+
+    @property
+    def project_id(self) -> Any:
+        return self.comment.task.project_id
+
+
+class CommentReaction(models.Model):
+    """Lightweight emoji reaction (ADR-0075 §A.4).
+
+    Structurally separate from CommentAcknowledgement — reactions are chatter,
+    queryable by anyone in the project, NEVER trigger notifications. 0.2 allow-
+    list is single emoji ("👍") enforced in serializer; expanded picker is 0.3.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    comment = models.ForeignKey(TaskComment, on_delete=models.CASCADE, related_name="reactions")
+    # CASCADE: same rationale as CommentAcknowledgement — an unattributed
+    # reaction is noise once the user is hard-deleted.
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="comment_reactions",
+    )
+    emoji = models.CharField(max_length=16)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "projects_commentreaction"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["comment", "user", "emoji"],
+                name="uq_commentreaction_comment_user_emoji",
+            ),
+        ]
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return f"CommentReaction({self.emoji}, comment={self.comment_id}, user={self.user_id})"
+
+    @property
+    def project_id(self) -> Any:
+        return self.comment.task.project_id

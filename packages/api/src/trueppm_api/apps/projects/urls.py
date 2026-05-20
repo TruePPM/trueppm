@@ -14,6 +14,7 @@ from trueppm_api.apps.projects.views import (
     BoardSavedViewDetailView,
     BoardSavedViewListView,
     CalendarViewSet,
+    CommentReactionViewSet,
     DependencyViewSet,
     MeActiveSprintsView,
     MeWorkView,
@@ -29,8 +30,10 @@ from trueppm_api.apps.projects.views import (
     RiskCommentViewSet,
     RiskViewSet,
     SprintViewSet,
+    TaskAttachmentViewSet,
     TaskBaselineDetailView,
     TaskBulkView,
+    TaskCommentViewSet,
     TaskHistoryView,
     TaskIndentView,
     TaskOutdentView,
@@ -295,5 +298,48 @@ urlpatterns = [
         "projects/<project_pk>/api-token-audit/",
         ApiTokenAuditView.as_view(),
         name="project-api-token-audit",
+    ),
+    # Task collaboration endpoints (ADR-0075, #310 #311)
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/attachments/",
+        TaskAttachmentViewSet.as_view({"get": "list", "post": "create"}),
+        name="project-task-attachments-list",
+    ),
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/attachments/<pk>/",
+        TaskAttachmentViewSet.as_view({"get": "retrieve", "delete": "destroy"}),
+        name="project-task-attachments-detail",
+    ),
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/attachments/<pk>/signed-url/",
+        TaskAttachmentViewSet.as_view({"get": "signed_url"}),
+        name="project-task-attachments-signed-url",
+    ),
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/comments/",
+        TaskCommentViewSet.as_view({"get": "list", "post": "create"}),
+        name="project-task-comments-list",
+    ),
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/comments/<pk>/",
+        TaskCommentViewSet.as_view(
+            {"get": "retrieve", "patch": "partial_update", "delete": "destroy"}
+        ),
+        name="project-task-comments-detail",
+    ),
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/comments/<pk>/acknowledge/",
+        TaskCommentViewSet.as_view({"post": "acknowledge", "delete": "acknowledge"}),
+        name="project-task-comments-acknowledge",
+    ),
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/comments/<comment_pk>/reactions/",
+        CommentReactionViewSet.as_view({"post": "create"}),
+        name="project-task-comment-reactions-list",
+    ),
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/comments/<comment_pk>/reactions/<pk>/",
+        CommentReactionViewSet.as_view({"delete": "destroy"}),
+        name="project-task-comment-reactions-detail",
     ),
 ]
