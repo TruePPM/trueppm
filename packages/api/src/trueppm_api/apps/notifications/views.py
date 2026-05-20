@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
@@ -110,10 +111,13 @@ class NotificationPreferenceViewSet(
         return super().list(request, *args, **kwargs)
 
     def perform_update(self, serializer: Any) -> None:
-        """Disallow channel / event_type / user changes — only enabled toggle."""
+        """Disallow channel / event_type / user changes — only enabled toggle.
+
+        In practice unreachable (get_queryset already restricts to user=request.user
+        so cross-user PATCH 404s), but the guard is defense-in-depth.
+        """
         instance: NotificationPreference = serializer.instance
-        # Even though read_only_fields gates writes, double-check the user can't
-        # PATCH a preference belonging to another account.
         if instance.user_id != self.request.user.pk:
-            raise PermissionError("Cannot modify another user's preferences")
+            # DRF's PermissionDenied → 403; bare PermissionError raises 500.
+            raise PermissionDenied("Cannot modify another user's preferences.")
         serializer.save()

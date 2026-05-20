@@ -61,6 +61,13 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
 
         Truncated to 200 chars. Returns empty string if the source is
         unavailable (e.g. comment soft-deleted).
+
+        NOTE (ADR-0075 §A.5, MentionScope): only PROJECT_VISIBLE scope is in
+        play in 0.2, so any recipient (who was a project member at mention
+        time) can see the body via this snippet — historical-record semantics.
+        When #476 lands TEAM_ONLY scope this method MUST re-check current
+        project membership at read time and return "" if the user is no
+        longer a member of the source project. See N-1 in RBAC audit.
         """
         mention = obj.mention
         if mention is None:

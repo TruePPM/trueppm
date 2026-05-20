@@ -89,6 +89,13 @@ class MentionManager(models.Manager["Mention"]):
           members. TEAM_ONLY mentions (future #476) are visible only to the
           mentioner, the mentioned user, and members of the mentioned group.
           PRIVATE mentions are visible only to mentioner + mentioned_user.
+
+        NOTE: Currently UNUSED in the 0.2 viewsets — Mention visibility is
+        enforced indirectly via NotificationViewSet's `recipient=request.user`
+        filter and the absence of a direct Mention list endpoint. This method
+        is pre-positioned for #476, which will expose a Decision rollup view
+        that queries Mentions directly. Do NOT remove as dead code; it's the
+        single point of TEAM_ONLY scope enforcement when that scope is wired.
         """
         from trueppm_api.apps.access.models import ProjectMembership
 

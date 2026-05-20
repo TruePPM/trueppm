@@ -5152,7 +5152,9 @@ class TaskCommentViewSet(
         )
 
     def get_permissions(self) -> list[BasePermission]:
-        if self.action in ("create", "partial_update", "update", "destroy"):
+        # `acknowledge` is the active "I'm on it" stance — Member+ only;
+        # Viewers shouldn't be able to ack per ADR-0075 §A.3.
+        if self.action in ("create", "partial_update", "update", "destroy", "acknowledge"):
             return [IsAuthenticated(), IsProjectMemberWrite()]
         return [IsAuthenticated(), IsProjectMember()]
 
@@ -5231,9 +5233,12 @@ class TaskCommentViewSet(
                 code="comment_edit_not_author",
             )
         serializer.save()
+        # Snapshot plain values BEFORE the on_commit lambda — never dereference
+        # ORM instances inside the closure (broadcast-check H-1 pattern).
         project_id_str = str(instance.task.project_id)
         task_id_str = str(instance.task_id)
         comment_id_str = str(instance.pk)
+        parent_id_str = str(instance.parent_id) if instance.parent_id else None
         transaction.on_commit(
             lambda: broadcast_board_event(
                 project_id_str,
@@ -5242,7 +5247,7 @@ class TaskCommentViewSet(
                     "id": comment_id_str,
                     "task_id": task_id_str,
                     "action": "updated",
-                    "parent_id": str(instance.parent_id) if instance.parent_id else None,
+                    "parent_id": parent_id_str,
                 },
             )
         )
@@ -5261,9 +5266,11 @@ class TaskCommentViewSet(
                 code="comment_delete_forbidden",
             )
         instance.soft_delete(actor=user)
+        # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).
         project_id_str = str(instance.task.project_id)
         task_id_str = str(instance.task_id)
         comment_id_str = str(instance.pk)
+        parent_id_str = str(instance.parent_id) if instance.parent_id else None
         transaction.on_commit(
             lambda: broadcast_board_event(
                 project_id_str,
@@ -5272,7 +5279,7 @@ class TaskCommentViewSet(
                     "id": comment_id_str,
                     "task_id": task_id_str,
                     "action": "deleted",
-                    "parent_id": str(instance.parent_id) if instance.parent_id else None,
+                    "parent_id": parent_id_str,
                 },
             )
         )
