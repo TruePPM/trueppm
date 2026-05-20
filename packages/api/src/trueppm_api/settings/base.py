@@ -194,6 +194,20 @@ CELERY_BEAT_SCHEDULE = {
         # 03:00 UTC — after other nightly purge jobs.
         "schedule": crontab(hour=3, minute=0),
     },
+    # Notification email outbox drain: send queued mention emails every 30 s.
+    # Respects 5-min orphan window so it doesn't race in-flight comment-create
+    # transactions (ADR-0075 §F durable-execution checklist item 3).
+    "drain-notification-emails": {
+        "task": "notifications.drain_notification_emails",
+        "schedule": 30.0,
+    },
+    # Nightly archive: notifications older than 90 days with is_read=True become
+    # is_archived=True. Keeps the unread-bell query path on a shallow index.
+    "archive-old-notifications": {
+        "task": "notifications.archive_old_notifications",
+        # 03:15 UTC — after other nightly purge/archive jobs.
+        "schedule": crontab(hour=3, minute=15),
+    },
 }
 
 # ---------------------------------------------------------------------------
