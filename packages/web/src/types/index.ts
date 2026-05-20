@@ -447,3 +447,72 @@ export interface ShellStats {
   /** ISO timestamp of most recent CPM engine recalculation; null if never run */
   recalculatedAt: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Task collaboration — ADR-0075 (#310 #311)
+// ---------------------------------------------------------------------------
+
+/** Inline user summary returned by collaboration serializers. */
+export interface CollabUserMini {
+  id: string;
+  username: string;
+  display_name: string;
+}
+
+/** Task attachment — file XOR external URL (DB CheckConstraint). */
+export interface TaskAttachment {
+  id: string;
+  file: string;
+  file_name: string;
+  file_size: number | null;
+  file_mime: string;
+  external_url: string;
+  external_title: string;
+  is_pinned: boolean;
+  uploaded_by: CollabUserMini | null;
+  deleted_by: CollabUserMini | null;
+  created_at: string;
+  is_deleted: boolean;
+  deleted_at: string | null;
+}
+
+/** Task comment — append-only thread with single-level reply nesting. */
+export interface TaskComment {
+  id: string;
+  task: string;
+  parent: string | null;
+  author: CollabUserMini | null;
+  body: string;
+  edited_at: string | null;
+  created_at: string;
+  is_deleted: boolean;
+  deleted_at: string | null;
+  deleted_by: CollabUserMini | null;
+  /** Count of distinct users who have ✅-acknowledged this comment. */
+  acknowledged_count: number;
+  /** Count of all reaction rows on this comment (0.2 allow-list: 👍 only). */
+  reaction_count: number;
+  /** Whether the requesting user has acknowledged this comment. */
+  has_my_acknowledgement: boolean;
+}
+
+/** Per-user "I'm on it" ack — never triggers notification (ADR-0075 §A.3, Morgan blocker). */
+export interface CommentAcknowledgement {
+  id: string;
+  user: CollabUserMini;
+  created_at: string;
+}
+
+/** Lightweight emoji reaction — never triggers notification. */
+export interface CommentReaction {
+  id: string;
+  user: CollabUserMini;
+  emoji: string;
+  created_at: string;
+}
+
+/** Response from GET /api/v1/projects/{id}/tasks/{tid}/attachments/{aid}/signed-url/ */
+export interface SignedDownloadUrl {
+  url: string;
+  expires_at: string;
+}

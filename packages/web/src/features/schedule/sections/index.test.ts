@@ -83,6 +83,39 @@ describe('registerOssDrawerSections — Activity section', () => {
   });
 });
 
+describe('registerOssDrawerSections — Attachments & Comments (ADR-0075, #310 #311)', () => {
+  it('Attachments section registers at priority 400', () => {
+    const sections = registry.get('task_detail.section');
+    const attachments = sections.find((s) => s.id === 'attachments');
+    expect(attachments).toBeDefined();
+    expect(attachments!.priority).toBe(400);
+    expect(attachments!.title).toBe('Attachments');
+  });
+
+  it('Comments section registers at priority 500', () => {
+    const sections = registry.get('task_detail.section');
+    const comments = sections.find((s) => s.id === 'comments');
+    expect(comments).toBeDefined();
+    expect(comments!.priority).toBe(500);
+    expect(comments!.title).toBe('Comments');
+  });
+
+  it('Attachments and Comments have no canRender gate (visible for every task type)', () => {
+    const sections = registry.get('task_detail.section');
+    expect(sections.find((s) => s.id === 'attachments')!.canRender).toBeUndefined();
+    expect(sections.find((s) => s.id === 'comments')!.canRender).toBeUndefined();
+  });
+
+  it('Attachments precedes Comments precedes Activity (400 < 500 < 600)', () => {
+    const sections = registry.get('task_detail.section');
+    const attachments = sections.find((s) => s.id === 'attachments');
+    const comments = sections.find((s) => s.id === 'comments');
+    const activity = sections.find((s) => s.id === 'activity');
+    expect(attachments!.priority).toBeLessThan(comments!.priority);
+    expect(comments!.priority).toBeLessThan(activity!.priority);
+  });
+});
+
 describe('registerOssDrawerSections — Sprint canRender', () => {
   it('Sprint section renders for regular leaf tasks', () => {
     const sections = registry.get('task_detail.section');
