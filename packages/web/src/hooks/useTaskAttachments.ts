@@ -12,6 +12,19 @@ import { apiClient } from '@/api/client';
 import type { PaginatedResponse } from '@/api/types';
 import type { SignedDownloadUrl, TaskAttachment } from '@/types';
 
+/** Locked from ADR-0075 threat-model #4 — match the server-side cap. */
+export const MAX_ATTACHMENT_SIZE_BYTES = 100 * 1024 * 1024;
+/** Locked from ADR-0075 threat-model #5 — match the server-side allow-list. */
+export const ALLOWED_ATTACHMENT_MIMES = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
+
 const attachmentsKey = (taskId: string | null) => ['task-attachments', taskId];
 
 /** GET /api/v1/projects/{projectId}/tasks/{taskId}/attachments/ */
@@ -32,6 +45,59 @@ export function useTaskAttachments(projectId: string, taskId: string | null) {
     isLoading: query.isLoading,
     error: query.error,
   };
+}
+
+interface CreateFileAttachmentVars {
+  projectId: string;
+  taskId: string;
+  file: File;
+}
+
+interface CreateLinkAttachmentVars {
+  projectId: string;
+  taskId: string;
+  externalUrl: string;
+  externalTitle?: string;
+}
+
+type CreateAttachmentVars = CreateFileAttachmentVars | CreateLinkAttachmentVars;
+
+function isFileUpload(vars: CreateAttachmentVars): vars is CreateFileAttachmentVars {
+  return 'file' in vars;
+}
+
+/**
+ * POST /api/v1/projects/{projectId}/tasks/{taskId}/attachments/
+ *
+ * Accepts either a file upload (multipart) or an external URL (JSON).
+ * Cache invalidation on success surfaces the new row in the section grid.
+ * Server enforces all locked constraints — size, MIME, scheme, per-task cap.
+ * Client-side pre-checks (size + MIME) just give a friendlier error before
+ * the upload spinner runs.
+ */
+export function useCreateAttachment() {
+  const queryClient = useQueryClient();
+  return useMutation<TaskAttachment, Error, CreateAttachmentVars>({
+    mutationFn: async (vars) => {
+      const path = `/projects/${vars.projectId}/tasks/${vars.taskId}/attachments/`;
+      if (isFileUpload(vars)) {
+        const form = new FormData();
+        form.append('file', vars.file, vars.file.name);
+        const res = await apiClient.post<TaskAttachment>(path, form, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        return res.data;
+      }
+      const res = await apiClient.post<TaskAttachment>(path, {
+        external_url: vars.externalUrl,
+        external_title: vars.externalTitle ?? '',
+      });
+      return res.data;
+    },
+    onSuccess: (_data, vars) => {
+      void queryClient.invalidateQueries({ queryKey: attachmentsKey(vars.taskId) });
+    },
+  });
 }
 
 interface DeleteAttachmentVars {

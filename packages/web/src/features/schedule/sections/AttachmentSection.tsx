@@ -6,15 +6,19 @@
  * link-pin modal) lands in phase 2 alongside the offline IndexedDB queue.
  */
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import {
+  useCreateAttachment,
   useDeleteAttachment,
   useSignedDownloadUrl,
   useTaskAttachments,
 } from '@/hooks/useTaskAttachments';
 import { formatRelative } from '@/lib/formatRelative';
 import type { TaskAttachment } from '@/types';
+import { AttachmentDropZone, validateFileForUpload } from './AttachmentDropZone';
+import { LinkInputModal } from './LinkInputModal';
 
 /** Human-readable file size string (KB / MB) from a byte count. */
 function formatBytes(bytes: number | null): string {
@@ -169,6 +173,10 @@ function AttachmentRow({ attachment, projectId, taskId }: AttachmentRowProps) {
 
 export function AttachmentSection({ taskId, projectId }: DrawerSectionProps) {
   const { attachments, isLoading, error } = useTaskAttachments(projectId, taskId);
+  const createAttachment = useCreateAttachment();
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Pinned float to top — server returns pinned-first by default but a stale
   // optimistic mutation could shuffle order, so sort defensively.
@@ -181,43 +189,135 @@ export function AttachmentSection({ taskId, projectId }: DrawerSectionProps) {
     [attachments],
   );
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading attachments">
-        {[0, 1].map((i) => (
-          <div
-            key={i}
-            className="h-16 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
-          />
-        ))}
-      </div>
+  function uploadFile(file: File) {
+    const err = validateFileForUpload(file);
+    if (err) {
+      setUploadError(err);
+      return;
+    }
+    setUploadError(null);
+    createAttachment.mutate(
+      { projectId, taskId, file },
+      {
+        onError: (err) => {
+          setUploadError(err.message || 'Upload failed.');
+        },
+      },
     );
   }
 
-  if (error) {
-    return (
-      <p className="text-sm text-semantic-critical" role="alert">
-        Couldn&apos;t load attachments.
-      </p>
+  function handleFilePickerChange(e: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    for (const file of files) uploadFile(file);
+    // Allow re-picking the same file (input.value carries last selection).
+    e.target.value = '';
+  }
+
+  function handleLinkSubmit(url: string, title: string) {
+    setUploadError(null);
+    createAttachment.mutate(
+      { projectId, taskId, externalUrl: url, externalTitle: title },
+      {
+        onSuccess: () => setLinkModalOpen(false),
+        onError: (err) => setUploadError(err.message || 'Pin link failed.'),
+      },
     );
   }
 
-  if (sorted.length === 0) {
-    return (
-      <p className="text-sm text-neutral-text-secondary px-1">
-        No attachments yet. Upload UI lands in the next slice (#310 frontend phase 2).
-      </p>
-    );
-  }
+  const showAddControls = !isLoading && !error;
 
   return (
-    <ul
-      aria-label={`Attachments — ${sorted.length} total`}
-      className="grid grid-cols-1 md:grid-cols-2 gap-2 list-none"
-    >
-      {sorted.map((a) => (
-        <AttachmentRow key={a.id} attachment={a} projectId={projectId} taskId={taskId} />
-      ))}
-    </ul>
+    <div className="flex flex-col gap-2">
+      {/* Drop zone: always-visible when grid is empty (teach the affordance);
+          hover-to-show otherwise (keeps the section quiet). */}
+      {showAddControls && (
+        <AttachmentDropZone
+          alwaysVisible={sorted.length === 0}
+          disabled={createAttachment.isPending}
+          onFile={uploadFile}
+          onError={setUploadError}
+        />
+      )}
+
+      {isLoading && (
+        <div className="flex flex-col gap-2" aria-busy="true" aria-label="Loading attachments">
+          {[0, 1].map((i) => (
+            <div
+              key={i}
+              className="h-16 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
+            />
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <p className="text-sm text-semantic-critical" role="alert">
+          Couldn&apos;t load attachments.
+        </p>
+      )}
+
+      {!isLoading && !error && sorted.length > 0 && (
+        <ul
+          aria-label={`Attachments — ${sorted.length} total`}
+          className="grid grid-cols-1 md:grid-cols-2 gap-2 list-none"
+        >
+          {sorted.map((a) => (
+            <AttachmentRow key={a.id} attachment={a} projectId={projectId} taskId={taskId} />
+          ))}
+        </ul>
+      )}
+
+      {showAddControls && (
+        <div className="flex items-center gap-2 mt-1">
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="sr-only"
+            onChange={handleFilePickerChange}
+            aria-hidden="true"
+            tabIndex={-1}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={createAttachment.isPending}
+            className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
+              text-neutral-text-primary hover:bg-neutral-surface
+              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+              disabled:opacity-50"
+          >
+            + Attach file
+          </button>
+          <button
+            type="button"
+            onClick={() => setLinkModalOpen(true)}
+            disabled={createAttachment.isPending}
+            className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
+              text-neutral-text-primary hover:bg-neutral-surface
+              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+              disabled:opacity-50"
+          >
+            + Pin link
+          </button>
+          {createAttachment.isPending && (
+            <span className="text-xs text-neutral-text-secondary" aria-live="polite">
+              Uploading…
+            </span>
+          )}
+          {uploadError && (
+            <span className="text-xs text-semantic-critical" role="alert">
+              {uploadError}
+            </span>
+          )}
+        </div>
+      )}
+
+      <LinkInputModal
+        open={linkModalOpen}
+        onClose={() => setLinkModalOpen(false)}
+        onSubmit={handleLinkSubmit}
+        submitting={createAttachment.isPending}
+      />
+    </div>
   );
 }
