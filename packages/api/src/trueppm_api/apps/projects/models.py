@@ -1767,7 +1767,7 @@ class ApiTokenAuditEntry(models.Model):
 # ---------------------------------------------------------------------------
 
 
-def _task_attachment_upload_to(instance: TaskAttachment, filename: str) -> str:  # type: ignore[name-defined]
+def _task_attachment_upload_to(instance: TaskAttachment, filename: str) -> str:
     """Year/month-partitioned upload path scoped by task UUID.
 
     Filename collisions are impossible because the row UUID prefixes the

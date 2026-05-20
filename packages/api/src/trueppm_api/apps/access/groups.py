@@ -25,10 +25,7 @@ with their own management UI and a separate resolver path.
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable
+from typing import cast
 
 # ADR-0075 locked constraint #1 — @all resolve cardinality cap.
 ALL_GROUP_HARD_CAP: int = 200
@@ -99,8 +96,11 @@ def resolve_group_members(
         "members": Role.MEMBER,
         "viewers": Role.VIEWER,
     }
+    # django-stubs infers values_list("user_id", flat=True) as int even when
+    # the underlying field is UUID; cast at the boundary to satisfy mypy
+    # without polluting the call sites.
     if key in role_floors:
-        user_ids: Iterable[uuid.UUID] = (
+        rows = list(
             ProjectMembership.objects.filter(
                 project_id=project_id,
                 role__gte=role_floors[key],
@@ -109,36 +109,38 @@ def resolve_group_members(
             .values_list("user_id", flat=True)
             .distinct()
         )
-        return list(dict.fromkeys(user_ids))  # dedupe-preserving order
+        return cast(list[uuid.UUID], list(dict.fromkeys(rows)))
 
     if key == "all":
-        user_ids = (
+        rows = list(
             ProjectMembership.objects.filter(project_id=project_id, is_deleted=False)
             .values_list("user_id", flat=True)
             .distinct()
         )
-        result = list(dict.fromkeys(user_ids))
+        result = cast(list[uuid.UUID], list(dict.fromkeys(rows)))
         if len(result) > ALL_GROUP_HARD_CAP:
             raise GroupTooLargeError(key, len(result))
         return result
 
     if key == "scrum-team":
-        active_sprint_ids = Sprint.objects.filter(
-            project_id=project_id,
-            state=SprintState.ACTIVE,
-            is_deleted=False,
-        ).values_list("id", flat=True)
-        user_ids = (
+        active_sprint_ids = list(
+            Sprint.objects.filter(
+                project_id=project_id,
+                state=SprintState.ACTIVE,
+                is_deleted=False,
+            ).values_list("id", flat=True)
+        )
+        scrum_rows = list(
             Task.objects.filter(
                 project_id=project_id,
                 is_deleted=False,
                 assignee__isnull=False,
-                sprint_id__in=list(active_sprint_ids),
+                sprint_id__in=active_sprint_ids,
             )
             .values_list("assignee_id", flat=True)
             .distinct()
         )
-        return list(dict.fromkeys(user_ids))
+        return cast(list[uuid.UUID], list(dict.fromkeys(scrum_rows)))
 
     # Unreachable — KNOWN_GROUP_KEYS membership was checked above.
     raise InvalidGroupKeyError(group_key)  # pragma: no cover

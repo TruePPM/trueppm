@@ -17,13 +17,10 @@ Three entities power the unified @mention surface that #311 ships first and
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import Any
 
 from django.conf import settings
 from django.db import models
-
-if TYPE_CHECKING:
-    pass
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -78,7 +75,11 @@ class MentionManager(models.Manager["Mention"]):
     added.
     """
 
-    def visible_to(self, user, project_id: uuid.UUID | str | None = None):
+    def visible_to(
+        self,
+        user: Any,
+        project_id: uuid.UUID | str | None = None,
+    ) -> models.QuerySet[Mention]:
         """Return mentions the user is permitted to see.
 
         Rules:
