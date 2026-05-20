@@ -286,7 +286,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         read_only=True, allow_null=True, default=None
     )
 
-    # TODO(#185): cpi, actual_cost, and budget_at_completion are intentionally
+    # TODO(#73): cpi, actual_cost, and budget_at_completion are intentionally
     # absent from this serializer until the cost model (#73, #74) is
     # implemented.  BoardCard.tsx renders CPI and cost chips that no-op
     # gracefully when these fields are absent.  See ADR-0035 § Q5.
