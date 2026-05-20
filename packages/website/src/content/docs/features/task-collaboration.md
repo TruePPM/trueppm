@@ -32,6 +32,13 @@ External-URL attachments require `http(s)` schemes only. Pinning a Figma,
 Confluence, or Notion link is a one-shot — title is optional and defaults
 to the URL host.
 
+Pinned URLs render with a per-host icon when the host is recognised:
+Google Docs / Drive, SharePoint / OneDrive / Office, Confluence,
+Notion, Figma, Jira, GitHub, GitLab, Miro, Dropbox, and Slack. Anything
+else falls back to the generic link glyph. The full host is also shown in
+the meta line below the title so the icon is decorative — colour and glyph
+are never the only signal.
+
 ### Downloads
 
 Click any file row's **⬇ Download** button. The signed URL is short-lived
@@ -190,9 +197,10 @@ Brief tour of the new endpoints:
 
 On the existing `project_{id}` channel, the new mutations broadcast:
 
-- `comment_created` / `comment_updated` / `comment_deleted` — payload
-  `{ id, task_id, parent_id? }`
-- `attachment_created` / `attachment_deleted` — payload `{ id, task_id }`
+- `task_comment_created` / `task_comment_updated` / `task_comment_deleted` —
+  payload `{ id, task_id, parent_id? }`
+- `task_attachment_created` / `task_attachment_deleted` — payload
+  `{ id, task_id }`
 
 All payloads are aggregated metadata only — no body, no scope-sensitive
 fields. Clients refetch via REST after a broadcast and the serializer

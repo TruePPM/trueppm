@@ -5028,7 +5028,7 @@ class TaskAttachmentViewSet(
         transaction.on_commit(
             lambda: broadcast_board_event(
                 str(project_pk),
-                "attachment_created",
+                "task_attachment_created",
                 {"id": att_id, "task_id": task_id_str},
             )
         )
@@ -5055,7 +5055,7 @@ class TaskAttachmentViewSet(
         transaction.on_commit(
             lambda: broadcast_board_event(
                 project_id_str,
-                "attachment_deleted",
+                "task_attachment_deleted",
                 {"id": att_id, "task_id": task_id_str},
             )
         )
@@ -5213,7 +5213,7 @@ class TaskCommentViewSet(
         transaction.on_commit(
             lambda: broadcast_board_event(
                 project_id_str,
-                "comment_created",
+                "task_comment_created",
                 {
                     "id": comment_id_str,
                     "task_id": task_id_str,
@@ -5241,7 +5241,7 @@ class TaskCommentViewSet(
         transaction.on_commit(
             lambda: broadcast_board_event(
                 project_id_str,
-                "comment_updated",
+                "task_comment_updated",
                 {
                     "id": comment_id_str,
                     "task_id": task_id_str,
@@ -5272,7 +5272,7 @@ class TaskCommentViewSet(
         transaction.on_commit(
             lambda: broadcast_board_event(
                 project_id_str,
-                "comment_deleted",
+                "task_comment_deleted",
                 {
                     "id": comment_id_str,
                     "task_id": task_id_str,

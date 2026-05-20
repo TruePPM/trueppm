@@ -30,6 +30,7 @@ export function NotificationPanel({ onClose }: Props) {
   const [filter, setFilter] = useState<Filter>('unread');
   const { notifications, isLoading, error } = useNotifications({ filter });
   const markAllRead = useMarkAllRead();
+  const [announce, setAnnounce] = useState<string>('');
 
   const sorted = useMemo(
     () => [...notifications].sort((a, b) => b.created_at.localeCompare(a.created_at)),
@@ -51,7 +52,16 @@ export function NotificationPanel({ onClose }: Props) {
         <div className="ml-auto flex items-center gap-1">
           <button
             type="button"
-            onClick={() => markAllRead.mutate()}
+            onClick={() =>
+              markAllRead.mutate(undefined, {
+                onSuccess: ({ updated }) =>
+                  setAnnounce(
+                    updated === 0
+                      ? 'No unread notifications.'
+                      : `${updated} notification${updated === 1 ? '' : 's'} marked read.`,
+                  ),
+              })
+            }
             disabled={markAllRead.isPending}
             className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
               rounded px-2 h-7
@@ -97,6 +107,12 @@ export function NotificationPanel({ onClose }: Props) {
           );
         })}
       </div>
+
+      {/* Bulk-action announcement — drives screen-reader confirmation that
+          Mark all read landed (rule WCAG 4.1.3). Visually hidden. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {announce}
+      </span>
 
       {/* List */}
       <div className="flex-1 overflow-y-auto p-3">

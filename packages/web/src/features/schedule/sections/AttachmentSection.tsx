@@ -6,7 +6,7 @@
  * link-pin modal) lands in phase 2 alongside the offline IndexedDB queue.
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import {
@@ -29,13 +29,44 @@ function formatBytes(bytes: number | null): string {
 }
 
 /** Single-glyph file icon based on MIME — uses Unicode for zero icon-library cost. */
-function fileIcon(mime: string, isExternal: boolean): string {
-  if (isExternal) return '🔗';
+function fileIcon(mime: string, isExternal: boolean, externalUrl: string | null): string {
+  if (isExternal) return externalLinkIcon(externalUrl);
   if (mime.startsWith('image/')) return '🖼';
   if (mime === 'application/pdf') return '📄';
   if (mime.includes('spreadsheet') || mime === 'text/csv') return '📊';
   if (mime.includes('wordprocessing')) return '📝';
   return '📎';
+}
+
+/**
+ * Per-host glyph for pinned external URLs. Matches the host substring against
+ * the most common knowledge-base / docs / design hosts in PMO tooling
+ * (Google Docs, SharePoint / OneDrive, Confluence, Notion, Figma, Jira,
+ * GitHub, GitLab, Miro, Dropbox, Slack). Anything unrecognized falls back to
+ * the generic link glyph. The full hostname is still rendered next to the
+ * title via the `meta` line, so the glyph is decorative — `aria-hidden` on
+ * the span carries the WCAG fallback.
+ */
+function externalLinkIcon(externalUrl: string | null): string {
+  if (!externalUrl) return '🔗';
+  let host = '';
+  try {
+    host = new URL(externalUrl).host.toLowerCase();
+  } catch {
+    return '🔗';
+  }
+  if (host.includes('docs.google.') || host.includes('drive.google.')) return '📝';
+  if (host.includes('sharepoint.') || host.includes('onedrive.') || host.includes('office.com')) return '📘';
+  if (host.includes('atlassian.net') || host.includes('confluence.')) return '📚';
+  if (host.includes('notion.')) return '📓';
+  if (host.includes('figma.')) return '🎨';
+  if (host.includes('jira.')) return '🟦';
+  if (host.includes('github.')) return '🐙';
+  if (host.includes('gitlab.')) return '🦊';
+  if (host.includes('miro.')) return '🗒';
+  if (host.includes('dropbox.')) return '📦';
+  if (host.includes('slack.')) return '💬';
+  return '🔗';
 }
 
 interface AttachmentRowProps {
@@ -93,7 +124,7 @@ function AttachmentRow({ attachment, projectId, taskId }: AttachmentRowProps) {
     >
       <div className="flex items-start gap-2 min-w-0">
         <span className="text-base flex-shrink-0" aria-hidden="true">
-          {fileIcon(attachment.file_mime, isExternal)}
+          {fileIcon(attachment.file_mime, isExternal, attachment.external_url)}
         </span>
         <div className="flex flex-col min-w-0 flex-1">
           <span className="text-sm font-medium text-neutral-text-primary truncate">
@@ -178,6 +209,26 @@ export function AttachmentSection({ taskId, projectId }: DrawerSectionProps) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Offline guard — blocks drop zone + upload buttons + pin link button while
+  // the browser reports no connectivity. Mirrors the navigator.onLine pattern
+  // used in useDragCpm / useScheduleCommit. IndexedDB write queue is deferred
+  // to #311 phase 2c; for now we surface a clear blocked state instead of
+  // letting a 100 MB multipart sit pending for 30s before failing.
+  const [isOnline, setIsOnline] = useState(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true,
+  );
+  useEffect(() => {
+    const on = () => setIsOnline(true);
+    const off = () => setIsOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => {
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+    };
+  }, []);
+  const uploadBlocked = !isOnline || createAttachment.isPending;
+
   // Pinned float to top — server returns pinned-first by default but a stale
   // optimistic mutation could shuffle order, so sort defensively.
   const sorted = useMemo(
@@ -233,7 +284,7 @@ export function AttachmentSection({ taskId, projectId }: DrawerSectionProps) {
       {showAddControls && (
         <AttachmentDropZone
           alwaysVisible={sorted.length === 0}
-          disabled={createAttachment.isPending}
+          disabled={uploadBlocked}
           onFile={uploadFile}
           onError={setUploadError}
         />
@@ -280,7 +331,7 @@ export function AttachmentSection({ taskId, projectId }: DrawerSectionProps) {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={createAttachment.isPending}
+            disabled={uploadBlocked}
             className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
               text-neutral-text-primary hover:bg-neutral-surface
               focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
@@ -291,7 +342,7 @@ export function AttachmentSection({ taskId, projectId }: DrawerSectionProps) {
           <button
             type="button"
             onClick={() => setLinkModalOpen(true)}
-            disabled={createAttachment.isPending}
+            disabled={uploadBlocked}
             className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
               text-neutral-text-primary hover:bg-neutral-surface
               focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
@@ -302,6 +353,11 @@ export function AttachmentSection({ taskId, projectId }: DrawerSectionProps) {
           {createAttachment.isPending && (
             <span className="text-xs text-neutral-text-secondary" aria-live="polite">
               Uploading…
+            </span>
+          )}
+          {!isOnline && (
+            <span className="text-xs text-neutral-text-secondary" role="status">
+              You&apos;re offline — attachments resume when you reconnect.
             </span>
           )}
           {uploadError && (

@@ -312,8 +312,10 @@ def resolve_group_members(project_id: UUID, group_key: str) -> list[UUID]:
 
 Reuses `broadcast_board_event(project_id, event_type, payload)` from `apps/sync/broadcast.py`. Two new event types:
 
-- `comment_created` / `comment_updated` / `comment_deleted` → `{id, task_id, parent_id}` (no body)
-- `attachment_created` / `attachment_deleted` → `{id, task_id}` (no body)
+- `task_comment_created` / `task_comment_updated` / `task_comment_deleted` → `{id, task_id, parent_id}` (no body)
+- `task_attachment_created` / `task_attachment_deleted` → `{id, task_id}` (no body)
+
+The `task_` prefix disambiguates from RiskComment's pre-existing `comment_created` event (ADR-0044). Without the prefix, frontend handlers would have to inspect payload keys (`task_id` vs `risk_id`) to route the invalidation, and any consumer that subscribed before the split would invalidate the wrong cache.
 
 **Broadcast is always project-wide.** The `scope` field gates VIEW access (serializer respects scope) and NOTIFICATION creation, not broadcast. Clients refetch via REST after a broadcast; scope is enforced in the queryset / serializer.
 
@@ -459,23 +461,25 @@ PATCH  /api/v1/me/notification-preferences/{event_type}/{channel}/   { enabled: 
 ### WebSocket events (on existing `project_{id}` channel)
 
 ```
-comment_created     { id, task_id, parent_id? }
-comment_updated     { id, task_id, parent_id? }
-comment_deleted     { id, task_id, parent_id? }
-attachment_created  { id, task_id }
-attachment_deleted  { id, task_id }
+task_comment_created     { id, task_id, parent_id? }
+task_comment_updated     { id, task_id, parent_id? }
+task_comment_deleted     { id, task_id, parent_id? }
+task_attachment_created  { id, task_id }
+task_attachment_deleted  { id, task_id }
 ```
 
 Aggregated metadata only — no body. Clients refetch via REST (scope enforced there).
 
-**Naming convention** (broadcast-check M-1, amended after merge): per-action past-tense events with no `action` discriminator. Aligns with `comment_created` (RiskComment / ADR-0044), `task_updated`, `risk_deleted`, `milestone_rollup_updated` (ADR-0074), etc. The earlier `*_changed` + `action` field shape was a one-off divergence that would have forced clients to learn a second event-handling pattern; splitting at the event level keeps the existing per-event subscription model intact.
+**Naming convention** (broadcast-check M-1, amended after merge): per-action past-tense events with no `action` discriminator. Aligns with `task_updated`, `risk_deleted`, `milestone_rollup_updated` (ADR-0074), etc. The earlier `*_changed` + `action` field shape was a one-off divergence that would have forced clients to learn a second event-handling pattern; splitting at the event level keeps the existing per-event subscription model intact.
+
+**The `task_` prefix** disambiguates from RiskComment's pre-existing `comment_created` event (ADR-0044). Without the prefix the regression-check post-M-1 audit caught a collision: a task-comment broadcast was invalidating the risk-comment cache and the new task-comment cache was never invalidated. The `task_` prefix is a hard rename, not a payload discriminator, because per-event subscription is the established invalidation pattern in `useProjectWebSocket.ts`.
 
 ### Real-time strategy for personal notifications (0.2 decision)
 
 Personal notifications (the "My mentions" feed and unread bell badge) need real-time updates, but introducing a per-user WebSocket channel (`user_{id}`) is operationally heavier than 0.2 needs. **0.2 ships polling**:
 
 - The unread-count bell polls `GET /me/notifications/?unread_only=true&limit=0` every **30 seconds**
-- The open NotificationPanel refetches the list on every `comment_created` broadcast it observes on any subscribed `project_{id}` channel (an "indirect signal" — if a project I'm a member of had a new comment, it might involve a mention to me)
+- The open NotificationPanel refetches the list on every `task_comment_created` broadcast it observes on any subscribed `project_{id}` channel (an "indirect signal" — if a project I'm a member of had a new comment, it might involve a mention to me)
 - Pause polling when the browser tab is hidden (Page Visibility API) — resume on visibility regain
 
 A `user_{id}` WebSocket channel is **deferred to 0.3 as a follow-up** if polling proves too laggy in practice. The data model is unchanged either way — only the delivery shape changes. Polling at 30 s is acceptable for @mention frequency (Slack-style instant notifications are not what this surface is for; ours are deliberate "I need your input" signals).

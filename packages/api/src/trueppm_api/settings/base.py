@@ -262,6 +262,20 @@ MC_SIMULATION_CAP: int | None = 1_000
 MC_TASK_CAP: int | None = 500
 
 # ---------------------------------------------------------------------------
+# Upload caps (ADR-0075, task attachments)
+# ---------------------------------------------------------------------------
+
+# Hard 100 MB ceiling matches the TaskAttachment cap (ADR-0075 locked
+# constraint #4). The serializer also enforces this, but the setting must
+# fire FIRST — without it, Django buffers the entire body to /tmp before
+# the serializer runs, which lets an authenticated Member spam 100 MB+
+# multipart bodies and exhaust worker time + disk. Operators should also
+# set nginx `client_max_body_size: 100m` so over-sized requests are
+# rejected at the edge, not after Django finishes parsing them.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 2_621_440  # 2.5 MB (Django default; explicit)
+
+# ---------------------------------------------------------------------------
 # Django REST Framework
 # ---------------------------------------------------------------------------
 

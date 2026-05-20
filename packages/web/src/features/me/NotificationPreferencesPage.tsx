@@ -43,6 +43,7 @@ interface ToggleProps {
 function PreferenceToggle({ pref, onChange }: ToggleProps) {
   const channelLabel = CHANNEL_LABELS[pref.channel] ?? pref.channel;
   const eventLabel = EVENT_LABELS[pref.event_type]?.title ?? pref.event_type;
+  // 44×44 outer hit zone (rule 5); inner visual 44×24 switch unchanged.
   return (
     <button
       type="button"
@@ -50,15 +51,19 @@ function PreferenceToggle({ pref, onChange }: ToggleProps) {
       aria-checked={pref.enabled}
       aria-label={`${channelLabel} notifications for ${eventLabel}`}
       onClick={() => onChange(pref.id, !pref.enabled)}
-      className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors
-        focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
-        ${pref.enabled ? 'bg-semantic-on-track' : 'bg-neutral-border'}`}
+      className="inline-flex items-center justify-center w-11 h-11
+        focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none rounded-full"
     >
       <span
         aria-hidden="true"
-        className={`absolute w-4 h-4 rounded-full bg-white transition-transform
-          ${pref.enabled ? 'translate-x-6' : 'translate-x-1'}`}
-      />
+        className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors
+          ${pref.enabled ? 'bg-semantic-on-track' : 'bg-neutral-border'}`}
+      >
+        <span
+          className={`absolute w-4 h-4 rounded-full bg-white transition-transform
+            ${pref.enabled ? 'translate-x-6' : 'translate-x-1'}`}
+        />
+      </span>
     </button>
   );
 }

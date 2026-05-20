@@ -50,6 +50,12 @@ interface Props {
   currentRole: number | null;
   /** Index of the highlighted suggestion (0-based). */
   highlightIndex: number;
+  /**
+   * Stable DOM id for the listbox element so the composer textarea can
+   * point `aria-controls` and `aria-activedescendant` at it (WAI-ARIA combobox
+   * pattern). Each option's id is `${listboxId}-opt-${index}`.
+   */
+  listboxId: string;
   /** Called when a suggestion is clicked. Keyboard Enter is handled by parent. */
   onSelect: (suggestion: MentionSuggestion) => void;
   /** Called when the popover renders so the parent knows how many items exist. */
@@ -89,6 +95,7 @@ export function MentionAutocomplete({
   members,
   currentRole,
   highlightIndex,
+  listboxId,
   onSelect,
   onSuggestionsChange,
 }: Props) {
@@ -100,6 +107,7 @@ export function MentionAutocomplete({
   if (suggestions.length === 0) {
     return (
       <div
+        id={listboxId}
         role="listbox"
         aria-label="Mention suggestions"
         className="absolute z-50 min-w-[240px] bg-neutral-surface border border-neutral-border rounded p-1"
@@ -111,6 +119,7 @@ export function MentionAutocomplete({
 
   return (
     <ul
+      id={listboxId}
       role="listbox"
       aria-label="Mention suggestions"
       className="absolute z-50 min-w-[240px] max-h-[280px] overflow-y-auto bg-neutral-surface
@@ -121,6 +130,7 @@ export function MentionAutocomplete({
         return (
           <li
             key={`${s.kind}-${s.value}`}
+            id={`${listboxId}-opt-${idx}`}
             role="option"
             aria-selected={active}
             aria-disabled={s.disabled}

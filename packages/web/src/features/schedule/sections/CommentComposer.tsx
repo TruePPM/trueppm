@@ -124,7 +124,15 @@ export function CommentComposer({
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    // Autocomplete keyboard handling — only when the popover is visible
+    // Esc dismisses the popover whenever it's open — regardless of suggestion
+    // count. Previously this branch was gated by `suggestions.length > 0`, so
+    // a stuck "No matches" popover was undismissible without typing a space.
+    if (activeToken && e.key === 'Escape') {
+      e.preventDefault();
+      setCaret(-1);
+      return;
+    }
+    // Arrow / Enter navigation — only when there are suggestions to navigate.
     if (activeToken && suggestions.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -140,13 +148,6 @@ export function CommentComposer({
         e.preventDefault();
         const chosen = suggestions[highlightIndex];
         if (chosen && !chosen.disabled) insertSuggestion(chosen);
-        return;
-      }
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        // Closing the popover = clear the active query by inserting a space
-        // — simplest no-state approach
-        setCaret(-1);
         return;
       }
     }
@@ -190,6 +191,23 @@ export function CommentComposer({
         placeholder="Add a comment. @ to mention someone or a group."
         disabled={createComment.isPending}
         aria-describedby={`comment-counter-${taskId}-${parentId ?? 'top'}`}
+        // WAI-ARIA combobox pattern: while the @-autocomplete popover is open,
+        // expose listbox id + active option id so AT users hear the highlighted
+        // option as they arrow through. Attrs are dropped when the popover
+        // closes so screen readers don't read stale state.
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={!!activeToken}
+        aria-controls={
+          activeToken
+            ? `mention-listbox-${taskId}-${parentId ?? 'top'}`
+            : undefined
+        }
+        aria-activedescendant={
+          activeToken && suggestions.length > 0
+            ? `mention-listbox-${taskId}-${parentId ?? 'top'}-opt-${highlightIndex}`
+            : undefined
+        }
         className="text-sm bg-neutral-surface border border-neutral-border rounded p-2
           text-neutral-text-primary placeholder:text-neutral-text-disabled
           focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
@@ -202,6 +220,7 @@ export function CommentComposer({
           members={members}
           currentRole={currentRole}
           highlightIndex={highlightIndex}
+          listboxId={`mention-listbox-${taskId}-${parentId ?? 'top'}`}
           onSelect={insertSuggestion}
         />
       )}

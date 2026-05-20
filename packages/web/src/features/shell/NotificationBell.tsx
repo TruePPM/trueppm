@@ -62,7 +62,7 @@ export function NotificationBell() {
         aria-label={ariaLabel}
         aria-expanded={panelOpen}
         aria-haspopup="dialog"
-        className={`relative inline-flex items-center justify-center w-9 h-9 rounded-full
+        className={`relative inline-flex items-center justify-center w-11 h-11 rounded-full
           ${hasUnread ? 'text-brand-primary' : 'text-neutral-text-secondary'}
           hover:bg-neutral-surface-raised
           focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none`}
@@ -73,9 +73,9 @@ export function NotificationBell() {
         {hasUnread && (
           <span
             aria-hidden="true"
-            className="absolute -top-0.5 -right-0.5 min-w-[16px] h-[16px] px-1
+            className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1
               flex items-center justify-center
-              text-[10px] font-semibold tppm-mono rounded-full
+              text-xs font-semibold tppm-mono rounded-full
               bg-brand-primary text-white"
           >
             {displayCount}

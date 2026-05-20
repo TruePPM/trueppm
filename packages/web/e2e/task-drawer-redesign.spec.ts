@@ -224,18 +224,33 @@ test.describe('TaskDetailDrawer redesign — section list', () => {
     await gotoSchedule(page);
   });
 
-  test('renders 5 OSS sections in priority order', async ({ page }) => {
+  test('renders OSS sections in priority order', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
 
     // Each section's collapsible header is a <button> with the title as its
     // accessible name. The visible ▶ glyph sits in an aria-hidden span, so
     // textContent includes it but the accessible name does not — filter by
     // accessible name to avoid leaking the glyph into the assertion.
-    const sectionNames = ['Overview', 'Dependencies', 'Estimates', 'History', 'Baseline'];
+    //
+    // Unconditional sections from sections/index.ts in priority order. Sprint
+    // (150) is conditional on the task having an active sprint and is omitted
+    // here; Subtasks (300) renders for non-milestone tasks, which Discovery &
+    // Design is.
+    const sectionNames = [
+      'Overview',     // 100
+      'Dependencies', // 200
+      'Subtasks',     // 300 (Discovery & Design is non-milestone)
+      'Attachments',  // 400 (#310)
+      'Comments',     // 500 (#311)
+      'Activity',     // 600
+      'Estimates',    // 800
+      'History',      // 900
+      'Baseline',     // 1000
+    ];
     const headers = drawer.getByRole('button', {
       name: new RegExp(`^(${sectionNames.join('|')})$`),
     });
-    await expect(headers).toHaveCount(5);
+    await expect(headers).toHaveCount(sectionNames.length);
 
     const titles = await headers.evaluateAll((els) =>
       els.map((el) => el.getAttribute('aria-label') ?? el.querySelector('span:not([aria-hidden])')?.textContent ?? ''),
@@ -262,7 +277,16 @@ test.describe('TaskDetailDrawer redesign — section list', () => {
 
   test('other sections start collapsed', async ({ page }) => {
     const drawer = await openDrawer(page, 'Discovery & Design');
-    for (const name of ['Dependencies', 'Estimates', 'History', 'Baseline']) {
+    for (const name of [
+      'Dependencies',
+      'Subtasks',
+      'Attachments',
+      'Comments',
+      'Activity',
+      'Estimates',
+      'History',
+      'Baseline',
+    ]) {
       await expect(drawer.getByRole('button', { name })).toHaveAttribute('aria-expanded', 'false');
     }
   });

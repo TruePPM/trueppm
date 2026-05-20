@@ -23,6 +23,7 @@ export function NotificationListPage() {
   const [filter, setFilter] = useState<Filter>('unread');
   const { notifications, isLoading, error } = useNotifications({ filter });
   const markAllRead = useMarkAllRead();
+  const [announce, setAnnounce] = useState<string>('');
 
   const sorted = useMemo(
     () => [...notifications].sort((a, b) => b.created_at.localeCompare(a.created_at)),
@@ -35,7 +36,16 @@ export function NotificationListPage() {
         <h1 className="text-lg font-semibold text-neutral-text-primary">My mentions</h1>
         <button
           type="button"
-          onClick={() => markAllRead.mutate()}
+          onClick={() =>
+            markAllRead.mutate(undefined, {
+              onSuccess: ({ updated }) =>
+                setAnnounce(
+                  updated === 0
+                    ? 'No unread notifications.'
+                    : `${updated} notification${updated === 1 ? '' : 's'} marked read.`,
+                ),
+            })
+          }
           disabled={markAllRead.isPending}
           className="ml-auto text-xs border border-neutral-border rounded px-3 h-7 font-medium
             text-neutral-text-secondary hover:bg-neutral-surface-raised
@@ -45,6 +55,11 @@ export function NotificationListPage() {
           Mark all read
         </button>
       </header>
+      {/* Bulk-action announcement — drives screen-reader confirmation that
+          Mark all read landed (rule WCAG 4.1.3). Visually hidden. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {announce}
+      </span>
 
       <div role="tablist" aria-label="Filter notifications" className="flex gap-1 border-b border-neutral-border pb-2">
         {FILTERS.map((f) => {
