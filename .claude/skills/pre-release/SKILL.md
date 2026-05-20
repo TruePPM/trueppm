@@ -134,6 +134,8 @@ When launching each agent (via the `Agent` tool with `subagent_type: <name>` and
 
 That distribution puts roughly a third of agents on Opus, concentrated on the audits where missing a finding is irreversible (security, contracts, algorithm correctness, license boundary). The other two-thirds run on Sonnet, where the audit is a clear-checklist pattern match and Sonnet is both cheaper and well-calibrated.
 
+**Pre-wave passes** (Steps 0.7 and 0.8) run on Sonnet — kaizen is a pattern audit over harness signals, and voc-audit is persona simulation where the value comes from breadth (8 personas × N surfaces in parallel) rather than depth in any single sub-agent.
+
 ### When to escalate
 
 - A targeted re-audit after a 🔴 fix → keep the same model that found the original issue (so the re-check is at least as deep).
@@ -153,6 +155,60 @@ Skip this step entirely if:
 - A kaizen report has been filed in the last 14 days (check via `glab issue list --repo trueppm/trueppm --label "chore,tooling,dx" --search "kaizen" --created-after "$(date -v-14d +%Y-%m-%d 2>/dev/null || date -d '14 days ago' +%Y-%m-%d)"`)
 
 Include the kaizen report as a separate section at the top of the final consolidated audit report under the heading **"Harness review (kaizen, targets next minor)"**. Do not let kaizen findings influence the $WORKING_RELEASE gate check in Step 4 — harness improvements ship in their own cycle.
+
+---
+
+## Step 0.8 — Voice-of-Customer audit on shipped surfaces — full audits only
+
+Before launching the codebase audit waves, invoke `/voc-audit --from-pre-release` once per user-visible surface shipped since the last release tag. voc-audit reviews **what actually shipped** through the persona lens and cross-references against the GitLab tracker. Where the wave-based audits ask "is this code correct?", voc-audit asks "does this surface actually serve the personas day-to-day?".
+
+This step targets `$WORKING_RELEASE`: friction findings that would make a shipped surface feel unfinished to a real user are the exact class of issue that turns a release into a "we shipped it but no one uses it" outcome.
+
+### Step 0.8a — Enumerate shipped surfaces since the last tag
+
+The "shipped surfaces" set is the list of user-visible MRs merged into `main` since the most recent release tag. Resolve it dynamically:
+
+```bash
+# Most recent release tag (semver, prefixed with v or not)
+LAST_TAG=$(git tag --list --sort=-v:refname 'v*' 'release/*' '[0-9]*' 2>/dev/null | head -1)
+
+# Merged MRs on main since that tag, with their changelog fragment type
+git log "${LAST_TAG}..main" --merges --pretty=format:'%H %s' 2>/dev/null
+```
+
+For each merge, identify whether it shipped a user-visible surface:
+
+- Has a `changelog.d/*.added.md` or `changelog.d/*.changed.md` fragment → user-visible candidate
+- Touches `packages/web/src/features/` or `packages/web/src/pages/` → user-visible candidate
+- Touches `packages/api/**/views.py` with a new endpoint AND a corresponding web change → user-visible candidate
+- Pure CI / dependency / docs / refactor → not in scope, skip
+
+Cap the surface list at the **5 highest-impact surfaces** by changed-line count (`git diff --stat ${LAST_TAG}..HEAD -- packages/web/src/features/`). If more than 5 user-visible surfaces shipped, the lower-impact ones are listed in the report as "deferred to a per-surface voc-audit pass" and not run here — voc-audit drift is real and 5+ parallel persona panels lose signal.
+
+### Step 0.8b — Run voc-audit in parallel, one per surface
+
+In a single message, invoke `/voc-audit` once per surface, passing `--from-pre-release` and the MR reference (or surface description). voc-audit will internally parallelize the persona panel per surface; this step parallelizes across surfaces.
+
+Each voc-audit run returns the structured matrix from its Step 5 (no interactive filing prompts, since `--from-pre-release` suppresses them).
+
+### Step 0.8c — Fold findings into the pre-release report
+
+Collect all voc-audit matrices and add a section to the consolidated report under the heading **"Voice-of-Customer audit (per shipped surface)"**, with one sub-section per surface.
+
+voc-audit findings are **not 🔴 blocking** unless a persona hard-NO is triggered against `$WORKING_RELEASE`. Most voc-audit findings will land as:
+
+- 🟡 should-fix against `$WORKING_RELEASE` if the surface is the headline of the release
+- "next minor" candidates if the surface is supporting infrastructure
+- "already tracked" annotations if the finding maps cleanly to an open issue
+
+Hard-NO triggers (e.g. Sarah's "no real native mobile app" surfaced against the mobile shell) **are 🔴 blocking** even at pre-1.0 — they represent product-market-fit risk, not implementation risk, which the wave audits do not catch.
+
+### When to skip Step 0.8
+
+- Audit type is not `full`
+- No release tag exists yet (first release) → skip and note "no prior tag; voc-audit will run at the next pre-release"
+- The last release was within the past 14 days and no user-visible MRs have merged since
+- A voc-audit pass was filed against `$WORKING_RELEASE` in the past 14 days (check via `glab issue list --repo trueppm/trueppm --label "voc-audit" --milestone "$WORKING_RELEASE" --created-after "$(date -v-14d +%Y-%m-%d 2>/dev/null || date -d '14 days ago' +%Y-%m-%d)"`)
 
 ---
 
@@ -288,6 +344,8 @@ Severity guide (scoped to $WORKING_RELEASE, mode-aware):
 - 🟢 **Clean** — no issues found
 
 **Already-shipped public contracts** (introduced in a prior release) that cannot be changed without a major bump are not $WORKING_RELEASE issues — they are next-major-release issues. File them against the next open major milestone instead (e.g. against `1.0` if currently on `0.x`, or against `2.0` if currently on `1.x`).
+
+**voc-audit findings** (from Step 0.8) fold into this severity model with one carve-out: a triggered persona **hard-NO** against $WORKING_RELEASE is 🔴 blocking regardless of mode (pre-1.0 or post-1.0). Hard-NOs represent product-market-fit risk that the wave audits do not catch, and shipping past one is more expensive than shipping past most code-level findings. All other voc-audit findings (boost candidates, untracked friction, deferred to next minor) follow normal 🟡 severity.
 
 ---
 
