@@ -233,7 +233,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
         )}
       </nav>
 
-      {/* Org-level section — Resources catalog link */}
+      {/* Org-level section — Resources and Settings links */}
       {!sidebarCollapsed && !isDrawer && (
         <div className="shrink-0 border-t border-chrome-border/8 px-2 py-2">
           <h2
@@ -261,12 +261,36 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             </svg>
             Resources
           </NavLink>
+          <NavLink
+            to="/settings"
+            aria-label="Workspace settings"
+            className={({ isActive }) =>
+              [
+                'flex items-center gap-2 w-full px-2 py-2 rounded text-sm transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
+                isActive
+                  ? 'bg-brand-primary/10 border-l-2 border-brand-primary text-chrome-text-primary font-medium'
+                  : 'border-l-2 border-transparent text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
+              ].join(' ')
+            }
+          >
+            {/* Gear / settings icon */}
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="shrink-0">
+              <path
+                d="M5.5 1.5h3l.5 1.5a4 4 0 0 1 1.2.7l1.5-.5 1.5 2.6-1.2 1.1a4 4 0 0 1 0 1.2l1.2 1.1-1.5 2.6-1.5-.5A4 4 0 0 1 9 12l-.5 1.5h-3L5 12a4 4 0 0 1-1.2-.7l-1.5.5L.8 9.2 2 8.1a4 4 0 0 1 0-1.2L.8 5.8 2.3 3.2l1.5.5A4 4 0 0 1 5 2.5L5.5 1ZM7 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Settings
+          </NavLink>
         </div>
       )}
 
-      {/* Collapsed sidebar: icon-only Resources link */}
+      {/* Collapsed sidebar: icon-only Resources and Settings links */}
       {sidebarCollapsed && !isDrawer && (
-        <div className="shrink-0 border-t border-chrome-border/8 px-2 py-2">
+        <div className="shrink-0 border-t border-chrome-border/8 px-2 py-2 flex flex-col gap-1">
           <NavLink
             to="/resources"
             aria-label="Resources catalog"
@@ -282,6 +306,28 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           >
             <svg width="16" height="16" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
               <path d="M5 6.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm-3 4.5a3 3 0 0 1 6 0H2Zm7-4.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm1 1.5c.7.3 1.3.8 1.7 1.4A3 3 0 0 0 9 11h-.5A4 4 0 0 0 9 9a3 3 0 0 0-.3-1.3c.4-.1.8-.2 1.3-.2Z"/>
+            </svg>
+          </NavLink>
+          <NavLink
+            to="/settings"
+            aria-label="Workspace settings"
+            className={({ isActive }) =>
+              [
+                'flex items-center justify-center w-11 h-11 rounded transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface',
+                isActive
+                  ? 'bg-brand-primary/10 text-chrome-text-primary'
+                  : 'text-chrome-text-secondary hover:bg-neutral-text-primary/5 hover:text-chrome-text-primary',
+              ].join(' ')
+            }
+          >
+            <svg width="16" height="16" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+              <path
+                d="M5.5 1.5h3l.5 1.5a4 4 0 0 1 1.2.7l1.5-.5 1.5 2.6-1.2 1.1a4 4 0 0 1 0 1.2l1.2 1.1-1.5 2.6-1.5-.5A4 4 0 0 1 9 12l-.5 1.5h-3L5 12a4 4 0 0 1-1.2-.7l-1.5.5L.8 9.2 2 8.1a4 4 0 0 1 0-1.2L.8 5.8 2.3 3.2l1.5.5A4 4 0 0 1 5 2.5L5.5 1ZM7 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinejoin="round"
+              />
             </svg>
           </NavLink>
         </div>
