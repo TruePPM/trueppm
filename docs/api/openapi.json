@@ -946,6 +946,325 @@
                 }
             }
         },
+        "/api/v1/me/notification-preferences/": {
+            "get": {
+                "operationId": "v1_me_notification_preferences_list",
+                "description": "Per-user (event_type, channel) toggle matrix.\n\nGET    /me/notification-preferences/\nPATCH  /me/notification-preferences/{id}/     { enabled: bool }\n\nFirst GET backfills DEFAULT_PREFERENCES (Priya's email-OFF flip from V2 VoC)\nif the user has no rows yet — lazy initialization so user-create doesn't\nhave to know about this table.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedNotificationPreferenceList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/me/notification-preferences/{id}/": {
+            "patch": {
+                "operationId": "v1_me_notification_preferences_partial_update",
+                "description": "Per-user (event_type, channel) toggle matrix.\n\nGET    /me/notification-preferences/\nPATCH  /me/notification-preferences/{id}/     { enabled: bool }\n\nFirst GET backfills DEFAULT_PREFERENCES (Priya's email-OFF flip from V2 VoC)\nif the user has no rows yet — lazy initialization so user-create doesn't\nhave to know about this table.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedNotificationPreferenceRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedNotificationPreferenceRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedNotificationPreferenceRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NotificationPreference"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/me/notifications/": {
+            "get": {
+                "operationId": "v1_me_notifications_list",
+                "description": "Per-user notification inbox.\n\nGET    /me/notifications/                     ?unread_only=true&limit=50\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedNotificationList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/me/notifications/{id}/": {
+            "get": {
+                "operationId": "v1_me_notifications_retrieve",
+                "description": "Per-user notification inbox.\n\nGET    /me/notifications/                     ?unread_only=true&limit=50\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Notification"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_me_notifications_partial_update",
+                "description": "Per-user notification inbox.\n\nGET    /me/notifications/                     ?unread_only=true&limit=50\nGET    /me/notifications/{id}/\nPATCH  /me/notifications/{id}/                { is_read: bool, is_archived: bool }\nPOST   /me/notifications/mark-all-read/\n\nAll reads/writes are auto-scoped to the authenticated user — no cross-user\naccess possible by construction (queryset filters by recipient=request.user).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedNotificationRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedNotificationRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedNotificationRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Notification"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/me/notifications/mark-all-read/": {
+            "post": {
+                "operationId": "v1_me_notifications_mark_all_read_create",
+                "description": "Mark every unread notification for this user as read in one update.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/NotificationRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/NotificationRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/NotificationRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Notification"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/me/work/": {
             "get": {
                 "operationId": "v1_me_work_list",
@@ -5189,6 +5508,311 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/attachments/": {
+            "get": {
+                "operationId": "v1_projects_tasks_attachments_list",
+                "description": "File-XOR-URL attachments on a task (ADR-0075 §A.1).\n\nRoutes (relative to /projects/{project_pk}/tasks/{task_pk}/):\n  GET    attachments/\n  POST   attachments/                  (multipart: file XOR external_url)\n  GET    attachments/{pk}/\n  DELETE attachments/{pk}/             (soft-delete)\n  GET    attachments/{pk}/signed-url/\n\nPermissions:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create          — Member+ (IsProjectMemberWrite)\n  destroy         — uploader OR Admin+ (object-level check in perform_destroy)",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedTaskAttachmentList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_projects_tasks_attachments_create",
+                "description": "File-XOR-URL attachments on a task (ADR-0075 §A.1).\n\nRoutes (relative to /projects/{project_pk}/tasks/{task_pk}/):\n  GET    attachments/\n  POST   attachments/                  (multipart: file XOR external_url)\n  GET    attachments/{pk}/\n  DELETE attachments/{pk}/             (soft-delete)\n  GET    attachments/{pk}/signed-url/\n\nPermissions:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create          — Member+ (IsProjectMemberWrite)\n  destroy         — uploader OR Admin+ (object-level check in perform_destroy)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskAttachmentRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskAttachmentRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskAttachmentRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskAttachment"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/attachments/{id}/": {
+            "get": {
+                "operationId": "v1_projects_tasks_attachments_retrieve",
+                "description": "File-XOR-URL attachments on a task (ADR-0075 §A.1).\n\nRoutes (relative to /projects/{project_pk}/tasks/{task_pk}/):\n  GET    attachments/\n  POST   attachments/                  (multipart: file XOR external_url)\n  GET    attachments/{pk}/\n  DELETE attachments/{pk}/             (soft-delete)\n  GET    attachments/{pk}/signed-url/\n\nPermissions:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create          — Member+ (IsProjectMemberWrite)\n  destroy         — uploader OR Admin+ (object-level check in perform_destroy)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task attachment.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskAttachment"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_projects_tasks_attachments_destroy",
+                "description": "File-XOR-URL attachments on a task (ADR-0075 §A.1).\n\nRoutes (relative to /projects/{project_pk}/tasks/{task_pk}/):\n  GET    attachments/\n  POST   attachments/                  (multipart: file XOR external_url)\n  GET    attachments/{pk}/\n  DELETE attachments/{pk}/             (soft-delete)\n  GET    attachments/{pk}/signed-url/\n\nPermissions:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create          — Member+ (IsProjectMemberWrite)\n  destroy         — uploader OR Admin+ (object-level check in perform_destroy)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task attachment.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/attachments/{id}/signed-url/": {
+            "get": {
+                "operationId": "v1_projects_tasks_attachments_signed_url_retrieve",
+                "description": "Issue a short-lived download URL for the attachment's underlying file.\n\nTTL defaults to 15 minutes; clamped to 60 minutes max in OSS. External-\nURL attachments reject this action (they're already a URL).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task attachment.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskAttachment"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/baseline/": {
             "get": {
                 "operationId": "v1_projects_tasks_baseline_retrieve",
@@ -5224,6 +5848,591 @@
                 ],
                 "responses": {
                     "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/": {
+            "get": {
+                "operationId": "v1_projects_tasks_comments_list",
+                "description": "Task comment thread with @mention fan-out (ADR-0075 §A.2).\n\nRoutes (relative to /projects/{project_pk}/tasks/{task_pk}/):\n  GET    comments/\n  POST   comments/\n  GET    comments/{pk}/\n  PATCH  comments/{pk}/             (within 15-min edit window only)\n  DELETE comments/{pk}/             (author OR Admin+; soft-delete)\n  POST   comments/{pk}/acknowledge/ (toggle ack — POST creates, DELETE removes)\n\nThe @mention parser runs on create — fan-out creates Mention + Notification\nrows in the same transaction. Rate-limited to 1000 mentions/day, 100/hour\nper user (ADR-0075 locked constraints #8, #9).",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedTaskCommentList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_projects_tasks_comments_create",
+                "description": "Task comment thread with @mention fan-out (ADR-0075 §A.2).\n\nRoutes (relative to /projects/{project_pk}/tasks/{task_pk}/):\n  GET    comments/\n  POST   comments/\n  GET    comments/{pk}/\n  PATCH  comments/{pk}/             (within 15-min edit window only)\n  DELETE comments/{pk}/             (author OR Admin+; soft-delete)\n  POST   comments/{pk}/acknowledge/ (toggle ack — POST creates, DELETE removes)\n\nThe @mention parser runs on create — fan-out creates Mention + Notification\nrows in the same transaction. Rate-limited to 1000 mentions/day, 100/hour\nper user (ADR-0075 locked constraints #8, #9).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskCommentRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskCommentRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskCommentRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskComment"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{comment_pk}/reactions/": {
+            "post": {
+                "operationId": "v1_projects_tasks_comments_reactions_create",
+                "description": "👍 reaction on a task comment (ADR-0075 §A.4).\n\nRoutes:\n  POST   /projects/{project_pk}/tasks/{task_pk}/comments/{comment_pk}/reactions/\n         { \"emoji\": \"👍\" }\n  DELETE /projects/{project_pk}/tasks/{task_pk}/comments/{comment_pk}/reactions/{pk}/\n\nNEVER triggers a notification. Allow-list is enforced in the serializer.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "comment_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CommentReactionRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CommentReactionRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CommentReactionRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CommentReaction"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{comment_pk}/reactions/{id}/": {
+            "delete": {
+                "operationId": "v1_projects_tasks_comments_reactions_destroy",
+                "description": "👍 reaction on a task comment (ADR-0075 §A.4).\n\nRoutes:\n  POST   /projects/{project_pk}/tasks/{task_pk}/comments/{comment_pk}/reactions/\n         { \"emoji\": \"👍\" }\n  DELETE /projects/{project_pk}/tasks/{task_pk}/comments/{comment_pk}/reactions/{pk}/\n\nNEVER triggers a notification. Allow-list is enforced in the serializer.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "comment_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this comment reaction.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/": {
+            "get": {
+                "operationId": "v1_projects_tasks_comments_retrieve",
+                "description": "Task comment thread with @mention fan-out (ADR-0075 §A.2).\n\nRoutes (relative to /projects/{project_pk}/tasks/{task_pk}/):\n  GET    comments/\n  POST   comments/\n  GET    comments/{pk}/\n  PATCH  comments/{pk}/             (within 15-min edit window only)\n  DELETE comments/{pk}/             (author OR Admin+; soft-delete)\n  POST   comments/{pk}/acknowledge/ (toggle ack — POST creates, DELETE removes)\n\nThe @mention parser runs on create — fan-out creates Mention + Notification\nrows in the same transaction. Rate-limited to 1000 mentions/day, 100/hour\nper user (ADR-0075 locked constraints #8, #9).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task comment.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskComment"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_projects_tasks_comments_partial_update",
+                "description": "Task comment thread with @mention fan-out (ADR-0075 §A.2).\n\nRoutes (relative to /projects/{project_pk}/tasks/{task_pk}/):\n  GET    comments/\n  POST   comments/\n  GET    comments/{pk}/\n  PATCH  comments/{pk}/             (within 15-min edit window only)\n  DELETE comments/{pk}/             (author OR Admin+; soft-delete)\n  POST   comments/{pk}/acknowledge/ (toggle ack — POST creates, DELETE removes)\n\nThe @mention parser runs on create — fan-out creates Mention + Notification\nrows in the same transaction. Rate-limited to 1000 mentions/day, 100/hour\nper user (ADR-0075 locked constraints #8, #9).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task comment.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskCommentRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskCommentRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskCommentRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskComment"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_projects_tasks_comments_destroy",
+                "description": "Task comment thread with @mention fan-out (ADR-0075 §A.2).\n\nRoutes (relative to /projects/{project_pk}/tasks/{task_pk}/):\n  GET    comments/\n  POST   comments/\n  GET    comments/{pk}/\n  PATCH  comments/{pk}/             (within 15-min edit window only)\n  DELETE comments/{pk}/             (author OR Admin+; soft-delete)\n  POST   comments/{pk}/acknowledge/ (toggle ack — POST creates, DELETE removes)\n\nThe @mention parser runs on create — fan-out creates Mention + Notification\nrows in the same transaction. Rate-limited to 1000 mentions/day, 100/hour\nper user (ADR-0075 locked constraints #8, #9).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task comment.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/acknowledge/": {
+            "post": {
+                "operationId": "v1_projects_tasks_comments_acknowledge_create",
+                "description": "Toggle the requesting user's acknowledgement on this comment.\n\nPOST creates an ack (idempotent — second POST returns 200 with the existing row).\nDELETE removes the ack. NEVER triggers a notification (per ADR-0075 §A.3).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task comment.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskCommentRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskCommentRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskCommentRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskComment"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_projects_tasks_comments_acknowledge_destroy",
+                "description": "Toggle the requesting user's acknowledgement on this comment.\n\nPOST creates an ack (idempotent — second POST returns 200 with the existing row).\nDELETE removes the ack. NEVER triggers a notification (per ADR-0075 §A.3).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task comment.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
                         "description": "No response body"
                     }
                 }
@@ -9503,6 +10712,54 @@
                 "type": "string",
                 "description": "* `TECHNICAL` - Technical\n* `EXTERNAL` - External\n* `ORGANIZATIONAL` - Organizational\n* `PROJECT_MANAGEMENT` - Project Management"
             },
+            "CommentReaction": {
+                "type": "object",
+                "description": "Single-emoji reaction. 0.2 allow-list is {'👍'} only.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "user": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_MentionAuthorMini"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "emoji": {
+                        "type": "string",
+                        "maxLength": 16
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "emoji",
+                    "id",
+                    "user"
+                ]
+            },
+            "CommentReactionRequest": {
+                "type": "object",
+                "description": "Single-emoji reaction. 0.2 allow-list is {'👍'} only.",
+                "properties": {
+                    "emoji": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16
+                    }
+                },
+                "required": [
+                    "emoji"
+                ]
+            },
             "DepTypeEnum": {
                 "enum": [
                     "FS",
@@ -9831,6 +11088,89 @@
                     "url"
                 ]
             },
+            "Mention": {
+                "type": "object",
+                "description": "Read-only serializer for Mention.\n\nMentions are append-only — no write path through this serializer. Created\nindirectly via TaskCommentSerializer.create + services.create_mention_notifications.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "mentioner": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MentionAuthor"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "mentioned_user": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MentionAuthor"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "mentioned_group_key": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "scope": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ScopeEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "task_comment": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "id",
+                    "mentioned_group_key",
+                    "mentioned_user",
+                    "mentioner",
+                    "scope",
+                    "task_comment"
+                ]
+            },
+            "MentionAuthor": {
+                "type": "object",
+                "description": "Nested read-only user summary for Mention.mentioner / mentioned_user.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "username": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "display_name": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "display_name",
+                    "id",
+                    "username"
+                ]
+            },
             "MethodologyEnum": {
                 "enum": [
                     "WATERFALL",
@@ -9848,6 +11188,116 @@
                 ],
                 "type": "integer",
                 "description": "* `1` - Beginner\n* `2` - Intermediate\n* `3` - Expert"
+            },
+            "Notification": {
+                "type": "object",
+                "description": "Per-recipient inbox row.\n\nWrites are limited to is_read / is_archived (PATCH-only on the viewset).\nAll other fields are read-only.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "recipient": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "mention": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Mention"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "is_read": {
+                        "type": "boolean"
+                    },
+                    "is_archived": {
+                        "type": "boolean"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "read_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "snippet": {
+                        "type": "string",
+                        "description": "Short preview of the source mention's body.\n\nTruncated to 200 chars. Returns empty string if the source is\nunavailable (e.g. comment soft-deleted).\n\nNOTE (ADR-0075 §A.5, MentionScope): only PROJECT_VISIBLE scope is in\nplay in 0.2, so any recipient (who was a project member at mention\ntime) can see the body via this snippet — historical-record semantics.\nWhen #476 lands TEAM_ONLY scope this method MUST re-check current\nproject membership at read time and return \"\" if the user is no\nlonger a member of the source project. See N-1 in RBAC audit.",
+                        "readOnly": true
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "id",
+                    "mention",
+                    "project",
+                    "read_at",
+                    "recipient",
+                    "snippet",
+                    "task_id"
+                ]
+            },
+            "NotificationPreference": {
+                "type": "object",
+                "description": "Per-user (event_type, channel) toggle.\n\nPATCH on the viewset only modifies `enabled` — event_type / channel /\nuser are immutable.",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "event_type": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "channel": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "channel",
+                    "enabled",
+                    "event_type",
+                    "id",
+                    "updated_at"
+                ]
+            },
+            "NotificationRequest": {
+                "type": "object",
+                "description": "Per-recipient inbox row.\n\nWrites are limited to is_read / is_archived (PATCH-only on the viewset).\nAll other fields are read-only.",
+                "properties": {
+                    "is_read": {
+                        "type": "boolean"
+                    },
+                    "is_archived": {
+                        "type": "boolean"
+                    }
+                }
             },
             "NullEnum": {
                 "enum": [
@@ -10036,6 +11486,68 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/MeWorkTask"
+                        }
+                    }
+                }
+            },
+            "PaginatedNotificationList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Notification"
+                        }
+                    }
+                }
+            },
+            "PaginatedNotificationPreferenceList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/NotificationPreference"
                         }
                     }
                 }
@@ -10443,6 +11955,68 @@
                     }
                 }
             },
+            "PaginatedTaskAttachmentList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskAttachment"
+                        }
+                    }
+                }
+            },
+            "PaginatedTaskCommentList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskComment"
+                        }
+                    }
+                }
+            },
             "PaginatedTaskList": {
                 "type": "object",
                 "required": [
@@ -10680,6 +12254,27 @@
                         "maximum": 2147483647,
                         "minimum": -2147483648,
                         "description": "Lag in calendar days (positive = delay, negative = lead)"
+                    }
+                }
+            },
+            "PatchedNotificationPreferenceRequest": {
+                "type": "object",
+                "description": "Per-user (event_type, channel) toggle.\n\nPATCH on the viewset only modifies `enabled` — event_type / channel /\nuser are immutable.",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "PatchedNotificationRequest": {
+                "type": "object",
+                "description": "Per-recipient inbox row.\n\nWrites are limited to is_read / is_archived (PATCH-only on the viewset).\nAll other fields are read-only.",
+                "properties": {
+                    "is_read": {
+                        "type": "boolean"
+                    },
+                    "is_archived": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -10982,6 +12577,21 @@
                         "maximum": 2147483647,
                         "minimum": 0,
                         "nullable": true
+                    }
+                }
+            },
+            "PatchedTaskCommentRequest": {
+                "type": "object",
+                "description": "Append-only task comment with single-level reply nesting.\n\n`body` is required + length-capped. `parent` must be a top-level comment\non the same task. Edits are limited to a 15-min window after creation.",
+                "properties": {
+                    "parent": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "body": {
+                        "type": "string",
+                        "minLength": 1
                     }
                 }
             },
@@ -12355,6 +13965,15 @@
                     }
                 }
             },
+            "ScopeEnum": {
+                "enum": [
+                    "project_visible",
+                    "team_only",
+                    "private"
+                ],
+                "type": "string",
+                "description": "* `project_visible` - Project visible\n* `team_only` - Team only\n* `private` - Private"
+            },
             "Skill": {
                 "type": "object",
                 "description": "Read/write serializer for the org-level skill catalog.\n\nNormalises name to lower-case + stripped on write to prevent duplicate\nentries (\"React\" vs \"react\"). Returns the existing row (not a 201) when\nthe normalized_name already exists — callers should handle 200 vs 201.",
@@ -12939,6 +14558,218 @@
                     "resource_id",
                     "resource_name",
                     "units"
+                ]
+            },
+            "TaskAttachment": {
+                "type": "object",
+                "description": "File-XOR-URL attachment on a task.\n\nMultipart uploads are accepted via `file`; pinned external links use\n`external_url`. Exactly one must be set per request — the DB CheckConstraint\nmatches but this serializer surfaces a friendlier 400 message.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "file": {
+                        "type": "string",
+                        "format": "uri"
+                    },
+                    "file_name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "file_size": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "file_mime": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "external_url": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 2048
+                    },
+                    "external_title": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "is_pinned": {
+                        "type": "boolean"
+                    },
+                    "uploaded_by": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_MentionAuthorMini"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "deleted_by": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_MentionAuthorMini"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "is_deleted": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "deleted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "deleted_at",
+                    "deleted_by",
+                    "file_mime",
+                    "file_size",
+                    "id",
+                    "is_deleted",
+                    "uploaded_by"
+                ]
+            },
+            "TaskAttachmentRequest": {
+                "type": "object",
+                "description": "File-XOR-URL attachment on a task.\n\nMultipart uploads are accepted via `file`; pinned external links use\n`external_url`. Exactly one must be set per request — the DB CheckConstraint\nmatches but this serializer surfaces a friendlier 400 message.",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary"
+                    },
+                    "file_name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "external_url": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 2048
+                    },
+                    "external_title": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "is_pinned": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "TaskComment": {
+                "type": "object",
+                "description": "Append-only task comment with single-level reply nesting.\n\n`body` is required + length-capped. `parent` must be a top-level comment\non the same task. Edits are limited to a 15-min window after creation.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "parent": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "author": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_MentionAuthorMini"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "body": {
+                        "type": "string"
+                    },
+                    "edited_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "is_deleted": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "deleted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "deleted_by": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_MentionAuthorMini"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "acknowledged_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "reaction_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "has_my_acknowledgement": {
+                        "type": "boolean",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "acknowledged_count",
+                    "author",
+                    "body",
+                    "created_at",
+                    "deleted_at",
+                    "deleted_by",
+                    "edited_at",
+                    "has_my_acknowledgement",
+                    "id",
+                    "is_deleted",
+                    "reaction_count",
+                    "task"
+                ]
+            },
+            "TaskCommentRequest": {
+                "type": "object",
+                "description": "Append-only task comment with single-level reply nesting.\n\n`body` is required + length-capped. `parent` must be a top-level comment\non the same task. Edits are limited to a 15-min window after creation.",
+                "properties": {
+                    "parent": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "body": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "body"
                 ]
             },
             "TaskRequest": {
@@ -13637,6 +15468,30 @@
                     "project_id",
                     "started_at",
                     "started_by_id"
+                ]
+            },
+            "_MentionAuthorMini": {
+                "type": "object",
+                "description": "Inline read-only user summary used across attachment + comment serializers.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "username": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "display_name": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "display_name",
+                    "id",
+                    "username"
                 ]
             },
             "_UserSummary": {
