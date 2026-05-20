@@ -885,7 +885,13 @@ security:pip-audit:
     # CVE-2026-3219: pip 26.0.1 mishandles concatenated tar+ZIP archives as ZIP.
     # CVSS low — only affects install-time artifact parsing, not runtime behavior.
     # No fix version available as of 2026-04-25. Remove once pip ships a patched release.
-    - pip-audit --progress-spinner=off --desc on --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219
+    #
+    # PYSEC-2025-183: pyjwt "weak encryption" — disputed by the upstream supplier
+    # (key length is chosen by the caller; pyjwt is a library, not a policy engine).
+    # Transitive via djangorestframework-simplejwt. No fix version exists as of 2026-05-20.
+    # We sign with HS256 over a long random SECRET_KEY, so the disputed weakness does
+    # not apply. Remove once pyjwt either rescinds the advisory or ships a hardened release.
+    - pip-audit --progress-spinner=off --desc on --ignore-vuln CVE-2026-4539 --ignore-vuln CVE-2026-3219 --ignore-vuln PYSEC-2025-183
 
 web:security:
   # CVE scan for npm dependencies. Equivalent of pip-audit for the web package.
