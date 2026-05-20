@@ -149,6 +149,7 @@ export default defineConfig({
               collapsed: false,
               items: [
                 { slug: "features/real-time" },
+                { slug: "features/task-collaboration" },
                 { slug: "features/offline-sync" },
                 { slug: "features/webhooks" },
                 { slug: "features/inbound-task-sync" },

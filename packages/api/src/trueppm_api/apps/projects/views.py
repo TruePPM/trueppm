@@ -5028,8 +5028,8 @@ class TaskAttachmentViewSet(
         transaction.on_commit(
             lambda: broadcast_board_event(
                 str(project_pk),
-                "attachment_changed",
-                {"id": att_id, "task_id": task_id_str, "action": "created"},
+                "task_attachment_created",
+                {"id": att_id, "task_id": task_id_str},
             )
         )
 
@@ -5055,8 +5055,8 @@ class TaskAttachmentViewSet(
         transaction.on_commit(
             lambda: broadcast_board_event(
                 project_id_str,
-                "attachment_changed",
-                {"id": att_id, "task_id": task_id_str, "action": "deleted"},
+                "task_attachment_deleted",
+                {"id": att_id, "task_id": task_id_str},
             )
         )
 
@@ -5213,11 +5213,10 @@ class TaskCommentViewSet(
         transaction.on_commit(
             lambda: broadcast_board_event(
                 project_id_str,
-                "comment_changed",
+                "task_comment_created",
                 {
                     "id": comment_id_str,
                     "task_id": task_id_str,
-                    "action": "created",
                     "parent_id": parent_id,
                 },
             )
@@ -5242,11 +5241,10 @@ class TaskCommentViewSet(
         transaction.on_commit(
             lambda: broadcast_board_event(
                 project_id_str,
-                "comment_changed",
+                "task_comment_updated",
                 {
                     "id": comment_id_str,
                     "task_id": task_id_str,
-                    "action": "updated",
                     "parent_id": parent_id_str,
                 },
             )
@@ -5274,11 +5272,10 @@ class TaskCommentViewSet(
         transaction.on_commit(
             lambda: broadcast_board_event(
                 project_id_str,
-                "comment_changed",
+                "task_comment_deleted",
                 {
                     "id": comment_id_str,
                     "task_id": task_id_str,
-                    "action": "deleted",
                     "parent_id": parent_id_str,
                 },
             )

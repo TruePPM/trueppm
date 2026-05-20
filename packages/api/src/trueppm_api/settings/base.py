@@ -194,6 +194,20 @@ CELERY_BEAT_SCHEDULE = {
         # 03:00 UTC — after other nightly purge jobs.
         "schedule": crontab(hour=3, minute=0),
     },
+    # Notification email outbox drain: send queued mention emails every 30 s.
+    # Respects 5-min orphan window so it doesn't race in-flight comment-create
+    # transactions (ADR-0075 §F durable-execution checklist item 3).
+    "drain-notification-emails": {
+        "task": "notifications.drain_notification_emails",
+        "schedule": 30.0,
+    },
+    # Nightly archive: notifications older than 90 days with is_read=True become
+    # is_archived=True. Keeps the unread-bell query path on a shallow index.
+    "archive-old-notifications": {
+        "task": "notifications.archive_old_notifications",
+        # 03:15 UTC — after other nightly purge/archive jobs.
+        "schedule": crontab(hour=3, minute=15),
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -246,6 +260,20 @@ TRUEPPM_EDITION: str = env("TRUEPPM_EDITION", default="community")
 
 MC_SIMULATION_CAP: int | None = 1_000
 MC_TASK_CAP: int | None = 500
+
+# ---------------------------------------------------------------------------
+# Upload caps (ADR-0075, task attachments)
+# ---------------------------------------------------------------------------
+
+# Hard 100 MB ceiling matches the TaskAttachment cap (ADR-0075 locked
+# constraint #4). The serializer also enforces this, but the setting must
+# fire FIRST — without it, Django buffers the entire body to /tmp before
+# the serializer runs, which lets an authenticated Member spam 100 MB+
+# multipart bodies and exhaust worker time + disk. Operators should also
+# set nginx `client_max_body_size: 100m` so over-sized requests are
+# rejected at the edge, not after Django finishes parsing them.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100 MB
+FILE_UPLOAD_MAX_MEMORY_SIZE = 2_621_440  # 2.5 MB (Django default; explicit)
 
 # ---------------------------------------------------------------------------
 # Django REST Framework

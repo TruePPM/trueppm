@@ -22,6 +22,8 @@ import { OverviewSection } from './OverviewSection';
 import { SprintSection } from './SprintSection';
 import { SubtasksSection } from './SubtasksSection';
 import { DependenciesSection } from './DependenciesSection';
+import { AttachmentSection } from './AttachmentSection';
+import { CommentSection } from './CommentSection';
 import { ActivitySection } from './ActivitySection';
 import { EstimatesSection } from './EstimatesSection';
 import { HistorySection } from './HistorySection';
@@ -71,6 +73,20 @@ export function registerOssDrawerSections(): void {
     title: 'Dependencies',
     component: DependenciesSection,
     priority: 200,
+  });
+
+  registry.register('task_detail.section', {
+    id: 'attachments',
+    title: 'Attachments',
+    component: AttachmentSection,
+    priority: 400,
+  });
+
+  registry.register('task_detail.section', {
+    id: 'comments',
+    title: 'Comments',
+    component: CommentSection,
+    priority: 500,
   });
 
   registry.register('task_detail.section', {
