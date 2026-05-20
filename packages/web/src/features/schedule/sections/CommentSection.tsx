@@ -11,7 +11,7 @@
  */
 
 import type { ReactElement } from 'react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import {
   useAcknowledgeComment,
@@ -21,6 +21,7 @@ import {
 import { useTaskAttachments } from '@/hooks/useTaskAttachments';
 import { formatRelative } from '@/lib/formatRelative';
 import type { TaskAttachment, TaskComment } from '@/types';
+import { CommentComposer } from './CommentComposer';
 
 const ATTACHMENT_REF_RE = /\[\[attachment:([0-9a-f-]{36})\]\]/g;
 const MENTION_RE = /(^|\s)(\\?)@([A-Za-z0-9_.-]+)/g;
@@ -132,9 +133,24 @@ interface CommentRowProps {
   attachmentIndex: Map<string, TaskAttachment>;
   /** Indent depth — 0 for top-level, 1 for reply. (One-level nesting only.) */
   depth: number;
+  /** True when this row's reply composer is open. Reply only available on top-level rows. */
+  isReplying?: boolean;
+  /** Called when the user clicks Reply. */
+  onReplyClick?: () => void;
+  /** Called when the reply composer cancels or submits. */
+  onReplyClose?: () => void;
 }
 
-function CommentRow({ comment, projectId, taskId, attachmentIndex, depth }: CommentRowProps) {
+function CommentRow({
+  comment,
+  projectId,
+  taskId,
+  attachmentIndex,
+  depth,
+  isReplying,
+  onReplyClick,
+  onReplyClose,
+}: CommentRowProps) {
   const ack = useAcknowledgeComment();
   const react = useReactToComment();
 
@@ -180,6 +196,18 @@ function CommentRow({ comment, projectId, taskId, attachmentIndex, depth }: Comm
         {renderBody(comment.body, attachmentIndex)}
       </div>
       <div className="flex items-center gap-1 mt-1">
+        {depth === 0 && onReplyClick && (
+          <button
+            type="button"
+            onClick={onReplyClick}
+            className="text-xs border border-neutral-border rounded px-2 h-7 font-medium
+              text-neutral-text-secondary hover:bg-neutral-surface
+              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
+            aria-label="Reply to this comment"
+          >
+            ↩ Reply
+          </button>
+        )}
         <button
           type="button"
           onClick={handleAckToggle}
@@ -220,6 +248,17 @@ function CommentRow({ comment, projectId, taskId, attachmentIndex, depth }: Comm
           )}
         </button>
       </div>
+      {isReplying && depth === 0 && (
+        <div className="mt-2 ml-6">
+          <CommentComposer
+            projectId={projectId}
+            taskId={taskId}
+            parentId={comment.id}
+            onSubmitted={onReplyClose}
+            onCancel={onReplyClose}
+          />
+        </div>
+      )}
     </li>
   );
 }
@@ -227,6 +266,7 @@ function CommentRow({ comment, projectId, taskId, attachmentIndex, depth }: Comm
 export function CommentSection({ taskId, projectId }: DrawerSectionProps) {
   const { comments, isLoading, error } = useTaskComments(projectId, taskId);
   const { attachments } = useTaskAttachments(projectId, taskId);
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
 
   // Lookup table for [[attachment:uuid]] rendering. Soft-deleted attachments
   // are filtered out at the list endpoint so missing-id is the soft-delete
@@ -274,40 +314,42 @@ export function CommentSection({ taskId, projectId }: DrawerSectionProps) {
     );
   }
 
-  if (topLevel.length === 0) {
-    return (
-      <p className="text-sm text-neutral-text-secondary px-1">
-        No comments yet. Composer lands in the next slice (#311 frontend phase 2).
-      </p>
-    );
-  }
-
   return (
-    <ol
-      aria-label={`Comments — ${comments.length} total`}
-      className="flex flex-col gap-2 list-none p-0"
-    >
-      {topLevel.map((c) => (
-        <li key={c.id} className="list-none">
-          <CommentRow
-            comment={c}
-            projectId={projectId}
-            taskId={taskId}
-            attachmentIndex={attachmentIndex}
-            depth={0}
-          />
-          {(repliesByParent.get(c.id) ?? []).map((reply) => (
-            <CommentRow
-              key={reply.id}
-              comment={reply}
-              projectId={projectId}
-              taskId={taskId}
-              attachmentIndex={attachmentIndex}
-              depth={1}
-            />
+    <div className="flex flex-col gap-3">
+      {topLevel.length === 0 ? (
+        <p className="text-sm text-neutral-text-secondary px-1">Be the first to comment.</p>
+      ) : (
+        <ol
+          aria-label={`Comments — ${comments.length} total`}
+          className="flex flex-col gap-2 list-none p-0"
+        >
+          {topLevel.map((c) => (
+            <li key={c.id} className="list-none">
+              <CommentRow
+                comment={c}
+                projectId={projectId}
+                taskId={taskId}
+                attachmentIndex={attachmentIndex}
+                depth={0}
+                isReplying={replyingTo === c.id}
+                onReplyClick={() => setReplyingTo(c.id)}
+                onReplyClose={() => setReplyingTo(null)}
+              />
+              {(repliesByParent.get(c.id) ?? []).map((reply) => (
+                <CommentRow
+                  key={reply.id}
+                  comment={reply}
+                  projectId={projectId}
+                  taskId={taskId}
+                  attachmentIndex={attachmentIndex}
+                  depth={1}
+                />
+              ))}
+            </li>
           ))}
-        </li>
-      ))}
-    </ol>
+        </ol>
+      )}
+      <CommentComposer projectId={projectId} taskId={taskId} />
+    </div>
   );
 }

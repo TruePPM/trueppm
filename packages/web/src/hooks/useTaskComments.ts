@@ -10,6 +10,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { PaginatedResponse } from '@/api/types';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
 import type { CommentAcknowledgement, CommentReaction, TaskComment } from '@/types';
 
 const commentsKey = (taskId: string | null) => ['task-comments', taskId];
@@ -32,6 +33,81 @@ export function useTaskComments(projectId: string, taskId: string | null) {
     isLoading: query.isLoading,
     error: query.error,
   };
+}
+
+interface CreateCommentVars {
+  projectId: string;
+  taskId: string;
+  body: string;
+  /** Optional parent comment ID for a one-level reply. */
+  parentId?: string | null;
+}
+
+interface OptimisticContext {
+  previous: TaskComment[] | undefined;
+  optimisticId: string;
+}
+
+/**
+ * POST /api/v1/projects/{projectId}/tasks/{taskId}/comments/
+ *
+ * Optimistic append: the comment shows in the thread immediately, then is
+ * replaced with the server's authoritative row on success. On error the
+ * optimistic row rolls back and the mutation error surfaces via the caller's
+ * `onError` handler — composer renders "Couldn't post. [Retry]".
+ *
+ * The server runs mention parsing + fan-out inside the same transaction,
+ * so a 400 on `mention_resolution_failed` means the body referenced a
+ * non-member user or hit the @all role gate.
+ */
+export function useCreateComment() {
+  const queryClient = useQueryClient();
+  const { user } = useCurrentUser();
+
+  return useMutation<TaskComment, Error, CreateCommentVars, OptimisticContext>({
+    mutationFn: async ({ projectId, taskId, body, parentId }) => {
+      const res = await apiClient.post<TaskComment>(
+        `/projects/${projectId}/tasks/${taskId}/comments/`,
+        { body, parent: parentId ?? null },
+      );
+      return res.data;
+    },
+    onMutate: async ({ taskId, body, parentId }) => {
+      const queryKey = ['task-comments', taskId];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<TaskComment[]>(queryKey);
+      const optimisticId = `optimistic-${Date.now()}`;
+      const optimistic: TaskComment = {
+        id: optimisticId,
+        task: taskId,
+        parent: parentId ?? null,
+        author: user
+          ? { id: user.id, username: user.username ?? '', display_name: user.display_name }
+          : null,
+        body,
+        edited_at: null,
+        created_at: new Date().toISOString(),
+        is_deleted: false,
+        deleted_at: null,
+        deleted_by: null,
+        acknowledged_count: 0,
+        reaction_count: 0,
+        has_my_acknowledgement: false,
+      };
+      queryClient.setQueryData<TaskComment[]>(queryKey, [...(previous ?? []), optimistic]);
+      return { previous, optimisticId };
+    },
+    onError: (_err, { taskId }, context) => {
+      // Roll back optimistic append on failure
+      if (context) {
+        queryClient.setQueryData<TaskComment[]>(['task-comments', taskId], context.previous);
+      }
+    },
+    onSuccess: (_data, { taskId }) => {
+      // Invalidate so the server's authoritative row replaces the optimistic one
+      void queryClient.invalidateQueries({ queryKey: ['task-comments', taskId] });
+    },
+  });
 }
 
 interface AcknowledgeVars {
