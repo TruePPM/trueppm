@@ -55,6 +55,8 @@ from trueppm_api.apps.projects.models import (
     BoardColumnConfig,
     BoardSavedView,
     Calendar,
+    CommentAcknowledgement,
+    CommentReaction,
     Dependency,
     EstimateStatus,
     EstimationMode,
@@ -65,6 +67,8 @@ from trueppm_api.apps.projects.models import (
     Sprint,
     SprintState,
     Task,
+    TaskAttachment,
+    TaskComment,
     TaskStatus,
 )
 from trueppm_api.apps.projects.serializers import (
@@ -75,6 +79,8 @@ from trueppm_api.apps.projects.serializers import (
     BoardColumnConfigSerializer,
     BoardSavedViewSerializer,
     CalendarSerializer,
+    CommentAcknowledgementSerializer,
+    CommentReactionSerializer,
     CycleDetectedError,
     DependencySerializer,
     InboundTaskSyncPayloadSerializer,
@@ -88,10 +94,13 @@ from trueppm_api.apps.projects.serializers import (
     ProjectSerializer,
     RiskCommentSerializer,
     RiskSerializer,
+    SignedDownloadUrlSerializer,
     SprintBurnSnapshotSerializer,
     SprintCloseRequestSerializer,
     SprintSerializer,
+    TaskAttachmentSerializer,
     TaskBulkSerializer,
+    TaskCommentSerializer,
     TaskReorderSerializer,
     TaskSerializer,
 )
@@ -4932,3 +4941,410 @@ class ApiTokenAuditView(generics.ListAPIView[Any]):
             .select_related("actor", "token")
             .order_by("-created_at")
         )
+
+
+# ---------------------------------------------------------------------------
+# Task collaboration viewsets — ADR-0075 (#310 #311)
+# ---------------------------------------------------------------------------
+
+
+# Locked constraints from ADR-0075 surfaced via per-task counts.
+MAX_ATTACHMENTS_PER_TASK = 50  # constraint #12
+MAX_COMMENTS_PER_TASK = 1_000  # constraint #13
+SIGNED_URL_DEFAULT_TTL_SECONDS = 15 * 60  # constraint #6
+SIGNED_URL_MAX_TTL_SECONDS = 60 * 60  # constraint #7 (OSS hard-cap)
+
+
+class TaskAttachmentViewSet(
+    ProjectScopedViewSet,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet[TaskAttachment],
+):
+    """File-XOR-URL attachments on a task (ADR-0075 §A.1).
+
+    Routes (relative to /projects/{project_pk}/tasks/{task_pk}/):
+      GET    attachments/
+      POST   attachments/                  (multipart: file XOR external_url)
+      GET    attachments/{pk}/
+      DELETE attachments/{pk}/             (soft-delete)
+      GET    attachments/{pk}/signed-url/
+
+    Permissions:
+      list / retrieve — Viewer+ (IsProjectMember)
+      create          — Member+ (IsProjectMemberWrite)
+      destroy         — uploader OR Admin+ (object-level check in perform_destroy)
+    """
+
+    serializer_class = TaskAttachmentSerializer
+
+    def get_queryset(self) -> QuerySet[TaskAttachment]:
+        user = self.request.user
+        if not user.is_authenticated:
+            return TaskAttachment.objects.none()
+        project_pk = self.kwargs["project_pk"]
+        task_pk = self.kwargs["task_pk"]
+        if not ProjectMembership.objects.filter(
+            user=user, project_id=project_pk, is_deleted=False
+        ).exists():
+            return TaskAttachment.objects.none()
+        return TaskAttachment.objects.filter(
+            task__project_id=project_pk,
+            task_id=task_pk,
+            is_deleted=False,
+        ).select_related("uploaded_by", "deleted_by")
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action in ("create", "destroy"):
+            return [IsAuthenticated(), IsProjectMemberWrite()]
+        return [IsAuthenticated(), IsProjectMember()]
+
+    def perform_create(self, serializer: BaseSerializer[TaskAttachment]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_pk = self.kwargs["project_pk"]
+        task_pk = self.kwargs["task_pk"]
+        task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
+        self.check_object_permissions(self.request, task)
+
+        # Per-task count cap (ADR-0075 #12)
+        if (
+            TaskAttachment.objects.filter(task=task, is_deleted=False).count()
+            >= MAX_ATTACHMENTS_PER_TASK
+        ):
+            raise serializers.ValidationError(
+                {
+                    "detail": f"This task already has {MAX_ATTACHMENTS_PER_TASK} attachments. "
+                    "Remove one to add another."
+                },
+                code="attachment_count_cap",
+            )
+
+        instance = serializer.save(task=task, uploaded_by=self.request.user)
+        att_id = str(instance.pk)
+        task_id_str = str(task.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                str(project_pk),
+                "attachment_changed",
+                {"id": att_id, "task_id": task_id_str, "action": "created"},
+            )
+        )
+
+    def perform_destroy(self, instance: TaskAttachment) -> None:
+        """Soft-delete with actor capture; uploader OR Admin+ only."""
+        from trueppm_api.apps.access.permissions import _membership_role
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        user = self.request.user
+        role = _membership_role(self.request, instance.task.project_id)
+        is_uploader = instance.uploaded_by_id == user.pk
+        is_admin = role is not None and role >= Role.ADMIN
+        if not (is_uploader or is_admin):
+            raise serializers.ValidationError(
+                {"detail": "Only the uploader or a project admin can delete this."},
+                code="attachment_delete_forbidden",
+            )
+
+        instance.soft_delete(actor=user)
+        att_id = str(instance.pk)
+        task_id_str = str(instance.task_id)
+        project_id_str = str(instance.task.project_id)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str,
+                "attachment_changed",
+                {"id": att_id, "task_id": task_id_str, "action": "deleted"},
+            )
+        )
+
+    @action(detail=True, methods=["get"], url_path="signed-url")
+    def signed_url(self, request: Request, project_pk: str, task_pk: str, pk: str) -> Response:
+        """Issue a short-lived download URL for the attachment's underlying file.
+
+        TTL defaults to 15 minutes; clamped to 60 minutes max in OSS. External-
+        URL attachments reject this action (they're already a URL).
+        """
+        attachment = self.get_object()
+        if attachment.external_url:
+            raise serializers.ValidationError(
+                {"detail": "This attachment is an external link; no signed URL is needed."},
+                code="signed_url_external",
+            )
+
+        try:
+            ttl = int(request.query_params.get("ttl") or SIGNED_URL_DEFAULT_TTL_SECONDS)
+        except ValueError as exc:
+            raise serializers.ValidationError(
+                {"ttl": "Must be an integer (seconds)."},
+                code="signed_url_invalid_ttl",
+            ) from exc
+        if ttl <= 0 or ttl > SIGNED_URL_MAX_TTL_SECONDS:
+            raise serializers.ValidationError(
+                {"ttl": f"TTL must be between 1 and {SIGNED_URL_MAX_TTL_SECONDS} seconds."},
+                code="signed_url_ttl_out_of_range",
+            )
+
+        # Backend-agnostic URL: storage backend handles signing transparently
+        # in production (S3/MinIO). For local/dev FileSystemStorage we return
+        # the unsigned media URL — the cost of a perfect signed-URL emulation
+        # for dev is more than the security benefit, and ops gate the real
+        # storage backend in Helm.
+        url = attachment.file.url if attachment.file else ""
+        expires_at = timezone.now() + datetime.timedelta(seconds=ttl)
+        data = SignedDownloadUrlSerializer({"url": url, "expires_at": expires_at}).data
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class TaskCommentViewSet(
+    ProjectScopedViewSet,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet[TaskComment],
+):
+    """Task comment thread with @mention fan-out (ADR-0075 §A.2).
+
+    Routes (relative to /projects/{project_pk}/tasks/{task_pk}/):
+      GET    comments/
+      POST   comments/
+      GET    comments/{pk}/
+      PATCH  comments/{pk}/             (within 15-min edit window only)
+      DELETE comments/{pk}/             (author OR Admin+; soft-delete)
+      POST   comments/{pk}/acknowledge/ (toggle ack — POST creates, DELETE removes)
+
+    The @mention parser runs on create — fan-out creates Mention + Notification
+    rows in the same transaction. Rate-limited to 1000 mentions/day, 100/hour
+    per user (ADR-0075 locked constraints #8, #9).
+    """
+
+    serializer_class = TaskCommentSerializer
+
+    def get_throttles(self) -> list[Any]:
+        from trueppm_api.apps.notifications.throttles import MentionRateThrottle
+
+        if self.action in ("create", "partial_update", "update"):
+            return [MentionRateThrottle()]
+        return []
+
+    def get_queryset(self) -> QuerySet[TaskComment]:
+        user = self.request.user
+        if not user.is_authenticated:
+            return TaskComment.objects.none()
+        project_pk = self.kwargs["project_pk"]
+        task_pk = self.kwargs["task_pk"]
+        if not ProjectMembership.objects.filter(
+            user=user, project_id=project_pk, is_deleted=False
+        ).exists():
+            return TaskComment.objects.none()
+        return (
+            TaskComment.objects.filter(
+                task__project_id=project_pk,
+                task_id=task_pk,
+                is_deleted=False,
+            )
+            .select_related("author", "parent", "deleted_by")
+            .prefetch_related("acknowledgements", "reactions")
+        )
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action in ("create", "partial_update", "update", "destroy"):
+            return [IsAuthenticated(), IsProjectMemberWrite()]
+        return [IsAuthenticated(), IsProjectMember()]
+
+    def perform_create(self, serializer: BaseSerializer[TaskComment]) -> None:
+        from trueppm_api.apps.access.permissions import _membership_role
+        from trueppm_api.apps.notifications.services import (
+            create_mention_notifications,
+            parse_mentions,
+            resolve_parsed_mentions,
+        )
+        from trueppm_api.apps.notifications.throttles import record_mention_usage
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_pk = self.kwargs["project_pk"]
+        task_pk = self.kwargs["task_pk"]
+        task = get_object_or_404(Task, pk=task_pk, project_id=project_pk, is_deleted=False)
+        self.check_object_permissions(self.request, task)
+
+        # Per-task count cap (ADR-0075 #13)
+        if TaskComment.objects.filter(task=task, is_deleted=False).count() >= MAX_COMMENTS_PER_TASK:
+            raise serializers.ValidationError(
+                {"detail": f"This task has the maximum of {MAX_COMMENTS_PER_TASK} comments."},
+                code="comment_count_cap",
+            )
+
+        comment = serializer.save(task=task, author=self.request.user)
+        comment_id_str = str(comment.pk)
+        task_id_str = str(task.pk)
+        project_id_str = str(project_pk)
+        parent_id = str(comment.parent_id) if comment.parent_id else None
+
+        # Parse mentions + fan out notifications transactionally
+        parsed = parse_mentions(comment.body)
+        if parsed:
+            actor_role = _membership_role(self.request, project_pk)
+            resolved = resolve_parsed_mentions(parsed, project_pk, actor_role=actor_role)
+            if resolved.skipped_users or resolved.skipped_groups:
+                # Caller gets a structured 400 listing exactly what was rejected
+                # — they can fix the body and retry. We do not partially commit.
+                detail: dict[str, list[str] | str] = {
+                    "detail": "One or more @mentions could not be resolved.",
+                }
+                if resolved.skipped_users:
+                    detail["skipped_users"] = resolved.skipped_users
+                if resolved.skipped_groups:
+                    detail["skipped_groups"] = resolved.skipped_groups
+                raise serializers.ValidationError(detail, code="mention_resolution_failed")
+            created = create_mention_notifications(
+                task_comment=comment,
+                mentioner=self.request.user,  # type: ignore[arg-type]
+                parsed_result=resolved,
+                project_id=project_pk,
+            )
+            record_mention_usage(str(self.request.user.pk), created)
+
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str,
+                "comment_changed",
+                {
+                    "id": comment_id_str,
+                    "task_id": task_id_str,
+                    "action": "created",
+                    "parent_id": parent_id,
+                },
+            )
+        )
+
+    def perform_update(self, serializer: BaseSerializer[TaskComment]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        instance = cast(TaskComment, serializer.instance)
+        if instance.author_id != self.request.user.pk:
+            raise serializers.ValidationError(
+                {"detail": "Only the author can edit a comment."},
+                code="comment_edit_not_author",
+            )
+        serializer.save()
+        project_id_str = str(instance.task.project_id)
+        task_id_str = str(instance.task_id)
+        comment_id_str = str(instance.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str,
+                "comment_changed",
+                {
+                    "id": comment_id_str,
+                    "task_id": task_id_str,
+                    "action": "updated",
+                    "parent_id": str(instance.parent_id) if instance.parent_id else None,
+                },
+            )
+        )
+
+    def perform_destroy(self, instance: TaskComment) -> None:
+        from trueppm_api.apps.access.permissions import _membership_role
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        user = self.request.user
+        role = _membership_role(self.request, instance.task.project_id)
+        is_author = instance.author_id == user.pk
+        is_admin = role is not None and role >= Role.ADMIN
+        if not (is_author or is_admin):
+            raise serializers.ValidationError(
+                {"detail": "Only the author or a project admin can delete a comment."},
+                code="comment_delete_forbidden",
+            )
+        instance.soft_delete(actor=user)
+        project_id_str = str(instance.task.project_id)
+        task_id_str = str(instance.task_id)
+        comment_id_str = str(instance.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str,
+                "comment_changed",
+                {
+                    "id": comment_id_str,
+                    "task_id": task_id_str,
+                    "action": "deleted",
+                    "parent_id": str(instance.parent_id) if instance.parent_id else None,
+                },
+            )
+        )
+
+    @action(detail=True, methods=["post", "delete"], url_path="acknowledge")
+    def acknowledge(self, request: Request, project_pk: str, task_pk: str, pk: str) -> Response:
+        """Toggle the requesting user's acknowledgement on this comment.
+
+        POST creates an ack (idempotent — second POST returns 200 with the existing row).
+        DELETE removes the ack. NEVER triggers a notification (per ADR-0075 §A.3).
+        """
+        comment = self.get_object()
+        user = request.user
+        if not user.is_authenticated:
+            return Response(status=status.HTTP_401_UNAUTHORIZED)
+        if request.method == "POST":
+            ack, _created = CommentAcknowledgement.objects.get_or_create(comment=comment, user=user)
+            return Response(CommentAcknowledgementSerializer(ack).data, status=status.HTTP_200_OK)
+        # DELETE
+        deleted, _ = CommentAcknowledgement.objects.filter(comment=comment, user=user).delete()
+        return Response(
+            {"deleted": deleted},
+            status=status.HTTP_200_OK if deleted else status.HTTP_404_NOT_FOUND,
+        )
+
+
+class CommentReactionViewSet(
+    ProjectScopedViewSet,
+    mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet[CommentReaction],
+):
+    """👍 reaction on a task comment (ADR-0075 §A.4).
+
+    Routes:
+      POST   /projects/{project_pk}/tasks/{task_pk}/comments/{comment_pk}/reactions/
+             { "emoji": "👍" }
+      DELETE /projects/{project_pk}/tasks/{task_pk}/comments/{comment_pk}/reactions/{pk}/
+
+    NEVER triggers a notification. Allow-list is enforced in the serializer.
+    """
+
+    serializer_class = CommentReactionSerializer
+    permission_classes: list[type[BasePermission]] = [IsAuthenticated, IsProjectMemberWrite]
+
+    def get_queryset(self) -> QuerySet[CommentReaction]:
+        user = self.request.user
+        if not user.is_authenticated:
+            return CommentReaction.objects.none()
+        project_pk = self.kwargs["project_pk"]
+        comment_pk = self.kwargs["comment_pk"]
+        if not ProjectMembership.objects.filter(
+            user=user, project_id=project_pk, is_deleted=False
+        ).exists():
+            return CommentReaction.objects.none()
+        return CommentReaction.objects.filter(
+            comment_id=comment_pk, comment__task__project_id=project_pk
+        ).select_related("user")
+
+    def perform_create(self, serializer: BaseSerializer[CommentReaction]) -> None:
+        project_pk = self.kwargs["project_pk"]
+        comment_pk = self.kwargs["comment_pk"]
+        comment = get_object_or_404(
+            TaskComment, pk=comment_pk, task__project_id=project_pk, is_deleted=False
+        )
+        self.check_object_permissions(self.request, comment)
+        serializer.save(comment=comment, user=self.request.user)
+
+    def perform_destroy(self, instance: CommentReaction) -> None:
+        if instance.user_id != self.request.user.pk:
+            raise serializers.ValidationError(
+                {"detail": "You can only remove your own reactions."},
+                code="reaction_delete_forbidden",
+            )
+        instance.delete()

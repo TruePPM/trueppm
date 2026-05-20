@@ -21,6 +21,8 @@ from trueppm_api.apps.projects.models import (
     BoardSavedView,
     Calendar,
     CalendarException,
+    CommentAcknowledgement,
+    CommentReaction,
     Dependency,
     EstimateStatus,
     EstimationMode,
@@ -36,6 +38,8 @@ from trueppm_api.apps.projects.models import (
     SprintRetro,
     SprintState,
     Task,
+    TaskAttachment,
+    TaskComment,
     TaskStatus,
 )
 from trueppm_api.apps.resources.models import TaskResource
@@ -2056,3 +2060,266 @@ class ApiTokenAuditEntrySerializer(serializers.ModelSerializer[ApiTokenAuditEntr
             if role is None or role < Role.ADMIN:
                 data["source_ip"] = None
         return data
+
+
+# ---------------------------------------------------------------------------
+# Task collaboration serializers — ADR-0075 (#310 #311)
+# ---------------------------------------------------------------------------
+
+
+# Locked constraints from ADR-0075 threat-model pass.
+MAX_ATTACHMENT_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB (constraint #4)
+ALLOWED_ATTACHMENT_MIMES = frozenset(
+    {
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/csv",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    }
+)
+MAX_COMMENT_BODY_CHARS = 10_000  # constraint #3
+COMMENT_EDIT_WINDOW_SECONDS = 15 * 60  # constraint #11
+ALLOWED_REACTION_EMOJI = frozenset({"👍"})  # 0.2 allow-list; expands in 0.3
+
+
+class _MentionAuthorMiniSerializer(serializers.Serializer[Any]):
+    """Inline read-only user summary used across attachment + comment serializers."""
+
+    id = serializers.UUIDField(read_only=True)
+    username = serializers.CharField(read_only=True)
+    display_name = serializers.SerializerMethodField()
+
+    def get_display_name(self, obj: Any) -> str:
+        name: str = obj.get_full_name() or obj.username
+        return name
+
+
+class TaskAttachmentSerializer(serializers.ModelSerializer[TaskAttachment]):
+    """File-XOR-URL attachment on a task.
+
+    Multipart uploads are accepted via `file`; pinned external links use
+    `external_url`. Exactly one must be set per request — the DB CheckConstraint
+    matches but this serializer surfaces a friendlier 400 message.
+    """
+
+    uploaded_by = _MentionAuthorMiniSerializer(read_only=True)
+    deleted_by = _MentionAuthorMiniSerializer(read_only=True)
+
+    class Meta:
+        model = TaskAttachment
+        fields = [
+            "id",
+            "file",
+            "file_name",
+            "file_size",
+            "file_mime",
+            "external_url",
+            "external_title",
+            "is_pinned",
+            "uploaded_by",
+            "deleted_by",
+            "created_at",
+            "is_deleted",
+            "deleted_at",
+        ]
+        read_only_fields = [
+            "id",
+            "file_size",
+            "file_mime",
+            "uploaded_by",
+            "deleted_by",
+            "created_at",
+            "is_deleted",
+            "deleted_at",
+        ]
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # file XOR external_url
+        file = attrs.get("file") or getattr(self.instance, "file", None)
+        external = attrs.get("external_url") or getattr(self.instance, "external_url", "")
+        has_file = bool(file)
+        has_url = bool(external)
+        if has_file == has_url:
+            raise serializers.ValidationError(
+                "Provide either a file upload OR an external_url, not both and not neither.",
+                code="attachment_file_xor_url",
+            )
+
+        # File size + MIME allow-list (ADR-0075 #4, #5)
+        if has_file and not self.instance:
+            size = getattr(file, "size", None)
+            if size is None or size > MAX_ATTACHMENT_SIZE_BYTES:
+                raise serializers.ValidationError(
+                    f"File exceeds the {MAX_ATTACHMENT_SIZE_BYTES // (1024 * 1024)} MB limit.",
+                    code="attachment_too_large",
+                )
+            mime = getattr(file, "content_type", "") or ""
+            # Strip any "; charset=..." trailer
+            mime = mime.split(";", 1)[0].strip().lower()
+            if mime not in ALLOWED_ATTACHMENT_MIMES:
+                raise serializers.ValidationError(
+                    f"File type {mime!r} is not allowed. Allowed types: "
+                    "PDF, JPG, PNG, WebP, XLSX, CSV, DOCX.",
+                    code="attachment_unsupported_mime",
+                )
+            attrs["file_size"] = size
+            attrs["file_mime"] = mime
+            if not attrs.get("file_name"):
+                attrs["file_name"] = getattr(file, "name", "")
+
+        # External URL must be http(s) — reject javascript:, file://, etc.
+        if has_url:
+            external_str = str(external)
+            scheme = external_str.split(":", 1)[0].lower() if ":" in external_str else ""
+            if scheme not in ("http", "https"):
+                raise serializers.ValidationError(
+                    "Only http(s) URLs are accepted for external attachments.",
+                    code="attachment_unsupported_scheme",
+                )
+
+        return attrs
+
+
+class SignedDownloadUrlSerializer(serializers.Serializer[Any]):
+    """Response shape for the signed-URL action.
+
+    Storage backends compose the actual URL; the serializer is for OpenAPI docs.
+    """
+
+    url = serializers.URLField(read_only=True)
+    expires_at = serializers.DateTimeField(read_only=True)
+
+
+class TaskCommentSerializer(serializers.ModelSerializer[TaskComment]):
+    """Append-only task comment with single-level reply nesting.
+
+    `body` is required + length-capped. `parent` must be a top-level comment
+    on the same task. Edits are limited to a 15-min window after creation.
+    """
+
+    author = _MentionAuthorMiniSerializer(read_only=True)
+    deleted_by = _MentionAuthorMiniSerializer(read_only=True)
+    acknowledged_count = serializers.SerializerMethodField()
+    reaction_count = serializers.SerializerMethodField()
+    has_my_acknowledgement = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TaskComment
+        fields = [
+            "id",
+            "task",
+            "parent",
+            "author",
+            "body",
+            "edited_at",
+            "created_at",
+            "is_deleted",
+            "deleted_at",
+            "deleted_by",
+            "acknowledged_count",
+            "reaction_count",
+            "has_my_acknowledgement",
+        ]
+        read_only_fields = [
+            "id",
+            "task",
+            "author",
+            "edited_at",
+            "created_at",
+            "is_deleted",
+            "deleted_at",
+            "deleted_by",
+            "acknowledged_count",
+            "reaction_count",
+            "has_my_acknowledgement",
+        ]
+
+    def get_acknowledged_count(self, obj: TaskComment) -> int:
+        return obj.acknowledgements.count()
+
+    def get_reaction_count(self, obj: TaskComment) -> int:
+        return obj.reactions.count()
+
+    def get_has_my_acknowledgement(self, obj: TaskComment) -> bool:
+        request = self.context.get("request")
+        if request is None or not getattr(request.user, "is_authenticated", False):
+            return False
+        return obj.acknowledgements.filter(user=request.user).exists()
+
+    def validate_body(self, value: str) -> str:
+        if not value or not value.strip():
+            raise serializers.ValidationError("Body cannot be blank.")
+        if len(value) > MAX_COMMENT_BODY_CHARS:
+            raise serializers.ValidationError(
+                f"Body exceeds {MAX_COMMENT_BODY_CHARS} character limit.",
+                code="comment_body_too_long",
+            )
+        return value
+
+    def validate_parent(self, value: TaskComment | None) -> TaskComment | None:
+        """Enforce single-level reply nesting and same-task scoping."""
+        if value is None:
+            return value
+        if value.parent_id is not None:
+            raise serializers.ValidationError(
+                "Replies cannot themselves be replied to (one level only).",
+                code="comment_reply_depth",
+            )
+        # The viewset has already established the task from the URL; the view
+        # passes `task` into save(), so the parent must match.
+        view = self.context.get("view")
+        task_pk = getattr(view, "kwargs", {}).get("task_pk") if view else None
+        if task_pk and str(value.task_id) != str(task_pk):
+            raise serializers.ValidationError(
+                "Parent comment must belong to the same task.",
+                code="comment_parent_cross_task",
+            )
+        return value
+
+    def update(self, instance: TaskComment, validated_data: dict[str, Any]) -> TaskComment:
+        """Enforce edit window (ADR-0075 locked constraint #11)."""
+        from datetime import timedelta
+
+        if (timezone.now() - instance.created_at) > timedelta(seconds=COMMENT_EDIT_WINDOW_SECONDS):
+            raise serializers.ValidationError(
+                {"detail": "Edits are only allowed within 15 minutes of posting."},
+                code="comment_edit_window_closed",
+            )
+        new_body = validated_data.get("body")
+        if new_body is not None and new_body != instance.body:
+            instance.edited_at = timezone.now()
+        return super().update(instance, validated_data)
+
+
+class CommentAcknowledgementSerializer(serializers.ModelSerializer[CommentAcknowledgement]):
+    """One-shot ack chip. No user-supplied fields — the viewset sets user from request."""
+
+    user = _MentionAuthorMiniSerializer(read_only=True)
+
+    class Meta:
+        model = CommentAcknowledgement
+        fields = ["id", "user", "created_at"]
+        read_only_fields = fields
+
+
+class CommentReactionSerializer(serializers.ModelSerializer[CommentReaction]):
+    """Single-emoji reaction. 0.2 allow-list is {'👍'} only."""
+
+    user = _MentionAuthorMiniSerializer(read_only=True)
+
+    class Meta:
+        model = CommentReaction
+        fields = ["id", "user", "emoji", "created_at"]
+        read_only_fields = ["id", "user", "created_at"]
+
+    def validate_emoji(self, value: str) -> str:
+        if value not in ALLOWED_REACTION_EMOJI:
+            allowed = ", ".join(repr(e) for e in sorted(ALLOWED_REACTION_EMOJI))
+            raise serializers.ValidationError(
+                f"Reaction {value!r} not in allow-list ({allowed}).",
+                code="reaction_unsupported_emoji",
+            )
+        return value
