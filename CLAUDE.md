@@ -126,11 +126,13 @@ cd packages/web && npm test         # web (vitest)
   - For added/removed list items, section counts, menu options: search for the count or sibling-section names in spec assertions (e.g. "all five sections" → fails when you add a sixth)
 
   Update every matching spec in the **same commit** as the source change and run the affected specs locally: `cd packages/web && npx playwright test e2e/<spec>.spec.ts`. This rule is in addition to the "new or modified specs" rule above — that one targets specs you authored; this one targets specs you indirectly broke.
+- **Use `scripts/wt new <issue>` for any new-issue work** when another branch is in flight (uncommitted changes, unpushed commits, or any parallel agent session). The script creates a per-issue git worktree at `../trueppm-wt/<branch-leaf>/` with symlinked `packages/api/.venv` and `packages/web/node_modules` and an `.envrc` that exports `COMPOSE_PROJECT_NAME=trueppm` so `make pre-push` finds the shared Docker stack. This is the default workflow for multi-issue and multi-agent work because it prevents the branch-flip problem (one agent's `git checkout` swapping the working tree under another agent). For single-focus sessions on a clean main, `git checkout -b` is still fine. WIP cap is 5 active worktrees; clean up with `scripts/wt remove <issue>`. Full reference: `docs/getting-started/parallel-worktrees.md`.
 - Workflow for every change:
-  1. `git checkout main && git pull origin main`
-  2. `git checkout -b <prefix>/<short-description>`
+  1. **Parallel work in progress**: `scripts/wt new <issue>` (creates branch + worktree off latest `origin/main` automatically), then `cd ../trueppm-wt/<branch-leaf> && source .envrc`
+  2. **Single-focus work on clean main**: `git checkout main && git pull origin main && git checkout -b <prefix>/<short-description>`
   3. Make changes, commit, push branch
   4. Open MR targeting `main`, wait for a **green pipeline**, then merge
+  5. After merge: in the main checkout, `scripts/wt remove <issue>` if you used a worktree
 - Release commits also go through branches and MRs — `scripts/release.sh` handles this automatically
 - **Changelog entries use fragment files** — create `changelog.d/<slug>.<type>.md` instead of editing `CHANGELOG.md` directly. Valid types: `added`, `changed`, `fixed`, `security`. Fragments are assembled at release time by `scripts/assemble-changelog.sh`. See `changelog.d/README.md` for the naming convention. **Never edit `CHANGELOG.md` directly** — the CI `changelog:check` job looks for fragment files and will block the pipeline if none are present.
 - **Every new or modified feature must include test cases and documentation updates in the same MR** — do not ship a feature without both
