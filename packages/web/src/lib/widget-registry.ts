@@ -27,7 +27,10 @@ export type SlotId =
   // --- Resource heatmap slots (issue #217 / ADR-0042) ---
   | 'resources_heatmap.level_loads'     // Enterprise: replaces the static disabled "Level loads" upsell button
   // --- Task detail drawer slots (issue #309 / ADR-0050) ---
-  | 'task_detail.section';              // sections inside TaskDetailDrawer (OSS + Enterprise)
+  | 'task_detail.section'               // sections inside TaskDetailDrawer (OSS + Enterprise)
+  | 'task_detail.external_links'        // external link cards (separate from .section to avoid the priority ladder collision; ADR-0076)
+  // --- Project settings slots (issue #569 / ADR-0076) ---
+  | 'project_settings.integrations';    // extra cards rendered below the OSS three sections (Enterprise extension point)
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface SlotRegistration<T = ComponentType<any>> {

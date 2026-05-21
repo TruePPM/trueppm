@@ -61,6 +61,7 @@ from trueppm_api.apps.projects.models import (
     EstimateStatus,
     EstimationMode,
     Project,
+    ProjectApiToken,
     Risk,
     RiskComment,
     RiskStatus,
@@ -106,6 +107,11 @@ from trueppm_api.apps.projects.serializers import (
 )
 from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
+from trueppm_api.apps.webhooks.models import (
+    DeliveryStatus,
+    Webhook,
+    WebhookDelivery,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -637,6 +643,43 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             status=status.HTTP_200_OK,
         )
 
+    @action(detail=True, methods=["get"], url_path="integrations-summary")
+    def integrations_summary(self, request: Request, pk: str | None = None) -> Response:
+        """Project-scoped integrations summary for the Project → Settings → Integrations page.
+
+        Aggregates the project's outbound webhooks (ADR-0019) and inbound API tokens
+        (ADR-0068) into a single round-trip so the settings page avoids waterfall
+        fetches. Per ADR-0076, the page is read-only in 0.2; CRUD is delegated to the
+        underlying viewsets via deep-links from the UI.
+
+        Each section is computed independently. If one subservice errors, the
+        response degrades gracefully: a 503 is returned with a ``failed`` key
+        naming the section, and the frontend falls back to fetching that section
+        via its own viewset (the per-section retry contract from ADR-0076).
+        """
+        project = self.get_object()
+        sections: dict[str, Any] = {}
+
+        try:
+            sections["webhooks"] = _summarize_webhooks(project.id)
+        except Exception:
+            logger.exception("integrations-summary webhooks subservice failed")
+            return Response(
+                {"failed": "webhooks"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        try:
+            sections["api_tokens"] = _summarize_api_tokens(project.id)
+        except Exception:
+            logger.exception("integrations-summary api_tokens subservice failed")
+            return Response(
+                {"failed": "api_tokens"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(sections, status=status.HTTP_200_OK)
+
     @action(
         detail=True,
         methods=["get"],
@@ -722,6 +765,127 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
                 }
             )
         return Response({"items": rows}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# integrations_summary helpers (ADR-0076)
+#
+# These will move to apps/integrations/services.py once #302 lands that app.
+# Kept module-local in 0.2 so the integrations summary ships without a new
+# Django app + migration that #302 will own.
+# ---------------------------------------------------------------------------
+
+_INTEGRATIONS_SUMMARY_ITEM_LIMIT = 5
+_INTEGRATIONS_RECENT_FAILURE_WINDOW = datetime.timedelta(days=7)
+
+
+def _summarize_webhooks(project_id: uuid.UUID) -> dict[str, Any]:
+    """Compact summary of a project's outbound webhooks (ADR-0019).
+
+    Returns the most recently created webhooks (up to ``_INTEGRATIONS_SUMMARY_ITEM_LIMIT``)
+    plus aggregate counts. The ``last_delivery`` per row is the most recent delivery
+    attempt's status + timestamp — non-null only when the webhook has fired at least once.
+
+    The per-row latest-delivery and recent-failure-count fields are computed via
+    ``Subquery``/``annotate`` so the entire summary uses a single underlying SQL
+    query rather than 2N round-trips. See ADR-0076 perf-check rationale.
+    """
+    recent_window_start = timezone.now() - _INTEGRATIONS_RECENT_FAILURE_WINDOW
+
+    latest_delivery_sq = (
+        WebhookDelivery.objects.filter(webhook=OuterRef("pk"))
+        .order_by("-created_at")
+        .values("status", "created_at", "response_status", "attempt_count")[:1]
+    )
+
+    base_qs = Webhook.objects.filter(project_id=project_id)
+    annotated_qs = base_qs.annotate(
+        _latest_status=Subquery(latest_delivery_sq.values("status")),
+        _latest_created_at=Subquery(latest_delivery_sq.values("created_at")),
+        _latest_response_status=Subquery(latest_delivery_sq.values("response_status")),
+        _latest_attempt_count=Subquery(latest_delivery_sq.values("attempt_count")),
+        _recent_failure_count=Count(
+            "deliveries",
+            filter=Q(
+                deliveries__status=DeliveryStatus.FAILED,
+                deliveries__created_at__gte=recent_window_start,
+            ),
+        ),
+    ).order_by("-created_at")
+
+    total = base_qs.count()
+    active_total = base_qs.filter(is_active=True).count()
+
+    items: list[dict[str, Any]] = []
+    last_delivery_at: datetime.datetime | None = None
+    for webhook in annotated_qs[:_INTEGRATIONS_SUMMARY_ITEM_LIMIT]:
+        latest_created_at = getattr(webhook, "_latest_created_at", None)
+        latest_status = getattr(webhook, "_latest_status", None)
+        items.append(
+            {
+                "id": str(webhook.id),
+                "url": webhook.url,
+                "is_active": webhook.is_active,
+                "events": list(webhook.events),
+                "created_at": webhook.created_at.isoformat(),
+                "last_delivery": (
+                    {
+                        "status": latest_status,
+                        "created_at": latest_created_at.isoformat(),
+                        "response_status": getattr(webhook, "_latest_response_status", None),
+                        "attempt_count": getattr(webhook, "_latest_attempt_count", 0),
+                    }
+                    if latest_status and latest_created_at
+                    else None
+                ),
+                "recent_failure_count": getattr(webhook, "_recent_failure_count", 0),
+            }
+        )
+        if latest_created_at and (last_delivery_at is None or latest_created_at > last_delivery_at):
+            last_delivery_at = latest_created_at
+
+    return {
+        "items": items,
+        "total": total,
+        "active_total": active_total,
+        "last_delivery_at": last_delivery_at.isoformat() if last_delivery_at else None,
+    }
+
+
+def _summarize_api_tokens(project_id: uuid.UUID) -> dict[str, Any]:
+    """Compact summary of a project's inbound API tokens (ADR-0068).
+
+    Returns non-revoked tokens (up to ``_INTEGRATIONS_SUMMARY_ITEM_LIMIT``) plus the
+    aggregate active count. Revoked tokens are intentionally hidden from the summary —
+    they remain visible on the dedicated API token page for audit purposes.
+    """
+    qs = ProjectApiToken.objects.filter(
+        project_id=project_id,
+        is_deleted=False,
+        revoked_at__isnull=True,
+    ).order_by("-created_at")
+    active_total = qs.count()
+    last_used_at: datetime.datetime | None = None
+
+    items: list[dict[str, Any]] = []
+    for token in qs[:_INTEGRATIONS_SUMMARY_ITEM_LIMIT]:
+        items.append(
+            {
+                "id": str(token.id),
+                "name": token.name,
+                "token_prefix": token.token_prefix,
+                "created_at": token.created_at.isoformat(),
+                "last_used_at": (token.last_used_at.isoformat() if token.last_used_at else None),
+            }
+        )
+        if token.last_used_at and (last_used_at is None or token.last_used_at > last_used_at):
+            last_used_at = token.last_used_at
+
+    return {
+        "items": items,
+        "active_total": active_total,
+        "last_used_at": last_used_at.isoformat() if last_used_at else None,
+    }
 
 
 class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):

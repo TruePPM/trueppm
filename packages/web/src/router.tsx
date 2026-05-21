@@ -113,6 +113,11 @@ const ProjectWorkflowPage = lazy(() =>
     default: m.ProjectWorkflowPage,
   }))
 );
+const ProjectIntegrationsPage = lazy(() =>
+  import('@/features/settings/project/ProjectIntegrationsPage').then((m) => ({
+    default: m.ProjectIntegrationsPage,
+  }))
+);
 const ProjectNotificationsPage = lazy(() =>
   import('@/features/settings/project/ProjectNotificationsPage').then((m) => ({
     default: m.ProjectNotificationsPage,
@@ -159,14 +164,9 @@ const WorkspaceMethodologyPage = lazy(() =>
     default: m.WorkspaceMethodologyPage,
   }))
 );
-const WorkspaceIntegrationsPage = lazy(() =>
-  import('@/features/settings/workspace/WorkspaceIntegrationsPage').then((m) => ({
-    default: m.WorkspaceIntegrationsPage,
-  }))
-);
-const WorkspaceWebhooksPage = lazy(() =>
-  import('@/features/settings/workspace/WorkspaceWebhooksPage').then((m) => ({
-    default: m.WorkspaceWebhooksPage,
+const IntegrationsRedirect = lazy(() =>
+  import('@/features/settings/workspace/IntegrationsRedirect').then((m) => ({
+    default: m.IntegrationsRedirect,
   }))
 );
 const WorkspaceDangerPage = lazy(() =>
@@ -402,6 +402,14 @@ export const router = createBrowserRouter([
                     element: (
                       <Suspense fallback={<RouteLoadingFallback />}>
                         <ProjectWorkflowPage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'integrations',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProjectIntegrationsPage />
                       </Suspense>
                     ),
                   },
@@ -644,7 +652,7 @@ export const router = createBrowserRouter([
                 path: 'integrations',
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
-                    <WorkspaceIntegrationsPage />
+                    <IntegrationsRedirect />
                   </Suspense>
                 ),
               },
@@ -652,7 +660,7 @@ export const router = createBrowserRouter([
                 path: 'webhooks',
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
-                    <WorkspaceWebhooksPage />
+                    <IntegrationsRedirect />
                   </Suspense>
                 ),
               },

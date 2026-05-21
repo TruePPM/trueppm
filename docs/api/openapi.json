@@ -2795,6 +2795,47 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/integrations-summary/": {
+            "get": {
+                "operationId": "v1_projects_integrations_summary_retrieve",
+                "description": "Project-scoped integrations summary for the Project → Settings → Integrations page.\n\nAggregates the project's outbound webhooks (ADR-0019) and inbound API tokens\n(ADR-0068) into a single round-trip so the settings page avoids waterfall\nfetches. Per ADR-0076, the page is read-only in 0.2; CRUD is delegated to the\nunderlying viewsets via deep-links from the UI.\n\nEach section is computed independently. If one subservice errors, the\nresponse degrades gracefully: a 503 is returned with a ``failed`` key\nnaming the section, and the frontend falls back to fetching that section\nvia its own viewset (the per-section retry contract from ADR-0076).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/monte-carlo/": {
             "post": {
                 "operationId": "v1_projects_monte_carlo_create",
