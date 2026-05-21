@@ -1,0 +1,190 @@
+import { test, expect } from '@playwright/test';
+
+/**
+ * Program Settings → Access E2E (#525).
+ *
+ * Verifies the Settings Access page is wired to the real program-members API:
+ * - Members are listed from the GET response.
+ * - The Add-member panel toggles only for Owners.
+ * - The remove flow requires a confirm click before the DELETE fires.
+ * - Non-Owners see no role picker and no remove button.
+ */
+
+const ME_ID = 'user-alice';
+const OTHER_ID = 'user-sofia';
+const PROGRAM_ID = 'e2e-program-00000000-0000-0000-0000-000000000525';
+
+const FIXTURE_ME = {
+  id: ME_ID,
+  username: 'alice',
+  display_name: 'Alice',
+  initials: 'AL',
+  email: 'alice@example.com',
+};
+
+const FIXTURE_PROGRAM = {
+  id: PROGRAM_ID,
+  server_version: 1,
+  name: 'Phase 2 Modernization',
+  description: 'Q3 platform rebuild',
+  code: '',
+  methodology: 'HYBRID',
+  health: 'AUTO',
+  visibility: 'WORKSPACE',
+  lead: null,
+  lead_detail: null,
+  created_by: ME_ID,
+  created_at: '2026-05-18T00:00:00Z',
+  updated_at: '2026-05-18T00:00:00Z',
+  my_role: 400,
+  my_role_label: 'Project Admin',
+  project_count: 0,
+  member_count: 2,
+};
+
+const OWNER_MEMBERSHIP = {
+  id: 'mem-1',
+  server_version: 1,
+  program: PROGRAM_ID,
+  user: ME_ID,
+  user_detail: { id: ME_ID, username: 'alice', email: 'alice@example.com' },
+  role: 400,
+  role_label: 'Project Admin',
+};
+
+const MEMBER_MEMBERSHIP = {
+  id: 'mem-2',
+  server_version: 1,
+  program: PROGRAM_ID,
+  user: OTHER_ID,
+  user_detail: { id: OTHER_ID, username: 'sofia.p', email: 'sofia@example.com' },
+  role: 100,
+  role_label: 'Team Member',
+};
+
+type Page = import('@playwright/test').Page;
+
+interface Captures {
+  deleted?: string;
+}
+
+async function setup(page: Page, captures: Captures, opts: { myRole?: number } = {}) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'trueppm-auth',
+      JSON.stringify({
+        state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
+        version: 0,
+      }),
+    );
+  });
+
+  const pj = (data: unknown) => JSON.stringify(data);
+  const program = { ...FIXTURE_PROGRAM, my_role: opts.myRole ?? 400 };
+
+  await page.route('**/api/v1/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route('**/api/v1/auth/me/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }),
+  );
+  await page.route('**/api/v1/edition/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ edition: 'community' }) }),
+  );
+  await page.route('**/api/v1/projects/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ results: [], count: 0, next: null, previous: null }),
+    }),
+  );
+  await page.route('**/api/v1/programs/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ results: [program], count: 1, next: null, previous: null }),
+    }),
+  );
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(program) }),
+  );
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  // Member-by-id (PATCH/DELETE) must register BEFORE the list route — Playwright
+  // matches by last-registered, and the list URL exactly matches the trailing-
+  // slash form so it wins when registered last.
+  await page.route(
+    `**/api/v1/programs/${PROGRAM_ID}/members/*/`,
+    async (route) => {
+      const url = route.request().url();
+      const method = route.request().method();
+      const id = url
+        .replace(/\?.*$/, '')
+        .split('/')
+        .filter(Boolean)
+        .pop();
+      if (method === 'DELETE') {
+        captures.deleted = id ?? undefined;
+        await route.fulfill({ status: 204, contentType: 'application/json', body: '' });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
+    },
+  );
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj([OWNER_MEMBERSHIP, MEMBER_MEMBERSHIP]),
+    }),
+  );
+}
+
+test.describe('Program Settings → Access', () => {
+  test('Owner sees real members and the Add-member toggle', async ({ page }) => {
+    const captures: Captures = {};
+    await setup(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/access`);
+
+    await expect(page.getByRole('heading', { name: /^Access/ })).toBeVisible();
+    // Use partial-match regexes because the username is rendered next to a
+    // "(you)" inline annotation.
+    await expect(page.getByText('alice', { exact: false }).first()).toBeVisible();
+    await expect(page.getByText(/sofia\.p/)).toBeVisible();
+    await expect(page.getByText(/2 members/)).toBeVisible();
+
+    // The hardcoded "Anika Krishnan" from the stub must be gone.
+    await expect(page.getByText('Anika Krishnan')).toHaveCount(0);
+
+    // Stub banner must not render once wired.
+    await expect(page.getByTestId('stub-page-banner')).toHaveCount(0);
+
+    const addBtn = page.getByRole('button', { name: /Add member/i });
+    await expect(addBtn).toBeVisible();
+    await addBtn.click();
+    await expect(page.getByRole('heading', { name: /^Add a member$/i })).toBeVisible();
+  });
+
+  test('remove flow requires a confirm click before issuing DELETE', async ({ page }) => {
+    const captures: Captures = {};
+    await setup(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/access`);
+
+    await page.getByRole('button', { name: /Remove sofia.p/i }).click();
+    expect(captures.deleted).toBeUndefined();
+    await page.getByRole('button', { name: /^Confirm$/ }).click();
+    await expect.poll(() => captures.deleted).toBe('mem-2');
+  });
+
+  test('Team Member caller sees no Add-member button and no remove controls', async ({ page }) => {
+    const captures: Captures = {};
+    await setup(page, captures, { myRole: 100 });
+    await page.goto(`/programs/${PROGRAM_ID}/settings/access`);
+
+    await expect(page.getByRole('heading', { name: /^Access/ })).toBeVisible();
+    await expect(page.getByText('alice', { exact: false }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: /Add member/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Remove/i })).toHaveCount(0);
+  });
+});
