@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useSettingsSaveStore } from './hooks/useSettingsSaveStore';
 import { ConfirmDiscardDialog } from './components/ConfirmDiscardDialog';
+import { formatRelative } from '../../lib/formatRelative';
 
 export interface SettingsNavItem {
   id: string;
@@ -61,10 +62,42 @@ export function SettingsShell({
   const dirty = useSettingsSaveStore((s) => s.dirty);
   const isSaving = useSettingsSaveStore((s) => s.isSaving);
   const saveError = useSettingsSaveStore((s) => s.saveError);
+  const lastSavedAt = useSettingsSaveStore((s) => s.lastSavedAt);
   const triggerSave = useSettingsSaveStore((s) => s.triggerSave);
   const triggerDiscard = useSettingsSaveStore((s) => s.triggerDiscard);
 
   const [pendingNav, setPendingNav] = useState<string | null>(null);
+  const [copyConfirmed, setCopyConfirmed] = useState(false);
+  // Ticker drives the "Saved [time]" footer re-render so "just now" → "1m ago"
+  // without requiring the user to interact. 30s is short enough that the
+  // first transition feels live and long enough not to thrash other listeners.
+  const [, setSavedTick] = useState(0);
+  useEffect(() => {
+    if (lastSavedAt == null) return;
+    const id = window.setInterval(() => setSavedTick((n) => n + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, [lastSavedAt]);
+
+  // Cleared on unmount so a navigation away mid-confirm doesn't leave the
+  // setTimeout dangling.
+  const copyTimerRef = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (copyTimerRef.current != null) {
+      window.clearTimeout(copyTimerRef.current);
+    }
+  }, []);
+
+  const handleCopyLink = useCallback(() => {
+    const url = window.location.href;
+    // clipboard.writeText is async but the visual confirmation should fire
+    // regardless — if the browser later rejects (insecure context, denied
+    // permission) the badge would lie, but that's a rare enough case that
+    // adding a failure UI here would cost more than it saves.
+    void navigator.clipboard?.writeText(url);
+    setCopyConfirmed(true);
+    if (copyTimerRef.current != null) window.clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = window.setTimeout(() => setCopyConfirmed(false), 1500);
+  }, []);
 
   // beforeunload — guards browser tab close / refresh / external nav while dirty.
   // Skipped during isSaving so the in-flight POST/PATCH isn't interrupted by
@@ -170,6 +203,34 @@ export function SettingsShell({
               </span>
             )}
             <span className="flex-1 truncate text-neutral-text-primary font-medium">{contextName}</span>
+            <button
+              type="button"
+              onClick={handleCopyLink}
+              aria-label="Copy link to settings"
+              className="shrink-0 inline-flex items-center justify-center w-6 h-6 -my-1 rounded text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            >
+              {copyConfirmed ? (
+                <svg width="12" height="12" viewBox="0 0 16 16" className="text-semantic-on-track" aria-hidden="true">
+                  <path d="M3 8l3.5 3.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                </svg>
+              ) : (
+                <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+                  <path
+                    d="M7 4H4.5A1.5 1.5 0 0 0 3 5.5v6A1.5 1.5 0 0 0 4.5 13H10a1.5 1.5 0 0 0 1.5-1.5V9 M9 12h2.5A1.5 1.5 0 0 0 13 10.5v-6A1.5 1.5 0 0 0 11.5 3H6a1.5 1.5 0 0 0-1.5 1.5V7"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                  />
+                </svg>
+              )}
+            </button>
+            {copyConfirmed && (
+              <span className="sr-only" role="status" aria-live="polite">
+                Link copied to clipboard
+              </span>
+            )}
             <svg
               width="10"
               height="10"
@@ -234,6 +295,23 @@ export function SettingsShell({
         <div className="flex-1 overflow-y-auto bg-neutral-surface">
           <Outlet />
         </div>
+
+        {/* Saved [time] footer — visible when not dirty and a save landed this page mount.
+            Hidden while dirty because the save bar takes the same slot. */}
+        {!dirty && lastSavedAt != null && (
+          <div
+            className="shrink-0 flex items-center justify-end gap-2 px-6 py-2 bg-neutral-surface-raised border-t border-neutral-border/55"
+            data-testid="settings-saved-footer"
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" className="text-semantic-on-track shrink-0" aria-hidden="true">
+              <path d="M3 8l3.5 3.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            </svg>
+            <span className="text-[12px] text-neutral-text-secondary">
+              Saved{' '}
+              <span className="tppm-mono">{formatRelative(new Date(lastSavedAt))}</span>
+            </span>
+          </div>
+        )}
 
         {/* Save bar — armed when an apiReady page reports dirty=true. */}
         {dirty && (

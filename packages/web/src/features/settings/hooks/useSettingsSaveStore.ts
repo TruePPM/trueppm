@@ -20,6 +20,12 @@ export interface SettingsSaveState {
   isSaving: boolean;
   /** Non-null after a save mutation rejects. Cleared on next dirty change or successful save. */
   saveError: string | null;
+  /**
+   * Epoch ms of the most recent successful save on the active page, or null.
+   * Cleared on page register so the "Saved [time]" footer is scoped to the
+   * current page mount — once the user navigates away, the signal resets.
+   */
+  lastSavedAt: number | null;
   /** Page-provided save handler. Returns a promise the store awaits. */
   onSave: (() => Promise<void> | void) | null;
   /** Page-provided reset handler — restores `values` to `initialValues`. */
@@ -42,11 +48,12 @@ export interface SettingsSaveState {
   clearError: () => void;
 }
 
-const INITIAL: Pick<SettingsSaveState, 'dirty' | 'apiReady' | 'isSaving' | 'saveError' | 'onSave' | 'onReset'> = {
+const INITIAL: Pick<SettingsSaveState, 'dirty' | 'apiReady' | 'isSaving' | 'saveError' | 'lastSavedAt' | 'onSave' | 'onReset'> = {
   dirty: false,
   apiReady: false,
   isSaving: false,
   saveError: null,
+  lastSavedAt: null,
   onSave: null,
   onReset: null,
 };
@@ -60,9 +67,12 @@ export const useSettingsSaveStore = create<SettingsSaveState>()((set, get) => ({
       apiReady,
       onSave,
       onReset,
-      // Preserve in-flight save state and error across re-registrations within the same page mount
+      // Preserve in-flight save state, error, and last-saved timestamp across
+      // re-registrations within the same page mount. (A re-register on every
+      // dependency change shouldn't wipe the "Saved [time]" footer.)
       isSaving: s.isSaving,
       saveError: dirty ? s.saveError : null,
+      lastSavedAt: s.lastSavedAt,
     }));
   },
 
@@ -75,9 +85,10 @@ export const useSettingsSaveStore = create<SettingsSaveState>()((set, get) => ({
     try {
       await onSave();
       // The page is responsible for bumping its initialValues snapshot,
-      // which in turn re-renders useDirtyForm with `dirty=false`. We just
-      // clear the saving flag.
-      set({ isSaving: false });
+      // which in turn re-renders useDirtyForm with `dirty=false`. We clear
+      // the saving flag and stamp the success time for the "Saved [time]"
+      // footer the shell renders while not dirty.
+      set({ isSaving: false, lastSavedAt: Date.now() });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Save failed';
       set({ isSaving: false, saveError: message });

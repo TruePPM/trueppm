@@ -223,4 +223,108 @@ describe('<SettingsShell>', () => {
     fireEvent.keyDown(window, { key: 's', ctrlKey: true });
     expect(onSave).not.toHaveBeenCalled();
   });
+
+  describe('copy-link affordance (#595)', () => {
+    function withClipboard(write: ReturnType<typeof vi.fn>) {
+      const original = navigator.clipboard;
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: write },
+      });
+      return () => {
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: original,
+        });
+      };
+    }
+
+    it('renders a button with aria-label="Copy link to settings"', () => {
+      renderShell();
+      expect(screen.getByRole('button', { name: 'Copy link to settings' })).toBeInTheDocument();
+    });
+
+    it('clicking copies the current URL to clipboard', () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      const restore = withClipboard(writeText);
+      try {
+        renderShell();
+        fireEvent.click(screen.getByRole('button', { name: 'Copy link to settings' }));
+        expect(writeText).toHaveBeenCalledTimes(1);
+        expect(writeText).toHaveBeenCalledWith(window.location.href);
+      } finally {
+        restore();
+      }
+    });
+
+    it('shows a transient confirmation after click', () => {
+      vi.useFakeTimers();
+      const restore = withClipboard(vi.fn().mockResolvedValue(undefined));
+      try {
+        renderShell();
+        act(() => {
+          fireEvent.click(screen.getByRole('button', { name: 'Copy link to settings' }));
+        });
+        expect(screen.getByText('Link copied to clipboard')).toBeInTheDocument();
+        act(() => {
+          vi.advanceTimersByTime(1600);
+        });
+        expect(screen.queryByText('Link copied to clipboard')).not.toBeInTheDocument();
+      } finally {
+        restore();
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe('saved-time footer (#596)', () => {
+    it('is hidden when lastSavedAt is null', () => {
+      renderShell();
+      expect(screen.queryByTestId('settings-saved-footer')).not.toBeInTheDocument();
+    });
+
+    it('renders "Saved just now" right after a successful save', async () => {
+      renderShell();
+      const onSave = vi.fn().mockResolvedValue(undefined);
+      act(() => {
+        useSettingsSaveStore.getState().register({
+          dirty: true,
+          apiReady: true,
+          onSave,
+          onReset: vi.fn(),
+        });
+      });
+      // Trigger save → store stamps lastSavedAt. Then simulate the page going
+      // clean by re-registering with dirty=false (mirrors useDirtyForm after
+      // the parent component refreshes its initialValues snapshot).
+      await act(async () => {
+        await useSettingsSaveStore.getState().triggerSave();
+      });
+      act(() => {
+        useSettingsSaveStore.getState().register({
+          dirty: false,
+          apiReady: true,
+          onSave,
+          onReset: vi.fn(),
+        });
+      });
+      expect(screen.getByTestId('settings-saved-footer')).toBeInTheDocument();
+      expect(screen.getByText('just now')).toBeInTheDocument();
+    });
+
+    it('is hidden while dirty (save bar takes the slot)', () => {
+      renderShell();
+      act(() => {
+        useSettingsSaveStore.setState({
+          dirty: true,
+          apiReady: true,
+          onSave: vi.fn(),
+          onReset: vi.fn(),
+          lastSavedAt: Date.now(),
+        });
+      });
+      expect(screen.queryByTestId('settings-saved-footer')).not.toBeInTheDocument();
+      expect(screen.getByText('You have unsaved changes')).toBeInTheDocument();
+    });
+  });
 });
