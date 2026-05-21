@@ -1,0 +1,322 @@
+#!/usr/bin/env bash
+# scripts/wt — git worktree helper for parallel multi-issue work.
+#
+# Usage:
+#   scripts/wt new <issue|branch-name>    Create a worktree + branch off origin/main.
+#   scripts/wt list                       List active worktrees and WIP count.
+#   scripts/wt remove <issue|name>        Remove a worktree by issue # or name.
+#   scripts/wt doctor                     Verify symlinks and docker-stack reuse.
+#   scripts/wt help                       Show this help.
+#
+# Worktrees live at $TRUEPPM_WT_BASE (default: ../trueppm-wt relative to the
+# main checkout). Each worktree symlinks packages/api/.venv and packages/web/node_modules
+# back to the main checkout so dev deps aren't duplicated. The running Docker stack
+# is shared via COMPOSE_PROJECT_NAME=trueppm, exported via .envrc for direnv users.
+#
+# WIP discipline: warns at 4 active worktrees, errors at 5. Override with
+# TRUEPPM_WT_CAP if you really need more (you probably don't).
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+CURRENT_TOPLEVEL="$(git rev-parse --show-toplevel 2>/dev/null || { echo "wt: not in a git repo" >&2; exit 1; })"
+# REPO_ROOT must always point at the main checkout, even when this script is
+# invoked from inside a secondary worktree. Use git-common-dir's parent: in the
+# main checkout that's ".git" → "."; in a worktree that's "<main>/.git" → "<main>".
+GIT_COMMON_DIR="$(git rev-parse --git-common-dir)"
+case "$GIT_COMMON_DIR" in
+  /*) REPO_ROOT="$(dirname "$GIT_COMMON_DIR")" ;;
+  *)  REPO_ROOT="$(cd "$CURRENT_TOPLEVEL" && cd "$(dirname "$GIT_COMMON_DIR")" && pwd)" ;;
+esac
+WT_BASE="${TRUEPPM_WT_BASE:-${REPO_ROOT%/*}/trueppm-wt}"
+WT_CAP="${TRUEPPM_WT_CAP:-5}"
+WT_WARN="${TRUEPPM_WT_WARN:-4}"
+COMPOSE_PROJECT_NAME_DEFAULT="trueppm"
+
+# ---------------------------------------------------------------------------
+# Output helpers
+# ---------------------------------------------------------------------------
+
+if [[ -t 1 ]]; then
+  C_RED='\033[31m'; C_YELLOW='\033[33m'; C_GREEN='\033[32m'; C_DIM='\033[2m'; C_OFF='\033[0m'
+else
+  C_RED=''; C_YELLOW=''; C_GREEN=''; C_DIM=''; C_OFF=''
+fi
+
+err()  { printf "${C_RED}wt: %s${C_OFF}\n" "$*" >&2; }
+warn() { printf "${C_YELLOW}wt: %s${C_OFF}\n" "$*" >&2; }
+ok()   { printf "${C_GREEN}wt: %s${C_OFF}\n" "$*"; }
+say()  { printf "%s\n" "$*"; }
+dim()  { printf "${C_DIM}%s${C_OFF}\n" "$*"; }
+
+die()  { err "$*"; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+# Slugify text: strip conventional-commit prefix, lowercase, drop non-alnum,
+# collapse hyphens, cap length. The prefix strip keeps issue titles like
+# "feat(web): foo bar baz" from becoming branch names like
+# "feat-web-foo-bar-baz" that double the prefix once `feat/` is added.
+slugify() {
+  printf "%s" "$1" \
+    | sed -E 's/^(feat|fix|chore|docs|test|refactor|perf|ci|build)(\([^)]*\))?:[[:space:]]*//' \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -E 's/[^a-z0-9]+/-/g' \
+    | sed -E 's/^-+|-+$//g' \
+    | cut -c1-40
+}
+
+# Derive a branch name from an arg. If the arg is purely numeric, it's an
+# issue number — fetch its title via glab and build feat/<issue>-<slug>. If
+# the arg already contains a slash, treat it as a full branch name.
+derive_branch_name() {
+  local input="$1"
+  if [[ "$input" == */* ]]; then
+    printf "%s" "$input"
+    return
+  fi
+  if [[ "$input" =~ ^[0-9]+$ ]]; then
+    if ! command -v glab >/dev/null 2>&1; then
+      die "glab not installed; pass a full branch name like 'feat/$input-something'"
+    fi
+    local title
+    title="$(glab issue view "$input" --output json 2>/dev/null \
+             | python3 -c 'import json,sys; print(json.load(sys.stdin).get("title",""))' \
+             || true)"
+    if [[ -z "$title" ]]; then
+      die "could not look up issue #$input via glab"
+    fi
+    local slug
+    slug="$(slugify "$title")"
+    printf "feat/%s-%s" "$input" "$slug"
+    return
+  fi
+  # Anything else: treat as a slug, prefix with feat/.
+  printf "feat/%s" "$(slugify "$input")"
+}
+
+# Count active worktrees (excludes the main checkout).
+wt_count() {
+  git -C "$REPO_ROOT" worktree list --porcelain \
+    | awk '/^worktree /{print $2}' \
+    | grep -v "^${REPO_ROOT}$" \
+    | wc -l \
+    | tr -d ' '
+}
+
+# Find a worktree path by issue number or name fragment.
+find_worktree() {
+  local needle="$1"
+  git -C "$REPO_ROOT" worktree list --porcelain \
+    | awk '/^worktree /{print $2}' \
+    | grep -v "^${REPO_ROOT}$" \
+    | grep -E "/${needle}(-|$)" \
+    | head -n1
+}
+
+# ---------------------------------------------------------------------------
+# Subcommands
+# ---------------------------------------------------------------------------
+
+cmd_new() {
+  [[ $# -ge 1 ]] || die "usage: wt new <issue|branch-name>"
+  local input="$1"
+  local branch
+  branch="$(derive_branch_name "$input")"
+  local short_name="${branch##*/}"
+  local target_path="${WT_BASE}/${short_name}"
+
+  # WIP cap check.
+  local count
+  count="$(wt_count)"
+  if (( count >= WT_CAP )); then
+    die "WIP cap reached (${count}/${WT_CAP}). Finish or remove one before starting another. Override with TRUEPPM_WT_CAP if you must."
+  fi
+  if (( count >= WT_WARN )); then
+    warn "${count}/${WT_CAP} active worktrees — you're approaching the WIP cap"
+  fi
+
+  # Fetch latest origin/main so the new branch is up-to-date.
+  git -C "$REPO_ROOT" fetch origin main --quiet
+
+  # Create the worktree.
+  mkdir -p "$WT_BASE"
+  if [[ -e "$target_path" ]]; then
+    die "path already exists: $target_path"
+  fi
+  if git -C "$REPO_ROOT" rev-parse --verify "$branch" >/dev/null 2>&1; then
+    git -C "$REPO_ROOT" worktree add "$target_path" "$branch"
+  else
+    git -C "$REPO_ROOT" worktree add "$target_path" -b "$branch" origin/main
+  fi
+
+  # Symlink shared dev deps. Both are absent in a fresh worktree.
+  if [[ -e "$REPO_ROOT/packages/api/.venv" ]]; then
+    ln -s "$REPO_ROOT/packages/api/.venv" "$target_path/packages/api/.venv"
+    ok "symlinked packages/api/.venv → main checkout"
+  else
+    warn "main checkout has no packages/api/.venv; pre-push will fail until you create one"
+  fi
+  if [[ -e "$REPO_ROOT/packages/web/node_modules" ]]; then
+    ln -s "$REPO_ROOT/packages/web/node_modules" "$target_path/packages/web/node_modules"
+    ok "symlinked packages/web/node_modules → main checkout"
+  else
+    warn "main checkout has no packages/web/node_modules; run 'cd packages/web && npm ci' in main first"
+  fi
+
+  # .envrc for direnv users. No-op if direnv isn't installed.
+  cat > "$target_path/.envrc" <<EOF
+# Auto-generated by scripts/wt. Reuses the running Docker stack from the main
+# checkout via the shared compose project name. Without this, make pre-push
+# can't find the running api container.
+export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME_DEFAULT}
+EOF
+
+  # Note: we deliberately do NOT write to .git/worktrees/<name>/info/exclude —
+  # git treats info/exclude as shared across all worktrees (it reads from the
+  # common gitdir, not the per-worktree subdir). The dirty check in `wt remove`
+  # filters out our auto-created files instead.
+
+  ok "created worktree at $target_path on branch $branch"
+  say ""
+  dim "  cd $target_path"
+  if command -v direnv >/dev/null 2>&1; then
+    dim "  direnv allow                           # picks up COMPOSE_PROJECT_NAME"
+  else
+    dim "  source .envrc                          # or set COMPOSE_PROJECT_NAME manually"
+  fi
+}
+
+cmd_list() {
+  local count
+  count="$(wt_count)"
+  printf "Active worktrees (%s/%s):\n\n" "$count" "$WT_CAP"
+  git -C "$REPO_ROOT" worktree list --porcelain \
+    | awk -v main="$REPO_ROOT" '
+        /^worktree /{path=$2}
+        /^branch /{
+          br=$2
+          sub("refs/heads/","",br)
+          if (path != main) {
+            printf "  %-50s  %s\n", br, path
+          }
+        }
+      '
+  say ""
+  if (( count == 0 )); then
+    dim "  (none — use 'wt new <issue>' to create one)"
+  elif (( count >= WT_WARN )); then
+    warn "approaching WIP cap (${count}/${WT_CAP}); finish or remove some before starting more"
+  fi
+}
+
+cmd_remove() {
+  [[ $# -ge 1 ]] || die "usage: wt remove <issue|name>"
+  local needle="$1"
+  local path
+  path="$(find_worktree "$needle")"
+  [[ -n "$path" ]] || die "no worktree matches '$needle'"
+
+  local force="${2:-}"
+  if [[ -d "$path" ]]; then
+    # Tracked changes (staged or unstaged) — never auto-removable.
+    local tracked_dirty
+    tracked_dirty="$(git -C "$path" status --porcelain --untracked-files=no 2>/dev/null | wc -l | tr -d ' ')"
+    if (( tracked_dirty > 0 )) && [[ "$force" != "--force" ]]; then
+      die "$path has $tracked_dirty uncommitted change(s) to tracked files. Commit/push first, or re-run with --force."
+    fi
+    # Untracked files — auto-created ones (.envrc + our two symlinks) are
+    # expected; anything else is the user's work-in-progress that we should
+    # refuse to drop silently.
+    local unexpected_untracked
+    # grep -v exits 1 on no-match, which combined with pipefail would kill the
+    # script. Trailing `|| true` keeps the count at 0 in the clean case.
+    unexpected_untracked="$( ( git -C "$path" status --porcelain 2>/dev/null \
+      | awk '/^\?\? / {print $2}' \
+      | grep -Ev '^(\.envrc|packages/api/\.venv|packages/web/node_modules)$' \
+      || true ) | wc -l | tr -d ' ')"
+    if (( unexpected_untracked > 0 )) && [[ "$force" != "--force" ]]; then
+      die "$path has $unexpected_untracked untracked file(s) beyond the auto-created set. Stash/commit them, or re-run with --force."
+    fi
+  fi
+
+  # Always force git's own remove — the symlinks + .envrc we created are
+  # "untracked" from git's POV and would otherwise block removal.
+  git -C "$REPO_ROOT" worktree remove --force "$path"
+  ok "removed worktree $path"
+}
+
+cmd_doctor() {
+  say "TruePPM worktree health"
+  say "======================="
+  say ""
+
+  # Are we currently inside a worktree (not the main checkout)?
+  local here="$CURRENT_TOPLEVEL"
+  if [[ "$here" == "$REPO_ROOT" ]]; then
+    dim "  not currently in a worktree (in main checkout)"
+  else
+    say "  current worktree: $here"
+    # Symlink checks
+    for link in "packages/api/.venv" "packages/web/node_modules"; do
+      if [[ -L "$here/$link" ]]; then
+        local target
+        target="$(readlink "$here/$link")"
+        if [[ -e "$target" ]]; then
+          ok "  $link → $target"
+        else
+          err "  $link → $target (broken)"
+        fi
+      elif [[ -e "$here/$link" ]]; then
+        warn "  $link exists but is NOT a symlink (re-created locally; will waste disk)"
+      else
+        warn "  $link missing"
+      fi
+    done
+    # COMPOSE_PROJECT_NAME check
+    if [[ "${COMPOSE_PROJECT_NAME:-}" == "$COMPOSE_PROJECT_NAME_DEFAULT" ]]; then
+      ok "  COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME_DEFAULT}"
+    else
+      warn "  COMPOSE_PROJECT_NAME not set; pre-push won't find the shared docker stack. Run: source .envrc"
+    fi
+  fi
+
+  # Docker stack reachable? Check that the API container is up by name
+  # (compose project = trueppm → container name = trueppm-api-1).
+  if command -v docker >/dev/null 2>&1; then
+    local api_status
+    api_status="$(docker ps --filter "name=^${COMPOSE_PROJECT_NAME_DEFAULT}-api-1$" --format '{{.Status}}' 2>/dev/null || true)"
+    if [[ -n "$api_status" ]]; then
+      ok "  docker container ${COMPOSE_PROJECT_NAME_DEFAULT}-api-1 is up ($api_status)"
+    else
+      warn "  no running ${COMPOSE_PROJECT_NAME_DEFAULT}-api-1 container; run 'make up' in the main checkout"
+    fi
+  else
+    warn "  docker not installed; can't verify stack"
+  fi
+
+  say ""
+  say "WIP: $(wt_count)/$WT_CAP active worktrees"
+}
+
+cmd_help() {
+  sed -n '2,/^$/p' "$0" | sed -E 's/^# ?//'
+}
+
+# ---------------------------------------------------------------------------
+# Dispatcher
+# ---------------------------------------------------------------------------
+
+case "${1:-help}" in
+  new)     shift; cmd_new "$@" ;;
+  list|ls) cmd_list ;;
+  remove|rm) shift; cmd_remove "$@" ;;
+  doctor)  cmd_doctor ;;
+  help|--help|-h) cmd_help ;;
+  *)       err "unknown subcommand: $1"; cmd_help; exit 2 ;;
+esac
