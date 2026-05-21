@@ -198,7 +198,11 @@ test.describe('Workspace integrations redirect shim', () => {
     await expect(
       page.getByRole('heading', { name: /Which project's integrations/i }),
     ).toBeVisible();
-    await expect(page.getByRole('link', { name: /Integrations Test Project/ })).toBeVisible();
-    await expect(page.getByRole('link', { name: /Second Project/ })).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: 'Integrations Test Project', exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('link', { name: 'Second Project', exact: true }),
+    ).toBeVisible();
   });
 });
