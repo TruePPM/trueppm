@@ -4,7 +4,7 @@
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
         migrations-check schema-check web-lint web-typecheck pre-push \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web \
-        release-smoke wt-new wt-list wt-remove wt-doctor
+        release-smoke wt-new wt-list wt-remove wt-prune wt-doctor
 
 # Diff-coverage gate config. New code on this branch (vs $(COVERAGE_DIFF_BASE))
 # must hit at least $(COVERAGE_DIFF_MIN)% line coverage.
@@ -46,6 +46,9 @@ wt-remove: ## Remove a worktree (usage: make wt-remove ISSUE=600)
 	  exit 2; \
 	fi
 	@bash scripts/wt remove "$(ISSUE)"
+
+wt-prune: ## Remove worktrees whose branches were merged + deleted on origin
+	@bash scripts/wt prune
 
 wt-doctor: ## Verify worktree symlinks + shared Docker stack are healthy
 	@bash scripts/wt doctor

@@ -5,6 +5,9 @@
 #   scripts/wt new <issue|branch-name>    Create a worktree + branch off origin/main.
 #   scripts/wt list                       List active worktrees and WIP count.
 #   scripts/wt remove <issue|name>        Remove a worktree by issue # or name.
+#   scripts/wt prune                      Remove worktrees whose branches were merged
+#                                         to main and deleted on origin. Refuses to
+#                                         remove worktrees with uncommitted work.
 #   scripts/wt doctor                     Verify symlinks and docker-stack reuse.
 #   scripts/wt help                       Show this help.
 #
@@ -251,6 +254,79 @@ cmd_remove() {
   ok "removed worktree $path"
 }
 
+cmd_prune() {
+  # Remove worktrees whose branches have been merged and deleted on origin.
+  # Conservative by default: refuses to remove a worktree with uncommitted
+  # tracked changes or unexpected untracked files. Pass --force to override
+  # those guards (you really shouldn't).
+  local force="${1:-}"
+
+  say "Fetching origin with --prune to discover deleted remote branches…"
+  git -C "$REPO_ROOT" fetch --prune --quiet origin
+
+  local pruned=0
+  local skipped=0
+  local kept=0
+
+  # Iterate over every worktree except the main checkout.
+  while IFS= read -r path; do
+    [[ -z "$path" || "$path" == "$REPO_ROOT" ]] && continue
+
+    # Branch this worktree is on. If detached HEAD, skip (no upstream to compare).
+    local branch
+    branch="$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    if [[ -z "$branch" || "$branch" == "HEAD" ]]; then
+      dim "  $path: detached HEAD — skipped"
+      kept=$((kept + 1))
+      continue
+    fi
+
+    # Did this branch ever have an upstream? If not, it's local-only WIP.
+    if ! git -C "$REPO_ROOT" config --get "branch.${branch}.remote" >/dev/null 2>&1; then
+      dim "  $branch: never pushed — skipped"
+      kept=$((kept + 1))
+      continue
+    fi
+
+    # Does the remote branch still exist? (origin/<branch> resolvable.)
+    if git -C "$REPO_ROOT" rev-parse --verify --quiet "origin/${branch}" >/dev/null; then
+      dim "  $branch: still on origin — skipped"
+      kept=$((kept + 1))
+      continue
+    fi
+
+    # Remote gone. Is the local tip an ancestor of origin/main (= merged)?
+    # If not, the branch was deleted without merging — refuse to drop the
+    # work silently.
+    if ! git -C "$REPO_ROOT" merge-base --is-ancestor "$branch" origin/main 2>/dev/null; then
+      warn "  $branch: remote gone but local commits NOT in origin/main — skipped (force-delete manually if intentional)"
+      kept=$((kept + 1))
+      continue
+    fi
+
+    # Safe to consider for removal. Apply the same dirty-check as cmd_remove.
+    local tracked_dirty unexpected_untracked
+    tracked_dirty="$(git -C "$path" status --porcelain --untracked-files=no 2>/dev/null | wc -l | tr -d ' ')"
+    unexpected_untracked="$( ( git -C "$path" status --porcelain 2>/dev/null \
+      | awk '/^\?\? / {print $2}' \
+      | grep -Ev '^(\.envrc|packages/api/\.venv|packages/web/node_modules)$' \
+      || true ) | wc -l | tr -d ' ')"
+
+    if [[ "$force" != "--force" ]] && (( tracked_dirty > 0 || unexpected_untracked > 0 )); then
+      warn "  $branch: merged but has local work (tracked=$tracked_dirty, untracked=$unexpected_untracked) — skipped (use --force to drop)"
+      skipped=$((skipped + 1))
+      continue
+    fi
+
+    git -C "$REPO_ROOT" worktree remove --force "$path"
+    ok "  $branch: removed (merged to main, remote gone)"
+    pruned=$((pruned + 1))
+  done < <(git -C "$REPO_ROOT" worktree list --porcelain | awk '/^worktree /{print $2}')
+
+  say ""
+  say "Pruned: $pruned. Skipped (had local work): $skipped. Kept: $kept."
+}
+
 cmd_doctor() {
   say "TruePPM worktree health"
   say "======================="
@@ -316,6 +392,7 @@ case "${1:-help}" in
   new)     shift; cmd_new "$@" ;;
   list|ls) cmd_list ;;
   remove|rm) shift; cmd_remove "$@" ;;
+  prune)   shift; cmd_prune "$@" ;;
   doctor)  cmd_doctor ;;
   help|--help|-h) cmd_help ;;
   *)       err "unknown subcommand: $1"; cmd_help; exit 2 ;;
