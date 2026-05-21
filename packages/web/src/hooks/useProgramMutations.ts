@@ -34,11 +34,20 @@ export function useCreateProgram(): UseMutationResult<Program, Error, CreateProg
 
 export interface UpdateProgramInput {
   programId: string;
-  patch: Partial<Pick<Program, 'name' | 'description' | 'methodology'>>;
+  patch: Partial<
+    Pick<
+      Program,
+      'name' | 'description' | 'code' | 'methodology' | 'health' | 'visibility' | 'lead'
+    >
+  >;
 }
 
 /**
- * PATCH /api/v1/programs/{id}/ — update name/description/methodology. ADMIN+.
+ * PATCH /api/v1/programs/{id}/ — update editable program fields. ADMIN+.
+ *
+ * Extended fields (``code``, ``health``, ``visibility``, ``lead``) ship with
+ * #523. Caller is expected to send only the changed subset so unchanged fields
+ * round-trip through the server's partial-update path unchanged.
  */
 export function useUpdateProgram(): UseMutationResult<Program, Error, UpdateProgramInput> {
   const queryClient = useQueryClient();

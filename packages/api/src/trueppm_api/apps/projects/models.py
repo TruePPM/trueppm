@@ -185,6 +185,36 @@ class Methodology(models.TextChoices):
     HYBRID = "HYBRID", "Hybrid"
 
 
+class Health(models.TextChoices):
+    """User-visible health state for a Program or Project (issue #523).
+
+    ``AUTO`` defers to a future rollup computation; the explicit values are
+    PM overrides that surface immediately in lists and dashboards. Shared
+    between Program (this MR) and Project (queued under #520) so the same
+    chip palette + UI labels can apply to both.
+    """
+
+    AUTO = "AUTO", "Auto"
+    ON_TRACK = "ON_TRACK", "On track"
+    AT_RISK = "AT_RISK", "At risk"
+    CRITICAL = "CRITICAL", "Critical"
+
+
+class Visibility(models.TextChoices):
+    """Workspace-vs-private visibility scope (issue #523).
+
+    ``WORKSPACE`` (default) means any workspace member can list the entity
+    even without an explicit membership row. ``PRIVATE`` means listing is
+    restricted to explicit members. The queryset enforcement is a future
+    cross-cutting change — this MR stores the field and renders it in the UI
+    only; today both values resolve to "membership-required" via the
+    existing get_queryset gate.
+    """
+
+    WORKSPACE = "WORKSPACE", "Workspace"
+    PRIVATE = "PRIVATE", "Private"
+
+
 class Program(VersionedModel):
     """Named grouping of related projects for one PM or program team (ADR-0070).
 
@@ -204,10 +234,41 @@ class Program(VersionedModel):
 
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
+    # Short identifier used in exports, breadcrumbs, and as a future task-ID prefix.
+    # Optional — programs created before #523 have no code and the UI shows an empty
+    # field. Not unique at the DB level; uniqueness is a workspace-policy concern.
+    code = models.CharField(max_length=40, blank=True, default="")
     methodology = models.CharField(
         max_length=16,
         choices=Methodology.choices,
         default=Methodology.HYBRID,
+    )
+    # PM override for the program health chip. Defaults to AUTO so existing rows
+    # render via the (future) rollup rather than implying a manual judgment.
+    health = models.CharField(
+        max_length=16,
+        choices=Health.choices,
+        default=Health.AUTO,
+    )
+    # Listing scope. WORKSPACE = listable by any workspace member; PRIVATE =
+    # explicit-members-only. Queryset enforcement is a future change — see the
+    # Visibility docstring above.
+    visibility = models.CharField(
+        max_length=16,
+        choices=Visibility.choices,
+        default=Visibility.WORKSPACE,
+    )
+    # The single "Program Manager" displayed in the Program header and Settings
+    # General page. Distinct from ``created_by`` (immutable historical fact) and
+    # from OWNER membership rows (multiple owners are allowed; lead is a UI
+    # affordance pointing to one person). SET_NULL so a user account deletion
+    # does not break programs they once led.
+    lead = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="programs_led",
     )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

@@ -7,6 +7,7 @@ import uuid
 from datetime import date
 from typing import Any
 
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import serializers
 from trueppm_scheduler import find_cycle
@@ -43,6 +44,21 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
 )
 from trueppm_api.apps.resources.models import TaskResource
+
+User = get_user_model()
+
+
+class _UserSummarySerializer(serializers.ModelSerializer):  # type: ignore[type-arg]
+    """Compact user payload nested inside Program/Project responses.
+
+    Kept module-private (leading underscore) by convention — mirrors the same
+    pattern in ``access.serializers``. Add a public wrapper if a different
+    field set is ever needed.
+    """
+
+    class Meta:
+        model = User
+        fields = ["id", "username", "email"]
 
 
 class CalendarExceptionSerializer(serializers.ModelSerializer[CalendarException]):
@@ -187,6 +203,11 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
     my_role_label = serializers.SerializerMethodField()
     project_count = serializers.IntegerField(read_only=True, default=0)
     member_count = serializers.IntegerField(read_only=True, default=0)
+    # Read-only nested user payload so the General settings page can render
+    # the lead's name + initials without a second per-program user fetch.
+    # Null when ``lead`` is unset. The write side stays on the plain ``lead``
+    # UUID field — ``lead_detail`` is response-only.
+    lead_detail = _UserSummarySerializer(source="lead", read_only=True)
 
     class Meta:
         model = Program
@@ -195,7 +216,12 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "server_version",
             "name",
             "description",
+            "code",
             "methodology",
+            "health",
+            "visibility",
+            "lead",
+            "lead_detail",
             "created_by",
             "created_at",
             "updated_at",
@@ -207,6 +233,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         read_only_fields = [
             "id",
             "server_version",
+            "lead_detail",
             "created_by",
             "created_at",
             "updated_at",
@@ -222,6 +249,40 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         # freshly-created instance before re-fetch — but the viewset re-fetches
         # via the queryset in those paths, so this branch is defensive only).
         return getattr(obj, "_my_role", None)
+
+    def validate_lead(self, value: Any) -> Any:
+        """Lead must hold an active ProgramMembership on this program.
+
+        On create the program does not yet exist, so we skip the check — the
+        atomic OWNER membership row created by ``access.services.create_program``
+        is added in the same transaction as the Program itself, and the
+        ``ProgramViewSet.create`` path does not currently forward the ``lead``
+        field through that service (only name/description/methodology). When
+        the create path grows lead support, the OWNER row will exist before
+        this validator runs because membership creation precedes Program save.
+
+        On partial_update the instance is set and we enforce the membership.
+        Unsetting (lead=None) is always permitted.
+        """
+        if value is None:
+            return value
+        instance = getattr(self, "instance", None)
+        if instance is None:
+            return value
+        # Lazy import avoids a circular dep — access imports from projects.
+        from trueppm_api.apps.access.models import ProgramMembership
+
+        has_membership = ProgramMembership.objects.filter(
+            program=instance,
+            user=value,
+            is_deleted=False,
+        ).exists()
+        if not has_membership:
+            raise serializers.ValidationError(
+                "The selected user must be a member of this program before they "
+                "can be assigned as lead."
+            )
+        return value
 
     def get_my_role_label(self, obj: Program) -> str | None:
         role = getattr(obj, "_my_role", None)

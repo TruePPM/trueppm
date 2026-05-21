@@ -56,12 +56,34 @@ export interface UserSearchResult {
  */
 export type ProgramMethodology = 'WATERFALL' | 'AGILE' | 'HYBRID';
 
+/**
+ * Program health override. ``AUTO`` defers to the (future) rollup; the explicit
+ * values are PM overrides. Mirrors ``apps.projects.models.Health`` (issue #523).
+ */
+export type ProgramHealth = 'AUTO' | 'ON_TRACK' | 'AT_RISK' | 'CRITICAL';
+
+/**
+ * Program listing scope. Queryset enforcement is a future change; the field is
+ * stored and rendered today. Mirrors ``apps.projects.models.Visibility`` (#523).
+ */
+export type ProgramVisibility = 'WORKSPACE' | 'PRIVATE';
+
 export interface Program {
   id: string;
   server_version: number;
   name: string;
   description: string;
+  /** Optional short code; empty string when unset. */
+  code: string;
   methodology: ProgramMethodology;
+  /** PM health override; AUTO defers to the rollup. */
+  health: ProgramHealth;
+  /** Workspace or private listing scope. */
+  visibility: ProgramVisibility;
+  /** User ID of the displayed program lead, or null when unset. */
+  lead: string | null;
+  /** Read-only nested user payload for the lead — null when ``lead`` is null. */
+  lead_detail: { id: string; username: string; email: string } | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

@@ -79,6 +79,9 @@ class ProgramViewSet(viewsets.ModelViewSet[Program]):
                 memberships__user=user,
                 memberships__is_deleted=False,
             )
+            # select_related on ``lead`` so ProgramSerializer.lead_detail does not
+            # incur one extra User query per program on list responses (#523).
+            .select_related("lead")
             .annotate(
                 _my_role=Subquery(my_role_sq),
                 project_count=Count(

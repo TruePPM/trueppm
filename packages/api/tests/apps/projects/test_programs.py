@@ -403,3 +403,146 @@ def test_create_standalone_project_omits_program(
     assert resp.status_code == 201, resp.content
     project = Project.objects.get(pk=resp.data["id"])
     assert project.program_id is None
+
+
+# ---------------------------------------------------------------------------
+# General settings fields — code / health / visibility / lead (#523)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_retrieve_includes_new_general_fields_with_safe_defaults(owner: object) -> None:
+    program = _create_program(_client(owner))
+    resp = _client(owner).get(f"/api/v1/programs/{program.pk}/")
+    assert resp.status_code == 200
+    # New fields are present and carry the migration defaults so an
+    # un-migrated UI can still bind to them without checking for undefined.
+    assert resp.data["code"] == ""
+    assert resp.data["health"] == "AUTO"
+    assert resp.data["visibility"] == "WORKSPACE"
+    assert resp.data["lead"] is None
+    assert resp.data["lead_detail"] is None
+
+
+@pytest.mark.django_db
+def test_patch_persists_general_settings_fields(owner: object) -> None:
+    program = _create_program(_client(owner))
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {
+            "code": "PH2",
+            "health": "AT_RISK",
+            "visibility": "PRIVATE",
+        },
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    program.refresh_from_db()
+    assert program.code == "PH2"
+    assert program.health == "AT_RISK"
+    assert program.visibility == "PRIVATE"
+
+
+@pytest.mark.django_db
+def test_patch_lead_returns_lead_detail_nested(owner: object, other_user: object) -> None:
+    program = _create_program(_client(owner))
+    # Add other_user as a member so they're an eligible lead.  Lead is a UI
+    # affordance and not membership-gated at the serializer level, but in
+    # production callers will pick from existing members.
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {"lead": str(other_user.pk)},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    program.refresh_from_db()
+    assert program.lead_id == other_user.pk
+    # Nested lead_detail mirrors the user_detail pattern from membership rows.
+    assert resp.data["lead_detail"] is not None
+    assert resp.data["lead_detail"]["id"] == str(other_user.pk)
+    assert resp.data["lead_detail"]["username"] == "other"
+
+
+@pytest.mark.django_db
+def test_patch_lead_rejects_non_member(owner: object, stranger: object) -> None:
+    program = _create_program(_client(owner))
+    # ``stranger`` has no ProgramMembership on this program, so the lead
+    # validation must reject the assignment.
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {"lead": str(stranger.pk)},
+        format="json",
+    )
+    assert resp.status_code == 400, resp.content
+    assert "lead" in resp.data
+    program.refresh_from_db()
+    assert program.lead_id is None
+
+
+@pytest.mark.django_db
+def test_patch_lead_to_null_is_always_allowed(owner: object, other_user: object) -> None:
+    program = _create_program(_client(owner))
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+    program.lead = other_user
+    program.save(update_fields=["lead"])
+    # Unsetting the lead should succeed regardless of membership state.
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {"lead": None},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content
+    program.refresh_from_db()
+    assert program.lead_id is None
+
+
+@pytest.mark.django_db
+def test_patch_health_rejects_invalid_choice(owner: object) -> None:
+    program = _create_program(_client(owner))
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {"health": "PURPLE"},
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "health" in resp.data
+
+
+@pytest.mark.django_db
+def test_patch_visibility_rejects_invalid_choice(owner: object) -> None:
+    program = _create_program(_client(owner))
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {"visibility": "EVERYWHERE"},
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "visibility" in resp.data
+
+
+@pytest.mark.django_db
+def test_patch_code_rejects_overlong_value(owner: object) -> None:
+    program = _create_program(_client(owner))
+    # Field is CharField(max_length=40) — anything longer must 400.
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {"code": "X" * 41},
+        format="json",
+    )
+    assert resp.status_code == 400
+    assert "code" in resp.data
+
+
+@pytest.mark.django_db
+def test_general_field_patch_requires_admin(owner: object, other_user: object) -> None:
+    program = _create_program(_client(owner))
+    ProgramMembership.objects.create(program=program, user=other_user, role=Role.MEMBER)
+    resp = _client(other_user).patch(
+        f"/api/v1/programs/{program.pk}/",
+        {"health": "CRITICAL"},
+        format="json",
+    )
+    assert resp.status_code == 403
+    program.refresh_from_db()
+    assert program.health == "AUTO"

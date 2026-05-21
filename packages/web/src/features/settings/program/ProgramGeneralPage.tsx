@@ -1,40 +1,172 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useParams } from 'react-router';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
-import { StubFieldset } from '../components/StubFieldset';
-import { StubPageBanner } from '../components/StubPageBanner';
-
-type ProgramHealth = 'onTrack' | 'atRisk' | 'critical' | 'auto';
+import { useDirtyForm } from '../hooks/useDirtyForm';
+import { useProgram } from '@/hooks/useProgram';
+import { useUpdateProgram } from '@/hooks/useProgramMutations';
+import type { ProgramHealth, ProgramMethodology, ProgramVisibility } from '@/api/types';
 
 const HEALTH_OPTIONS: Array<{ id: ProgramHealth; label: string }> = [
-  { id: 'onTrack',  label: 'On track' },
-  { id: 'atRisk',   label: 'At risk' },
-  { id: 'critical', label: 'Critical' },
-  { id: 'auto',     label: 'Auto' },
+  { id: 'ON_TRACK', label: 'On track' },
+  { id: 'AT_RISK',  label: 'At risk' },
+  { id: 'CRITICAL', label: 'Critical' },
+  { id: 'AUTO',     label: 'Auto' },
 ];
 
 const HEALTH_ACTIVE: Record<ProgramHealth, string> = {
-  onTrack:  'bg-semantic-on-track-bg text-semantic-on-track border-semantic-on-track/40',
-  atRisk:   'bg-semantic-at-risk-bg text-semantic-at-risk border-semantic-at-risk/40',
-  critical: 'bg-semantic-critical/10 text-semantic-critical border-semantic-critical/40',
-  auto:     'bg-brand-primary-light text-brand-primary border-brand-primary/40',
+  ON_TRACK: 'bg-semantic-on-track-bg text-semantic-on-track border-semantic-on-track/40',
+  AT_RISK:  'bg-semantic-at-risk-bg text-semantic-at-risk border-semantic-at-risk/40',
+  CRITICAL: 'bg-semantic-critical/10 text-semantic-critical border-semantic-critical/40',
+  AUTO:     'bg-brand-primary-light text-brand-primary border-brand-primary/40',
 };
 
-const METHODOLOGIES = ['Waterfall', 'Agile', 'Hybrid'] as const;
+const METHODOLOGY_OPTIONS: Array<{ id: ProgramMethodology; label: string }> = [
+  { id: 'WATERFALL', label: 'Waterfall' },
+  { id: 'AGILE',     label: 'Agile' },
+  { id: 'HYBRID',    label: 'Hybrid' },
+];
 
-/** Program > General settings page. */
+const VISIBILITY_OPTIONS: Array<{ id: ProgramVisibility; label: string; hint: string }> = [
+  { id: 'WORKSPACE', label: 'Workspace', hint: 'Anyone in the workspace can see this program.' },
+  { id: 'PRIVATE',   label: 'Private',   hint: 'Only invited members can see this program.' },
+];
+
+/** 1–2 character display initials for a user, fallback "??" when no name parts. */
+function initialsFor(username: string | null | undefined): string {
+  if (!username) return '??';
+  const parts = username.split(/[._\s-]+/).filter(Boolean);
+  if (parts.length === 0) return username.slice(0, 2).toUpperCase();
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
+/**
+ * Program > General settings page (issue #523).
+ *
+ * Wired fields: name, description, code, health, visibility, methodology, lead
+ * (read-only display — the user picker is out of scope for #523; the Change
+ * button is disabled and a follow-up will swap in the picker).
+ *
+ * Save contract: publishes (dirty, save, reset) up to ``SettingsShell`` via
+ * ``useDirtyForm``. Initial values are seeded once via ``seededRef`` so a
+ * refetch (e.g. cache invalidation after another page's mutation) does not
+ * blow away the user's in-progress edits.
+ */
 export function ProgramGeneralPage() {
-  const [name, setName] = useState('Artemis Launch Vehicle Program');
-  const [description, setDescription] = useState(
-    'End-to-end development and launch program for the Artemis family of crewed lift vehicles. Encompasses design, build, test, and flight readiness milestones across all vehicle variants.',
+  const { programId } = useParams<{ programId: string }>();
+  const { data: program } = useProgram(programId);
+  const updateProgram = useUpdateProgram();
+
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [code, setCode] = useState('');
+  const [health, setHealth] = useState<ProgramHealth>('AUTO');
+  const [methodology, setMethodology] = useState<ProgramMethodology>('HYBRID');
+  const [visibility, setVisibility] = useState<ProgramVisibility>('WORKSPACE');
+
+  // Seed once on first successful load — guard prevents refetch from wiping user edits.
+  // The initial-* setters double as the "last-saved snapshot" used by the discard
+  // handler and the useDirtyForm dirty-compare.
+  const seededRef = useRef(false);
+  const [initialName, setInitialName] = useState('');
+  const [initialDescription, setInitialDescription] = useState('');
+  const [initialCode, setInitialCode] = useState('');
+  const [initialHealth, setInitialHealth] = useState<ProgramHealth>('AUTO');
+  const [initialMethodology, setInitialMethodology] = useState<ProgramMethodology>('HYBRID');
+  const [initialVisibility, setInitialVisibility] = useState<ProgramVisibility>('WORKSPACE');
+
+  useEffect(() => {
+    if (!program || seededRef.current) return;
+    seededRef.current = true;
+    setName(program.name);
+    setDescription(program.description ?? '');
+    setCode(program.code ?? '');
+    setHealth(program.health);
+    setMethodology(program.methodology);
+    setVisibility(program.visibility);
+    setInitialName(program.name);
+    setInitialDescription(program.description ?? '');
+    setInitialCode(program.code ?? '');
+    setInitialHealth(program.health);
+    setInitialMethodology(program.methodology);
+    setInitialVisibility(program.visibility);
+  }, [program]);
+
+  const values = useMemo(
+    () => ({ name, description, code, health, methodology, visibility }),
+    [name, description, code, health, methodology, visibility],
   );
-  const [health, setHealth] = useState<ProgramHealth>('onTrack');
-  const [methodology, setMethodology] = useState<string>('Waterfall');
-  const [visibility, setVisibility] = useState<'workspace' | 'private'>('workspace');
+  const initialValues = useMemo(
+    () => ({
+      name: initialName,
+      description: initialDescription,
+      code: initialCode,
+      health: initialHealth,
+      methodology: initialMethodology,
+      visibility: initialVisibility,
+    }),
+    [
+      initialName,
+      initialDescription,
+      initialCode,
+      initialHealth,
+      initialMethodology,
+      initialVisibility,
+    ],
+  );
+
+  const handleSave = useCallback(async () => {
+    if (!programId) return;
+    await updateProgram.mutateAsync({
+      programId,
+      patch: { name, description, code, health, methodology, visibility },
+    });
+    // Bump the snapshot — dirty flips back to false and the save bar collapses.
+    setInitialName(name);
+    setInitialDescription(description);
+    setInitialCode(code);
+    setInitialHealth(health);
+    setInitialMethodology(methodology);
+    setInitialVisibility(visibility);
+  }, [
+    programId,
+    updateProgram,
+    name,
+    description,
+    code,
+    health,
+    methodology,
+    visibility,
+  ]);
+
+  const handleReset = useCallback(() => {
+    setName(initialName);
+    setDescription(initialDescription);
+    setCode(initialCode);
+    setHealth(initialHealth);
+    setMethodology(initialMethodology);
+    setVisibility(initialVisibility);
+  }, [
+    initialName,
+    initialDescription,
+    initialCode,
+    initialHealth,
+    initialMethodology,
+    initialVisibility,
+  ]);
+
+  useDirtyForm({
+    values,
+    initialValues,
+    onSave: handleSave,
+    onReset: handleReset,
+    apiReady: !!program,
+  });
+
+  const leadName = program?.lead_detail?.username ?? null;
+  const leadInitials = initialsFor(leadName);
 
   return (
-    <>
-    <StubPageBanner pageIssue={523} />
-    <StubFieldset disabled>
     <div>
       <SettingsPageTitle
         title="General"
@@ -47,7 +179,19 @@ export function ProgramGeneralPage() {
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            aria-label="Program name"
             className="w-[420px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+          />
+        </FieldRow>
+
+        <FieldRow label="Program code" hint="Used as a prefix for task IDs and exports.">
+          <input
+            type="text"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            aria-label="Program code"
+            maxLength={40}
+            className="w-[140px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           />
         </FieldRow>
 
@@ -56,28 +200,44 @@ export function ProgramGeneralPage() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
+            aria-label="Description"
             className="w-[540px] px-2.5 py-2 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary leading-relaxed resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           />
         </FieldRow>
 
         <FieldRow label="Program manager">
-          <div className="flex items-center gap-2">
-            <span
-              className="w-6 h-6 rounded-full inline-flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-              style={{ background: '#1C6B3A' }}
-              aria-hidden="true"
-            >
-              AK
-            </span>
-            <span className="text-[13px] font-medium text-neutral-text-primary">Anika Krishnan</span>
-            <span className="text-[12px] text-neutral-text-secondary">· Program Manager</span>
-            <button
-              type="button"
-              className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
-            >
-              Change
-            </button>
-          </div>
+          {leadName ? (
+            <div className="flex items-center gap-2">
+              <span
+                className="w-6 h-6 rounded-full inline-flex items-center justify-center text-[10px] font-bold text-white shrink-0 bg-brand-primary"
+                aria-hidden="true"
+              >
+                {leadInitials}
+              </span>
+              <span className="text-[13px] font-medium text-neutral-text-primary">{leadName}</span>
+              <span className="text-[12px] text-neutral-text-secondary">· Program Manager</span>
+              <button
+                type="button"
+                disabled
+                title="User picker is shipping separately"
+                className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline"
+              >
+                Change
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] text-neutral-text-secondary italic">Unassigned</span>
+              <button
+                type="button"
+                disabled
+                title="User picker is shipping separately"
+                className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline"
+              >
+                Assign
+              </button>
+            </div>
+          )}
         </FieldRow>
 
         <FieldRow label="Health" hint="Drives the health dot in program lists and portfolio rollups.">
@@ -104,21 +264,21 @@ export function ProgramGeneralPage() {
 
         <FieldRow label="Methodology" hint="Default delivery model for new projects added to this program.">
           <div className="flex gap-2">
-            {METHODOLOGIES.map((m) => (
+            {METHODOLOGY_OPTIONS.map((opt) => (
               <button
-                key={m}
+                key={opt.id}
                 type="button"
-                onClick={() => setMethodology(m)}
-                aria-pressed={methodology === m}
+                onClick={() => setMethodology(opt.id)}
+                aria-pressed={methodology === opt.id}
                 className={[
                   'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                  methodology === m
+                  methodology === opt.id
                     ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
                     : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
                 ].join(' ')}
               >
-                {m}
+                {opt.label}
               </button>
             ))}
           </div>
@@ -126,12 +286,7 @@ export function ProgramGeneralPage() {
 
         <FieldRow label="Visibility" hint="Who can see this program and its rollup KPIs.">
           <div className="flex flex-col gap-3">
-            {(
-              [
-                { id: 'workspace' as const, label: 'Workspace', hint: 'Anyone in the workspace can see this program.' },
-                { id: 'private'   as const, label: 'Private',   hint: 'Only invited members can see this program.' },
-              ]
-            ).map((opt) => (
+            {VISIBILITY_OPTIONS.map((opt) => (
               <label key={opt.id} className="flex items-center gap-3 cursor-pointer">
                 <span
                   className={[
@@ -160,7 +315,5 @@ export function ProgramGeneralPage() {
         </FieldRow>
       </div>
     </div>
-    </StubFieldset>
-    </>
   );
 }
