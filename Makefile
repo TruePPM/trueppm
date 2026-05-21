@@ -171,6 +171,10 @@ coverage-diff-web: ## Diff coverage for packages/web
 pre-push: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check schema-check ## Run pre-push CI gates (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@echo ""
 	@echo "✅ Pre-push checks passed. Safe to git push."
+	@# Best-effort sweep of merged worktrees after a successful gate run. Allowed
+	@# to fail (e.g. offline) without blocking the push — pre-push's job is to
+	@# validate the code, not the worktree state.
+	@bash scripts/wt prune 2>/dev/null || true
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 build: ## Build the web bundle
