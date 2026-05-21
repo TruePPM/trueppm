@@ -43,6 +43,7 @@ export function ProjectSettingsPage() {
       label: 'Configuration',
       items: [
         { id: 'workflow',      label: 'Workflow & fields', to: `/projects/${projectId}/settings/workflow`,      icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
+        { id: 'integrations',  label: 'Integrations',      to: `/projects/${projectId}/settings/integrations`,  icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
         { id: 'notifications', label: 'Notifications',     to: `/projects/${projectId}/settings/notifications`, icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
       ],
     },

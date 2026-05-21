@@ -1,7 +1,7 @@
-# ADR-0076: Integration Management Surface Boundary (Workspace vs Project)
+# ADR-0076: Integration Management Surface Boundary (Workspace vs Project vs Program)
 
 ## Status
-Proposed
+Proposed — extended on 2026-05-21 to add program-scope integrations (see Revisions below).
 
 ## Context
 
@@ -255,3 +255,53 @@ Selected: **C**.
 
 These questions do not block ADR acceptance; they are deferred to the
 `/ux-design` pass on the OSS page.
+
+## Revisions
+
+### 2026-05-21 — Program-scope integrations
+
+The original ADR scoped OSS integrations to project-level only. Practical
+review on the implementation MR (#569 / !313) surfaced a gap: a program
+manager running 5 projects pastes the same Slack URL into 5 project
+settings pages. That friction is exactly what the OSS `Program` entity
+(ADR-0070) was created to eliminate. Workspace-scope integrations remain
+Enterprise (per the original decision's adoption test — cross-program
+governance is what an *organization* needs, and that's the upsell), but
+program-scope is a legitimate OSS need that was incorrectly omitted.
+
+**Extension:**
+
+1. `Webhook.project` becomes nullable; new `Webhook.program` FK added.
+   DB-level XOR constraint: exactly one of `project_id` / `program_id`
+   is non-null. A program-scoped webhook fires for events on **any
+   project within the program**, fanned out by `dispatch_webhooks()`.
+
+2. `ProjectApiToken` renamed to `ApiToken` (backwards-compat alias
+   retained as `ProjectApiToken` until 0.4) with the same polymorphic
+   scope: nullable `project` and `program` FKs + XOR constraint. A
+   program-scoped token authorizes inbound writes into any project the
+   program contains; the URL `project_pk` identifies the target project
+   on each request and `IsTokenForProject` validates the token's program
+   contains that project.
+
+3. New page `Program → Settings → Integrations` mirrors the project
+   page, scoped to program-owned resources only (no cross-cutting view
+   of child projects' integrations).
+
+4. New endpoint `GET /api/v1/programs/{pk}/integrations-summary/` —
+   same shape and per-section 503 fallback as the project endpoint.
+
+5. CRUD UI for program-scoped webhooks and tokens is deferred to 0.3
+   (mirrors the project surface, which also defers CRUD-inline). For
+   0.2, mutations go through the API directly. A follow-up issue
+   covers the CRUD UI parity.
+
+**Why not also workspace-scope in OSS?** A solo PM with 1–3 projects
+benefits from program-scope; a single-tenant org with 20 programs needs
+workspace-scope, and that's the Enterprise upsell. The adoption test
+from the original decision still holds for the workspace boundary.
+
+**Decision-framework footprint:** the original Selected: **C** still
+stands. Program-scope is layered on top — it does not change the OSS /
+Enterprise boundary, only the OSS-internal scope hierarchy. Enterprise
+still re-injects the workspace surface via the slot registry.

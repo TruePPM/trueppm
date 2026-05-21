@@ -1528,8 +1528,9 @@ class SprintScopeChange(models.Model):
 # ---------------------------------------------------------------------------
 
 
-class ProjectApiToken(VersionedModel):
-    """Project-scoped API token for inbound integrations (Jira, Linear, GitHub, ...).
+class ApiToken(VersionedModel):
+    """API token for inbound integrations — polymorphically scoped to either
+    a Project or a Program (ADR-0068 + ADR-0076 extension).
 
     The raw token is shown exactly once at creation, then stored as a SHA-256 hex
     digest in ``token_hash``.  Lookup is O(1) via the unique index on the hash;
@@ -1541,16 +1542,38 @@ class ProjectApiToken(VersionedModel):
     ``tppm_`` prefix on the raw token is greppable for secret-scanners
     (GitGuardian, GitHub) but is *not* stored — only the random portion counts.
 
+    **Scope**: exactly one of ``project`` or ``program`` is set. A program-scoped
+    token authorizes inbound writes into any project within that program; the
+    caller specifies the target project on each request via the URL. The DB
+    constraint enforces the XOR — neither both-set nor both-null is a valid row.
+
     ``status_map`` is immutable after creation by design: changing it requires
     minting a new token and revoking the old one, so the team can see (via the
     audit log + broadcast) when their status mapping changes.  Prevents the
     silent-remap-of-done failure mode (Morgan's 🟡 VoC concern).
+
+    The DB table is kept at ``projects_api_token`` for migration safety —
+    renaming the table would require coordinated cutovers; the Python class
+    rename is purely cosmetic at the DB level.
     """
 
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
         related_name="api_tokens",
+        null=True,
+        blank=True,
+        help_text="Set when the token authorizes writes into a single project. "
+        "Exactly one of project/program is non-null (DB constraint).",
+    )
+    program = models.ForeignKey(
+        "projects.Program",
+        on_delete=models.CASCADE,
+        related_name="api_tokens",
+        null=True,
+        blank=True,
+        help_text="Set when the token authorizes writes into any project within "
+        "this program. Exactly one of project/program is non-null (DB constraint).",
     )
     name = models.CharField(
         max_length=128,
@@ -1598,10 +1621,35 @@ class ProjectApiToken(VersionedModel):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["project", "revoked_at"]),
+            models.Index(fields=["program", "revoked_at"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                # Exactly one of project / program is non-null. Prevents
+                # ambiguous-scope tokens at the database layer.
+                condition=(
+                    Q(project__isnull=False, program__isnull=True)
+                    | Q(project__isnull=True, program__isnull=False)
+                ),
+                name="api_token_scope_xor",
+            ),
         ]
 
     def __str__(self) -> str:
-        return f"ProjectApiToken({self.token_prefix}…, project={self.project_id})"
+        if self.program_id is not None:
+            return f"ApiToken({self.token_prefix}…, program={self.program_id})"
+        return f"ApiToken({self.token_prefix}…, project={self.project_id})"
+
+    @property
+    def is_program_scoped(self) -> bool:
+        """True when this token authorizes writes into any project in a program."""
+        return self.program_id is not None
+
+
+# Backwards-compat alias for any external code that still imports the old name.
+# Slated for removal in 0.4 once the rename has propagated through downstream
+# consumers (Helm chart, OSS contrib docs).
+ProjectApiToken = ApiToken
 
 
 class InboundTaskLink(VersionedModel):

@@ -50,6 +50,7 @@ from trueppm_api.apps.access.permissions import (
     ProjectScopedViewSet,
 )
 from trueppm_api.apps.projects.models import (
+    ApiToken,
     Baseline,
     BaselineTask,
     BoardColumnConfig,
@@ -61,6 +62,7 @@ from trueppm_api.apps.projects.models import (
     EstimateStatus,
     EstimationMode,
     Project,
+    ProjectApiToken,
     Risk,
     RiskComment,
     RiskStatus,
@@ -106,6 +108,11 @@ from trueppm_api.apps.projects.serializers import (
 )
 from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue_recalculate
+from trueppm_api.apps.webhooks.models import (
+    DeliveryStatus,
+    Webhook,
+    WebhookDelivery,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -637,6 +644,43 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             status=status.HTTP_200_OK,
         )
 
+    @action(detail=True, methods=["get"], url_path="integrations-summary")
+    def integrations_summary(self, request: Request, pk: str | None = None) -> Response:
+        """Project-scoped integrations summary for the Project → Settings → Integrations page.
+
+        Aggregates the project's outbound webhooks (ADR-0019) and inbound API tokens
+        (ADR-0068) into a single round-trip so the settings page avoids waterfall
+        fetches. Per ADR-0076, the page is read-only in 0.2; CRUD is delegated to the
+        underlying viewsets via deep-links from the UI.
+
+        Each section is computed independently. If one subservice errors, the
+        response degrades gracefully: a 503 is returned with a ``failed`` key
+        naming the section, and the frontend falls back to fetching that section
+        via its own viewset (the per-section retry contract from ADR-0076).
+        """
+        project = self.get_object()
+        sections: dict[str, Any] = {}
+
+        try:
+            sections["webhooks"] = _summarize_webhooks(Q(project_id=project.id))
+        except Exception:
+            logger.exception("integrations-summary webhooks subservice failed")
+            return Response(
+                {"failed": "webhooks"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        try:
+            sections["api_tokens"] = _summarize_api_tokens(Q(project_id=project.id))
+        except Exception:
+            logger.exception("integrations-summary api_tokens subservice failed")
+            return Response(
+                {"failed": "api_tokens"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(sections, status=status.HTTP_200_OK)
+
     @action(
         detail=True,
         methods=["get"],
@@ -722,6 +766,135 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
                 }
             )
         return Response({"items": rows}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# integrations_summary helpers (ADR-0076)
+#
+# These will move to apps/integrations/services.py once #302 lands that app.
+# Kept module-local in 0.2 so the integrations summary ships without a new
+# Django app + migration that #302 will own.
+# ---------------------------------------------------------------------------
+
+_INTEGRATIONS_SUMMARY_ITEM_LIMIT = 5
+_INTEGRATIONS_RECENT_FAILURE_WINDOW = datetime.timedelta(days=7)
+
+
+def _summarize_webhooks(scope_filter: Q) -> dict[str, Any]:
+    """Compact summary of a scope's outbound webhooks (ADR-0019).
+
+    ``scope_filter`` is a Django Q expression that selects which webhooks to
+    include — typically ``Q(project_id=...)`` for the project surface or
+    ``Q(program_id=...)`` for the program surface (ADR-0076).
+
+    Returns the most recently created webhooks (up to ``_INTEGRATIONS_SUMMARY_ITEM_LIMIT``)
+    plus aggregate counts. The ``last_delivery`` per row is the most recent delivery
+    attempt's status + timestamp — non-null only when the webhook has fired at least once.
+
+    The per-row latest-delivery and recent-failure-count fields are computed via
+    ``Subquery``/``annotate`` so the entire summary uses a single underlying SQL
+    query rather than 2N round-trips. See ADR-0076 perf-check rationale.
+    """
+    recent_window_start = timezone.now() - _INTEGRATIONS_RECENT_FAILURE_WINDOW
+
+    latest_delivery_sq = (
+        WebhookDelivery.objects.filter(webhook=OuterRef("pk"))
+        .order_by("-created_at")
+        .values("status", "created_at", "response_status", "attempt_count")[:1]
+    )
+
+    base_qs = Webhook.objects.filter(scope_filter)
+    annotated_qs = base_qs.annotate(
+        _latest_status=Subquery(latest_delivery_sq.values("status")),
+        _latest_created_at=Subquery(latest_delivery_sq.values("created_at")),
+        _latest_response_status=Subquery(latest_delivery_sq.values("response_status")),
+        _latest_attempt_count=Subquery(latest_delivery_sq.values("attempt_count")),
+        _recent_failure_count=Count(
+            "deliveries",
+            filter=Q(
+                deliveries__status=DeliveryStatus.FAILED,
+                deliveries__created_at__gte=recent_window_start,
+            ),
+        ),
+    ).order_by("-created_at")
+
+    total = base_qs.count()
+    active_total = base_qs.filter(is_active=True).count()
+
+    items: list[dict[str, Any]] = []
+    last_delivery_at: datetime.datetime | None = None
+    for webhook in annotated_qs[:_INTEGRATIONS_SUMMARY_ITEM_LIMIT]:
+        latest_created_at = getattr(webhook, "_latest_created_at", None)
+        latest_status = getattr(webhook, "_latest_status", None)
+        items.append(
+            {
+                "id": str(webhook.id),
+                "url": webhook.url,
+                "is_active": webhook.is_active,
+                "events": list(webhook.events),
+                "created_at": webhook.created_at.isoformat(),
+                "last_delivery": (
+                    {
+                        "status": latest_status,
+                        "created_at": latest_created_at.isoformat(),
+                        "response_status": getattr(webhook, "_latest_response_status", None),
+                        "attempt_count": getattr(webhook, "_latest_attempt_count", 0),
+                    }
+                    if latest_status and latest_created_at
+                    else None
+                ),
+                "recent_failure_count": getattr(webhook, "_recent_failure_count", 0),
+            }
+        )
+        if latest_created_at and (last_delivery_at is None or latest_created_at > last_delivery_at):
+            last_delivery_at = latest_created_at
+
+    return {
+        "items": items,
+        "total": total,
+        "active_total": active_total,
+        "last_delivery_at": last_delivery_at.isoformat() if last_delivery_at else None,
+    }
+
+
+def _summarize_api_tokens(scope_filter: Q) -> dict[str, Any]:
+    """Compact summary of a scope's inbound API tokens (ADR-0068).
+
+    ``scope_filter`` is a Django Q expression that selects which tokens to
+    include — typically ``Q(project_id=...)`` for the project surface or
+    ``Q(program_id=...)`` for the program surface (ADR-0076).
+
+    Returns non-revoked tokens (up to ``_INTEGRATIONS_SUMMARY_ITEM_LIMIT``) plus the
+    aggregate active count. Revoked tokens are intentionally hidden from the summary —
+    they remain visible on the dedicated API token page for audit purposes.
+    """
+    qs = ApiToken.objects.filter(
+        scope_filter,
+        is_deleted=False,
+        revoked_at__isnull=True,
+    ).order_by("-created_at")
+    active_total = qs.count()
+    last_used_at: datetime.datetime | None = None
+
+    items: list[dict[str, Any]] = []
+    for token in qs[:_INTEGRATIONS_SUMMARY_ITEM_LIMIT]:
+        items.append(
+            {
+                "id": str(token.id),
+                "name": token.name,
+                "token_prefix": token.token_prefix,
+                "created_at": token.created_at.isoformat(),
+                "last_used_at": (token.last_used_at.isoformat() if token.last_used_at else None),
+            }
+        )
+        if token.last_used_at and (last_used_at is None or token.last_used_at > last_used_at):
+            last_used_at = token.last_used_at
+
+    return {
+        "items": items,
+        "active_total": active_total,
+        "last_used_at": last_used_at.isoformat() if last_used_at else None,
+    }
 
 
 class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
@@ -4704,27 +4877,39 @@ class TaskSyncView(APIView):
     throttle_classes = [TaskSyncThrottle]
 
     def post(self, request: Request, pk: str) -> Response:
-        # request.auth is the ProjectApiToken; request.user is its creator.
-        # IsTokenForProject in permission_classes has already verified that
-        # token.project_id == URL pk before this method runs.
+        # request.auth is the ApiToken; request.user is its creator.
+        # IsTokenForProject in permission_classes has already verified that the
+        # token authorizes writes to the URL pk (either via direct
+        # token.project_id match for project-scoped tokens, or via program
+        # membership for program-scoped tokens). For program-scoped tokens we
+        # must resolve the target project from the URL rather than from the
+        # token, since `token.project_id` is None.
         from trueppm_api.apps.projects.inbound_sync import upsert_inbound_task
-        from trueppm_api.apps.projects.models import ProjectApiToken
+        from trueppm_api.apps.projects.models import ApiToken
 
         token = request.auth
-        if not isinstance(token, ProjectApiToken):
+        if not isinstance(token, ApiToken):
             # Unreachable in practice — IsTokenForProject already guarantees this.
-            # Kept for type narrowing so mypy understands token.project below.
+            # Kept for type narrowing so mypy understands the auth path below.
             return Response(
                 {"detail": "Token authentication required."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
+
+        # Resolve the target project from the URL. IsTokenForProject has
+        # already validated the token authorizes this project — this lookup
+        # cannot fail with a project the caller is unauthorized to touch.
+        # Always go through get_object_or_404 (works for both project- and
+        # program-scoped tokens) so the type is concretely Project, not
+        # Optional[Project] — keeps mypy happy and the code branch-free.
+        target_project = get_object_or_404(Project, pk=pk, is_deleted=False)
 
         serializer = InboundTaskSyncPayloadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload: dict[str, Any] = serializer.validated_data
 
         result = upsert_inbound_task(
-            project=token.project,
+            project=target_project,
             token=token,
             payload=payload,
             source_ip=_client_ip(request),
@@ -4775,7 +4960,6 @@ class ProjectApiTokenViewSet(viewsets.ModelViewSet[Any]):
         return [IsAuthenticated(), IsProjectMember()]
 
     def get_queryset(self) -> QuerySet[Any]:
-        from trueppm_api.apps.projects.models import ProjectApiToken
 
         project_pk = self.kwargs["project_pk"]
         return (
@@ -4805,7 +4989,6 @@ class ProjectApiTokenViewSet(viewsets.ModelViewSet[Any]):
         from trueppm_api.apps.projects.models import (
             ApiTokenAuditAction,
             ApiTokenAuditEntry,
-            ProjectApiToken,
         )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 

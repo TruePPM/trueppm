@@ -32,13 +32,12 @@ const NAV_GROUPS: SettingsNavGroup[] = [
       { id: 'methodology', label: 'Methodology defaults', to: '/settings/methodology', icon: <NavIcon><SprintIcon aria-hidden="true" /></NavIcon> },
     ],
   },
-  {
-    label: 'Connections',
-    items: [
-      { id: 'integrations', label: 'Integrations',        to: '/settings/integrations', icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
-      { id: 'webhooks',     label: 'Webhooks & API',      to: '/settings/webhooks',     icon: <NavIcon><WbsIcon aria-hidden="true" /></NavIcon> },
-    ],
-  },
+  // The "Connections" nav group (Integrations + Webhooks & API) is removed
+  // from OSS per ADR-0076 — integration management is project-scoped. The
+  // routes themselves (`/settings/integrations`, `/settings/webhooks`) remain
+  // as redirect shims so external bookmarks don't 404, and Enterprise
+  // re-injects this group via the slot registry to host the workspace hub UI
+  // (trueppm-enterprise#114).
   {
     label: 'Danger',
     items: [

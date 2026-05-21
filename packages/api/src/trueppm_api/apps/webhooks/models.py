@@ -23,13 +23,32 @@ ALL_WEBHOOK_EVENTS = [e.value for e in WebhookEventType]
 
 
 class Webhook(models.Model):
-    """A registered outbound webhook subscription scoped to a project."""
+    """A registered outbound webhook subscription.
+
+    Polymorphically scoped to either a Project or a Program (ADR-0076).
+    A program-scoped webhook fires for events on any project within the
+    program; a project-scoped webhook fires only for that project. The DB
+    constraint enforces XOR — exactly one of project/program is set.
+    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     project = models.ForeignKey(
         "projects.Project",
         on_delete=models.CASCADE,
         related_name="webhooks",
+        null=True,
+        blank=True,
+        help_text="Set when the webhook fires for events on a single project. "
+        "Exactly one of project/program is non-null (DB constraint).",
+    )
+    program = models.ForeignKey(
+        "projects.Program",
+        on_delete=models.CASCADE,
+        related_name="webhooks",
+        null=True,
+        blank=True,
+        help_text="Set when the webhook fires for events on any project within "
+        "this program. Exactly one of project/program is non-null (DB constraint).",
     )
     url = models.URLField(max_length=2048)
     secret = models.CharField(max_length=255)
@@ -49,10 +68,25 @@ class Webhook(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["project", "is_active"], name="webhook_project_active_idx"),
+            models.Index(fields=["program", "is_active"], name="webhook_program_active_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(project__isnull=False, program__isnull=True)
+                    | models.Q(project__isnull=True, program__isnull=False)
+                ),
+                name="webhook_scope_xor",
+            ),
         ]
 
     def __str__(self) -> str:
         return f"Webhook {self.id} → {self.url}"
+
+    @property
+    def is_program_scoped(self) -> bool:
+        """True when this webhook fires for events on any project in a program."""
+        return self.program_id is not None
 
 
 class DeliveryStatus(models.TextChoices):

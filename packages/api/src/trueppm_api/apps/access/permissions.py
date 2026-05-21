@@ -536,14 +536,19 @@ class CanAssignResource(BasePermission):
 
 
 class IsTokenForProject(BasePermission):
-    """Verify that request.auth (a ProjectApiToken) belongs to the URL project.
+    """Verify that request.auth (an ApiToken) is authorized for the URL project.
+
+    A project-scoped token (``token.project_id`` set) authorizes writes only to
+    its bound project. A program-scoped token (``token.program_id`` set) authorizes
+    writes to any project within that program — the URL project is checked
+    against the program's ``projects.filter(pk=...).exists()`` membership.
 
     Raises AuthenticationFailed (401, not PermissionDenied/403) on mismatch
     so callers cannot enumerate whether the URL project exists — a project_id
     not covered by the token is indistinguishable from a project_id that does
     not exist at all.
 
-    Returns True unconditionally when request.auth is not a ProjectApiToken
+    Returns True unconditionally when request.auth is not an ApiToken
     (i.e. JWT/Session requests) so the class is safely composable without
     side-effects on non-token views.
 
@@ -555,10 +560,10 @@ class IsTokenForProject(BasePermission):
 
         from rest_framework.exceptions import AuthenticationFailed
 
-        from trueppm_api.apps.projects.models import ProjectApiToken
+        from trueppm_api.apps.projects.models import ApiToken
 
         token = request.auth
-        if not isinstance(token, ProjectApiToken):
+        if not isinstance(token, ApiToken):
             return True  # Non-token auth path; other classes handle it.
 
         pk = view.kwargs.get("pk") or view.kwargs.get("project_pk")
@@ -567,10 +572,32 @@ class IsTokenForProject(BasePermission):
         except (TypeError, ValueError, AttributeError):
             raise AuthenticationFailed("Invalid project id.") from None
 
-        if token.project_id != url_project_id:
-            raise AuthenticationFailed("Token does not belong to this project.")
+        # Project-scoped: direct FK match.
+        if token.project_id is not None:
+            if token.project_id != url_project_id:
+                raise AuthenticationFailed("Token does not belong to this project.")
+            return True
 
-        return True
+        # Program-scoped: project must be a member of the token's program.
+        # The membership check runs against the live Project.program FK
+        # (and not the soft-deleted projects) so a program-scoped token never
+        # authorizes writes into a project that has been removed from the
+        # program after the token was minted.
+        if token.program_id is not None:
+            from trueppm_api.apps.projects.models import Project
+
+            if not Project.objects.filter(
+                pk=url_project_id,
+                program_id=token.program_id,
+                is_deleted=False,
+            ).exists():
+                raise AuthenticationFailed("Token does not authorize this project.")
+            return True
+
+        # Defense in depth: the DB CheckConstraint guarantees at least one of
+        # project_id / program_id is non-null. If we get here, the row is
+        # corrupt; reject the token rather than fail open.
+        raise AuthenticationFailed("Token has no scope.")
 
 
 # ---------------------------------------------------------------------------
