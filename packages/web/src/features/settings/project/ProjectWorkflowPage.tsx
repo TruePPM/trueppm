@@ -1,4 +1,5 @@
 import { SettingsPageTitle } from '../SettingsShell';
+import { StubFieldset } from '../components/StubFieldset';
 
 interface Phase {
   id: number;
@@ -51,6 +52,7 @@ const FIELDS: Field[] = [
 /** Project > Workflow & fields settings page. */
 export function ProjectWorkflowPage() {
   return (
+    <StubFieldset disabled>
     <div>
       <SettingsPageTitle
         title="Workflow & fields"
@@ -186,5 +188,6 @@ export function ProjectWorkflowPage() {
         </section>
       </div>
     </div>
+    </StubFieldset>
   );
 }

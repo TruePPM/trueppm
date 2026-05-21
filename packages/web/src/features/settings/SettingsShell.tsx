@@ -1,5 +1,7 @@
-import type { ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
+import { useSettingsSaveStore } from './hooks/useSettingsSaveStore';
+import { ConfirmDiscardDialog } from './components/ConfirmDiscardDialog';
 
 export interface SettingsNavItem {
   id: string;
@@ -30,10 +32,6 @@ interface SettingsShellProps {
   contextHealth?: 'onTrack' | 'atRisk' | 'critical' | null;
   /** Nav groups for the left rail */
   navGroups: SettingsNavGroup[];
-  /** Dirty state — shows save bar when true */
-  dirty?: boolean;
-  onSave?: () => void;
-  onDiscard?: () => void;
 }
 
 const HEALTH_COLOR: Record<string, string> = {
@@ -42,18 +40,85 @@ const HEALTH_COLOR: Record<string, string> = {
   critical: 'bg-semantic-critical',
 };
 
-/** Shared settings layout: left rail + nav + save bar. Renders <Outlet/> for page content. */
+/**
+ * Shared settings layout: left rail + nav + save bar.
+ *
+ * Renders `<Outlet/>` for page content. Reads dirty / save state from
+ * `useSettingsSaveStore`, which the active page populates via `useDirtyForm`.
+ * Owns the navigation guard: `beforeunload` for browser-level navigation
+ * and an `onClick` interceptor on each `NavLink` / scope button for
+ * in-app navigation. Both routes through `ConfirmDiscardDialog`.
+ */
 export function SettingsShell({
   scope,
   scopeLinks,
   contextName,
   contextHealth,
   navGroups,
-  dirty = false,
-  onSave,
-  onDiscard,
 }: SettingsShellProps) {
   const navigate = useNavigate();
+
+  const dirty = useSettingsSaveStore((s) => s.dirty);
+  const isSaving = useSettingsSaveStore((s) => s.isSaving);
+  const saveError = useSettingsSaveStore((s) => s.saveError);
+  const triggerSave = useSettingsSaveStore((s) => s.triggerSave);
+  const triggerDiscard = useSettingsSaveStore((s) => s.triggerDiscard);
+
+  const [pendingNav, setPendingNav] = useState<string | null>(null);
+
+  // beforeunload — guards browser tab close / refresh / external nav while dirty.
+  // Skipped during isSaving so the in-flight POST/PATCH isn't interrupted by
+  // a confirm prompt the user can't act on.
+  useEffect(() => {
+    if (!dirty || isSaving) return;
+    function handler(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      // Modern browsers ignore the message but still show their native dialog
+      // when preventDefault is called and returnValue is set.
+      e.returnValue = '';
+    }
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [dirty, isSaving]);
+
+  // Ctrl/Cmd+S — save while dirty. ADR-0052 precedent (task modal).
+  useEffect(() => {
+    if (!dirty) return;
+    function handler(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        void triggerSave();
+      }
+    }
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [dirty, triggerSave]);
+
+  // Intercept an in-app navigation: stash the target, open the confirm dialog.
+  // Returns true when nav should be blocked (caller calls preventDefault).
+  const guardedNavigate = useCallback(
+    (to: string): boolean => {
+      if (!dirty || isSaving) return false;
+      setPendingNav(to);
+      return true;
+    },
+    [dirty, isSaving],
+  );
+
+  const handleKeepEditing = useCallback(() => {
+    setPendingNav(null);
+  }, []);
+
+  const handleDiscardAndGo = useCallback(() => {
+    const target = pendingNav;
+    setPendingNav(null);
+    // Reset page state synchronously so the user doesn't briefly see the
+    // dirty values flash before navigating.
+    triggerDiscard();
+    if (target) {
+      void navigate(target);
+    }
+  }, [pendingNav, navigate, triggerDiscard]);
 
   return (
     <div className="flex h-full min-h-0">
@@ -64,7 +129,7 @@ export function SettingsShell({
       >
         {/* Scope switcher */}
         <div className="px-3.5 pt-3 pb-2 shrink-0">
-          <p className="text-[10px] font-semibold tracking-[.1em] uppercase text-neutral-text-secondary mb-1.5">
+          <p className="text-xs font-semibold tracking-[.1em] uppercase text-neutral-text-secondary mb-1.5">
             Scope
           </p>
           <div className="grid grid-cols-3 bg-neutral-surface-sunken rounded p-0.5 gap-0">
@@ -72,12 +137,15 @@ export function SettingsShell({
               <button
                 key={sl.scope}
                 type="button"
-                onClick={() => { void navigate(sl.to); }}
+                onClick={() => {
+                  if (guardedNavigate(sl.to)) return;
+                  void navigate(sl.to);
+                }}
                 className={[
-                  'py-1.5 px-1 rounded text-[11px] font-medium text-center transition-colors',
+                  'py-1.5 px-1 rounded text-xs font-medium text-center transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                   scope === sl.scope
-                    ? 'bg-neutral-surface text-neutral-text-primary shadow-sm'
+                    ? 'bg-neutral-surface text-neutral-text-primary'
                     : 'text-neutral-text-secondary hover:text-neutral-text-primary',
                 ].join(' ')}
               >
@@ -119,7 +187,7 @@ export function SettingsShell({
         <nav className="flex-1 overflow-y-auto px-2 py-1" aria-label="Settings sections">
           {navGroups.map((group) => (
             <div key={group.label} className="mb-2">
-              <h2 className="px-2 py-1.5 text-[10px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary">
+              <h2 className="px-2 py-1.5 text-xs font-semibold tracking-[.08em] uppercase text-neutral-text-secondary">
                 {group.label}
               </h2>
               {group.items.map((item) => (
@@ -127,6 +195,11 @@ export function SettingsShell({
                   key={item.id}
                   to={item.to}
                   end
+                  onClick={(e) => {
+                    if (guardedNavigate(item.to)) {
+                      e.preventDefault();
+                    }
+                  }}
                   className={({ isActive }) =>
                     [
                       'flex items-center gap-2 px-2.5 py-[7px] rounded text-[13px] transition-colors',
@@ -162,7 +235,7 @@ export function SettingsShell({
           <Outlet />
         </div>
 
-        {/* Save bar */}
+        {/* Save bar — armed when an apiReady page reports dirty=true. */}
         {dirty && (
           <div className="shrink-0 flex items-center gap-3 px-6 py-2.5 bg-brand-primary border-t border-brand-primary-dark">
             <svg
@@ -175,25 +248,37 @@ export function SettingsShell({
             >
               <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3.5a1 1 0 0 1 0 2 1 1 0 0 1 0-2zm0 3.5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
             </svg>
-            <span className="text-[13px] font-medium text-white">You have unsaved changes</span>
+            <span className="text-[13px] font-medium text-white" role="status">
+              {saveError ?? 'You have unsaved changes'}
+            </span>
             <div className="flex-1" />
             <button
               type="button"
-              onClick={onDiscard}
-              className="text-[13px] text-white/85 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              onClick={triggerDiscard}
+              disabled={isSaving}
+              className="text-[13px] text-white/85 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-50"
             >
               Discard
             </button>
             <button
               type="button"
-              onClick={onSave}
-              className="px-3.5 py-1.5 rounded bg-white text-brand-primary-dark text-[13px] font-semibold hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              onClick={() => void triggerSave()}
+              disabled={isSaving}
+              aria-keyshortcuts="Meta+S Control+S"
+              className="px-3.5 py-1.5 rounded bg-white text-brand-primary-dark text-[13px] font-semibold hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:opacity-60"
             >
-              Save changes
+              {isSaving ? 'Saving…' : 'Save changes'}
             </button>
           </div>
         )}
       </div>
+
+      {pendingNav !== null && (
+        <ConfirmDiscardDialog
+          onKeepEditing={handleKeepEditing}
+          onDiscard={handleDiscardAndGo}
+        />
+      )}
     </div>
   );
 }

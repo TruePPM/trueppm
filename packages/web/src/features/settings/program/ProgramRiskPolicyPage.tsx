@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { StubFieldset } from '../components/StubFieldset';
 
 type Threshold = 'low' | 'medium' | 'high' | 'critical';
 
@@ -43,6 +44,7 @@ export function ProgramRiskPolicyPage() {
   const [escalationDays, setEscalationDays] = useState(3);
 
   return (
+    <StubFieldset disabled>
     <div>
       <SettingsPageTitle
         title="Risk & deps policy"
@@ -145,5 +147,6 @@ export function ProgramRiskPolicyPage() {
         </FieldRow>
       </div>
     </div>
+    </StubFieldset>
   );
 }

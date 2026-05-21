@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
+import { StubFieldset } from '../components/StubFieldset';
 
 interface KpiToggle {
   id: string;
@@ -52,6 +53,7 @@ export function ProgramRollupPage() {
   }
 
   return (
+    <StubFieldset disabled>
     <div>
       <SettingsPageTitle
         title="Rollup KPIs"
@@ -121,5 +123,6 @@ export function ProgramRollupPage() {
         </section>
       </div>
     </div>
+    </StubFieldset>
   );
 }

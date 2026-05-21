@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
+import { StubFieldset } from '../components/StubFieldset';
 
 const EVENTS = [
   'Task assigned to me',
@@ -63,6 +64,7 @@ export function ProjectNotificationsPage() {
   }
 
   return (
+    <StubFieldset disabled>
     <div>
       <SettingsPageTitle
         title="Notifications"
@@ -179,5 +181,6 @@ export function ProjectNotificationsPage() {
         </div>
       </div>
     </div>
+    </StubFieldset>
   );
 }

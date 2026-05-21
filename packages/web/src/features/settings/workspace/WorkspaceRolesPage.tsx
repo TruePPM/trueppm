@@ -1,4 +1,5 @@
 import { SettingsPageTitle } from '../SettingsShell';
+import { StubFieldset } from '../components/StubFieldset';
 
 const ROLES = ['Viewer', 'Member', 'Scheduler', 'Admin', 'Owner'] as const;
 type Role = typeof ROLES[number];
@@ -95,6 +96,7 @@ function CheckIcon() {
 /** Workspace > Roles & permissions RBAC matrix. */
 export function WorkspaceRolesPage() {
   return (
+    <StubFieldset disabled>
     <div>
       <SettingsPageTitle
         title="Roles & permissions"
@@ -187,5 +189,6 @@ export function WorkspaceRolesPage() {
         </div>
       </div>
     </div>
+    </StubFieldset>
   );
 }

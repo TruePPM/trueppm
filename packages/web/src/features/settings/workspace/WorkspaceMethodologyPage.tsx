@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { StubFieldset } from '../components/StubFieldset';
 
 type Method = 'agile' | 'waterfall' | 'hybrid';
 
@@ -43,6 +44,7 @@ export function WorkspaceMethodologyPage() {
   const [overridePolicy, setOverridePolicy] = useState<'inherit' | 'suggest' | 'enforce'>('suggest');
 
   return (
+    <StubFieldset disabled>
     <div>
       <SettingsPageTitle
         title="Methodology defaults"
@@ -203,5 +205,6 @@ export function WorkspaceMethodologyPage() {
         </FieldRow>
       </div>
     </div>
+    </StubFieldset>
   );
 }
