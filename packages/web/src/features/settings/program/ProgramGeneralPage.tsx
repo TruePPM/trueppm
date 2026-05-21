@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { StubFieldset } from '../components/StubFieldset';
+import { StubPageBanner } from '../components/StubPageBanner';
 
 type ProgramHealth = 'onTrack' | 'atRisk' | 'critical' | 'auto';
 
@@ -31,6 +32,8 @@ export function ProgramGeneralPage() {
   const [visibility, setVisibility] = useState<'workspace' | 'private'>('workspace');
 
   return (
+    <>
+    <StubPageBanner pageIssue={523} />
     <StubFieldset disabled>
     <div>
       <SettingsPageTitle
@@ -158,5 +161,6 @@ export function ProgramGeneralPage() {
       </div>
     </div>
     </StubFieldset>
+    </>
   );
 }

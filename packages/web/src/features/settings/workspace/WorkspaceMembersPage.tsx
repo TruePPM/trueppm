@@ -1,4 +1,5 @@
 import { SettingsPageTitle } from '../SettingsShell';
+import { StubPageBanner } from '../components/StubPageBanner';
 import { useWorkspaceMembers, type WorkspaceMember } from '../hooks/useWorkspaceMembers';
 
 const ROLE_PALETTE: Record<string, { bg: string; text: string }> = {
@@ -115,6 +116,7 @@ export function WorkspaceMembersPage() {
 
   return (
     <div>
+      <StubPageBanner pageIssue={518} />
       <SettingsPageTitle
         title="Members"
         count={`${members.length} members · ${pendingInvites.length} pending`}

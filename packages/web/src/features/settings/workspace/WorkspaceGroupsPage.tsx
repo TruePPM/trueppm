@@ -1,4 +1,5 @@
 import { SettingsPageTitle } from '../SettingsShell';
+import { StubPageBanner } from '../components/StubPageBanner';
 import { useWorkspaceGroups } from '../hooks/useWorkspaceGroups';
 
 const MEMBER_COLORS = ['#1C6B3A', '#C17A10', '#7C3AED', '#0EA5E9', '#DC2626', '#0F766E'];
@@ -97,6 +98,7 @@ export function WorkspaceGroupsPage() {
 
   return (
     <div>
+      <StubPageBanner pageIssue={519} />
       <SettingsPageTitle
         title="Groups & teams"
         count={`${groups.length} groups`}

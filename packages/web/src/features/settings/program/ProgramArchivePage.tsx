@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
+import { StubPageBanner } from '../components/StubPageBanner';
 
 interface LifecycleCardProps {
   title: string;
@@ -44,6 +45,7 @@ export function ProgramArchivePage() {
 
   return (
     <div>
+      <StubPageBanner pageIssue={530} />
       <SettingsPageTitle
         title="Archive / Close"
         subtitle="Lifecycle actions for this program. All actions are logged and can be reviewed in the workspace audit log."

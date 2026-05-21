@@ -1,4 +1,5 @@
 import { SettingsPageTitle } from '../SettingsShell';
+import { StubPageBanner } from '../components/StubPageBanner';
 
 interface ProgramMember {
   initials: string;
@@ -40,6 +41,7 @@ function RoleBadge({ role }: { role: string }) {
 export function ProgramAccessPage() {
   return (
     <div>
+      <StubPageBanner pageIssue={525} />
       <SettingsPageTitle
         title="Access"
         count={`${MEMBERS.length} members`}

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { StubFieldset } from '../components/StubFieldset';
+import { StubPageBanner } from '../components/StubPageBanner';
 
 type Method = 'agile' | 'waterfall' | 'hybrid';
 
@@ -44,6 +45,8 @@ export function WorkspaceMethodologyPage() {
   const [overridePolicy, setOverridePolicy] = useState<'inherit' | 'suggest' | 'enforce'>('suggest');
 
   return (
+    <>
+    <StubPageBanner pageIssue={510} />
     <StubFieldset disabled>
     <div>
       <SettingsPageTitle
@@ -206,5 +209,6 @@ export function WorkspaceMethodologyPage() {
       </div>
     </div>
     </StubFieldset>
+    </>
   );
 }

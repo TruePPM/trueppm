@@ -1,4 +1,5 @@
 import { SettingsPageTitle, FieldRow, SettingsCard } from '../SettingsShell';
+import { StubPageBanner } from '../components/StubPageBanner';
 
 const WEBHOOK_EVENTS = [
   'task.created', 'task.updated', 'task.deleted',
@@ -13,6 +14,7 @@ const WEBHOOK_EVENTS = [
 export function WorkspaceWebhooksPage() {
   return (
     <div>
+      <StubPageBanner pageIssue={513} />
       <SettingsPageTitle
         title="Webhooks & API"
         subtitle="Outbound webhooks and API token management for automations and integrations."

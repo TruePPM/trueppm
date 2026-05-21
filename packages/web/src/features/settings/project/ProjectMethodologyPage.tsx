@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { StubFieldset } from '../components/StubFieldset';
+import { StubPageBanner } from '../components/StubPageBanner';
 
 type Method = 'agile' | 'waterfall' | 'hybrid' | 'inherit';
 
@@ -43,6 +44,8 @@ export function ProjectMethodologyPage() {
   const [method, setMethod] = useState<Method>('inherit');
 
   return (
+    <>
+    <StubPageBanner pageIssue={511} />
     <StubFieldset disabled>
     <div>
       <SettingsPageTitle
@@ -142,5 +145,6 @@ export function ProjectMethodologyPage() {
       </div>
     </div>
     </StubFieldset>
+    </>
   );
 }
