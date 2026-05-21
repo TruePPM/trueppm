@@ -1481,15 +1481,6 @@ export function BoardView() {
             />
           )}
 
-          {/* Active-sprint summary (ADR-0073) — hidden on WATERFALL projects
-              and on projects with no active sprint. */}
-          {projectId && (
-            <SprintPanel
-              projectId={projectId}
-              methodology={projectDetail?.methodology}
-            />
-          )}
-
           {/* "My tasks" active chip (issue #198) — keeps the filter state
               inescapable so users don't think the board has lost data. */}
           {mineActive && (
@@ -1528,6 +1519,14 @@ export function BoardView() {
               focusedCardId={focusedCardId}
               onCardFocus={handleCardFocus}
               onCardClick={handleCardClick}
+              header={
+                projectId ? (
+                  <SprintPanel
+                    projectId={projectId}
+                    methodology={projectDetail?.methodology}
+                  />
+                ) : null
+              }
             />
           )}
           {toolbarPrefs.layout === 'drawer' && (
@@ -1566,6 +1565,17 @@ export function BoardView() {
 
             {/* Board grid — scrollable */}
             <div className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken">
+            {/* Active-sprint summary (ADR-0073) — rendered inside the scroll
+                container so the burndown / velocity charts scroll away with
+                the board instead of permanently consuming vertical space.
+                Hidden entirely on WATERFALL projects and on projects with
+                no active sprint. */}
+            {projectId && (
+              <SprintPanel
+                projectId={projectId}
+                methodology={projectDetail?.methodology}
+              />
+            )}
             {/* Sticky column headers */}
             <div
               className="grid gap-2 px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10"
