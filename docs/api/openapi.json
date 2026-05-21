@@ -11035,6 +11035,16 @@
                 "type": "string",
                 "description": "* `pending_retry` - Pending Retry\n* `dead` - Dead\n* `dismissed` - Dismissed\n* `retried` - Retried"
             },
+            "HealthEnum": {
+                "enum": [
+                    "AUTO",
+                    "ON_TRACK",
+                    "AT_RISK",
+                    "CRITICAL"
+                ],
+                "type": "string",
+                "description": "* `AUTO` - Auto\n* `ON_TRACK` - On track\n* `AT_RISK` - At risk\n* `CRITICAL` - Critical"
+            },
             "HealthResponse": {
                 "type": "object",
                 "properties": {
@@ -12390,8 +12400,22 @@
                     "description": {
                         "type": "string"
                     },
+                    "code": {
+                        "type": "string",
+                        "maxLength": 40
+                    },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "health": {
+                        "$ref": "#/components/schemas/HealthEnum"
+                    },
+                    "visibility": {
+                        "$ref": "#/components/schemas/VisibilityEnum"
+                    },
+                    "lead": {
+                        "type": "integer",
+                        "nullable": true
                     }
                 }
             },
@@ -12894,8 +12918,30 @@
                     "description": {
                         "type": "string"
                     },
+                    "code": {
+                        "type": "string",
+                        "maxLength": 40
+                    },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "health": {
+                        "$ref": "#/components/schemas/HealthEnum"
+                    },
+                    "visibility": {
+                        "$ref": "#/components/schemas/VisibilityEnum"
+                    },
+                    "lead": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "lead_detail": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_UserSummary"
+                            }
+                        ],
+                        "readOnly": true
                     },
                     "created_by": {
                         "type": "integer",
@@ -12937,6 +12983,7 @@
                     "created_at",
                     "created_by",
                     "id",
+                    "lead_detail",
                     "member_count",
                     "my_role",
                     "my_role_label",
@@ -13056,8 +13103,22 @@
                     "description": {
                         "type": "string"
                     },
+                    "code": {
+                        "type": "string",
+                        "maxLength": 40
+                    },
                     "methodology": {
                         "$ref": "#/components/schemas/MethodologyEnum"
+                    },
+                    "health": {
+                        "$ref": "#/components/schemas/HealthEnum"
+                    },
+                    "visibility": {
+                        "$ref": "#/components/schemas/VisibilityEnum"
+                    },
+                    "lead": {
+                        "type": "integer",
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -15381,6 +15442,14 @@
                     "team_velocity_per_day"
                 ]
             },
+            "VisibilityEnum": {
+                "enum": [
+                    "WORKSPACE",
+                    "PRIVATE"
+                ],
+                "type": "string",
+                "description": "* `WORKSPACE` - Workspace\n* `PRIVATE` - Private"
+            },
             "Webhook": {
                 "type": "object",
                 "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET responses.\nThe ``events`` field is validated against the known event type choices.",
@@ -15580,6 +15649,7 @@
             },
             "_UserSummary": {
                 "type": "object",
+                "description": "Compact user payload nested inside Program/Project responses.\n\nKept module-private (leading underscore) by convention — mirrors the same\npattern in ``access.serializers``. Add a public wrapper if a different\nfield set is ever needed.",
                 "properties": {
                     "id": {
                         "type": "integer",
@@ -15600,6 +15670,28 @@
                 },
                 "required": [
                     "id",
+                    "username"
+                ]
+            },
+            "_UserSummaryRequest": {
+                "type": "object",
+                "description": "Compact user payload nested inside Program/Project responses.\n\nKept module-private (leading underscore) by convention — mirrors the same\npattern in ``access.serializers``. Add a public wrapper if a different\nfield set is ever needed.",
+                "properties": {
+                    "username": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only.",
+                        "pattern": "^[\\w.@+-]+$",
+                        "maxLength": 150
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "title": "Email address",
+                        "maxLength": 254
+                    }
+                },
+                "required": [
                     "username"
                 ]
             }
