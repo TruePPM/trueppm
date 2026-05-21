@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (v2 — post-VoC)
+Proposed (v3 — post-re-VoC, panel cleared 🔴 at 6.5/10 panel avg, 7.5/10 across the four critical reviewers)
 
 ## Context
 
@@ -95,7 +95,7 @@ class Task(VersionedModel):
     # ... existing fields ...
     team = ForeignKey('teams.Team', SET_NULL, null=True, blank=True, related_name='tasks')
 ```
-Nullable; serves as a hint for backlog grouping when ≥2 teams exist. When a task is moved into a sprint, a warning (not a hard reject) fires if `task.team` and `sprint.team` differ — PO/SM can override with reason.
+Nullable; serves as a hint for backlog grouping when ≥2 teams exist. When a task is moved into a sprint and `task.team` and `sprint.team` differ, a warning (not a hard reject) fires, the move proceeds with a reason field on the action, and a structured `TaskTeamMismatchEvent` is written to the sprint activity feed (not just a transient toast). Cross-team pairing/spillover is a real workflow; hard-rejecting would push PMs to bypass team tagging entirely.
 
 ### C. Default Team migration
 
@@ -123,9 +123,10 @@ Project Admin (role 300+) inheritance is **split by action sensitivity**:
 
 **Audited override path** for the consent-sensitive actions:
 - Requires explicit `reason` field
-- Emits a `Notification` (source_type='team_admin_override', detail={action, actor, reason}) to every team member
+- Emits a `Notification` (source_type='team_admin_override', detail={action, actor, reason}) to every team member, weighted higher for users with `is_scrum_master` or `is_product_owner` facets so override signal does not drown in feed noise
 - Logged in team activity feed visible to all team members
 - Override is rate-limited (≤ 1 per team per 24h) to prevent silent reuse
+- **Per-team override ceiling**: each team can configure a `TeamPermissionSettings` row to disable project-Admin override entirely for `Sprint.team` rebind on active sprints. Default is "override allowed with notification"; teams may set "override prohibited" or "override requires acknowledge-or-revert window (0–24h)". Configurable by `IsTeamAdminExplicit`, not by project Admin. This makes the override a team-configurable ceiling, not a global default.
 
 This makes "project Admin can override" a real, visible escape hatch rather than a silent default. It does not block emergency action, but it does make the action consensual-by-notification.
 
@@ -147,7 +148,10 @@ POST   /api/v1/teams/{team_id}/members/
 PATCH  /api/v1/teams/{team_id}/members/{user_id}/    # role/facet change
 DELETE /api/v1/teams/{team_id}/members/{user_id}/
 GET    /api/v1/teams/{team_id}/activity/             # activity feed (memberships, opt-ins, overrides)
-GET    /api/v1/users/{user_id}/teams/                # David's reverse view; cross-project, read-only
+GET    /api/v1/users/{user_id}/teams/                # David + Alex's reverse view; cross-project, read-only.
+                                                     # Per row returns: team_id, project_id, role, is_scrum_master,
+                                                     # is_product_owner, active_sprint_id (if any) — enabling a
+                                                     # one-call "what am I facilitating right now across all teams" pivot
 ```
 
 Sprint association via existing `PATCH /api/v1/sprints/{id}/` with `team` field. Story-team via `PATCH /api/v1/tasks/{id}/` with `team` field.
@@ -156,7 +160,7 @@ Sprint association via existing `PATCH /api/v1/sprints/{id}/` with `team` field.
 
 **Serializer rule:** when `project.teams.filter(is_deleted=False).count() == 1` (i.e., only the default team exists), the `team` field is **omitted entirely** from REST responses, CSV exports, PDF exports, and any portfolio/program rollup payload. The field reappears when a second team is created.
 
-**Web rule:** Project Settings → Teams *tab itself* is conditionally rendered — hidden when count == 1; visible when count ≥ 2. (Web CLAUDE.md will record this as a numbered rule.) Sprint drawer's Team field is hidden when count == 1 (sprint inherits default team silently).
+**Web rule:** Project Settings → Teams *tab itself* is conditionally rendered — hidden when count == 1; visible when count ≥ 2. (Web CLAUDE.md will record this as a numbered rule.) The following surfaces are also Team-agnostic when count == 1 (no picker, no team label, no team field): Sprint drawer's Team field, Task drawer's Team field, **mobile time-entry screen**, **WBS task-create dialog** (web + mobile), client PDF/CSV exports, and any portfolio/program rollup payload. Sprint and task inherit default team silently. Sarah's waterfall projects never encounter the concept.
 
 **Auto-membership invariant** (Priya): a signal on `ProjectMembership.post_save` auto-creates/updates the corresponding `TeamMembership` on the project's default team. Permanent invariant, not a one-time migration. New project members never see a second "join the team" step. When a non-default team is soft-deleted, its members fall back to the default team's membership (no orphan state).
 
