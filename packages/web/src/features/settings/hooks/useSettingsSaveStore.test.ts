@@ -14,6 +14,7 @@ describe('useSettingsSaveStore', () => {
     expect(state.apiReady).toBe(false);
     expect(state.isSaving).toBe(false);
     expect(state.saveError).toBeNull();
+    expect(state.lastSavedAt).toBeNull();
     expect(state.onSave).toBeNull();
     expect(state.onReset).toBeNull();
   });
@@ -124,6 +125,50 @@ describe('useSettingsSaveStore', () => {
     useSettingsSaveStore.setState({ saveError: 'something' });
     useSettingsSaveStore.getState().clearError();
     expect(useSettingsSaveStore.getState().saveError).toBeNull();
+  });
+
+  it('triggerSave stamps lastSavedAt on success', async () => {
+    const before = Date.now();
+    useSettingsSaveStore.getState().register({
+      dirty: true,
+      apiReady: true,
+      onSave: vi.fn().mockResolvedValue(undefined),
+      onReset: vi.fn(),
+    });
+    await useSettingsSaveStore.getState().triggerSave();
+    const after = Date.now();
+    const stamped = useSettingsSaveStore.getState().lastSavedAt;
+    expect(stamped).not.toBeNull();
+    expect(stamped!).toBeGreaterThanOrEqual(before);
+    expect(stamped!).toBeLessThanOrEqual(after);
+  });
+
+  it('triggerSave does not stamp lastSavedAt on failure', async () => {
+    useSettingsSaveStore.getState().register({
+      dirty: true,
+      apiReady: true,
+      onSave: vi.fn().mockRejectedValue(new Error('boom')),
+      onReset: vi.fn(),
+    });
+    await useSettingsSaveStore.getState().triggerSave();
+    expect(useSettingsSaveStore.getState().lastSavedAt).toBeNull();
+  });
+
+  it('reset clears lastSavedAt', () => {
+    useSettingsSaveStore.setState({ lastSavedAt: 12345 });
+    reset();
+    expect(useSettingsSaveStore.getState().lastSavedAt).toBeNull();
+  });
+
+  it('register preserves lastSavedAt (so saved footer survives re-registration)', () => {
+    useSettingsSaveStore.setState({ lastSavedAt: 12345 });
+    useSettingsSaveStore.getState().register({
+      dirty: false,
+      apiReady: true,
+      onSave: vi.fn(),
+      onReset: vi.fn(),
+    });
+    expect(useSettingsSaveStore.getState().lastSavedAt).toBe(12345);
   });
 
   it('register with dirty=false clears a stale saveError', () => {
