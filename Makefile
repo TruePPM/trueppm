@@ -4,7 +4,7 @@
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
         migrations-check schema-check web-lint web-typecheck pre-push \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web \
-        release-smoke
+        release-smoke wt-new wt-list wt-remove wt-prune wt-doctor
 
 # Diff-coverage gate config. New code on this branch (vs $(COVERAGE_DIFF_BASE))
 # must hit at least $(COVERAGE_DIFF_MIN)% line coverage.
@@ -25,6 +25,33 @@ setup: ## Install git hooks and verify prerequisites
 # ─── Doctor ───────────────────────────────────────────────────────────────────
 doctor: ## Verify all development prerequisites
 	@bash scripts/doctor.sh
+
+# ─── Worktrees (parallel multi-issue work) ───────────────────────────────────
+# Thin Makefile wrappers around scripts/wt so the workflow is discoverable
+# via `make help`. Full docs: docs/getting-started/parallel-worktrees.md.
+
+wt-new: ## Create a worktree for an issue (usage: make wt-new ISSUE=600)
+	@if [ -z "$(ISSUE)" ]; then \
+	  echo "usage: make wt-new ISSUE=<issue-number-or-branch-name>" >&2; \
+	  exit 2; \
+	fi
+	@bash scripts/wt new "$(ISSUE)"
+
+wt-list: ## List active worktrees and current WIP count
+	@bash scripts/wt list
+
+wt-remove: ## Remove a worktree (usage: make wt-remove ISSUE=600)
+	@if [ -z "$(ISSUE)" ]; then \
+	  echo "usage: make wt-remove ISSUE=<issue-number-or-branch-name>" >&2; \
+	  exit 2; \
+	fi
+	@bash scripts/wt remove "$(ISSUE)"
+
+wt-prune: ## Remove worktrees whose branches were merged + deleted on origin
+	@bash scripts/wt prune
+
+wt-doctor: ## Verify worktree symlinks + shared Docker stack are healthy
+	@bash scripts/wt doctor
 
 # ─── Lint ─────────────────────────────────────────────────────────────────────
 lint: lint-scheduler lint-api lint-web ## Lint all packages
@@ -144,6 +171,10 @@ coverage-diff-web: ## Diff coverage for packages/web
 pre-push: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check schema-check ## Run pre-push CI gates (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
 	@echo ""
 	@echo "✅ Pre-push checks passed. Safe to git push."
+	@# Best-effort sweep of merged worktrees after a successful gate run. Allowed
+	@# to fail (e.g. offline) without blocking the push — pre-push's job is to
+	@# validate the code, not the worktree state.
+	@bash scripts/wt prune 2>/dev/null || true
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 build: ## Build the web bundle

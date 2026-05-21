@@ -86,14 +86,30 @@ One Docker stack, one dev database, multiple worktrees:
 
 ## Cleanup
 
-`scripts/wt remove <issue>` is the canonical path. It refuses if your tree
-has uncommitted tracked changes or untracked files beyond the auto-created
-set (the two symlinks + `.envrc`). If you really do want to discard work,
-pass `--force` as the second argument.
+**Per-worktree:** `scripts/wt remove <issue>` (or `make wt-remove ISSUE=N`)
+is the canonical path. It refuses if your tree has uncommitted tracked
+changes or untracked files beyond the auto-created set (the two symlinks +
+`.envrc`). If you really do want to discard work, pass `--force` as the
+second argument.
 
-If the worktree directory got nuked manually (rm -rf'd outside the helper),
-clean up the orphaned reference with `git worktree prune` in the main
-checkout.
+**Bulk cleanup after merges:** `scripts/wt prune` (or `make wt-prune`)
+sweeps every worktree whose branch has been merged to `main` and deleted
+on `origin`. Detection works like this:
+
+1. `git fetch --prune` drops local tracking refs for branches deleted upstream
+2. For each worktree, check that its branch (a) had an upstream, (b) no
+   longer has one on `origin`, and (c) is fully an ancestor of `origin/main`
+3. Apply the same safety guards as `wt remove` — refuse to drop worktrees
+   with uncommitted local work (override with `--force` if you really mean it)
+4. Report what got pruned, what was skipped, and what was kept
+
+Run `make wt-prune` periodically — after a merge train, end of day, or
+whenever your `wt list` looks bloated. It's idempotent (running twice is
+free) and conservative (never drops work).
+
+If the worktree directory got nuked manually (`rm -rf`'d outside the
+helper), clean up the orphaned reference with `git worktree prune` in the
+main checkout — that's git's built-in, distinct from our `wt prune`.
 
 ## Why not one Docker stack per worktree?
 
