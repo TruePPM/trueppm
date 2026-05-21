@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import environ
 
+from trueppm_api.core.security_checks import validate_secret_key
+
 from .base import *  # noqa: F403
 from .base import DATABASES
 
@@ -14,6 +16,14 @@ DEBUG = False
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 
 SECRET_KEY = env("SECRET_KEY")  # required; no default in prod
+
+# Refuse to boot with a weak SECRET_KEY (#566, PYSEC-2025-183).
+# Django's system-check registry only fires under `manage.py check`; gunicorn
+# and asgi workers do not run checks at startup, so the failure must be
+# raised at settings import time to actually stop a broken deploy.
+_secret_key_errors = validate_secret_key(SECRET_KEY, debug=DEBUG)
+if _secret_key_errors:
+    raise RuntimeError("Refusing to start: " + "; ".join(str(e.msg) for e in _secret_key_errors))
 
 # Persistent connections for production load.
 DATABASES["default"]["CONN_MAX_AGE"] = 600

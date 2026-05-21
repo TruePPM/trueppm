@@ -5,7 +5,9 @@
 # Required .env variables:
 #   APP_VERSION=v1.0.0            (image tag; defaults to "latest")
 #   DOMAIN=trueppm.example.com
-#   SECRET_KEY=<long random string>
+#   SECRET_KEY=<random string, at least 32 chars — the api container will
+#                refuse to start otherwise (#566). Generate with:
+#                python3 -c "import secrets; print(secrets.token_urlsafe(50))">
 #   DB_PASSWORD=<strong password>
 #   REDIS_PASSWORD=<strong password>
 #   TLS_MODE=letsencrypt           (letsencrypt | selfsigned | none)
