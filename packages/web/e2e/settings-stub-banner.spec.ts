@@ -12,8 +12,9 @@ import { test, expect } from '@playwright/test';
  *   1. Banner is present on a stubbed page (Methodology).
  *   2. Banner is absent on a wired page (Access / General name+description).
  *   3. Issue link points to the page's 0.2 wiring issue.
- *   4. Dismissing the banner survives in-app navigation but reappears in a
- *      fresh session.
+ *   4. Dismissing the banner persists across in-app navigation and across
+ *      browser sessions (`localStorage`, #592) — only reappears when site
+ *      data is cleared or the page's `pageIssue` changes (a new stub).
  */
 
 const PROJECT_ID = 'e2e-settings-banner-00000000-0000-0000-0000-000000000538';

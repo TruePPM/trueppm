@@ -3,8 +3,9 @@ import { useEffect, useState } from 'react';
 export interface StubPageBannerProps {
   /**
    * GitLab issue number tracking the API wiring for this page. Used both as
-   * the dismissal key in `sessionStorage` (so the user dismisses each page's
-   * banner independently) and as the issue link in the banner copy.
+   * the dismissal key in `localStorage` (so the user dismisses each page's
+   * banner independently, persisted across sessions) and as the issue link
+   * in the banner copy.
    */
   pageIssue: number;
 }
@@ -18,27 +19,28 @@ const ISSUE_URL_BASE = 'https://gitlab.com/trueppm/trueppm/-/issues/';
  * pages were visually identical to live ones and Marcus couldn't honestly
  * answer a compliance-officer drill-through.
  *
- * Dismiss state is per-issue and per-session (`sessionStorage`). The banner
- * reappears on every new tab/session until the page's API ships and the
- * caller removes the `<StubPageBanner>` from the page entirely. That
- * removal — rather than an in-component "is the hook live?" check — is the
- * single source of truth the issue requires: a wired page has no banner in
- * its source.
+ * Dismiss state is per-issue and persists across browser sessions
+ * (`localStorage`). With 14 of 19 settings pages currently stubbed, sessional
+ * dismissal hit the user on every new tab and every return-from-laptop-sleep,
+ * eroding trust in the surface (VoC 2026-05-21, #592). The banner reappears
+ * only when the issue ID changes (a new stub page) or the user clears site
+ * data. Removal of `<StubPageBanner>` from a page's source remains the single
+ * source of truth for "the API shipped" — never an in-component check.
  */
 export function StubPageBanner({ pageIssue }: StubPageBannerProps) {
   const storageKey = `${STORAGE_PREFIX}${pageIssue}`;
   const [dismissed, setDismissed] = useState(false);
 
   // Read the dismissal flag inside an effect so server-side rendering and
-  // initial mount stay consistent (sessionStorage is not available during SSR
+  // initial mount stay consistent (localStorage is not available during SSR
   // and accessing it synchronously during render causes a hydration mismatch).
   useEffect(() => {
     try {
-      if (sessionStorage.getItem(storageKey) === '1') {
+      if (localStorage.getItem(storageKey) === '1') {
         setDismissed(true);
       }
     } catch {
-      // sessionStorage may be unavailable (private mode, embedded iframe with
+      // localStorage may be unavailable (private mode, embedded iframe with
       // restricted cookies). Treat that as "show the banner" — failing closed
       // is safer than failing open for an honesty signal.
     }
@@ -46,7 +48,7 @@ export function StubPageBanner({ pageIssue }: StubPageBannerProps) {
 
   const handleDismiss = () => {
     try {
-      sessionStorage.setItem(storageKey, '1');
+      localStorage.setItem(storageKey, '1');
     } catch {
       // See above — silent failure is acceptable. The banner still dismisses
       // visually for this render; it will reappear on the next navigation.
@@ -97,7 +99,7 @@ export function StubPageBanner({ pageIssue }: StubPageBannerProps) {
       <button
         type="button"
         onClick={handleDismiss}
-        aria-label="Dismiss preview banner for this session"
+        aria-label="Dismiss preview banner"
         className="text-neutral-text-secondary hover:text-neutral-text-primary p-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
