@@ -1,4 +1,5 @@
 import { SettingsPageTitle, SettingsCard } from '../SettingsShell';
+import { StubFieldset } from '../components/StubFieldset';
 
 interface CeremonyTemplate {
   id: string;
@@ -40,6 +41,7 @@ function Toggle({ on }: { on: boolean }) {
 /** Program > Cadence & ceremonies settings page. */
 export function ProgramCadencePage() {
   return (
+    <StubFieldset disabled>
     <div>
       <SettingsPageTitle
         title="Cadence & ceremonies"
@@ -108,5 +110,6 @@ export function ProgramCadencePage() {
         </section>
       </div>
     </div>
+    </StubFieldset>
   );
 }

@@ -3,11 +3,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
-import { useCreateProject, useCalendars } from './useProjectMutations';
+import { useCreateProject, useCalendars, useUpdateProject } from './useProjectMutations';
 
 const postMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({
     data: { id: 'proj-new', name: 'New Project', description: '', start_date: '2026-05-01', calendar: null },
+  }),
+);
+const patchMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue({
+    data: { id: 'proj-1', name: 'Updated Project', description: 'new desc', start_date: '2026-05-01', calendar: null },
   }),
 );
 const getMock = vi.hoisted(() =>
@@ -25,7 +30,7 @@ const getMock = vi.hoisted(() =>
 );
 
 vi.mock('@/api/client', () => ({
-  apiClient: { post: postMock, get: getMock },
+  apiClient: { post: postMock, patch: patchMock, get: getMock },
 }));
 
 function makeWrapper(qc: QueryClient) {
@@ -68,6 +73,41 @@ describe('useCreateProject', () => {
     result.current.mutate({ name: 'New Project', start_date: '2026-05-01', description: 'A desc' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(postMock).toHaveBeenCalledWith('/projects/', expect.objectContaining({ description: 'A desc' }));
+  });
+});
+
+describe('useUpdateProject', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    vi.clearAllMocks();
+  });
+
+  it('PATCHes to /projects/:id/ with the supplied fields', async () => {
+    const { result } = renderHook(() => useUpdateProject('proj-1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ name: 'Updated Project', description: 'new desc' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(patchMock).toHaveBeenCalledWith('/projects/proj-1/', {
+      name: 'Updated Project',
+      description: 'new desc',
+    });
+  });
+
+  it('rejects if projectId is null', async () => {
+    const { result } = renderHook(() => useUpdateProject(null), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ name: 'X' });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it('invalidates the project detail cache on success', async () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const { result } = renderHook(() => useUpdateProject('proj-1'), { wrapper: makeWrapper(qc) });
+    result.current.mutate({ name: 'Updated Project' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
   });
 });
 

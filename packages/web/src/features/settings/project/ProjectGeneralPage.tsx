@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
+import { useUpdateProject } from '@/hooks/useProjectMutations';
 
 const TIMEZONES = [
   'America/Los_Angeles · UTC−7',
@@ -31,28 +33,71 @@ const HEALTH_ACTIVE: Record<Health, string> = {
   auto:     'bg-brand-primary-light text-brand-primary border-brand-primary/40',
 };
 
-/** Project > General settings page. */
+/**
+ * Project > General settings page.
+ *
+ * `name` and `description` are wired to the real API (PATCH /api/v1/projects/:id/).
+ * Extended fields (code, health, visibility, timezone, calendar, default view)
+ * are disabled here pending #520, which extends the serializer and removes the
+ * per-field `disabled` flag below.
+ */
 export function ProjectGeneralPage() {
   const projectId = useProjectId();
   const { data: project } = useProject(projectId);
+  const updateProject = useUpdateProject(projectId);
 
+  // Wired-to-API fields
   const [name, setName] = useState('');
-  const [code, setCode] = useState('');
   const [description, setDescription] = useState('');
+
+  // Pending-#520 fields (disabled — visible to set expectations but cannot be saved)
+  const [code, setCode] = useState('');
   const [health, setHealth] = useState<Health>('auto');
   const [visibility, setVisibility] = useState<'workspace' | 'private'>('workspace');
   const [timezone, setTimezone] = useState(TIMEZONES[0]);
   const [calendarInherited, setCalendarInherited] = useState(true);
   const [defaultView, setDefaultView] = useState(VIEWS[0]);
 
-  // Seed once on first successful load — guard prevents refetch from wiping user edits
+  // Seed once on first successful load — guard prevents refetch from wiping user edits.
+  // `initialName` / `initialDescription` are the "last-saved snapshot" the discard
+  // handler reverts to, and useDirtyForm compares against to compute dirty.
   const seededRef = useRef(false);
+  const [initialName, setInitialName] = useState('');
+  const [initialDescription, setInitialDescription] = useState('');
   useEffect(() => {
     if (!project || seededRef.current) return;
     seededRef.current = true;
     setName(project.name);
     setDescription(project.description ?? '');
+    setInitialName(project.name);
+    setInitialDescription(project.description ?? '');
   }, [project]);
+
+  const values = useMemo(() => ({ name, description }), [name, description]);
+  const initialValues = useMemo(
+    () => ({ name: initialName, description: initialDescription }),
+    [initialName, initialDescription],
+  );
+
+  const handleSave = useCallback(async () => {
+    await updateProject.mutateAsync({ name, description });
+    // Bump the snapshot — dirty flips back to false and the save bar collapses.
+    setInitialName(name);
+    setInitialDescription(description);
+  }, [updateProject, name, description]);
+
+  const handleReset = useCallback(() => {
+    setName(initialName);
+    setDescription(initialDescription);
+  }, [initialName, initialDescription]);
+
+  useDirtyForm({
+    values,
+    initialValues,
+    onSave: handleSave,
+    onReset: handleReset,
+    apiReady: !!project,
+  });
 
   return (
     <div>
@@ -67,7 +112,8 @@ export function ProjectGeneralPage() {
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-[420px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            aria-label="Project name"
+            className="w-[420px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:border-neutral-border/55"
           />
         </FieldRow>
 
@@ -76,7 +122,8 @@ export function ProjectGeneralPage() {
             type="text"
             value={code}
             onChange={(e) => setCode(e.target.value)}
-            className="w-[140px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            disabled
+            className="w-[140px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:border-neutral-border/55"
           />
         </FieldRow>
 
@@ -85,15 +132,15 @@ export function ProjectGeneralPage() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
-            className="w-[540px] px-2.5 py-2 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary leading-relaxed resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            aria-label="Description"
+            className="w-[540px] px-2.5 py-2 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary leading-relaxed resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:border-neutral-border/55"
           />
         </FieldRow>
 
         <FieldRow label="Project lead">
           <div className="flex items-center gap-2">
             <span
-              className="w-6 h-6 rounded-full inline-flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-              style={{ background: '#1C6B3A' }}
+              className="w-6 h-6 rounded-full inline-flex items-center justify-center text-[10px] font-bold text-white shrink-0 bg-brand-primary"
               aria-hidden="true"
             >
               AK
@@ -102,7 +149,8 @@ export function ProjectGeneralPage() {
             <span className="text-[12px] text-neutral-text-secondary">· PM</span>
             <button
               type="button"
-              className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+              disabled
+              className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline"
             >
               Change
             </button>
@@ -117,9 +165,11 @@ export function ProjectGeneralPage() {
                 type="button"
                 onClick={() => setHealth(opt.id)}
                 aria-pressed={health === opt.id}
+                disabled
                 className={[
                   'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                  'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
                   health === opt.id
                     ? HEALTH_ACTIVE[opt.id]
                     : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
@@ -139,7 +189,7 @@ export function ProjectGeneralPage() {
                 { id: 'private'   as const, label: 'Private',   hint: 'Only invited members and groups can see this project.' },
               ]
             ).map((opt) => (
-              <label key={opt.id} className="flex items-center gap-3 cursor-pointer">
+              <label key={opt.id} className="flex items-center gap-3 cursor-not-allowed" aria-disabled="true">
                 <span
                   className={[
                     'w-4 h-4 rounded-full border-2 shrink-0 transition-colors',
@@ -157,9 +207,10 @@ export function ProjectGeneralPage() {
                   value={opt.id}
                   checked={visibility === opt.id}
                   onChange={() => setVisibility(opt.id)}
+                  disabled
                   className="sr-only"
                 />
-                <span className="text-[13px] font-medium text-neutral-text-primary">{opt.label}</span>
+                <span className="text-[13px] font-medium text-neutral-text-secondary">{opt.label}</span>
                 <span className="text-[12px] text-neutral-text-secondary">· {opt.hint}</span>
               </label>
             ))}
@@ -171,7 +222,8 @@ export function ProjectGeneralPage() {
             <select
               value={timezone}
               onChange={(e) => setTimezone(e.target.value)}
-              className="w-full h-8 pl-2.5 pr-8 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              disabled
+              className="w-full h-8 pl-2.5 pr-8 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:border-neutral-border/55"
             >
               {TIMEZONES.map((tz) => (
                 <option key={tz} value={tz}>{tz}</option>
@@ -189,9 +241,11 @@ export function ProjectGeneralPage() {
               type="button"
               onClick={() => setCalendarInherited(true)}
               aria-pressed={calendarInherited}
+              disabled
               className={[
                 'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
                 calendarInherited
                   ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
                   : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
@@ -203,9 +257,11 @@ export function ProjectGeneralPage() {
               type="button"
               onClick={() => setCalendarInherited(false)}
               aria-pressed={!calendarInherited}
+              disabled
               className={[
                 'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
                 !calendarInherited
                   ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
                   : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
@@ -221,7 +277,8 @@ export function ProjectGeneralPage() {
             <select
               value={defaultView}
               onChange={(e) => setDefaultView(e.target.value)}
-              className="w-full h-8 pl-2.5 pr-8 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              disabled
+              className="w-full h-8 pl-2.5 pr-8 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:border-neutral-border/55"
             >
               {VIEWS.map((v) => (
                 <option key={v} value={v}>{v}</option>

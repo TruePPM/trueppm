@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
+import { StubFieldset } from '../components/StubFieldset';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
@@ -17,6 +18,7 @@ export function WorkspaceGeneralPage() {
   }
 
   return (
+    <StubFieldset disabled>
     <div>
       <SettingsPageTitle
         title="General"
@@ -167,6 +169,7 @@ export function WorkspaceGeneralPage() {
         </div>
       </div>
     </div>
+    </StubFieldset>
   );
 }
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
+import { StubFieldset } from '../components/StubFieldset';
 
 type Method = 'agile' | 'waterfall' | 'hybrid' | 'inherit';
 
@@ -42,6 +43,7 @@ export function ProjectMethodologyPage() {
   const [method, setMethod] = useState<Method>('inherit');
 
   return (
+    <StubFieldset disabled>
     <div>
       <SettingsPageTitle
         title="Methodology"
@@ -139,5 +141,6 @@ export function ProjectMethodologyPage() {
         </section>
       </div>
     </div>
+    </StubFieldset>
   );
 }

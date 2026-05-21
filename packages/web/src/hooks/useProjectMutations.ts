@@ -44,6 +44,39 @@ export function useCreateProject() {
 }
 
 // ---------------------------------------------------------------------------
+// useUpdateProject — PATCH /api/v1/projects/:id/
+// ---------------------------------------------------------------------------
+
+export interface UpdateProjectPayload {
+  name?: string;
+  description?: string;
+}
+
+/**
+ * PATCH /api/v1/projects/:id/ — update editable project fields and invalidate
+ * the project detail + list caches. Used by the settings save bar (#536) for
+ * the Project General page. Extended fields (code, health, visibility,
+ * timezone, calendar, default view) ship via #520 layering on the same call.
+ */
+export function useUpdateProject(projectId: string | null | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: UpdateProjectPayload) => {
+      if (!projectId) throw new Error('projectId is required');
+      const res = await apiClient.patch<ApiProject>(`/projects/${projectId}/`, payload);
+      return res.data;
+    },
+    onSuccess: () => {
+      if (projectId) {
+        void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      }
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // useCalendars — GET /api/v1/calendars/ (optional; used to offer a picker)
 // ---------------------------------------------------------------------------
 
