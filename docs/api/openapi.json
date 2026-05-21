@@ -1627,6 +1627,47 @@
                 }
             }
         },
+        "/api/v1/programs/{id}/integrations-summary/": {
+            "get": {
+                "operationId": "v1_programs_integrations_summary_retrieve",
+                "description": "Program-scoped integrations summary (ADR-0076).\n\nURL: ``GET /api/v1/programs/{pk}/integrations-summary/``\n\nReturns the program's outbound webhooks and inbound API tokens that\nare scoped to the program itself — does NOT bubble up resources from\nchild projects (those have their own per-project summaries).\n\nSame shape and per-section 503 fallback semantics as the project\nendpoint so the frontend can re-use the hook contract.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{id}/projects/": {
             "get": {
                 "operationId": "v1_programs_projects_retrieve",
@@ -15352,7 +15393,9 @@
                     "project": {
                         "type": "string",
                         "format": "uuid",
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Set when the webhook fires for events on a single project. Exactly one of project/program is non-null (DB constraint)."
                     },
                     "url": {
                         "type": "string",

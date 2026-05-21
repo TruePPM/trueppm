@@ -10,6 +10,7 @@ import {
   BarChartIcon,
   SprintIcon,
   RiskIcon,
+  SettingsIcon,
   WarningIcon,
 } from '@/components/Icons';
 
@@ -40,6 +41,12 @@ export function ProgramSettingsPage() {
         { id: 'rollup',   label: 'Rollup KPIs', to: `/programs/${programId}/settings/rollup`,   icon: <NavIcon><BarChartIcon aria-hidden="true" /></NavIcon> },
         { id: 'cadence',  label: 'Cadence',     to: `/programs/${programId}/settings/cadence`,  icon: <NavIcon><SprintIcon aria-hidden="true" /></NavIcon> },
         { id: 'risk',     label: 'Risk policy', to: `/programs/${programId}/settings/risk`,     icon: <NavIcon><RiskIcon aria-hidden="true" /></NavIcon> },
+      ],
+    },
+    {
+      label: 'Configuration',
+      items: [
+        { id: 'integrations', label: 'Integrations', to: `/programs/${programId}/settings/integrations`, icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
       ],
     },
     {

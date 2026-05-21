@@ -52,7 +52,7 @@ class ProgramViewSet(viewsets.ModelViewSet[Program]):
             return [IsAuthenticated(), IsProgramAdmin()]
         if self.action == "destroy":
             return [IsAuthenticated(), IsProgramOwner()]
-        if self.action in ("retrieve", "projects"):
+        if self.action in ("retrieve", "projects", "integrations_summary"):
             return [IsAuthenticated(), IsProgramMember()]
         return [IsAuthenticated()]
 
@@ -142,3 +142,51 @@ class ProgramViewSet(viewsets.ModelViewSet[Program]):
             "start_date", "name"
         )
         return Response(ProjectSerializer(qs, many=True).data)
+
+    @action(detail=True, methods=["get"], url_path="integrations-summary")
+    def integrations_summary(self, request: Request, pk: str | None = None) -> Response:
+        """Program-scoped integrations summary (ADR-0076).
+
+        URL: ``GET /api/v1/programs/{pk}/integrations-summary/``
+
+        Returns the program's outbound webhooks and inbound API tokens that
+        are scoped to the program itself — does NOT bubble up resources from
+        child projects (those have their own per-project summaries).
+
+        Same shape and per-section 503 fallback semantics as the project
+        endpoint so the frontend can re-use the hook contract.
+        """
+        import logging
+
+        from django.db.models import Q
+        from rest_framework import status as drf_status
+
+        from trueppm_api.apps.projects.views import (
+            _summarize_api_tokens,
+            _summarize_webhooks,
+        )
+
+        logger = logging.getLogger(__name__)
+
+        program = self.get_object()
+        sections: dict[str, Any] = {}
+
+        try:
+            sections["webhooks"] = _summarize_webhooks(Q(program_id=program.id))
+        except Exception:
+            logger.exception("program integrations-summary webhooks subservice failed")
+            return Response(
+                {"failed": "webhooks"},
+                status=drf_status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        try:
+            sections["api_tokens"] = _summarize_api_tokens(Q(program_id=program.id))
+        except Exception:
+            logger.exception("program integrations-summary api_tokens subservice failed")
+            return Response(
+                {"failed": "api_tokens"},
+                status=drf_status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(sections, status=drf_status.HTTP_200_OK)

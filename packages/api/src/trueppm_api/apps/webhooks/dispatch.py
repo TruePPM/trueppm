@@ -24,12 +24,29 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
     This function MUST be called inside a ``transaction.on_commit`` callback
     (same as ``broadcast_board_event``) so that delivery is never enqueued
     for a rolled-back mutation.
+
+    Fans out to BOTH project-scoped webhooks (events on this project) and
+    program-scoped webhooks (events on any project within the program that
+    owns this project) per ADR-0076. The two queries are combined with a
+    single ``Q`` union so the database performs the OR in one round-trip.
     """
+    from django.db.models import Q
+
+    from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.webhooks.models import Webhook, WebhookDelivery
     from trueppm_api.apps.webhooks.tasks import deliver_webhook
 
+    # Resolve the project's program (if any) so program-scoped webhooks fire
+    # for events on any of the program's projects. One extra SELECT for the
+    # program FK; cached by Django's queryset evaluation.
+    program_id = Project.objects.filter(pk=project_id).values_list("program_id", flat=True).first()
+
+    scope_filter = Q(project_id=project_id)
+    if program_id is not None:
+        scope_filter |= Q(program_id=program_id)
+
     webhooks = Webhook.objects.filter(
-        project_id=project_id,
+        scope_filter,
         is_active=True,
         events__contains=[event_type],
     )

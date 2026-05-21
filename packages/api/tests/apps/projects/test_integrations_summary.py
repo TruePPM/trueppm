@@ -22,8 +22,14 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, ProjectApiToken
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
+from trueppm_api.apps.projects.models import (
+    ApiToken,
+    Calendar,
+    Methodology,
+    Program,
+    Project,
+)
 from trueppm_api.apps.webhooks.models import (
     DeliveryStatus,
     Webhook,
@@ -124,10 +130,17 @@ def _make_delivery(
     return delivery
 
 
-def _make_token(project: Project, *, name: str = "CI", revoked: bool = False) -> ProjectApiToken:
+def _make_token(
+    project: Project | None = None,
+    program: Program | None = None,
+    *,
+    name: str = "CI",
+    revoked: bool = False,
+) -> ApiToken:
     raw = secrets.token_hex(16)
-    token = ProjectApiToken.objects.create(
+    token = ApiToken.objects.create(
         project=project,
+        program=program,
         name=name,
         token_prefix=raw[:8],
         token_hash=hashlib.sha256(raw.encode()).hexdigest(),
@@ -315,3 +328,120 @@ class TestIntegrationsSummary:
         _make_webhook(other, url="https://other.example.com/h")
         res = client.get(self.url(project.pk))
         assert res.json()["webhooks"]["total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Program-scope integrations summary (ADR-0076 extension)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def program(user: object) -> Program:
+    program = Program.objects.create(name="Aurora", methodology=Methodology.HYBRID)
+    ProgramMembership.objects.create(program=program, user=user, role=Role.OWNER)
+    return program
+
+
+def _make_program_webhook(program: Program, *, url: str = "https://example.com/p") -> Webhook:
+    return Webhook.objects.create(
+        program=program,
+        url=url,
+        secret="s3cret",
+        events=[WebhookEventType.TASK_CREATED.value],
+        is_active=True,
+    )
+
+
+@pytest.mark.django_db
+class TestProgramIntegrationsSummary:
+    """GET /api/v1/programs/<pk>/integrations-summary/ (ADR-0076 program extension)."""
+
+    def url(self, pk: object) -> str:
+        return f"/api/v1/programs/{pk}/integrations-summary/"
+
+    def test_unauthenticated_returns_401(self, anon_client: APIClient, program: Program) -> None:
+        res = anon_client.get(self.url(program.pk))
+        assert res.status_code == 401
+
+    def test_non_program_member_returns_403_or_404(
+        self, other_user: object, program: Program
+    ) -> None:
+        # Either 403 (permission check on a visible row) or 404 (queryset
+        # filtering hides the row) — the contract is "not 200" for non-members.
+        c = APIClient()
+        c.force_authenticate(user=other_user)
+        res = c.get(self.url(program.pk))
+        assert res.status_code in (403, 404)
+
+    def test_owner_can_read(self, client: APIClient, program: Program) -> None:
+        res = client.get(self.url(program.pk))
+        assert res.status_code == 200
+
+    def test_empty_program_returns_zero_counts(self, client: APIClient, program: Program) -> None:
+        res = client.get(self.url(program.pk))
+        data = res.json()
+        assert data["webhooks"]["total"] == 0
+        assert data["webhooks"]["items"] == []
+        assert data["api_tokens"]["active_total"] == 0
+        assert data["api_tokens"]["items"] == []
+
+    def test_returns_program_scoped_webhooks_only(
+        self,
+        client: APIClient,
+        program: Program,
+        project: Project,
+    ) -> None:
+        # Add one webhook at each scope; only the program-scoped one shows in
+        # the program aggregator.
+        _make_webhook(project, url="https://project-only.example.com/h")
+        _make_program_webhook(program, url="https://program-wide.example.com/h")
+
+        res = client.get(self.url(program.pk))
+        data = res.json()
+        urls = {item["url"] for item in data["webhooks"]["items"]}
+        assert urls == {"https://program-wide.example.com/h"}
+        assert data["webhooks"]["total"] == 1
+
+    def test_returns_program_scoped_tokens_only(
+        self,
+        client: APIClient,
+        program: Program,
+        project: Project,
+    ) -> None:
+        _make_token(project=project, name="Project-only")
+        _make_token(program=program, name="Program-wide")
+
+        res = client.get(self.url(program.pk))
+        names = {item["name"] for item in res.json()["api_tokens"]["items"]}
+        assert names == {"Program-wide"}
+
+    def test_program_scoped_webhook_fans_out_to_child_projects(
+        self,
+        program: Program,
+        project: Project,
+        calendar: Calendar,
+        user: object,
+        membership: ProjectMembership,
+    ) -> None:
+        # Connect the project to the program; a program-scoped webhook should
+        # fire when dispatch_webhooks is called for the project.
+        project.program = program
+        project.save(update_fields=["program"])
+        wh = _make_program_webhook(program)
+
+        from unittest.mock import patch
+
+        with patch("trueppm_api.apps.webhooks.tasks.deliver_webhook.delay") as mock_delay:
+            from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
+
+            dispatch_webhooks(
+                project_id=str(project.pk),
+                event_type=WebhookEventType.TASK_CREATED.value,
+                payload={"task_id": "abc"},
+            )
+
+        # One delivery dispatched (the program-scoped webhook).
+        assert mock_delay.call_count == 1
+        # Delivery row created against the program-scoped webhook.
+        delivery_count = WebhookDelivery.objects.filter(webhook=wh).count()
+        assert delivery_count == 1

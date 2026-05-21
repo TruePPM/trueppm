@@ -50,6 +50,7 @@ from trueppm_api.apps.access.permissions import (
     ProjectScopedViewSet,
 )
 from trueppm_api.apps.projects.models import (
+    ApiToken,
     Baseline,
     BaselineTask,
     BoardColumnConfig,
@@ -661,7 +662,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         sections: dict[str, Any] = {}
 
         try:
-            sections["webhooks"] = _summarize_webhooks(project.id)
+            sections["webhooks"] = _summarize_webhooks(Q(project_id=project.id))
         except Exception:
             logger.exception("integrations-summary webhooks subservice failed")
             return Response(
@@ -670,7 +671,7 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             )
 
         try:
-            sections["api_tokens"] = _summarize_api_tokens(project.id)
+            sections["api_tokens"] = _summarize_api_tokens(Q(project_id=project.id))
         except Exception:
             logger.exception("integrations-summary api_tokens subservice failed")
             return Response(
@@ -779,8 +780,12 @@ _INTEGRATIONS_SUMMARY_ITEM_LIMIT = 5
 _INTEGRATIONS_RECENT_FAILURE_WINDOW = datetime.timedelta(days=7)
 
 
-def _summarize_webhooks(project_id: uuid.UUID) -> dict[str, Any]:
-    """Compact summary of a project's outbound webhooks (ADR-0019).
+def _summarize_webhooks(scope_filter: Q) -> dict[str, Any]:
+    """Compact summary of a scope's outbound webhooks (ADR-0019).
+
+    ``scope_filter`` is a Django Q expression that selects which webhooks to
+    include — typically ``Q(project_id=...)`` for the project surface or
+    ``Q(program_id=...)`` for the program surface (ADR-0076).
 
     Returns the most recently created webhooks (up to ``_INTEGRATIONS_SUMMARY_ITEM_LIMIT``)
     plus aggregate counts. The ``last_delivery`` per row is the most recent delivery
@@ -798,7 +803,7 @@ def _summarize_webhooks(project_id: uuid.UUID) -> dict[str, Any]:
         .values("status", "created_at", "response_status", "attempt_count")[:1]
     )
 
-    base_qs = Webhook.objects.filter(project_id=project_id)
+    base_qs = Webhook.objects.filter(scope_filter)
     annotated_qs = base_qs.annotate(
         _latest_status=Subquery(latest_delivery_sq.values("status")),
         _latest_created_at=Subquery(latest_delivery_sq.values("created_at")),
@@ -852,15 +857,19 @@ def _summarize_webhooks(project_id: uuid.UUID) -> dict[str, Any]:
     }
 
 
-def _summarize_api_tokens(project_id: uuid.UUID) -> dict[str, Any]:
-    """Compact summary of a project's inbound API tokens (ADR-0068).
+def _summarize_api_tokens(scope_filter: Q) -> dict[str, Any]:
+    """Compact summary of a scope's inbound API tokens (ADR-0068).
+
+    ``scope_filter`` is a Django Q expression that selects which tokens to
+    include — typically ``Q(project_id=...)`` for the project surface or
+    ``Q(program_id=...)`` for the program surface (ADR-0076).
 
     Returns non-revoked tokens (up to ``_INTEGRATIONS_SUMMARY_ITEM_LIMIT``) plus the
     aggregate active count. Revoked tokens are intentionally hidden from the summary —
     they remain visible on the dedicated API token page for audit purposes.
     """
-    qs = ProjectApiToken.objects.filter(
-        project_id=project_id,
+    qs = ApiToken.objects.filter(
+        scope_filter,
         is_deleted=False,
         revoked_at__isnull=True,
     ).order_by("-created_at")
@@ -4868,27 +4877,39 @@ class TaskSyncView(APIView):
     throttle_classes = [TaskSyncThrottle]
 
     def post(self, request: Request, pk: str) -> Response:
-        # request.auth is the ProjectApiToken; request.user is its creator.
-        # IsTokenForProject in permission_classes has already verified that
-        # token.project_id == URL pk before this method runs.
+        # request.auth is the ApiToken; request.user is its creator.
+        # IsTokenForProject in permission_classes has already verified that the
+        # token authorizes writes to the URL pk (either via direct
+        # token.project_id match for project-scoped tokens, or via program
+        # membership for program-scoped tokens). For program-scoped tokens we
+        # must resolve the target project from the URL rather than from the
+        # token, since `token.project_id` is None.
         from trueppm_api.apps.projects.inbound_sync import upsert_inbound_task
-        from trueppm_api.apps.projects.models import ProjectApiToken
+        from trueppm_api.apps.projects.models import ApiToken
 
         token = request.auth
-        if not isinstance(token, ProjectApiToken):
+        if not isinstance(token, ApiToken):
             # Unreachable in practice — IsTokenForProject already guarantees this.
-            # Kept for type narrowing so mypy understands token.project below.
+            # Kept for type narrowing so mypy understands the auth path below.
             return Response(
                 {"detail": "Token authentication required."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
+
+        # Resolve the target project from the URL. IsTokenForProject has
+        # already validated the token authorizes this project — this lookup
+        # cannot fail with a project the caller is unauthorized to touch.
+        # Always go through get_object_or_404 (works for both project- and
+        # program-scoped tokens) so the type is concretely Project, not
+        # Optional[Project] — keeps mypy happy and the code branch-free.
+        target_project = get_object_or_404(Project, pk=pk, is_deleted=False)
 
         serializer = InboundTaskSyncPayloadSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload: dict[str, Any] = serializer.validated_data
 
         result = upsert_inbound_task(
-            project=token.project,
+            project=target_project,
             token=token,
             payload=payload,
             source_ip=_client_ip(request),
@@ -4939,7 +4960,6 @@ class ProjectApiTokenViewSet(viewsets.ModelViewSet[Any]):
         return [IsAuthenticated(), IsProjectMember()]
 
     def get_queryset(self) -> QuerySet[Any]:
-        from trueppm_api.apps.projects.models import ProjectApiToken
 
         project_pk = self.kwargs["project_pk"]
         return (
@@ -4969,7 +4989,6 @@ class ProjectApiTokenViewSet(viewsets.ModelViewSet[Any]):
         from trueppm_api.apps.projects.models import (
             ApiTokenAuditAction,
             ApiTokenAuditEntry,
-            ProjectApiToken,
         )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 

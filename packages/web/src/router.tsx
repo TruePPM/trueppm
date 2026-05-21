@@ -216,6 +216,11 @@ const ProgramRiskPolicyPage = lazy(() =>
     default: m.ProgramRiskPolicyPage,
   }))
 );
+const ProgramIntegrationsPage = lazy(() =>
+  import('@/features/settings/program/ProgramIntegrationsPage').then((m) => ({
+    default: m.ProgramIntegrationsPage,
+  }))
+);
 const ProgramArchivePage = lazy(() =>
   import('@/features/settings/program/ProgramArchivePage').then((m) => ({
     default: m.ProgramArchivePage,
@@ -576,6 +581,14 @@ export const router = createBrowserRouter([
                     element: (
                       <Suspense fallback={<RouteLoadingFallback />}>
                         <ProgramRiskPolicyPage />
+                      </Suspense>
+                    ),
+                  },
+                  {
+                    path: 'integrations',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ProgramIntegrationsPage />
                       </Suspense>
                     ),
                   },

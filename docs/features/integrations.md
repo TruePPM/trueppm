@@ -1,33 +1,54 @@
 # Integrations
 
-TruePPM's integration management surface is **project-scoped** in the OSS
-edition. Each project has its own integrations page that summarizes:
+TruePPM's integration management surface in the OSS edition lives at **two
+scopes**:
 
-- Outbound webhooks that push project events to Slack, Discord, or any HTTP endpoint
-- Inbound API tokens that let CI pipelines or external tools push tasks into the project
-- Your personally-connected accounts (GitLab, GitHub, …) used to render previews on task links
+- **Project** — `Project → Settings → Integrations` — for resources that
+  belong to one project (per-project Slack channel, per-project CI tokens)
+- **Program** — `Program → Settings → Integrations` — for resources that
+  span every project in a program (one Slack channel for the whole program,
+  one CI token that can push tasks into any project the program owns)
+
+A program-scoped webhook fires for events on **any** project in the program;
+a program-scoped API token authorizes inbound writes into **any** project
+the program contains. Configure once at the program level instead of
+copy-pasting the same URL into every child project.
 
 !!! info "Edition"
-    The OSS surface lives at `Project → Settings → Integrations` and is governed
-    by ADR-0076. A workspace-scoped **Integration Hub** with a marketplace of
-    bidirectional connectors (Jira, Linear, ServiceNow, …), workspace-level
-    audit log, and KMS-backed credential storage is part of the Enterprise
-    edition.
+    Both OSS surfaces are governed by **ADR-0076**. A workspace-scoped
+    **Integration Hub** with a marketplace of bidirectional connectors
+    (Jira, Linear, ServiceNow, …), workspace-level audit log, and KMS-backed
+    credential storage is part of the Enterprise edition.
 
-## Why project-scope?
-
-TruePPM's data model places each integration primitive at a specific scope:
+## Scope decision tree
 
 | Primitive | Scope | Reason |
 |---|---|---|
-| Webhook | Project | Each project has its own event stream and routing |
-| API Token | Project | Tokens authorize writes into a single project |
-| Connected Account | User | A PAT belongs to *you*, not a project |
+| Webhook | Project **or** Program (XOR) | Project for single-project routing; Program for one channel across all projects in the program |
+| API Token | Project **or** Program (XOR) | Project authorizes writes into that project; Program authorizes writes into any project the program contains |
+| Connected Account | User | A PAT belongs to *you*, not a project or program |
 
-A workspace-level "manage all webhooks across all projects" view is a
-governance surface — useful for organizations coordinating across many
-programs, but not a thing an individual PM running their project needs.
-That surface ships in Enterprise.
+Webhook and API Token records carry a XOR DB constraint: exactly one of
+`project_id` / `program_id` is non-null. Ambiguous-scope tokens are
+impossible to create.
+
+### Which scope should I use?
+
+- **Project scope** when the integration is specific to one project — e.g. a
+  `#project-helios-deploys` Slack channel, or a CI pipeline that only ever
+  pushes to one project.
+- **Program scope** when you'd otherwise paste the same configuration into
+  every project — e.g. a `#program-helios` Slack channel that receives
+  events from all projects in the Helios program, or a centralized CI
+  pipeline that creates tasks in whichever child project the build belongs to.
+
+The decision is per-resource: a program can have program-wide webhooks **and**
+each project can have its own project-scoped webhooks. They're independent
+and additive — both fire for events on a project that's part of the program.
+
+A workspace-level "manage all integrations across all programs" surface is
+the Enterprise upsell — it's where governance, audit trail, and cross-program
+coordination live.
 
 ## The Integrations page
 
