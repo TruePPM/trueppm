@@ -405,9 +405,17 @@ api:schema-drift:
   # Ensures docs/api/openapi.json stays in sync with the live DRF schema.
   # Fails the pipeline if a model/serializer/view change alters the public
   # surface without the committed artifact being regenerated.
+  #
+  # api:lint is optional because this job's changes: filter includes
+  # docs/api/openapi.json — a docs-only branch (e.g. an openapi regen
+  # alongside ADR commits) matches this job's rules without matching
+  # api:lint's rules-api. needs:optional avoids the "needs job does
+  # not exist in the pipeline" creation failure in that case.
   extends: .api-no-db
   stage: analyze
-  needs: [api:lint]
+  needs:
+    - job: api:lint
+      optional: true
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
