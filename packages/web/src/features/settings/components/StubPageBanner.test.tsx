@@ -5,10 +5,10 @@ import { StubPageBanner } from './StubPageBanner';
 
 describe('<StubPageBanner>', () => {
   beforeEach(() => {
-    sessionStorage.clear();
+    localStorage.clear();
   });
   afterEach(() => {
-    sessionStorage.clear();
+    localStorage.clear();
   });
 
   it('renders the preview message with a link to the page issue', () => {
@@ -29,18 +29,18 @@ describe('<StubPageBanner>', () => {
     expect(banner).toHaveAttribute('aria-live', 'polite');
   });
 
-  it('dismisses for the session when the close button is clicked', async () => {
+  it('persists dismissal in localStorage when the close button is clicked', async () => {
     const user = userEvent.setup();
     render(<StubPageBanner pageIssue={520} />);
 
     await user.click(screen.getByRole('button', { name: /dismiss preview banner/i }));
 
     expect(screen.queryByTestId('stub-page-banner')).not.toBeInTheDocument();
-    expect(sessionStorage.getItem('trueppm.settings.stub-banner-dismissed.520')).toBe('1');
+    expect(localStorage.getItem('trueppm.settings.stub-banner-dismissed.520')).toBe('1');
   });
 
-  it('stays hidden on subsequent mounts when already dismissed this session', () => {
-    sessionStorage.setItem('trueppm.settings.stub-banner-dismissed.523', '1');
+  it('stays hidden on subsequent mounts when already dismissed', () => {
+    localStorage.setItem('trueppm.settings.stub-banner-dismissed.523', '1');
 
     render(<StubPageBanner pageIssue={523} />);
 
@@ -55,5 +55,21 @@ describe('<StubPageBanner>', () => {
 
     render(<StubPageBanner pageIssue={519} />);
     expect(screen.getByTestId('stub-page-banner')).toBeInTheDocument();
+  });
+
+  // Reason: previous implementation used sessionStorage and re-appeared on every
+  // new tab. After #592, a banner dismissed in one tab must stay dismissed in a
+  // newly-opened tab (same origin) — that's what localStorage gives us.
+  it('stays dismissed across a simulated new tab (no remount-time reset)', () => {
+    localStorage.setItem('trueppm.settings.stub-banner-dismissed.518', '1');
+
+    // First "tab"
+    const first = render(<StubPageBanner pageIssue={518} />);
+    expect(first.queryByTestId('stub-page-banner')).not.toBeInTheDocument();
+    first.unmount();
+
+    // Second "tab" — fresh mount, localStorage persists, banner stays hidden
+    const second = render(<StubPageBanner pageIssue={518} />);
+    expect(second.queryByTestId('stub-page-banner')).not.toBeInTheDocument();
   });
 });

@@ -137,6 +137,45 @@ export function ProjectGeneralPage() {
           />
         </FieldRow>
 
+        {/* Mixed live/disabled state on this page (#591): Name + Description are
+            API-wired; the fields below are visible but disabled until #520
+            ships the extended-fields serializer. Without this notice Sarah
+            clicks "At risk" before a Friday client call and can't tell
+            whether the control is broken, hidden, or unimplemented. */}
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="project-general-extended-stub-notice"
+          className="my-4 flex items-start gap-2.5 px-3 py-2 rounded border border-semantic-warning/40 bg-semantic-warning-bg"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            className="text-semantic-warning shrink-0 mt-0.5"
+            aria-hidden="true"
+          >
+            <path d="M8 1.5L1.5 13.5h13L8 1.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+            <path d="M8 6v3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <circle cx="8" cy="11.5" r="0.75" fill="currentColor" />
+          </svg>
+          <p className="text-[12px] text-neutral-text-primary leading-snug">
+            <span className="font-semibold">The fields below ship with </span>
+            <a
+              href="https://gitlab.com/trueppm/trueppm/-/issues/520"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-brand-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+            >
+              #520
+            </a>
+            <span className="text-neutral-text-secondary">
+              {' '}— they&rsquo;re shown here to set expectations but can&rsquo;t be saved yet.
+            </span>
+          </p>
+        </div>
+
         <FieldRow label="Project lead">
           <div className="flex items-center gap-2">
             <span
