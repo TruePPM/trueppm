@@ -1,4 +1,5 @@
 import { SettingsPageTitle } from '../SettingsShell';
+import { StubPageBanner } from '../components/StubPageBanner';
 
 interface ProgramProject {
   id: string;
@@ -65,6 +66,7 @@ const PROJECTS: ProgramProject[] = [
 export function ProgramProjectsPage() {
   return (
     <div>
+      <StubPageBanner pageIssue={524} />
       <SettingsPageTitle
         title="Projects"
         count={`${PROJECTS.length} projects`}

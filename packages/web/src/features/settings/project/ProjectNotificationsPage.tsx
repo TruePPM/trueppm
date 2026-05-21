@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { StubFieldset } from '../components/StubFieldset';
+import { StubPageBanner } from '../components/StubPageBanner';
 
 const EVENTS = [
   'Task assigned to me',
@@ -64,6 +65,8 @@ export function ProjectNotificationsPage() {
   }
 
   return (
+    <>
+    <StubPageBanner pageIssue={522} />
     <StubFieldset disabled>
     <div>
       <SettingsPageTitle
@@ -182,5 +185,6 @@ export function ProjectNotificationsPage() {
       </div>
     </div>
     </StubFieldset>
+    </>
   );
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
+import { StubPageBanner } from '../components/StubPageBanner';
 
 const PROJECT_CODE = 'ARTM4';
 
@@ -46,6 +47,7 @@ export function ProjectArchivePage() {
 
   return (
     <div>
+      <StubPageBanner pageIssue={530} />
       <SettingsPageTitle
         title="Lifecycle"
         subtitle="Closing out, handing off, or removing this project. All actions write to the audit log."

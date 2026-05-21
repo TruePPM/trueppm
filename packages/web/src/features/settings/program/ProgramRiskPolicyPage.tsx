@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { StubFieldset } from '../components/StubFieldset';
+import { StubPageBanner } from '../components/StubPageBanner';
 
 type Threshold = 'low' | 'medium' | 'high' | 'critical';
 
@@ -44,6 +45,8 @@ export function ProgramRiskPolicyPage() {
   const [escalationDays, setEscalationDays] = useState(3);
 
   return (
+    <>
+    <StubPageBanner pageIssue={529} />
     <StubFieldset disabled>
     <div>
       <SettingsPageTitle
@@ -148,5 +151,6 @@ export function ProgramRiskPolicyPage() {
       </div>
     </div>
     </StubFieldset>
+    </>
   );
 }

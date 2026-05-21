@@ -1,9 +1,11 @@
 import { SettingsPageTitle } from '../SettingsShell';
+import { StubPageBanner } from '../components/StubPageBanner';
 
 /** Workspace > Archive / Delete danger zone page. */
 export function WorkspaceDangerPage() {
   return (
     <div>
+      <StubPageBanner pageIssue={530} />
       <SettingsPageTitle
         title="Archive / Delete"
         subtitle="Irreversible workspace-wide actions. Each requires typed confirmation."

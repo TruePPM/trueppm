@@ -1,4 +1,5 @@
 import { SettingsPageTitle } from '../SettingsShell';
+import { StubPageBanner } from '../components/StubPageBanner';
 
 interface Integration {
   id: string;
@@ -105,6 +106,7 @@ export function WorkspaceIntegrationsPage() {
 
   return (
     <div>
+      <StubPageBanner pageIssue={569} />
       <SettingsPageTitle
         title="Integrations"
         count={`${connectedCount} connected · ${availableCount} available`}

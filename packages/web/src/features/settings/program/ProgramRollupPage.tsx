@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { StubFieldset } from '../components/StubFieldset';
+import { StubPageBanner } from '../components/StubPageBanner';
 
 interface KpiToggle {
   id: string;
@@ -53,6 +54,8 @@ export function ProgramRollupPage() {
   }
 
   return (
+    <>
+    <StubPageBanner pageIssue={527} />
     <StubFieldset disabled>
     <div>
       <SettingsPageTitle
@@ -124,5 +127,6 @@ export function ProgramRollupPage() {
       </div>
     </div>
     </StubFieldset>
+    </>
   );
 }
