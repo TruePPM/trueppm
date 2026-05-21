@@ -460,7 +460,7 @@ def test_patch_lead_returns_lead_detail_nested(owner: object, other_user: object
     assert program.lead_id == other_user.pk
     # Nested lead_detail mirrors the user_detail pattern from membership rows.
     assert resp.data["lead_detail"] is not None
-    assert resp.data["lead_detail"]["id"] == str(other_user.pk)
+    assert resp.data["lead_detail"]["id"] == other_user.pk
     assert resp.data["lead_detail"]["username"] == "other"
 
 
