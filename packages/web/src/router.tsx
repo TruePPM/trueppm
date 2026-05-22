@@ -60,6 +60,12 @@ const NotificationPreferencesPage = lazy(() =>
     default: m.NotificationPreferencesPage,
   })),
 );
+
+const ConnectedAccountsPage = lazy(() =>
+  import('@/features/me/ConnectedAccountsPage').then((m) => ({
+    default: m.ConnectedAccountsPage,
+  })),
+);
 const ProgramListPage = lazy(() =>
   import('@/features/programs/ProgramListPage').then((m) => ({ default: m.ProgramListPage }))
 );
@@ -473,6 +479,15 @@ export const router = createBrowserRouter([
             element: (
               <Suspense fallback={<RouteLoadingFallback />}>
                 <NotificationPreferencesPage />
+              </Suspense>
+            ),
+          },
+          // Per-user IntegrationCredential listing (#587, ADR-0049 §3).
+          {
+            path: 'me/settings/connected-accounts',
+            element: (
+              <Suspense fallback={<RouteLoadingFallback />}>
+                <ConnectedAccountsPage />
               </Suspense>
             ),
           },
