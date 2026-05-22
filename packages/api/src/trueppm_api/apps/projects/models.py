@@ -216,6 +216,22 @@ class Visibility(models.TextChoices):
     PRIVATE = "PRIVATE", "Private"
 
 
+class DefaultView(models.TextChoices):
+    """Default landing view for a project (issue #520).
+
+    Drives which workspace tab loads first when a project is opened without
+    an explicit view in the URL. The API surface is unchanged — every view
+    remains reachable by direct URL regardless of this preference. Per-user
+    overrides may layer on top in a future issue, matching the pattern used
+    for methodology defaults.
+    """
+
+    SCHEDULE = "SCHEDULE", "Schedule"
+    BOARD = "BOARD", "Board"
+    TABLE = "TABLE", "Table"
+    OVERVIEW = "OVERVIEW", "Overview"
+
+
 class Program(VersionedModel):
     """Named grouping of related projects for one PM or program team (ADR-0070).
 
@@ -321,6 +337,41 @@ class Project(VersionedModel):
         related_name="projects",
         null=True,
         blank=True,
+    )
+    # Short identifier used as a task-ID prefix and on exports (issue #520).
+    # Uppercase alphanumeric + hyphen, max 12 chars; format validated by the
+    # serializer. Optional — projects created before this field have an empty
+    # code and the UI shows a blank input. Not unique at the DB level;
+    # uniqueness is a workspace-policy concern, matching Program.code (#523).
+    code = models.CharField(max_length=12, blank=True, default="")
+    # PM override for the project health chip (issue #520). Defaults to AUTO so
+    # existing rows render via the (future) rollup rather than implying a
+    # manual judgment. Reuses the Health enum shared with Program (#523).
+    health = models.CharField(
+        max_length=16,
+        choices=Health.choices,
+        default=Health.AUTO,
+    )
+    # Listing scope (issue #520). WORKSPACE = listable by any workspace member;
+    # PRIVATE = explicit-members-only. Queryset enforcement is a future change
+    # — this field is stored and rendered today. Reuses the Visibility enum
+    # shared with Program (#523).
+    visibility = models.CharField(
+        max_length=16,
+        choices=Visibility.choices,
+        default=Visibility.WORKSPACE,
+    )
+    # IANA timezone identifier used for due dates, Gantt rendering, and sprint
+    # cutovers (issue #520). Empty string defers to the workspace default.
+    # Stored as free text — full IANA validation is a future change.
+    timezone = models.CharField(max_length=64, blank=True, default="")
+    # Default landing view when the project is opened without a specific view
+    # in the URL (issue #520). The API surface is unchanged; every view is
+    # reachable by direct URL regardless of this preference.
+    default_view = models.CharField(
+        max_length=16,
+        choices=DefaultView.choices,
+        default=DefaultView.SCHEDULE,
     )
     # Per-project sequential counter for generating short_id values on Tasks
     # and Risks.  Incremented atomically via F() on every INSERT to either model.

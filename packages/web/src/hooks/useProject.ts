@@ -1,5 +1,6 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import type { ProjectDefaultView, ProjectHealth, ProjectVisibility } from '@/api/types';
 import type { Methodology } from '@/types';
 
 export interface ApiProjectDetail {
@@ -12,6 +13,16 @@ export interface ApiProjectDetail {
   estimation_mode: string;
   agile_features: boolean;
   methodology: Methodology;
+  /** Optional short code (uppercase A-Z, 0-9, hyphen; ≤12 chars). Empty when unset. */
+  code: string;
+  /** PM health override; AUTO defers to the (future) rollup. */
+  health: ProjectHealth;
+  /** Workspace or private listing scope. */
+  visibility: ProjectVisibility;
+  /** IANA timezone identifier; empty string defers to the workspace default. */
+  timezone: string;
+  /** Default landing view when the project is opened without one in the URL. */
+  default_view: ProjectDefaultView;
 }
 
 /**

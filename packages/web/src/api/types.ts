@@ -68,6 +68,26 @@ export type ProgramHealth = 'AUTO' | 'ON_TRACK' | 'AT_RISK' | 'CRITICAL';
  */
 export type ProgramVisibility = 'WORKSPACE' | 'PRIVATE';
 
+/**
+ * Project health override (issue #520). Reuses the same enum values as Program
+ * — both surface the same chip palette and labels. Defined as a distinct alias
+ * so call sites read self-describingly even though the value set is identical.
+ */
+export type ProjectHealth = ProgramHealth;
+
+/**
+ * Project listing scope (issue #520). Same value set as ``ProgramVisibility``;
+ * see that type's note about queryset enforcement landing in a future change.
+ */
+export type ProjectVisibility = ProgramVisibility;
+
+/**
+ * Default landing view when a project is opened without a view in the URL
+ * (issue #520). Drives the redirect target only — every view stays reachable
+ * by direct URL regardless of this preference.
+ */
+export type ProjectDefaultView = 'SCHEDULE' | 'BOARD' | 'TABLE' | 'OVERVIEW';
+
 export interface Program {
   id: string;
   server_version: number;

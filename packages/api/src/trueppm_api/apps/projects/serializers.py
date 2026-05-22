@@ -120,12 +120,38 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "description",
             "start_date",
             "calendar",
+            "code",
+            "health",
+            "visibility",
+            "timezone",
+            "default_view",
             "estimation_mode",
             "agile_features",
             "methodology",
             "program",
         ]
         read_only_fields = ["id", "server_version"]
+
+    def validate_code(self, value: str) -> str:
+        """Project code format: uppercase A-Z, 0-9, and hyphen, ≤12 chars.
+
+        Empty string is allowed (the field is optional and the UI shows a
+        blank input for projects created before the field existed). When
+        non-empty, the format is enforced server-side rather than client-side
+        so MS Project / P6 importers and direct API callers cannot bypass it
+        by skipping the General page. Hyphen-only or leading/trailing hyphens
+        are rejected to avoid ambiguous task-ID prefixes (e.g. "-001").
+        """
+        if value == "":
+            return value
+        if len(value) > 12:
+            raise serializers.ValidationError("Project code must be 12 characters or fewer.")
+        if not re.fullmatch(r"[A-Z0-9](?:[A-Z0-9-]*[A-Z0-9])?", value):
+            raise serializers.ValidationError(
+                "Project code must use uppercase letters, digits, and hyphens "
+                "only, and may not start or end with a hyphen."
+            )
+        return value
 
     def validate_program(self, value: Program | None) -> Program | None:
         """Enforce ADR-0070 cross-permission gates on Project.program changes.

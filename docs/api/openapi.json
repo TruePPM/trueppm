@@ -11538,6 +11538,16 @@
                     "emoji"
                 ]
             },
+            "DefaultViewEnum": {
+                "enum": [
+                    "SCHEDULE",
+                    "BOARD",
+                    "TABLE",
+                    "OVERVIEW"
+                ],
+                "type": "string",
+                "description": "* `SCHEDULE` - Schedule\n* `BOARD` - Board\n* `TABLE` - Table\n* `OVERVIEW` - Overview"
+            },
             "DepTypeEnum": {
                 "enum": [
                     "FS",
@@ -13238,6 +13248,23 @@
                         "format": "uuid",
                         "nullable": true
                     },
+                    "code": {
+                        "type": "string",
+                        "maxLength": 12
+                    },
+                    "health": {
+                        "$ref": "#/components/schemas/HealthEnum"
+                    },
+                    "visibility": {
+                        "$ref": "#/components/schemas/VisibilityEnum"
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "default_view": {
+                        "$ref": "#/components/schemas/DefaultViewEnum"
+                    },
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"
                     },
@@ -14004,6 +14031,23 @@
                         "format": "uuid",
                         "nullable": true
                     },
+                    "code": {
+                        "type": "string",
+                        "maxLength": 12
+                    },
+                    "health": {
+                        "$ref": "#/components/schemas/HealthEnum"
+                    },
+                    "visibility": {
+                        "$ref": "#/components/schemas/VisibilityEnum"
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "default_view": {
+                        "$ref": "#/components/schemas/DefaultViewEnum"
+                    },
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"
                     },
@@ -14195,6 +14239,23 @@
                         "format": "uuid",
                         "nullable": true
                     },
+                    "code": {
+                        "type": "string",
+                        "maxLength": 12
+                    },
+                    "health": {
+                        "$ref": "#/components/schemas/HealthEnum"
+                    },
+                    "visibility": {
+                        "$ref": "#/components/schemas/VisibilityEnum"
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "default_view": {
+                        "$ref": "#/components/schemas/DefaultViewEnum"
+                    },
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"
                     },
@@ -14340,6 +14401,23 @@
                         "type": "string",
                         "format": "uuid",
                         "nullable": true
+                    },
+                    "code": {
+                        "type": "string",
+                        "maxLength": 12
+                    },
+                    "health": {
+                        "$ref": "#/components/schemas/HealthEnum"
+                    },
+                    "visibility": {
+                        "$ref": "#/components/schemas/VisibilityEnum"
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "default_view": {
+                        "$ref": "#/components/schemas/DefaultViewEnum"
                     },
                     "estimation_mode": {
                         "$ref": "#/components/schemas/EstimationModeEnum"
