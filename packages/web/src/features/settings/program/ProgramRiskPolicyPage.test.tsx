@@ -63,10 +63,12 @@ describe('ProgramRiskPolicyPage (settings)', () => {
     useProgramRiskPolicy.mockReset();
     saveMutateAsync.mockReset();
     refetch.mockReset();
-    saveMutateAsync.mockImplementation(async (patch) => ({
-      slip_propagation: patch.slip_propagation ?? 'warn',
-      escalation_days: patch.escalation_days ?? 3,
-    }));
+    saveMutateAsync.mockImplementation((patch) =>
+      Promise.resolve({
+        slip_propagation: patch.slip_propagation ?? 'warn',
+        escalation_days: patch.escalation_days ?? 3,
+      }),
+    );
     // Save store is module-scoped — reset so handlers from prior tests don't leak.
     useSettingsSaveStore.getState().reset();
   });
