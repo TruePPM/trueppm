@@ -3504,6 +3504,70 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/notification-preferences/": {
+            "get": {
+                "operationId": "v1_projects_notification_preferences_retrieve",
+                "description": "GET/PATCH per-project notification preferences for the current user.\n\nMounted at ``/api/v1/projects/<pk>/notification-preferences/``. Any project\nmember may read and update their own preferences — there is no admin\nsurface to edit another member's routing (the design intentionally keeps\nthis user-controlled per ADR-0075's \"each user owns their notification\ncontract\" rule).\n\nGET returns a defaults-overlaid view so a new event type added on the\nserver is populated even for a user whose row pre-dates the addition.\nPATCH accepts a partial matrix and merges it onto the stored document.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_projects_notification_preferences_partial_update",
+                "description": "GET/PATCH per-project notification preferences for the current user.\n\nMounted at ``/api/v1/projects/<pk>/notification-preferences/``. Any project\nmember may read and update their own preferences — there is no admin\nsurface to edit another member's routing (the design intentionally keeps\nthis user-controlled per ADR-0075's \"each user owns their notification\ncontract\" rule).\n\nGET returns a defaults-overlaid view so a new event type added on the\nserver is populated even for a user whose row pre-dates the addition.\nPATCH accepts a partial matrix and merges it onto the stored document.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/overview/": {
             "get": {
                 "operationId": "v1_projects_overview_retrieve",

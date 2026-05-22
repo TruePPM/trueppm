@@ -136,9 +136,9 @@ test.describe('Settings stub banner (#538)', () => {
     await page.getByRole('button', { name: /dismiss preview banner/i }).click();
     await expect(page.getByTestId('stub-page-banner')).toBeHidden();
 
-    // Notifications is a separate stub page with a different issue ref — its
+    // Archive is a separate stub page with a different issue ref — its
     // banner must remain visible because dismissal is keyed per pageIssue.
-    await page.getByRole('link', { name: 'Notifications' }).click();
+    await page.getByRole('link', { name: 'Archive' }).click();
     await expect(page.getByTestId('stub-page-banner')).toBeVisible();
   });
 
@@ -148,7 +148,7 @@ test.describe('Settings stub banner (#538)', () => {
     await page.getByRole('button', { name: /dismiss preview banner/i }).click();
     await expect(page.getByTestId('stub-page-banner')).toBeHidden();
 
-    await page.getByRole('link', { name: 'Notifications' }).click();
+    await page.getByRole('link', { name: 'Archive' }).click();
     await page.getByRole('link', { name: 'Methodology' }).click();
     await expect(page.getByTestId('stub-page-banner')).toBeHidden();
   });

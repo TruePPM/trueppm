@@ -4,15 +4,29 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
-from .models import Notification, NotificationPreference
-from .serializers import NotificationPreferenceSerializer, NotificationSerializer
+from trueppm_api.apps.access.permissions import IsProjectMember
+from trueppm_api.apps.projects.models import Project
+
+from .models import (
+    PROJECT_NOTIFICATION_DEFAULT_MATRIX,
+    Notification,
+    NotificationPreference,
+    ProjectNotificationPreference,
+)
+from .serializers import (
+    NotificationPreferenceSerializer,
+    NotificationSerializer,
+    ProjectNotificationPreferenceSerializer,
+)
 from .services import get_or_create_default_preferences
 
 if TYPE_CHECKING:
@@ -121,3 +135,89 @@ class NotificationPreferenceViewSet(
             # DRF's PermissionDenied → 403; bare PermissionError raises 500.
             raise PermissionDenied("Cannot modify another user's preferences.")
         serializer.save()
+
+
+# ---------------------------------------------------------------------------
+# Project-scoped notification preferences (#522)
+# ---------------------------------------------------------------------------
+
+
+def _merge_matrix(
+    stored: dict[str, dict[str, bool]],
+    incoming: dict[str, dict[str, bool]],
+) -> dict[str, dict[str, bool]]:
+    """Merge `incoming` into a copy of `stored`, preferring incoming values.
+
+    The PATCH semantics are partial: a client toggling a single cell should
+    not have to repost the full 36-cell grid. The defaults dict is also
+    overlaid on the response so a freshly added event type is populated for
+    a user whose row predates the event.
+    """
+    merged: dict[str, dict[str, bool]] = {
+        evt: dict(chans) for evt, chans in PROJECT_NOTIFICATION_DEFAULT_MATRIX.items()
+    }
+    for evt, chans in stored.items():
+        if evt not in merged:
+            merged[evt] = {}
+        for ch, enabled in chans.items():
+            merged[evt][ch] = enabled
+    for evt, chans in incoming.items():
+        merged.setdefault(evt, {}).update(chans)
+    return merged
+
+
+class ProjectNotificationPreferenceView(APIView):
+    """GET/PATCH per-project notification preferences for the current user.
+
+    Mounted at ``/api/v1/projects/<pk>/notification-preferences/``. Any project
+    member may read and update their own preferences — there is no admin
+    surface to edit another member's routing (the design intentionally keeps
+    this user-controlled per ADR-0075's "each user owns their notification
+    contract" rule).
+
+    GET returns a defaults-overlaid view so a new event type added on the
+    server is populated even for a user whose row pre-dates the addition.
+    PATCH accepts a partial matrix and merges it onto the stored document.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectMember]
+
+    def _get_project(self, request: Request, pk: str) -> Project:
+        project = get_object_or_404(Project, pk=pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+        return project
+
+    def _get_or_create_pref(self, project: Project, user: Any) -> ProjectNotificationPreference:
+        pref, _ = ProjectNotificationPreference.objects.get_or_create(project=project, user=user)
+        return pref
+
+    def get(self, request: Request, pk: str) -> Response:
+        project = self._get_project(request, pk)
+        pref = self._get_or_create_pref(project, request.user)
+        # Overlay defaults so a newly added event type renders even when the
+        # stored matrix predates it.
+        merged = _merge_matrix(pref.matrix or {}, {})
+        payload = ProjectNotificationPreferenceSerializer(pref).data
+        payload["matrix"] = merged
+        return Response(payload, status=status.HTTP_200_OK)
+
+    def patch(self, request: Request, pk: str) -> Response:
+        project = self._get_project(request, pk)
+        pref = self._get_or_create_pref(project, request.user)
+        serializer = ProjectNotificationPreferenceSerializer(pref, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        validated = serializer.validated_data
+        if "matrix" in validated:
+            # Merge so a partial cell update doesn't drop the rest of the grid.
+            merged = _merge_matrix(pref.matrix or {}, validated["matrix"])
+            pref.matrix = merged
+
+        for field in ("quiet_hours_enabled", "quiet_hours_from", "quiet_hours_until"):
+            if field in validated:
+                setattr(pref, field, validated[field])
+        pref.save()
+
+        payload = ProjectNotificationPreferenceSerializer(pref).data
+        payload["matrix"] = _merge_matrix(pref.matrix or {}, {})
+        return Response(payload, status=status.HTTP_200_OK)
