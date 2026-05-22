@@ -381,10 +381,19 @@ api:type-check:
 api:migration-check:
   # makemigrations --check --dry-run compares model state to migration files.
   # No database connection is made; .api-no-db template is sufficient.
+  #
+  # Runs on every MR pipeline (no `changes:` filter) — kaizen #640 N5. The job
+  # is ~36s and catches inter-MR migration drift that the per-MR `changes:`
+  # filter misses (two MRs landing close together each pass migration-check on
+  # their own diff, but their merged result fails on main).
   extends: .api-no-db
   stage: analyze
-  needs: [api:lint]
-  <<: *rules-api
+  needs:
+    - job: api:lint
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   script:
     - cd packages/api
     - python manage.py makemigrations --check --dry-run
@@ -591,8 +600,12 @@ api:test:
   needs: [api:lint, api:type-check, api:migration-check, api:openapi-check]
   <<: *rules-api
   script:
+    # -n auto fans out across all 4 cores on the runner. pytest-django creates
+    # a per-worker test DB (test_trueppm_test_gw0, _gw1, …) so isolation is
+    # preserved. pytest-cov has built-in xdist support — combined report writes
+    # to coverage.xml as before.
     - cd packages/api
-    - python -m pytest tests/ --tb=short -q
+    - python -m pytest tests/ --tb=short -q -n auto
         --cov=trueppm_api --cov-report=term-missing --cov-report=xml --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+%)/'
   artifacts:

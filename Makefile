@@ -2,7 +2,8 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod \
-        migrations-check schema-check web-lint web-typecheck pre-push \
+        migrations-check schema-check web-lint web-typecheck pre-push pre-push-checks \
+        pre-push-behind-warn \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web \
         release-smoke wt-new wt-list wt-remove wt-prune wt-doctor
 
@@ -168,7 +169,24 @@ coverage-diff-web: ## Diff coverage for packages/web
 	  echo "→ web diff coverage: no changes — skipped"; \
 	fi
 
-pre-push: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check schema-check ## Run pre-push CI gates (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
+pre-push-behind-warn: ## Warn (non-blocking) if HEAD is behind origin/main — catches schema/migration drift
+	@# Best-effort: silent on network failure, only prints when a refetched
+	@# origin/main is genuinely ahead of HEAD. CLAUDE.md "Always merge
+	@# origin/main before regenerating openapi.json" is enforced by discipline;
+	@# this is the warning that makes that discipline noticeable.
+	@if git fetch origin main --quiet 2>/dev/null; then \
+	  if ! git merge-base --is-ancestor origin/main HEAD 2>/dev/null; then \
+	    echo "⚠️  Branch is behind origin/main — rebase before push (avoids schema/migration drift on merge)"; \
+	  fi; \
+	fi
+
+pre-push-checks: scheduler-lint scheduler-typecheck api-lint api-typecheck web-lint web-typecheck migrations-check schema-check ## Run pre-push gate subtargets (use via `pre-push`, not directly)
+
+pre-push: pre-push-behind-warn ## Run pre-push CI gates in parallel (lint+typecheck, migrations, schema). Diff-coverage runs in CI only — run `make coverage-diff` to check locally.
+	@# Re-invoke ourselves with -j to fan out the independent lint/typecheck/
+	@# migration/schema jobs across cores. Output may interleave on failure;
+	@# each subtarget prefixes its own output so attribution is still readable.
+	@$(MAKE) -j 4 pre-push-checks
 	@echo ""
 	@echo "✅ Pre-push checks passed. Safe to git push."
 	@# Best-effort sweep of merged worktrees after a successful gate run. Allowed
