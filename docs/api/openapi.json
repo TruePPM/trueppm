@@ -946,6 +946,217 @@
                 }
             }
         },
+        "/api/v1/me/credentials/": {
+            "get": {
+                "operationId": "v1_me_credentials_list",
+                "description": "Return one summary row per registered provider.\n\nProviders without a stored credential still appear (``exists=False``)\nso the page can render the \"Not connected\" state without two round-\ntrips. The encrypted secret is never serialized.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedCredentialSummaryList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/me/credentials/{provider}/": {
+            "get": {
+                "operationId": "v1_me_credentials_retrieve",
+                "description": "Return the single-provider summary row.\n\nConvenience endpoint for the deep-link case (``#github`` anchor on\nthe page) when the client wants a single row's freshness rather\nthan the full list.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "provider",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CredentialSummary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_me_credentials_create",
+                "description": "Connect or rotate the credential for ``provider``.\n\n``create`` is a deliberate misnomer here: connect-and-rotate are\nthe same upsert. The viewset uses ``create`` so the standard DRF\naction set names the route ``POST /<provider>/`` rather than\n``POST /<provider>/rotate/``, which is what ADR-0049 §3 spells out.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "provider",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CredentialUpsertRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CredentialUpsertRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CredentialUpsertRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedCredentialSummaryList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_me_credentials_destroy",
+                "description": "Revoke (delete) the credential for ``provider``.\n\nReturns 204 even if no row exists — DELETE is idempotent. Clients\npolling the list after a revoke see ``exists=False`` either way.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "provider",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/me/notification-preferences/": {
             "get": {
                 "operationId": "v1_me_notification_preferences_list",
@@ -1808,6 +2019,105 @@
                         }
                     },
                     "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{id}/risk-policy/": {
+            "get": {
+                "operationId": "v1_programs_risk_policy_retrieve",
+                "description": "Read or update the program risk & deps policy (#529).\n\nURL: ``GET|PATCH /api/v1/programs/{pk}/risk-policy/``\n\nPermission split mirrors ``rollup_config`` (see ``get_permissions``):\nany member can read, only admins can write. Audit is automatic via\nthe ``HistoricalRecords()`` already on Program — every successful\nPATCH creates a ``HistoricalProgram`` row with the field diff.\n\nThe 5×5 risk matrix surfaced on the same Settings page is\nintentionally out of scope here — those thresholds are workspace-\nwide and read-only at the program level.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_programs_risk_policy_partial_update",
+                "description": "Read or update the program risk & deps policy (#529).\n\nURL: ``GET|PATCH /api/v1/programs/{pk}/risk-policy/``\n\nPermission split mirrors ``rollup_config`` (see ``get_permissions``):\nany member can read, only admins can write. Audit is automatic via\nthe ``HistoricalRecords()`` already on Program — every successful\nPATCH creates a ``HistoricalProgram`` row with the field diff.\n\nThe 5×5 risk matrix surfaced on the same Settings page is\nintentionally out of scope here — those thresholds are workspace-\nwide and read-only at the program level.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                            }
+                        }
+                    }
                 },
                 "security": [
                     {
@@ -12682,6 +12992,81 @@
                     "emoji"
                 ]
             },
+            "CredentialSummary": {
+                "type": "object",
+                "description": "One row per provider in the list response.\n\nSurfaces:\n- ``provider`` (machine key) and ``name`` (human label) for the UI header\n- ``exists`` — drives the Connected / Not connected pill\n- ``base_url`` for self-hosted users\n- ``created_at`` / ``updated_at`` / ``last_used_at`` for the audit trail\n- ``expires_at`` for the \"expires in X days\" hint\n- ``requires_credential`` so the UI can hide the Connect button for the\n  ``generic`` provider when no PAT is needed\n\nNotably absent: any field derived from ``secret_ciphertext``.",
+                "properties": {
+                    "provider": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "exists": {
+                        "type": "boolean"
+                    },
+                    "base_url": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "last_used_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "requires_credential": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "exists",
+                    "expires_at",
+                    "last_used_at",
+                    "name",
+                    "provider",
+                    "requires_credential",
+                    "updated_at"
+                ]
+            },
+            "CredentialUpsertRequest": {
+                "type": "object",
+                "description": "Payload for ``POST /me/credentials/{provider}/`` (connect or rotate).\n\nValidation rules:\n- ``secret`` is required and non-empty (the encryption helper refuses\n  empty plaintext anyway; rejecting here gives a clean 400).\n- ``secret`` is write-only — never echoed back.\n- ``base_url`` is optional. When present it must be an ``http://`` or\n  ``https://`` URL; ``file://`` / ``javascript:`` / ``gopher://`` /\n  similar schemes are rejected here. SSRF resolver-level guards (block\n  RFC1918, link-local, cloud metadata) live with #637 since they need\n  DNS resolution at fetch time — this serializer is the cheap\n  first line of defense.\n- ``expires_at`` is optional and informational only.",
+                "properties": {
+                    "secret": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1,
+                        "maxLength": 4096
+                    },
+                    "base_url": {
+                        "type": "string",
+                        "maxLength": 512
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "secret"
+                ]
+            },
             "DefaultViewEnum": {
                 "enum": [
                     "SCHEDULE",
@@ -13379,6 +13764,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/CeremonyTemplate"
+                        }
+                    }
+                }
+            },
+            "PaginatedCredentialSummaryList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CredentialSummary"
                         }
                     }
                 }
