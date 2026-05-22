@@ -3,8 +3,8 @@ title: Multi-team Sprints lens
 description: Aggregated sprint health across every project where the user has open assignments.
 ---
 
-:::caution[Roadmap — 0.3]
-This feature is designed and documented but not yet shipped. Target release: **0.3**.
+:::note[0.1]
+The multi-team Sprints lens shipped in 0.1.
 :::
 
 The `My Teams` toggle on the Sprints view aggregates active-sprint health across every project where the requesting user owns a non-complete task. Cards are sorted server-side by burndown deviation — most behind first.

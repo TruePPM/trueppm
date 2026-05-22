@@ -3,8 +3,8 @@ title: Installation
 description: Four ways to run TruePPM — Docker Compose, Helm/Kubernetes, single-server, or the scheduler library standalone.
 ---
 
-:::caution[0.1-alpha — not ready for production use]
-This is the first public alpha. The core engine and API are solid; the UI is functional but rough. Expect breaking API changes before the first beta. **Install for evaluation and to give feedback — hold off on deploying for real teams until 0.1-beta.**
+:::caution[0.1 shipped · pre-GA]
+TruePPM 0.1 has shipped — the engine, API, real-time backend, and web UI are functional. The product is pre-GA: expect API contract changes across 0.x point releases. Install for evaluation and early-adopter deployments; a stable contract arrives at 1.0.
 :::
 
 TruePPM ships as pre-built Docker images on GHCR and a Python package on PyPI. Pick the path that fits your environment:
