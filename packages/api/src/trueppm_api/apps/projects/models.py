@@ -8,6 +8,7 @@ from typing import Any
 from django.conf import settings
 from django.db import models
 from django.db.models import F, Q
+from django.db.models.functions import Lower
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
@@ -572,6 +573,16 @@ class Task(VersionedModel):
         default=False,
         db_index=True,
         help_text="True for tasks created via the drawer subtask action (ADR-0060).",
+    )
+
+    # Accent color as #RRGGBB hex, or null. Only meaningful on root-level (phase)
+    # tasks where the Workflow settings page surfaces it; the schedule view and
+    # board grouping treat null as "use the default tint" (#521).
+    color = models.CharField(  # noqa: DJ001 — null distinguishes "unset" from ""
+        max_length=7,
+        null=True,
+        blank=True,
+        help_text="Phase accent color as #RRGGBB hex (root tasks only).",
     )
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_TASK)
@@ -2111,3 +2122,80 @@ class CommentReaction(models.Model):
     @property
     def project_id(self) -> Any:
         return self.comment.task.project_id
+
+
+# ---------------------------------------------------------------------------
+# Project custom fields (#521)
+# ---------------------------------------------------------------------------
+
+
+class CustomFieldType(models.TextChoices):
+    """Type of a project-scoped custom field.
+
+    SINGLE_SELECT / MULTI_SELECT require non-empty ``options``; all others
+    must leave ``options`` as an empty list.  USER carries a person reference
+    (no options).  BOOLEAN is a checkbox.  Values for these fields are not
+    yet persisted on tasks — that ships in a follow-up (custom-field values
+    on TaskCustomFieldValue).
+    """
+
+    TEXT = "TEXT", "Text"
+    NUMBER = "NUMBER", "Number"
+    DATE = "DATE", "Date"
+    SINGLE_SELECT = "SINGLE_SELECT", "Single-select"
+    MULTI_SELECT = "MULTI_SELECT", "Multi-select"
+    USER = "USER", "Person"
+    BOOLEAN = "BOOLEAN", "Boolean"
+
+
+# Soft cap on number of custom fields per project — defensive against admin
+# sprawl. Mirrors typical PPM tool limits; raise if a real customer hits it.
+PROJECT_CUSTOM_FIELD_MAX = 32
+
+
+class ProjectCustomField(models.Model):
+    """Project-scoped custom field definition for tasks (#521).
+
+    This model stores *definitions only* (name + type + required + options).
+    Per-task values come in a follow-up. Built-in fields (Phase, Owner,
+    Duration, Risk, Critical-path) are not modeled here — they're a static
+    catalog in the web client that the Fields settings page stitches above
+    the dynamic custom list.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="custom_fields",
+    )
+    name = models.CharField(max_length=64)
+    field_type = models.CharField(max_length=16, choices=CustomFieldType.choices)
+    required = models.BooleanField(default=False)
+    # Choice list for SINGLE_SELECT / MULTI_SELECT — list of {value, label, color?}.
+    # Empty list for every other type; the serializer enforces the constraint.
+    options = models.JSONField(default=list, blank=True)
+    # Display order on the Workflow settings page. Drag-to-reorder is implemented
+    # by issuing PATCHes on individual rows; no dedicated reorder endpoint.
+    order = models.PositiveSmallIntegerField(default=0, db_index=True)
+    server_version = models.BigIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "projects_projectcustomfield"
+        ordering = ["order", "name"]
+        constraints = [
+            # Case-insensitive uniqueness so "Vendor" / "vendor" can't both exist.
+            models.UniqueConstraint(
+                Lower("name"),
+                "project",
+                name="unique_custom_field_name_per_project_ci",
+            ),
+        ]
+        indexes = [models.Index(fields=["project", "order"])]
+        verbose_name = "project custom field"
+        verbose_name_plural = "project custom fields"
+
+    def __str__(self) -> str:
+        return f"ProjectCustomField({self.project_id}, {self.name!r}, {self.field_type})"

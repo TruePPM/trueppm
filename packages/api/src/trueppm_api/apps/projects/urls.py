@@ -19,9 +19,11 @@ from trueppm_api.apps.projects.views import (
     MeActiveSprintsView,
     MeWorkView,
     PhaseReorderView,
+    PhaseViewSet,
     ProjectApiTokenViewSet,
     ProjectAttentionView,
     ProjectBurnView,
+    ProjectCustomFieldViewSet,
     ProjectMyTasksView,
     ProjectOverviewView,
     ProjectPresenceView,
@@ -171,6 +173,42 @@ urlpatterns = [
         "projects/<pk>/phases/reorder/",
         PhaseReorderView.as_view(),
         name="project-phases-reorder",
+    ),
+    # Phase CRUD — Workflow settings page (#521). Reorder lives at /phases/reorder/.
+    path(
+        "projects/<project_pk>/phases/",
+        PhaseViewSet.as_view({"get": "list", "post": "create"}),
+        name="project-phases-list",
+    ),
+    path(
+        "projects/<project_pk>/phases/<pk>/",
+        PhaseViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="project-phases-detail",
+    ),
+    # Project custom field definitions — Workflow settings page (#521).
+    path(
+        "projects/<project_pk>/fields/",
+        ProjectCustomFieldViewSet.as_view({"get": "list", "post": "create"}),
+        name="project-fields-list",
+    ),
+    path(
+        "projects/<project_pk>/fields/<pk>/",
+        ProjectCustomFieldViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="project-fields-detail",
     ),
     # Sprint endpoints (ADR-0037)
     path(

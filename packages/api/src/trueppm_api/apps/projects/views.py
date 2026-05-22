@@ -63,6 +63,7 @@ from trueppm_api.apps.projects.models import (
     EstimationMode,
     Project,
     ProjectApiToken,
+    ProjectCustomField,
     Risk,
     RiskComment,
     RiskStatus,
@@ -89,9 +90,11 @@ from trueppm_api.apps.projects.serializers import (
     MeWorkActiveSprintSerializer,
     MeWorkTaskSerializer,
     MilestoneRollupLockedError,
+    PhaseSerializer,
     ProgressAnchorError,
     ProjectApiTokenCreateSerializer,
     ProjectApiTokenSerializer,
+    ProjectCustomFieldSerializer,
     ProjectDetailSerializer,
     ProjectSerializer,
     RiskCommentSerializer,
@@ -3601,6 +3604,264 @@ class PhaseReorderView(APIView):
             transaction.on_commit(lambda: _enqueue_recalculate(project_id_str))
 
         return Response({"updated": len(parsed)}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Workflow settings — Phase (root-task) and ProjectCustomField viewsets (#521)
+# ---------------------------------------------------------------------------
+
+
+# Root-task discriminator — wbs_path matches a single integer with no dot.  The
+# Workflow settings page edits these and nothing else.
+_ROOT_WBS_RE = r"^\d+$"
+
+
+class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
+    """CRUD for project phases (root-level WBS tasks).
+
+    Mounted at ``/projects/<project_pk>/phases/`` — the Workflow settings page
+    surface. Each row corresponds to a Task with ``wbs_path ~ '^\\d+$'``; the
+    Board groups by these as swim-lanes and the Schedule view renders them as
+    summary rows.
+
+    Permission matrix:
+      list / retrieve — Viewer+ (IsProjectMember)
+      create / update / partial_update / destroy — Project Manager+ (IsProjectAdmin)
+
+    Reordering uses the pre-existing ``PATCH /projects/<pk>/phases/reorder/``
+    endpoint (ADR-0046); this viewset does not expose its own reorder action
+    to avoid drift.
+
+    Destroy refuses (409) when the phase has any descendant tasks — silently
+    cascading 36 tasks would surprise a PM. The client should move or delete
+    the children first.
+    """
+
+    serializer_class = PhaseSerializer
+    # Class-level queryset is the DRF introspection hook; the real queryset
+    # is built in ``get_queryset`` so it can filter by ``project_pk`` from the
+    # URL kwargs and attach per-row task counts.
+    queryset = Task.objects.filter(is_deleted=False)
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated(), IsProjectMember()]
+        return [IsAuthenticated(), IsProjectAdmin()]
+
+    def _attach_task_counts(self, phases: list[Task]) -> list[Task]:
+        """Set ``descendants_count`` on each phase from a single grouped query.
+
+        Counts include the phase itself plus every non-deleted descendant
+        task. For an empty phase the count is 1; for a phase with two child
+        tasks it is 3. Two queries total (one for phases, one for the
+        per-phase count map) rather than N+1 per-phase counts.
+        """
+        if not phases:
+            return phases
+        project_id = phases[0].project_id
+        counts: dict[str, int] = {}
+        # Single query: count non-deleted tasks per root prefix. We bucket every
+        # task by its WBS root (the substring before the first dot, or the
+        # whole path for L1 rows).
+        rows = (
+            Task.objects.filter(project_id=project_id, is_deleted=False)
+            .exclude(wbs_path__isnull=True)
+            .values_list("wbs_path", flat=True)
+        )
+        for path in rows:
+            if path is None:
+                continue
+            root = str(path).split(".", 1)[0]
+            counts[root] = counts.get(root, 0) + 1
+        for phase in phases:
+            phase.descendants_count = counts.get(  # type: ignore[attr-defined]
+                str(phase.wbs_path) if phase.wbs_path else "", 0
+            )
+        return phases
+
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        queryset = self.filter_queryset(self.get_queryset())
+        phases = list(queryset)
+        self._attach_task_counts(phases)
+        serializer = self.get_serializer(phases, many=True)
+        return Response(serializer.data)
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        self._attach_task_counts([instance])
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    def get_queryset(self) -> QuerySet[Task]:
+        project_pk = self.kwargs.get("project_pk")
+        if not project_pk:
+            return Task.objects.none()
+        user = getattr(self.request, "user", None)
+        if user is None or not user.is_authenticated:
+            return Task.objects.none()
+        return Task.objects.filter(
+            project_id=project_pk,
+            is_deleted=False,
+            wbs_path__regex=_ROOT_WBS_RE,
+        ).order_by("priority_rank", "wbs_path", "name")
+
+    def perform_create(self, serializer: BaseSerializer[Task]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_pk = self.kwargs["project_pk"]
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        self.check_object_permissions(self.request, project)
+
+        with transaction.atomic():
+            # Append at the end of the root list — match the convention used by
+            # TaskViewSet.perform_create when no parent_id is supplied.
+            root_count = (
+                Task.objects.select_for_update()
+                .filter(project=project, is_deleted=False, wbs_path__regex=_ROOT_WBS_RE)
+                .count()
+            )
+            wbs_path = str(root_count + 1)
+            # priority_rank uses the existing 10-step convention from PhaseReorderView
+            # so new phases sit at the bottom of the swim-lane order.
+            priority_rank = (root_count + 1) * 10
+            instance = serializer.save(
+                project=project,
+                wbs_path=wbs_path,
+                priority_rank=priority_rank,
+                is_subtask=False,
+            )
+            # Mirror the count that get_queryset() annotates — for the response
+            # body the new phase has only itself as a "task".
+            instance.descendants_count = 1  # type: ignore[attr-defined]
+            project_id_str = str(project_pk)
+            task_id_str = str(instance.pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id_str, "task_created", {"id": task_id_str})
+            )
+
+    def perform_update(self, serializer: BaseSerializer[Task]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        instance = serializer.save()
+        # VersionedModel.save() already bumps server_version atomically via F() on
+        # every UPDATE — no second bump needed here.
+        # Attach the task count so the response body includes it (mirrors list).
+        self._attach_task_counts([instance])
+        project_id_str = str(instance.project_id)
+        task_id_str = str(instance.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id_str, "task_updated", {"id": task_id_str})
+        )
+
+    def perform_destroy(self, instance: Task) -> None:
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        # Refuse when the phase still has descendant tasks. Cascading a phase
+        # delete would silently soft-delete potentially-dozens of tasks; PMs
+        # expect to move children out first.
+        descendant_count = Task.objects.filter(
+            project_id=instance.project_id,
+            is_deleted=False,
+            wbs_path__startswith=str(instance.wbs_path) + ".",
+        ).count()
+        if descendant_count > 0:
+            raise DRFValidationError(
+                {
+                    "detail": (
+                        f"Cannot delete phase {instance.name!r}: it has {descendant_count} "
+                        "descendant tasks. Move or delete the tasks first."
+                    )
+                }
+            )
+        project_id_str = str(instance.project_id)
+        task_id_str = str(instance.pk)
+        instance.soft_delete()
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id_str, "task_deleted", {"id": task_id_str})
+        )
+
+
+class ProjectCustomFieldViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[ProjectCustomField]):
+    """CRUD for project custom field *definitions* (#521).
+
+    Mounted at ``/projects/<project_pk>/fields/``. Per-task values for these
+    fields are not yet persisted; this endpoint shapes the workflow schema
+    only. Built-in fields (Phase, Owner, Duration, Risk, Critical-path) are
+    a static frontend catalog and not exposed here.
+
+    Permission matrix:
+      list / retrieve — Viewer+ (IsProjectMember)
+      create / update / partial_update / destroy — Scheduler+ (IsProjectScheduler)
+
+    Mirrors BoardColumnConfigView's read=member, write=scheduler split:
+    custom fields shape how tasks are tracked and are therefore a
+    schedule-affecting concern.
+    """
+
+    serializer_class = ProjectCustomFieldSerializer
+    queryset = ProjectCustomField.objects.all()
+    # Per-project list is capped at 32 rows (PROJECT_CUSTOM_FIELD_MAX) — no need
+    # for pagination, and the unpaginated shape matches the BoardSavedView list.
+    pagination_class = None
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated(), IsProjectMember()]
+        return [IsAuthenticated(), IsProjectScheduler()]
+
+    def get_queryset(self) -> QuerySet[ProjectCustomField]:
+        qs = super().get_queryset()
+        project_pk = self.kwargs.get("project_pk")
+        if project_pk:
+            qs = qs.filter(project_id=project_pk)
+        return qs.order_by("order", "name")
+
+    def perform_create(self, serializer: BaseSerializer[ProjectCustomField]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_pk = self.kwargs["project_pk"]
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        self.check_object_permissions(self.request, project)
+        instance = serializer.save(project=project, server_version=1)
+        project_id_str = str(project_pk)
+        field_id_str = str(instance.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str,
+                "project_custom_fields_updated",
+                {"id": field_id_str, "action": "created"},
+            )
+        )
+
+    def perform_update(self, serializer: BaseSerializer[ProjectCustomField]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        instance = serializer.save()
+        project_id_str = str(instance.project_id)
+        field_id_str = str(instance.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str,
+                "project_custom_fields_updated",
+                {"id": field_id_str, "action": "updated"},
+            )
+        )
+
+    def perform_destroy(self, instance: ProjectCustomField) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project_id_str = str(instance.project_id)
+        field_id_str = str(instance.pk)
+        instance.delete()
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str,
+                "project_custom_fields_updated",
+                {"id": field_id_str, "action": "deleted"},
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
