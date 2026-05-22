@@ -247,6 +247,14 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
                 raise DRFValidationError(
                     {"detail": "Archive the project before requesting a permanent delete."}
                 )
+            # ProjectMembership.project is on_delete=PROTECT so a bare
+            # Project.delete() raises ProtectedError. The two-step archive →
+            # force-delete dialog already gates against accidents; at this
+            # point the Owner has confirmed and the membership rows must go
+            # with the project row.
+            from trueppm_api.apps.access.models import ProjectMembership
+
+            ProjectMembership.objects.filter(project=instance).delete()
             Project.objects.filter(pk=instance.pk).delete()
             transaction.on_commit(
                 lambda: broadcast_board_event(

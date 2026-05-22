@@ -176,7 +176,7 @@ test.describe('Project lifecycle settings (#530)', () => {
     const captures: Captures = {};
     await setupAuth(page);
     await setupProjectRoutes(page, captures);
-    await page.goto(`/projects/${PROJECT_ID}/settings/archive`);
+    await page.goto(`/projects/${PROJECT_ID}/settings/lifecycle`);
 
     await expect(page.getByRole('heading', { name: 'Lifecycle' })).toBeVisible();
     // Confirmation target reads the real project code, NOT a hardcoded slug.
@@ -190,7 +190,7 @@ test.describe('Project lifecycle settings (#530)', () => {
     const captures: Captures = {};
     await setupAuth(page);
     await setupProjectRoutes(page, captures);
-    await page.goto(`/projects/${PROJECT_ID}/settings/archive`);
+    await page.goto(`/projects/${PROJECT_ID}/settings/lifecycle`);
 
     await page
       .getByLabel('Confirm delete by typing the project code or name')
@@ -210,7 +210,7 @@ test.describe('Program lifecycle settings (#530)', () => {
     const captures: Captures = {};
     await setupAuth(page);
     await setupProgramRoutes(page, captures);
-    await page.goto(`/programs/${PROGRAM_ID}/settings/archive`);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/lifecycle`);
 
     await expect(page.getByRole('heading', { name: 'Archive / Close' })).toBeVisible();
     // Confirmation target reads the real program code (ARTEMIS), not a hardcoded slug.
@@ -224,7 +224,7 @@ test.describe('Program lifecycle settings (#530)', () => {
     const captures: Captures = {};
     await setupAuth(page);
     await setupProgramRoutes(page, captures);
-    await page.goto(`/programs/${PROGRAM_ID}/settings/archive`);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/lifecycle`);
 
     await page
       .getByLabel('Confirm delete by typing the program code or name')

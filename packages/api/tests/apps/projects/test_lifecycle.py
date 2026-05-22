@@ -364,8 +364,8 @@ def test_archived_project_rejects_task_create(owner: object, project: Project) -
     client = _client(owner)
     client.post(f"/api/v1/projects/{project.pk}/archive/")
     resp = client.post(
-        f"/api/v1/projects/{project.pk}/tasks/",
-        {"name": "New work", "duration": 1},
+        "/api/v1/tasks/",
+        {"project": str(project.pk), "name": "New work", "duration": 1},
         format="json",
     )
     assert resp.status_code == 403
