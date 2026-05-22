@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from django.urls import path
 
-from .views import NotificationPreferenceViewSet, NotificationViewSet
+from .views import (
+    NotificationPreferenceViewSet,
+    NotificationViewSet,
+    ProjectNotificationPreferenceView,
+)
 
 urlpatterns = [
     # Notification inbox
@@ -33,5 +37,11 @@ urlpatterns = [
         "me/notification-preferences/<int:pk>/",
         NotificationPreferenceViewSet.as_view({"patch": "partial_update"}),
         name="me-notification-preferences-detail",
+    ),
+    # Project-scoped routing matrix + quiet hours (#522)
+    path(
+        "projects/<uuid:pk>/notification-preferences/",
+        ProjectNotificationPreferenceView.as_view(),
+        name="project-notification-preferences",
     ),
 ]

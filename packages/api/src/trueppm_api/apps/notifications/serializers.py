@@ -6,7 +6,14 @@ from typing import Any
 
 from rest_framework import serializers
 
-from .models import Mention, Notification, NotificationPreference
+from .models import (
+    Mention,
+    Notification,
+    NotificationPreference,
+    ProjectNotificationChannel,
+    ProjectNotificationEventType,
+    ProjectNotificationPreference,
+)
 
 
 class MentionAuthorSerializer(serializers.Serializer[Any]):
@@ -121,3 +128,69 @@ class NotificationPreferenceSerializer(serializers.ModelSerializer[NotificationP
         model = NotificationPreference
         fields = ["id", "event_type", "channel", "enabled", "updated_at"]
         read_only_fields = ["id", "event_type", "channel", "updated_at"]
+
+
+# ---------------------------------------------------------------------------
+# Project-scoped preferences (#522)
+# ---------------------------------------------------------------------------
+
+
+_VALID_EVENT_TYPES = {choice.value for choice in ProjectNotificationEventType}
+_VALID_CHANNELS = {choice.value for choice in ProjectNotificationChannel}
+
+
+class _ProjectNotificationMatrixField(serializers.JSONField):
+    """JSON matrix `{event_type: {channel: bool}}` with strict key validation.
+
+    Rejects unknown event types and channels at the serializer layer so a
+    typo in the client doesn't silently corrupt the stored matrix. Non-bool
+    leaves are also rejected — there is no "tri-state" toggle.
+    """
+
+    def to_internal_value(self, data: Any) -> dict[str, dict[str, bool]]:
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("matrix must be a JSON object")
+        validated: dict[str, dict[str, bool]] = {}
+        for event_type, channels in value.items():
+            if event_type not in _VALID_EVENT_TYPES:
+                raise serializers.ValidationError(f"Unknown event_type: {event_type!r}")
+            if not isinstance(channels, dict):
+                raise serializers.ValidationError(
+                    f"matrix[{event_type!r}] must be an object of channel→bool"
+                )
+            row: dict[str, bool] = {}
+            for channel, enabled in channels.items():
+                if channel not in _VALID_CHANNELS:
+                    raise serializers.ValidationError(f"Unknown channel: {channel!r}")
+                if not isinstance(enabled, bool):
+                    raise serializers.ValidationError(
+                        f"matrix[{event_type!r}][{channel!r}] must be a boolean"
+                    )
+                row[channel] = enabled
+            validated[event_type] = row
+        return validated
+
+
+class ProjectNotificationPreferenceSerializer(
+    serializers.ModelSerializer[ProjectNotificationPreference]
+):
+    """Per-(project, user) notification preferences.
+
+    The full matrix and quiet-hours window are returned in one document; the
+    PATCH path merges the supplied matrix onto the stored one so a partial
+    toggle does not have to repost the full 9×4 grid.
+    """
+
+    matrix = _ProjectNotificationMatrixField()
+
+    class Meta:
+        model = ProjectNotificationPreference
+        fields = [
+            "matrix",
+            "quiet_hours_enabled",
+            "quiet_hours_from",
+            "quiet_hours_until",
+            "updated_at",
+        ]
+        read_only_fields = ["updated_at"]

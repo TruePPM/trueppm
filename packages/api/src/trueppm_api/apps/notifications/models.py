@@ -12,10 +12,15 @@ Three entities power the unified @mention surface that #311 ships first and
 - NotificationPreference — per-user `(event_type, channel)` toggle. Consumes
   ADR-0049's NOTIFICATION_CHANNELS registry; Enterprise extends the channel
   axis with slack_dm/teams_dm/sms without OSS changes.
+- ProjectNotificationPreference — per-(project, user) routing matrix plus
+  daily quiet-hours window. Backs the Project > Notifications settings page
+  (#522); orthogonal to NotificationPreference, which is the *global* mention
+  feed default.
 """
 
 from __future__ import annotations
 
+import datetime
 import uuid
 from typing import Any
 
@@ -316,3 +321,141 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     (NotificationEventType.MENTION_GROUP, NotificationChannel.IN_APP, True),
     (NotificationEventType.MENTION_GROUP, NotificationChannel.EMAIL, False),
 ]
+
+
+# ---------------------------------------------------------------------------
+# Project-scoped notification preferences (#522)
+# ---------------------------------------------------------------------------
+
+
+class ProjectNotificationEventType(models.TextChoices):
+    """Project-scoped notification events surfaced on Project > Notifications.
+
+    Disjoint from `NotificationEventType` (which today only covers @mention
+    fan-out for the inbox surface). The project page covers the broader set
+    of routing decisions a PM makes per-project — task assignment, slips,
+    risk creation, sprint lifecycle, etc.
+    """
+
+    TASK_ASSIGNED = "task_assigned", "Task assigned to me"
+    TASK_OVERDUE = "task_overdue", "Task I own is overdue"
+    COMMENT_MENTION = "comment_mention", "Mention (@) in a comment"
+    STATUS_CHANGE = "status_change", "Task moves to another column"
+    BUDGET_ALERT = "budget_alert", "Budget threshold crossed"
+    RISK_CREATED = "risk_created", "Risk created or escalated"
+    MILESTONE_REACHED = "milestone_reached", "Milestone reached"
+    SPRINT_START = "sprint_start", "Sprint started"
+    SPRINT_END = "sprint_end", "Sprint closed"
+
+
+class ProjectNotificationChannel(models.TextChoices):
+    """Delivery channels for project-scoped notifications.
+
+    `slack` and `mobile_push` are wired here for the settings UI; actual
+    delivery requires the Slack/mobile integrations to be configured at the
+    project (Slack) or user (mobile push) level. A toggle in the matrix
+    represents user intent — it does not imply the integration is live.
+    """
+
+    IN_APP = "in_app", "In-app"
+    EMAIL = "email", "Email"
+    SLACK = "slack", "Slack"
+    MOBILE_PUSH = "mobile_push", "Mobile push"
+
+
+# Default matrix — applied lazily on first GET (no per-user backfill on join).
+# Mobile push is OFF by default for non-critical events to avoid waking users;
+# critical-path / risk / budget alerts default ON across every channel.
+_T = ProjectNotificationEventType
+_C = ProjectNotificationChannel
+
+PROJECT_NOTIFICATION_DEFAULT_MATRIX: dict[str, dict[str, bool]] = {
+    _T.TASK_ASSIGNED: {_C.IN_APP: True, _C.EMAIL: True, _C.SLACK: True, _C.MOBILE_PUSH: True},
+    _T.TASK_OVERDUE: {_C.IN_APP: True, _C.EMAIL: True, _C.SLACK: True, _C.MOBILE_PUSH: True},
+    _T.COMMENT_MENTION: {
+        _C.IN_APP: True,
+        _C.EMAIL: True,
+        _C.SLACK: True,
+        _C.MOBILE_PUSH: True,
+    },
+    _T.STATUS_CHANGE: {
+        _C.IN_APP: True,
+        _C.EMAIL: False,
+        _C.SLACK: False,
+        _C.MOBILE_PUSH: False,
+    },
+    _T.BUDGET_ALERT: {_C.IN_APP: True, _C.EMAIL: True, _C.SLACK: True, _C.MOBILE_PUSH: True},
+    _T.RISK_CREATED: {_C.IN_APP: True, _C.EMAIL: True, _C.SLACK: True, _C.MOBILE_PUSH: True},
+    _T.MILESTONE_REACHED: {
+        _C.IN_APP: True,
+        _C.EMAIL: True,
+        _C.SLACK: True,
+        _C.MOBILE_PUSH: False,
+    },
+    _T.SPRINT_START: {
+        _C.IN_APP: True,
+        _C.EMAIL: True,
+        _C.SLACK: True,
+        _C.MOBILE_PUSH: False,
+    },
+    _T.SPRINT_END: {
+        _C.IN_APP: True,
+        _C.EMAIL: True,
+        _C.SLACK: True,
+        _C.MOBILE_PUSH: False,
+    },
+}
+
+
+def _default_matrix() -> dict[str, dict[str, bool]]:
+    """Deep-copy of the default matrix used as the JSONField default.
+
+    Django requires a callable; returning the literal would share mutable
+    state across rows.
+    """
+    return {evt: dict(chans) for evt, chans in PROJECT_NOTIFICATION_DEFAULT_MATRIX.items()}
+
+
+class ProjectNotificationPreference(models.Model):
+    """Per-(project, user) notification routing matrix and quiet-hours window.
+
+    One row per user per project. The matrix is a `{event_type: {channel: bool}}`
+    JSON document — the row count stays small (one per user per project) and
+    PATCH is a single UPDATE rather than a 36-row diff. Missing event/channel
+    keys fall back to the default matrix on read, so a stale row won't break
+    when the event set grows.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="notification_preferences_by_user",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="project_notification_preferences",
+    )
+    matrix = models.JSONField(default=_default_matrix)
+
+    quiet_hours_enabled = models.BooleanField(default=True)
+    quiet_hours_from = models.TimeField(default=datetime.time(20, 0))
+    quiet_hours_until = models.TimeField(default=datetime.time(7, 0))
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "notifications_project_preference"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "user"],
+                name="uq_projnotifpref_project_user",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["project", "user"], name="ix_projnotifpref_proj_user"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ProjectNotificationPreference(project={self.project_id}, user={self.user_id})"
