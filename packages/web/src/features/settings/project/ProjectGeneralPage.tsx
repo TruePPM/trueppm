@@ -4,92 +4,171 @@ import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
 import { useUpdateProject } from '@/hooks/useProjectMutations';
+import type { ProjectDefaultView, ProjectHealth, ProjectVisibility } from '@/api/types';
 
 const TIMEZONES = [
-  'America/Los_Angeles · UTC−7',
-  'America/Denver · UTC−6',
-  'America/Chicago · UTC−5',
-  'America/New_York · UTC−4',
-  'Europe/London · UTC+1',
-  'Europe/Paris · UTC+2',
-  'Asia/Tokyo · UTC+9',
+  'America/Los_Angeles',
+  'America/Denver',
+  'America/Chicago',
+  'America/New_York',
+  'Europe/London',
+  'Europe/Paris',
+  'Asia/Tokyo',
 ];
 
-const VIEWS = ['Schedule (Gantt)', 'Board', 'Table', 'Overview'];
-
-type Health = 'onTrack' | 'atRisk' | 'critical' | 'auto';
-
-const HEALTH_OPTIONS: Array<{ id: Health; label: string }> = [
-  { id: 'onTrack',  label: 'On track' },
-  { id: 'atRisk',   label: 'At risk' },
-  { id: 'critical', label: 'Critical' },
-  { id: 'auto',     label: 'Auto' },
+const DEFAULT_VIEW_OPTIONS: Array<{ id: ProjectDefaultView; label: string }> = [
+  { id: 'SCHEDULE', label: 'Schedule (Gantt)' },
+  { id: 'BOARD',    label: 'Board' },
+  { id: 'TABLE',    label: 'Table' },
+  { id: 'OVERVIEW', label: 'Overview' },
 ];
 
-const HEALTH_ACTIVE: Record<Health, string> = {
-  onTrack:  'bg-semantic-on-track-bg text-semantic-on-track border-semantic-on-track/40',
-  atRisk:   'bg-semantic-at-risk-bg text-semantic-at-risk border-semantic-at-risk/40',
-  critical: 'bg-semantic-critical/10 text-semantic-critical border-semantic-critical/40',
-  auto:     'bg-brand-primary-light text-brand-primary border-brand-primary/40',
+const HEALTH_OPTIONS: Array<{ id: ProjectHealth; label: string }> = [
+  { id: 'ON_TRACK', label: 'On track' },
+  { id: 'AT_RISK',  label: 'At risk' },
+  { id: 'CRITICAL', label: 'Critical' },
+  { id: 'AUTO',     label: 'Auto' },
+];
+
+const HEALTH_ACTIVE: Record<ProjectHealth, string> = {
+  ON_TRACK: 'bg-semantic-on-track-bg text-semantic-on-track border-semantic-on-track/40',
+  AT_RISK:  'bg-semantic-at-risk-bg text-semantic-at-risk border-semantic-at-risk/40',
+  CRITICAL: 'bg-semantic-critical/10 text-semantic-critical border-semantic-critical/40',
+  AUTO:     'bg-brand-primary-light text-brand-primary border-brand-primary/40',
 };
+
+const VISIBILITY_OPTIONS: Array<{ id: ProjectVisibility; label: string; hint: string }> = [
+  { id: 'WORKSPACE', label: 'Workspace', hint: 'Anyone in the workspace can view; editing follows role.' },
+  { id: 'PRIVATE',   label: 'Private',   hint: 'Only invited members and groups can see this project.' },
+];
 
 /**
  * Project > General settings page.
  *
- * `name` and `description` are wired to the real API (PATCH /api/v1/projects/:id/).
- * Extended fields (code, health, visibility, timezone, calendar, default view)
- * are disabled here pending #520, which extends the serializer and removes the
- * per-field `disabled` flag below.
+ * All seven editable fields (name, description, code, health, visibility,
+ * timezone, default_view) are wired to PATCH /api/v1/projects/:id/. The
+ * `calendar` FK toggles between inherited (null) and override; the picker UI
+ * for choosing a specific calendar is queued for a follow-up issue, so the
+ * "+ Override" button stays disabled when no calendar is currently assigned.
+ *
+ * The save bar appears on the first dirty edit and submits the whole payload
+ * as a single PATCH on confirm; useDirtyForm handles the visibility + reset.
  */
 export function ProjectGeneralPage() {
   const projectId = useProjectId();
   const { data: project } = useProject(projectId);
   const updateProject = useUpdateProject(projectId);
 
-  // Wired-to-API fields
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-
-  // Pending-#520 fields (disabled — visible to set expectations but cannot be saved)
   const [code, setCode] = useState('');
-  const [health, setHealth] = useState<Health>('auto');
-  const [visibility, setVisibility] = useState<'workspace' | 'private'>('workspace');
-  const [timezone, setTimezone] = useState(TIMEZONES[0]);
-  const [calendarInherited, setCalendarInherited] = useState(true);
-  const [defaultView, setDefaultView] = useState(VIEWS[0]);
+  const [health, setHealth] = useState<ProjectHealth>('AUTO');
+  const [visibility, setVisibility] = useState<ProjectVisibility>('WORKSPACE');
+  const [timezone, setTimezone] = useState('');
+  const [defaultView, setDefaultView] = useState<ProjectDefaultView>('SCHEDULE');
+  const [calendarId, setCalendarId] = useState<string | null>(null);
 
   // Seed once on first successful load — guard prevents refetch from wiping user edits.
-  // `initialName` / `initialDescription` are the "last-saved snapshot" the discard
-  // handler reverts to, and useDirtyForm compares against to compute dirty.
+  // The `initial*` snapshots are what the discard handler reverts to and what
+  // useDirtyForm compares against to compute the dirty flag.
   const seededRef = useRef(false);
   const [initialName, setInitialName] = useState('');
   const [initialDescription, setInitialDescription] = useState('');
+  const [initialCode, setInitialCode] = useState('');
+  const [initialHealth, setInitialHealth] = useState<ProjectHealth>('AUTO');
+  const [initialVisibility, setInitialVisibility] = useState<ProjectVisibility>('WORKSPACE');
+  const [initialTimezone, setInitialTimezone] = useState('');
+  const [initialDefaultView, setInitialDefaultView] = useState<ProjectDefaultView>('SCHEDULE');
+  const [initialCalendarId, setInitialCalendarId] = useState<string | null>(null);
+
   useEffect(() => {
     if (!project || seededRef.current) return;
     seededRef.current = true;
     setName(project.name);
     setDescription(project.description ?? '');
+    setCode(project.code);
+    setHealth(project.health);
+    setVisibility(project.visibility);
+    setTimezone(project.timezone);
+    setDefaultView(project.default_view);
+    setCalendarId(project.calendar);
     setInitialName(project.name);
     setInitialDescription(project.description ?? '');
+    setInitialCode(project.code);
+    setInitialHealth(project.health);
+    setInitialVisibility(project.visibility);
+    setInitialTimezone(project.timezone);
+    setInitialDefaultView(project.default_view);
+    setInitialCalendarId(project.calendar);
   }, [project]);
 
-  const values = useMemo(() => ({ name, description }), [name, description]);
+  const values = useMemo(
+    () => ({ name, description, code, health, visibility, timezone, default_view: defaultView, calendar: calendarId }),
+    [name, description, code, health, visibility, timezone, defaultView, calendarId],
+  );
   const initialValues = useMemo(
-    () => ({ name: initialName, description: initialDescription }),
-    [initialName, initialDescription],
+    () => ({
+      name: initialName,
+      description: initialDescription,
+      code: initialCode,
+      health: initialHealth,
+      visibility: initialVisibility,
+      timezone: initialTimezone,
+      default_view: initialDefaultView,
+      calendar: initialCalendarId,
+    }),
+    [
+      initialName,
+      initialDescription,
+      initialCode,
+      initialHealth,
+      initialVisibility,
+      initialTimezone,
+      initialDefaultView,
+      initialCalendarId,
+    ],
   );
 
   const handleSave = useCallback(async () => {
-    await updateProject.mutateAsync({ name, description });
-    // Bump the snapshot — dirty flips back to false and the save bar collapses.
+    await updateProject.mutateAsync({
+      name,
+      description,
+      code,
+      health,
+      visibility,
+      timezone,
+      default_view: defaultView,
+      calendar: calendarId,
+    });
     setInitialName(name);
     setInitialDescription(description);
-  }, [updateProject, name, description]);
+    setInitialCode(code);
+    setInitialHealth(health);
+    setInitialVisibility(visibility);
+    setInitialTimezone(timezone);
+    setInitialDefaultView(defaultView);
+    setInitialCalendarId(calendarId);
+  }, [updateProject, name, description, code, health, visibility, timezone, defaultView, calendarId]);
 
   const handleReset = useCallback(() => {
     setName(initialName);
     setDescription(initialDescription);
-  }, [initialName, initialDescription]);
+    setCode(initialCode);
+    setHealth(initialHealth);
+    setVisibility(initialVisibility);
+    setTimezone(initialTimezone);
+    setDefaultView(initialDefaultView);
+    setCalendarId(initialCalendarId);
+  }, [
+    initialName,
+    initialDescription,
+    initialCode,
+    initialHealth,
+    initialVisibility,
+    initialTimezone,
+    initialDefaultView,
+    initialCalendarId,
+  ]);
 
   useDirtyForm({
     values,
@@ -98,6 +177,8 @@ export function ProjectGeneralPage() {
     onReset: handleReset,
     apiReady: !!project,
   });
+
+  const calendarInherited = calendarId === null;
 
   return (
     <div>
@@ -113,17 +194,19 @@ export function ProjectGeneralPage() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             aria-label="Project name"
-            className="w-[420px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:border-neutral-border/55"
+            className="w-[420px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           />
         </FieldRow>
 
-        <FieldRow label="Project code" hint="Used as a prefix for task IDs and exports.">
+        <FieldRow label="Project code" hint="Used as a prefix for task IDs and exports. Uppercase letters, digits, hyphens; up to 12 characters.">
           <input
             type="text"
             value={code}
-            onChange={(e) => setCode(e.target.value)}
-            disabled
-            className="w-[140px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:border-neutral-border/55"
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            maxLength={12}
+            aria-label="Project code"
+            placeholder="ENG-2026"
+            className="w-[140px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           />
         </FieldRow>
 
@@ -133,48 +216,9 @@ export function ProjectGeneralPage() {
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
             aria-label="Description"
-            className="w-[540px] px-2.5 py-2 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary leading-relaxed resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:border-neutral-border/55"
+            className="w-[540px] px-2.5 py-2 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary leading-relaxed resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           />
         </FieldRow>
-
-        {/* Mixed live/disabled state on this page (#591): Name + Description are
-            API-wired; the fields below are visible but disabled until #520
-            ships the extended-fields serializer. Without this notice Sarah
-            clicks "At risk" before a Friday client call and can't tell
-            whether the control is broken, hidden, or unimplemented. */}
-        <div
-          role="status"
-          aria-live="polite"
-          data-testid="project-general-extended-stub-notice"
-          className="my-4 flex items-start gap-2.5 px-3 py-2 rounded border border-semantic-warning/40 bg-semantic-warning-bg"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 16 16"
-            fill="none"
-            className="text-semantic-warning shrink-0 mt-0.5"
-            aria-hidden="true"
-          >
-            <path d="M8 1.5L1.5 13.5h13L8 1.5z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-            <path d="M8 6v3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            <circle cx="8" cy="11.5" r="0.75" fill="currentColor" />
-          </svg>
-          <p className="text-[12px] text-neutral-text-primary leading-snug">
-            <span className="font-semibold">The fields below ship with </span>
-            <a
-              href="https://gitlab.com/trueppm/trueppm/-/issues/520"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-medium text-brand-primary underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
-            >
-              #520
-            </a>
-            <span className="text-neutral-text-secondary">
-              {' '}— they&rsquo;re shown here to set expectations but can&rsquo;t be saved yet.
-            </span>
-          </p>
-        </div>
 
         <FieldRow label="Project lead">
           <div className="flex items-center gap-2">
@@ -204,11 +248,9 @@ export function ProjectGeneralPage() {
                 type="button"
                 onClick={() => setHealth(opt.id)}
                 aria-pressed={health === opt.id}
-                disabled
                 className={[
                   'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                  'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
                   health === opt.id
                     ? HEALTH_ACTIVE[opt.id]
                     : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
@@ -222,13 +264,8 @@ export function ProjectGeneralPage() {
 
         <FieldRow label="Visibility" hint="Workspace = anyone signed in can see this project. Private = invited only.">
           <div className="flex flex-col gap-3">
-            {(
-              [
-                { id: 'workspace' as const, label: 'Workspace', hint: 'Anyone in the workspace can view; editing follows role.' },
-                { id: 'private'   as const, label: 'Private',   hint: 'Only invited members and groups can see this project.' },
-              ]
-            ).map((opt) => (
-              <label key={opt.id} className="flex items-center gap-3 cursor-not-allowed" aria-disabled="true">
+            {VISIBILITY_OPTIONS.map((opt) => (
+              <label key={opt.id} className="flex items-center gap-3 cursor-pointer">
                 <span
                   className={[
                     'w-4 h-4 rounded-full border-2 shrink-0 transition-colors',
@@ -242,14 +279,13 @@ export function ProjectGeneralPage() {
                 </span>
                 <input
                   type="radio"
-                  name="visibility"
+                  name="project-visibility"
                   value={opt.id}
                   checked={visibility === opt.id}
                   onChange={() => setVisibility(opt.id)}
-                  disabled
                   className="sr-only"
                 />
-                <span className="text-[13px] font-medium text-neutral-text-secondary">{opt.label}</span>
+                <span className="text-[13px] font-medium text-neutral-text-primary">{opt.label}</span>
                 <span className="text-[12px] text-neutral-text-secondary">· {opt.hint}</span>
               </label>
             ))}
@@ -261,9 +297,10 @@ export function ProjectGeneralPage() {
             <select
               value={timezone}
               onChange={(e) => setTimezone(e.target.value)}
-              disabled
-              className="w-full h-8 pl-2.5 pr-8 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:border-neutral-border/55"
+              aria-label="Timezone"
+              className="w-full h-8 pl-2.5 pr-8 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
+              <option value="">Workspace default</option>
               {TIMEZONES.map((tz) => (
                 <option key={tz} value={tz}>{tz}</option>
               ))}
@@ -274,17 +311,15 @@ export function ProjectGeneralPage() {
           </div>
         </FieldRow>
 
-        <FieldRow label="Working calendar" hint="Override the workspace work-week and holidays.">
+        <FieldRow label="Working calendar" hint="Override the workspace work-week and holidays. Picker UI ships with a follow-up issue.">
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setCalendarInherited(true)}
+              onClick={() => setCalendarId(null)}
               aria-pressed={calendarInherited}
-              disabled
               className={[
                 'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
                 calendarInherited
                   ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
                   : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
@@ -294,9 +329,9 @@ export function ProjectGeneralPage() {
             </button>
             <button
               type="button"
-              onClick={() => setCalendarInherited(false)}
-              aria-pressed={!calendarInherited}
               disabled
+              aria-pressed={!calendarInherited}
+              title="Calendar picker coming soon"
               className={[
                 'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
@@ -315,12 +350,12 @@ export function ProjectGeneralPage() {
           <div className="relative inline-block w-[200px]">
             <select
               value={defaultView}
-              onChange={(e) => setDefaultView(e.target.value)}
-              disabled
-              className="w-full h-8 pl-2.5 pr-8 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:border-neutral-border/55"
+              onChange={(e) => setDefaultView(e.target.value as ProjectDefaultView)}
+              aria-label="Default view"
+              className="w-full h-8 pl-2.5 pr-8 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
-              {VIEWS.map((v) => (
-                <option key={v} value={v}>{v}</option>
+              {DEFAULT_VIEW_OPTIONS.map((v) => (
+                <option key={v.id} value={v.id}>{v.label}</option>
               ))}
             </select>
             <svg className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary" width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
