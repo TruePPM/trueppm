@@ -125,14 +125,15 @@ When a scheduler or admin changes the plan, all connected browsers update immedi
 | Schedule build mode (keyboard-first) | Shipped |
 | Summary tasks + WBS rollup | Shipped |
 | Hybrid velocity → CPM forecast | Shipped |
-| MS Project import/export | Roadmap (0.5) |
-| Gantt drag-to-reschedule (WASM CPM) | Roadmap |
-| EVM (CPI / SPI / BCWP) | Roadmap |
-| Time tracking | Roadmap |
+| MS Project import/export | Shipped |
+| Gantt drag-to-reschedule (WASM CPM) | Shipped |
+| Multi-baseline support | Roadmap (0.4) |
+| Time tracking | Roadmap (0.4) |
+| EVM (CPI / SPI / BCWP) | Roadmap (post-1.0) |
 
 ## Getting started
 
 1. Ask your admin to [set up a TruePPM instance](/getting-started/installation/)
 2. Walk through the [Quickstart](/getting-started/quickstart/) — seed the demo project and log in as `raj` (PM persona) to see the full hybrid view
 3. Read the [Schedule view](/features/schedule/) for Gantt details
-4. Read [The Story](/the-story/) for the end-to-end hybrid workflow with all six personas
+4. Read [The Story](/the-story/) for the end-to-end hybrid workflow — six narrative protagonists map to TruePPM's eight product personas

@@ -29,7 +29,7 @@ When a scheduler changes the plan — re-sequences tasks or adjusts durations �
 
 ## Current limitations
 
-TruePPM's resource management is basic in the current pre-alpha:
+TruePPM's resource management is intentionally basic in 0.1:
 
 - **No partial allocation percentages yet** — assignment is binary (assigned or not)
 - **No cross-project view** — resource assignments are per-project; no single dashboard showing a person's load across all projects

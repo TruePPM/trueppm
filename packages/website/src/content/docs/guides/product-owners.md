@@ -20,7 +20,7 @@ When the PM builds a schedule, work packages become the high-level containers in
 You don't have to manually maintain two systems. Your backlog IS the schedule's leaf layer.
 
 :::tip[Feature/Epic hierarchy]
-Full epic task type with dedicated backlog and board hierarchy is on the roadmap for 0.3. In 0.1-alpha, epics are represented as summary tasks with story children — fully functional, without the dedicated epic UI.
+Full epic task type with dedicated backlog and board hierarchy is on the roadmap for 0.3. In 0.1, epics are represented as summary tasks with story children — fully functional, without the dedicated epic UI.
 :::
 
 ## Release forecasting

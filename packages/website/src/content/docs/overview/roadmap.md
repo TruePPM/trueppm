@@ -1,70 +1,89 @@
 ---
 title: Roadmap
-description: What's available now, what's coming next, and what's planned for the enterprise edition.
+description: What's shipped, what's underway, and what's planned through 1.0.
 ---
 
-TruePPM is pre-alpha. This page tracks what's built, what's in progress, and what's planned.
+TruePPM is pre-GA. While the product is pre-1.0 we aim for **roughly monthly point releases** so adopters can plan against a predictable cadence. Dates below are targets, not commitments.
 
-## Available now (community edition)
+## Shipped
 
-| Feature | Status | Details |
-|---------|--------|---------|
-| CPM scheduling engine | Stable | Forward/backward pass, all 4 dependency types, calendar-aware lag, cycle detection |
-| Monte Carlo simulation | Stable | PERT-Beta distributions, P50/P80/P95, 10k runs on 200 tasks in <5s |
-| REST API | Stable | Full CRUD for projects, tasks, dependencies, resources, calendars, members |
-| 5-role RBAC | Stable | Owner / Admin / Scheduler / Member / Viewer, per-endpoint enforcement |
-| Real-time WebSocket | Stable | Broadcasts for all mutations, deferred to transaction commit |
-| Offline sync protocol | Stable | WatermelonDB-compatible delta sync with soft-delete tombstones |
-| Auto-scheduling | Stable | Celery recalculates CPM on every write, Valkey-locked for idempotency |
-| Schedule view (Gantt-style) | Stable | Canvas renderer with critical path, baselines, milestones, unscheduled gutter, drag-to-reschedule |
-| Board / Kanban | Stable | 5-column model, swimlanes, WIP limit overload detection, workshop mode |
-| Sprints workspace | Stable | Header + goal + milestone link + cadence timeline + backlog + burndown + capacity + velocity + retro |
-| Multi-team Sprints lens | Stable | Aggregated active-sprint health for users with assignments across projects |
-| Methodology preset | Stable | Tab visibility per Waterfall / Agile / Hybrid choice |
-| Application shell | Stable | Top bar, collapsible sidebar, status bar, mobile bottom nav, login |
-| Helm chart | Draft | Kubernetes with Bitnami sub-charts for PostgreSQL and Redis |
+### 0.1 — first OSS release (May 2026)
 
-## In progress (0.1)
+Foundation for self-hosted, scheduling-first PPM. Everything below is in `main` and tagged.
 
-| Feature | Description |
+| Surface | What landed |
 |---------|-------------|
-| Sprint header buttons | Filter popover, close confirmation + carry-over picker, timeline activate/edit (#299) |
-| MS Project import UI | Backend implemented; web upload modal + export button pending (#68) |
-| CSV / Excel import | Spreadsheet-to-schedule migration (#111) |
-| Risk register CSV import | Bulk import for the Risk register (#223) |
-| Project settings — RBAC management UI | Members + role assignment in-app (#144) |
-| Schedule view design polish | Restore parity with target design (#248) and dependency editing UX (#249) |
-| Release engineering | Helm chart + Docker images + PyPI publish path (#301) |
+| Scheduling | CPM engine (4 dependency types, calendar-aware lag, cycle detection), Monte Carlo P50/P80/P95, auto-reschedule on every write, WASM CPM for sub-100ms drag preview |
+| Schedule view | Custom canvas Gantt with critical path, baselines, milestones, unscheduled gutter, drag-to-reschedule, dependency editing UX (#249), design polish parity (#248) |
+| Agile | Board / Kanban (5-column, swimlanes, WIP-overload), Sprints workspace (header + goal + milestone link + cadence + backlog + burndown + capacity + velocity + retro), multi-team Sprints lens, sprint header buttons (#299) |
+| Hybrid bridge | Velocity feedback loop (`VelocitySuggestion` model, ADR-0065) — sprint velocity suggests revised CPM durations non-destructively |
+| Contributor surface | "My Work" page — flat task list across projects with planned/estimated date disambiguation |
+| Risk | Risk Register tab — probability × impact scoring, lifecycle states, task links, CSV import (#223) |
+| Methodology | Waterfall / Agile / Hybrid preset driving tab visibility |
+| Data exchange | MS Project import/export UI (#68), CSV/Excel import (#111), inbound task-sync webhook |
+| Platform | REST API, 5-role RBAC, real-time WebSocket, offline sync (WatermelonDB-compatible), application shell, project settings RBAC UI (#144) |
+| Operations | Helm 3 chart, Docker images, PyPI publish path for `trueppm-scheduler` (#301) |
 
-## Planned (community edition)
+## In progress
 
-Past 0.1, the OSS surface continues to expand. Current priorities:
+### 0.2 — settings depth + agile foundation (target: June 2026)
 
-- WASM CPM on the client (incremental recompute for sub-100ms drag preview, ADR-0027)
-- Time tracking (passive signals where possible — commits, calendar — minimize manual entry for contributors)
+Closing the settings/admin gaps surfaced by the VoC audit, and the agile-foundation work that wasn't in 0.1's first cut.
+
+- Retro → backlog pipeline UI surfacing (data model shipped in 0.1; #486)
+- Acceptance criteria field on tasks
+- Product backlog grooming view
+- Workspace settings API (members, groups, general — #517 #518 #519)
+- Project settings APIs (notifications #522, lifecycle delete/archive/transfer #530)
+- Program settings APIs (rollup KPIs #527, risk policy #529)
+- Connected accounts page (read-only IntegrationCredential list, ADR-0049 — #587)
+- Settings UX cleanup from VoC audit (#537 #541 #588–#598)
+
+## Planned
+
+### 0.3 — Product Owner experience + MCP + cross-project (target: July 2026)
+
+- Epic task type
+- Sprint planning unified view
+- PO release forecast
+- Product Owner RBAC role
+- MCP server (LLM-facing read/write surface)
+- Cross-project dependencies + program burndown
+
+### 0.4 — mobile + durability + baselines (target: August 2026)
+
+- React Native mobile app — read + simple updates first, offline-capable via WatermelonDB
+- Durable execution OSS primitives: backup, replay, conflict hardening (#320 #321 #322)
 - Multi-baseline support with structured rebaseline reasons
-- EVM (BCWS / BCWP / ACWP / CPI / SPI) on the Schedule view
-- Sub-tasks and checklists on stories
-- Cycle time and throughput analytics on the board
-- Mobile app (React Native + WatermelonDB) — read + simple updates first
-- Additional migration importers (Primavera P6 .xer, GanttProject, Linear, Trello, Notion CSV)
+- Time tracking (passive signals — commits, calendar — minimize manual entry)
 
-The full list lives as open issues in the GitLab project.
+### 0.5 — migration imports (target: September 2026)
+
+- MS Project import/export improvements
+- Primavera P6 (.xer) importer
+- Third-party importers (GanttProject, Linear, Trello, Notion CSV)
+
+### 1.0 — first stable release
+
+The marquee differentiator: **manual Team Cohesion (Brooks' Law) slider** — the first PPM tool that models team friction as a first-class scheduling input (epic #582). Plus everything from 0.x stabilized for production support.
+
+Past 1.0, the OSS surface continues — EVM on the Schedule view, cycle-time/throughput analytics on the board, sub-tasks and checklists on stories. Methodology Packs land in 1.5. The full backlog lives as open issues in GitLab.
 
 ## Planned (enterprise edition)
 
-These features will live in a separate proprietary repository:
+These features live in a separate proprietary repository and overlay the OSS core:
 
 - Portfolio dashboard and health scores
 - Demand intake and prioritization workspace
-- Cross-project dependencies and resource leveling
+- Cross-program resource leveling
 - CCPM (Critical Chain Project Management)
 - Resource heat map (cross-portfolio)
 - Schedule forensics (narrative change detection)
 - SSO/SAML/OIDC and LDAP sync
 - Immutable audit trail
 - Custom roles and approval workflows
-- Jira / GitLab / ServiceNow connectors
+- Jira / GitLab / ServiceNow connectors (git integration hub — 0.2)
 - AI scheduling and scenario modeling
 - Portfolio Monte Carlo
 - Multi-tenancy and HA deployment
+- Methodology Marketplace (1.5) and Automated Cohesion Inference (2.0)

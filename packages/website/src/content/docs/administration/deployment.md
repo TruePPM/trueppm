@@ -3,8 +3,8 @@ title: Deployment
 description: Deploy TruePPM with Docker Compose or Kubernetes Helm chart.
 ---
 
-:::caution[Pre-Alpha]
-TruePPM is not yet suitable for production deployment. These options are for evaluation and development.
+:::caution[Pre-GA]
+TruePPM 0.1 has shipped and is suitable for evaluation and early-adopter deployments. Expect API contract changes across 0.x point releases; a stable contract arrives at 1.0.
 :::
 
 ## Docker Compose (recommended for evaluation)
@@ -48,7 +48,7 @@ Separate `values-dev.yaml` and `values-prod.yaml` overlays are provided.
 **Good for:** production deployment, horizontal scaling, enterprise environments.
 
 :::note
-The Helm chart is in draft status — it is functional but not yet hardened for production use.
+The Helm chart shipped in 0.1 with dev and prod values overlays. It is functional and used internally; large-scale production hardening (HA Postgres, dedicated Valkey, autoscaling policies) is on the pre-1.0 roadmap.
 :::
 
 ## Services

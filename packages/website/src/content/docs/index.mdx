@@ -16,8 +16,8 @@ hero:
 
 import { Card, CardGrid, Badge } from "@astrojs/starlight/components";
 
-:::caution[Pre-Alpha]
-TruePPM is under active development. The scheduling engine, REST API, and real-time backend are functional and tested. The web UI is in early development. Not yet suitable for production use.
+:::caution[0.1 shipped · pre-GA]
+TruePPM 0.1 shipped May 2026 — the scheduling engine, REST API, real-time backend, and the full web UI (Schedule, Board, Sprints, Risk, My Work) are functional. The product is pre-GA: API contracts may evolve across 0.x point releases. Suitable for evaluation and early-adopter deployments; expect breaking changes before 1.0.
 :::
 
 ## One platform, every methodology
@@ -106,15 +106,20 @@ print(result.critical_path)           # ['t-1', 't-2']
 
 | Component | Status | Description |
 |-----------|--------|-------------|
-| Scheduling engine | **Stable** | CPM + Monte Carlo. Ships standalone as `trueppm-scheduler` on PyPI. |
-| REST API | **Stable** | Full CRUD for projects, tasks, dependencies, resources, calendars, members, sprints. OpenAPI 3.1 schema. |
-| RBAC | **Stable** | 5-role per-project permissions (Owner / Admin / Scheduler / Member / Viewer) on every endpoint. |
-| Real-time | **Stable** | WebSocket broadcasts for all mutations, deferred to transaction commit. |
-| Offline sync | **Stable** | WatermelonDB-compatible delta protocol with soft-delete tombstones. |
-| Schedule (Gantt) | **Stable** | Custom canvas renderer — critical path, baselines, milestones, build mode. |
-| Board / Kanban | **Stable** | 5-column board with WIP limit overload detection and drag-to-status. |
-| Sprints | **Stable** | Full plan → activate → close lifecycle, burndown, velocity, capacity preflight, retrospective. |
-| Helm chart | **Functional** | Kubernetes deployment with Bitnami sub-charts for PostgreSQL and Valkey. |
+| Scheduling engine | **0.1** | CPM + Monte Carlo. Ships standalone as `trueppm-scheduler` on PyPI. |
+| REST API | **0.1** | Full CRUD for projects, tasks, dependencies, resources, calendars, members, sprints. OpenAPI 3.1 schema. |
+| RBAC | **0.1** | 5-role per-project permissions (Owner / Admin / Scheduler / Member / Viewer) on every endpoint. |
+| Real-time | **0.1** | WebSocket broadcasts for all mutations, deferred to transaction commit. |
+| Offline sync | **0.1** | WatermelonDB-compatible delta protocol with soft-delete tombstones. |
+| Schedule (Gantt) | **0.1** | Custom canvas renderer — critical path, baselines, milestones, build mode. |
+| Board / Kanban | **0.1** | 5-column board with WIP limit overload detection and drag-to-status. |
+| Sprints | **0.1** | Full plan → activate → close lifecycle, burndown, velocity, capacity preflight, retrospective. |
+| Risk Register | **0.1** | Probability × impact scoring, lifecycle states, task links, CSV import. |
+| My Work | **0.1** | Contributor surface — flat task list across projects, planned vs. estimated dates. |
+| Velocity feedback loop | **0.1** | Sprint velocity suggests revised CPM durations non-destructively (ADR-0065). |
+| MS Project import / export | **0.1** | `.xml` and `.mpp` import; `.xml` export. |
+| Inbound task sync | **0.1** | Webhook ingest endpoint for upstream task systems. |
+| Helm chart | **0.1** | Kubernetes deployment with Bitnami sub-charts for PostgreSQL and Valkey. |
 
 ## Next steps
 

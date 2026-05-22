@@ -3,7 +3,7 @@ title: Architecture Overview
 description: System diagram, design decisions, and package structure.
 ---
 
-This page describes the architecture of TruePPM as it exists today. The scheduling engine, API, and real-time layer are functional; the web frontend is in early development.
+This page describes the architecture of TruePPM as it exists today. The scheduling engine, API, real-time layer, and web frontend are all functional as of 0.1 (May 2026).
 
 ## System diagram
 
