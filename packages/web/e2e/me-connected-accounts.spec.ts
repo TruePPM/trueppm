@@ -89,6 +89,14 @@ async function setup(page: Page, initial: CredentialRow[] = defaultCredentials()
   const pj = (data: unknown) => JSON.stringify(data);
   let state: CredentialRow[] = JSON.parse(JSON.stringify(initial));
 
+  // Playwright matches routes in reverse registration order, so the
+  // catch-all has to be registered FIRST — otherwise it shadows the
+  // specific handlers below and the credentials list comes back as `[]`.
+  await page.route('**/api/v1/**', (r) => {
+    if (r.request().method() !== 'GET') return r.fallback();
+    return r.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+  });
+
   await page.route('**/api/v1/auth/me/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }),
   );
@@ -133,12 +141,6 @@ async function setup(page: Page, initial: CredentialRow[] = defaultCredentials()
     }
     return route.fulfill({ status: 200, contentType: 'application/json', body: pj(state) });
   });
-
-  // Catch-all for misc endpoints the shell pulls on first render.
-  await page.route('**/api/v1/**', (r) => {
-    if (r.request().method() !== 'GET') return r.fallback();
-    return r.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
-  });
 }
 
 test.describe('Connected Accounts page', () => {
@@ -171,7 +173,9 @@ test.describe('Connected Accounts page', () => {
     await page.getByLabel('Personal access token').fill('ghp-fake-e2e');
     await page.getByRole('dialog').getByRole('button', { name: 'Connect' }).click();
 
-    await expect(githubCard.getByText('Connected', { exact: false })).toBeVisible();
+    // Exact match: the page also renders a "Connected:" <dt> label once
+    // created_at is set, which would collide with a substring match.
+    await expect(githubCard.getByText('Connected', { exact: true })).toBeVisible();
     await expect(githubCard.getByRole('button', { name: 'Rotate' })).toBeVisible();
     await expect(githubCard.getByRole('button', { name: 'Revoke' })).toBeVisible();
   });
@@ -194,12 +198,12 @@ test.describe('Connected Accounts page', () => {
 
     // Keep credential should dismiss without revoking.
     await page.getByRole('button', { name: 'Keep credential' }).click();
-    await expect(githubCard.getByText('Connected', { exact: false })).toBeVisible();
+    await expect(githubCard.getByText('Connected', { exact: true })).toBeVisible();
 
     // Confirm revoke this time.
     await githubCard.getByRole('button', { name: 'Revoke' }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Revoke' }).click();
-    await expect(githubCard.getByText('Not connected', { exact: false })).toBeVisible();
+    await expect(githubCard.getByText('Not connected', { exact: true })).toBeVisible();
   });
 
   test('deep link with #github anchor scrolls to the GitHub section', async ({ page }) => {
