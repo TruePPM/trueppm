@@ -45,7 +45,7 @@ def _clear_rollup_config(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0040_program_general_fields"),
+        ("projects", "0041_project_general_fields"),
     ]
 
     operations = [

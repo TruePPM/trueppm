@@ -15,7 +15,7 @@
  * (IC personas) have flagged this scan cost on every board VoC pass since
  * the rail design.
  */
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import type { Task, TaskReadiness, TaskStatus } from '@/types';
 
 const RECENTLY_DONE_WINDOW_DAYS = 14;
@@ -419,6 +419,10 @@ export interface QueueLayoutProps {
   onCardClick: (task: Task, anchor: HTMLElement) => void;
   /** Override "now" — used in tests to fix the recently-done window. */
   now?: Date;
+  /** Optional content rendered inside the scroll container, above the group
+      list. Used to host the active-sprint summary so its charts scroll with
+      the queue rather than permanently consuming vertical space. */
+  header?: ReactNode;
 }
 
 export function QueueLayout({
@@ -429,6 +433,7 @@ export function QueueLayout({
   onCardFocus,
   onCardClick,
   now,
+  header,
 }: QueueLayoutProps) {
   const groups = useMemo(() => groupTasksForQueue(tasks, now), [tasks, now]);
   const totalVisible = groups.reduce((sum, g) => sum + g.tasks.length, 0);
@@ -436,11 +441,17 @@ export function QueueLayout({
   if (totalVisible === 0) {
     return (
       <div
-        className="flex-1 flex items-center justify-center py-16 text-neutral-text-secondary text-sm bg-neutral-surface"
-        role="status"
-        data-testid="queue-empty"
+        className="flex-1 overflow-auto min-h-0 bg-neutral-surface"
+        data-testid="queue-empty-scroll"
       >
-        No tasks yet. Create tasks to see them in the queue.
+        {header}
+        <div
+          className="flex items-center justify-center py-16 text-neutral-text-secondary text-sm"
+          role="status"
+          data-testid="queue-empty"
+        >
+          No tasks yet. Create tasks to see them in the queue.
+        </div>
       </div>
     );
   }
@@ -450,6 +461,7 @@ export function QueueLayout({
       className="flex-1 overflow-auto min-h-0 bg-neutral-surface"
       data-testid="queue-layout"
     >
+      {header}
       {groups.map((group) => (
         <section
           key={group.key}

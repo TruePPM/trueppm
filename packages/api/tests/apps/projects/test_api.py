@@ -124,6 +124,137 @@ class TestProjectAPI:
 
 
 @pytest.mark.django_db
+class TestProjectGeneralFields:
+    """PATCH coverage for the extended General-page fields (#520).
+
+    Validates the six fields exposed on the General settings page —
+    ``code``, ``health``, ``visibility``, ``timezone``, ``default_view``,
+    and the existing ``calendar`` FK. Each field has its own happy-path and
+    invalid-input case so a regression in validation surfaces as a single
+    failing assertion.
+    """
+
+    def test_get_returns_all_extended_fields_with_defaults(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        r = client.get(f"/api/v1/projects/{project.pk}/")
+        assert r.status_code == 200
+        # Defaults from migration 0041: code empty, AUTO/WORKSPACE/SCHEDULE.
+        assert r.data["code"] == ""
+        assert r.data["health"] == "AUTO"
+        assert r.data["visibility"] == "WORKSPACE"
+        assert r.data["timezone"] == ""
+        assert r.data["default_view"] == "SCHEDULE"
+
+    def test_patch_persists_every_extended_field(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        r = client.patch(
+            f"/api/v1/projects/{project.pk}/",
+            {
+                "code": "ATLAS-1",
+                "health": "AT_RISK",
+                "visibility": "PRIVATE",
+                "timezone": "Europe/London",
+                "default_view": "BOARD",
+            },
+            format="json",
+        )
+        assert r.status_code == 200, r.content
+        project.refresh_from_db()
+        assert project.code == "ATLAS-1"
+        assert project.health == "AT_RISK"
+        assert project.visibility == "PRIVATE"
+        assert project.timezone == "Europe/London"
+        assert project.default_view == "BOARD"
+
+    @pytest.mark.parametrize(
+        "code",
+        ["", "A", "ATLAS", "ENG-2026", "AB1-CD2-EF3X"[:12], "0", "ABC-DEF-1234"],
+    )
+    def test_patch_code_accepts_valid_formats(
+        self, client: APIClient, project: Project, membership: ProjectMembership, code: str
+    ) -> None:
+        r = client.patch(
+            f"/api/v1/projects/{project.pk}/",
+            {"code": code},
+            format="json",
+        )
+        assert r.status_code == 200, r.content
+        project.refresh_from_db()
+        assert project.code == code
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            "ATLAS-2026-Q1",  # 13 chars — overlong
+            "atlas",  # lowercase
+            "-ATLAS",  # leading hyphen
+            "ATLAS-",  # trailing hyphen
+            "ATLAS!",  # disallowed punctuation
+            "ATLAS 2",  # whitespace
+            "-",  # hyphen-only
+        ],
+    )
+    def test_patch_code_rejects_invalid_format(
+        self, client: APIClient, project: Project, membership: ProjectMembership, code: str
+    ) -> None:
+        r = client.patch(
+            f"/api/v1/projects/{project.pk}/",
+            {"code": code},
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "code" in r.data
+
+    def test_patch_health_rejects_invalid_choice(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        r = client.patch(
+            f"/api/v1/projects/{project.pk}/",
+            {"health": "PURPLE"},
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "health" in r.data
+
+    def test_patch_visibility_rejects_invalid_choice(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        r = client.patch(
+            f"/api/v1/projects/{project.pk}/",
+            {"visibility": "EVERYWHERE"},
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "visibility" in r.data
+
+    def test_patch_default_view_rejects_invalid_choice(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        r = client.patch(
+            f"/api/v1/projects/{project.pk}/",
+            {"default_view": "PORTFOLIO"},
+            format="json",
+        )
+        assert r.status_code == 400
+        assert "default_view" in r.data
+
+    def test_patch_clears_calendar_to_null(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        assert project.calendar_id is not None
+        r = client.patch(
+            f"/api/v1/projects/{project.pk}/",
+            {"calendar": None},
+            format="json",
+        )
+        assert r.status_code == 200, r.content
+        project.refresh_from_db()
+        assert project.calendar_id is None
+
+
+@pytest.mark.django_db
 class TestTaskAPI:
     def test_list_by_project(
         self,

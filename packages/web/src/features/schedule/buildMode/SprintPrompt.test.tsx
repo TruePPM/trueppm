@@ -16,6 +16,7 @@ function agileProjectClient(): QueryClient {
     id: 'p1', server_version: 1, name: 'Test Project', description: '',
     start_date: '2026-01-01', calendar: null, estimation_mode: 'open',
     agile_features: true, methodology: 'AGILE',
+    code: '', health: 'AUTO', visibility: 'WORKSPACE', timezone: '', default_view: 'SCHEDULE',
   };
   qc.setQueryData(['project', 'p1'], project);
   return qc;
