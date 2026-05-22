@@ -14,7 +14,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -25,9 +28,14 @@ from trueppm_api.apps.access.models import ProgramMembership
 from trueppm_api.apps.access.permissions import (
     IsProgramAdmin,
     IsProgramMember,
+    IsProgramNotClosed,
     IsProgramOwner,
 )
-from trueppm_api.apps.access.services import create_program, delete_program_cascade
+from trueppm_api.apps.access.services import (
+    create_program,
+    delete_program_cascade,
+    transfer_program_sponsorship,
+)
 from trueppm_api.apps.projects.models import Methodology, Program, Project
 from trueppm_api.apps.projects.serializers import (
     ProgramRiskPolicySerializer,
@@ -54,18 +62,29 @@ class ProgramViewSet(viewsets.ModelViewSet[Program]):
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("update", "partial_update"):
-            return [IsAuthenticated(), IsProgramAdmin()]
-        if self.action == "destroy":
-            return [IsAuthenticated(), IsProgramOwner()]
+            return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
+        if self.action in (
+            "destroy",
+            "close",
+            "reopen",
+            "transfer_sponsorship",
+            "split",
+        ):
+            # Lifecycle actions bypass the IsProgramNotClosed gate via the
+            # class's _CLOSE_BYPASS_ACTIONS set — otherwise an Owner could
+            # never reopen or delete a closed program.
+            return [IsAuthenticated(), IsProgramOwner(), IsProgramNotClosed()]
         if self.action in ("rollup_config", "risk_policy"):
-            # Method-level split: GET is read-open to any program member,
-            # PATCH requires admin. DRF evaluates permissions before dispatch,
-            # so the discriminator is the HTTP method on the request.
+            # Method-level split: GET is read-open to any program member
+            # (closed programs remain readable for audit/forensics); PATCH
+            # requires admin and is blocked on closed programs. DRF evaluates
+            # permissions before dispatch, so the discriminator is the HTTP
+            # method on the request.
             if self.request.method == "PATCH":
-                return [IsAuthenticated(), IsProgramAdmin()]
+                return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
             return [IsAuthenticated(), IsProgramMember()]
         if self.action in ("retrieve", "projects", "integrations_summary"):
-            return [IsAuthenticated(), IsProgramMember()]
+            return [IsAuthenticated(), IsProgramMember(), IsProgramNotClosed()]
         return [IsAuthenticated()]
 
     def get_queryset(self) -> QuerySet[Program]:
@@ -134,9 +153,171 @@ class ProgramViewSet(viewsets.ModelViewSet[Program]):
         return Response(ProgramSerializer(fresh).data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
         instance = self.get_object()
+        program_id = str(instance.pk)
         delete_program_cascade(instance.pk)
+        # delete_program_cascade detaches projects (program=NULL) — emit a single
+        # program-level event rather than fanning out per-project; clients
+        # already invalidate project queries on program_deleted.
+        transaction.on_commit(
+            lambda: broadcast_board_event(program_id, "program_deleted", {"id": program_id})
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # -----------------------------------------------------------------------
+    # Lifecycle actions (#530)
+    # -----------------------------------------------------------------------
+
+    @action(detail=True, methods=["post"], url_path="close")
+    def close(self, request: Request, pk: str | None = None) -> Response:
+        """Mark the program as closed (read-only shell). Owner only (#530).
+
+        Closing a program freezes the program-level surfaces (members, settings,
+        ceremonies). Child projects are NOT cascaded — they retain their own
+        lifecycle, matching the UI dialog's "projects remain active" warning.
+        """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        program = self.get_object()
+        if not program.is_closed:
+            program.is_closed = True
+            program.closed_at = timezone.now()
+            program.closed_by = request.user
+            program.save(update_fields=["is_closed", "closed_at", "closed_by"])
+            program_id = str(program.pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(program_id, "program_closed", {"id": program_id})
+            )
+        fresh = self.get_queryset().get(pk=program.pk)
+        return Response(ProgramSerializer(fresh).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="reopen")
+    def reopen(self, request: Request, pk: str | None = None) -> Response:
+        """Reopen a closed program. Owner only (#530)."""
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        program = self.get_object()
+        if program.is_closed:
+            program.is_closed = False
+            program.closed_at = None
+            program.closed_by = None
+            program.save(update_fields=["is_closed", "closed_at", "closed_by"])
+            program_id = str(program.pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(program_id, "program_reopened", {"id": program_id})
+            )
+        fresh = self.get_queryset().get(pk=program.pk)
+        return Response(ProgramSerializer(fresh).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="transfer-sponsorship")
+    def transfer_sponsorship(self, request: Request, pk: str | None = None) -> Response:
+        """Transfer program sponsorship to another existing member (#530).
+
+        Body: ``{"new_owner_user_id": "<uuid>", "new_lead_user_id": "<uuid>?"}``.
+        The new sponsor must already hold a ``ProgramMembership`` at any role —
+        invite first if not. The current OWNER is atomically demoted to ADMIN.
+        Optionally rotates ``program.lead`` so the program header chip moves
+        with the role.
+        """
+        from django.contrib.auth import get_user_model
+
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        program = self.get_object()
+        new_owner_id = request.data.get("new_owner_user_id")
+        new_lead_id = request.data.get("new_lead_user_id")
+
+        if not new_owner_id:
+            return Response(
+                {"detail": "new_owner_user_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        User = get_user_model()
+        try:
+            new_owner = User.objects.get(pk=new_owner_id)
+        except (User.DoesNotExist, DjangoValidationError, ValueError):
+            return Response(
+                {"detail": "User not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        new_lead = None
+        if new_lead_id:
+            try:
+                new_lead = User.objects.get(pk=new_lead_id)
+            except (User.DoesNotExist, DjangoValidationError, ValueError):
+                return Response(
+                    {"detail": "Lead user not found."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+        try:
+            transfer_program_sponsorship(
+                program=program,
+                new_owner=new_owner,
+                actor=request.user,
+                new_lead=new_lead,
+            )
+        except DjangoValidationError as exc:
+            return Response(
+                {"detail": exc.messages[0] if exc.messages else str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        program_id = str(program.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                program_id,
+                "program_sponsorship_transferred",
+                {"id": program_id, "new_owner_id": str(new_owner.pk)},
+            )
+        )
+        fresh = self.get_queryset().get(pk=program.pk)
+        return Response(ProgramSerializer(fresh).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="split")
+    def split(self, request: Request, pk: str | None = None) -> Response:
+        """Split a program into sub-programs — stub for 0.2 (#530).
+
+        Validates payload shape and Owner role, then returns 501 so the UI
+        can render the dialog and a coherent "coming soon" toast without a
+        client-side feature flag. Real implementation is tracked in a
+        follow-up issue; the contract here is the one the eventual handler
+        will accept.
+
+        Body: ``{"splits": [{"name": str, "project_ids": [uuid]}, ...]}``
+        """
+        # Run the Owner-only get_object check (also confirms the program exists).
+        self.get_object()
+
+        splits = request.data.get("splits")
+        if not isinstance(splits, list) or not splits:
+            return Response(
+                {"detail": "splits must be a non-empty array."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        for split in splits:
+            if not isinstance(split, dict):
+                return Response(
+                    {"detail": "Each split entry must be an object."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not split.get("name") or not isinstance(split.get("project_ids"), list):
+                return Response(
+                    {"detail": "Each split must include 'name' and 'project_ids' array."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        return Response(
+            {
+                "detail": "Program split is not yet implemented.",
+                "tracking_issue": 530,
+            },
+            status=status.HTTP_501_NOT_IMPLEMENTED,
+        )
 
     # -----------------------------------------------------------------------
     # Custom actions

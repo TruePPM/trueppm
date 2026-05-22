@@ -1,8 +1,13 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router';
+import { useProject } from '@/hooks/useProject';
+import { useProjectId } from '@/hooks/useProjectId';
+import {
+  useArchiveProject,
+  useDeleteProject,
+  useUnarchiveProject,
+} from '@/hooks/useProjectMutations';
 import { SettingsPageTitle } from '../SettingsShell';
-import { StubPageBanner } from '../components/StubPageBanner';
-
-const PROJECT_CODE = 'ARTM4';
 
 interface LifecycleCardProps {
   title: string;
@@ -10,9 +15,23 @@ interface LifecycleCardProps {
   description: string;
   actionLabel: string;
   notes: string[];
+  disabled?: boolean;
+  onClick?: () => void;
+  busy?: boolean;
+  error?: string | null;
 }
 
-function LifecycleCard({ title, tone, description, actionLabel, notes }: LifecycleCardProps) {
+function LifecycleCard({
+  title,
+  tone,
+  description,
+  actionLabel,
+  notes,
+  disabled,
+  onClick,
+  busy,
+  error,
+}: LifecycleCardProps) {
   const isWarning = tone === 'warning';
   return (
     <div
@@ -32,22 +51,87 @@ function LifecycleCard({ title, tone, description, actionLabel, notes }: Lifecyc
       </ul>
       <button
         type="button"
-        className="px-3 py-1.5 rounded border border-neutral-border text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+        onClick={onClick}
+        disabled={disabled || busy || !onClick}
+        className={[
+          'px-3 py-1.5 rounded border border-neutral-border text-[12px] font-medium',
+          'text-neutral-text-primary hover:bg-neutral-surface-sunken',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
+          disabled || busy || !onClick ? 'opacity-40 cursor-not-allowed' : '',
+        ].join(' ')}
       >
-        {actionLabel}
+        {busy ? 'Working…' : actionLabel}
       </button>
+      {error ? (
+        <p className="mt-2 text-[11px] text-semantic-critical" role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
 
 /** Project > Lifecycle (archive / transfer / delete) settings page. */
 export function ProjectArchivePage() {
+  const projectId = useProjectId();
+  const { data: project } = useProject(projectId);
+  const navigate = useNavigate();
+
+  // The typed-confirmation phrase. Prefer the project ``code`` (shorter, used
+  // as the task-ID prefix) and fall back to ``name`` for projects without a
+  // code yet (#523 backfill). An empty string keeps the dialog locked until
+  // the project record loads.
+  const confirmTarget = (project?.code || project?.name || '').trim();
+
   const [confirmText, setConfirmText] = useState('');
-  const confirmed = confirmText === PROJECT_CODE;
+  const confirmed = confirmTarget !== '' && confirmText === confirmTarget;
+
+  const archive = useArchiveProject(projectId);
+  const unarchive = useUnarchiveProject(projectId);
+  const remove = useDeleteProject(projectId);
+
+  const isArchived = Boolean(project?.is_archived);
+  const archiveLabel = isArchived
+    ? `Unarchive ${project?.name ?? 'project'}…`
+    : `Archive ${project?.name ?? 'project'}…`;
+
+  const archiveError =
+    (isArchived ? unarchive.error : archive.error) instanceof Error
+      ? (isArchived ? unarchive.error : archive.error)!.message
+      : null;
+  const deleteError = remove.error instanceof Error ? remove.error.message : null;
+
+  const onToggleArchive = () => {
+    if (isArchived) {
+      unarchive.mutate(undefined as void);
+    } else {
+      archive.mutate(undefined as void);
+    }
+  };
+
+  const onDelete = () => {
+    // Permanent delete requires the project to already be archived (server-enforced);
+    // archive first if needed so the click is a single intent for the user.
+    const run = () =>
+      remove.mutate(
+        { force: true },
+        {
+          onSuccess: () => {
+            void navigate('/', { replace: true });
+          },
+        },
+      );
+    if (!isArchived) {
+      archive.mutate(undefined as void, {
+        onSuccess: run,
+      });
+      return;
+    }
+    run();
+  };
 
   return (
     <div>
-      <StubPageBanner pageIssue={530} />
       <SettingsPageTitle
         title="Lifecycle"
         subtitle="Closing out, handing off, or removing this project. All actions write to the audit log."
@@ -55,25 +139,37 @@ export function ProjectArchivePage() {
 
       <div className="px-6 pb-8 max-w-[720px] space-y-3.5">
         <LifecycleCard
-          title="Archive project"
+          title={isArchived ? 'Unarchive project' : 'Archive project'}
           tone="neutral"
-          description="Freezes the project. Members keep read-only access; tasks no longer appear in active views or rollups."
-          actionLabel="Archive Artemis IV…"
-          notes={[
-            'Retains baselines, audit log, time entries, attachments.',
-            'Reversible by any Admin.',
-          ]}
+          description={
+            isArchived
+              ? 'Restore writes to this project. Members regain edit access and the project re-appears in active views.'
+              : 'Freezes the project. Members keep read-only access; tasks no longer appear in active views or rollups.'
+          }
+          actionLabel={archiveLabel}
+          notes={
+            isArchived
+              ? ['Reversible — returns the project to its previous state.']
+              : [
+                  'Retains baselines, audit log, time entries, attachments.',
+                  'Reversible by any Owner.',
+                ]
+          }
+          onClick={onToggleArchive}
+          busy={archive.isPending || unarchive.isPending}
+          error={archiveError}
         />
 
         <LifecycleCard
           title="Transfer ownership"
           tone="warning"
-          description="Hand the PM role to another member. The current PM becomes a Lead unless changed."
+          description="Hand the PM role to another member. The current PM becomes an Admin unless changed."
           actionLabel="Transfer ownership…"
           notes={[
-            'New owner must be in the workspace and have PM or Admin role.',
+            'New owner must already be a project member.',
             'Notifications sent to workspace admins and project members.',
           ]}
+          disabled
         />
 
         <LifecycleCard
@@ -85,27 +181,36 @@ export function ProjectArchivePage() {
             'Bundle is encrypted and signed; download link valid 24h.',
             'Auto-deletes after 7 days unless saved.',
           ]}
+          disabled
         />
 
         {/* Delete — critical zone */}
         <div className="rounded-lg border border-semantic-critical bg-semantic-critical-bg p-4">
-          <h2 className="text-[13px] font-bold text-semantic-critical mb-1">Delete project — permanent</h2>
+          <h2 className="text-[13px] font-bold text-semantic-critical mb-1">
+            Delete project — permanent
+          </h2>
           <p className="text-[12px] text-neutral-text-secondary mb-3 leading-relaxed">
             Removes this project and everything in it: tasks, baselines, time entries, attachments. Audit-log
             entries are retained for 365 days for compliance, then purged.{' '}
-            <strong className="text-neutral-text-primary">Cross-project dependencies in linked projects will fail.</strong>
+            <strong className="text-neutral-text-primary">
+              Cross-project dependencies in linked projects will fail.
+            </strong>
           </p>
           <div className="rounded border border-neutral-border bg-neutral-surface px-3 py-2.5 mb-3">
-            <div className="text-[12px] text-neutral-text-secondary mb-2">To confirm, type the project code:</div>
+            <div className="text-[12px] text-neutral-text-secondary mb-2">
+              To confirm, type the project {project?.code ? 'code' : 'name'}:
+            </div>
             <div className="flex items-center gap-2">
               <code className="px-2 py-0.5 rounded bg-neutral-surface-sunken border border-neutral-border tppm-mono text-[12px] text-neutral-text-primary">
-                {PROJECT_CODE}
+                {confirmTarget || '…'}
               </code>
               <input
                 type="text"
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
-                placeholder={`Type ${PROJECT_CODE} to confirm`}
+                placeholder={confirmTarget ? `Type ${confirmTarget} to confirm` : 'Loading…'}
+                aria-label="Confirm delete by typing the project code or name"
+                disabled={!confirmTarget}
                 className={[
                   'w-[240px] h-8 px-2.5 rounded border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
                   'placeholder:text-neutral-text-disabled',
@@ -117,15 +222,25 @@ export function ProjectArchivePage() {
           </div>
           <button
             type="button"
-            disabled={!confirmed}
+            disabled={!confirmed || remove.isPending || archive.isPending}
+            onClick={onDelete}
             className={[
               'px-4 py-2 rounded text-[13px] font-semibold text-white bg-semantic-critical transition-opacity',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
-              confirmed ? 'opacity-100 hover:opacity-90' : 'opacity-40 cursor-not-allowed',
+              confirmed && !remove.isPending && !archive.isPending
+                ? 'opacity-100 hover:opacity-90'
+                : 'opacity-40 cursor-not-allowed',
             ].join(' ')}
           >
-            Delete project permanently
+            {remove.isPending || archive.isPending
+              ? 'Deleting…'
+              : 'Delete project permanently'}
           </button>
+          {deleteError ? (
+            <p className="mt-2 text-[11px] text-semantic-critical" role="alert">
+              {deleteError}
+            </p>
+          ) : null}
         </div>
       </div>
     </div>

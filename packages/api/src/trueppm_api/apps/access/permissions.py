@@ -458,6 +458,130 @@ class IsProgramOwner(BasePermission):
         return role == Role.OWNER
 
 
+def _is_project_archived(request: Request, project_id: Any) -> bool:
+    """Per-request cache for ``Project.is_archived`` lookups (#530).
+
+    Mirrors the cache pattern used by :func:`_membership_role` (L1 fix). Nested
+    write requests (bulk task update, dependency create-many, etc.) trigger
+    has_permission + has_object_permission per object — without a cache the
+    archived-state .exists() query would run N+1 times per request.
+    """
+    from trueppm_api.apps.projects.models import Project
+
+    cache: dict[str, bool] | None = getattr(request, "_project_archive_cache", None)
+    if cache is None:
+        cache = {}
+        request._project_archive_cache = cache  # type: ignore[attr-defined]
+    key = str(project_id)
+    if key not in cache:
+        cache[key] = Project.objects.filter(pk=project_id, is_archived=True).exists()
+    return cache[key]
+
+
+def _is_program_closed(request: Request, program_id: Any) -> bool:
+    """Per-request cache for ``Program.is_closed`` lookups (#530)."""
+    from trueppm_api.apps.projects.models import Program
+
+    cache: dict[str, bool] | None = getattr(request, "_program_close_cache", None)
+    if cache is None:
+        cache = {}
+        request._program_close_cache = cache  # type: ignore[attr-defined]
+    key = str(program_id)
+    if key not in cache:
+        cache[key] = Program.objects.filter(pk=program_id, is_closed=True).exists()
+    return cache[key]
+
+
+class IsProjectNotArchived(BasePermission):
+    """Block writes to projects flagged ``is_archived=True`` (#530).
+
+    Archived projects are hard read-only — every write across tasks, deps,
+    members, settings, and nested resources must fail. Reads (SAFE_METHODS)
+    always pass; the ``POST /projects/<pk>/unarchive/`` action is the explicit
+    exception so an Owner can restore writes without first un-archiving via
+    a back-channel.
+
+    Apply alongside the existing role permission (``IsProjectMemberWrite``,
+    ``IsProjectAdmin``, etc.) on every write-capable viewset — this class
+    enforces lifecycle state, not authority.
+    """
+
+    message = "This project is archived and cannot be modified. Unarchive it first."
+
+    # Action names on ProjectViewSet that must bypass the archived check —
+    # otherwise an Owner could never unarchive (catch-22) or delete the row.
+    _ARCHIVE_BYPASS_ACTIONS: frozenset[str] = frozenset({"unarchive", "destroy", "archive"})
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return True
+        if getattr(view, "action", None) in self._ARCHIVE_BYPASS_ACTIONS:
+            return True
+        project_pk = _project_pk_from_view(view)
+        if project_pk is None:
+            # Top-level routes (ProjectViewSet) defer to has_object_permission.
+            # DRF does not call has_object_permission on list/create, so a list
+            # request never reaches the archived check — that's correct (listing
+            # archived projects is read-only) and a create has no project yet.
+            return True
+        return not _is_project_archived(request, project_pk)
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return True
+        if getattr(view, "action", None) in self._ARCHIVE_BYPASS_ACTIONS:
+            return True
+        from trueppm_api.apps.projects.models import Project
+
+        project_id = _get_project_id_from_obj(obj)
+        if project_id is None:
+            return True
+        # Direct Project object: read the in-memory flag rather than re-querying.
+        if isinstance(obj, Project):
+            return not obj.is_archived
+        return not _is_project_archived(request, project_id)
+
+
+class IsProgramNotClosed(BasePermission):
+    """Block writes to programs flagged ``is_closed=True`` (#530).
+
+    Closed programs are read-only at the program shell (memberships, settings,
+    ceremonies). Child projects are intentionally not gated by this check —
+    they retain their own lifecycle and continue to accept writes.
+
+    The ``POST /programs/<pk>/reopen/`` action bypasses the check; ``destroy``
+    also bypasses (an Owner can delete a closed program directly).
+    """
+
+    message = "This program is closed and cannot be modified. Reopen it first."
+
+    _CLOSE_BYPASS_ACTIONS: frozenset[str] = frozenset({"reopen", "destroy", "close"})
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return True
+        if getattr(view, "action", None) in self._CLOSE_BYPASS_ACTIONS:
+            return True
+        program_pk = _program_pk_from_view(view)
+        if program_pk is None:
+            return True
+        return not _is_program_closed(request, program_pk)
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return True
+        if getattr(view, "action", None) in self._CLOSE_BYPASS_ACTIONS:
+            return True
+        from trueppm_api.apps.projects.models import Program
+
+        program_id = _get_program_id_from_obj(obj)
+        if program_id is None:
+            return True
+        if isinstance(obj, Program):
+            return not obj.is_closed
+        return not _is_program_closed(request, program_id)
+
+
 class IsOrgScheduler(BasePermission):
     """Org-level scheduler gate for the global skill catalog (#254).
 

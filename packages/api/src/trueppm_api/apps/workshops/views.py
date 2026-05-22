@@ -11,7 +11,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from trueppm_api.apps.access.permissions import IsProjectAdmin, IsProjectMember
+from trueppm_api.apps.access.permissions import (
+    IsProjectAdmin,
+    IsProjectMember,
+    IsProjectNotArchived,
+)
 from trueppm_api.apps.projects.models import Project
 from trueppm_api.apps.workshops.models import WorkshopSession
 from trueppm_api.apps.workshops.permissions import IsProjectAdminOrSessionOwner
@@ -28,7 +32,7 @@ class WorkshopStartView(APIView):
     active session already exists (enforced by the DB unique constraint).
     """
 
-    permission_classes = [IsAuthenticated, IsProjectAdmin]
+    permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]
 
     @extend_schema(
         responses={201: WorkshopSessionSerializer, 409: None},
@@ -57,7 +61,7 @@ class WorkshopEndView(APIView):
     end it (IsProjectAdminOrSessionOwner).
     """
 
-    permission_classes = [IsAuthenticated, IsProjectAdminOrSessionOwner]
+    permission_classes = [IsAuthenticated, IsProjectAdminOrSessionOwner, IsProjectNotArchived]
 
     @extend_schema(
         responses={200: WorkshopSessionSerializer, 404: None},
@@ -90,7 +94,7 @@ class WorkshopForceEndView(APIView):
     Requires ADMIN+. Returns 404 if no session is active.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectAdmin]
+    permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]
 
     @extend_schema(
         responses={200: WorkshopSessionSerializer, 404: None},
@@ -117,7 +121,7 @@ class WorkshopCurrentView(APIView):
     Returns the active session with nested participants, or 404 if none active.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(
         responses={200: WorkshopSessionSerializer, 404: None},

@@ -23,6 +23,10 @@ export interface ApiProjectDetail {
   timezone: string;
   /** Default landing view when the project is opened without one in the URL. */
   default_view: ProjectDefaultView;
+  /** Lifecycle (#530) — archived projects are hard read-only across all writes. */
+  is_archived: boolean;
+  archived_at: string | null;
+  archived_by: string | null;
 }
 
 /**

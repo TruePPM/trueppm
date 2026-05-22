@@ -13,10 +13,11 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from trueppm_api.apps.access.models import ProgramMembership, Role
-from trueppm_api.apps.projects.models import Methodology, Program
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
+from trueppm_api.apps.projects.models import Methodology, Program, Project
 
 
 @transaction.atomic
@@ -110,3 +111,144 @@ def delete_program_cascade(program_id: uuid.UUID | str) -> None:
         project.save(update_fields=["program"])
 
     program.soft_delete()
+
+
+@transaction.atomic
+def transfer_project_ownership(
+    *,
+    project: Project,
+    new_owner: Any,
+    actor: Any,
+) -> ProjectMembership:
+    """Atomically promote a project member to OWNER, demote the actor to ADMIN.
+
+    Why the target must already be a member: requiring an existing membership
+    forces an explicit invite step and gives the audit trail a clean
+    "joined → promoted" sequence. Auto-creating membership on transfer would
+    surprise the target with admin authority on a project they were never
+    knowingly added to.
+
+    Args:
+        project: The project whose ownership is being transferred.
+        new_owner: The user who will become OWNER.
+        actor: The current OWNER initiating the transfer; will be downgraded
+            to ADMIN. May be the same user as ``new_owner`` — in that case
+            both upserts are no-ops and the function returns the actor's row.
+
+    Returns:
+        The new OWNER's ``ProjectMembership`` row.
+
+    Raises:
+        ValidationError: if ``new_owner`` has no existing active membership
+            on the project.
+    """
+    # Defense in depth — the view layer gates with ``IsProjectOwner``, but the
+    # service is reusable (management commands, signals, future endpoints). If
+    # the actor is not actually the OWNER, a naive ``.update()`` is a silent
+    # no-op that would promote the target without removing anyone — creating
+    # an unauthorized OWNER. Assert and fail loudly before any state changes.
+    try:
+        actor_row = ProjectMembership.objects.select_for_update().get(
+            project=project,
+            user=actor,
+            is_deleted=False,
+        )
+    except ProjectMembership.DoesNotExist as exc:
+        raise ValidationError("Only an existing project Owner can transfer ownership.") from exc
+    if actor_row.role != Role.OWNER:
+        raise ValidationError("Only an existing project Owner can transfer ownership.")
+
+    try:
+        target = ProjectMembership.objects.select_for_update().get(
+            project=project,
+            user=new_owner,
+            is_deleted=False,
+        )
+    except ProjectMembership.DoesNotExist as exc:
+        raise ValidationError(
+            "The new owner must already be a member of this project. "
+            "Invite them first, then retry the transfer."
+        ) from exc
+
+    if new_owner == actor:
+        return target
+
+    # Demote the actor first so the OWNER count never exceeds the previous
+    # state mid-transaction — defensive against future single-owner constraints.
+    actor_row.role = Role.ADMIN
+    actor_row.save(update_fields=["role"])
+
+    target.role = Role.OWNER
+    target.save(update_fields=["role"])
+    return target
+
+
+@transaction.atomic
+def transfer_program_sponsorship(
+    *,
+    program: Program,
+    new_owner: Any,
+    actor: Any,
+    new_lead: Any | None = None,
+) -> ProgramMembership:
+    """Atomically promote a program member to OWNER and optionally rotate the lead.
+
+    Programs carry both an OWNER membership (RBAC) and a ``lead`` FK (the
+    "Program Manager" displayed in the header). Both can move together in a
+    sponsorship transfer so the header chip and the access matrix stay in sync.
+
+    Args:
+        program: The program whose sponsorship is being transferred.
+        new_owner: The user who will become OWNER.
+        actor: The current OWNER initiating the transfer; will be downgraded
+            to ADMIN.
+        new_lead: Optional user to set as ``program.lead``. ``None`` leaves
+            the existing lead unchanged; pass ``new_owner`` explicitly to keep
+            owner+lead in lockstep.
+
+    Returns:
+        The new OWNER's ``ProgramMembership`` row.
+
+    Raises:
+        ValidationError: if ``new_owner`` has no existing active program
+            membership.
+    """
+    # Defense in depth (see ``transfer_project_ownership`` for full rationale)
+    # — the actor must currently hold the OWNER row, otherwise the demote
+    # ``.update()`` is a no-op and the target gets promoted without anyone
+    # being removed.
+    try:
+        actor_row = ProgramMembership.objects.select_for_update().get(
+            program=program,
+            user=actor,
+            is_deleted=False,
+        )
+    except ProgramMembership.DoesNotExist as exc:
+        raise ValidationError("Only an existing program Owner can transfer sponsorship.") from exc
+    if actor_row.role != Role.OWNER:
+        raise ValidationError("Only an existing program Owner can transfer sponsorship.")
+
+    try:
+        target = ProgramMembership.objects.select_for_update().get(
+            program=program,
+            user=new_owner,
+            is_deleted=False,
+        )
+    except ProgramMembership.DoesNotExist as exc:
+        raise ValidationError(
+            "The new sponsor must already be a member of this program. "
+            "Invite them first, then retry the transfer."
+        ) from exc
+
+    if new_owner != actor:
+        actor_row.role = Role.ADMIN
+        actor_row.save(update_fields=["role"])
+
+        target.role = Role.OWNER
+        target.save(update_fields=["role"])
+
+    if new_lead is not None:
+        program.lead = new_lead
+        program.save(update_fields=["lead"])
+
+    return target

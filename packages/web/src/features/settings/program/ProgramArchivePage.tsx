@@ -1,6 +1,12 @@
 import { useState } from 'react';
+import { useNavigate, useParams } from 'react-router';
+import { useProgram } from '@/hooks/useProgram';
+import {
+  useCloseProgram,
+  useDeleteProgram,
+  useReopenProgram,
+} from '@/hooks/useProgramMutations';
 import { SettingsPageTitle } from '../SettingsShell';
-import { StubPageBanner } from '../components/StubPageBanner';
 
 interface LifecycleCardProps {
   title: string;
@@ -8,9 +14,23 @@ interface LifecycleCardProps {
   description: string;
   actionLabel: string;
   notes: string[];
+  disabled?: boolean;
+  onClick?: () => void;
+  busy?: boolean;
+  error?: string | null;
 }
 
-function LifecycleCard({ title, tone, description, actionLabel, notes }: LifecycleCardProps) {
+function LifecycleCard({
+  title,
+  tone,
+  description,
+  actionLabel,
+  notes,
+  disabled,
+  onClick,
+  busy,
+  error,
+}: LifecycleCardProps) {
   return (
     <div
       className={[
@@ -29,23 +49,73 @@ function LifecycleCard({ title, tone, description, actionLabel, notes }: Lifecyc
       </ul>
       <button
         type="button"
-        className="px-3 py-1.5 rounded border border-neutral-border text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+        onClick={onClick}
+        disabled={disabled || busy || !onClick}
+        className={[
+          'px-3 py-1.5 rounded border border-neutral-border text-[12px] font-medium',
+          'text-neutral-text-primary hover:bg-neutral-surface-sunken',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
+          disabled || busy || !onClick ? 'opacity-40 cursor-not-allowed' : '',
+        ].join(' ')}
       >
-        {actionLabel}
+        {busy ? 'Working…' : actionLabel}
       </button>
+      {error ? (
+        <p className="mt-2 text-[11px] text-semantic-critical" role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
 
 /** Program > Archive / Transfer / Close settings page. */
 export function ProgramArchivePage() {
+  const { programId } = useParams<{ programId: string }>();
+  const { data: program } = useProgram(programId);
+  const navigate = useNavigate();
+
+  // The typed-confirmation phrase — prefer ``code`` (short identifier shared
+  // with task-ID prefixes) and fall back to ``name`` for programs created
+  // before #523 added the code field.
+  const confirmTarget = (program?.code || program?.name || '').trim();
+
   const [confirmText, setConfirmText] = useState('');
-  const slug = 'ARTEMIS';
-  const confirmed = confirmText === slug;
+  const confirmed = confirmTarget !== '' && confirmText === confirmTarget;
+
+  const close = useCloseProgram();
+  const reopen = useReopenProgram();
+  const remove = useDeleteProgram();
+
+  const isClosed = Boolean(program?.is_closed);
+  const closeActionLabel = isClosed ? 'Reopen program…' : 'Close program…';
+
+  const closeError =
+    (isClosed ? reopen.error : close.error) instanceof Error
+      ? (isClosed ? reopen.error : close.error)!.message
+      : null;
+  const deleteError = remove.error instanceof Error ? remove.error.message : null;
+
+  const onToggleClose = () => {
+    if (!programId) return;
+    if (isClosed) {
+      reopen.mutate(programId);
+    } else {
+      close.mutate(programId);
+    }
+  };
+
+  const onDelete = () => {
+    if (!programId) return;
+    remove.mutate(programId, {
+      onSuccess: () => {
+        void navigate('/', { replace: true });
+      },
+    });
+  };
 
   return (
     <div>
-      <StubPageBanner pageIssue={530} />
       <SettingsPageTitle
         title="Archive / Close"
         subtitle="Lifecycle actions for this program. All actions are logged and can be reviewed in the workspace audit log."
@@ -53,25 +123,37 @@ export function ProgramArchivePage() {
 
       <div className="px-6 pb-8 max-w-[720px] space-y-3.5">
         <LifecycleCard
-          title="Close program"
+          title={isClosed ? 'Reopen program' : 'Close program'}
           tone="neutral"
-          description="Marks all projects in this program as read-only. Member access is retained; tasks no longer appear in active views or resource utilization."
-          actionLabel="Close program…"
-          notes={[
-            'Baselines, audit log, time entries, and attachments are retained.',
-            'Reversible by any workspace Admin.',
-          ]}
+          description={
+            isClosed
+              ? 'Restore writes to the program shell (members, settings, ceremonies). Child projects are unaffected.'
+              : 'Marks the program shell read-only (members, settings, ceremonies). Child projects remain active.'
+          }
+          actionLabel={closeActionLabel}
+          notes={
+            isClosed
+              ? ['Reversible — returns the program to its previous state.']
+              : [
+                  'Baselines, audit log, time entries, and attachments are retained.',
+                  'Reversible by any Owner.',
+                ]
+          }
+          onClick={onToggleClose}
+          busy={close.isPending || reopen.isPending}
+          error={closeError}
         />
 
         <LifecycleCard
           title="Transfer sponsorship"
           tone="warning"
-          description="Assign a new sponsor and optionally a new program manager. The current PM is demoted to Member unless changed."
+          description="Assign a new sponsor and optionally a new program manager. The current sponsor is demoted to Admin unless changed."
           actionLabel="Transfer sponsorship…"
           notes={[
-            'New sponsor must have Admin or Owner role in the workspace.',
+            'New sponsor must already be a program member.',
             'Sends notification to all program members.',
           ]}
+          disabled
         />
 
         <LifecycleCard
@@ -83,26 +165,35 @@ export function ProgramArchivePage() {
             'Original program is archived after split.',
             'All project links, dependencies, and baselines are preserved.',
           ]}
+          disabled
         />
 
         {/* Delete — critical zone */}
         <div className="rounded-lg border border-semantic-critical bg-semantic-critical-bg p-4">
-          <h2 className="text-[13px] font-bold text-semantic-critical mb-1">Delete program — permanent</h2>
+          <h2 className="text-[13px] font-bold text-semantic-critical mb-1">
+            Delete program — permanent
+          </h2>
           <p className="text-[12px] text-neutral-text-secondary mb-3 leading-relaxed">
-            Removes this program record. Member projects are <strong className="text-neutral-text-primary">not</strong> deleted — they revert to unaffiliated projects.
-            Program-level baselines, rollup KPIs, and audit entries are deleted.
+            Removes this program record. Member projects are{' '}
+            <strong className="text-neutral-text-primary">not</strong> deleted — they revert to
+            unaffiliated projects. Program-level baselines, rollup KPIs, and audit entries are
+            deleted.
           </p>
           <div className="rounded border border-neutral-border bg-neutral-surface px-3 py-2.5 mb-3">
-            <div className="text-[12px] text-neutral-text-secondary mb-2">To confirm, type the program slug:</div>
+            <div className="text-[12px] text-neutral-text-secondary mb-2">
+              To confirm, type the program {program?.code ? 'code' : 'name'}:
+            </div>
             <div className="flex items-center gap-2">
               <code className="px-2 py-0.5 rounded bg-neutral-surface-sunken border border-neutral-border tppm-mono text-[12px] text-neutral-text-primary">
-                {slug}
+                {confirmTarget || '…'}
               </code>
               <input
                 type="text"
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
-                placeholder={`Type ${slug} to confirm`}
+                placeholder={confirmTarget ? `Type ${confirmTarget} to confirm` : 'Loading…'}
+                aria-label="Confirm delete by typing the program code or name"
+                disabled={!confirmTarget}
                 className={[
                   'w-[240px] h-8 px-2.5 rounded border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
                   'placeholder:text-neutral-text-disabled',
@@ -114,15 +205,23 @@ export function ProgramArchivePage() {
           </div>
           <button
             type="button"
-            disabled={!confirmed}
+            disabled={!confirmed || remove.isPending}
+            onClick={onDelete}
             className={[
               'px-4 py-2 rounded text-[13px] font-semibold text-white bg-semantic-critical transition-opacity',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
-              confirmed ? 'opacity-100 hover:opacity-90' : 'opacity-40 cursor-not-allowed',
+              confirmed && !remove.isPending
+                ? 'opacity-100 hover:opacity-90'
+                : 'opacity-40 cursor-not-allowed',
             ].join(' ')}
           >
-            Delete program permanently
+            {remove.isPending ? 'Deleting…' : 'Delete program permanently'}
           </button>
+          {deleteError ? (
+            <p className="mt-2 text-[11px] text-semantic-critical" role="alert">
+              {deleteError}
+            </p>
+          ) : null}
         </div>
       </div>
     </div>
