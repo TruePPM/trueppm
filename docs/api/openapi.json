@@ -1709,6 +1709,343 @@
                 }
             }
         },
+        "/api/v1/programs/{program_pk}/ceremonies/": {
+            "get": {
+                "operationId": "v1_programs_ceremonies_list",
+                "description": "CRUD for program-level ceremony templates.\n\nURL: ``/api/v1/programs/<program_pk>/ceremonies/[<pk>/]``\n\nPermission matrix (ADR-0079):\n  list / retrieve         — IsProgramMember (Viewer+)\n  create / update / destroy / enable toggle — IsProgramAdmin (Project Manager+)",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedCeremonyTemplateList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_programs_ceremonies_create",
+                "description": "CRUD for program-level ceremony templates.\n\nURL: ``/api/v1/programs/<program_pk>/ceremonies/[<pk>/]``\n\nPermission matrix (ADR-0079):\n  list / retrieve         — IsProgramMember (Viewer+)\n  create / update / destroy / enable toggle — IsProgramAdmin (Project Manager+)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CeremonyTemplateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CeremonyTemplateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CeremonyTemplateRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CeremonyTemplate"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{program_pk}/ceremonies/{id}/": {
+            "get": {
+                "operationId": "v1_programs_ceremonies_retrieve",
+                "description": "CRUD for program-level ceremony templates.\n\nURL: ``/api/v1/programs/<program_pk>/ceremonies/[<pk>/]``\n\nPermission matrix (ADR-0079):\n  list / retrieve         — IsProgramMember (Viewer+)\n  create / update / destroy / enable toggle — IsProgramAdmin (Project Manager+)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CeremonyTemplate"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_programs_ceremonies_update",
+                "description": "CRUD for program-level ceremony templates.\n\nURL: ``/api/v1/programs/<program_pk>/ceremonies/[<pk>/]``\n\nPermission matrix (ADR-0079):\n  list / retrieve         — IsProgramMember (Viewer+)\n  create / update / destroy / enable toggle — IsProgramAdmin (Project Manager+)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CeremonyTemplateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CeremonyTemplateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CeremonyTemplateRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CeremonyTemplate"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_programs_ceremonies_partial_update",
+                "description": "CRUD for program-level ceremony templates.\n\nURL: ``/api/v1/programs/<program_pk>/ceremonies/[<pk>/]``\n\nPermission matrix (ADR-0079):\n  list / retrieve         — IsProgramMember (Viewer+)\n  create / update / destroy / enable toggle — IsProgramAdmin (Project Manager+)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCeremonyTemplateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCeremonyTemplateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCeremonyTemplateRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CeremonyTemplate"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_programs_ceremonies_destroy",
+                "description": "CRUD for program-level ceremony templates.\n\nURL: ``/api/v1/programs/<program_pk>/ceremonies/[<pk>/]``\n\nPermission matrix (ADR-0079):\n  list / retrieve         — IsProgramMember (Viewer+)\n  create / update / destroy / enable toggle — IsProgramAdmin (Project Manager+)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{program_pk}/members/": {
             "get": {
                 "operationId": "v1_programs_members_list",
@@ -1985,6 +2322,101 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{program_pk}/phase-gate-config/": {
+            "get": {
+                "operationId": "v1_programs_phase_gate_config_retrieve",
+                "description": "Singleton phase-gate calendar config per program.\n\nURL: ``/api/v1/programs/<program_pk>/phase-gate-config/``\n\nGET — IsProgramMember (Viewer+). Lazy-creates the row with defaults\n(``enabled=False``, ``invite_template=\"\"``) on first request so existing\nprograms do not require a data migration.\n\nPATCH — IsProgramAdmin (Project Manager+).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PhaseGateConfig"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_programs_phase_gate_config_partial_update",
+                "description": "Singleton phase-gate calendar config per program.\n\nURL: ``/api/v1/programs/<program_pk>/phase-gate-config/``\n\nGET — IsProgramMember (Viewer+). Lazy-creates the row with defaults\n(``enabled=False``, ``invite_template=\"\"``) on first request so existing\nprograms do not require a data migration.\n\nPATCH — IsProgramAdmin (Project Manager+).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPhaseGateConfigRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPhaseGateConfigRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPhaseGateConfigRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PhaseGateConfig"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -10659,6 +11091,16 @@
                     ""
                 ]
             },
+            "CadenceTypeEnum": {
+                "enum": [
+                    "weekly",
+                    "biweekly",
+                    "monthly",
+                    "on_milestone"
+                ],
+                "type": "string",
+                "description": "* `weekly` - Weekly\n* `biweekly` - Bi-weekly\n* `monthly` - Monthly\n* `on_milestone` - On milestone"
+            },
             "Calendar": {
                 "type": "object",
                 "description": "Read/write serializer for project calendars.\n\nNests exceptions as read-only — exceptions are managed through the\n/calendars/{pk}/exceptions/ sub-resource, not via this serializer.",
@@ -10793,6 +11235,118 @@
                 ],
                 "type": "string",
                 "description": "* `TECHNICAL` - Technical\n* `EXTERNAL` - External\n* `ORGANIZATIONAL` - Organizational\n* `PROJECT_MANAGEMENT` - Project Management"
+            },
+            "CeremonyTemplate": {
+                "type": "object",
+                "description": "Read/write serializer for program ceremony templates (ADR-0079).\n\nEnforces three rules the API contract requires:\n\n1. ``name`` is rejected if it matches the Scrum reserved-vocabulary list\n   (Sprint Planning, Sprint Review, etc.) — those events belong to the\n   per-sprint surface, not program-level cadence. This is a server-side\n   guard against silent boundary drift even if the UI is bypassed.\n2. ``cadence_day`` and ``cadence_time`` are required for time-of-day\n   cadences (weekly/biweekly/monthly) and forbidden for ``on_milestone``\n   (cleared to ``\"\"``/``None`` if supplied).\n3. ``duration_minutes`` is bounded to a sane meeting range (5–1440 min)\n   so the UI does not have to defend against pathological values.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 120
+                    },
+                    "cadence_type": {
+                        "$ref": "#/components/schemas/CadenceTypeEnum"
+                    },
+                    "cadence_day": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "cadence_time": {
+                        "type": "string",
+                        "format": "time",
+                        "nullable": true
+                    },
+                    "duration_minutes": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
+                    },
+                    "owner_role": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "created_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "cadence_type",
+                    "created_at",
+                    "created_by",
+                    "id",
+                    "name",
+                    "program",
+                    "server_version",
+                    "updated_at"
+                ]
+            },
+            "CeremonyTemplateRequest": {
+                "type": "object",
+                "description": "Read/write serializer for program ceremony templates (ADR-0079).\n\nEnforces three rules the API contract requires:\n\n1. ``name`` is rejected if it matches the Scrum reserved-vocabulary list\n   (Sprint Planning, Sprint Review, etc.) — those events belong to the\n   per-sprint surface, not program-level cadence. This is a server-side\n   guard against silent boundary drift even if the UI is bypassed.\n2. ``cadence_day`` and ``cadence_time`` are required for time-of-day\n   cadences (weekly/biweekly/monthly) and forbidden for ``on_milestone``\n   (cleared to ``\"\"``/``None`` if supplied).\n3. ``duration_minutes`` is bounded to a sane meeting range (5–1440 min)\n   so the UI does not have to defend against pathological values.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                    },
+                    "cadence_type": {
+                        "$ref": "#/components/schemas/CadenceTypeEnum"
+                    },
+                    "cadence_day": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "cadence_time": {
+                        "type": "string",
+                        "format": "time",
+                        "nullable": true
+                    },
+                    "duration_minutes": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
+                    },
+                    "owner_role": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "cadence_type",
+                    "name"
+                ]
             },
             "CommentReaction": {
                 "type": "object",
@@ -11485,6 +12039,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Calendar"
+                        }
+                    }
+                }
+            },
+            "PaginatedCeremonyTemplateList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CeremonyTemplate"
                         }
                     }
                 }
@@ -12321,6 +12906,41 @@
                     }
                 }
             },
+            "PatchedCeremonyTemplateRequest": {
+                "type": "object",
+                "description": "Read/write serializer for program ceremony templates (ADR-0079).\n\nEnforces three rules the API contract requires:\n\n1. ``name`` is rejected if it matches the Scrum reserved-vocabulary list\n   (Sprint Planning, Sprint Review, etc.) — those events belong to the\n   per-sprint surface, not program-level cadence. This is a server-side\n   guard against silent boundary drift even if the UI is bypassed.\n2. ``cadence_day`` and ``cadence_time`` are required for time-of-day\n   cadences (weekly/biweekly/monthly) and forbidden for ``on_milestone``\n   (cleared to ``\"\"``/``None`` if supplied).\n3. ``duration_minutes`` is bounded to a sane meeting range (5–1440 min)\n   so the UI does not have to defend against pathological values.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                    },
+                    "cadence_type": {
+                        "$ref": "#/components/schemas/CadenceTypeEnum"
+                    },
+                    "cadence_day": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "cadence_time": {
+                        "type": "string",
+                        "format": "time",
+                        "nullable": true
+                    },
+                    "duration_minutes": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
+                    },
+                    "owner_role": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "PatchedDependencyRequest": {
                 "type": "object",
                 "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nCross-project edges are rejected in validate() because the CPM engine\nassumes a single-project DAG. Edges that would close a cycle on the\nexpanded leaf graph are also rejected at create/update time with a\nstructured 400 ``{\"detail\": \"cyclic_dependency\", \"cycle\": [...]}`` so the\nfrontend can surface the offending path to the user; see ADR-0055.",
@@ -12367,6 +12987,18 @@
                     },
                     "is_archived": {
                         "type": "boolean"
+                    }
+                }
+            },
+            "PatchedPhaseGateConfigRequest": {
+                "type": "object",
+                "description": "Read/write serializer for the singleton phase-gate config (ADR-0079).\n\nNo ``program`` write field: the row is bound to its program by URL and\nlooked up via ``get_or_create`` in the view layer. ``invite_template`` is\nfree text in v1 — variable substitution against ``{{milestone.name}}`` etc.\nis a downstream calendar-integration follow-up.",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "invite_template": {
+                        "type": "string"
                     }
                 }
             },
@@ -12888,6 +13520,43 @@
                         "type": "boolean"
                     }
                 }
+            },
+            "PhaseGateConfig": {
+                "type": "object",
+                "description": "Read/write serializer for the singleton phase-gate config (ADR-0079).\n\nNo ``program`` write field: the row is bound to its program by URL and\nlooked up via ``get_or_create`` in the view layer. ``invite_template`` is\nfree text in v1 — variable substitution against ``{{milestone.name}}`` etc.\nis a downstream calendar-integration follow-up.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "invite_template": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "program",
+                    "server_version",
+                    "updated_at"
+                ]
             },
             "ProficiencyEnum": {
                 "enum": [

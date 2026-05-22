@@ -151,3 +151,36 @@ export interface RiskComment {
   message: string;
   created_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// Program ceremony templates + phase-gate config (ADR-0079, issue #528)
+// ---------------------------------------------------------------------------
+
+export type CeremonyCadenceType = 'weekly' | 'biweekly' | 'monthly' | 'on_milestone';
+
+export interface CeremonyTemplate {
+  id: string;
+  server_version: number;
+  program: string;
+  name: string;
+  cadence_type: CeremonyCadenceType;
+  /** Day specifier — weekday slug, "1st-thursday" form, or "" for on_milestone. */
+  cadence_day: string;
+  /** ISO time "HH:MM:SS" or null for on_milestone. */
+  cadence_time: string | null;
+  duration_minutes: number;
+  owner_role: string;
+  enabled: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PhaseGateConfig {
+  id: string;
+  server_version: number;
+  program: string;
+  enabled: boolean;
+  invite_template: string;
+  updated_at: string;
+}

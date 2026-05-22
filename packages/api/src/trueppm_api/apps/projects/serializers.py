@@ -16,18 +16,22 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     _VALID_EVM_MODES,
     _VALID_SORT_KEYS,
+    RESERVED_SCRUM_CEREMONY_NAMES,
     ApiTokenAuditEntry,
     Baseline,
     BaselineTask,
     BoardSavedView,
     Calendar,
     CalendarException,
+    CeremonyCadenceType,
+    CeremonyTemplate,
     CommentAcknowledgement,
     CommentReaction,
     Dependency,
     EstimateStatus,
     EstimationMode,
     InboundTaskLink,
+    PhaseGateConfig,
     Program,
     Project,
     ProjectApiToken,
@@ -289,6 +293,125 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         if role is None:
             return None
         return Role(role).label
+
+
+class CeremonyTemplateSerializer(serializers.ModelSerializer[CeremonyTemplate]):
+    """Read/write serializer for program ceremony templates (ADR-0079).
+
+    Enforces three rules the API contract requires:
+
+    1. ``name`` is rejected if it matches the Scrum reserved-vocabulary list
+       (Sprint Planning, Sprint Review, etc.) — those events belong to the
+       per-sprint surface, not program-level cadence. This is a server-side
+       guard against silent boundary drift even if the UI is bypassed.
+    2. ``cadence_day`` and ``cadence_time`` are required for time-of-day
+       cadences (weekly/biweekly/monthly) and forbidden for ``on_milestone``
+       (cleared to ``""``/``None`` if supplied).
+    3. ``duration_minutes`` is bounded to a sane meeting range (5–1440 min)
+       so the UI does not have to defend against pathological values.
+    """
+
+    class Meta:
+        model = CeremonyTemplate
+        fields = [
+            "id",
+            "server_version",
+            "program",
+            "name",
+            "cadence_type",
+            "cadence_day",
+            "cadence_time",
+            "duration_minutes",
+            "owner_role",
+            "enabled",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "server_version",
+            "program",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_name(self, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise serializers.ValidationError("Name is required.")
+        if normalized.casefold() in RESERVED_SCRUM_CEREMONY_NAMES:
+            raise serializers.ValidationError(
+                "Sprint events (Sprint Planning, Review, Retrospective, Daily Scrum) "
+                "are configured per-sprint, not as program-level ceremonies. "
+                'Try a program-level name like "Program sync" or "Steering committee".'
+            )
+        return normalized
+
+    def validate_duration_minutes(self, value: int) -> int:
+        if value < 5 or value > 1440:
+            raise serializers.ValidationError("Duration must be between 5 and 1440 minutes.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Resolve effective cadence_type for partial updates.
+        cadence_type = attrs.get("cadence_type")
+        if cadence_type is None and self.instance is not None:
+            cadence_type = self.instance.cadence_type
+
+        if cadence_type == CeremonyCadenceType.ON_MILESTONE:
+            # Strip incoming day/time so on-milestone rows can never carry
+            # stale wall-clock metadata from a prior cadence_type.
+            attrs["cadence_day"] = ""
+            attrs["cadence_time"] = None
+        else:
+            # weekly / biweekly / monthly all need a wall-clock anchor.
+            effective_day = attrs.get(
+                "cadence_day",
+                getattr(self.instance, "cadence_day", "") if self.instance else "",
+            )
+            effective_time = attrs.get(
+                "cadence_time",
+                getattr(self.instance, "cadence_time", None) if self.instance else None,
+            )
+            if not effective_day:
+                raise serializers.ValidationError(
+                    {"cadence_day": "Day is required for time-of-day cadences."}
+                )
+            if effective_time is None:
+                raise serializers.ValidationError(
+                    {"cadence_time": "Time is required for time-of-day cadences."}
+                )
+
+        return attrs
+
+
+class PhaseGateConfigSerializer(serializers.ModelSerializer[PhaseGateConfig]):
+    """Read/write serializer for the singleton phase-gate config (ADR-0079).
+
+    No ``program`` write field: the row is bound to its program by URL and
+    looked up via ``get_or_create`` in the view layer. ``invite_template`` is
+    free text in v1 — variable substitution against ``{{milestone.name}}`` etc.
+    is a downstream calendar-integration follow-up.
+    """
+
+    class Meta:
+        model = PhaseGateConfig
+        fields = [
+            "id",
+            "server_version",
+            "program",
+            "enabled",
+            "invite_template",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "server_version",
+            "program",
+            "updated_at",
+        ]
 
 
 class TaskAssignmentSerializer(serializers.ModelSerializer[TaskResource]):
