@@ -1,37 +1,161 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useParams } from 'react-router';
 import { SettingsPageTitle } from '../SettingsShell';
-import { StubFieldset } from '../components/StubFieldset';
-import { StubPageBanner } from '../components/StubPageBanner';
+import { useProgram } from '@/hooks/useProgram';
+import { ROLE_ADMIN } from '@/lib/roles';
+import {
+  useProgramRollupConfig,
+  useSaveProgramRollupPolicy,
+  useToggleProgramRollupKpi,
+  type AggregationPolicy,
+  type RollupKpi,
+} from './useProgramRollupConfig';
 
-interface KpiToggle {
-  id: string;
+interface KpiMeta {
+  id: RollupKpi;
   label: string;
   description: string;
-  enabled: boolean;
 }
 
-const DEFAULT_KPIS: KpiToggle[] = [
-  { id: 'schedule-health',    label: 'Schedule health',         description: 'Rollup of project health dots weighted by task count.',          enabled: true  },
-  { id: 'critical-tasks',     label: 'Critical task count',     description: 'Total tasks on the critical path across all projects.',           enabled: true  },
-  { id: 'at-risk-tasks',      label: 'At-risk task count',      description: 'Tasks flagged at-risk or overdue.',                              enabled: true  },
-  { id: 'baseline-variance',  label: 'Baseline variance',       description: 'Aggregate schedule and cost variance vs. saved baselines.',       enabled: true  },
-  { id: 'resource-util',      label: 'Resource utilization',    description: 'Average allocation across resources in member projects.',         enabled: false },
-  { id: 'velocity',           label: 'Sprint velocity',         description: 'Avg. story points per sprint across Agile/Hybrid projects.',      enabled: false },
-  { id: 'risk-score',         label: 'Risk score',              description: 'Weighted mean of open risk scores (probability × impact).',      enabled: true  },
-  { id: 'p80',                label: 'P80 completion date',     description: 'Monte Carlo P80 across all projects (envelope of distributions).', enabled: true  },
+interface KpiGroup {
+  heading: string;
+  kpis: KpiMeta[];
+}
+
+// Grouping is presentational only — server stores enabled_kpis as a flat list.
+// Three subgroups (5/3/2) per the UX spec; Sarah's VoC asked for grouping to
+// keep 10 toggles scannable on a Friday-afternoon settings pass.
+const KPI_GROUPS: KpiGroup[] = [
+  {
+    heading: 'Schedule',
+    kpis: [
+      {
+        id: 'schedule_health',
+        label: 'Schedule health',
+        description: 'Rollup of project health dots weighted by task count.',
+      },
+      {
+        id: 'schedule_variance',
+        label: 'Schedule variance (SV)',
+        description:
+          'Earned-value schedule variance vs. the saved baseline. Negative = behind plan.',
+      },
+      {
+        id: 'baseline_variance',
+        label: 'Baseline variance',
+        description:
+          'Aggregate schedule and cost variance vs. the most recent saved baseline.',
+      },
+      {
+        id: 'critical_tasks',
+        label: 'Critical task count',
+        description:
+          'Total tasks on the critical path across all projects in the program.',
+      },
+      {
+        id: 'milestone_health',
+        label: 'Milestone health',
+        description:
+          'Share of program milestones on track vs. slipped past their planned date.',
+      },
+    ],
+  },
+  {
+    heading: 'Risk',
+    kpis: [
+      {
+        id: 'at_risk_tasks',
+        label: 'At-risk tasks',
+        description: 'Tasks flagged at-risk or already overdue.',
+      },
+      {
+        id: 'risk_score',
+        label: 'Risk score',
+        description:
+          'Weighted mean of open risk scores (probability × impact) across the risk register.',
+      },
+      {
+        id: 'p80_completion',
+        label: 'P80 completion date',
+        description:
+          'Monte Carlo P80 — the date by which 80% of simulated outcomes complete.',
+      },
+    ],
+  },
+  {
+    heading: 'Cost',
+    kpis: [
+      {
+        id: 'cost_variance',
+        label: 'Cost variance (CV)',
+        description:
+          'Earned-value cost variance vs. the saved baseline. Negative = over budget.',
+      },
+      {
+        id: 'budget_utilization',
+        label: 'Budget utilization',
+        description:
+          'Approved budget consumed to date, aggregated across all projects.',
+      },
+    ],
+  },
 ];
 
-function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+interface PolicyOption {
+  id: AggregationPolicy;
+  label: string;
+  hint: string;
+}
+
+const POLICIES: PolicyOption[] = [
+  {
+    id: 'worst',
+    label: 'Worst-case (recommended)',
+    hint: 'Program health = worst health across all projects. One critical project → program is critical.',
+  },
+  {
+    id: 'average',
+    label: 'Average',
+    hint: 'Numeric average of project health scores. Dilutes a single critical project.',
+  },
+  {
+    id: 'weighted_by_budget',
+    label: 'Budget-weighted',
+    hint: 'Projects with larger approved budgets carry proportionally more weight in the average.',
+  },
+  {
+    id: 'task_weighted',
+    label: 'Task-weighted',
+    hint: 'Projects with more tasks carry proportionally more weight in the average.',
+  },
+];
+
+function Toggle({
+  on,
+  onToggle,
+  disabled,
+  ariaLabel,
+}: {
+  on: boolean;
+  onToggle: () => void;
+  disabled: boolean;
+  ariaLabel: string;
+}) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
-      onClick={onToggle}
+      aria-label={ariaLabel}
+      aria-disabled={disabled || undefined}
+      onClick={() => {
+        if (!disabled) onToggle();
+      }}
       className={[
         'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
         on ? 'bg-brand-primary border-brand-primary' : 'bg-neutral-surface-sunken border-neutral-border',
+        disabled ? 'opacity-60 cursor-not-allowed' : '',
       ].join(' ')}
     >
       <span
@@ -44,89 +168,315 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   );
 }
 
-/** Program > Rollup KPIs settings page. */
-export function ProgramRollupPage() {
-  const [kpis, setKpis] = useState<KpiToggle[]>(DEFAULT_KPIS);
-  const [rollupPolicy, setRollupPolicy] = useState<'worst' | 'average' | 'weighted'>('worst');
+interface InlineToastState {
+  message: string;
+  variant: 'error' | 'success';
+}
 
-  function toggleKpi(id: string) {
-    setKpis((prev) => prev.map((k) => k.id === id ? { ...k, enabled: !k.enabled } : k));
+/**
+ * Program > Rollup KPIs settings page (#527).
+ *
+ * Wires the existing settings surface to ``/api/v1/programs/:id/rollup-config/``.
+ * Two persistence patterns coexist on the same page because the VoC panel
+ * surfaced them as different:
+ *   - KPI switches use optimistic PATCH (preference-shaped, low stakes)
+ *   - Aggregation policy uses explicit Save with an "Unsaved changes" affordance
+ *     (governance-shaped — Alex/Morgan/Marcus flagged silent flips of what
+ *     executives see on Monday as a regression risk).
+ */
+export function ProgramRollupPage() {
+  const { programId } = useParams<{ programId: string }>();
+  const { data: program } = useProgram(programId);
+  const { data: config, isLoading, isError, refetch } = useProgramRollupConfig(programId);
+  const toggleKpi = useToggleProgramRollupKpi(programId ?? '');
+  const savePolicy = useSaveProgramRollupPolicy(programId ?? '');
+
+  const canEdit = (program?.my_role ?? 0) >= ROLE_ADMIN;
+
+  // Local draft for the policy radio. Diverges from server state until the
+  // user clicks Save; matches server again after a successful save or Discard.
+  const [draftPolicy, setDraftPolicy] = useState<AggregationPolicy | null>(null);
+  useEffect(() => {
+    setDraftPolicy(null);
+  }, [config?.aggregation_policy]);
+
+  const [toast, setToast] = useState<InlineToastState | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 6000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // 250ms debounce on KPI toggles: rapid-firing several switches collapses
+  // into a single PATCH carrying the final ``enabled_kpis`` array. ``pending``
+  // is React state (drives the UI) and ``debounceTimer`` is a ref (does not).
+  // Setting ``pending`` to non-null switches the renderer onto the local view
+  // until the mutation either succeeds (cache becomes truth, clear pending)
+  // or errors (revert pending to last known good).
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pending, setPending] = useState<RollupKpi[] | null>(null);
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, []);
+  // When the server cache updates (mutation success or external refetch),
+  // any pending overlay is stale by definition — drop it.
+  useEffect(() => {
+    setPending(null);
+  }, [config?.enabled_kpis]);
+
+  if (!programId) return null;
+
+  // Pending overlay wins over the server cache so the switch animates
+  // immediately on click, even while the debounced PATCH is still pending.
+  const effectiveKpis = pending ?? config?.enabled_kpis ?? [];
+  const enabledSet = new Set<RollupKpi>(effectiveKpis);
+  const policyOnServer = config?.aggregation_policy ?? 'worst';
+  const policyShown = draftPolicy ?? policyOnServer;
+  const policyDirty = draftPolicy !== null && draftPolicy !== policyOnServer;
+
+  function flushToggle(payload: RollupKpi[]) {
+    debounceTimer.current = null;
+    toggleKpi.mutate(payload, {
+      onError: () => {
+        // Revert the optimistic overlay back to the server's last-known state.
+        setPending(null);
+        setToast({ message: 'Could not save change — try again.', variant: 'error' });
+      },
+    });
+  }
+
+  function onToggle(kpi: RollupKpi) {
+    if (!canEdit || !config) return;
+    const current = pending ?? config.enabled_kpis;
+    const next = current.includes(kpi)
+      ? current.filter((k) => k !== kpi)
+      : [...current, kpi];
+    setPending(next);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => flushToggle(next), 250);
+  }
+
+  function onSavePolicy() {
+    if (!canEdit || draftPolicy === null) return;
+    savePolicy.mutate(draftPolicy, {
+      onSuccess: () => setToast({ message: 'Saved.', variant: 'success' }),
+      onError: () => setToast({ message: 'Could not save — try again.', variant: 'error' }),
+    });
   }
 
   return (
-    <>
-    <StubPageBanner pageIssue={527} />
-    <StubFieldset disabled>
     <div>
       <SettingsPageTitle
         title="Rollup KPIs"
         subtitle="Choose which health signals roll up to the program level. Only enabled KPIs appear on the program overview."
+        action={
+          !canEdit ? (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
+              title="Only program admins can edit rollup KPIs"
+            >
+              Read-only
+            </span>
+          ) : undefined
+        }
       />
 
       <div className="px-6 pb-8 max-w-[720px] space-y-6">
         {/* KPI toggles */}
-        <section aria-labelledby="kpi-heading" className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden">
+        <section
+          aria-labelledby="kpi-heading"
+          className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden"
+        >
           <div className="px-4 py-3 border-b border-neutral-border/55 bg-neutral-surface-sunken">
-            <h2 id="kpi-heading" className="text-[13px] font-semibold text-neutral-text-primary">Enabled KPIs</h2>
-            <p className="text-[12px] text-neutral-text-secondary mt-0.5">Toggle KPIs visible on the program overview and rollup tiles.</p>
+            <h2 id="kpi-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+              Enabled KPIs
+            </h2>
+            <p className="text-[12px] text-neutral-text-secondary mt-0.5">
+              Toggle KPIs visible on the program overview and rollup tiles.
+            </p>
           </div>
-          {kpis.map((kpi, i) => (
-            <div
-              key={kpi.id}
-              className={['flex items-center gap-4 px-4 py-3', i < kpis.length - 1 ? 'border-b border-neutral-border/55' : ''].join(' ')}
-            >
-              <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-medium text-neutral-text-primary">{kpi.label}</div>
-                <div className="text-[12px] text-neutral-text-secondary mt-0.5 leading-snug">{kpi.description}</div>
-              </div>
-              <Toggle on={kpi.enabled} onToggle={() => toggleKpi(kpi.id)} />
+
+          {isLoading && (
+            <div role="status" aria-label="Loading KPI settings" className="px-4 py-6 text-xs text-neutral-text-secondary">
+              Loading…
             </div>
-          ))}
+          )}
+
+          {isError && (
+            <div role="alert" className="px-4 py-6 flex items-center gap-3 text-xs">
+              <span className="text-semantic-critical">Couldn&apos;t load KPI settings.</span>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="h-7 px-2 rounded border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {!isLoading && !isError && config &&
+            KPI_GROUPS.map((group, gi) => (
+              <div key={group.heading}>
+                <h3
+                  className={[
+                    'px-4 py-1.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary bg-neutral-surface-sunken/40',
+                    gi === 0 ? '' : 'border-t border-neutral-border/55',
+                  ].join(' ')}
+                >
+                  {group.heading}
+                </h3>
+                {group.kpis.map((kpi, i) => (
+                  <div
+                    key={kpi.id}
+                    className={[
+                      'flex items-center gap-4 px-4 py-3',
+                      i < group.kpis.length - 1 ? 'border-b border-neutral-border/55' : '',
+                    ].join(' ')}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium text-neutral-text-primary">
+                        {kpi.label}
+                      </div>
+                      <div className="text-[12px] text-neutral-text-secondary mt-0.5 leading-snug">
+                        {kpi.description}
+                      </div>
+                    </div>
+                    <Toggle
+                      on={enabledSet.has(kpi.id)}
+                      onToggle={() => onToggle(kpi.id)}
+                      disabled={!canEdit}
+                      ariaLabel={kpi.label}
+                    />
+                  </div>
+                ))}
+              </div>
+            ))}
         </section>
 
         {/* Aggregation policy */}
-        <section aria-labelledby="policy-heading" className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden">
+        <section
+          aria-labelledby="policy-heading"
+          className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden"
+        >
           <div className="px-4 py-3 border-b border-neutral-border/55">
-            <h2 id="policy-heading" className="text-[13px] font-semibold text-neutral-text-primary">Health aggregation policy</h2>
-            <p className="text-[12px] text-neutral-text-secondary mt-0.5">How project health signals are combined into the program health dot.</p>
+            <h2 id="policy-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+              Health aggregation policy
+            </h2>
+            <p className="text-[12px] text-neutral-text-secondary mt-0.5">
+              How project health signals are combined into the program health dot.
+            </p>
           </div>
-          <div className="px-4 py-3 space-y-2">
-            {(
-              [
-                { id: 'worst'    as const, label: 'Worst-case (recommended)', hint: 'Program health = worst health across all projects. One critical project → program is critical.' },
-                { id: 'average'  as const, label: 'Average',                  hint: 'Numeric average of health scores. Dilutes a single critical project.' },
-                { id: 'weighted' as const, label: 'Task-weighted average',     hint: 'Projects with more tasks carry proportionally more weight in the average.' },
-              ]
-            ).map((opt) => (
-              <label key={opt.id} className="flex items-start gap-2.5 cursor-pointer rounded p-2 hover:bg-neutral-surface-sunken">
-                <span
+
+          {isLoading && (
+            <div role="status" aria-label="Loading policy" className="px-4 py-6 text-xs text-neutral-text-secondary">
+              Loading…
+            </div>
+          )}
+
+          {isError && (
+            <div role="alert" className="px-4 py-6 flex items-center gap-3 text-xs">
+              <span className="text-semantic-critical">Couldn&apos;t load policy.</span>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="h-7 px-2 rounded border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {!isLoading && !isError && config && (
+            <fieldset className="px-4 py-3 space-y-2" disabled={!canEdit}>
+              <legend className="sr-only">Health aggregation policy</legend>
+              {POLICIES.map((opt) => (
+                <label
+                  key={opt.id}
                   className={[
-                    'mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors',
-                    rollupPolicy === opt.id ? 'border-brand-primary bg-brand-primary' : 'border-neutral-border bg-neutral-surface',
+                    'flex items-start gap-2.5 rounded p-2',
+                    canEdit ? 'cursor-pointer hover:bg-neutral-surface-sunken' : 'opacity-80',
                   ].join(' ')}
-                  aria-hidden="true"
                 >
-                  {rollupPolicy === opt.id && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                </span>
-                <input
-                  type="radio"
-                  name="rollup-policy"
-                  value={opt.id}
-                  checked={rollupPolicy === opt.id}
-                  onChange={() => setRollupPolicy(opt.id)}
-                  className="sr-only"
-                />
-                <span className="flex flex-col">
-                  <span className="text-[13px] font-medium text-neutral-text-primary">{opt.label}</span>
-                  <span className="text-[12px] text-neutral-text-secondary">{opt.hint}</span>
-                </span>
-              </label>
-            ))}
-          </div>
+                  <span
+                    className={[
+                      'mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors',
+                      policyShown === opt.id
+                        ? 'border-brand-primary bg-brand-primary'
+                        : 'border-neutral-border bg-neutral-surface',
+                    ].join(' ')}
+                    aria-hidden="true"
+                  >
+                    {policyShown === opt.id && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </span>
+                  <input
+                    type="radio"
+                    name="rollup-policy"
+                    value={opt.id}
+                    checked={policyShown === opt.id}
+                    onChange={() => setDraftPolicy(opt.id)}
+                    className="sr-only"
+                  />
+                  <span className="flex flex-col">
+                    <span className="text-[13px] font-medium text-neutral-text-primary">
+                      {opt.label}
+                    </span>
+                    <span className="text-[12px] text-neutral-text-secondary">{opt.hint}</span>
+                  </span>
+                </label>
+              ))}
+
+              {policyDirty && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="mt-2 flex items-center justify-between gap-3 px-3 py-2 rounded border border-brand-primary/40 bg-brand-primary/5"
+                >
+                  <span className="text-[12px] font-medium text-neutral-text-primary">
+                    <span aria-hidden="true">▲</span> Unsaved changes
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDraftPolicy(null)}
+                      disabled={savePolicy.isPending}
+                      className="h-7 px-2.5 rounded border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50"
+                    >
+                      Discard
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onSavePolicy}
+                      disabled={savePolicy.isPending}
+                      className="h-7 px-3 rounded bg-brand-primary text-xs font-semibold text-white hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50"
+                    >
+                      {savePolicy.isPending ? 'Saving…' : 'Save'}
+                    </button>
+                  </span>
+                </div>
+              )}
+            </fieldset>
+          )}
         </section>
+
+        {/* Inline toast */}
+        {toast && (
+          <div
+            role={toast.variant === 'error' ? 'alert' : 'status'}
+            aria-live={toast.variant === 'error' ? 'assertive' : 'polite'}
+            className={[
+              'fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded shadow-lg text-[13px] font-medium',
+              toast.variant === 'error'
+                ? 'bg-semantic-critical text-white'
+                : 'bg-neutral-text-primary text-white',
+            ].join(' ')}
+          >
+            {toast.message}
+          </div>
+        )}
       </div>
     </div>
-    </StubFieldset>
-    </>
   );
 }

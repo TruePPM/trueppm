@@ -25,6 +25,57 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Program rollup config — methodology-aware defaults (ADR-0079, #527)
+# ---------------------------------------------------------------------------
+
+
+def rollup_config_defaults(methodology: str) -> tuple[list[str], str]:
+    """Return ``(enabled_kpis, aggregation_policy)`` for a program methodology.
+
+    Single source of truth for new-program seeding and the data migration that
+    backfills existing programs. The waterfall and agile sets were chosen from
+    the VoC panel — 6 of 8 personas asked for methodology-aware defaults so a
+    new program would not need manual configuration on day one.
+
+    Why a tuple rather than a dict: the two call sites (post_save signal,
+    data migration) both destructure once and write to two columns.
+    """
+    from trueppm_api.apps.projects.models import (
+        AggregationPolicy,
+        Methodology,
+        RollupKpi,
+    )
+
+    waterfall = [
+        RollupKpi.SCHEDULE_HEALTH.value,
+        RollupKpi.BASELINE_VARIANCE.value,
+        RollupKpi.CRITICAL_TASKS.value,
+        RollupKpi.MILESTONE_HEALTH.value,
+        RollupKpi.BUDGET_UTILIZATION.value,
+        RollupKpi.COST_VARIANCE.value,
+    ]
+    agile = [
+        RollupKpi.MILESTONE_HEALTH.value,
+        RollupKpi.P80_COMPLETION.value,
+        RollupKpi.AT_RISK_TASKS.value,
+        RollupKpi.RISK_SCORE.value,
+    ]
+
+    if methodology == Methodology.WATERFALL:
+        return (waterfall, AggregationPolicy.WORST.value)
+    if methodology == Methodology.AGILE:
+        return (agile, AggregationPolicy.WORST.value)
+    # HYBRID (and any unexpected value) → union, de-duplicated, order preserved.
+    seen: set[str] = set()
+    union: list[str] = []
+    for kpi in waterfall + agile:
+        if kpi not in seen:
+            seen.add(kpi)
+            union.append(kpi)
+    return (union, AggregationPolicy.WORST.value)
+
+
+# ---------------------------------------------------------------------------
 # Sprint close — outbox enqueue
 # ---------------------------------------------------------------------------
 

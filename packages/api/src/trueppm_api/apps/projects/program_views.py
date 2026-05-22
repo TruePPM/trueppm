@@ -29,7 +29,11 @@ from trueppm_api.apps.access.permissions import (
 )
 from trueppm_api.apps.access.services import create_program, delete_program_cascade
 from trueppm_api.apps.projects.models import Methodology, Program, Project
-from trueppm_api.apps.projects.serializers import ProgramSerializer, ProjectSerializer
+from trueppm_api.apps.projects.serializers import (
+    ProgramRollupConfigSerializer,
+    ProgramSerializer,
+    ProjectSerializer,
+)
 
 
 class ProgramViewSet(viewsets.ModelViewSet[Program]):
@@ -52,6 +56,13 @@ class ProgramViewSet(viewsets.ModelViewSet[Program]):
             return [IsAuthenticated(), IsProgramAdmin()]
         if self.action == "destroy":
             return [IsAuthenticated(), IsProgramOwner()]
+        if self.action == "rollup_config":
+            # Method-level split: GET is read-open to any program member,
+            # PATCH requires admin. DRF evaluates permissions before dispatch,
+            # so the discriminator is the HTTP method on the request.
+            if self.request.method == "PATCH":
+                return [IsAuthenticated(), IsProgramAdmin()]
+            return [IsAuthenticated(), IsProgramMember()]
         if self.action in ("retrieve", "projects", "integrations_summary"):
             return [IsAuthenticated(), IsProgramMember()]
         return [IsAuthenticated()]
@@ -193,3 +204,26 @@ class ProgramViewSet(viewsets.ModelViewSet[Program]):
             )
 
         return Response(sections, status=drf_status.HTTP_200_OK)
+
+    @action(detail=True, methods=["get", "patch"], url_path="rollup-config")
+    def rollup_config(self, request: Request, pk: str | None = None) -> Response:
+        """Read or update the program rollup KPIs config (ADR-0079, #527).
+
+        URL: ``GET|PATCH /api/v1/programs/{pk}/rollup-config/``
+
+        Permission split is method-level (see ``get_permissions``): any
+        member can read, only admins can write. Audit is automatic via the
+        ``HistoricalRecords()`` already on Program — every successful PATCH
+        creates a ``HistoricalProgram`` row with the field diff.
+        """
+        program = self.get_object()
+        if request.method == "GET":
+            return Response(ProgramRollupConfigSerializer(program).data)
+
+        serializer = ProgramRollupConfigSerializer(program, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        # Re-serialize from the fresh instance so the response carries any
+        # field-level normalization (de-duped KPI list) applied by the
+        # serializer's validators.
+        return Response(ProgramRollupConfigSerializer(program).data)

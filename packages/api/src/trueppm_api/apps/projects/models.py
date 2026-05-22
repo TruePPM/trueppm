@@ -215,6 +215,44 @@ class Visibility(models.TextChoices):
     PRIVATE = "PRIVATE", "Private"
 
 
+class RollupKpi(models.TextChoices):
+    """KPIs that can be enabled on the program-overview rollup (ADR-0079, #527).
+
+    The set is closed — the serializer rejects unknown identifiers. Three KPIs
+    that touched team-boundary or aggregation-correctness concerns were
+    deliberately excluded after the VoC panel (``team_velocity``,
+    ``scope_change_count``, ``resource_utilization``); follow-up issues will
+    decide whether they re-enter through a different scope.
+    """
+
+    SCHEDULE_VARIANCE = "schedule_variance", "Schedule variance (SV)"
+    COST_VARIANCE = "cost_variance", "Cost variance (CV)"
+    BUDGET_UTILIZATION = "budget_utilization", "Budget utilization"
+    SCHEDULE_HEALTH = "schedule_health", "Schedule health"
+    CRITICAL_TASKS = "critical_tasks", "Critical task count"
+    AT_RISK_TASKS = "at_risk_tasks", "At-risk tasks"
+    BASELINE_VARIANCE = "baseline_variance", "Baseline variance"
+    RISK_SCORE = "risk_score", "Risk score"
+    MILESTONE_HEALTH = "milestone_health", "Milestone health"
+    P80_COMPLETION = "p80_completion", "P80 completion date"
+
+
+class AggregationPolicy(models.TextChoices):
+    """How project health combines into the program health dot (ADR-0079, #527).
+
+    ``WORST`` is the default and the only policy that does not dilute a single
+    critical project — recommended for adoption by Sarah/Marcus, see the VoC
+    panel notes in the ADR. The remaining policies are exposed because some
+    program managers explicitly want them for client-facing rollups (a small
+    fit-out should not drag down a large shell-and-core program).
+    """
+
+    WORST = "worst", "Worst-case"
+    AVERAGE = "average", "Average"
+    WEIGHTED_BY_BUDGET = "weighted_by_budget", "Budget-weighted"
+    TASK_WEIGHTED = "task_weighted", "Task-weighted"
+
+
 class Program(VersionedModel):
     """Named grouping of related projects for one PM or program team (ADR-0070).
 
@@ -257,6 +295,18 @@ class Program(VersionedModel):
         max_length=16,
         choices=Visibility.choices,
         default=Visibility.WORKSPACE,
+    )
+    # Rollup config (ADR-0079, #527) — controls which KPIs appear on the
+    # program overview and how project health is aggregated into the program
+    # health dot. Stored as two columns on Program so the existing
+    # HistoricalRecords audit and ``server_version`` bump on save() cover both
+    # without a side table. Values are seeded methodology-aware by the
+    # ``rollup_config_defaults`` helper (data migration + post_save signal).
+    rollup_enabled_kpis = models.JSONField(default=list, blank=True)
+    rollup_aggregation_policy = models.CharField(
+        max_length=24,
+        choices=AggregationPolicy.choices,
+        default=AggregationPolicy.WORST,
     )
     # The single "Program Manager" displayed in the Program header and Settings
     # General page. Distinct from ``created_by`` (immutable historical fact) and
