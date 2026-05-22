@@ -298,8 +298,11 @@ export function CalmToolbar(props: CalmToolbarProps) {
       className="flex-shrink-0 border-b border-neutral-border bg-neutral-surface px-4 py-2 flex flex-nowrap items-center gap-3 text-xs"
     >
       {/* Identity block — project name truncates and activity stats hide
-          below lg to keep the toolbar inside its h-10 row at md (#568 rule 113). */}
-      <div className="flex items-center gap-2 min-w-0 flex-shrink">
+          below lg to keep the toolbar inside its h-10 row at md (#568 rule 113).
+          Block is flex-shrink-0 so the name never collapses to zero width when
+          the toolbar is crowded; secondary controls (toggles, overflow) absorb
+          the space pressure instead. */}
+      <div className="flex flex-shrink-0 items-center gap-2">
         <BoardViewDropdown
           projectId={props.projectId}
           currentConfig={props.currentViewConfig}
@@ -307,7 +310,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
           onApply={props.onApplyView}
         />
         {props.projectName && (
-          <span className="text-neutral-text-primary font-medium truncate max-w-[160px] lg:max-w-none">
+          <span className="text-neutral-text-primary font-medium truncate max-w-[160px]">
             {props.projectName}
           </span>
         )}
