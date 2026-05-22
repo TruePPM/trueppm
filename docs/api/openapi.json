@@ -1709,19 +1709,148 @@
                 }
             }
         },
-        "/api/v1/programs/{id}/rollup-config/": {
+        "/api/v1/programs/{program_pk}/ceremonies/": {
             "get": {
-                "operationId": "v1_programs_rollup_config_retrieve",
-                "description": "Read or update the program rollup KPIs config (ADR-0079, #527).\n\nURL: ``GET|PATCH /api/v1/programs/{pk}/rollup-config/``\n\nPermission split is method-level (see ``get_permissions``): any\nmember can read, only admins can write. Audit is automatic via the\n``HistoricalRecords()`` already on Program — every successful PATCH\ncreates a ``HistoricalProgram`` row with the field diff.",
+                "operationId": "v1_programs_ceremonies_list",
+                "description": "CRUD for program-level ceremony templates.\n\nURL: ``/api/v1/programs/<program_pk>/ceremonies/[<pk>/]``\n\nPermission matrix (ADR-0079):\n  list / retrieve         — IsProgramMember (Viewer+)\n  create / update / destroy / enable toggle — IsProgramAdmin (Project Manager+)",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedCeremonyTemplateList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_programs_ceremonies_create",
+                "description": "CRUD for program-level ceremony templates.\n\nURL: ``/api/v1/programs/<program_pk>/ceremonies/[<pk>/]``\n\nPermission matrix (ADR-0079):\n  list / retrieve         — IsProgramMember (Viewer+)\n  create / update / destroy / enable toggle — IsProgramAdmin (Project Manager+)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CeremonyTemplateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CeremonyTemplateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CeremonyTemplateRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CeremonyTemplate"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{program_pk}/ceremonies/{id}/": {
+            "get": {
+                "operationId": "v1_programs_ceremonies_retrieve",
+                "description": "CRUD for program-level ceremony templates.\n\nURL: ``/api/v1/programs/<program_pk>/ceremonies/[<pk>/]``\n\nPermission matrix (ADR-0079):\n  list / retrieve         — IsProgramMember (Viewer+)\n  create / update / destroy / enable toggle — IsProgramAdmin (Project Manager+)",
                 "parameters": [
                     {
                         "in": "path",
                         "name": "id",
                         "schema": {
-                            "type": "string",
-                            "format": "uuid"
+                            "type": "string"
                         },
-                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
                         "required": true
                     }
                 ],
@@ -1741,7 +1870,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Program"
+                                    "$ref": "#/components/schemas/CeremonyTemplate"
                                 }
                             }
                         },
@@ -1749,18 +1878,24 @@
                     }
                 }
             },
-            "patch": {
-                "operationId": "v1_programs_rollup_config_partial_update",
-                "description": "Read or update the program rollup KPIs config (ADR-0079, #527).\n\nURL: ``GET|PATCH /api/v1/programs/{pk}/rollup-config/``\n\nPermission split is method-level (see ``get_permissions``): any\nmember can read, only admins can write. Audit is automatic via the\n``HistoricalRecords()`` already on Program — every successful PATCH\ncreates a ``HistoricalProgram`` row with the field diff.",
+            "put": {
+                "operationId": "v1_programs_ceremonies_update",
+                "description": "CRUD for program-level ceremony templates.\n\nURL: ``/api/v1/programs/<program_pk>/ceremonies/[<pk>/]``\n\nPermission matrix (ADR-0079):\n  list / retrieve         — IsProgramMember (Viewer+)\n  create / update / destroy / enable toggle — IsProgramAdmin (Project Manager+)",
                 "parameters": [
                     {
                         "in": "path",
                         "name": "id",
                         "schema": {
-                            "type": "string",
-                            "format": "uuid"
+                            "type": "string"
                         },
-                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
                         "required": true
                     }
                 ],
@@ -1771,17 +1906,82 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                                "$ref": "#/components/schemas/CeremonyTemplateRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                                "$ref": "#/components/schemas/CeremonyTemplateRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                                "$ref": "#/components/schemas/CeremonyTemplateRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CeremonyTemplate"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_programs_ceremonies_partial_update",
+                "description": "CRUD for program-level ceremony templates.\n\nURL: ``/api/v1/programs/<program_pk>/ceremonies/[<pk>/]``\n\nPermission matrix (ADR-0079):\n  list / retrieve         — IsProgramMember (Viewer+)\n  create / update / destroy / enable toggle — IsProgramAdmin (Project Manager+)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCeremonyTemplateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCeremonyTemplateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCeremonyTemplateRequest"
                             }
                         }
                     }
@@ -1799,11 +1999,49 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Program"
+                                    "$ref": "#/components/schemas/CeremonyTemplate"
                                 }
                             }
                         },
                         "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_programs_ceremonies_destroy",
+                "description": "CRUD for program-level ceremony templates.\n\nURL: ``/api/v1/programs/<program_pk>/ceremonies/[<pk>/]``\n\nPermission matrix (ADR-0079):\n  list / retrieve         — IsProgramMember (Viewer+)\n  create / update / destroy / enable toggle — IsProgramAdmin (Project Manager+)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
                     }
                 }
             }
@@ -2084,6 +2322,101 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{program_pk}/phase-gate-config/": {
+            "get": {
+                "operationId": "v1_programs_phase_gate_config_retrieve",
+                "description": "Singleton phase-gate calendar config per program.\n\nURL: ``/api/v1/programs/<program_pk>/phase-gate-config/``\n\nGET — IsProgramMember (Viewer+). Lazy-creates the row with defaults\n(``enabled=False``, ``invite_template=\"\"``) on first request so existing\nprograms do not require a data migration.\n\nPATCH — IsProgramAdmin (Project Manager+).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PhaseGateConfig"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_programs_phase_gate_config_partial_update",
+                "description": "Singleton phase-gate calendar config per program.\n\nURL: ``/api/v1/programs/<program_pk>/phase-gate-config/``\n\nGET — IsProgramMember (Viewer+). Lazy-creates the row with defaults\n(``enabled=False``, ``invite_template=\"\"``) on first request so existing\nprograms do not require a data migration.\n\nPATCH — IsProgramAdmin (Project Manager+).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPhaseGateConfigRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPhaseGateConfigRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPhaseGateConfigRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PhaseGateConfig"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -4432,6 +4765,351 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/fields/": {
+            "get": {
+                "operationId": "v1_projects_fields_list",
+                "description": "CRUD for project custom field *definitions* (#521).\n\nMounted at ``/projects/<project_pk>/fields/``. Per-task values for these\nfields are not yet persisted; this endpoint shapes the workflow schema\nonly. Built-in fields (Phase, Owner, Duration, Risk, Critical-path) are\na static frontend catalog and not exposed here.\n\nPermission matrix:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create / update / partial_update / destroy — Scheduler+ (IsProjectScheduler)\n\nMirrors BoardColumnConfigView's read=member, write=scheduler split:\ncustom fields shape how tasks are tracked and are therefore a\nschedule-affecting concern.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/ProjectCustomField"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_projects_fields_create",
+                "description": "CRUD for project custom field *definitions* (#521).\n\nMounted at ``/projects/<project_pk>/fields/``. Per-task values for these\nfields are not yet persisted; this endpoint shapes the workflow schema\nonly. Built-in fields (Phase, Owner, Duration, Risk, Critical-path) are\na static frontend catalog and not exposed here.\n\nPermission matrix:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create / update / partial_update / destroy — Scheduler+ (IsProjectScheduler)\n\nMirrors BoardColumnConfigView's read=member, write=scheduler split:\ncustom fields shape how tasks are tracked and are therefore a\nschedule-affecting concern.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectCustomFieldRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectCustomFieldRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectCustomFieldRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectCustomField"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/fields/{id}/": {
+            "get": {
+                "operationId": "v1_projects_fields_retrieve",
+                "description": "CRUD for project custom field *definitions* (#521).\n\nMounted at ``/projects/<project_pk>/fields/``. Per-task values for these\nfields are not yet persisted; this endpoint shapes the workflow schema\nonly. Built-in fields (Phase, Owner, Duration, Risk, Critical-path) are\na static frontend catalog and not exposed here.\n\nPermission matrix:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create / update / partial_update / destroy — Scheduler+ (IsProjectScheduler)\n\nMirrors BoardColumnConfigView's read=member, write=scheduler split:\ncustom fields shape how tasks are tracked and are therefore a\nschedule-affecting concern.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project custom field.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectCustomField"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_projects_fields_update",
+                "description": "CRUD for project custom field *definitions* (#521).\n\nMounted at ``/projects/<project_pk>/fields/``. Per-task values for these\nfields are not yet persisted; this endpoint shapes the workflow schema\nonly. Built-in fields (Phase, Owner, Duration, Risk, Critical-path) are\na static frontend catalog and not exposed here.\n\nPermission matrix:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create / update / partial_update / destroy — Scheduler+ (IsProjectScheduler)\n\nMirrors BoardColumnConfigView's read=member, write=scheduler split:\ncustom fields shape how tasks are tracked and are therefore a\nschedule-affecting concern.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project custom field.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectCustomFieldRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectCustomFieldRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectCustomFieldRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectCustomField"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_projects_fields_partial_update",
+                "description": "CRUD for project custom field *definitions* (#521).\n\nMounted at ``/projects/<project_pk>/fields/``. Per-task values for these\nfields are not yet persisted; this endpoint shapes the workflow schema\nonly. Built-in fields (Phase, Owner, Duration, Risk, Critical-path) are\na static frontend catalog and not exposed here.\n\nPermission matrix:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create / update / partial_update / destroy — Scheduler+ (IsProjectScheduler)\n\nMirrors BoardColumnConfigView's read=member, write=scheduler split:\ncustom fields shape how tasks are tracked and are therefore a\nschedule-affecting concern.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project custom field.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProjectCustomFieldRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProjectCustomFieldRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProjectCustomFieldRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectCustomField"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_projects_fields_destroy",
+                "description": "CRUD for project custom field *definitions* (#521).\n\nMounted at ``/projects/<project_pk>/fields/``. Per-task values for these\nfields are not yet persisted; this endpoint shapes the workflow schema\nonly. Built-in fields (Phase, Owner, Duration, Risk, Critical-path) are\na static frontend catalog and not exposed here.\n\nPermission matrix:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create / update / partial_update / destroy — Scheduler+ (IsProjectScheduler)\n\nMirrors BoardColumnConfigView's read=member, write=scheduler split:\ncustom fields shape how tasks are tracked and are therefore a\nschedule-affecting concern.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project custom field.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/history/": {
             "get": {
                 "operationId": "v1_projects_history_retrieve",
@@ -4778,6 +5456,357 @@
                             "type": "string",
                             "format": "uuid"
                         },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/phases/": {
+            "get": {
+                "operationId": "v1_projects_phases_list",
+                "description": "CRUD for project phases (root-level WBS tasks).\n\nMounted at ``/projects/<project_pk>/phases/`` — the Workflow settings page\nsurface. Each row corresponds to a Task with ``wbs_path ~ '^\\d+$'``; the\nBoard groups by these as swim-lanes and the Schedule view renders them as\nsummary rows.\n\nPermission matrix:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create / update / partial_update / destroy — Project Manager+ (IsProjectAdmin)\n\nReordering uses the pre-existing ``PATCH /projects/<pk>/phases/reorder/``\nendpoint (ADR-0046); this viewset does not expose its own reorder action\nto avoid drift.\n\nDestroy refuses (409) when the phase has any descendant tasks — silently\ncascading 36 tasks would surprise a PM. The client should move or delete\nthe children first.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedPhaseList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_projects_phases_create",
+                "description": "CRUD for project phases (root-level WBS tasks).\n\nMounted at ``/projects/<project_pk>/phases/`` — the Workflow settings page\nsurface. Each row corresponds to a Task with ``wbs_path ~ '^\\d+$'``; the\nBoard groups by these as swim-lanes and the Schedule view renders them as\nsummary rows.\n\nPermission matrix:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create / update / partial_update / destroy — Project Manager+ (IsProjectAdmin)\n\nReordering uses the pre-existing ``PATCH /projects/<pk>/phases/reorder/``\nendpoint (ADR-0046); this viewset does not expose its own reorder action\nto avoid drift.\n\nDestroy refuses (409) when the phase has any descendant tasks — silently\ncascading 36 tasks would surprise a PM. The client should move or delete\nthe children first.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PhaseRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PhaseRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PhaseRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Phase"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/phases/{id}/": {
+            "get": {
+                "operationId": "v1_projects_phases_retrieve",
+                "description": "CRUD for project phases (root-level WBS tasks).\n\nMounted at ``/projects/<project_pk>/phases/`` — the Workflow settings page\nsurface. Each row corresponds to a Task with ``wbs_path ~ '^\\d+$'``; the\nBoard groups by these as swim-lanes and the Schedule view renders them as\nsummary rows.\n\nPermission matrix:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create / update / partial_update / destroy — Project Manager+ (IsProjectAdmin)\n\nReordering uses the pre-existing ``PATCH /projects/<pk>/phases/reorder/``\nendpoint (ADR-0046); this viewset does not expose its own reorder action\nto avoid drift.\n\nDestroy refuses (409) when the phase has any descendant tasks — silently\ncascading 36 tasks would surprise a PM. The client should move or delete\nthe children first.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Phase"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_projects_phases_update",
+                "description": "CRUD for project phases (root-level WBS tasks).\n\nMounted at ``/projects/<project_pk>/phases/`` — the Workflow settings page\nsurface. Each row corresponds to a Task with ``wbs_path ~ '^\\d+$'``; the\nBoard groups by these as swim-lanes and the Schedule view renders them as\nsummary rows.\n\nPermission matrix:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create / update / partial_update / destroy — Project Manager+ (IsProjectAdmin)\n\nReordering uses the pre-existing ``PATCH /projects/<pk>/phases/reorder/``\nendpoint (ADR-0046); this viewset does not expose its own reorder action\nto avoid drift.\n\nDestroy refuses (409) when the phase has any descendant tasks — silently\ncascading 36 tasks would surprise a PM. The client should move or delete\nthe children first.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PhaseRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PhaseRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PhaseRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Phase"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_projects_phases_partial_update",
+                "description": "CRUD for project phases (root-level WBS tasks).\n\nMounted at ``/projects/<project_pk>/phases/`` — the Workflow settings page\nsurface. Each row corresponds to a Task with ``wbs_path ~ '^\\d+$'``; the\nBoard groups by these as swim-lanes and the Schedule view renders them as\nsummary rows.\n\nPermission matrix:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create / update / partial_update / destroy — Project Manager+ (IsProjectAdmin)\n\nReordering uses the pre-existing ``PATCH /projects/<pk>/phases/reorder/``\nendpoint (ADR-0046); this viewset does not expose its own reorder action\nto avoid drift.\n\nDestroy refuses (409) when the phase has any descendant tasks — silently\ncascading 36 tasks would surprise a PM. The client should move or delete\nthe children first.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPhaseRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPhaseRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPhaseRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Phase"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_projects_phases_destroy",
+                "description": "CRUD for project phases (root-level WBS tasks).\n\nMounted at ``/projects/<project_pk>/phases/`` — the Workflow settings page\nsurface. Each row corresponds to a Task with ``wbs_path ~ '^\\d+$'``; the\nBoard groups by these as swim-lanes and the Schedule view renders them as\nsummary rows.\n\nPermission matrix:\n  list / retrieve — Viewer+ (IsProjectMember)\n  create / update / partial_update / destroy — Project Manager+ (IsProjectAdmin)\n\nReordering uses the pre-existing ``PATCH /projects/<pk>/phases/reorder/``\nendpoint (ADR-0046); this viewset does not expose its own reorder action\nto avoid drift.\n\nDestroy refuses (409) when the phase has any descendant tasks — silently\ncascading 36 tasks would surprise a PM. The client should move or delete\nthe children first.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task.",
                         "required": true
                     },
                     {
@@ -10758,6 +11787,16 @@
                     ""
                 ]
             },
+            "CadenceTypeEnum": {
+                "enum": [
+                    "weekly",
+                    "biweekly",
+                    "monthly",
+                    "on_milestone"
+                ],
+                "type": "string",
+                "description": "* `weekly` - Weekly\n* `biweekly` - Bi-weekly\n* `monthly` - Monthly\n* `on_milestone` - On milestone"
+            },
             "Calendar": {
                 "type": "object",
                 "description": "Read/write serializer for project calendars.\n\nNests exceptions as read-only — exceptions are managed through the\n/calendars/{pk}/exceptions/ sub-resource, not via this serializer.",
@@ -10892,6 +11931,118 @@
                 ],
                 "type": "string",
                 "description": "* `TECHNICAL` - Technical\n* `EXTERNAL` - External\n* `ORGANIZATIONAL` - Organizational\n* `PROJECT_MANAGEMENT` - Project Management"
+            },
+            "CeremonyTemplate": {
+                "type": "object",
+                "description": "Read/write serializer for program ceremony templates (ADR-0079).\n\nEnforces three rules the API contract requires:\n\n1. ``name`` is rejected if it matches the Scrum reserved-vocabulary list\n   (Sprint Planning, Sprint Review, etc.) — those events belong to the\n   per-sprint surface, not program-level cadence. This is a server-side\n   guard against silent boundary drift even if the UI is bypassed.\n2. ``cadence_day`` and ``cadence_time`` are required for time-of-day\n   cadences (weekly/biweekly/monthly) and forbidden for ``on_milestone``\n   (cleared to ``\"\"``/``None`` if supplied).\n3. ``duration_minutes`` is bounded to a sane meeting range (5–1440 min)\n   so the UI does not have to defend against pathological values.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 120
+                    },
+                    "cadence_type": {
+                        "$ref": "#/components/schemas/CadenceTypeEnum"
+                    },
+                    "cadence_day": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "cadence_time": {
+                        "type": "string",
+                        "format": "time",
+                        "nullable": true
+                    },
+                    "duration_minutes": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
+                    },
+                    "owner_role": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "created_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "cadence_type",
+                    "created_at",
+                    "created_by",
+                    "id",
+                    "name",
+                    "program",
+                    "server_version",
+                    "updated_at"
+                ]
+            },
+            "CeremonyTemplateRequest": {
+                "type": "object",
+                "description": "Read/write serializer for program ceremony templates (ADR-0079).\n\nEnforces three rules the API contract requires:\n\n1. ``name`` is rejected if it matches the Scrum reserved-vocabulary list\n   (Sprint Planning, Sprint Review, etc.) — those events belong to the\n   per-sprint surface, not program-level cadence. This is a server-side\n   guard against silent boundary drift even if the UI is bypassed.\n2. ``cadence_day`` and ``cadence_time`` are required for time-of-day\n   cadences (weekly/biweekly/monthly) and forbidden for ``on_milestone``\n   (cleared to ``\"\"``/``None`` if supplied).\n3. ``duration_minutes`` is bounded to a sane meeting range (5–1440 min)\n   so the UI does not have to defend against pathological values.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                    },
+                    "cadence_type": {
+                        "$ref": "#/components/schemas/CadenceTypeEnum"
+                    },
+                    "cadence_day": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "cadence_time": {
+                        "type": "string",
+                        "format": "time",
+                        "nullable": true
+                    },
+                    "duration_minutes": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
+                    },
+                    "owner_role": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "cadence_type",
+                    "name"
+                ]
             },
             "CommentReaction": {
                 "type": "object",
@@ -11143,6 +12294,19 @@
                 ],
                 "type": "string",
                 "description": "* `pending_retry` - Pending Retry\n* `dead` - Dead\n* `dismissed` - Dismissed\n* `retried` - Retried"
+            },
+            "FieldTypeEnum": {
+                "enum": [
+                    "TEXT",
+                    "NUMBER",
+                    "DATE",
+                    "SINGLE_SELECT",
+                    "MULTI_SELECT",
+                    "USER",
+                    "BOOLEAN"
+                ],
+                "type": "string",
+                "description": "* `TEXT` - Text\n* `NUMBER` - Number\n* `DATE` - Date\n* `SINGLE_SELECT` - Single-select\n* `MULTI_SELECT` - Multi-select\n* `USER` - Person\n* `BOOLEAN` - Boolean"
             },
             "HealthEnum": {
                 "enum": [
@@ -11598,6 +12762,37 @@
                     }
                 }
             },
+            "PaginatedCeremonyTemplateList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CeremonyTemplate"
+                        }
+                    }
+                }
+            },
             "PaginatedDependencyList": {
                 "type": "object",
                 "required": [
@@ -11749,6 +12944,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/NotificationPreference"
+                        }
+                    }
+                }
+            },
+            "PaginatedPhaseList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Phase"
                         }
                     }
                 }
@@ -12430,6 +13656,41 @@
                     }
                 }
             },
+            "PatchedCeremonyTemplateRequest": {
+                "type": "object",
+                "description": "Read/write serializer for program ceremony templates (ADR-0079).\n\nEnforces three rules the API contract requires:\n\n1. ``name`` is rejected if it matches the Scrum reserved-vocabulary list\n   (Sprint Planning, Sprint Review, etc.) — those events belong to the\n   per-sprint surface, not program-level cadence. This is a server-side\n   guard against silent boundary drift even if the UI is bypassed.\n2. ``cadence_day`` and ``cadence_time`` are required for time-of-day\n   cadences (weekly/biweekly/monthly) and forbidden for ``on_milestone``\n   (cleared to ``\"\"``/``None`` if supplied).\n3. ``duration_minutes`` is bounded to a sane meeting range (5–1440 min)\n   so the UI does not have to defend against pathological values.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                    },
+                    "cadence_type": {
+                        "$ref": "#/components/schemas/CadenceTypeEnum"
+                    },
+                    "cadence_day": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "cadence_time": {
+                        "type": "string",
+                        "format": "time",
+                        "nullable": true
+                    },
+                    "duration_minutes": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
+                    },
+                    "owner_role": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "PatchedDependencyRequest": {
                 "type": "object",
                 "description": "Read/write serializer for task dependencies (FS/SS/FF/SF links with optional lag).\n\nCross-project edges are rejected in validate() because the CPM engine\nassumes a single-project DAG. Edges that would close a cycle on the\nexpanded leaf graph are also rejected at create/update time with a\nstructured 400 ``{\"detail\": \"cyclic_dependency\", \"cycle\": [...]}`` so the\nfrontend can surface the offending path to the user; see ADR-0055.",
@@ -12479,6 +13740,35 @@
                     }
                 }
             },
+            "PatchedPhaseGateConfigRequest": {
+                "type": "object",
+                "description": "Read/write serializer for the singleton phase-gate config (ADR-0079).\n\nNo ``program`` write field: the row is bound to its program by URL and\nlooked up via ``get_or_create`` in the view layer. ``invite_template`` is\nfree text in v1 — variable substitution against ``{{milestone.name}}`` etc.\nis a downstream calendar-integration follow-up.",
+                "properties": {
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "invite_template": {
+                        "type": "string"
+                    }
+                }
+            },
+            "PatchedPhaseRequest": {
+                "type": "object",
+                "description": "Read/write serializer for project phases.\n\nA *phase* in TruePPM is a WBS L1 (root-level) task: ``wbs_path`` matches\n``^\\d+$``. This serializer exposes the subset of Task fields that the\nWorkflow settings page edits (name, color) plus read-only context\n(task count, server_version) — no schedule fields, no status, no\ndependencies. Create/delete are routed through the viewset which also\nassigns ``wbs_path`` and short_id (create) or soft-deletes the row and\nits WBS subtree (delete).",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                    },
+                    "color": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Phase accent color as #RRGGBB hex (root tasks only).",
+                        "maxLength": 7
+                    }
+                }
+            },
             "PatchedProgramMembershipWriteRequest": {
                 "type": "object",
                 "description": "Write serializer — accepts user (UUID) and role; program is injected from URL.",
@@ -12525,6 +13815,29 @@
                     "lead": {
                         "type": "integer",
                         "nullable": true
+                    }
+                }
+            },
+            "PatchedProjectCustomFieldRequest": {
+                "type": "object",
+                "description": "Read/write serializer for project custom field definitions (#521).\n\nEnforces:\n- per-project case-insensitive name uniqueness (DB-level constraint + a\n  friendlier error here on create);\n- ``options`` non-empty list of unique ``{value, label}`` rows for\n  SINGLE_SELECT / MULTI_SELECT, empty for every other type;\n- ``PROJECT_CUSTOM_FIELD_MAX`` cap per project (32) on create.\n\nField type is immutable after create — switching a select field to text\nwould orphan the option list semantically. Recreate the field instead.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                    },
+                    "field_type": {
+                        "$ref": "#/components/schemas/FieldTypeEnum"
+                    },
+                    "required": {
+                        "type": "boolean"
+                    },
+                    "options": {},
+                    "order": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
                     }
                 }
             },
@@ -13015,6 +14328,113 @@
                     }
                 }
             },
+            "Phase": {
+                "type": "object",
+                "description": "Read/write serializer for project phases.\n\nA *phase* in TruePPM is a WBS L1 (root-level) task: ``wbs_path`` matches\n``^\\d+$``. This serializer exposes the subset of Task fields that the\nWorkflow settings page edits (name, color) plus read-only context\n(task count, server_version) — no schedule fields, no status, no\ndependencies. Create/delete are routed through the viewset which also\nassigns ``wbs_path`` and short_id (create) or soft-deletes the row and\nits WBS subtree (delete).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 512
+                    },
+                    "color": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Phase accent color as #RRGGBB hex (root tasks only).",
+                        "maxLength": 7
+                    },
+                    "priority_rank": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Priority rank within the project; lower is higher priority."
+                    },
+                    "wbs_path": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "WBS hierarchy path in ltree format, e.g. '1.2.3'"
+                    },
+                    "task_count": {
+                        "type": "integer",
+                        "description": "Number of non-deleted tasks in this phase, including the phase itself.",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "priority_rank",
+                    "server_version",
+                    "task_count",
+                    "wbs_path"
+                ]
+            },
+            "PhaseGateConfig": {
+                "type": "object",
+                "description": "Read/write serializer for the singleton phase-gate config (ADR-0079).\n\nNo ``program`` write field: the row is bound to its program by URL and\nlooked up via ``get_or_create`` in the view layer. ``invite_template`` is\nfree text in v1 — variable substitution against ``{{milestone.name}}`` etc.\nis a downstream calendar-integration follow-up.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "invite_template": {
+                        "type": "string"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "program",
+                    "server_version",
+                    "updated_at"
+                ]
+            },
+            "PhaseRequest": {
+                "type": "object",
+                "description": "Read/write serializer for project phases.\n\nA *phase* in TruePPM is a WBS L1 (root-level) task: ``wbs_path`` matches\n``^\\d+$``. This serializer exposes the subset of Task fields that the\nWorkflow settings page edits (name, color) plus read-only context\n(task count, server_version) — no schedule fields, no status, no\ndependencies. Create/delete are routed through the viewset which also\nassigns ``wbs_path`` and short_id (create) or soft-deletes the row and\nits WBS subtree (delete).",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                    },
+                    "color": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Phase accent color as #RRGGBB hex (root tasks only).",
+                        "maxLength": 7
+                    }
+                },
+                "required": [
+                    "name"
+                ]
+            },
             "ProficiencyEnum": {
                 "enum": [
                     1,
@@ -13381,6 +14801,82 @@
                     "revoked_at",
                     "status_map",
                     "token_prefix"
+                ]
+            },
+            "ProjectCustomField": {
+                "type": "object",
+                "description": "Read/write serializer for project custom field definitions (#521).\n\nEnforces:\n- per-project case-insensitive name uniqueness (DB-level constraint + a\n  friendlier error here on create);\n- ``options`` non-empty list of unique ``{value, label}`` rows for\n  SINGLE_SELECT / MULTI_SELECT, empty for every other type;\n- ``PROJECT_CUSTOM_FIELD_MAX`` cap per project (32) on create.\n\nField type is immutable after create — switching a select field to text\nwould orphan the option list semantically. Recreate the field instead.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "field_type": {
+                        "$ref": "#/components/schemas/FieldTypeEnum"
+                    },
+                    "required": {
+                        "type": "boolean"
+                    },
+                    "options": {},
+                    "order": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "field_type",
+                    "id",
+                    "name",
+                    "server_version",
+                    "updated_at"
+                ]
+            },
+            "ProjectCustomFieldRequest": {
+                "type": "object",
+                "description": "Read/write serializer for project custom field definitions (#521).\n\nEnforces:\n- per-project case-insensitive name uniqueness (DB-level constraint + a\n  friendlier error here on create);\n- ``options`` non-empty list of unique ``{value, label}`` rows for\n  SINGLE_SELECT / MULTI_SELECT, empty for every other type;\n- ``PROJECT_CUSTOM_FIELD_MAX`` cap per project (32) on create.\n\nField type is immutable after create — switching a select field to text\nwould orphan the option list semantically. Recreate the field instead.",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                    },
+                    "field_type": {
+                        "$ref": "#/components/schemas/FieldTypeEnum"
+                    },
+                    "required": {
+                        "type": "boolean"
+                    },
+                    "options": {},
+                    "order": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "field_type",
+                    "name"
                 ]
             },
             "ProjectDetail": {

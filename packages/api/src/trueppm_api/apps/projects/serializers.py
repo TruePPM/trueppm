@@ -16,21 +16,28 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     _VALID_EVM_MODES,
     _VALID_SORT_KEYS,
+    PROJECT_CUSTOM_FIELD_MAX,
+    RESERVED_SCRUM_CEREMONY_NAMES,
     ApiTokenAuditEntry,
     Baseline,
     BaselineTask,
     BoardSavedView,
     Calendar,
     CalendarException,
+    CeremonyCadenceType,
+    CeremonyTemplate,
     CommentAcknowledgement,
     CommentReaction,
+    CustomFieldType,
     Dependency,
     EstimateStatus,
     EstimationMode,
     InboundTaskLink,
+    PhaseGateConfig,
     Program,
     Project,
     ProjectApiToken,
+    ProjectCustomField,
     RetroActionItem,
     Risk,
     RiskComment,
@@ -377,6 +384,125 @@ class ProgramRollupConfigSerializer(serializers.ModelSerializer[Program]):
                 seen.add(kpi)
                 deduped.append(kpi)
         return deduped
+
+
+class CeremonyTemplateSerializer(serializers.ModelSerializer[CeremonyTemplate]):
+    """Read/write serializer for program ceremony templates (ADR-0079).
+
+    Enforces three rules the API contract requires:
+
+    1. ``name`` is rejected if it matches the Scrum reserved-vocabulary list
+       (Sprint Planning, Sprint Review, etc.) — those events belong to the
+       per-sprint surface, not program-level cadence. This is a server-side
+       guard against silent boundary drift even if the UI is bypassed.
+    2. ``cadence_day`` and ``cadence_time`` are required for time-of-day
+       cadences (weekly/biweekly/monthly) and forbidden for ``on_milestone``
+       (cleared to ``""``/``None`` if supplied).
+    3. ``duration_minutes`` is bounded to a sane meeting range (5–1440 min)
+       so the UI does not have to defend against pathological values.
+    """
+
+    class Meta:
+        model = CeremonyTemplate
+        fields = [
+            "id",
+            "server_version",
+            "program",
+            "name",
+            "cadence_type",
+            "cadence_day",
+            "cadence_time",
+            "duration_minutes",
+            "owner_role",
+            "enabled",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "server_version",
+            "program",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_name(self, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise serializers.ValidationError("Name is required.")
+        if normalized.casefold() in RESERVED_SCRUM_CEREMONY_NAMES:
+            raise serializers.ValidationError(
+                "Sprint events (Sprint Planning, Review, Retrospective, Daily Scrum) "
+                "are configured per-sprint, not as program-level ceremonies. "
+                'Try a program-level name like "Program sync" or "Steering committee".'
+            )
+        return normalized
+
+    def validate_duration_minutes(self, value: int) -> int:
+        if value < 5 or value > 1440:
+            raise serializers.ValidationError("Duration must be between 5 and 1440 minutes.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Resolve effective cadence_type for partial updates.
+        cadence_type = attrs.get("cadence_type")
+        if cadence_type is None and self.instance is not None:
+            cadence_type = self.instance.cadence_type
+
+        if cadence_type == CeremonyCadenceType.ON_MILESTONE:
+            # Strip incoming day/time so on-milestone rows can never carry
+            # stale wall-clock metadata from a prior cadence_type.
+            attrs["cadence_day"] = ""
+            attrs["cadence_time"] = None
+        else:
+            # weekly / biweekly / monthly all need a wall-clock anchor.
+            effective_day = attrs.get(
+                "cadence_day",
+                getattr(self.instance, "cadence_day", "") if self.instance else "",
+            )
+            effective_time = attrs.get(
+                "cadence_time",
+                getattr(self.instance, "cadence_time", None) if self.instance else None,
+            )
+            if not effective_day:
+                raise serializers.ValidationError(
+                    {"cadence_day": "Day is required for time-of-day cadences."}
+                )
+            if effective_time is None:
+                raise serializers.ValidationError(
+                    {"cadence_time": "Time is required for time-of-day cadences."}
+                )
+
+        return attrs
+
+
+class PhaseGateConfigSerializer(serializers.ModelSerializer[PhaseGateConfig]):
+    """Read/write serializer for the singleton phase-gate config (ADR-0079).
+
+    No ``program`` write field: the row is bound to its program by URL and
+    looked up via ``get_or_create`` in the view layer. ``invite_template`` is
+    free text in v1 — variable substitution against ``{{milestone.name}}`` etc.
+    is a downstream calendar-integration follow-up.
+    """
+
+    class Meta:
+        model = PhaseGateConfig
+        fields = [
+            "id",
+            "server_version",
+            "program",
+            "enabled",
+            "invite_template",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "server_version",
+            "program",
+            "updated_at",
+        ]
 
 
 class TaskAssignmentSerializer(serializers.ModelSerializer[TaskResource]):
@@ -2472,3 +2598,198 @@ class CommentReactionSerializer(serializers.ModelSerializer[CommentReaction]):
                 code="reaction_unsupported_emoji",
             )
         return value
+
+
+# ---------------------------------------------------------------------------
+# Workflow settings — Phases (root tasks) and Custom Fields (#521)
+# ---------------------------------------------------------------------------
+
+
+# Compiled once at import time — the Workflow page edits a small set of phase
+# rows, but Boards may issue this validator on every reorder PATCH.
+_PHASE_COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+class PhaseSerializer(serializers.ModelSerializer[Task]):
+    """Read/write serializer for project phases.
+
+    A *phase* in TruePPM is a WBS L1 (root-level) task: ``wbs_path`` matches
+    ``^\\d+$``. This serializer exposes the subset of Task fields that the
+    Workflow settings page edits (name, color) plus read-only context
+    (task count, server_version) — no schedule fields, no status, no
+    dependencies. Create/delete are routed through the viewset which also
+    assigns ``wbs_path`` and short_id (create) or soft-deletes the row and
+    its WBS subtree (delete).
+    """
+
+    task_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Task
+        fields = [
+            "id",
+            "name",
+            "color",
+            "priority_rank",
+            "wbs_path",
+            "task_count",
+            "server_version",
+        ]
+        read_only_fields = ["id", "priority_rank", "wbs_path", "task_count", "server_version"]
+
+    def get_task_count(self, obj: Task) -> int:
+        """Number of non-deleted tasks in this phase, including the phase itself."""
+        # ``descendants_count`` is annotated on the queryset by ``PhaseViewSet``.
+        return int(getattr(obj, "descendants_count", 0))
+
+    def validate_name(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("name must be a non-empty string.")
+        if len(value) > 255:
+            raise serializers.ValidationError("name must be ≤ 255 characters.")
+        return value
+
+    def validate_color(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        if not _PHASE_COLOR_RE.fullmatch(value):
+            raise serializers.ValidationError("color must be a #RRGGBB hex string or null.")
+        return value
+
+
+class ProjectCustomFieldSerializer(serializers.ModelSerializer[ProjectCustomField]):
+    """Read/write serializer for project custom field definitions (#521).
+
+    Enforces:
+    - per-project case-insensitive name uniqueness (DB-level constraint + a
+      friendlier error here on create);
+    - ``options`` non-empty list of unique ``{value, label}`` rows for
+      SINGLE_SELECT / MULTI_SELECT, empty for every other type;
+    - ``PROJECT_CUSTOM_FIELD_MAX`` cap per project (32) on create.
+
+    Field type is immutable after create — switching a select field to text
+    would orphan the option list semantically. Recreate the field instead.
+    """
+
+    class Meta:
+        model = ProjectCustomField
+        fields = [
+            "id",
+            "name",
+            "field_type",
+            "required",
+            "options",
+            "order",
+            "server_version",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "server_version", "created_at", "updated_at"]
+
+    def validate_name(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("name must be a non-empty string.")
+        if len(value) > 64:
+            raise serializers.ValidationError("name must be ≤ 64 characters.")
+        return value
+
+    def validate_options(self, value: Any) -> list[dict[str, Any]]:
+        if not isinstance(value, list):
+            raise serializers.ValidationError("options must be a list.")
+        normalized: list[dict[str, Any]] = []
+        seen_values: set[str] = set()
+        if len(value) > 50:
+            raise serializers.ValidationError("options must contain at most 50 entries.")
+        for entry in value:
+            if not isinstance(entry, dict):
+                raise serializers.ValidationError("each option must be an object.")
+            opt_value = entry.get("value")
+            opt_label = entry.get("label", opt_value)
+            opt_color = entry.get("color")
+            if not isinstance(opt_value, str) or not opt_value.strip():
+                raise serializers.ValidationError("each option must have a non-empty value.")
+            if len(opt_value) > 32:
+                raise serializers.ValidationError("option value must be ≤ 32 characters.")
+            if opt_value in seen_values:
+                raise serializers.ValidationError(f"duplicate option value: {opt_value!r}")
+            seen_values.add(opt_value)
+            if not isinstance(opt_label, str) or len(opt_label) > 64:
+                raise serializers.ValidationError("option label must be a string ≤ 64 chars.")
+            if opt_color is not None and not (
+                isinstance(opt_color, str) and _PHASE_COLOR_RE.fullmatch(opt_color)
+            ):
+                raise serializers.ValidationError(
+                    "option color must be a #RRGGBB hex string or null."
+                )
+            normalized.append({"value": opt_value, "label": opt_label, "color": opt_color})
+        return normalized
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # field_type is immutable after create — the model's PATCH path filters
+        # it out, but reject it explicitly here so the API returns a 400 with a
+        # clear message instead of silently ignoring the request.
+        if self.instance is not None and "field_type" in self.initial_data:
+            requested = self.initial_data["field_type"]
+            if requested != self.instance.field_type:
+                raise serializers.ValidationError(
+                    {"field_type": "field_type is immutable after create."}
+                )
+        field_type = attrs.get(
+            "field_type",
+            getattr(self.instance, "field_type", None),
+        )
+        options = attrs.get("options", getattr(self.instance, "options", []))
+        select_types = {CustomFieldType.SINGLE_SELECT, CustomFieldType.MULTI_SELECT}
+        if field_type in select_types:
+            if not options:
+                raise serializers.ValidationError(
+                    {"options": "options must be a non-empty list for select types."}
+                )
+        else:
+            if options:
+                raise serializers.ValidationError(
+                    {"options": "options must be empty for non-select field types."}
+                )
+        return attrs
+
+    def create(self, validated_data: dict[str, Any]) -> ProjectCustomField:
+        project = validated_data["project"]
+        existing = ProjectCustomField.objects.filter(project=project).count()
+        if existing >= PROJECT_CUSTOM_FIELD_MAX:
+            raise serializers.ValidationError(
+                {
+                    "detail": (
+                        f"Project already has {PROJECT_CUSTOM_FIELD_MAX} custom fields "
+                        "(the per-project cap). Delete or rename one before adding another."
+                    )
+                }
+            )
+        # Case-insensitive name uniqueness — surface a friendly error here instead
+        # of leaning on the DB UniqueConstraint failure (less helpful message).
+        name_ci = validated_data["name"].casefold()
+        if any(
+            f.name.casefold() == name_ci for f in ProjectCustomField.objects.filter(project=project)
+        ):
+            raise serializers.ValidationError(
+                {"name": f"A custom field named {validated_data['name']!r} already exists."}
+            )
+        # Append by default — the client may reorder afterwards via PATCH.
+        if validated_data.get("order", 0) == 0:
+            from django.db.models import Max as _Max
+
+            current_max = (
+                ProjectCustomField.objects.filter(project=project).aggregate(m=_Max("order"))["m"]
+                or 0
+            )
+            validated_data["order"] = current_max + 1
+        return super().create(validated_data)
+
+    def update(
+        self, instance: ProjectCustomField, validated_data: dict[str, Any]
+    ) -> ProjectCustomField:
+        # Bump server_version on every write so optimistic-lock-aware clients
+        # (the Workflow drag-to-reorder hook) can detect concurrent edits.
+        instance.server_version = (instance.server_version or 0) + 1
+        return super().update(instance, validated_data)

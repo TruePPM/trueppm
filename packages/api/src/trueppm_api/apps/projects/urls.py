@@ -5,6 +5,10 @@ from __future__ import annotations
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from trueppm_api.apps.projects.ceremony_views import (
+    CeremonyTemplateViewSet,
+    PhaseGateConfigView,
+)
 from trueppm_api.apps.projects.program_views import ProgramViewSet
 from trueppm_api.apps.projects.views import (
     ApiTokenAuditView,
@@ -19,9 +23,11 @@ from trueppm_api.apps.projects.views import (
     MeActiveSprintsView,
     MeWorkView,
     PhaseReorderView,
+    PhaseViewSet,
     ProjectApiTokenViewSet,
     ProjectAttentionView,
     ProjectBurnView,
+    ProjectCustomFieldViewSet,
     ProjectMyTasksView,
     ProjectOverviewView,
     ProjectPresenceView,
@@ -171,6 +177,42 @@ urlpatterns = [
         "projects/<pk>/phases/reorder/",
         PhaseReorderView.as_view(),
         name="project-phases-reorder",
+    ),
+    # Phase CRUD — Workflow settings page (#521). Reorder lives at /phases/reorder/.
+    path(
+        "projects/<project_pk>/phases/",
+        PhaseViewSet.as_view({"get": "list", "post": "create"}),
+        name="project-phases-list",
+    ),
+    path(
+        "projects/<project_pk>/phases/<pk>/",
+        PhaseViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="project-phases-detail",
+    ),
+    # Project custom field definitions — Workflow settings page (#521).
+    path(
+        "projects/<project_pk>/fields/",
+        ProjectCustomFieldViewSet.as_view({"get": "list", "post": "create"}),
+        name="project-fields-list",
+    ),
+    path(
+        "projects/<project_pk>/fields/<pk>/",
+        ProjectCustomFieldViewSet.as_view(
+            {
+                "get": "retrieve",
+                "put": "update",
+                "patch": "partial_update",
+                "delete": "destroy",
+            }
+        ),
+        name="project-fields-detail",
     ),
     # Sprint endpoints (ADR-0037)
     path(
@@ -341,5 +383,28 @@ urlpatterns = [
         "projects/<project_pk>/tasks/<task_pk>/comments/<comment_pk>/reactions/<pk>/",
         CommentReactionViewSet.as_view({"delete": "destroy"}),
         name="project-task-comment-reactions-detail",
+    ),
+    # Program ceremony templates + phase-gate config (ADR-0079, #528)
+    path(
+        "programs/<program_pk>/ceremonies/",
+        CeremonyTemplateViewSet.as_view({"get": "list", "post": "create"}),
+        name="program-ceremonies-list",
+    ),
+    path(
+        "programs/<program_pk>/ceremonies/<pk>/",
+        CeremonyTemplateViewSet.as_view(
+            {
+                "get": "retrieve",
+                "patch": "partial_update",
+                "put": "update",
+                "delete": "destroy",
+            }
+        ),
+        name="program-ceremonies-detail",
+    ),
+    path(
+        "programs/<program_pk>/phase-gate-config/",
+        PhaseGateConfigView.as_view(),
+        name="program-phase-gate-config",
     ),
 ]

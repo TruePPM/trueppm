@@ -46,16 +46,22 @@ function expectBoardDensity(value: 'compact' | 'comfortable' | 'detailed') {
 }
 
 // jsdom does not implement window.matchMedia — stub it.
-// Default: desktop (matches: false). Individual tests may override via mockReturnValue.
-const makeMq = (matches: boolean) => ({
-  matches,
-  media: '(max-width: 767px)',
-  onchange: null,
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  dispatchEvent: vi.fn(),
-});
-vi.stubGlobal('matchMedia', vi.fn().mockImplementation(() => makeMq(false)));
+// `mobile=false` (default) reports the `lg` desktop tier: max-width queries
+// don't match, min-width queries do (used by `useBreakpoint`, #568).
+// `mobile=true` reports the `sm` mobile tier: max-width queries match,
+// min-width queries don't.
+const makeMq = (mobile: boolean) => (query: string) => {
+  const isMinWidth = /^\(min-width:/.test(query);
+  return {
+    matches: isMinWidth ? !mobile : mobile,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  };
+};
+vi.stubGlobal('matchMedia', vi.fn().mockImplementation(makeMq(false)));
 import { FIXTURE_TASKS } from '@/fixtures/tasks';
 import type { Task, TaskStatus } from '@/types';
 
@@ -273,7 +279,7 @@ function resetMocks() {
   };
   localStorage.clear(); // reset persisted board prefs (density, collapsedLanes) between tests
   // Reset matchMedia to desktop default between tests (issue #224)
-  (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(false));
+  (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(makeMq(false));
 }
 
 // ---------------------------------------------------------------------------
@@ -760,20 +766,20 @@ describe('BoardView', () => {
   // -------------------------------------------------------------------------
 
   it('auto-selects compact density below md viewport (issue #224)', () => {
-    (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(true));
+    (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(makeMq(true));
     renderBoard();
     expectBoardDensity('compact');
   });
 
   it('ignores stored desktop density on mobile — auto-compact wins (issue #224)', () => {
     localStorage.setItem('trueppm.board.density', 'detailed');
-    (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(true));
+    (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(makeMq(true));
     renderBoard();
     expectBoardDensity('compact');
   });
 
   it('manual density override on mobile is not persisted to localStorage (issue #224)', async () => {
-    (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(() => makeMq(true));
+    (window.matchMedia as ReturnType<typeof vi.fn>).mockImplementation(makeMq(true));
     const user = userEvent.setup();
     renderBoard();
     await setBoardDensity(user, 'comfortable');

@@ -9,6 +9,8 @@
  * Design spec: UX spec v1.0, resource-allocation-timeline.html § ①
  */
 import { formatWeekHeader } from './resourceUtils';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { ToolbarOverflowMenu, type ToolbarOverflowItem } from '@/components/toolbar/ToolbarOverflowMenu';
 
 export type ViewMode = 'timeline' | 'utilization';
 type ViewModeLocal = ViewMode;
@@ -84,10 +86,19 @@ export function ResourceToolbar({
     }
   }
 
+  // Responsive toolbar tier (#568 rules 110–112). At `sm` the secondary row
+  // (status filters + resource search) and the `My allocation` toggle move
+  // into a shared ToolbarOverflowMenu so the primary row stays inside `h-10`.
+  const breakpoint = useBreakpoint();
+
   return (
     <div className="flex-shrink-0 border-b border-neutral-border">
       {/* Primary row */}
-      <div className="flex items-center gap-2 px-4 h-10 bg-neutral-surface-raised flex-wrap">
+      <div
+        role="toolbar"
+        aria-label="Resource toolbar"
+        className="flex flex-nowrap items-center gap-2 px-4 h-10 bg-neutral-surface-raised"
+      >
 
         {/* Segmented control: Timeline | Utilization */}
         <div
@@ -158,14 +169,17 @@ export function ResourceToolbar({
           {isFitToProject ? 'Reset to today' : '⤢ Fit to project'}
         </button>
 
-        {/* My allocation (timeline mode only, when user has a resource record) */}
-        {showMyAllocation && viewMode === 'timeline' && (
+        {/* My allocation (timeline mode only, when user has a resource record).
+            Secondary control per rule 110 — visible at md+, collapses into the
+            ToolbarOverflowMenu at sm. */}
+        {showMyAllocation && viewMode === 'timeline' && breakpoint !== 'sm' && (
           <button
             type="button"
             onClick={onMyAllocationToggle}
             aria-pressed={myAllocationActive}
             className={[
               btnBase,
+              'flex-shrink-0',
               myAllocationActive
                 ? 'border-brand-primary/60 bg-brand-primary/10 text-brand-primary font-semibold'
                 : '',
@@ -176,6 +190,32 @@ export function ResourceToolbar({
         )}
 
         <div className="flex-1" />
+
+        {/* Resource toolbar overflow — at sm, secondary row collapses into a
+            single ⋯ button on the primary row. */}
+        {breakpoint === 'sm' && viewMode === 'timeline' && (
+          <ToolbarOverflowMenu
+            triggerAriaLabel="Resource secondary controls"
+            items={[
+              ...(showMyAllocation
+                ? [{
+                    kind: 'checkbox' as const,
+                    id: 'my-allocation',
+                    label: 'My allocation',
+                    checked: myAllocationActive,
+                    onChange: () => onMyAllocationToggle(),
+                  }]
+                : []),
+              ...ALL_STATUSES.map<ToolbarOverflowItem>((s) => ({
+                kind: 'checkbox',
+                id: `status-${s}`,
+                label: STATUS_LABELS[s],
+                checked: statusFilters.includes(s),
+                onChange: () => toggleStatus(s),
+              })),
+            ]}
+          />
+        )}
 
         {/* Overallocation count (timeline mode) */}
         {overallocationCount > 0 && viewMode === 'timeline' && (
@@ -196,8 +236,10 @@ export function ResourceToolbar({
         )}
       </div>
 
-      {/* Secondary row: status filters + resource search (timeline mode only) */}
-      {viewMode === 'timeline' && (
+      {/* Secondary row: status filters + resource search (timeline mode only).
+          Rendered only at md+ — at sm these controls live inside the overflow
+          menu on the primary row (#568 rules 110–112). */}
+      {viewMode === 'timeline' && breakpoint !== 'sm' && (
         <div className="flex items-center gap-3 px-4 py-1 bg-neutral-surface border-t border-neutral-border/50 text-xs text-neutral-text-secondary">
           <span className="text-xs uppercase tracking-wide text-neutral-text-secondary/70 flex-shrink-0">
             Status
