@@ -50,17 +50,23 @@ def stranger(db: object) -> object:
 def hybrid_program(owner: object) -> Program:
     # ``create_program`` is the same atomic service the viewset uses on POST;
     # it creates the Program and the OWNER membership in one transaction.
-    return create_program(name="Phase 2", methodology=Methodology.HYBRID, created_by=owner)
+    return create_program(
+        name="Phase 2", description="", methodology=Methodology.HYBRID, created_by=owner
+    )
 
 
 @pytest.fixture
 def waterfall_program(owner: object) -> Program:
-    return create_program(name="WF", methodology=Methodology.WATERFALL, created_by=owner)
+    return create_program(
+        name="WF", description="", methodology=Methodology.WATERFALL, created_by=owner
+    )
 
 
 @pytest.fixture
 def agile_program(owner: object) -> Program:
-    return create_program(name="AG", methodology=Methodology.AGILE, created_by=owner)
+    return create_program(
+        name="AG", description="", methodology=Methodology.AGILE, created_by=owner
+    )
 
 
 def _client(user: object) -> APIClient:
