@@ -114,19 +114,26 @@ async function setupAuth(page: Page) {
 }
 
 async function setupProjectRoutes(page: Page, captures: Captures) {
-  await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (route: Route) => {
-    const method = route.request().method();
-    if (method === 'DELETE') {
-      captures.projectDelete = { url: route.request().url() };
-      await route.fulfill({ status: 204, body: '' });
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: pj({ ...FIXTURE_PROJECT, is_archived: (captures.projectArchive ?? 0) > 0 }),
-    });
-  });
+  // Regex (not glob) so the route also matches the DELETE ?force=true variant —
+  // Playwright globs treat query strings as literal characters and `**/projects/<id>/`
+  // would not match `**/projects/<id>/?force=true`, sending the DELETE through to the
+  // catch-all and leaving captures.projectDelete unset.
+  await page.route(
+    new RegExp(`/api/v1/projects/${PROJECT_ID}/(\\?.*)?$`),
+    async (route: Route) => {
+      const method = route.request().method();
+      if (method === 'DELETE') {
+        captures.projectDelete = { url: route.request().url() };
+        await route.fulfill({ status: 204, body: '' });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ ...FIXTURE_PROJECT, is_archived: (captures.projectArchive ?? 0) > 0 }),
+      });
+    },
+  );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/archive/`, async (route: Route) => {
     captures.projectArchive = (captures.projectArchive ?? 0) + 1;
     await route.fulfill({
@@ -143,19 +150,23 @@ async function setupProjectRoutes(page: Page, captures: Captures) {
 }
 
 async function setupProgramRoutes(page: Page, captures: Captures) {
-  await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, async (route: Route) => {
-    const method = route.request().method();
-    if (method === 'DELETE') {
-      captures.programDelete = { url: route.request().url() };
-      await route.fulfill({ status: 204, body: '' });
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: pj({ ...FIXTURE_PROGRAM, is_closed: (captures.programClose ?? 0) > 0 }),
-    });
-  });
+  // See setupProjectRoutes — regex needed so DELETE with `?force=true` is matched.
+  await page.route(
+    new RegExp(`/api/v1/programs/${PROGRAM_ID}/(\\?.*)?$`),
+    async (route: Route) => {
+      const method = route.request().method();
+      if (method === 'DELETE') {
+        captures.programDelete = { url: route.request().url() };
+        await route.fulfill({ status: 204, body: '' });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ ...FIXTURE_PROGRAM, is_closed: (captures.programClose ?? 0) > 0 }),
+      });
+    },
+  );
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/close/`, async (route: Route) => {
     captures.programClose = (captures.programClose ?? 0) + 1;
     await route.fulfill({
