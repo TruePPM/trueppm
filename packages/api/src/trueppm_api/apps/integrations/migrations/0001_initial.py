@@ -61,11 +61,4 @@ class Migration(migrations.Migration):
                 name="integrations_credential_unique_per_user_provider",
             ),
         ),
-        migrations.AddIndex(
-            model_name="integrationcredential",
-            index=models.Index(
-                fields=["user", "provider"],
-                name="integration_user_id_4dc7b4_idx",
-            ),
-        ),
     ]

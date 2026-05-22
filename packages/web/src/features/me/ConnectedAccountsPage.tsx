@@ -335,7 +335,7 @@ function ConnectCredentialDialog({ provider, mode, onDismiss }: ConnectDialogPro
               ref={secretRef}
               type="password"
               required
-              autoComplete="off"
+              autoComplete="new-password"
               value={secret}
               onChange={(e) => setSecret(e.target.value)}
               className="h-9 px-3 text-[13px] border border-neutral-border rounded bg-neutral-surface-raised focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"

@@ -51,7 +51,12 @@ class CredentialUpsertSerializer(serializers.Serializer[Any]):
     - ``secret`` is required and non-empty (the encryption helper refuses
       empty plaintext anyway; rejecting here gives a clean 400).
     - ``secret`` is write-only — never echoed back.
-    - ``base_url`` is optional; max 512 chars to match the model column.
+    - ``base_url`` is optional. When present it must be an ``http://`` or
+      ``https://`` URL; ``file://`` / ``javascript:`` / ``gopher://`` /
+      similar schemes are rejected here. SSRF resolver-level guards (block
+      RFC1918, link-local, cloud metadata) live with #637 since they need
+      DNS resolution at fetch time — this serializer is the cheap
+      first line of defense.
     - ``expires_at`` is optional and informational only.
     """
 
@@ -66,6 +71,20 @@ class CredentialUpsertSerializer(serializers.Serializer[Any]):
         # explicitly so the error message is clear.
         if not value.strip():
             raise serializers.ValidationError("Secret must not be blank.")
+        return value
+
+    def validate_base_url(self, value: str) -> str:
+        if not value:
+            return value
+        if "://" not in value:
+            raise serializers.ValidationError(
+                "Host URL must include a scheme (https://example.com)."
+            )
+        scheme = value.split("://", 1)[0].lower()
+        if scheme not in ("http", "https"):
+            raise serializers.ValidationError(
+                f"Host URL scheme {scheme!r} is not allowed. Use http or https."
+            )
         return value
 
 

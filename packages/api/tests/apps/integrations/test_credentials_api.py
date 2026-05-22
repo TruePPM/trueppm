@@ -140,6 +140,29 @@ def test_create_rejects_blank_secret(client: APIClient) -> None:
     assert response.status_code == 400
 
 
+@pytest.mark.parametrize(
+    "bad_url",
+    [
+        "file:///etc/passwd",
+        "javascript:alert(1)",
+        "gopher://example.com/",
+        "ftp://example.com/",
+        "example.com",  # no scheme
+    ],
+)
+def test_create_rejects_dangerous_base_url_schemes(client: APIClient, bad_url: str) -> None:
+    """``base_url`` is operator-supplied and ends up driving #637's HTTP
+    fetches against the provider's API. Reject anything that isn't an
+    explicit ``http``/``https`` URL at write time so the resolver-level
+    SSRF guard isn't the only line of defense."""
+    response = client.post(
+        "/api/v1/me/credentials/gitlab/",
+        {"secret": "glpat-x", "base_url": bad_url},
+        format="json",
+    )
+    assert response.status_code == 400
+
+
 def test_create_rejects_unknown_provider(client: APIClient) -> None:
     response = client.post(
         "/api/v1/me/credentials/not-a-real-provider/",

@@ -65,12 +65,15 @@ class IntegrationCredential(models.Model):
 
     class Meta:
         constraints = [
+            # The unique constraint creates an implicit btree on
+            # ``(user, provider)`` in that column order — Postgres uses it
+            # for the per-user list lookups too. An explicit ``models.Index``
+            # would be a redundant copy that doubles write cost.
             models.UniqueConstraint(
                 fields=("user", "provider"),
                 name="integrations_credential_unique_per_user_provider",
             )
         ]
-        indexes = [models.Index(fields=["user", "provider"])]
         ordering = ("provider",)
         verbose_name = "Integration credential"
         verbose_name_plural = "Integration credentials"
