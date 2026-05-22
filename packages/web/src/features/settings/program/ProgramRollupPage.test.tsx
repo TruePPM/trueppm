@@ -5,12 +5,16 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProgramRollupPage } from './ProgramRollupPage';
 import { ROLE_ADMIN, ROLE_MEMBER, ROLE_OWNER } from '@/lib/roles';
-import type { ProgramRollupConfig } from './useProgramRollupConfig';
+import type {
+  AggregationPolicy,
+  ProgramRollupConfig,
+  RollupKpi,
+} from './useProgramRollupConfig';
 
 const useProgram = vi.fn();
 const useProgramRollupConfig = vi.fn();
-const toggleMutate = vi.fn();
-const savePolicyMutate = vi.fn();
+const toggleMutate = vi.fn<(payload: RollupKpi[]) => void>();
+const savePolicyMutate = vi.fn<(payload: AggregationPolicy) => void>();
 const refetch = vi.fn();
 
 vi.mock('@/hooks/useProgram', () => ({

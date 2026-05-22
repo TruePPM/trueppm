@@ -18,10 +18,12 @@ service-layer helper that the post_save signal will use for new programs.
 Reverse: clear both columns back to ``([], "worst")``.
 """
 
+from typing import Any
+
 from django.db import migrations, models
 
 
-def _seed_existing_programs(apps, schema_editor):
+def _seed_existing_programs(apps: Any, schema_editor: Any) -> None:
     """Backfill methodology-aware rollup defaults on every existing Program.
 
     Imports from the live services module (not the historical models) because
@@ -38,7 +40,7 @@ def _seed_existing_programs(apps, schema_editor):
         program.save(update_fields=["rollup_enabled_kpis", "rollup_aggregation_policy"])
 
 
-def _clear_rollup_config(apps, schema_editor):
+def _clear_rollup_config(apps: Any, schema_editor: Any) -> None:
     Program = apps.get_model("projects", "Program")
     Program.objects.update(rollup_enabled_kpis=[], rollup_aggregation_policy="worst")
 
