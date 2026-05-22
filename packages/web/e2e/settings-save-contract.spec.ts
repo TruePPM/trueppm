@@ -26,6 +26,15 @@ const FIXTURE_PROJECT = {
   estimation_mode: 'hours',
   agile_features: false,
   methodology: 'HYBRID',
+  // #520 extended fields — every PATCH from the General page now carries the
+  // full editable payload (one consolidated request rather than per-field
+  // patches). Seed defaults so the save assertion below reflects the actual
+  // shape posted by the page.
+  code: '',
+  health: 'AUTO',
+  visibility: 'WORKSPACE',
+  timezone: '',
+  default_view: 'SCHEDULE',
 };
 
 const FIXTURE_ME = {
@@ -166,7 +175,11 @@ test.describe('Settings save contract (#536)', () => {
     await nameInput.fill(EDITED_NAME);
     await page.getByRole('button', { name: /save changes/i }).click();
 
-    await expect.poll(() => patchBody).toEqual({
+    // Page sends the full consolidated payload — #520 extended the surface
+    // beyond name + description; use `toMatchObject` so additional fields
+    // (code, health, visibility, timezone, default_view, calendar) on the
+    // request don't make this contract brittle as the schema grows.
+    await expect.poll(() => patchBody).toMatchObject({
       name: EDITED_NAME,
       description: FIXTURE_PROJECT.description,
     });

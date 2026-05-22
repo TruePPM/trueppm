@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import type { PaginatedResponse } from '@/api/types';
+import type {
+  PaginatedResponse,
+  ProjectDefaultView,
+  ProjectHealth,
+  ProjectVisibility,
+} from '@/api/types';
 import type { Methodology } from '@/types';
 
 interface ApiProject {
@@ -10,6 +15,11 @@ interface ApiProject {
   start_date: string;
   calendar: string | null;
   methodology?: Methodology;
+  code?: string;
+  health?: ProjectHealth;
+  visibility?: ProjectVisibility;
+  timezone?: string;
+  default_view?: ProjectDefaultView;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,13 +60,26 @@ export function useCreateProject() {
 export interface UpdateProjectPayload {
   name?: string;
   description?: string;
+  /** Short code; empty string clears it. Server validates uppercase A-Z, 0-9, hyphen, ≤12 chars. */
+  code?: string;
+  /** PM health override; AUTO defers to the (future) rollup. */
+  health?: ProjectHealth;
+  /** Workspace or private listing scope. */
+  visibility?: ProjectVisibility;
+  /** IANA timezone identifier; empty string defers to the workspace default. */
+  timezone?: string;
+  /** Default landing view (SCHEDULE | BOARD | TABLE | OVERVIEW). */
+  default_view?: ProjectDefaultView;
+  /** Calendar UUID or null to inherit from the workspace. */
+  calendar?: string | null;
 }
 
 /**
  * PATCH /api/v1/projects/:id/ — update editable project fields and invalidate
  * the project detail + list caches. Used by the settings save bar (#536) for
- * the Project General page. Extended fields (code, health, visibility,
- * timezone, calendar, default view) ship via #520 layering on the same call.
+ * the Project General page. All seven editable fields (name, description,
+ * code, health, visibility, timezone, default_view, calendar) layer on the
+ * same call; the save bar batches dirty edits into one PATCH on submit.
  */
 export function useUpdateProject(projectId: string | null | undefined) {
   const queryClient = useQueryClient();
