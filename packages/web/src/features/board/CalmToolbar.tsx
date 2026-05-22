@@ -18,6 +18,8 @@ import type { BoardDensity, EvmMode } from './BoardCard';
 import type { BoardLayoutVariant, BacklogDensity } from '@/hooks/useBoardToolbarPrefs';
 import { BoardViewDropdown } from './BoardViewDropdown';
 import type { BoardViewConfig } from '@/hooks/useBoardSavedViews';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { ToolbarOverflowMenu, type ToolbarOverflowItem } from '@/components/toolbar/ToolbarOverflowMenu';
 
 // ---------------------------------------------------------------------------
 // Reusable atoms
@@ -108,6 +110,9 @@ interface ToolbarToggleProps {
   onToggle: () => void;
   disabled?: boolean;
   title?: string;
+  /** Per #568 rule 114 — render icon-only when `true`; keep the full label
+   *  text on `aria-label`/`title`. Used by the `md:` tier (rule 111). */
+  hideLabel?: boolean;
 }
 
 /** Quiet pill toggle — borderless at rest, sunken-fill when active. */
@@ -119,17 +124,20 @@ export function ToolbarToggle({
   onToggle,
   disabled,
   title,
+  hideLabel = false,
 }: ToolbarToggleProps) {
+  const effectiveAriaLabel = ariaLabel ?? label;
   return (
     <button
       type="button"
       onClick={onToggle}
       aria-pressed={pressed}
-      aria-label={ariaLabel}
+      aria-label={effectiveAriaLabel}
       disabled={disabled}
-      title={title}
+      title={hideLabel ? effectiveAriaLabel : title}
       className={[
-        'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs',
+        'inline-flex items-center rounded-full text-xs',
+        hideLabel ? 'justify-center w-7 h-7' : 'gap-1 px-2.5 py-1',
         'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
         'focus-visible:outline-none',
         'disabled:opacity-50 disabled:cursor-wait',
@@ -139,7 +147,7 @@ export function ToolbarToggle({
       ].join(' ')}
     >
       <span aria-hidden="true">{icon}</span>
-      {label}
+      {!hideLabel && label}
     </button>
   );
 }
@@ -276,14 +284,25 @@ export function CalmToolbar(props: CalmToolbarProps) {
   const toggle = (chip: typeof openChip) =>
     setOpenChip((prev) => (prev === chip ? null : chip));
 
+  // #568 rules 110–112: My tasks / At-risk / Cost are secondary. Icon-only at
+  // md, collapse into ToolbarOverflowMenu at sm. Group / Sort / Density and
+  // LayoutSwitcher remain visible at every width.
+  const breakpoint = useBreakpoint();
+  const hideQuietToggleLabels = breakpoint === 'md';
+  const showQuietTogglesInline = breakpoint !== 'sm';
+
   return (
     <div
       role="toolbar"
       aria-label="Board toolbar"
-      className="flex-shrink-0 border-b border-neutral-border bg-neutral-surface px-4 py-2 flex items-center gap-3 text-xs flex-wrap"
+      className="flex-shrink-0 border-b border-neutral-border bg-neutral-surface px-4 py-2 flex flex-nowrap items-center gap-3 text-xs"
     >
-      {/* Identity block */}
-      <div className="flex items-center gap-2">
+      {/* Identity block — project name truncates and activity stats hide
+          below lg to keep the toolbar inside its h-10 row at md (#568 rule 113).
+          Block is flex-shrink-0 so the name never collapses to zero width when
+          the toolbar is crowded; secondary controls (toggles, overflow) absorb
+          the space pressure instead. */}
+      <div className="flex flex-shrink-0 items-center gap-2">
         <BoardViewDropdown
           projectId={props.projectId}
           currentConfig={props.currentViewConfig}
@@ -291,9 +310,11 @@ export function CalmToolbar(props: CalmToolbarProps) {
           onApply={props.onApplyView}
         />
         {props.projectName && (
-          <span className="text-neutral-text-primary font-medium">{props.projectName}</span>
+          <span className="text-neutral-text-primary font-medium truncate max-w-[160px]">
+            {props.projectName}
+          </span>
         )}
-        <span className="text-neutral-text-secondary tppm-mono">
+        <span className="hidden lg:inline text-neutral-text-secondary tppm-mono whitespace-nowrap">
           {props.activeCount} active · {props.backlogCount} in backlog
         </span>
       </div>
@@ -415,33 +436,74 @@ export function CalmToolbar(props: CalmToolbarProps) {
 
       <span aria-hidden="true" className="h-4 w-px bg-neutral-border" />
 
-      {/* Quiet pill toggles */}
-      <ToolbarToggle
-        icon="★"
-        label="My tasks"
-        pressed={props.myTasksEnabled}
-        onToggle={props.onMyTasksToggle}
-        disabled={props.myTasksLoading}
-        title="Show only tasks assigned to you"
-      />
-      <ToolbarToggle
-        icon="⚠"
-        label="At-risk"
-        ariaLabel="Risk-linked only"
-        pressed={props.riskLinkedOnly}
-        onToggle={props.onRiskLinkedToggle}
-        title="Only show tasks linked to a risk"
-      />
-      <ToolbarToggle
-        icon="$"
-        label="Cost"
-        ariaLabel="Show cost"
-        pressed={props.showCost}
-        onToggle={props.onShowCostToggle}
-        title="Show planned vs. actual cost on cards"
-      />
+      {showQuietTogglesInline && (
+        <>
+          {/* Quiet pill toggles — secondary controls (#568 rule 110) */}
+          <ToolbarToggle
+            icon="★"
+            label="My tasks"
+            pressed={props.myTasksEnabled}
+            onToggle={props.onMyTasksToggle}
+            disabled={props.myTasksLoading}
+            title="Show only tasks assigned to you"
+            hideLabel={hideQuietToggleLabels}
+          />
+          <ToolbarToggle
+            icon="⚠"
+            label="At-risk"
+            ariaLabel="Risk-linked only"
+            pressed={props.riskLinkedOnly}
+            onToggle={props.onRiskLinkedToggle}
+            title="Only show tasks linked to a risk"
+            hideLabel={hideQuietToggleLabels}
+          />
+          <ToolbarToggle
+            icon="$"
+            label="Cost"
+            ariaLabel="Show cost"
+            pressed={props.showCost}
+            onToggle={props.onShowCostToggle}
+            title="Show planned vs. actual cost on cards"
+            hideLabel={hideQuietToggleLabels}
+          />
 
-      <span aria-hidden="true" className="h-4 w-px bg-neutral-border" />
+          <span aria-hidden="true" className="h-4 w-px bg-neutral-border" />
+        </>
+      )}
+
+      {breakpoint === 'sm' && (
+        <ToolbarOverflowMenu
+          triggerAriaLabel="Board secondary controls"
+          align="left"
+          items={[
+            {
+              kind: 'checkbox',
+              id: 'my-tasks',
+              label: 'My tasks',
+              checked: props.myTasksEnabled,
+              onChange: props.onMyTasksToggle,
+              disabled: props.myTasksLoading,
+              icon: '★',
+            },
+            {
+              kind: 'checkbox',
+              id: 'at-risk',
+              label: 'Risk-linked only',
+              checked: props.riskLinkedOnly,
+              onChange: props.onRiskLinkedToggle,
+              icon: '⚠',
+            },
+            {
+              kind: 'checkbox',
+              id: 'cost',
+              label: 'Show cost',
+              checked: props.showCost,
+              onChange: props.onShowCostToggle,
+              icon: '$',
+            },
+          ] as ToolbarOverflowItem[]}
+        />
+      )}
 
       <LayoutSwitcher layout={props.layout} onChange={props.onLayoutChange} />
 

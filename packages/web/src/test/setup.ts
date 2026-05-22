@@ -37,11 +37,15 @@ class WebSocketStub {
 }
 (globalThis as unknown as Record<string, unknown>).WebSocket = WebSocketStub;
 
-// Required by components that use responsive design / media queries
+// Required by components that use responsive design / media queries.
+// `min-width` queries default to `matches: true` so `useBreakpoint` reports
+// the `lg` tier — the reference layout that existing tests were written
+// against (#568). Tests that need a narrower viewport can override
+// `window.matchMedia` per-test via `vi.stubGlobal('matchMedia', …)`.
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: (query: string) => ({
-    matches: false,
+    matches: /^\(min-width:/.test(query),
     media: query,
     onchange: null,
     addListener: () => {},

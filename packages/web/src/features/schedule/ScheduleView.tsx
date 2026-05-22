@@ -35,6 +35,8 @@ import { RecalculatingBadge } from '@/features/project/RecalculatingBadge';
 import { TaskDetailDrawer } from './TaskDetailDrawer';
 import { UnscheduledGutter } from './UnscheduledGutter';
 import { useUnscheduledTasks } from '@/hooks/useUnscheduledTasks';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { ToolbarOverflowMenu, type ToolbarOverflowItem } from '@/components/toolbar/ToolbarOverflowMenu';
 import type { Task } from '@/types';
 import { useFeatureFlag } from '@/lib/featureFlags';
 import { useDependencyHover } from './useDependencyHover';
@@ -670,6 +672,14 @@ export function ScheduleView() {
   const buildModeFlag = useFeatureFlag('schedule_build_mode_v1');
   const buildModeActive = buildModeFlag && !isMobile;
 
+  // Toolbar responsive tier (issue #568, rules 110–112).
+  //   lg → all toggles show full labels
+  //   md → secondary toggles render icon-only via `hideLabel`
+  //   sm → secondary toggles collapse into the shared ToolbarOverflowMenu
+  const breakpoint = useBreakpoint();
+  const toolbarHideLabel = breakpoint === 'md';
+  const toolbarShowSecondaryInline = breakpoint !== 'sm';
+
   // Role gate for milestone insert (#340) — VIEWER cannot author.
   const { role: currentRole } = useCurrentUserRole(projectId ?? undefined);
   const readOnly = currentRole !== null && currentRole < ROLE_MEMBER;
@@ -888,8 +898,17 @@ export function ScheduleView() {
 
   const mainView = (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Gantt-specific toolbar — Today + Zoom + Add Task */}
-      <div className="flex items-center gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
+      {/* Gantt-specific toolbar — Today + Zoom + Add Task.
+          Responsive collapse rules per issue #568 / CLAUDE.md rules 110–112:
+          primary controls stay visible at every width; the four secondary
+          analysis toggles render icon-only at md and move into the shared
+          ToolbarOverflowMenu below md. Root is `flex-nowrap` (rule 113) so a
+          missing collapse rule surfaces as a clipped row, never a stacked one. */}
+      <div
+        role="toolbar"
+        aria-label="Schedule toolbar"
+        className="flex flex-nowrap items-center gap-2 px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0"
+      >
         {/* "+ Task" button — only shown when a project is selected */}
         {projectId && (
           <button
@@ -897,7 +916,7 @@ export function ScheduleView() {
             onClick={() => setShowAddForm((v) => !v)}
             aria-label="Add task"
             aria-expanded={showAddForm}
-            className="border border-neutral-border rounded h-7 px-3 text-xs font-medium
+            className="border border-neutral-border rounded h-7 px-3 text-xs font-medium flex-shrink-0
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
               hover:border-brand-primary hover:text-brand-primary"
           >
@@ -917,45 +936,57 @@ export function ScheduleView() {
         )}
         <RecalculatingBadge isVisible={pendingTaskIds.size > 0} />
 
-        {/* View filter group (#248) — restyled from plain checkboxes */}
-        <div
-          role="group"
-          aria-label="Schedule view filters"
-          className="flex items-center rounded border border-neutral-border overflow-hidden"
-        >
-          <ScheduleToolbarToggle
-            pressed={showCpOnly}
-            onToggle={setShowCpOnly}
-            label="CP only"
-            ariaLabel="Show critical path only"
-          />
-          <ScheduleToolbarToggle
-            pressed={focusModeEnabled}
-            onToggle={setFocusModeEnabled}
-            label="Focus chain"
-            ariaLabel="Focus chain on selected task"
-          />
-        </div>
+        {toolbarShowSecondaryInline && (
+          <>
+            {/* View filter group (#248) — restyled from plain checkboxes */}
+            <div
+              role="group"
+              aria-label="Schedule view filters"
+              className="flex items-center rounded border border-neutral-border overflow-hidden flex-shrink-0"
+            >
+              <ScheduleToolbarToggle
+                pressed={showCpOnly}
+                onToggle={setShowCpOnly}
+                label="CP only"
+                ariaLabel="Show critical path only"
+                hideLabel={toolbarHideLabel}
+                icon="C"
+              />
+              <ScheduleToolbarToggle
+                pressed={focusModeEnabled}
+                onToggle={setFocusModeEnabled}
+                label="Focus chain"
+                ariaLabel="Focus chain on selected task"
+                hideLabel={toolbarHideLabel}
+                icon="F"
+              />
+            </div>
 
-        {/* Render filter group (#248) — filter what bars draw on the canvas */}
-        <div
-          role="group"
-          aria-label="Schedule render filters"
-          className="flex items-center rounded border border-neutral-border overflow-hidden"
-        >
-          <ScheduleToolbarToggle
-            pressed={showCriticalOnly}
-            onToggle={setShowCriticalOnly}
-            label="Critical path"
-            ariaLabel="Show only critical-path tasks"
-          />
-          <ScheduleToolbarToggle
-            pressed={showMilestonesOnly}
-            onToggle={setShowMilestonesOnly}
-            label="Milestones"
-            ariaLabel="Show only milestones"
-          />
-        </div>
+            {/* Render filter group (#248) — filter what bars draw on the canvas */}
+            <div
+              role="group"
+              aria-label="Schedule render filters"
+              className="flex items-center rounded border border-neutral-border overflow-hidden flex-shrink-0"
+            >
+              <ScheduleToolbarToggle
+                pressed={showCriticalOnly}
+                onToggle={setShowCriticalOnly}
+                label="Critical path"
+                ariaLabel="Show only critical-path tasks"
+                hideLabel={toolbarHideLabel}
+                icon="!"
+              />
+              <ScheduleToolbarToggle
+                pressed={showMilestonesOnly}
+                onToggle={setShowMilestonesOnly}
+                label="Milestones"
+                ariaLabel="Show only milestones"
+                hideLabel={toolbarHideLabel}
+                icon="◆"
+              />
+            </div>
+          </>
+        )}
 
         <div className="flex-1" />
 
@@ -1004,11 +1035,46 @@ export function ScheduleView() {
         <button
           type="button"
           onClick={handleScrollToToday}
-          className="border border-neutral-border rounded h-7 px-3 text-xs font-medium focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+          className="border border-neutral-border rounded h-7 px-3 text-xs font-medium flex-shrink-0 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
         >
           Today
         </button>
         <ZoomControl />
+        {breakpoint === 'sm' && (
+          <ToolbarOverflowMenu
+            triggerAriaLabel="Schedule overflow menu"
+            items={[
+              {
+                kind: 'checkbox',
+                id: 'cp-only',
+                label: 'CP only',
+                checked: showCpOnly,
+                onChange: setShowCpOnly,
+              },
+              {
+                kind: 'checkbox',
+                id: 'focus-chain',
+                label: 'Focus chain',
+                checked: focusModeEnabled,
+                onChange: setFocusModeEnabled,
+              },
+              {
+                kind: 'checkbox',
+                id: 'critical-path',
+                label: 'Critical path only',
+                checked: showCriticalOnly,
+                onChange: setShowCriticalOnly,
+              },
+              {
+                kind: 'checkbox',
+                id: 'milestones',
+                label: 'Milestones only',
+                checked: showMilestonesOnly,
+                onChange: setShowMilestonesOnly,
+              },
+            ] as ToolbarOverflowItem[]}
+          />
+        )}
       </div>
 
       {/* Task creation modal — replaces the inline AddTaskForm strip
