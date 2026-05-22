@@ -123,8 +123,16 @@ workflow:
 # Minio-backed cache is automatically invalidated when dependencies change.
 # ---------------------------------------------------------------------------
 
+#
+# Uses the custom ci-scheduler image (built by `ci:build-scheduler-image`)
+# which pre-bakes the scheduler[dev] wheel tree. The runtime `pip install -e`
+# only re-links the editable package — no wheel downloads.
+# Kaizen #651: shaves cold-install time off each of the five scheduler:* jobs.
 .scheduler:
-  image: python:3.11-slim
+  image: $CI_REGISTRY_IMAGE/ci-scheduler:py3.11
+  needs:
+    - job: ci:build-scheduler-image
+      optional: true
   cache: &scheduler-cache
     key:
       files:
@@ -133,12 +141,22 @@ workflow:
     paths:
       - .cache/pip/
   before_script:
+    # Image already has scheduler[dev] wheels resident; this is a fast
+    # editable re-link against the checked-out source.
     - pip install -e "packages/scheduler[dev]" --quiet
 
 # Full API template — postgres + valkey services, used by api:test only.
 # Valkey is the BSD-licensed Redis fork; wire-compatible, REDIS_URL unchanged.
+#
+# Uses the custom ci-api image (built by `ci:build-api-image`) which pre-bakes
+# libpq-dev + gcc and all dev-deps wheels. The runtime `pip install -e` only
+# re-links the editable packages — no wheel downloads, no apt-get.
+# Kaizen #640 item 3: shaves ~3min off each of the six api:* jobs.
 .api:
-  image: python:3.11-slim
+  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  needs:
+    - job: ci:build-api-image
+      optional: true
   cache: &api-cache
     key:
       files:
@@ -157,16 +175,19 @@ workflow:
     DATABASE_URL: "postgres://trueppm:trueppm@postgres/trueppm_test"
     REDIS_URL: "redis://valkey:6379"
   before_script:
-    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
+    # Image already has libpq-dev + gcc + all dev-dep wheels resident; this
+    # install is a fast editable re-link against the checked-out source.
     - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e "packages/api[dev]" --quiet
-    - pip install pytest pytest-django pytest-asyncio --quiet
 
 # Lean API template — no DB/Valkey, for jobs that only need Django importable
 # (type-check, migration check, schema generation). DATABASE_URL is set so
 # django-environ parses cleanly; no actual connection is made.
 .api-no-db:
-  image: python:3.11-slim
+  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  needs:
+    - job: ci:build-api-image
+      optional: true
   cache:
     <<: *api-cache
     policy: pull
@@ -175,9 +196,11 @@ workflow:
     TRUEPPM_ALLOW_DEV_SETTINGS: "1"
     DATABASE_URL: "postgres://trueppm:trueppm@localhost/trueppm_test"
   before_script:
-    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
+    # api[dev] (not bare api) — the image has dev-dep wheels resident so
+    # the re-link cost is the same and downstream jobs (type-check, schema)
+    # need the dev extras (mypy stubs, drf-spectacular validators).
     - pip install -e "packages/scheduler[dev]" --quiet
-    - pip install -e packages/api --quiet
+    - pip install -e "packages/api[dev]" --quiet
 
 .web:
   image: node:20-alpine
@@ -305,6 +328,89 @@ lint:todo-grep:
     - bash scripts/check-todo-grep.sh
     - bash scripts/check-todo-grep.sh --self-test
 
+ci:build-api-image:
+  # Rebuild and push the custom ci-api image used by the .api / .api-no-db
+  # job templates. Pre-bakes libpq-dev + gcc + all dev-dep wheels so the
+  # downstream api:* jobs skip ~3min of cold install on every run
+  # (kaizen #640 item 3).
+  #
+  # Trigger:
+  #   - MR pipelines where the Dockerfile or either pyproject.toml changes
+  #   - main pipelines where the same files change
+  #   - scheduled pipelines (weekly safety net for transitive drift)
+  #
+  # Jobs that use the image declare `needs: [{job: ci:build-api-image,
+  # optional: true}]` so they wait for the build when it's in the pipeline,
+  # and pull the existing registry tag when it isn't (the steady state).
+  stage: lint
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    IMAGE: "$CI_REGISTRY_IMAGE/ci-api:py3.11"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/api/pyproject.toml
+        - packages/scheduler/pyproject.toml
+        - .gitlab/ci-images/api.Dockerfile
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/api/pyproject.toml
+        - packages/scheduler/pyproject.toml
+        - .gitlab/ci-images/api.Dockerfile
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    # --cache-from lets a no-op rebuild reuse the previously published layers.
+    - docker pull "$IMAGE" || true
+    - docker build
+        --cache-from "$IMAGE"
+        --tag "$IMAGE"
+        --file .gitlab/ci-images/api.Dockerfile
+        .
+    - docker push "$IMAGE"
+
+ci:build-scheduler-image:
+  # Rebuild and push the custom ci-scheduler image used by the .scheduler
+  # template. Pre-bakes the scheduler[dev] wheel tree so the five
+  # scheduler:* jobs skip the cold install on every run (kaizen #651,
+  # follow-up to #640).
+  #
+  # Trigger: same shape as ci:build-api-image — Dockerfile / pyproject
+  # changes, plus the weekly scheduled run as a transitive-drift safety
+  # net. .gitlab-ci.yml is deliberately NOT in the trigger list (see the
+  # equivalent decision on ci:build-api-image above).
+  stage: lint
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    IMAGE: "$CI_REGISTRY_IMAGE/ci-scheduler:py3.11"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/scheduler/pyproject.toml
+        - .gitlab/ci-images/scheduler.Dockerfile
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/scheduler/pyproject.toml
+        - .gitlab/ci-images/scheduler.Dockerfile
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - docker pull "$IMAGE" || true
+    - docker build
+        --cache-from "$IMAGE"
+        --tag "$IMAGE"
+        --file .gitlab/ci-images/scheduler.Dockerfile
+        .
+    - docker push "$IMAGE"
+
 scheduler:lint:
   extends: .scheduler
   stage: lint
@@ -360,7 +466,14 @@ helm:lint:
 scheduler:type-check:
   extends: .scheduler
   stage: analyze
-  needs: [scheduler:lint]
+  # ci:build-scheduler-image is optional — when deps haven't changed it
+  # isn't in the pipeline and the job pulls the existing tag from the
+  # registry. Same pattern repeated on every scheduler:* consumer that
+  # overrides needs (GitLab replaces needs on extension).
+  needs:
+    - scheduler:lint
+    - job: ci:build-scheduler-image
+      optional: true
   <<: *rules-scheduler
   script:
     - cd packages/scheduler && mypy
@@ -368,12 +481,14 @@ scheduler:type-check:
 api:type-check:
   extends: .api-no-db
   stage: analyze
-  needs: [api:lint]
+  # ci:build-api-image is optional — when deps haven't changed it isn't in
+  # the pipeline and the job pulls the already-published image from the
+  # registry. Same pattern repeated on every job that uses the ci-api image.
+  needs:
+    - api:lint
+    - job: ci:build-api-image
+      optional: true
   <<: *rules-api
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
-    - pip install -e "packages/scheduler[dev]" --quiet
-    - pip install -e "packages/api[dev]" --quiet
   script:
     - cd packages/api
     - mypy src/trueppm_api
@@ -381,10 +496,21 @@ api:type-check:
 api:migration-check:
   # makemigrations --check --dry-run compares model state to migration files.
   # No database connection is made; .api-no-db template is sufficient.
+  #
+  # Runs on every MR pipeline (no `changes:` filter) — kaizen #640 N5. The job
+  # is ~36s and catches inter-MR migration drift that the per-MR `changes:`
+  # filter misses (two MRs landing close together each pass migration-check on
+  # their own diff, but their merged result fails on main).
   extends: .api-no-db
   stage: analyze
-  needs: [api:lint]
-  <<: *rules-api
+  needs:
+    - job: api:lint
+      optional: true
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   script:
     - cd packages/api
     - python manage.py makemigrations --check --dry-run
@@ -395,7 +521,10 @@ api:openapi-check:
   # --fail-on-warn promotes warnings to errors.
   extends: .api-no-db
   stage: analyze
-  needs: [api:lint]
+  needs:
+    - api:lint
+    - job: ci:build-api-image
+      optional: true
   <<: *rules-api
   script:
     - cd packages/api
@@ -415,6 +544,8 @@ api:schema-drift:
   stage: analyze
   needs:
     - job: api:lint
+      optional: true
+    - job: ci:build-api-image
       optional: true
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -499,7 +630,11 @@ security:bandit:api:
 scheduler:test:
   extends: .scheduler
   stage: test
-  needs: [scheduler:lint, scheduler:type-check]
+  needs:
+    - scheduler:lint
+    - scheduler:type-check
+    - job: ci:build-scheduler-image
+      optional: true
   <<: *rules-scheduler
   script:
     - cd packages/scheduler
@@ -520,7 +655,10 @@ scheduler:bench:
   # the > 20% regression signal requires manual comparison of artifacts.
   extends: .scheduler
   stage: test
-  needs: [scheduler:test]
+  needs:
+    - scheduler:test
+    - job: ci:build-scheduler-image
+      optional: true
   <<: *rules-scheduler
   script:
     - cd packages/scheduler
@@ -537,7 +675,10 @@ scheduler:notebooks:
   # ImportError with a try/except so missing it is not a failure.
   extends: .scheduler
   stage: test
-  needs: [scheduler:test]
+  needs:
+    - scheduler:test
+    - job: ci:build-scheduler-image
+      optional: true
   <<: *rules-scheduler
   script:
     - cd packages/scheduler
@@ -588,11 +729,21 @@ wasm:conformance:
 api:test:
   extends: .api
   stage: test
-  needs: [api:lint, api:type-check, api:migration-check, api:openapi-check]
+  needs:
+    - api:lint
+    - api:type-check
+    - api:migration-check
+    - api:openapi-check
+    - job: ci:build-api-image
+      optional: true
   <<: *rules-api
   script:
+    # -n auto fans out across all 4 cores on the runner. pytest-django creates
+    # a per-worker test DB (test_trueppm_test_gw0, _gw1, …) so isolation is
+    # preserved. pytest-cov has built-in xdist support — combined report writes
+    # to coverage.xml as before.
     - cd packages/api
-    - python -m pytest tests/ --tb=short -q
+    - python -m pytest tests/ --tb=short -q -n auto
         --cov=trueppm_api --cov-report=term-missing --cov-report=xml --cov-fail-under=80
   coverage: '/TOTAL.*\s(\d+%)/'
   artifacts:
@@ -639,6 +790,8 @@ scheduler:diff-coverage:
   needs:
     - job: scheduler:test
       artifacts: true
+    - job: ci:build-scheduler-image
+      optional: true
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
@@ -864,8 +1017,16 @@ pages:
 
 security:pip-audit:
   # CVE scan for all installed Python dependencies (scheduler + API).
+  #
+  # Uses the ci-api image (kaizen #651 follow-up to #640) so the apt-get
+  # install of libpq-dev/gcc and the cold pip install of the scheduler +
+  # api dev-dep wheels is no longer paid per run. Mirrors the license:check
+  # migration in #640. Saves ~3min off this job on every pipeline.
   stage: security
-  image: python:3.11-slim
+  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  needs:
+    - job: ci:build-api-image
+      optional: true
   cache:
     <<: *api-cache
     policy: pull
@@ -877,11 +1038,12 @@ security:pip-audit:
         - packages/api/**/*
         - .gitlab-ci.yml
   before_script:
-    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
     # Upgrade pip and wheel first so the audit does not flag CVEs in the
     # base-image versions of the build tools themselves.
     - pip install --upgrade pip wheel --quiet
     - pip install pip-audit --quiet
+    # Image already has scheduler[dev] + api[dev] dev-dep wheels resident;
+    # these installs are fast editable re-links against the checked-out source.
     - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e packages/api --quiet
   script:
@@ -924,22 +1086,39 @@ license:check:
   # Checks both Python (pip-licenses) and npm (license-checker) packages.
   # LGPL is permitted (library-linking exemption applies).
   # No needs: — stage ordering ensures tests passed; see note above.
+  #
+  # Kaizen #640 N1: narrowed `changes:` to dep manifests only. The job is
+  # ~5min (npm install dominates) and the previous filter (any source
+  # change) triggered it on every MR. License composition only changes
+  # when manifests/lock files do; main + scheduled runs catch transitive
+  # drift that a lock-file refresh might miss.
+  #
+  # Uses the ci-api image (kaizen #640 item 3) so the apt-get install
+  # of libpq-dev / gcc / nodejs / npm is no longer paid per-run.
   stage: security
-  image: python:3.11-slim
+  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  needs:
+    - job: ci:build-api-image
+      optional: true
   cache:
     <<: *api-cache
     policy: pull
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
-        - packages/scheduler/**/*
-        - packages/api/**/*
-        - packages/web/**/*
-        - packages/wasm-scheduler/**/*
+        - packages/scheduler/pyproject.toml
+        - packages/api/pyproject.toml
+        - packages/web/package.json
+        - packages/web/package-lock.json
+        - packages/wasm-scheduler/Cargo.toml
+        - packages/wasm-scheduler/Cargo.lock
         - .gitlab-ci.yml
   before_script:
-    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc nodejs npm
+    # ci-api image has libpq-dev + gcc; still need nodejs for the npm
+    # license check (TypeScript deps), and pip-licenses for the python side.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends nodejs npm
     - pip install pip-licenses --quiet
     - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e packages/api --quiet
@@ -1063,9 +1242,9 @@ scheduler:publish:
 # missing credentials are a silent skip, not a failure.
 .docker-publish-base:
   stage: publish
-  image: docker:24
+  image: docker:27
   services:
-    - docker:24-dind
+    - docker:27-dind
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
   before_script:

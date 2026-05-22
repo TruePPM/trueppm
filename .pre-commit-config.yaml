@@ -32,7 +32,10 @@ repos:
     hooks:
       - id: pre-push-ci-gates
         name: pre-push CI gates (migrations, schema)
-        entry: make pre-push
+        # Wrapper times each run and appends to .git/pre-push.log (rotated to
+        # last 100 lines). Lets us spot when the pre-push gate silently grows
+        # past its 60s target.
+        entry: bash scripts/pre-push-timed.sh
         language: system
         stages: [pre-push]
         pass_filenames: false

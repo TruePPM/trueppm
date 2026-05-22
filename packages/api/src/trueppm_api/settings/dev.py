@@ -68,6 +68,12 @@ DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
 
+# Deterministic Fernet key for dev / pytest only — never use this value in
+# staging or production. The dev settings module is fenced by
+# _assert_dev_environment_safe above; production reads its key from a
+# Kubernetes Secret via the Helm chart and never falls through to this default.
+INTEGRATION_ENCRYPTION_KEY = "cNHot7PnbAHGIuY4zUht8FwB5wYGv06O7ppzGyhzR84="
+
 # In dev, allow unauthenticated access to the API for ease of local testing.
 REST_FRAMEWORK = {
     **REST_FRAMEWORK,

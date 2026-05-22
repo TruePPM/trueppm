@@ -310,7 +310,7 @@ function ApiTokensCard({ isLoading, apiTokens, failed, onRetry }: ApiTokensCardP
 }
 
 // ---------------------------------------------------------------------------
-// Connected accounts teaser — full UI ships with #302 / #587 (User → Connected Accounts)
+// Connected accounts teaser — links to /me/settings/connected-accounts (#587)
 // ---------------------------------------------------------------------------
 
 function ConnectedAccountsTeaser() {
@@ -322,9 +322,13 @@ function ConnectedAccountsTeaser() {
         </h2>
         <p className="text-[13px] text-neutral-text-secondary">
           Connect GitLab or GitHub to enable on-demand previews of task links.
-          Connected accounts ship with the OSS extension-point work in progress
-          (issue #302) — manage your accounts from User → Settings → Connected
-          Accounts when available.
+          Credentials are per-user and stored encrypted.{' '}
+          <a
+            href="/me/settings/connected-accounts"
+            className="text-brand-primary underline-offset-2 hover:underline"
+          >
+            Manage credentials →
+          </a>
         </p>
       </div>
     </SettingsCard>
@@ -359,7 +363,12 @@ function PageEmptyState() {
           </li>
           <li className="text-neutral-text-secondary">
             <span className="font-medium text-neutral-text-primary">Connect your accounts</span>
-            {' '}— ships with the OSS extension-point work in progress (#302)
+            {' '}— GitLab or GitHub PATs for inline task-link previews
+            <span className="block text-[12px] mt-0.5">
+              <a href="/me/settings/connected-accounts" className="text-brand-primary underline-offset-2 hover:underline">
+                Manage credentials in User → Settings → Connected Accounts →
+              </a>
+            </span>
           </li>
         </ul>
       </div>
