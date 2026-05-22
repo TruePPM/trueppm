@@ -30,7 +30,9 @@ export type SlotId =
   | 'task_detail.section'               // sections inside TaskDetailDrawer (OSS + Enterprise)
   | 'task_detail.external_links'        // external link cards (separate from .section to avoid the priority ladder collision; ADR-0076)
   // --- Project settings slots (issue #569 / ADR-0076) ---
-  | 'project_settings.integrations';    // extra cards rendered below the OSS three sections (Enterprise extension point)
+  | 'project_settings.integrations'    // extra cards rendered below the OSS three sections (Enterprise extension point)
+  // --- User settings slots (issue #587 / ADR-0049) ---
+  | 'user_settings.connected_accounts'; // extra provider cards on User → Settings → Connected Accounts (Enterprise extension point — Jira / ServiceNow / Bitbucket / Azure DevOps register here)
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface SlotRegistration<T = ComponentType<any>> {

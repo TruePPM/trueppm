@@ -78,10 +78,55 @@ For now, mutations go through the REST API directly.
 
 ## Connected accounts
 
-Connected accounts (per-user PATs for GitLab, GitHub, generic Git hosts) are
-managed at `User → Settings → Connected Accounts`. That page ships with the
-OSS extension-point work in #302; until it lands, the project Integrations
-page surfaces a teaser explaining where credentials will live.
+Per-user personal access tokens (PATs) for GitLab, GitHub, and generic Git
+hosts are managed at `User → Settings → Connected Accounts`
+(`/me/settings/connected-accounts`). Credentials are per-user, not per-project
+or per-program — a PAT belongs to *you* and authorizes status fetches that
+preview links into issues, merge requests, and pull requests on tasks.
+
+### What the page does
+
+- Lists one section per provider registered against ADR-0049's
+  `TASK_LINK_PROVIDERS` registry — in 0.2 that's **GitLab**, **GitHub**, and a
+  catch-all **generic** provider.
+- For each provider, surfaces the connection state (Connected / Not
+  connected), the optional self-hosted host URL, the credential's
+  expiration if you recorded one, and the last time the credential was
+  used by the task-link refresh endpoint.
+- Provides per-provider **Connect**, **Rotate**, and **Revoke** actions.
+  Connect and Rotate share the same upsert API — one row per
+  `(user, provider)` pair, never duplicated.
+- Renders a deep-link anchor per provider —
+  `/me/settings/connected-accounts#github` scrolls straight to the GitHub
+  section. The Project → Settings → Integrations page links here.
+
+### Security guarantees
+
+- Secrets are encrypted at rest with `INTEGRATION_ENCRYPTION_KEY` (set in
+  the Helm values, generated with
+  `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`).
+- The encrypted ciphertext is **never** returned by any API endpoint, not
+  even to the credential's owner. The list response exposes only metadata:
+  `exists`, `base_url`, `created_at`, `updated_at`, `last_used_at`,
+  `expires_at`, and `requires_credential`.
+- Cross-user access is impossible by construction — the viewset's queryset
+  is scoped to `request.user`, so neither the URL path nor the request
+  body can address another user's row.
+
+### What ships in successor issues
+
+- **#637** — Git-aware tasks: the `TaskLink` model and the refresh
+  endpoint that consumes these credentials.
+- **#638** — Outgoing webhook `format` extension (Slack renderer + 4 new
+  task event types). Registers OSS providers against the
+  `OUTGOING_CHANNEL_PROVIDERS` registry reserved by ADR-0049.
+- **#639** — Email notifications app: `UserNotificationPreference` with
+  defaults seeded for own-task events. Registers OSS channels against the
+  `NOTIFICATION_CHANNELS` registry reserved by ADR-0049.
+
+Enterprise registers richer providers (Jira, ServiceNow, Bitbucket,
+Azure DevOps, Slack App, SMS, …) against the same registries from its own
+`AppConfig.ready()` — no OSS code changes required.
 
 ## What lives in Enterprise
 

@@ -56,6 +56,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.taskruns",
     "trueppm_api.apps.workshops",
     "trueppm_api.apps.notifications",
+    "trueppm_api.apps.integrations",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -252,6 +253,26 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # ---------------------------------------------------------------------------
 
 TRUEPPM_EDITION: str = env("TRUEPPM_EDITION", default="community")
+
+# ---------------------------------------------------------------------------
+# Integration credential encryption key (ADR-0049 §3)
+#
+# Fernet key used to encrypt the PAT secrets stored in
+# trueppm_api.apps.integrations.IntegrationCredential.secret_ciphertext.
+# Production deployments source this from a Kubernetes Secret via the Helm
+# chart; the empty default fails loud (ImproperlyConfigured) the first time
+# the helper is called, which is what we want — better than silently storing
+# unencrypted PATs in dev because someone forgot to set the env var.
+#
+# Generate one with:
+#   python -c "from cryptography.fernet import Fernet; \
+#              print(Fernet.generate_key().decode())"
+# ---------------------------------------------------------------------------
+
+INTEGRATION_ENCRYPTION_KEY: str = env(
+    "INTEGRATION_ENCRYPTION_KEY",
+    default="",
+)
 
 # ---------------------------------------------------------------------------
 # Monte Carlo simulation caps (OSS tier)
