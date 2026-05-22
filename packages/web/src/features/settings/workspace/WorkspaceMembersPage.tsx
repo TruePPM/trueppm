@@ -1,6 +1,8 @@
+import { useId, useMemo, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { StubPageBanner } from '../components/StubPageBanner';
 import { useWorkspaceMembers, type WorkspaceMember } from '../hooks/useWorkspaceMembers';
+import { filterMembers } from './filterMembers';
 
 const ROLE_PALETTE: Record<string, { bg: string; text: string }> = {
   Admin:  { bg: 'bg-[#7C3AED]/10', text: 'text-[#7C3AED]' },
@@ -100,9 +102,24 @@ function MemberTableRow({ m, last }: { m: WorkspaceMember; last: boolean }) {
   );
 }
 
+const ROLE_OPTIONS = ['Admin', 'PM', 'Lead', 'Member', 'Viewer'] as const;
+
 /** Workspace > Members management page. */
 export function WorkspaceMembersPage() {
   const { members, pendingInvites, isLoading } = useWorkspaceMembers();
+  const [query, setQuery] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string | null>(null);
+  const searchInputId = useId();
+  const roleSelectId = useId();
+
+  // Client-side filter against the hook's data. When #518 swaps the hook to
+  // the real API, this same call site keeps working — the filter is a pure
+  // function over WorkspaceMember[].
+  const visibleMembers = useMemo(
+    () => filterMembers(members, { query, role: roleFilter }),
+    [members, query, roleFilter],
+  );
+  const hasFilter = query.trim() !== '' || roleFilter !== null;
 
   if (isLoading) {
     return (
@@ -141,27 +158,47 @@ export function WorkspaceMembersPage() {
 
       {/* Search + filters */}
       <div className="px-6 py-3 flex items-center gap-2 border-b border-neutral-border/55 flex-wrap">
-        <div className="flex items-center gap-2 h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] w-[280px]">
+        <label htmlFor={searchInputId} className="sr-only">
+          Search members by name or email
+        </label>
+        <div className="flex items-center gap-2 h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] w-[280px] focus-within:ring-2 focus-within:ring-brand-primary focus-within:border-brand-primary">
           <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="text-neutral-text-disabled shrink-0">
             <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
             <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
-          <span className="text-neutral-text-disabled">Search by name or email…</span>
+          <input
+            id={searchInputId}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by name or email…"
+            className="flex-1 bg-transparent outline-none text-[13px] text-neutral-text-primary placeholder:text-neutral-text-disabled min-w-0"
+          />
         </div>
-        {(['Role', 'Group', 'Status', 'Last active'] as const).map((f) => (
-          <button
-            key={f}
-            type="button"
-            className="flex items-center gap-1 px-2.5 py-1 rounded border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-          >
-            {f}
-            <svg width="9" height="9" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-              <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none" />
-            </svg>
-          </button>
-        ))}
+        <label htmlFor={roleSelectId} className="sr-only">
+          Filter by role
+        </label>
+        <select
+          id={roleSelectId}
+          value={roleFilter ?? ''}
+          onChange={(e) => setRoleFilter(e.target.value === '' ? null : e.target.value)}
+          className="h-7 pl-2.5 pr-7 rounded border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary bg-neutral-surface-raised appearance-none bg-no-repeat bg-[right_0.45rem_center]"
+          style={{
+            backgroundImage:
+              "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='9' height='9' viewBox='0 0 16 16'><path d='M4 6l4 4 4-4' stroke='%23667085' stroke-width='2' stroke-linecap='round' fill='none' /></svg>\")",
+          }}
+        >
+          <option value="">All roles</option>
+          {ROLE_OPTIONS.map((r) => (
+            <option key={r} value={r}>{r}</option>
+          ))}
+        </select>
         <div className="flex-1" />
-        <span className="text-[11px] text-neutral-text-secondary">Showing all {members.length}</span>
+        <span className="text-[11px] text-neutral-text-secondary">
+          {hasFilter
+            ? `Showing ${visibleMembers.length} of ${members.length}`
+            : `Showing all ${members.length}`}
+        </span>
       </div>
 
       {/* Pending invite banner */}
@@ -200,9 +237,21 @@ export function WorkspaceMembersPage() {
           </div>
 
           {/* Rows */}
-          {members.map((m, i) => (
-            <MemberTableRow key={m.id} m={m} last={i === members.length - 1 && pendingInvites.length === 0} />
-          ))}
+          {visibleMembers.length === 0 ? (
+            <div className="px-3.5 py-6 text-center text-[13px] text-neutral-text-secondary">
+              {query.trim() !== ''
+                ? `No members match "${query.trim()}"`
+                : 'No members match the selected filters'}
+            </div>
+          ) : (
+            visibleMembers.map((m, i) => (
+              <MemberTableRow
+                key={m.id}
+                m={m}
+                last={i === visibleMembers.length - 1 && pendingInvites.length === 0}
+              />
+            ))
+          )}
 
           {/* Pending invites section */}
           {pendingInvites.length > 0 && (
