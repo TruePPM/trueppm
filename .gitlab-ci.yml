@@ -123,8 +123,16 @@ workflow:
 # Minio-backed cache is automatically invalidated when dependencies change.
 # ---------------------------------------------------------------------------
 
+#
+# Uses the custom ci-scheduler image (built by `ci:build-scheduler-image`)
+# which pre-bakes the scheduler[dev] wheel tree. The runtime `pip install -e`
+# only re-links the editable package — no wheel downloads.
+# Kaizen #651: shaves cold-install time off each of the five scheduler:* jobs.
 .scheduler:
-  image: python:3.11-slim
+  image: $CI_REGISTRY_IMAGE/ci-scheduler:py3.11
+  needs:
+    - job: ci:build-scheduler-image
+      optional: true
   cache: &scheduler-cache
     key:
       files:
@@ -133,6 +141,8 @@ workflow:
     paths:
       - .cache/pip/
   before_script:
+    # Image already has scheduler[dev] wheels resident; this is a fast
+    # editable re-link against the checked-out source.
     - pip install -e "packages/scheduler[dev]" --quiet
 
 # Full API template — postgres + valkey services, used by api:test only.
@@ -346,13 +356,11 @@ ci:build-api-image:
         - packages/api/pyproject.toml
         - packages/scheduler/pyproject.toml
         - .gitlab/ci-images/api.Dockerfile
-        - .gitlab-ci.yml
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/api/pyproject.toml
         - packages/scheduler/pyproject.toml
         - .gitlab/ci-images/api.Dockerfile
-        - .gitlab-ci.yml
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
@@ -362,6 +370,44 @@ ci:build-api-image:
         --cache-from "$IMAGE"
         --tag "$IMAGE"
         --file .gitlab/ci-images/api.Dockerfile
+        .
+    - docker push "$IMAGE"
+
+ci:build-scheduler-image:
+  # Rebuild and push the custom ci-scheduler image used by the .scheduler
+  # template. Pre-bakes the scheduler[dev] wheel tree so the five
+  # scheduler:* jobs skip the cold install on every run (kaizen #651,
+  # follow-up to #640).
+  #
+  # Trigger: same shape as ci:build-api-image — Dockerfile / pyproject
+  # changes, plus the weekly scheduled run as a transitive-drift safety
+  # net. .gitlab-ci.yml is deliberately NOT in the trigger list (see the
+  # equivalent decision on ci:build-api-image above).
+  stage: lint
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    IMAGE: "$CI_REGISTRY_IMAGE/ci-scheduler:py3.11"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/scheduler/pyproject.toml
+        - .gitlab/ci-images/scheduler.Dockerfile
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/scheduler/pyproject.toml
+        - .gitlab/ci-images/scheduler.Dockerfile
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - docker pull "$IMAGE" || true
+    - docker build
+        --cache-from "$IMAGE"
+        --tag "$IMAGE"
+        --file .gitlab/ci-images/scheduler.Dockerfile
         .
     - docker push "$IMAGE"
 
@@ -420,7 +466,14 @@ helm:lint:
 scheduler:type-check:
   extends: .scheduler
   stage: analyze
-  needs: [scheduler:lint]
+  # ci:build-scheduler-image is optional — when deps haven't changed it
+  # isn't in the pipeline and the job pulls the existing tag from the
+  # registry. Same pattern repeated on every scheduler:* consumer that
+  # overrides needs (GitLab replaces needs on extension).
+  needs:
+    - scheduler:lint
+    - job: ci:build-scheduler-image
+      optional: true
   <<: *rules-scheduler
   script:
     - cd packages/scheduler && mypy
@@ -577,7 +630,11 @@ security:bandit:api:
 scheduler:test:
   extends: .scheduler
   stage: test
-  needs: [scheduler:lint, scheduler:type-check]
+  needs:
+    - scheduler:lint
+    - scheduler:type-check
+    - job: ci:build-scheduler-image
+      optional: true
   <<: *rules-scheduler
   script:
     - cd packages/scheduler
@@ -598,7 +655,10 @@ scheduler:bench:
   # the > 20% regression signal requires manual comparison of artifacts.
   extends: .scheduler
   stage: test
-  needs: [scheduler:test]
+  needs:
+    - scheduler:test
+    - job: ci:build-scheduler-image
+      optional: true
   <<: *rules-scheduler
   script:
     - cd packages/scheduler
@@ -615,7 +675,10 @@ scheduler:notebooks:
   # ImportError with a try/except so missing it is not a failure.
   extends: .scheduler
   stage: test
-  needs: [scheduler:test]
+  needs:
+    - scheduler:test
+    - job: ci:build-scheduler-image
+      optional: true
   <<: *rules-scheduler
   script:
     - cd packages/scheduler
@@ -727,6 +790,8 @@ scheduler:diff-coverage:
   needs:
     - job: scheduler:test
       artifacts: true
+    - job: ci:build-scheduler-image
+      optional: true
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
@@ -952,8 +1017,16 @@ pages:
 
 security:pip-audit:
   # CVE scan for all installed Python dependencies (scheduler + API).
+  #
+  # Uses the ci-api image (kaizen #651 follow-up to #640) so the apt-get
+  # install of libpq-dev/gcc and the cold pip install of the scheduler +
+  # api dev-dep wheels is no longer paid per run. Mirrors the license:check
+  # migration in #640. Saves ~3min off this job on every pipeline.
   stage: security
-  image: python:3.11-slim
+  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  needs:
+    - job: ci:build-api-image
+      optional: true
   cache:
     <<: *api-cache
     policy: pull
@@ -965,11 +1038,12 @@ security:pip-audit:
         - packages/api/**/*
         - .gitlab-ci.yml
   before_script:
-    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
     # Upgrade pip and wheel first so the audit does not flag CVEs in the
     # base-image versions of the build tools themselves.
     - pip install --upgrade pip wheel --quiet
     - pip install pip-audit --quiet
+    # Image already has scheduler[dev] + api[dev] dev-dep wheels resident;
+    # these installs are fast editable re-links against the checked-out source.
     - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e packages/api --quiet
   script:
