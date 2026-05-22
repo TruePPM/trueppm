@@ -307,6 +307,134 @@ class Program(VersionedModel):
         return self.name
 
 
+class CeremonyCadenceType(models.TextChoices):
+    """Recurrence pattern for a program-level ceremony template (ADR-0079).
+
+    ``ON_MILESTONE`` ceremonies are tied to phase boundary milestones rather
+    than a wall-clock schedule, so they carry no ``cadence_day``/``cadence_time``.
+    """
+
+    WEEKLY = "weekly", "Weekly"
+    BIWEEKLY = "biweekly", "Bi-weekly"
+    MONTHLY = "monthly", "Monthly"
+    ON_MILESTONE = "on_milestone", "On milestone"
+
+
+# Reserved Scrum vocabulary that must not be created as program-level
+# ceremonies — Sprint Planning, Review, Retrospective, etc. live at the
+# team/sprint level and routing them through Program Settings silently
+# absorbs them into PMO surface (Morgan/Alex VoC blocker; ADR-0079).
+# Comparison is performed on ``value.strip().casefold()``.
+RESERVED_SCRUM_CEREMONY_NAMES: frozenset[str] = frozenset(
+    {
+        "sprint planning",
+        "sprint review",
+        "sprint retrospective",
+        "retrospective",
+        "retro",
+        "daily scrum",
+        "standup",
+        "daily standup",
+        "scrum of scrums",
+    }
+)
+
+
+class CeremonyTemplate(VersionedModel):
+    """Recurring program ceremony (ADR-0079).
+
+    Program-scoped configuration — e.g. weekly Program Sync, monthly Steering
+    Committee, on-milestone Phase Gate Review. Sprint events (Planning, Review,
+    Retrospective, Daily Scrum) are explicitly disallowed at this layer; they
+    are configured per-sprint at the team level.
+
+    The row is config-only: it does NOT generate calendar invite instances or
+    notifications today. Downstream calendar integration is tracked as a
+    follow-up (see ADR-0079 §Out-of-scope follow-ups).
+    """
+
+    program = models.ForeignKey(
+        Program,
+        on_delete=models.CASCADE,
+        related_name="ceremony_templates",
+    )
+    name = models.CharField(max_length=120)
+    cadence_type = models.CharField(
+        max_length=16,
+        choices=CeremonyCadenceType.choices,
+    )
+    # Free-form day specifier interpreted by ``cadence_type``:
+    #   weekly / biweekly → weekday slug ("monday", "tuesday", ...)
+    #   monthly           → ordinal+weekday slug ("1st-thursday", "last-friday")
+    #   on_milestone      → empty string
+    # Stored as text rather than parsed columns so the schedule UI can evolve
+    # without a migration; serializer-level validation keeps inputs sane.
+    cadence_day = models.CharField(max_length=32, blank=True, default="")
+    # NULL for on_milestone ceremonies; required for weekly/biweekly/monthly.
+    cadence_time = models.TimeField(null=True, blank=True)
+    duration_minutes = models.PositiveSmallIntegerField(default=60)
+    # Descriptive "who chairs this" label (e.g. "Program Manager", "Risk Lead").
+    # Free-form rather than the access-control Role enum — chair-of-meeting is
+    # a different concept from RBAC, and orgs use custom titles (David VoC).
+    owner_role = models.CharField(max_length=64, blank=True, default="")
+    enabled = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ceremony_templates_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
+
+    class Meta:
+        db_table = "projects_ceremony_template"
+        ordering = ["name"]
+        constraints = [
+            # Active rows are unique by (program, name). Soft-deleted rows are
+            # excluded so a name can be reused after deletion without a
+            # 409 collision with the tombstone.
+            models.UniqueConstraint(
+                fields=["program", "name"],
+                condition=Q(is_deleted=False),
+                name="ceremony_template_unique_name_per_program",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.program_id})"
+
+
+class PhaseGateConfig(VersionedModel):
+    """Singleton phase-gate calendar template per program (ADR-0079).
+
+    One row per Program (1:1). Created lazily on first GET via ``get_or_create``
+    in the view layer so existing programs do not need a data migration.
+
+    v1 is config-only — the ``invite_template`` is a free-text body that
+    references variables like ``{{milestone.name}}``; actual invite dispatch
+    when a phase-boundary milestone is saved is an out-of-scope follow-up.
+    """
+
+    program = models.OneToOneField(
+        Program,
+        on_delete=models.CASCADE,
+        related_name="phase_gate_config",
+    )
+    enabled = models.BooleanField(default=False)
+    invite_template = models.TextField(blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "projects_phase_gate_config"
+
+    def __str__(self) -> str:
+        return f"PhaseGateConfig({self.program_id})"
+
+
 class EstimationMode(models.TextChoices):
     """Controls who may write three-point estimates on tasks within a project.
 

@@ -9,6 +9,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("projects", "0041_ceremony_template_and_phase_gate_config"),
         ("projects", "0041_project_general_fields"),
     ]
 

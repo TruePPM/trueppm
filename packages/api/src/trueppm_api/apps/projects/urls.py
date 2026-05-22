@@ -5,6 +5,10 @@ from __future__ import annotations
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from trueppm_api.apps.projects.ceremony_views import (
+    CeremonyTemplateViewSet,
+    PhaseGateConfigView,
+)
 from trueppm_api.apps.projects.program_views import ProgramViewSet
 from trueppm_api.apps.projects.views import (
     ApiTokenAuditView,
@@ -379,5 +383,28 @@ urlpatterns = [
         "projects/<project_pk>/tasks/<task_pk>/comments/<comment_pk>/reactions/<pk>/",
         CommentReactionViewSet.as_view({"delete": "destroy"}),
         name="project-task-comment-reactions-detail",
+    ),
+    # Program ceremony templates + phase-gate config (ADR-0079, #528)
+    path(
+        "programs/<program_pk>/ceremonies/",
+        CeremonyTemplateViewSet.as_view({"get": "list", "post": "create"}),
+        name="program-ceremonies-list",
+    ),
+    path(
+        "programs/<program_pk>/ceremonies/<pk>/",
+        CeremonyTemplateViewSet.as_view(
+            {
+                "get": "retrieve",
+                "patch": "partial_update",
+                "put": "update",
+                "delete": "destroy",
+            }
+        ),
+        name="program-ceremonies-detail",
+    ),
+    path(
+        "programs/<program_pk>/phase-gate-config/",
+        PhaseGateConfigView.as_view(),
+        name="program-phase-gate-config",
     ),
 ]
