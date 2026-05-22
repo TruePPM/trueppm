@@ -1,0 +1,205 @@
+import { test, expect } from '@playwright/test';
+
+/**
+ * Program Settings → Rollup KPIs E2E (#527, ADR-0079).
+ *
+ * Verifies the settings surface is wired to ``/api/v1/programs/:id/rollup-config/``:
+ * - The KPI list and aggregation policy radio render from the GET response.
+ * - Toggling a KPI fires a PATCH (after the 250ms debounce).
+ * - Changing the policy shows the Unsaved-changes bar; Save fires a PATCH.
+ * - Non-admin role sees disabled controls and the Read-only pill.
+ * - The stub-page-banner is gone (the page is no longer a stub).
+ */
+
+const ME_ID = 'user-alice';
+const PROGRAM_ID = 'e2e-program-00000000-0000-0000-0000-000000000527';
+
+const FIXTURE_ME = {
+  id: ME_ID,
+  username: 'alice',
+  display_name: 'Alice',
+  initials: 'AL',
+  email: 'alice@example.com',
+};
+
+const FIXTURE_PROGRAM = {
+  id: PROGRAM_ID,
+  server_version: 1,
+  name: 'Phase 2 Modernization',
+  description: '',
+  code: '',
+  methodology: 'HYBRID',
+  health: 'AUTO',
+  visibility: 'WORKSPACE',
+  lead: null,
+  lead_detail: null,
+  created_by: ME_ID,
+  created_at: '2026-05-18T00:00:00Z',
+  updated_at: '2026-05-18T00:00:00Z',
+  my_role: 400,
+  my_role_label: 'Project Admin',
+  project_count: 0,
+  member_count: 1,
+};
+
+const FIXTURE_CONFIG = {
+  enabled_kpis: ['schedule_health', 'milestone_health', 'p80_completion'],
+  aggregation_policy: 'worst',
+};
+
+type Page = import('@playwright/test').Page;
+
+interface Captures {
+  lastPatchBody?: unknown;
+  patchCount: number;
+}
+
+async function setup(page: Page, captures: Captures, opts: { myRole?: number } = {}) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'trueppm-auth',
+      JSON.stringify({
+        state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
+        version: 0,
+      }),
+    );
+  });
+
+  const pj = (data: unknown) => JSON.stringify(data);
+  const program = { ...FIXTURE_PROGRAM, my_role: opts.myRole ?? 400 };
+
+  await page.route('**/api/v1/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
+  await page.route('**/api/v1/auth/me/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ME) }),
+  );
+  await page.route('**/api/v1/edition/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ edition: 'community' }) }),
+  );
+  await page.route('**/api/v1/projects/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ results: [], count: 0, next: null, previous: null }),
+    }),
+  );
+  await page.route('**/api/v1/programs/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ results: [program], count: 1, next: null, previous: null }),
+    }),
+  );
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(program) }),
+  );
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup-config/`, async (route) => {
+    if (route.request().method() === 'PATCH') {
+      captures.patchCount += 1;
+      try {
+        captures.lastPatchBody = JSON.parse(route.request().postData() ?? '{}');
+      } catch {
+        captures.lastPatchBody = null;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj(FIXTURE_CONFIG),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj(FIXTURE_CONFIG),
+    });
+  });
+}
+
+test.describe('Program Settings → Rollup KPIs', () => {
+  test('Owner sees KPI groups, current toggles, and the policy radio', async ({ page }) => {
+    const captures: Captures = { patchCount: 0 };
+    await setup(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/rollup`);
+
+    await expect(page.getByRole('heading', { name: /^Rollup KPIs/ })).toBeVisible();
+    // Subgroup headings render the three categories.
+    await expect(page.getByRole('heading', { level: 3, name: /Schedule/ })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 3, name: /^Risk$/ })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 3, name: /^Cost$/ })).toBeVisible();
+
+    // The three enabled KPIs from the fixture render as aria-checked switches.
+    await expect(page.getByRole('switch', { name: 'Schedule health' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await expect(page.getByRole('switch', { name: 'Milestone health' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await expect(page.getByRole('switch', { name: 'P80 completion date' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    // A KPI NOT in the fixture is off.
+    await expect(page.getByRole('switch', { name: 'Risk score' })).toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
+
+    // Stub banner is gone — the page is wired.
+    await expect(page.getByTestId('stub-page-banner')).toHaveCount(0);
+  });
+
+  test('toggling a KPI fires a PATCH containing the updated enabled list', async ({ page }) => {
+    const captures: Captures = { patchCount: 0 };
+    await setup(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/rollup`);
+
+    await page.getByRole('switch', { name: 'Risk score' }).click();
+    // Optimistic update flips the switch immediately.
+    await expect(page.getByRole('switch', { name: 'Risk score' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    // PATCH lands after the 250ms debounce + network round-trip.
+    await expect.poll(() => captures.patchCount, { timeout: 2000 }).toBeGreaterThanOrEqual(1);
+    const body = captures.lastPatchBody as { enabled_kpis?: string[] } | undefined;
+    expect(body?.enabled_kpis).toContain('risk_score');
+    expect(body?.enabled_kpis).toContain('schedule_health');
+  });
+
+  test('changing the aggregation policy shows Unsaved changes and Save sends a PATCH', async ({
+    page,
+  }) => {
+    const captures: Captures = { patchCount: 0 };
+    await setup(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/rollup`);
+
+    // Before any selection, no Unsaved-changes bar.
+    await expect(page.getByText(/Unsaved changes/)).toHaveCount(0);
+
+    // The radio input is sr-only; click the visible label text instead.
+    await page.getByText('Average', { exact: true }).click();
+    await expect(page.getByText(/Unsaved changes/)).toBeVisible();
+
+    await page.getByRole('button', { name: /^Save$/ }).click();
+    await expect.poll(() => captures.patchCount, { timeout: 2000 }).toBeGreaterThanOrEqual(1);
+    const body = captures.lastPatchBody as { aggregation_policy?: string } | undefined;
+    expect(body?.aggregation_policy).toBe('average');
+  });
+
+  test('Team Member caller sees the Read-only pill and disabled controls', async ({ page }) => {
+    const captures: Captures = { patchCount: 0 };
+    await setup(page, captures, { myRole: 100 });
+    await page.goto(`/programs/${PROGRAM_ID}/settings/rollup`);
+
+    await expect(page.getByRole('heading', { name: /^Rollup KPIs/ })).toBeVisible();
+    await expect(page.getByText(/Read-only/)).toBeVisible();
+    await expect(page.getByRole('switch', { name: 'Schedule health' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+  });
+});

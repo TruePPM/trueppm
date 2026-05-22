@@ -324,6 +324,68 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
         return Role(role).label
 
 
+class ProgramRollupConfigSerializer(serializers.ModelSerializer[Program]):
+    """GET/PATCH payload for ``/api/v1/programs/{id}/rollup-config/`` (ADR-0079).
+
+    Both fields are partial-updatable. ``enabled_kpis`` is validated against
+    the closed ``RollupKpi`` enum — unknown identifiers raise 400 rather than
+    being silently dropped, which would leave the UI and the server in
+    different states.
+    """
+
+    # Hard caps on shape (security M1): list length is bounded by the closed
+    # ``RollupKpi`` enum, and each child string is bounded by the longest
+    # identifier with a small slack. Without these, a caller could push a
+    # multi-megabyte list of strings — they would all be rejected by
+    # ``validate_enabled_kpis`` as unknown, but the validator would still
+    # interpolate them into an error string and burn a worker.
+    enabled_kpis = serializers.ListField(
+        child=serializers.CharField(max_length=64),
+        source="rollup_enabled_kpis",
+        max_length=64,
+    )
+    aggregation_policy = serializers.ChoiceField(
+        source="rollup_aggregation_policy",
+        choices=[],  # populated in __init__ to avoid import-cycle at class build
+    )
+
+    class Meta:
+        model = Program
+        fields = ["enabled_kpis", "aggregation_policy"]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        from trueppm_api.apps.projects.models import AggregationPolicy
+
+        self.fields["aggregation_policy"].choices = AggregationPolicy.choices  # type: ignore[attr-defined]
+
+    def validate_enabled_kpis(self, value: list[str]) -> list[str]:
+        from trueppm_api.apps.projects.models import RollupKpi
+
+        valid = {choice.value for choice in RollupKpi}
+        unknown = [v for v in value if v not in valid]
+        if unknown:
+            # Cap the echo at the first few (security L1) so an attacker
+            # cannot blow up an error message by sending many bad values —
+            # the ``max_length=64`` on the ListField already bounds this, but
+            # belt-and-braces.
+            preview = ", ".join(sorted(unknown)[:5])
+            suffix = f" (+{len(unknown) - 5} more)" if len(unknown) > 5 else ""
+            raise serializers.ValidationError(
+                f"Unknown KPI identifier(s): {preview}{suffix}. "
+                f"Expected one of: {', '.join(sorted(valid))}."
+            )
+        # De-duplicate while preserving caller order so repeated PATCHes don't
+        # accumulate duplicates in the JSONB column.
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for kpi in value:
+            if kpi not in seen:
+                seen.add(kpi)
+                deduped.append(kpi)
+        return deduped
+
+
 class CeremonyTemplateSerializer(serializers.ModelSerializer[CeremonyTemplate]):
     """Read/write serializer for program ceremony templates (ADR-0079).
 

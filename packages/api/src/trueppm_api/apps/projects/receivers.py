@@ -90,6 +90,46 @@ def _register_task_soft_delete_receiver() -> None:
             )
 
 
+def _register_program_rollup_seed_receiver() -> None:
+    """Register the Program post_save receiver that seeds rollup config on create.
+
+    ADR-0079 / #527: a newly-created Program gets methodology-aware default
+    rollup config (which KPIs roll up, which aggregation policy to use). The
+    backfill of existing rows happens in migration 0041; this receiver covers
+    every Program created after the migration.
+
+    Idempotent: only fires when ``created=True`` AND the config is still empty
+    (the migration-default ``[]``). Re-saves of an existing Program never
+    rewrite user-customized values.
+    """
+    from trueppm_api.apps.projects.models import Program
+
+    @receiver(post_save, sender=Program)
+    def _on_program_create_seed_rollup(
+        sender: Any,
+        instance: Any,
+        created: bool,
+        **kwargs: Any,
+    ) -> None:
+        if not created:
+            return
+        if instance.rollup_enabled_kpis:
+            # Already seeded — service-layer create may pre-populate before
+            # save() in a future change; respect any value already present.
+            return
+        from trueppm_api.apps.projects.services import rollup_config_defaults
+
+        enabled, policy = rollup_config_defaults(instance.methodology)
+        # update() skips this signal (no save() recursion) and avoids bumping
+        # server_version a second time on the same logical create.
+        Program.objects.filter(pk=instance.pk).update(
+            rollup_enabled_kpis=enabled,
+            rollup_aggregation_policy=policy,
+        )
+        instance.rollup_enabled_kpis = enabled
+        instance.rollup_aggregation_policy = policy
+
+
 def _register_milestone_rollup_receiver() -> None:
     """Register the Task post_save receiver that fires the milestone rollup.
 
