@@ -141,13 +141,14 @@ test.describe('Program Settings → Risk & deps policy', () => {
 
     // Wait for the page to settle and the seed effect to run.
     await expect(page.getByRole('radio', { name: /Warn only/ })).toBeChecked();
-    // Before any change the shell save bar's Save button is disabled (apiReady but not dirty).
-    const saveBtn = page.getByRole('button', { name: /Save changes/ });
-    await expect(saveBtn).toBeDisabled();
+    // Before any change the shell save bar is not rendered (it only mounts when dirty=true).
+    await expect(page.getByText(/You have unsaved changes/)).toHaveCount(0);
 
     // Click the visible label — the radio input itself is sr-only.
     await page.getByText('Block & escalate', { exact: true }).click();
-    await expect(saveBtn).toBeEnabled();
+    // Save bar arms once the page reports dirty.
+    await expect(page.getByText(/You have unsaved changes/)).toBeVisible();
+    const saveBtn = page.getByRole('button', { name: /Save changes/ });
     await saveBtn.click();
     await expect.poll(() => captures.patchCount, { timeout: 2000 }).toBeGreaterThanOrEqual(1);
     const body = captures.lastPatchBody as { slip_propagation?: string } | undefined;
