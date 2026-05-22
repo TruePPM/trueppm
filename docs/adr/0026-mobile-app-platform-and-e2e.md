@@ -28,6 +28,37 @@ management and Priya's time entry). **OSS.**
 
 ## Decision
 
+### Shipping order (revised 2026-05-22)
+
+Mobile ships in this sequence — *not* iOS and Android simultaneously:
+
+1. **Android phones — milestone 0.4.** Primary platform. Material 3 conventions
+   are the reference design. Pixel 6 / Pixel 7-class hardware is the baseline.
+2. **Android tablets — milestone 0.4 (tail into 0.5 if needed).** Adds split-view
+   and two-pane layouts on top of the proven phone shell. Same APK, larger
+   layout breakpoint.
+3. **iPhone (and iPad) — milestone 1.0 GA.** Deferred from 0.4. React Native
+   keeps the codebase portable, so this is a *shipping order*, not a tech-stack
+   change: iOS targets remain in `packages/mobile/ios/`, but App Store
+   submission, fastlane signing, TestFlight distribution, and iOS-side Detox
+   parity are all 1.0 GA work.
+
+**Why phased:** Sarah-on-jobsite and Priya-on-the-train skew Android in
+TruePPM's first ICPs (construction, field services, SMB engineering teams).
+Shipping Android-only in 0.4 lets the offline/sync/WatermelonDB/Detox toolchain
+stabilize on one platform and one app-store pipeline (Play internal track)
+before paying the iOS submission tax. Marcus's "as long as the mobile roadmap
+has a date" requirement is satisfied: Android in 0.4, iPhone at 1.0 GA — both
+dated, neither open-ended.
+
+**Constraints this implies:**
+- Do **not** introduce Android-only native libraries that block the eventual
+  iPhone build. The iOS folder stays compilable throughout 0.4.
+- iOS-side Detox flows are scaffolded but optional/best-effort during 0.4; they
+  become required at 1.0 GA.
+- Designs from the `mobile-design` skill treat Android as the primary reference;
+  iOS deltas are noted inline for the 1.0 pass.
+
 ### Platform
 
 **React Native 0.76+ with the New Architecture (Hermes + TurboModules).** Bare
@@ -97,13 +128,16 @@ packages/mobile/
 
 ### Build + CI
 
-- **iOS**: fastlane + EAS Build (Expo Application Services) for signing. TestFlight
-  distribution for internal testing.
-- **Android**: Gradle + EAS Build. Internal track on Play Console for testing.
-- CI job `mobile:test` runs Jest + TypeScript check on every PR
-- CI job `mobile:e2e:ios` and `mobile:e2e:android` run on **nightly** schedule
-  (Detox on managed runners is slow; per-PR gating blocks velocity). PR-gated
-  Detox smoke (1 critical flow) runs on pull requests.
+- **Android (0.4 — required)**: Gradle + EAS Build. Internal track on Play
+  Console for testing. PR-gated Detox smoke (1 critical flow). Nightly full
+  `mobile:e2e:android` run.
+- **iOS (1.0 GA — required; 0.4 — best-effort)**: fastlane + EAS Build for
+  signing. TestFlight distribution. During 0.4, `mobile:e2e:ios` is wired but
+  marked `allow_failure: true`; flipped to required at 1.0 GA.
+- CI job `mobile:test` runs Jest + TypeScript check on every PR (both platforms
+  must compile from day one — see "Shipping order" constraints above).
+- Detox on managed runners is slow; per-PR gating blocks velocity, so the full
+  suite stays nightly.
 - **Release cadence**: track the web release cadence. No independent mobile
   versioning in v1.
 
@@ -122,13 +156,15 @@ Minimum flows for ADR sign-off:
 5. **Auth flow**: login → receive tokens → backgrounded app for 1h → foreground →
    token refresh silent, session survives.
 
-Each flow tests both iOS and Android on every nightly run.
+Each flow tests Android on every nightly run during 0.4 (required). iOS runs
+nightly as `allow_failure: true` during 0.4 and is flipped to required at 1.0 GA
+when iPhone enters the milestone.
 
 ### Performance targets (mobile)
 
 | Metric | Target | Measured by |
 |---|---|---|
-| Cold start to home screen | < 2s on iPhone 12 / Pixel 6 | Detox timing + Flashlight |
+| Cold start to home screen | < 2s on Pixel 6 (0.4 gate); < 2s on iPhone 12 (1.0 GA gate) | Detox timing + Flashlight |
 | Project list (100 projects) | < 500ms from cache | Detox timing |
 | Task list (500 tasks) | < 1s from cache | Detox timing |
 | Time entry submit (online) | < 300ms to acknowledgment | Detox timing |
@@ -137,8 +173,14 @@ Each flow tests both iOS and Android on every nightly run.
 
 ### Milestone
 
-**Target milestone: v1.0** (est. next major release after Wave 3 ships). Not
-open-ended — Marcus's 6/10 was explicitly conditional on a date.
+**0.4** — Android phones (required) and Android tablets (target; tail into 0.5
+if 0.4 only lands phones). iOS targets compile but ship no public binary.
+
+**1.0 GA** — iPhone + iPad. App Store submission, TestFlight, iOS-side Detox
+parity all land here.
+
+Not open-ended — Marcus's 6/10 was explicitly conditional on a date. Both
+platforms have dates.
 
 ## Alternatives Considered
 
@@ -193,7 +235,7 @@ plugins are adequate but WatermelonDB is the canonical choice in CLAUDE.md.
 - **API changes**: no (uses existing `/api/v1/sync/pull`, `/api/v1/sync/push`,
   `/api/v1/auth/*`)
 - **OSS or Enterprise**: **OSS** (`trueppm-suite`)
-- **Target milestone**: v1.0
+- **Target milestone**: Android phones + tablets in 0.4; iPhone + iPad in 1.0 GA
 
 ### Durable execution checklist
 
@@ -223,7 +265,9 @@ transactional outbox pattern per `project_durable_execution` convention.
 
 ### Follow-up issues
 
+- Android tablet layout (split-view Schedule + task list) — 0.4/0.5
+- iPhone parity pass (App Store submission, fastlane, TestFlight, iOS Detox required) — 1.0 GA
+- iPad tablet layout (split-view Schedule + task list) — 1.0 GA (with iPhone)
 - Mobile Schedule view editable interactions (drag, preview) — after read-only ships
 - Push notifications — after auth + sync stable
 - Biometric unlock toggle — post-MVP
-- iPad tablet layout (split-view Schedule + task list) — post-MVP

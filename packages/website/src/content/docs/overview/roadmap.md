@@ -52,7 +52,7 @@ Closing the settings/admin gaps surfaced by the VoC audit, and the agile-foundat
 
 ### 0.4 — mobile + durability + baselines (target: August 2026)
 
-- React Native mobile app — read + simple updates first, offline-capable via WatermelonDB
+- React Native mobile app — **Android phones first, Android tablets second** (iPhone deferred to 1.0 GA); read + simple updates, offline-capable via WatermelonDB
 - Durable execution OSS primitives: backup, replay, conflict hardening (#320 #321 #322)
 - Multi-baseline support with structured rebaseline reasons
 - Time tracking (passive signals — commits, calendar — minimize manual entry)
@@ -66,6 +66,8 @@ Closing the settings/admin gaps surfaced by the VoC audit, and the agile-foundat
 ### 1.0 — first stable release
 
 The marquee differentiator: **manual Team Cohesion (Brooks' Law) slider** — the first PPM tool that models team friction as a first-class scheduling input (epic #582). Plus everything from 0.x stabilized for production support.
+
+Mobile completes here: **iPhone (and iPad) parity** lands at 1.0 GA — App Store submission, TestFlight, and iOS-side Detox parity on top of the Android codebase shipped in 0.4.
 
 Past 1.0, the OSS surface continues — EVM on the Schedule view, cycle-time/throughput analytics on the board, sub-tasks and checklists on stories. Methodology Packs land in 1.5. The full backlog lives as open issues in GitLab.
 
