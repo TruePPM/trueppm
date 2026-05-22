@@ -76,7 +76,7 @@ describe('Project lifecycle hooks (#530)', () => {
     const { result } = renderHook(() => useDeleteProject('proj-1'), {
       wrapper: makeWrapper(makeClient()),
     });
-    result.current.mutate();
+    result.current.mutate({});
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(deleteMock).toHaveBeenCalledWith('/projects/proj-1/');
   });

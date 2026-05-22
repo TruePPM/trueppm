@@ -166,7 +166,7 @@ export interface SplitProgramInput {
 export function useSplitProgram(): UseMutationResult<unknown, Error, SplitProgramInput> {
   return useMutation({
     mutationFn: async ({ programId, splits }) => {
-      const res = await apiClient.post(`/programs/${programId}/split/`, { splits });
+      const res = await apiClient.post<unknown>(`/programs/${programId}/split/`, { splits });
       return res.data;
     },
   });

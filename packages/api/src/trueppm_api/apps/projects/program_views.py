@@ -184,7 +184,7 @@ class ProgramViewSet(viewsets.ModelViewSet[Program]):
         if not program.is_closed:
             program.is_closed = True
             program.closed_at = timezone.now()
-            program.closed_by = request.user
+            program.closed_by = request.user  # type: ignore[assignment]
             program.save(update_fields=["is_closed", "closed_at", "closed_by"])
             program_id = str(program.pk)
             transaction.on_commit(
