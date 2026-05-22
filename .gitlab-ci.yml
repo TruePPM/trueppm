@@ -137,8 +137,16 @@ workflow:
 
 # Full API template — postgres + valkey services, used by api:test only.
 # Valkey is the BSD-licensed Redis fork; wire-compatible, REDIS_URL unchanged.
+#
+# Uses the custom ci-api image (built by `ci:build-api-image`) which pre-bakes
+# libpq-dev + gcc and all dev-deps wheels. The runtime `pip install -e` only
+# re-links the editable packages — no wheel downloads, no apt-get.
+# Kaizen #640 item 3: shaves ~3min off each of the six api:* jobs.
 .api:
-  image: python:3.11-slim
+  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  needs:
+    - job: ci:build-api-image
+      optional: true
   cache: &api-cache
     key:
       files:
@@ -157,16 +165,19 @@ workflow:
     DATABASE_URL: "postgres://trueppm:trueppm@postgres/trueppm_test"
     REDIS_URL: "redis://valkey:6379"
   before_script:
-    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
+    # Image already has libpq-dev + gcc + all dev-dep wheels resident; this
+    # install is a fast editable re-link against the checked-out source.
     - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e "packages/api[dev]" --quiet
-    - pip install pytest pytest-django pytest-asyncio --quiet
 
 # Lean API template — no DB/Valkey, for jobs that only need Django importable
 # (type-check, migration check, schema generation). DATABASE_URL is set so
 # django-environ parses cleanly; no actual connection is made.
 .api-no-db:
-  image: python:3.11-slim
+  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  needs:
+    - job: ci:build-api-image
+      optional: true
   cache:
     <<: *api-cache
     policy: pull
@@ -175,9 +186,11 @@ workflow:
     TRUEPPM_ALLOW_DEV_SETTINGS: "1"
     DATABASE_URL: "postgres://trueppm:trueppm@localhost/trueppm_test"
   before_script:
-    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
+    # api[dev] (not bare api) — the image has dev-dep wheels resident so
+    # the re-link cost is the same and downstream jobs (type-check, schema)
+    # need the dev extras (mypy stubs, drf-spectacular validators).
     - pip install -e "packages/scheduler[dev]" --quiet
-    - pip install -e packages/api --quiet
+    - pip install -e "packages/api[dev]" --quiet
 
 .web:
   image: node:20-alpine
@@ -305,6 +318,53 @@ lint:todo-grep:
     - bash scripts/check-todo-grep.sh
     - bash scripts/check-todo-grep.sh --self-test
 
+ci:build-api-image:
+  # Rebuild and push the custom ci-api image used by the .api / .api-no-db
+  # job templates. Pre-bakes libpq-dev + gcc + all dev-dep wheels so the
+  # downstream api:* jobs skip ~3min of cold install on every run
+  # (kaizen #640 item 3).
+  #
+  # Trigger:
+  #   - MR pipelines where the Dockerfile or either pyproject.toml changes
+  #   - main pipelines where the same files change
+  #   - scheduled pipelines (weekly safety net for transitive drift)
+  #
+  # Jobs that use the image declare `needs: [{job: ci:build-api-image,
+  # optional: true}]` so they wait for the build when it's in the pipeline,
+  # and pull the existing registry tag when it isn't (the steady state).
+  stage: lint
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    IMAGE: "$CI_REGISTRY_IMAGE/ci-api:py3.11"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/api/pyproject.toml
+        - packages/scheduler/pyproject.toml
+        - .gitlab/ci-images/api.Dockerfile
+        - .gitlab-ci.yml
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/api/pyproject.toml
+        - packages/scheduler/pyproject.toml
+        - .gitlab/ci-images/api.Dockerfile
+        - .gitlab-ci.yml
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    # --cache-from lets a no-op rebuild reuse the previously published layers.
+    - docker pull "$IMAGE" || true
+    - docker build
+        --cache-from "$IMAGE"
+        --tag "$IMAGE"
+        --file .gitlab/ci-images/api.Dockerfile
+        .
+    - docker push "$IMAGE"
+
 scheduler:lint:
   extends: .scheduler
   stage: lint
@@ -368,12 +428,14 @@ scheduler:type-check:
 api:type-check:
   extends: .api-no-db
   stage: analyze
-  needs: [api:lint]
+  # ci:build-api-image is optional — when deps haven't changed it isn't in
+  # the pipeline and the job pulls the already-published image from the
+  # registry. Same pattern repeated on every job that uses the ci-api image.
+  needs:
+    - api:lint
+    - job: ci:build-api-image
+      optional: true
   <<: *rules-api
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc
-    - pip install -e "packages/scheduler[dev]" --quiet
-    - pip install -e "packages/api[dev]" --quiet
   script:
     - cd packages/api
     - mypy src/trueppm_api
@@ -391,6 +453,8 @@ api:migration-check:
   needs:
     - job: api:lint
       optional: true
+    - job: ci:build-api-image
+      optional: true
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -404,7 +468,10 @@ api:openapi-check:
   # --fail-on-warn promotes warnings to errors.
   extends: .api-no-db
   stage: analyze
-  needs: [api:lint]
+  needs:
+    - api:lint
+    - job: ci:build-api-image
+      optional: true
   <<: *rules-api
   script:
     - cd packages/api
@@ -424,6 +491,8 @@ api:schema-drift:
   stage: analyze
   needs:
     - job: api:lint
+      optional: true
+    - job: ci:build-api-image
       optional: true
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -597,7 +666,13 @@ wasm:conformance:
 api:test:
   extends: .api
   stage: test
-  needs: [api:lint, api:type-check, api:migration-check, api:openapi-check]
+  needs:
+    - api:lint
+    - api:type-check
+    - api:migration-check
+    - api:openapi-check
+    - job: ci:build-api-image
+      optional: true
   <<: *rules-api
   script:
     # -n auto fans out across all 4 cores on the runner. pytest-django creates
@@ -937,22 +1012,39 @@ license:check:
   # Checks both Python (pip-licenses) and npm (license-checker) packages.
   # LGPL is permitted (library-linking exemption applies).
   # No needs: — stage ordering ensures tests passed; see note above.
+  #
+  # Kaizen #640 N1: narrowed `changes:` to dep manifests only. The job is
+  # ~5min (npm install dominates) and the previous filter (any source
+  # change) triggered it on every MR. License composition only changes
+  # when manifests/lock files do; main + scheduled runs catch transitive
+  # drift that a lock-file refresh might miss.
+  #
+  # Uses the ci-api image (kaizen #640 item 3) so the apt-get install
+  # of libpq-dev / gcc / nodejs / npm is no longer paid per-run.
   stage: security
-  image: python:3.11-slim
+  image: $CI_REGISTRY_IMAGE/ci-api:py3.11
+  needs:
+    - job: ci:build-api-image
+      optional: true
   cache:
     <<: *api-cache
     policy: pull
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
-        - packages/scheduler/**/*
-        - packages/api/**/*
-        - packages/web/**/*
-        - packages/wasm-scheduler/**/*
+        - packages/scheduler/pyproject.toml
+        - packages/api/pyproject.toml
+        - packages/web/package.json
+        - packages/web/package-lock.json
+        - packages/wasm-scheduler/Cargo.toml
+        - packages/wasm-scheduler/Cargo.lock
         - .gitlab-ci.yml
   before_script:
-    - apt-get update -qq && apt-get install -y -qq libpq-dev gcc nodejs npm
+    # ci-api image has libpq-dev + gcc; still need nodejs for the npm
+    # license check (TypeScript deps), and pip-licenses for the python side.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends nodejs npm
     - pip install pip-licenses --quiet
     - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e packages/api --quiet
@@ -1076,9 +1168,9 @@ scheduler:publish:
 # missing credentials are a silent skip, not a failure.
 .docker-publish-base:
   stage: publish
-  image: docker:24
+  image: docker:27
   services:
-    - docker:24-dind
+    - docker:27-dind
   variables:
     DOCKER_TLS_CERTDIR: "/certs"
   before_script:
