@@ -346,13 +346,11 @@ ci:build-api-image:
         - packages/api/pyproject.toml
         - packages/scheduler/pyproject.toml
         - .gitlab/ci-images/api.Dockerfile
-        - .gitlab-ci.yml
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - packages/api/pyproject.toml
         - packages/scheduler/pyproject.toml
         - .gitlab/ci-images/api.Dockerfile
-        - .gitlab-ci.yml
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
   script:
