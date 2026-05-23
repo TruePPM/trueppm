@@ -2,6 +2,26 @@ import '@testing-library/jest-dom';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
 
+// Silence jsdom's VirtualConsole noise from unmocked apiClient XHRs. When a
+// component leaks a request after unmount (TanStack Query polling, deferred
+// refetch), jsdom logs an AggregateError per attempt via console.error — at
+// volume this floods the worker's stderr IPC pipe and trips EPIPE, killing
+// vitest's fork even with dangerouslyIgnoreUnhandledErrors. VirtualConsole
+// passes the stack as the first arg (a string) — filter by the exact jsdom
+// XHR signature so unrelated console.error calls still surface.
+const originalConsoleError = console.error;
+console.error = (...args: unknown[]) => {
+  const first = args[0];
+  if (
+    typeof first === 'string' &&
+    first.startsWith('Error: AggregateError') &&
+    /jsdom[\\/].+xhr/.test(first)
+  ) {
+    return;
+  }
+  originalConsoleError(...args);
+};
+
 // Explicit cleanup after every test — @testing-library/react auto-registers
 // afterEach(cleanup) per module, but in singleFork mode (all files share one
 // Node process) the auto-registration can misfire between test files, leaving

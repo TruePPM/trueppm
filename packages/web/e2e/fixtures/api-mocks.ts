@@ -217,6 +217,14 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
   await page.route('**/api/v1/calendars/', (route) =>
     route.fulfill(jsonResponse(paginated([]))),
   );
+  // NotificationBell (TopBar, mounted on every project route) polls this every
+  // 30s. Default to empty so every spec touching a routed page doesn't fall
+  // through setupCatchAll → 404 → TanStack retry, which under high Playwright
+  // worker counts pushes spec timeouts past the 10s threshold. Per-spec
+  // page.route(...) overrides still win (last-registered).
+  await page.route('**/api/v1/me/notifications/**', (route) =>
+    route.fulfill(jsonResponse(paginated([]))),
+  );
 
   // ----- Project list -----
   await page.route('**/api/v1/projects/', (route) =>
