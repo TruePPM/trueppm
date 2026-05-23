@@ -469,6 +469,19 @@ helm:lint:
 scheduler:type-check:
   extends: .scheduler
   stage: analyze
+  # Two caches: the inherited pip cache (re-stated via the anchor, since a
+  # list cache replaces the template's map rather than merging) plus the mypy
+  # incremental cache. mypy --strict is cold-slow; persisting .mypy_cache
+  # across pipelines turns most runs into incremental re-checks. Keyed on
+  # pyproject.toml so a dependency/stub bump resets it cleanly.
+  cache:
+    - <<: *scheduler-cache
+    - key:
+        files:
+          - packages/scheduler/pyproject.toml
+        prefix: scheduler-mypy
+      paths:
+        - packages/scheduler/.mypy_cache/
   # ci:build-scheduler-image is optional — when deps haven't changed it
   # isn't in the pipeline and the job pulls the existing tag from the
   # registry. Same pattern repeated on every scheduler:* consumer that
@@ -484,6 +497,20 @@ scheduler:type-check:
 api:type-check:
   extends: .api-no-db
   stage: analyze
+  # Two caches: the inherited pip cache (re-stated via the anchor with its
+  # pull policy, since a list cache replaces the template's map rather than
+  # merging) plus the mypy incremental cache. mypy --strict is cold-slow;
+  # persisting .mypy_cache across pipelines turns most runs into incremental
+  # re-checks. Keyed on pyproject.toml so a dependency/stub bump resets it.
+  cache:
+    - <<: *api-cache
+      policy: pull
+    - key:
+        files:
+          - packages/api/pyproject.toml
+        prefix: api-mypy
+      paths:
+        - packages/api/.mypy_cache/
   # ci:build-api-image is optional — when deps haven't changed it isn't in
   # the pipeline and the job pulls the already-published image from the
   # registry. Same pattern repeated on every job that uses the ci-api image.
