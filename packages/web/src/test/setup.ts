@@ -1,6 +1,26 @@
 import '@testing-library/jest-dom';
+import nodeProcess from 'node:process';
 import { cleanup } from '@testing-library/react';
 import { afterEach } from 'vitest';
+
+// Swallow jsdom XHR AggregateErrors from unmocked apiClient calls. Components
+// that mount API-backed hooks under test occasionally fire requests after the
+// test has finished (TanStack Query polling, deferred refetch); those promise
+// rejections are orphaned, and under vitest workers > 1 the accumulated
+// unhandled rejections crash a worker with ERR_IPC_CHANNEL_CLOSED, failing the
+// suite even though every assertion passes. Filter narrowly: only network
+// AggregateErrors from jsdom's XHR layer are silenced; real test rejections
+// still propagate.
+nodeProcess.on('unhandledRejection', (reason) => {
+  if (
+    reason instanceof Error &&
+    reason.name === 'AggregateError' &&
+    /jsdom[\\/].+xhr/.test(reason.stack ?? '')
+  ) {
+    return;
+  }
+  throw reason;
+});
 
 // Explicit cleanup after every test — @testing-library/react auto-registers
 // afterEach(cleanup) per module, but in singleFork mode (all files share one
