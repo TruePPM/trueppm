@@ -614,14 +614,20 @@ wasm:build:
     - wasm-pack build --target web --release
 
 web:build:
-  # Build artifact is not passed downstream — this job validates the build
-  # is clean. web:test runs vitest independently.
+  # Builds the production bundle and publishes dist/ as an artifact so the
+  # sharded web:e2e jobs can serve it via `vite preview` (webServer in
+  # playwright.config.ts) without each shard rebuilding. web:test runs vitest
+  # independently.
   extends: .web
   stage: analyze
   needs: [web:lint]
   <<: *rules-web
   script:
     - npm run build
+  artifacts:
+    paths:
+      - packages/web/dist/
+    expire_in: 1 day
 
 security:bandit:scheduler:
   # Python static security analysis for the scheduler package.
@@ -889,13 +895,19 @@ web:diff-coverage:
         --fail-under="$COVERAGE_DIFF_MIN"
 
 web:e2e:
-  # End-to-end Playwright tests against the production build.
-  # Uses the official Playwright Docker image (Chromium pre-installed) to avoid
-  # a costly `npx playwright install` download on every run.
-  # Runs after web:test so unit coverage is confirmed before E2E spins up.
+  # End-to-end Playwright tests against the production build, sharded across
+  # 3 runners. One shard per runner: with 3 attached runners the shards run in
+  # a single parallel wave (wall-clock ≈ total/3) and cannot co-locate, so the
+  # per-shard `workers` in playwright.config.ts stays safe. `fullyParallel`
+  # balances the split by test rather than by file, so uneven specs still
+  # divide evenly.
+  #
+  # Consumes dist/ from web:build instead of rebuilding per shard. Emits a blob
+  # report per shard; web:e2e:report stitches them into a single HTML report.
   stage: test
   image: mcr.microsoft.com/playwright:v1.58.2-noble
   needs: [web:lint, web:type-check, web:build]
+  parallel: 3
   <<: *rules-web
   cache:
     <<: *web-cache
@@ -903,14 +915,39 @@ web:e2e:
   before_script:
     - cd packages/web
     - npm ci --prefer-offline --quiet
-    # Production build required for `vite preview` (webServer in playwright.config.ts).
-    # web:build already verified it compiles; this re-runs to produce the dist/ artifact
-    # in the current job's workspace (artifacts are not shared between jobs by default).
-    - npm run build
   script:
-    - npx playwright test --reporter=line
+    - npx playwright test --shard="$CI_NODE_INDEX/$CI_NODE_TOTAL" --reporter=blob
   artifacts:
-    when: on_failure
+    when: always
+    paths:
+      - packages/web/blob-report/
+    expire_in: 1 day
+
+web:e2e:report:
+  # Stitches the per-shard blob reports into one HTML report. Runs even when a
+  # shard fails (when: always) — that is exactly when the report matters. Pulls
+  # the blob artifacts from all parallel web:e2e instances via needs.
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.58.2-noble
+  needs: ["web:e2e"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: always
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/web/**/*
+        - .gitlab-ci.yml
+      when: always
+  cache:
+    <<: *web-cache
+    policy: pull
+  before_script:
+    - cd packages/web
+    - npm ci --prefer-offline --quiet
+  script:
+    - npx playwright merge-reports --reporter=html ./blob-report
+  artifacts:
+    when: always
     paths:
       - packages/web/playwright-report/
     expire_in: 7 days
