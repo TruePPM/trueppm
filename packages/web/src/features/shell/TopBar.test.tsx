@@ -37,6 +37,29 @@ vi.mock('@/hooks/useProjectPresence', () => ({
   useProjectPresence: () => [],
 }));
 
+// NotificationBell polls /me/notifications/ every 30s via TanStack Query, and
+// useCurrentUser hits /auth/me/. Without these stubs the XHRs reject in jsdom and
+// the unhandled rejections crash the vitest worker ("Channel closed" /
+// ERR_IPC_CHANNEL_CLOSED) under parallel workers, even though assertions pass.
+vi.mock('@/hooks/useNotifications', () => ({
+  useUnreadNotificationCount: () => ({ count: 0, isLoading: false }),
+}));
+
+vi.mock('@/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: null, isLoading: false }),
+}));
+
+// ViewTabs (rendered inside TopBar) calls useProject and useCurrentUserRole, both
+// of which hit /projects/<id>/ and /projects/<id>/members/ via apiClient. Same XHR
+// rejection / worker-crash risk as above.
+vi.mock('@/hooks/useProject', () => ({
+  useProject: () => ({ data: undefined, isLoading: false, error: null }),
+}));
+
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({ role: 200, isLoading: false }),
+}));
+
 // useMonteCarloResult — stub with fixture data so the MC panel can open.
 vi.mock('@/hooks/useMonteCarloResult', () => ({
   useMonteCarloResult: () => ({
