@@ -157,6 +157,36 @@ def test_patch_partial_matrix_merges(
     )
 
 
+def test_paused_defaults_to_false_on_first_get(
+    alice_client: APIClient, project: Project, memberships: dict
+) -> None:
+    """A freshly created row has the kill-switch off (#589)."""
+    body = alice_client.get(_url(project)).json()
+    assert body["paused"] is False
+
+
+def test_patch_paused_round_trip(
+    alice_client: APIClient,
+    project: Project,
+    alice: object,
+    memberships: dict,
+) -> None:
+    """PATCH paused=True persists and is visible on subsequent GET (#589)."""
+    response = alice_client.patch(_url(project), {"paused": True}, format="json")
+    assert response.status_code == 200
+    assert response.json()["paused"] is True
+
+    body = alice_client.get(_url(project)).json()
+    assert body["paused"] is True
+    row = ProjectNotificationPreference.objects.get(project=project, user=alice)
+    assert row.paused is True
+
+    # Unpausing restores the existing matrix exactly — no preference loss.
+    response = alice_client.patch(_url(project), {"paused": False}, format="json")
+    assert response.status_code == 200
+    assert response.json()["paused"] is False
+
+
 def test_patch_quiet_hours(alice_client: APIClient, project: Project, memberships: dict) -> None:
     response = alice_client.patch(
         _url(project),

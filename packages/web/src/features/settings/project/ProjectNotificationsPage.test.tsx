@@ -54,6 +54,7 @@ const SEED: ProjectNotificationPreferences = {
     sprint_start: { in_app: true, email: true, slack: true, mobile_push: false },
     sprint_end: { in_app: true, email: true, slack: true, mobile_push: false },
   },
+  paused: false,
   quietHoursEnabled: true,
   quietHoursFrom: '20:00:00',
   quietHoursUntil: '07:00:00',
@@ -122,6 +123,34 @@ describe('ProjectNotificationsPage', () => {
     });
     renderPage();
     expect(screen.getByText(/loading/i)).toBeInTheDocument();
+  });
+
+  it('renders the pause-all kill-switch above the matrix (#589)', () => {
+    renderPage();
+    const pause = screen.getByRole('switch', { name: /pause all project notifications/i });
+    expect(pause).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText(/one-click opt-out/i)).toBeInTheDocument();
+  });
+
+  it('PATCHes paused=true when the kill-switch is toggled on (#589)', async () => {
+    renderPage();
+    const pause = screen.getByRole('switch', { name: /pause all project notifications/i });
+    fireEvent.click(pause);
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+    expect(mutate.mock.calls[0][0]).toEqual({ paused: true });
+  });
+
+  it('shows the paused copy and dims the matrix when paused=true (#589)', () => {
+    useProjectNotificationPreferences.mockReturnValue({
+      preferences: { ...SEED, paused: true },
+      isLoading: false,
+      error: null,
+      update: { mutate },
+    });
+    renderPage();
+    expect(screen.getByText(/^Paused —/i)).toBeInTheDocument();
+    const pause = screen.getByRole('switch', { name: /pause all project notifications/i });
+    expect(pause).toHaveAttribute('aria-checked', 'true');
   });
 
   it('renders an error state on API failure', () => {

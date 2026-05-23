@@ -41,6 +41,7 @@ from .models import (
     MentionScope,
     Notification,
     NotificationPreference,
+    ProjectNotificationPreference,
 )
 
 if TYPE_CHECKING:
@@ -301,6 +302,22 @@ def create_mention_notifications(
     # Drop the mentioner from direct mentions too (don't ping yourself)
     recipients.pop(mentioner.pk, None)
 
+    if not recipients:
+        return 0
+
+    # Per-project kill-switch (#589). Drop any recipient who has paused all
+    # notifications on this project — both the in-app row and the email
+    # enqueue. The matrix is preserved so unpausing restores prior routing.
+    paused_user_ids = set(
+        ProjectNotificationPreference.objects.filter(
+            project_id=project_id,
+            user_id__in=list(recipients.keys()),
+            paused=True,
+        ).values_list("user_id", flat=True)
+    )
+    if paused_user_ids:
+        for uid in paused_user_ids:
+            recipients.pop(uid, None)
     if not recipients:
         return 0
 

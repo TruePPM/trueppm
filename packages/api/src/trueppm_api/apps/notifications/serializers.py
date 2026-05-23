@@ -188,6 +188,7 @@ class ProjectNotificationPreferenceSerializer(
         model = ProjectNotificationPreference
         fields = [
             "matrix",
+            "paused",
             "quiet_hours_enabled",
             "quiet_hours_from",
             "quiet_hours_until",

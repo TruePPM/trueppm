@@ -439,6 +439,13 @@ class ProjectNotificationPreference(models.Model):
     )
     matrix = models.JSONField(default=_default_matrix)
 
+    # Per-user-per-project kill-switch (#589). When True, all notification
+    # dispatch for this user on this project is suppressed regardless of the
+    # matrix — an opt-out path for members who haven't dialed in their
+    # routing yet. The matrix remains preserved so unpausing restores prior
+    # preferences exactly.
+    paused = models.BooleanField(default=False)
+
     quiet_hours_enabled = models.BooleanField(default=True)
     quiet_hours_from = models.TimeField(default=datetime.time(20, 0))
     quiet_hours_until = models.TimeField(default=datetime.time(7, 0))
