@@ -26,6 +26,11 @@ export function ProjectNotificationsPage() {
     update.mutate({ quietHoursEnabled: !preferences.quietHoursEnabled });
   }
 
+  function togglePaused() {
+    if (!preferences) return;
+    update.mutate({ paused: !preferences.paused });
+  }
+
   function setQuietFrom(value: string) {
     update.mutate({ quietHoursFrom: value });
   }
@@ -72,8 +77,36 @@ export function ProjectNotificationsPage() {
       />
 
       <div className="px-6 pb-8 max-w-[920px] space-y-4">
+        {/* Pause-all kill-switch (#589). Sits above the matrix so a member who
+            isn't ready to dial in their routing has a one-click opt-out. The
+            matrix below remains fully editable while paused — toggling cells
+            updates stored preferences for when pause is released. */}
+        <div className="bg-neutral-surface-raised border border-neutral-border rounded-lg p-4 flex items-start gap-4">
+          <Toggle
+            on={preferences.paused}
+            onToggle={togglePaused}
+            ariaLabel="Pause all project notifications"
+          />
+          <div className="flex-1">
+            <h2 className="text-[13px] font-semibold text-neutral-text-primary">
+              Pause all notifications
+            </h2>
+            <p className="text-[12px] text-neutral-text-secondary leading-snug mt-0.5">
+              {preferences.paused
+                ? 'Paused — no notifications will fire for you on this project. Your matrix below is preserved and resumes when you unpause.'
+                : 'One-click opt-out from every notification on this project. Useful while you dial in the matrix below.'}
+            </p>
+          </div>
+        </div>
+
         {/* Event × Channel matrix */}
-        <div className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden">
+        <div
+          aria-disabled={preferences.paused}
+          className={[
+            'bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden transition-opacity',
+            preferences.paused ? 'opacity-50' : '',
+          ].join(' ')}
+        >
           <div
             className="grid px-4 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border/55 text-[10px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
             style={{ gridTemplateColumns: `2fr repeat(${PROJECT_NOTIFICATION_CHANNELS.length}, 110px)` }}

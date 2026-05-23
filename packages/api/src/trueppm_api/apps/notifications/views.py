@@ -213,7 +213,7 @@ class ProjectNotificationPreferenceView(APIView):
             merged = _merge_matrix(pref.matrix or {}, validated["matrix"])
             pref.matrix = merged
 
-        for field in ("quiet_hours_enabled", "quiet_hours_from", "quiet_hours_until"):
+        for field in ("paused", "quiet_hours_enabled", "quiet_hours_from", "quiet_hours_until"):
             if field in validated:
                 setattr(pref, field, validated[field])
         pref.save()

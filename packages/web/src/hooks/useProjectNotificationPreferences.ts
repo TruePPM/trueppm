@@ -52,6 +52,9 @@ export type ProjectNotificationMatrix = Record<
 
 export interface ProjectNotificationPreferences {
   matrix: ProjectNotificationMatrix;
+  /** Per-user-per-project kill-switch (#589). When true, no notifications
+   * fire for this user on this project regardless of the matrix. */
+  paused: boolean;
   quietHoursEnabled: boolean;
   /** Stored as HH:MM:SS or HH:MM; the UI binds to the HH:MM prefix. */
   quietHoursFrom: string;
@@ -60,6 +63,7 @@ export interface ProjectNotificationPreferences {
 
 interface ApiPreferences {
   matrix: ProjectNotificationMatrix;
+  paused: boolean;
   quiet_hours_enabled: boolean;
   quiet_hours_from: string;
   quiet_hours_until: string;
@@ -69,6 +73,7 @@ interface ApiPreferences {
 function fromApi(payload: ApiPreferences): ProjectNotificationPreferences {
   return {
     matrix: payload.matrix,
+    paused: payload.paused ?? false,
     quietHoursEnabled: payload.quiet_hours_enabled,
     quietHoursFrom: payload.quiet_hours_from,
     quietHoursUntil: payload.quiet_hours_until,
@@ -79,6 +84,7 @@ const KEY = (projectId: string) => ['project-notification-preferences', projectI
 
 export interface ProjectNotificationPatch {
   matrix?: Partial<Record<ProjectNotificationEventType, Partial<Record<ProjectNotificationChannel, boolean>>>>;
+  paused?: boolean;
   quietHoursEnabled?: boolean;
   quietHoursFrom?: string;
   quietHoursUntil?: string;
@@ -87,6 +93,7 @@ export interface ProjectNotificationPatch {
 function toApi(patch: ProjectNotificationPatch): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   if (patch.matrix !== undefined) body.matrix = patch.matrix;
+  if (patch.paused !== undefined) body.paused = patch.paused;
   if (patch.quietHoursEnabled !== undefined) body.quiet_hours_enabled = patch.quietHoursEnabled;
   if (patch.quietHoursFrom !== undefined) body.quiet_hours_from = patch.quietHoursFrom;
   if (patch.quietHoursUntil !== undefined) body.quiet_hours_until = patch.quietHoursUntil;
@@ -124,6 +131,7 @@ export function useProjectNotificationPreferences(projectId: string | null | und
       if (previous) {
         const next: ProjectNotificationPreferences = {
           ...previous,
+          paused: patch.paused !== undefined ? patch.paused : previous.paused,
           quietHoursEnabled:
             patch.quietHoursEnabled !== undefined
               ? patch.quietHoursEnabled

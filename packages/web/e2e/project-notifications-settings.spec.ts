@@ -57,6 +57,7 @@ const FIXTURE_PREFERENCES = {
     sprint_start: { in_app: true, email: true, slack: true, mobile_push: false },
     sprint_end: { in_app: true, email: true, slack: true, mobile_push: false },
   },
+  paused: false,
   quiet_hours_enabled: true,
   quiet_hours_from: '20:00:00',
   quiet_hours_until: '07:00:00',
@@ -67,9 +68,11 @@ type Page = import('@playwright/test').Page;
 
 interface Captures {
   patches: Record<string, unknown>[];
+  current?: Record<string, unknown>;
 }
 
 async function setup(page: Page, captures: Captures) {
+  captures.current = { ...FIXTURE_PREFERENCES };
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -118,17 +121,20 @@ async function setup(page: Page, captures: Captures) {
       if (route.request().method() === 'PATCH') {
         const body = (await route.request().postDataJSON()) as Record<string, unknown>;
         captures.patches.push(body);
+        // Merge so subsequent GETs (e.g. after reload) see the latest state
+        // — required for the pause-persist test (#589).
+        captures.current = { ...(captures.current ?? FIXTURE_PREFERENCES), ...body };
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: pj({ ...FIXTURE_PREFERENCES, ...body }),
+          body: pj(captures.current),
         });
         return;
       }
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj(FIXTURE_PREFERENCES),
+        body: pj(captures.current ?? FIXTURE_PREFERENCES),
       });
     },
   );
@@ -140,7 +146,7 @@ test.describe('Project Settings → Notifications (#522)', () => {
     await setup(page, captures);
     await page.goto(`/projects/${PROJECT_ID}/settings/notifications`);
 
-    await expect(page.getByRole('heading', { name: 'Notifications' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Notifications', exact: true })).toBeVisible();
     // Stub banner is gone — page is wired.
     await expect(page.getByTestId('stub-page-banner')).toBeHidden();
 
@@ -159,6 +165,27 @@ test.describe('Project Settings → Notifications (#522)', () => {
 
     await expect.poll(() => captures.patches.length).toBeGreaterThan(0);
     expect(captures.patches[0]).toEqual({ matrix: { task_assigned: { email: false } } });
+  });
+
+  test('pauses all notifications and persists the kill-switch across reload (#589)', async ({ page }) => {
+    const captures: Captures = { patches: [] };
+    await setup(page, captures);
+    await page.goto(`/projects/${PROJECT_ID}/settings/notifications`);
+
+    const pause = page.getByRole('switch', { name: 'Pause all project notifications' });
+    await expect(pause).toHaveAttribute('aria-checked', 'false');
+    await pause.click();
+
+    await expect.poll(() => captures.patches.length).toBe(1);
+    expect(captures.patches[0]).toEqual({ paused: true });
+    await expect(pause).toHaveAttribute('aria-checked', 'true');
+
+    // Reload — the fixture echoes back the patched fields, so paused=true
+    // round-trips through the GET on the next mount.
+    await page.reload();
+    await expect(
+      page.getByRole('switch', { name: 'Pause all project notifications' }),
+    ).toHaveAttribute('aria-checked', 'true');
   });
 
   test('toggles quiet hours and persists a new start time', async ({ page }) => {

@@ -317,6 +317,37 @@ class TestCreateMentionNotifications:
         assert alice_notif.mention is not None
         assert alice_notif.mention.mentioned_user_id == alice.pk  # type: ignore[attr-defined]
 
+    def test_paused_recipient_is_skipped(
+        self,
+        project: Project,
+        author: object,
+        alice: object,
+        bob: object,
+        comment: TaskComment,
+        memberships: dict[str, ProjectMembership],
+    ) -> None:
+        """A user with paused=True on this project gets no Notification row (#589)."""
+        from trueppm_api.apps.notifications.models import ProjectNotificationPreference
+
+        ProjectNotificationPreference.objects.create(project=project, user=alice, paused=True)
+        resolved = resolve_parsed_mentions(
+            [ParsedMention("user", "alice"), ParsedMention("user", "bob")],
+            project.pk,
+            actor_role=Role.ADMIN,
+        )
+        created = create_mention_notifications(
+            task_comment=comment,
+            mentioner=author,
+            parsed_result=resolved,
+            project_id=project.pk,
+        )
+        assert created == 1
+        assert Notification.objects.filter(recipient=alice).count() == 0
+        assert Notification.objects.filter(recipient=bob).count() == 1
+        # The Mention rows still get persisted — pause suppresses dispatch,
+        # not the audit record of who was @-named.
+        assert Mention.objects.filter(mentioned_user=alice).count() == 1
+
     def test_empty_parsed_returns_zero(
         self,
         project: Project,
