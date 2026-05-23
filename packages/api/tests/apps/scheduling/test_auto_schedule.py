@@ -406,27 +406,37 @@ def test_incremental_result_equals_full_recompute() -> None:
 
 @pytest.mark.django_db
 def test_incremental_benchmark_500_tasks_5_changes() -> None:
-    """Benchmark: incremental write on a 500-task project with 5 changed tasks.
-
-    Budget: 200 ms locally, 600 ms on shared CI runners (GitLab sets CI=true).
+    """Verify the incremental write path skips the bulk of the DB on small changes.
 
     Structure: 20 independent chains of 25 tasks each (500 tasks total).  Changing 5
     tasks in chain #0 affects at most 25 downstream tasks = 5% < 25% threshold, so the
-    incremental write path is taken.  The CPM still runs on all 500 tasks but only 25
-    rows are written back to the DB, which is the meaningful savings for large projects.
+    incremental write path is taken.  The CPM still runs on all 500 tasks but only the
+    affected chain is written back to the DB, which is the meaningful savings for large
+    projects.
 
-    We take the minimum of three runs against the budget. Shared CI runners exhibit
-    significant scheduler variance — a single 650 ms outlier next to a typical 400 ms
-    run is noise, not regression. Best-of-N is the standard pattern for perf
-    benchmarks on noisy hosts; it preserves signal on real regressions (all runs slow)
-    while filtering single-run jitter.
+    Why we assert on bulk_update row count, not wall-clock time:
+    The whole *point* of the incremental path is "write ~25 rows instead of 500."
+    Counting rows passed to bulk_update directly is deterministic and immune to
+    runner noise — a wall-clock budget on shared CI hosts produced flake (samples
+    like [827, 828, 610] ms against a 600 ms budget) because the runner was
+    sustained-slow, not jittering, so best-of-N didn't help. Row count regresses
+    sharply (~25 → ~500) if someone accidentally drops back to the full-write
+    path, giving a stronger signal than ms anyway.
+
+    We can't use CaptureQueriesContext alone: on PostgreSQL, bulk_update emits a
+    single UPDATE with CASE WHEN clauses regardless of row count, so query count
+    is identical for 25 rows and 500 rows. We spy on bulk_update directly.
     """
-    import os
-    import time
-    from datetime import date
-
     from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
     from trueppm_api.apps.scheduling.tasks import _run_schedule
+
+    original_bulk_update = Task.objects.bulk_update
+    bulk_update_sizes: list[int] = []
+
+    def spy_bulk_update(objs, *args, **kwargs):  # type: ignore[no-untyped-def]
+        objs_list = list(objs)
+        bulk_update_sizes.append(len(objs_list))
+        return original_bulk_update(objs_list, *args, **kwargs)
 
     cal = Calendar.objects.create(name="Bench")
     proj = Project.objects.create(name="BenchProj", start_date=date(2026, 1, 5), calendar=cal)
@@ -459,15 +469,19 @@ def test_incremental_benchmark_500_tasks_5_changes() -> None:
         # Change the first 5 tasks in chain #0.
         # Downstream = 20 tasks (indices 5-24 in chain 0) = 20/500 = 4% < 25% threshold.
         changed = [str(all_tasks[0][i].pk) for i in range(5)]
-        samples_ms: list[float] = []
-        for _ in range(3):
-            t0 = time.perf_counter()
+        bulk_update_sizes.clear()
+        with patch.object(Task.objects, "bulk_update", side_effect=spy_bulk_update):
             _run_schedule(str(proj.pk), changed_task_ids=changed)
-            samples_ms.append((time.perf_counter() - t0) * 1000)
 
-    best_ms = min(samples_ms)
-    budget_ms = 600 if os.getenv("CI") else 200
-    assert best_ms < budget_ms, (
-        f"Incremental CPM took {best_ms:.1f} ms (best of {samples_ms}) — "
-        f"exceeds {budget_ms} ms budget"
+    # Incremental should write only the affected chain (~20-25 rows). Full-write
+    # would write all 500. The upper bound (60) sits well above the incremental
+    # ceiling and an order of magnitude below the full-write floor; the lower
+    # bound (1) catches a regression that silently writes nothing.
+    assert bulk_update_sizes, "Task.objects.bulk_update was never called"
+    incremental_write_size = max(bulk_update_sizes)
+    assert 1 <= incremental_write_size <= 60, (
+        f"Incremental bulk_update wrote {incremental_write_size} Task rows "
+        f"(sizes={bulk_update_sizes}); expected 1-60 (full-write would be ~500). "
+        f"This likely means the change ratio threshold tripped or the incremental "
+        f"path regressed to full-write."
     )
