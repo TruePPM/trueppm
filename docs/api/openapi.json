@@ -1920,6 +1920,105 @@
                 }
             }
         },
+        "/api/v1/programs/{id}/risk-policy/": {
+            "get": {
+                "operationId": "v1_programs_risk_policy_retrieve",
+                "description": "Read or update the program risk & deps policy (#529).\n\nURL: ``GET|PATCH /api/v1/programs/{pk}/risk-policy/``\n\nPermission split mirrors ``rollup_config`` (see ``get_permissions``):\nany member can read, only admins can write. Audit is automatic via\nthe ``HistoricalRecords()`` already on Program — every successful\nPATCH creates a ``HistoricalProgram`` row with the field diff.\n\nThe 5×5 risk matrix surfaced on the same Settings page is\nintentionally out of scope here — those thresholds are workspace-\nwide and read-only at the program level.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_programs_risk_policy_partial_update",
+                "description": "Read or update the program risk & deps policy (#529).\n\nURL: ``GET|PATCH /api/v1/programs/{pk}/risk-policy/``\n\nPermission split mirrors ``rollup_config`` (see ``get_permissions``):\nany member can read, only admins can write. Audit is automatic via\nthe ``HistoricalRecords()`` already on Program — every successful\nPATCH creates a ``HistoricalProgram`` row with the field diff.\n\nThe 5×5 risk matrix surfaced on the same Settings page is\nintentionally out of scope here — those thresholds are workspace-\nwide and read-only at the program level.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProgramRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{id}/rollup-config/": {
             "get": {
                 "operationId": "v1_programs_rollup_config_retrieve",

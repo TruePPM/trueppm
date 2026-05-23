@@ -30,6 +30,7 @@ from trueppm_api.apps.access.permissions import (
 from trueppm_api.apps.access.services import create_program, delete_program_cascade
 from trueppm_api.apps.projects.models import Methodology, Program, Project
 from trueppm_api.apps.projects.serializers import (
+    ProgramRiskPolicySerializer,
     ProgramRollupConfigSerializer,
     ProgramSerializer,
     ProjectSerializer,
@@ -56,7 +57,7 @@ class ProgramViewSet(viewsets.ModelViewSet[Program]):
             return [IsAuthenticated(), IsProgramAdmin()]
         if self.action == "destroy":
             return [IsAuthenticated(), IsProgramOwner()]
-        if self.action == "rollup_config":
+        if self.action in ("rollup_config", "risk_policy"):
             # Method-level split: GET is read-open to any program member,
             # PATCH requires admin. DRF evaluates permissions before dispatch,
             # so the discriminator is the HTTP method on the request.
@@ -227,3 +228,27 @@ class ProgramViewSet(viewsets.ModelViewSet[Program]):
         # field-level normalization (de-duped KPI list) applied by the
         # serializer's validators.
         return Response(ProgramRollupConfigSerializer(program).data)
+
+    @action(detail=True, methods=["get", "patch"], url_path="risk-policy")
+    def risk_policy(self, request: Request, pk: str | None = None) -> Response:
+        """Read or update the program risk & deps policy (#529).
+
+        URL: ``GET|PATCH /api/v1/programs/{pk}/risk-policy/``
+
+        Permission split mirrors ``rollup_config`` (see ``get_permissions``):
+        any member can read, only admins can write. Audit is automatic via
+        the ``HistoricalRecords()`` already on Program — every successful
+        PATCH creates a ``HistoricalProgram`` row with the field diff.
+
+        The 5×5 risk matrix surfaced on the same Settings page is
+        intentionally out of scope here — those thresholds are workspace-
+        wide and read-only at the program level.
+        """
+        program = self.get_object()
+        if request.method == "GET":
+            return Response(ProgramRiskPolicySerializer(program).data)
+
+        serializer = ProgramRiskPolicySerializer(program, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(ProgramRiskPolicySerializer(program).data)

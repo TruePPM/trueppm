@@ -386,6 +386,37 @@ class ProgramRollupConfigSerializer(serializers.ModelSerializer[Program]):
         return deduped
 
 
+class ProgramRiskPolicySerializer(serializers.ModelSerializer[Program]):
+    """GET/PATCH payload for ``/api/v1/programs/{id}/risk-policy/`` (#529).
+
+    Wraps the two ``risk_*`` columns on Program. Both fields are partial-
+    updatable. Enum and range are enforced server-side so the UI can stay
+    thin — DRF's ``ChoiceField`` rejects unknown values; the explicit
+    ``min_value``/``max_value`` mirror the model-level validators so a
+    well-formed PATCH never reaches the database with an out-of-range int.
+    """
+
+    slip_propagation = serializers.ChoiceField(
+        source="risk_slip_propagation",
+        choices=[],  # populated in __init__ to avoid import-cycle at class build
+    )
+    escalation_days = serializers.IntegerField(
+        source="risk_escalation_days",
+        min_value=1,
+        max_value=30,
+    )
+
+    class Meta:
+        model = Program
+        fields = ["slip_propagation", "escalation_days"]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        from trueppm_api.apps.projects.models import SlipPropagation
+
+        self.fields["slip_propagation"].choices = SlipPropagation.choices  # type: ignore[attr-defined]
+
+
 class CeremonyTemplateSerializer(serializers.ModelSerializer[CeremonyTemplate]):
     """Read/write serializer for program ceremony templates (ADR-0079).
 

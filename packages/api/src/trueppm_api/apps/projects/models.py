@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import F, Q
 from django.db.models.functions import Lower
@@ -270,6 +271,21 @@ class AggregationPolicy(models.TextChoices):
     TASK_WEIGHTED = "task_weighted", "Task-weighted"
 
 
+class SlipPropagation(models.TextChoices):
+    """What a program does when a cross-project dependency slips (#529).
+
+    The closed set is the union of "no action / surface / enforce" — three
+    rungs the PM can step through as a program matures. ``WARN`` is the
+    default because it matches how the program shell already renders a slip
+    indicator on the program overview; ``NONE`` and ``BLOCK`` are explicit
+    opt-outs in either direction.
+    """
+
+    NONE = "none", "No action"
+    WARN = "warn", "Warn only"
+    BLOCK = "block", "Block & escalate"
+
+
 class Program(VersionedModel):
     """Named grouping of related projects for one PM or program team (ADR-0070).
 
@@ -324,6 +340,21 @@ class Program(VersionedModel):
         max_length=24,
         choices=AggregationPolicy.choices,
         default=AggregationPolicy.WORST,
+    )
+    # Risk & deps policy (#529) — controls cross-project dependency slip
+    # behaviour at the program boundary. Two columns on Program for the same
+    # reason as the rollup config above: HistoricalRecords gives audit for
+    # free, and ``server_version`` bumps on save() so the sync protocol fans
+    # out. No methodology-aware seeding — the static defaults (``WARN`` / 3
+    # days) match the issue spec for both new and existing rows.
+    risk_slip_propagation = models.CharField(
+        max_length=8,
+        choices=SlipPropagation.choices,
+        default=SlipPropagation.WARN,
+    )
+    risk_escalation_days = models.PositiveSmallIntegerField(
+        default=3,
+        validators=[MinValueValidator(1), MaxValueValidator(30)],
     )
     # The single "Program Manager" displayed in the Program header and Settings
     # General page. Distinct from ``created_by`` (immutable historical fact) and
