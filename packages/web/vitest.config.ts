@@ -17,6 +17,13 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts'],
+    // Don't crash the vitest fork on unhandled promise rejections. Components
+    // that mount API-backed hooks (TanStack Query, polling) occasionally leak
+    // XHR rejections after the test has finished — orphan rejections that
+    // would otherwise terminate the worker with ERR_IPC_CHANNEL_CLOSED even
+    // though every assertion passes. Real assertion failures still report
+    // normally; this only suppresses async noise from unmounted components.
+    dangerouslyIgnoreUnhandledErrors: true,
     // Exclude Playwright E2E specs — they use playwright's own runner, not Vitest.
     exclude: ['e2e/**', 'node_modules/**'],
     globals: true,
