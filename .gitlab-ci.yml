@@ -15,8 +15,11 @@ default:
       - stuck_or_timeout_failure
   after_script:
     # Free workspace disk before cache upload to reduce runner disk pressure.
-    # Runs inside the container — safe even if the main script failed.
-    - rm -rf /tmp/* 2>/dev/null || true
+    # NOTE: this runner's builds_dir is under /tmp (/tmp/builds/...), so a bare
+    # `rm -rf /tmp/*` deletes the checkout and the post-job `cd` back into the
+    # project fails with exit 1 — failing an otherwise-green job. Exclude the
+    # build dir so we reclaim scratch space without destroying the workspace.
+    - find /tmp -mindepth 1 -maxdepth 1 ! -name builds -exec rm -rf {} + 2>/dev/null || true
 
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
