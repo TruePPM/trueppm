@@ -872,9 +872,10 @@ web:test:
   # Sharded across 3 runners (vitest splits by test file). The configured
   # singleFork pool keeps each shard's jsdom heap bounded, and fewer files per
   # shard eases the OOM pressure that forced singleFork in the first place. Each
-  # shard writes a partial lcov to coverage-<index>/; web:coverage merges them
-  # for the diff-coverage gate. The `--` forwards the shard + output-dir flags to
-  # vitest while preserving the dir filter and coverage config from test:coverage.
+  # shard writes partial istanbul coverage (coverage-final.json) to
+  # coverage-<index>/; web:coverage stitches them for the diff-coverage gate. The
+  # `--` forwards the shard + output-dir flags to vitest while preserving the dir
+  # filter and coverage config from test:coverage.
   needs: [web:lint, web:type-check, web:build]
   parallel: 3
   <<: *rules-web
@@ -884,54 +885,33 @@ web:test:
         --coverage.reportsDirectory="coverage-$CI_NODE_INDEX"
   artifacts:
     paths:
-      - packages/web/coverage-*/lcov.info
+      - packages/web/coverage-*/coverage-final.json
     expire_in: 1 day
     when: always
 
 web:coverage:
-  # Merges the per-shard lcov tracefiles from web:test into a single
-  # coverage/lcov.info for web:diff-coverage (the primary tests gate). GNU lcov
-  # -a does a correct union of hit lines for source files exercised by more than
-  # one shard. python:3.11-slim matches web:diff-coverage's image (lcov is
-  # apt-only; the node image can't merge tracefiles without an npm tool).
+  # Stitches the per-shard istanbul coverage from web:test into a single
+  # coverage/lcov.info for web:diff-coverage (the primary tests gate) and enforces
+  # the package-total line floor. Runs in the cached node image (.web) and merges
+  # the coverage maps with scripts/merge-coverage.mjs — no GNU lcov install. The
+  # old python:3.11-slim job had to `apt-get install lcov`, which drags in
+  # perl + binutils for ~5 min while the merge itself took <1s; the map-level
+  # merge here is <1s and also sidesteps the istanbul duplicate-function-name
+  # inconsistency that forced --ignore-errors on the lcov text-merge path.
+  extends: .web
   stage: test
-  image: python:3.11-slim
   needs:
     - job: web:test
       artifacts: true
   <<: *rules-web
   variables:
     # Package-total line floor against legacy regressions, enforced on the merged
-    # tracefile (vitest can't — it never sees the stitched result). Mirrors the
-    # api:coverage --fail-under=80 soft floor. The primary gate is web:diff-coverage.
+    # result (vitest can't — no single shard sees it). Mirrors the api:coverage
+    # --fail-under=80 soft floor. The primary gate is web:diff-coverage.
     WEB_COVERAGE_MIN: "75"
-  before_script:
-    - apt-get update -qq && apt-get install -y -qq --no-install-recommends lcov
-    - cd packages/web
   script:
-    - mkdir -p coverage
-    # --ignore-errors inconsistent,corrupt: istanbul emits several distinct
-    # anonymous functions under the same name (e.g. two `handler`s at different
-    # lines in one file), which lcov 2.x rejects as an inconsistency and then
-    # wraps as a corrupt-tracefile read error. The duplicate names are harmless
-    # for the line-coverage union we need, so we downgrade both to warnings.
-    - lcov --ignore-errors inconsistent,corrupt
-        $(for f in coverage-*/lcov.info; do printf ' -a %s' "$f"; done) -o coverage/lcov.info
-    # Same downgrade on read-back: the merged file still carries the duplicate
-    # function names, so --summary would re-flag them without the ignore flags.
-    - lcov --ignore-errors inconsistent,corrupt --summary coverage/lcov.info | tee coverage/summary.txt
-    # Fail the merge job (not the shards) if merged line coverage drops below the
-    # floor. Parse the first NN% token on the lcov "lines" summary row; awk float
-    # compare keeps this independent of the lcov major version (slim ships 2.x).
-    - |
-      awk -v min="$WEB_COVERAGE_MIN" '
-        /lines/ {
-          for (i = 1; i <= NF; i++) if ($i ~ /%$/) { v = $i; gsub(/%/, "", v); break }
-          if (v + 0 < min + 0) { printf "ERROR: line coverage %s%% is below floor %s%%\n", v, min; exit 1 }
-          printf "line coverage %s%% meets floor %s%%\n", v, min
-        }
-      ' coverage/summary.txt
-  coverage: '/lines\.+:\s+([\d.]+%)/'
+    - node scripts/merge-coverage.mjs
+  coverage: '/line coverage ([\d.]+)%/'
   artifacts:
     paths:
       - packages/web/coverage/lcov.info

@@ -40,8 +40,11 @@ export default defineConfig({
       all: false,
       // 'text' prints to stdout for the package-total CI gate; 'lcov' writes
       // coverage/lcov.info which `diff-cover` consumes for the diff-coverage
-      // gate (see Makefile coverage-diff-web).
-      reporter: ['text', 'lcov'],
+      // gate (see Makefile coverage-diff-web). 'json' writes coverage-final.json,
+      // the istanbul data file that scripts/merge-coverage.mjs stitches across the
+      // web:test shards in CI — a map-level merge in the cached node image, far
+      // cheaper than the GNU lcov install (perl + binutils, ~5 min) it replaced.
+      reporter: ['text', 'lcov', 'json'],
       reportsDirectory: './coverage',
       include: ['src/**/*.{ts,tsx}'],
       // Merge with the vitest defaults so node_modules, dist, etc. stay excluded.
