@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime, time
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -15,6 +15,9 @@ from trueppm_api.apps.notifications.models import (
     NotificationChannel,
     NotificationEventType,
     NotificationPreference,
+    ProjectNotificationChannel,
+    ProjectNotificationEventType,
+    ProjectNotificationPreference,
 )
 from trueppm_api.apps.notifications.services import (
     ParsedMention,
@@ -22,8 +25,15 @@ from trueppm_api.apps.notifications.services import (
     get_or_create_default_preferences,
     parse_mentions,
     resolve_parsed_mentions,
+    should_deliver,
 )
 from trueppm_api.apps.projects.models import Calendar, Project, Task, TaskComment
+
+# A fixed "now" comfortably outside the default 20:00–07:00 quiet-hours window,
+# so fan-out email assertions don't depend on wall-clock time.
+NOON_UTC = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+# Inside the default overnight quiet window (20:00–07:00).
+MIDNIGHT_UTC = datetime(2026, 1, 1, 0, 30, tzinfo=UTC)
 
 User = get_user_model()
 
@@ -391,9 +401,73 @@ class TestCreateMentionNotifications:
             mentioner=author,
             parsed_result=resolved,
             project_id=project.pk,
+            now=NOON_UTC,  # outside quiet hours — isolate the global email pref
         )
         n = Notification.objects.get(recipient=alice)
         assert n.email_pending is True
+
+    def test_quiet_hours_suppresses_email_but_not_in_app(
+        self,
+        project: Project,
+        author: object,
+        alice: object,
+        comment: TaskComment,
+        memberships: dict[str, ProjectMembership],
+    ) -> None:
+        """Inside quiet hours the durable in-app row still lands; email does not (#674)."""
+        # Global email pref ON so email is gated solely by the project matrix.
+        NotificationPreference.objects.create(
+            user=alice,
+            event_type=NotificationEventType.MENTION_INDIVIDUAL,
+            channel=NotificationChannel.EMAIL,
+            enabled=True,
+        )
+        resolved = resolve_parsed_mentions(
+            [ParsedMention("user", "alice")], project.pk, actor_role=Role.ADMIN
+        )
+        created = create_mention_notifications(
+            task_comment=comment,
+            mentioner=author,
+            parsed_result=resolved,
+            project_id=project.pk,
+            now=MIDNIGHT_UTC,  # inside the default 20:00–07:00 quiet window
+        )
+        assert created == 1
+        n = Notification.objects.get(recipient=alice)
+        assert n.email_pending is False  # transient channel suppressed
+
+    def test_in_app_matrix_opt_out_skips_notification(
+        self,
+        project: Project,
+        author: object,
+        alice: object,
+        bob: object,
+        comment: TaskComment,
+        memberships: dict[str, ProjectMembership],
+    ) -> None:
+        """A user who turns off comment_mention/in_app gets no inbox row (#674)."""
+        ProjectNotificationPreference.objects.create(
+            project=project,
+            user=alice,
+            matrix={ProjectNotificationEventType.COMMENT_MENTION.value: {"in_app": False}},
+        )
+        resolved = resolve_parsed_mentions(
+            [ParsedMention("user", "alice"), ParsedMention("user", "bob")],
+            project.pk,
+            actor_role=Role.ADMIN,
+        )
+        created = create_mention_notifications(
+            task_comment=comment,
+            mentioner=author,
+            parsed_result=resolved,
+            project_id=project.pk,
+            now=NOON_UTC,
+        )
+        assert created == 1
+        assert Notification.objects.filter(recipient=alice).count() == 0
+        assert Notification.objects.filter(recipient=bob).count() == 1
+        # The Mention audit row still exists — opt-out suppresses dispatch only.
+        assert Mention.objects.filter(mentioned_user=alice).count() == 1
 
 
 # ---------------------------------------------------------------------------
@@ -431,3 +505,125 @@ class TestGetOrCreateDefaultPreferences:
         get_or_create_default_preferences(alice)
         get_or_create_default_preferences(alice)
         assert NotificationPreference.objects.filter(user=alice).count() == len(DEFAULT_PREFERENCES)
+
+
+# ---------------------------------------------------------------------------
+# should_deliver — project-scoped delivery gate (#674)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestShouldDeliver:
+    _EVENT = ProjectNotificationEventType.TASK_ASSIGNED.value
+    _IN_APP = ProjectNotificationChannel.IN_APP.value
+    _EMAIL = ProjectNotificationChannel.EMAIL.value
+
+    def test_lazily_creates_row(self, project: Project, alice: object) -> None:
+        """First call materializes the user's preference row (defaults apply)."""
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=NOON_UTC) is True
+        assert (
+            ProjectNotificationPreference.objects.filter(project=project, user=alice).count() == 1
+        )
+
+    def test_matrix_cell_false_blocks_delivery(self, project: Project, alice: object) -> None:
+        ProjectNotificationPreference.objects.create(
+            project=project,
+            user=alice,
+            matrix={self._EVENT: {self._EMAIL: False}},
+        )
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=NOON_UTC) is False
+
+    def test_matrix_cell_true_allows_delivery(self, project: Project, alice: object) -> None:
+        ProjectNotificationPreference.objects.create(
+            project=project,
+            user=alice,
+            matrix={self._EVENT: {self._EMAIL: True}},
+        )
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=NOON_UTC) is True
+
+    def test_paused_blocks_every_channel(self, project: Project, alice: object) -> None:
+        ProjectNotificationPreference.objects.create(project=project, user=alice, paused=True)
+        assert should_deliver(alice, project, self._EVENT, self._IN_APP, now=NOON_UTC) is False
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=NOON_UTC) is False
+
+    def test_stale_row_missing_event_falls_through_to_defaults(
+        self, project: Project, alice: object
+    ) -> None:
+        """A row predating a new event type routes via the default matrix."""
+        # COMMENT_MENTION absent from the stored matrix → default (in_app True).
+        ProjectNotificationPreference.objects.create(
+            project=project,
+            user=alice,
+            matrix={self._EVENT: {self._EMAIL: False}},
+        )
+        comment_mention = ProjectNotificationEventType.COMMENT_MENTION.value
+        assert should_deliver(alice, project, comment_mention, self._IN_APP, now=NOON_UTC) is True
+
+    def test_per_channel_opt_out(self, project: Project, alice: object) -> None:
+        """Email off + in-app on → in-app fires, email does not (#674)."""
+        ProjectNotificationPreference.objects.create(
+            project=project,
+            user=alice,
+            matrix={self._EVENT: {self._IN_APP: True, self._EMAIL: False}},
+            quiet_hours_enabled=False,
+        )
+        assert should_deliver(alice, project, self._EVENT, self._IN_APP, now=NOON_UTC) is True
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=NOON_UTC) is False
+
+    def test_quiet_hours_overnight_window_suppresses_email(
+        self, project: Project, alice: object
+    ) -> None:
+        """Overnight 22:00–07:00 window suppresses a 00:30 email."""
+        ProjectNotificationPreference.objects.create(
+            project=project,
+            user=alice,
+            quiet_hours_enabled=True,
+            quiet_hours_from=time(22, 0),
+            quiet_hours_until=time(7, 0),
+        )
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=MIDNIGHT_UTC) is False
+
+    def test_quiet_hours_same_day_window_suppresses_email(
+        self, project: Project, alice: object
+    ) -> None:
+        """Same-day 20:00–22:00 window suppresses a 21:00 email."""
+        ProjectNotificationPreference.objects.create(
+            project=project,
+            user=alice,
+            quiet_hours_enabled=True,
+            quiet_hours_from=time(20, 0),
+            quiet_hours_until=time(22, 0),
+        )
+        nine_pm = datetime(2026, 1, 1, 21, 0, tzinfo=UTC)
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=nine_pm) is False
+        # Outside the window the same cell delivers.
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=NOON_UTC) is True
+
+    def test_quiet_hours_never_suppress_in_app(self, project: Project, alice: object) -> None:
+        """In-app is durable — quiet hours never drop it (only the matrix cell does)."""
+        ProjectNotificationPreference.objects.create(
+            project=project,
+            user=alice,
+            quiet_hours_enabled=True,
+            quiet_hours_from=time(22, 0),
+            quiet_hours_until=time(7, 0),
+        )
+        assert should_deliver(alice, project, self._EVENT, self._IN_APP, now=MIDNIGHT_UTC) is True
+
+    def test_quiet_hours_respect_project_timezone(self, project: Project, alice: object) -> None:
+        """Quiet-hours windows are interpreted in the project's timezone."""
+        project.timezone = "America/New_York"
+        project.save(update_fields=["timezone"])
+        ProjectNotificationPreference.objects.create(
+            project=project,
+            user=alice,
+            quiet_hours_enabled=True,
+            quiet_hours_from=time(22, 0),
+            quiet_hours_until=time(7, 0),
+        )
+        # 04:00 UTC == 23:00 prior-day in New York (EST) → inside the window.
+        four_am_utc = datetime(2026, 1, 2, 4, 0, tzinfo=UTC)
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=four_am_utc) is False
+        # 17:00 UTC == 12:00 New York → outside the window.
+        noon_ny = datetime(2026, 1, 2, 17, 0, tzinfo=UTC)
+        assert should_deliver(alice, project, self._EVENT, self._EMAIL, now=noon_ny) is True
