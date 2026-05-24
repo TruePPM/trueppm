@@ -910,11 +910,19 @@ web:coverage:
     - cd packages/web
   script:
     - mkdir -p coverage
-    - lcov $(for f in coverage-*/lcov.info; do printf ' -a %s' "$f"; done) -o coverage/lcov.info
-    - lcov --summary coverage/lcov.info | tee coverage/summary.txt
+    # --ignore-errors inconsistent,corrupt: istanbul emits several distinct
+    # anonymous functions under the same name (e.g. two `handler`s at different
+    # lines in one file), which lcov 2.x rejects as an inconsistency and then
+    # wraps as a corrupt-tracefile read error. The duplicate names are harmless
+    # for the line-coverage union we need, so we downgrade both to warnings.
+    - lcov --ignore-errors inconsistent,corrupt
+        $(for f in coverage-*/lcov.info; do printf ' -a %s' "$f"; done) -o coverage/lcov.info
+    # Same downgrade on read-back: the merged file still carries the duplicate
+    # function names, so --summary would re-flag them without the ignore flags.
+    - lcov --ignore-errors inconsistent,corrupt --summary coverage/lcov.info | tee coverage/summary.txt
     # Fail the merge job (not the shards) if merged line coverage drops below the
     # floor. Parse the first NN% token on the lcov "lines" summary row; awk float
-    # compare avoids a dependency on lcov 2.x's --fail-under-lines (slim ships 1.x).
+    # compare keeps this independent of the lcov major version (slim ships 2.x).
     - |
       awk -v min="$WEB_COVERAGE_MIN" '
         /lines/ {
