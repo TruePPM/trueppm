@@ -924,6 +924,39 @@
                 }
             }
         },
+        "/api/v1/health/beat/": {
+            "get": {
+                "operationId": "v1_health_beat_retrieve",
+                "description": "Returns the last recorded Celery Beat heartbeat and whether it is stale (older than TRUEPPM_BEAT_STALE_SECONDS). Responds **200** when fresh and **503** when stale or never recorded, so status-code-driven monitoring (e.g. Prometheus with a bearer token) can alert without parsing the body. Requires a staff (admin) account — it exposes operational state. Basic unauthenticated liveness lives at `/api/v1/health/`.",
+                "summary": "Celery Beat heartbeat status",
+                "tags": [
+                    "meta"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BeatHealthResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "503": {
+                        "description": "Heartbeat is stale or has never been recorded."
+                    }
+                }
+            }
+        },
         "/api/v1/me/active-sprints/": {
             "get": {
                 "operationId": "v1_me_active_sprints_retrieve",
@@ -12680,6 +12713,23 @@
                     "start",
                     "task_id",
                     "task_name"
+                ]
+            },
+            "BeatHealthResponse": {
+                "type": "object",
+                "properties": {
+                    "last_heartbeat": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "stale": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "last_heartbeat",
+                    "stale"
                 ]
             },
             "BlankEnum": {
