@@ -4580,6 +4580,76 @@
                         "description": "No response body"
                     }
                 }
+            },
+            "post": {
+                "operationId": "v1_projects_sync_create",
+                "description": "Upload a WatermelonDB delta batch. Carries a client_batch_id for all-or-nothing, idempotent replay (ADR-0082).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SyncUploadRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SyncUploadRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SyncUploadRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
             }
         },
         "/api/v1/projects/{id}/task-sync/": {
@@ -17169,6 +17239,28 @@
                 ],
                 "type": "string",
                 "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed\n* `cancelled` - Cancelled"
+            },
+            "SyncUploadRequestRequest": {
+                "type": "object",
+                "description": "Validate the envelope of a mobile upload batch (ADR-0082 §A).\n\nPer-collection row validation happens in ``sync.upload`` so an unsupported\ncollection can be rejected with an explicit 400 rather than silently\ndropped. ``last_pulled_at`` is accepted but advisory only — conflict\nresolution is plain last-writer-wins here; #322 owns richer merge.",
+                "properties": {
+                    "client_batch_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "last_pulled_at": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "changes": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                },
+                "required": [
+                    "changes",
+                    "client_batch_id"
+                ]
             },
             "Task": {
                 "type": "object",

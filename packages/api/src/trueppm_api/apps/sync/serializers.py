@@ -223,3 +223,26 @@ class SyncRiskSerializer(serializers.ModelSerializer[Risk]):
             "owner",
             "task_ids",
         ]
+
+
+# ---------------------------------------------------------------------------
+# Upload (push) serializer — mobile offline → server (ADR-0082, issue #667)
+#
+# Validates only the batch envelope. Per-row task validation reuses the REST
+# TaskSerializer (in sync.upload) so mobile writes inherit identical field
+# rules and business logic — see ADR-0082 §E.
+# ---------------------------------------------------------------------------
+
+
+class SyncUploadRequestSerializer(serializers.Serializer):  # type: ignore[type-arg]
+    """Validate the envelope of a mobile upload batch (ADR-0082 §A).
+
+    Per-collection row validation happens in ``sync.upload`` so an unsupported
+    collection can be rejected with an explicit 400 rather than silently
+    dropped. ``last_pulled_at`` is accepted but advisory only — conflict
+    resolution is plain last-writer-wins here; #322 owns richer merge.
+    """
+
+    client_batch_id = serializers.UUIDField()
+    last_pulled_at = serializers.IntegerField(required=False, min_value=0)
+    changes = serializers.DictField()

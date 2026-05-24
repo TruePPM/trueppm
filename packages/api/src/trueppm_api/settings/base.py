@@ -230,6 +230,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "beat.check_stale_heartbeat",
         "schedule": 60.0,
     },
+    # Nightly cleanup: deletes SyncBatch idempotency rows past the dedup window
+    # (TRUEPPM_SYNC_BATCH_RETENTION_HOURS). Keeps the mobile-upload envelope
+    # table bounded (ADR-0082 §Durable Execution #6).
+    "purge-sync-batches-nightly": {
+        "task": "sync.purge_sync_batches",
+        # 03:45 UTC — after the other nightly purge jobs.
+        "schedule": crontab(hour=3, minute=45),
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -383,6 +391,17 @@ TRUEPPM_IMPORT_RETENTION_DAYS: int | None = env.int("TRUEPPM_IMPORT_RETENTION_DA
 # the GET /api/v1/health/beat/ stale flag and the beat.check_stale_heartbeat
 # WARNING log. Default 120 s = four missed 30 s beats.
 TRUEPPM_BEAT_STALE_SECONDS: int = env.int("TRUEPPM_BEAT_STALE_SECONDS", default=120)
+
+# Freshness/dedup window in hours for mobile sync upload batches (ADR-0082). A
+# duplicate upload with the same client_batch_id within this window replays the
+# stored response; past it, the id is allowed to re-run and the nightly
+# sync.purge_sync_batches task reaps the stale row.
+TRUEPPM_SYNC_BATCH_RETENTION_HOURS: int = env.int("TRUEPPM_SYNC_BATCH_RETENTION_HOURS", default=24)
+
+# Maximum rows (created + updated + deleted) in a single mobile sync upload
+# batch (ADR-0082). The batch applies in one transaction; this bounds how long
+# that transaction (and its per-task row locks) can be held by one request.
+TRUEPPM_SYNC_BATCH_MAX_ROWS: int = env.int("TRUEPPM_SYNC_BATCH_MAX_ROWS", default=500)
 
 # ---------------------------------------------------------------------------
 # drf-spectacular (OpenAPI)

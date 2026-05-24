@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
-from django.db import connection
-from rest_framework.exceptions import NotFound, ValidationError
+from django.conf import settings
+from django.db import IntegrityError, connection, transaction
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
+from rest_framework import status
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -36,6 +42,7 @@ from trueppm_api.apps.sync.serializers import (
     SyncSprintSerializer,
     SyncTaskSerializer,
     SyncTaskSuggestedAssigneeSerializer,
+    SyncUploadRequestSerializer,
 )
 
 
@@ -147,6 +154,163 @@ class ProjectSyncView(APIView):
         }
 
         return Response({"changes": changes, "timestamp": timestamp})
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        """Throttle the write (POST) path only; pull (GET) stays unthrottled."""
+        if self.request.method == "POST":
+            from trueppm_api.apps.sync.throttles import SyncUploadThrottle
+
+            return [SyncUploadThrottle()]
+        return []
+
+    @extend_schema(
+        request=SyncUploadRequestSerializer,
+        responses={
+            200: OpenApiTypes.OBJECT,
+            409: OpenApiTypes.OBJECT,
+        },
+        description=(
+            "Upload a WatermelonDB delta batch. Carries a client_batch_id for "
+            "all-or-nothing, idempotent replay (ADR-0082)."
+        ),
+    )
+    def post(self, request: Request, pk: str) -> Response:
+        """Upload a WatermelonDB delta batch with transactional atomicity (ADR-0082).
+
+        The batch carries a client-generated ``client_batch_id``. The first
+        request to win the unique-constraint race applies the delta and records
+        the batch + its response in one atomic transaction (all-or-nothing); a
+        retry carrying the same id within the freshness window replays the stored
+        response without re-applying. See ADR-0082 §D for the full algorithm.
+        """
+        from trueppm_api.apps.access.models import Role
+        from trueppm_api.apps.sync.models import SyncBatch, SyncBatchStatus
+
+        envelope = SyncUploadRequestSerializer(data=request.data)
+        envelope.is_valid(raise_exception=True)
+        client_batch_id = envelope.validated_data["client_batch_id"]
+        changes = envelope.validated_data["changes"]
+
+        try:
+            project = Project.objects.get(pk=pk, is_deleted=False)
+        except Project.DoesNotExist as err:
+            raise NotFound("Project not found.") from err
+
+        # RBAC: only project members with a write role may push. Per-row
+        # ownership (Member edits own tasks; Scheduler cannot edit content) is
+        # enforced inside apply_task_changes, mirroring IsProjectMemberWriteOrOwn.
+        role = _membership_role(request, project.pk)
+        if role is None:
+            raise PermissionDenied("You must be a member of this project.")
+        if role < Role.MEMBER:
+            raise PermissionDenied("You need at least Team Member role to upload changes.")
+
+        # Archived projects are hard read-only (#530) — mirror IsProjectNotArchived,
+        # which gates every REST write. Without this, the upload path would be a
+        # back-channel to mutate an archived project.
+        if project.is_archived:
+            raise PermissionDenied(
+                "This project is archived and cannot be modified. Unarchive it first."
+            )
+
+        ttl = getattr(settings, "TRUEPPM_SYNC_BATCH_RETENTION_HOURS", 24)
+
+        # Fast path: a fresh, completed duplicate replays its stored response.
+        # Scoped to the project so a member can never replay another project's
+        # batch by reusing its client_batch_id (IDOR guard).
+        existing = SyncBatch.objects.filter(
+            project=project, client_batch_id=client_batch_id
+        ).first()
+        if (
+            existing is not None
+            and existing.status == SyncBatchStatus.COMPLETED
+            and existing.is_fresh(ttl_hours=ttl)
+        ):
+            return Response(existing.response_body, status=existing.response_status)
+
+        try:
+            return self._apply_and_record(request, project, role, client_batch_id, changes)
+        except IntegrityError:
+            # A concurrent duplicate committed between our check and create, or a
+            # stale row exists. Re-fetch (project-scoped) and resolve.
+            existing = SyncBatch.objects.filter(
+                project=project, client_batch_id=client_batch_id
+            ).first()
+            if existing is None:
+                raise  # genuinely unexpected — surface it
+            if existing.is_fresh(ttl_hours=ttl):
+                if existing.status == SyncBatchStatus.COMPLETED:
+                    return Response(existing.response_body, status=existing.response_status)
+                # Fresh but still pending: a true concurrent race whose winner has
+                # not committed yet. Ask the client to retry — the next attempt
+                # hits the fast-path replay.
+                return Response(
+                    {"detail": "This batch is already being processed; retry shortly."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            # Expired row is blocking a re-run: drop it and apply once more. After
+            # the freshness window the same client_batch_id is allowed to re-run.
+            existing.delete()
+            return self._apply_and_record(request, project, role, client_batch_id, changes)
+
+    def _apply_and_record(
+        self,
+        request: Request,
+        project: Project,
+        role: int,
+        client_batch_id: Any,
+        changes: dict[str, Any],
+    ) -> Response:
+        """Apply the delta and snapshot the response inside one atomic batch.
+
+        The SyncBatch row is the **first** write so the unique constraint
+        serializes concurrent duplicates. Any failure (RBAC, validation, DB)
+        rolls back the row writes *and* the batch row together — nothing commits,
+        and the client re-uploads the whole batch under the same id.
+        """
+        from trueppm_api.apps.scheduling.services import enqueue_recalculate
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+        from trueppm_api.apps.sync.models import SyncBatch, SyncBatchStatus
+        from trueppm_api.apps.sync.upload import apply_task_changes
+
+        with transaction.atomic():
+            batch = SyncBatch.objects.create(
+                client_batch_id=client_batch_id,
+                project=project,
+                status=SyncBatchStatus.PENDING,
+            )
+            applied = apply_task_changes(
+                project=project, request=request, role=role, changes=changes
+            )
+            body = {
+                "client_batch_id": str(client_batch_id),
+                "applied": {
+                    "tasks": {
+                        "created": applied.created,
+                        "updated": applied.updated,
+                        "deleted": applied.deleted,
+                    }
+                },
+                "timestamp": applied.max_version,
+            }
+            batch.status = SyncBatchStatus.COMPLETED
+            batch.response_body = body
+            batch.response_status = status.HTTP_200_OK
+            batch.save(update_fields=["status", "response_body", "response_status"])
+
+            # Side effects on commit, mirroring single-row writes (inbound_sync):
+            # one coalesced CPM recalc + a board event per applied row, so web
+            # clients react and a rolled-back batch broadcasts nothing.
+            project_id = str(project.pk)
+            if applied.changed:
+                transaction.on_commit(partial(enqueue_recalculate, project_id))
+            for event_type, task_id in applied.events:
+                # partial binds the current loop values by value — no late-binding.
+                transaction.on_commit(
+                    partial(broadcast_board_event, project_id, event_type, {"id": task_id})
+                )
+
+        return Response(body, status=status.HTTP_200_OK)
 
     @staticmethod
     def _collect(qs: Any, serializer_class: Any) -> dict[str, Any]:
