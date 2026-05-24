@@ -62,12 +62,12 @@ export default defineConfig({
         'src/features/schedule/ScheduleAriaOverlay.tsx',
         'src/hooks/useGanttEngine.ts',
       ],
-      thresholds: {
-        lines: 75,
-        functions: 75,
-        branches: 75,
-        statements: 75,
-      },
+      // No per-process thresholds: web:test is sharded (vitest --shard), so each
+      // process only loads ~1/3 of the suite and would measure a partial coverage
+      // total against the full denominator — tripping any threshold here. vitest
+      // never sees the merged result (GNU lcov stitches the shards in web:coverage),
+      // so the package-total line floor is enforced there instead, mirroring the
+      // api:coverage --fail-under floor. The primary gate remains web:diff-coverage.
     },
   },
 });

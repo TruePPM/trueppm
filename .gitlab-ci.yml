@@ -900,13 +900,29 @@ web:coverage:
     - job: web:test
       artifacts: true
   <<: *rules-web
+  variables:
+    # Package-total line floor against legacy regressions, enforced on the merged
+    # tracefile (vitest can't — it never sees the stitched result). Mirrors the
+    # api:coverage --fail-under=80 soft floor. The primary gate is web:diff-coverage.
+    WEB_COVERAGE_MIN: "75"
   before_script:
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends lcov
     - cd packages/web
   script:
     - mkdir -p coverage
     - lcov $(for f in coverage-*/lcov.info; do printf ' -a %s' "$f"; done) -o coverage/lcov.info
-    - lcov --summary coverage/lcov.info
+    - lcov --summary coverage/lcov.info | tee coverage/summary.txt
+    # Fail the merge job (not the shards) if merged line coverage drops below the
+    # floor. Parse the first NN% token on the lcov "lines" summary row; awk float
+    # compare avoids a dependency on lcov 2.x's --fail-under-lines (slim ships 1.x).
+    - |
+      awk -v min="$WEB_COVERAGE_MIN" '
+        /lines/ {
+          for (i = 1; i <= NF; i++) if ($i ~ /%$/) { v = $i; gsub(/%/, "", v); break }
+          if (v + 0 < min + 0) { printf "ERROR: line coverage %s%% is below floor %s%%\n", v, min; exit 1 }
+          printf "line coverage %s%% meets floor %s%%\n", v, min
+        }
+      ' coverage/summary.txt
   coverage: '/lines\.+:\s+([\d.]+%)/'
   artifacts:
     paths:
