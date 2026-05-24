@@ -75,6 +75,34 @@ def verify(secret: str, body: bytes, signature: str) -> bool:
 
 Always use a constant-time comparison to prevent timing attacks.
 
+## Request headers
+
+Every delivery carries these headers. All delivery metadata lives in headers; the body is the event payload only.
+
+| Header | Value |
+|--------|-------|
+| `X-TruePPM-Event` | The event type (e.g. `task.updated`) |
+| `X-TruePPM-Delivery` | UUID of this delivery record |
+| `X-TruePPM-Signature` | `sha256=<hmac>` (see above) |
+| `X-TruePPM-Webhook-Sequence` | Monotonic per-subscription sequence number (see below) |
+
+## Delivery ordering and gap detection
+
+Deliveries are **at-least-once** and their arrival order at your endpoint is **not guaranteed** — two events that race (e.g. `task.updated` then `task.deleted`) can arrive in either order. To let you cope with this, every delivery carries a sequence number in the `X-TruePPM-Webhook-Sequence` header:
+
+- The number is **monotonic and contiguous per subscription**: the first delivery to a given webhook is `1`, the next `2`, and so on. It is **not** shared across webhooks — each registration has its own counter.
+- It is **stable across retries**: a redelivered event keeps the same number.
+- It survives delivery-history pruning — a number is never reused, even after old `WebhookDelivery` records are purged.
+
+Consumers MAY use the sequence to:
+
+- **Detect gaps** — if you receive sequence `7` then `9`, delivery `8` is missing (lost or still in flight). You can inspect it via the [delivery history](#delivery-history) endpoint.
+- **Reorder** events that arrive out of order by buffering on the sequence.
+
+The sequence is a **hint, not a contract**: TruePPM still guarantees only eventual, at-least-once delivery — not strict ordering or exactly-once. Use the sequence alongside idempotent handling keyed on `X-TruePPM-Delivery`.
+
+The same value is also returned as `sequence_number` on each record from the [delivery history](#delivery-history) endpoint.
+
 ## Delivery retries
 
 TruePPM retries failed deliveries (non-2xx response or connection error) up to **3 times** with exponential back-off (10s, 60s, 300s). After 3 failures the delivery record is marked `failed`.
@@ -85,7 +113,7 @@ TruePPM retries failed deliveries (non-2xx response or connection error) up to *
 GET /api/v1/projects/{project_id}/webhooks/{webhook_id}/deliveries/
 ```
 
-Returns paginated `WebhookDelivery` records with `status`, `response_status`, `attempt_count`, and timestamps. Useful for debugging.
+Returns paginated `WebhookDelivery` records with `sequence_number`, `status`, `response_status`, `attempt_count`, and timestamps. Useful for debugging and for inspecting a delivery flagged as a gap by its sequence number.
 
 ## Disabling a webhook
 

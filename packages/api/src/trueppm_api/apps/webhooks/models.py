@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 
 
 class WebhookEventType(models.TextChoices):
@@ -57,6 +58,12 @@ class Webhook(models.Model):
         help_text="List of event types this webhook subscribes to.",
     )
     is_active = models.BooleanField(default=True)
+    # Per-subscription monotonic counter for outgoing deliveries (#664). Lives on
+    # the subscription, NOT derived from WebhookDelivery rows, because the
+    # retention purge (ADR-0081) deletes terminal deliveries — deriving the next
+    # value from the delivery table would reuse sequence numbers after a purge
+    # and silently corrupt the consumer-side gap-detection contract.
+    delivery_sequence = models.BigIntegerField(default=0, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -89,6 +96,27 @@ class Webhook(models.Model):
         return self.program_id is not None
 
 
+def _next_delivery_sequence(webhook_id: uuid.UUID | str) -> int:
+    """Atomically allocate the next per-subscription delivery sequence number.
+
+    Locks the Webhook row with ``select_for_update`` and increments its
+    ``delivery_sequence`` counter inside an explicit transaction. The lock is
+    held until commit, so concurrent deliveries to the same subscription receive
+    strictly increasing, *contiguous* numbers — a gap at the consumer therefore
+    signals a genuinely lost event, which is the whole point of the gap-detection
+    contract (#664).
+
+    The explicit ``transaction.atomic()`` is required because ``dispatch_webhooks``
+    runs from a ``transaction.on_commit`` callback (autocommit context); without
+    the surrounding transaction the increment + read-back would race.
+    """
+    with transaction.atomic():
+        webhook = Webhook.objects.select_for_update().get(pk=webhook_id)
+        webhook.delivery_sequence += 1
+        webhook.save(update_fields=["delivery_sequence"])
+        return webhook.delivery_sequence
+
+
 class DeliveryStatus(models.TextChoices):
     PENDING = "pending", "Pending"
     SUCCESS = "success", "Success"
@@ -106,6 +134,13 @@ class WebhookDelivery(models.Model):
     )
     event_type = models.CharField(max_length=30, choices=WebhookEventType.choices)
     payload = models.JSONField()
+    # Monotonic per-subscription sequence, allocated once on INSERT and never
+    # changed across retries (the same row keeps its number). Sent to the
+    # consumer in the X-TruePPM-Webhook-Sequence header so it can detect gaps
+    # and reorder out-of-order events. The default of 0 is only a placeholder
+    # for the add-column migration; every row created through save() is assigned
+    # a real value >= 1 via _next_delivery_sequence().
+    sequence_number = models.BigIntegerField(default=0, editable=False)
     status = models.CharField(
         max_length=10,
         choices=DeliveryStatus.choices,
@@ -125,3 +160,11 @@ class WebhookDelivery(models.Model):
 
     def __str__(self) -> str:
         return f"Delivery {self.id} [{self.status}]"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Allocate the per-subscription sequence on INSERT only, so the number is
+        # stable across the Celery retry chain (deliver_webhook re-saves the same
+        # row on every attempt and must not re-number it).
+        if self._state.adding and not self.sequence_number:
+            self.sequence_number = _next_delivery_sequence(self.webhook_id)
+        super().save(*args, **kwargs)

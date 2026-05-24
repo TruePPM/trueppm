@@ -133,3 +133,63 @@ the payload shape per event type.
 - Migration required: yes (new `Webhook` and `WebhookDelivery` tables)
 - API changes: yes (new `/webhooks/` endpoints under each project)
 - OSS or Enterprise: OSS
+
+## Amendment (#664, 0.4): per-subscription delivery sequence numbers
+
+`WebhookDelivery` guarantees at-least-once delivery but not ordering — two racing
+events (`task.updated` then `task.deleted`) can arrive in either order. This
+amendment adds a per-subscription monotonic sequence number so consumers can
+detect gaps and reorder. It is the outbound counterpart to inbound sync ordering.
+
+### Decision
+
+- **Allocation:** a `delivery_sequence` `BigIntegerField` counter on `Webhook`
+  (the subscription), incremented under `select_for_update` inside an explicit
+  `transaction.atomic()` and stamped onto `WebhookDelivery.sequence_number` on
+  INSERT. The explicit transaction is required because dispatch runs from a
+  `transaction.on_commit` callback (autocommit), where a bare `F()+1` + read-back
+  would race. Allocation happens once at row creation, so the number is stable
+  across the Celery retry chain.
+- **Counter lives on the subscription, not derived from deliveries.** The
+  retention purge (ADR-0081) deletes terminal `WebhookDelivery` rows; deriving the
+  next value from `max(sequence_number)` would reuse numbers after a purge and
+  corrupt gap detection. The counter therefore yields *contiguous* numbers — a gap
+  at the consumer signals a genuinely lost event.
+- **Transport: header only — `X-TruePPM-Webhook-Sequence`.** The sequence is
+  *delivery* metadata, so it joins the existing `X-TruePPM-Event` /
+  `X-TruePPM-Delivery` / `X-TruePPM-Signature` headers. The body stays the raw
+  payload — this ADR's original "metadata in headers, body is the event" split is
+  preserved.
+  - **Body envelope explicitly declined.** Issue #664 proposed a body envelope,
+    but wrapping the body would (a) reverse the raw-payload decision above, (b)
+    break every existing consumer's body parsing and HMAC validation, and (c) be a
+    one-way contract door opened pre-1.0. Header-only is purely additive. If a
+    concrete body-only/no-code consumer ever needs it, the non-breaking path is an
+    additive reserved `_meta` key — not a full envelope.
+- **Replay out of scope.** #664 referenced a "replay endpoint" that does not
+  exist. Consumers inspect a flagged gap via the existing
+  `GET /webhooks/{id}/deliveries/` endpoint (now exposing `sequence_number`).
+  Automated redelivery is a separate future concern.
+- **Contract strength:** the sequence is a *hint*. Delivery remains eventual,
+  at-least-once — not strict-order or exactly-once. Consumers pair it with
+  idempotent handling keyed on `X-TruePPM-Delivery`.
+
+### Durable Execution
+1. Broker-down behaviour: unchanged — dispatch still creates the delivery row
+   (now with a sequence) inside `on_commit`; a failed `.delay()` leaves the row
+   PENDING for the drain. Sequence allocation is part of the committed row, so a
+   re-dispatched delivery keeps its number.
+2. Drain task: reuses the existing `webhooks.drain_webhook_queue` — semantics
+   unchanged (it re-enqueues PENDING rows; it never creates rows, so it never
+   allocates sequences).
+3. Orphan window: unchanged (5 min) — N/A to sequencing.
+4. Service layer: allocation is encapsulated in `_next_delivery_sequence()` and
+   invoked from `WebhookDelivery.save()`, so every creation path (dispatch,
+   test ping) is sequenced consistently without a new dispatch path.
+5. API response on best-effort dispatch: unchanged — N/A (no new endpoint).
+6. Outbox cleanup: unchanged (ADR-0081 purge). The amendment hardens against it
+   by keeping the counter on the surviving `Webhook` row.
+7. Idempotency: the sequence is allocated only when `_state.adding` and not
+   already set, so retries (which re-`save()` the same row) never re-number it.
+8. Dead-letter / failure handling: unchanged — a permanently failed delivery
+   retains its allocated sequence, so a consumer still sees the gap.
