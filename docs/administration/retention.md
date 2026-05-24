@@ -19,6 +19,17 @@ variable itself must be a positive integer or left unset (it falls back to the d
 | `TASK_RUN_RETENTION_DAYS` | `30` | Completed/failed/cancelled `TaskRun` records | 02:30 |
 | `TRUEPPM_IMPORT_RETENTION_DAYS` | `7` | Terminal (`DONE`/`DEAD`) `ImportRequest` rows, including their multi-MB `file_content_b64` blobs | 02:45 |
 | `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | Terminal (`SUCCESS`/`FAILED`) `WebhookDelivery` rows | 03:30 |
+| `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | `SyncBatch` mobile-upload idempotency rows past the dedup window (ADR-0082) | 03:45 |
+
+!!! note "`TRUEPPM_SYNC_BATCH_RETENTION_HOURS` is in hours, not days"
+    Unlike the other knobs, this window is measured in **hours** because it
+    doubles as the mobile sync upload **dedup window**: a re-uploaded batch
+    carrying the same `client_batch_id` replays its stored response only while
+    its `SyncBatch` row is within this window. Past it, the same id is allowed
+    to re-run and the nightly purge reaps the row. Lengthening it widens the
+    safe-retry window at the cost of more retained rows; shortening it does the
+    reverse. The default of 24h comfortably covers a device that was offline
+    overnight.
 
 Each value is read from the matching environment variable at startup. To change a
 window, set the env var (or the corresponding Helm value) and restart the API/worker
