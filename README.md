@@ -45,7 +45,7 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 | **Monte Carlo UI** | ✅ Wired | P50/P80/P95 distribution, live rerun, freshness indicator, burn-up and burn-down charts. |
 | **Helm chart** | ✅ Functional | Kubernetes deployment with Bitnami sub-charts for PostgreSQL and Valkey (BSD-licensed Redis fork). Published to GHCR OCI registry. |
 
-**Coming in 0.2:** backup/replay hardening, auth expiry handling, mobile app (React Native), MS Project import.
+**Coming in 0.2:** a settings & administration platform, the Program entity (OSS), MS Project (.mpp) and CSV/Excel import-export, and board + schedule depth.
 
 ## Published Artifacts
 
@@ -195,12 +195,13 @@ Report vulnerabilities privately via [SECURITY.md](SECURITY.md) — do not open 
 
 ## Roadmap
 
-Public milestones: [gitlab.com/trueppm/trueppm/-/milestones](https://gitlab.com/trueppm/trueppm/-/milestones)
+Public milestones: [gitlab.com/trueppm/trueppm/-/milestones](https://gitlab.com/trueppm/trueppm/-/milestones). Targets, not commitments.
 
-- **0.2** — hybrid bridge depth: program backlog, velocity feedback loop, "My Work" cross-project surface, backup/replay hardening
-- **0.3** — PO experience: epic task type, unified sprint planning, multi-team agile, MCP server integration
-- **0.4** — mobile: React Native app, offline-first sync, time tracking
-- **0.5** — migration imports (MS Project, Primavera, Linear, Jira) + Helm/HA hardening
+- **0.2** — broad consolidation: settings & administration platform, the Program entity (OSS), MS Project / CSV / Excel import-export, board + schedule depth, durable-execution hardening
+- **0.3** — hybrid agile/waterfall depth + the sample-data launch demo: governance/delivery-mode model, parent rollup engine, agile-aware Monte Carlo, epic/initiative hierarchy, Product Owner role
+- **0.4** — mobile (React Native, Android-first), durable-execution OSS primitives, baselines & timesheets, offline hardening, MCP server
+- **0.5** — migration & data portability (top-10 PM-tool importers + Primavera P6), resource costs & cost reports, extension SDK
+- **1.0** — first stable GA: Team Cohesion (Brooks' Law) as a first-class scheduling input, workflow-engine maturity, iPhone/iPad parity
 
 ## License
 

@@ -79,6 +79,21 @@ The Celery worker runs CPM recalculation automatically after every task or depen
 
 Monitor the Celery worker logs for scheduling errors. If Valkey becomes unavailable, scheduling updates will queue and retry when the connection is restored.
 
+### Celery Beat liveness
+
+In a single-pod deployment there is exactly one Celery Beat process driving every
+periodic drain. If it dies silently, async work stops accumulating signal. TruePPM
+exposes a heartbeat endpoint (`GET /api/v1/health/beat/`) so monitoring can detect a
+dead Beat. See [Beat Liveness & Durability](/administration/durability/) for how to wire
+it into Prometheus or Kubernetes.
+
+### Outbox & record retention
+
+The outbox and audit tables (schedule requests, imports, webhook deliveries, object
+history, task runs) are bounded by nightly purges. See
+[Outbox & Record Retention](/administration/retention/) for the tunable retention
+windows and how to disable a purge safely.
+
 ### WebSocket connections
 
 WebSocket connections authenticate via JWT (`?token=<jwt>` on the connection URL). Viewers (role=0) are rejected with close code 4003. Monitor the Django Channels logs for connection errors.
