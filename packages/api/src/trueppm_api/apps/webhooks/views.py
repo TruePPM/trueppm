@@ -99,7 +99,11 @@ class WebhookViewSet(
 
     def _scope_object(self, webhook: Webhook) -> Project | Program:
         """Return the Project or Program a webhook is scoped to (XOR)."""
-        return webhook.program if webhook.program_id else webhook.project
+        scope = webhook.program if webhook.program_id else webhook.project
+        # The webhook_scope_xor DB constraint guarantees exactly one is set, so
+        # scope is never None here — assert narrows the type for mypy.
+        assert scope is not None
+        return scope
 
     @action(detail=True, methods=["post"], url_path="test")
     def test_ping(self, request: Request, **kwargs: object) -> Response:
