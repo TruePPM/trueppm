@@ -210,12 +210,21 @@ def _do_import_drain() -> None:
 
 
 def _do_import_purge() -> None:
-    """Business logic for purge_old_import_requests — extracted for testability."""
+    """Business logic for purge_old_import_requests — extracted for testability.
+
+    Retention is operator-tunable via TRUEPPM_IMPORT_RETENTION_DAYS (default 7);
+    None disables the purge, keeping ImportRequest blobs indefinitely (ADR-0081).
+    """
+    from django.conf import settings
     from django.utils import timezone
 
     from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
 
-    cutoff = timezone.now() - timedelta(days=7)
+    retention_days = settings.TRUEPPM_IMPORT_RETENTION_DAYS
+    if retention_days is None:
+        return
+
+    cutoff = timezone.now() - timedelta(days=retention_days)
     deleted, _ = ImportRequest.objects.filter(
         status__in=[ImportRequestStatus.DONE, ImportRequestStatus.DEAD],
         requested_at__lt=cutoff,

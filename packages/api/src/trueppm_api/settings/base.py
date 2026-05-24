@@ -57,6 +57,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.workshops",
     "trueppm_api.apps.notifications",
     "trueppm_api.apps.integrations",
+    "trueppm_api.apps.observability",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -209,6 +210,26 @@ CELERY_BEAT_SCHEDULE = {
         # 03:15 UTC — after other nightly purge/archive jobs.
         "schedule": crontab(hour=3, minute=15),
     },
+    # Nightly cleanup: deletes SUCCESS/FAILED WebhookDelivery rows older than
+    # TRUEPPM_WEBHOOK_RETENTION_DAYS. High-traffic boards generate thousands/day.
+    "webhook-deliveries-purge-nightly": {
+        "task": "webhooks.purge_old_deliveries",
+        # 03:30 UTC — distinct offset from the import purge (02:45) to spread load.
+        "schedule": crontab(hour=3, minute=30),
+    },
+    # Beat liveness heartbeat: a single worker writes BeatHeartbeat.last_heartbeat
+    # every 30 s. GET /api/v1/health/beat/ reads it to detect a dead Beat (ADR-0081).
+    "beat-heartbeat": {
+        "task": "beat.heartbeat",
+        "schedule": 30.0,
+    },
+    # Secondary in-cluster stale-heartbeat detector: logs WARNING when the heartbeat
+    # is older than TRUEPPM_BEAT_STALE_SECONDS. The /health/beat/ endpoint is the
+    # primary (external) detector; this serves adopters with no external monitoring.
+    "beat-check-stale-heartbeat": {
+        "task": "beat.check_stale_heartbeat",
+        "schedule": 60.0,
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -344,6 +365,24 @@ HISTORY_RETENTION_DAYS: int | None = env.int("HISTORY_RETENTION_DAYS", default=9
 # Retention window in days for completed/failed/cancelled TaskRun records.
 # Set to None to disable automatic purging.
 TASK_RUN_RETENTION_DAYS: int | None = env.int("TASK_RUN_RETENTION_DAYS", default=30)
+
+# ---------------------------------------------------------------------------
+# Outbox retention + Beat liveness (ADR-0081)
+# ---------------------------------------------------------------------------
+
+# Retention window in days for terminal (SUCCESS/FAILED) WebhookDelivery rows.
+# Set to None to disable the nightly purge. New tunables are TRUEPPM_-prefixed
+# for env-var namespacing in shared ConfigMaps/Secrets (ADR-0081 §D).
+TRUEPPM_WEBHOOK_RETENTION_DAYS: int | None = env.int("TRUEPPM_WEBHOOK_RETENTION_DAYS", default=7)
+
+# Retention window in days for terminal (DONE/DEAD) ImportRequest rows. These
+# carry multi-MB file_content_b64 blobs. Set to None to disable the nightly purge.
+TRUEPPM_IMPORT_RETENTION_DAYS: int | None = env.int("TRUEPPM_IMPORT_RETENTION_DAYS", default=7)
+
+# Age in seconds past which the Beat heartbeat is considered stale. Drives both
+# the GET /api/v1/health/beat/ stale flag and the beat.check_stale_heartbeat
+# WARNING log. Default 120 s = four missed 30 s beats.
+TRUEPPM_BEAT_STALE_SECONDS: int = env.int("TRUEPPM_BEAT_STALE_SECONDS", default=120)
 
 # ---------------------------------------------------------------------------
 # drf-spectacular (OpenAPI)
