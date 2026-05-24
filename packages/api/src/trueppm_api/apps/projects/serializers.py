@@ -113,7 +113,17 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
     check: assigning or moving requires the caller to hold ADMIN on the
     *new* program AND ADMIN on this project (and ADMIN on the *old* program
     when reassigning away from one). Enforced in ``validate_program``.
+
+    ``member_count`` and ``percent_complete`` are populated only when the
+    viewset annotates them — currently just the ``?program__isnull=true``
+    (ungrouped) list branch consumed by the Programs directory (ADR-0083).
+    They return ``null`` on every other path so the default project list stays
+    a single unaggregated query (the list is deliberately lightweight at
+    portfolio scale — see ``ProjectViewSet.get_serializer_class``).
     """
+
+    member_count = serializers.SerializerMethodField()
+    percent_complete = serializers.SerializerMethodField()
 
     class Meta:
         model = Project
@@ -133,6 +143,8 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "agile_features",
             "methodology",
             "program",
+            "member_count",
+            "percent_complete",
             # Lifecycle (#530) — read-only; flipped via /archive/ and /unarchive/.
             "is_archived",
             "archived_at",
@@ -145,6 +157,18 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "archived_at",
             "archived_by",
         ]
+
+    def get_member_count(self, obj: Project) -> int | None:
+        """Active membership count — only annotated on the ungrouped list
+        branch (ADR-0083). ``None`` elsewhere; never triggers a per-row query."""
+        return getattr(obj, "member_count", None)
+
+    def get_percent_complete(self, obj: Project) -> float | None:
+        """Task-weighted mean progress — annotated only on the ungrouped list
+        branch (ADR-0083). ``None`` when unannotated or the project has no
+        tasks. Rounded to one decimal for display stability."""
+        value = getattr(obj, "percent_complete", None)
+        return round(value, 1) if value is not None else None
 
     def validate_code(self, value: str) -> str:
         """Project code format: uppercase A-Z, 0-9, and hyphen, ≤12 chars.

@@ -13,6 +13,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db import models as db_models
 from django.db.models import (
+    Avg,
     BooleanField,
     Count,
     Exists,
@@ -192,6 +193,41 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         if self.action == "retrieve":
             return ProjectDetailSerializer
         return ProjectSerializer
+
+    def get_queryset(self) -> QuerySet[Project]:
+        """Membership-scoped project list (from ``ProjectScopedViewSet``), with an
+        optional ``?program__isnull=true`` branch for the Programs directory's
+        "Ungrouped projects" section (ADR-0083).
+
+        The aggregates (``member_count``, ``percent_complete``) are attached ONLY
+        on that branch — the default list stays a single unannotated query at
+        portfolio scale. Archived and soft-deleted projects are excluded from the
+        ungrouped view: a project that is out of active management should not be
+        nagged as "needing a home".
+        """
+        qs = super().get_queryset()
+        flag = self.request.query_params.get("program__isnull")
+        if flag is not None and flag.lower() in ("true", "1", "yes"):
+            # Both aggregates LEFT JOIN a different to-many relation, so the rows
+            # fan out (memberships × tasks) before aggregation. ``member_count``
+            # is safe because ``distinct=True`` collapses the duplicates; the
+            # ``Avg`` is safe because a mean is invariant under the *uniform*
+            # duplication this fan-out produces. WARNING: any non-distinct,
+            # non-mean aggregate (Sum, Count) added to this same .annotate() over
+            # ``tasks`` or ``memberships`` WILL be inflated by the join — split it
+            # into a Subquery annotation instead of adding it here.
+            qs = qs.filter(program__isnull=True, is_deleted=False, is_archived=False).annotate(
+                member_count=Count(
+                    "memberships",
+                    distinct=True,
+                    filter=Q(memberships__is_deleted=False),
+                ),
+                percent_complete=Avg(
+                    "tasks__percent_complete",
+                    filter=Q(tasks__is_deleted=False),
+                ),
+            )
+        return qs
 
     def perform_create(self, serializer: BaseSerializer[Project]) -> None:
         """Create the project and auto-assign the creator as Owner.

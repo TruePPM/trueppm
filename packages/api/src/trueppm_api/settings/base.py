@@ -452,6 +452,12 @@ WORKFLOW_HISTORY_RETENTION_DAYS: int | None = env.int("WORKFLOW_HISTORY_RETENTIO
 # time_limit — subsequent ticks drain the remainder.
 WORKFLOW_DRAIN_BATCH_SIZE = env.int("WORKFLOW_DRAIN_BATCH_SIZE", default=200)
 
+# Rows deleted per statement by the nightly workflow retention purge. The purge
+# deletes in bounded chunks rather than one unbounded statement so the first run
+# on a mature install (e.g. after WORKFLOW_HISTORY_RETENTION_DAYS is first set)
+# cannot take a long lock over a large slice of the history/outbox tables.
+WORKFLOW_PURGE_BATCH_SIZE = env.int("WORKFLOW_PURGE_BATCH_SIZE", default=500)
+
 # ---------------------------------------------------------------------------
 # Idempotency-Key retention (trueppm_api.apps.idempotency, ADR-0083)
 # ---------------------------------------------------------------------------
