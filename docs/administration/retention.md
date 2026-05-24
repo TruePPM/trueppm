@@ -7,7 +7,9 @@ stay small, index scans on the drain paths stay fast, and backups don't bloat.
 
 Every retention window is an operator-tunable Django setting. Setting a window to
 **`None`** disables that purge entirely (unbounded retention) — useful where an external
-archival policy owns the data, at the cost of unbounded table growth.
+archival policy owns the data, at the cost of unbounded table growth. `None` is set via a
+settings override (see [Disabling a purge](#disabling-a-purge-safely)); the environment
+variable itself must be a positive integer or left unset (it falls back to the default).
 
 ## Retention settings
 
@@ -23,9 +25,9 @@ window, set the env var (or the corresponding Helm value) and restart the API/wo
 pods. Example:
 
 ```bash
-# Keep webhook deliveries for 30 days; never purge MS Project imports.
+# Keep webhook deliveries for 30 days. The env var takes a positive integer;
+# leave it unset to fall back to the default (7). An empty value is invalid.
 TRUEPPM_WEBHOOK_RETENTION_DAYS=30
-TRUEPPM_IMPORT_RETENTION_DAYS=    # empty → None → purge disabled
 ```
 
 ## What is never purged
@@ -46,8 +48,18 @@ as-is — renaming them would break existing deployments.
 
 ## Disabling a purge safely
 
-Disabling a purge (`None`) means the table grows without bound. For `ImportRequest` in
-particular, each retained row can hold a multi-megabyte base64 blob; a team running
-monthly imports with the purge disabled will accumulate gigabytes of dead rows. If you
-disable a purge, pair it with an external archival or `VACUUM`/retention policy at the
-PostgreSQL layer.
+To disable a purge, set its Django setting to `None` in a settings override (the same
+mechanism as the older `HISTORY_RETENTION_DAYS` / `TASK_RUN_RETENTION_DAYS` knobs) — for
+example in a custom settings module layered on `trueppm_api.settings.prod`:
+
+```python
+TRUEPPM_IMPORT_RETENTION_DAYS = None  # never purge MS Project imports
+```
+
+The corresponding environment variable cannot express `None` — it must be a valid
+integer or left unset — so disabling is a settings-level decision, not an env toggle.
+
+Disabling a purge means the table grows without bound. For `ImportRequest` in particular,
+each retained row can hold a multi-megabyte base64 blob; a team running monthly imports
+with the purge disabled will accumulate gigabytes of dead rows. If you disable a purge,
+pair it with an external archival or `VACUUM`/retention policy at the PostgreSQL layer.
