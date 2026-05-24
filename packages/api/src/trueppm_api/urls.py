@@ -72,4 +72,5 @@ urlpatterns = [
     path("api/v1/", include("trueppm_api.apps.workshops.urls")),
     path("api/v1/", include("trueppm_api.apps.notifications.urls")),
     path("api/v1/", include("trueppm_api.apps.integrations.urls")),
+    path("api/v1/", include("trueppm_api.apps.observability.urls")),
 ]

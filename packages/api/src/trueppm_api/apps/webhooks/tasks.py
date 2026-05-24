@@ -200,3 +200,51 @@ def _do_drain_webhooks() -> None:
 def drain_webhook_queue(self: object) -> None:
     """Beat task: drain stranded PENDING webhook deliveries every 30 seconds."""
     _do_drain_webhooks()
+
+
+# ---------------------------------------------------------------------------
+# Webhook delivery retention purge (ADR-0081)
+# ---------------------------------------------------------------------------
+
+
+def _do_webhook_purge() -> None:
+    """Business logic for purge_old_deliveries — extracted for testability.
+
+    Deletes only terminal (SUCCESS/FAILED) deliveries: PENDING rows may still be
+    re-dispatched by the drain, so they are never purged regardless of age. A
+    retention of None disables the purge entirely (unbounded retention).
+    """
+    from django.conf import settings
+    from django.utils import timezone
+
+    from trueppm_api.apps.webhooks.models import DeliveryStatus, WebhookDelivery
+
+    retention_days = settings.TRUEPPM_WEBHOOK_RETENTION_DAYS
+    if retention_days is None:
+        return
+
+    cutoff = timezone.now() - timedelta(days=retention_days)
+    deleted, _ = WebhookDelivery.objects.filter(
+        status__in=[DeliveryStatus.SUCCESS, DeliveryStatus.FAILED],
+        created_at__lt=cutoff,
+    ).delete()
+    logger.info("purge_old_deliveries: deleted %d row(s)", deleted)
+
+
+@idempotent_task(
+    lock_key_template="purge_old_deliveries",
+    lock_ttl=120,
+    on_contention="skip",
+    soft_time_limit=55,
+    time_limit=90,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="webhooks.purge_old_deliveries",
+)
+def purge_old_deliveries(self: object) -> None:
+    """Delete terminal WebhookDelivery rows older than the retention window.
+
+    Runs nightly via Celery Beat. Keeps the delivery table small so the
+    (status, created_at) index scans in the drain stay fast on high-traffic boards.
+    """
+    _do_webhook_purge()

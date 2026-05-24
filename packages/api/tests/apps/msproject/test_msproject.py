@@ -1116,3 +1116,49 @@ class TestImportPurge:
         )
         self._purge()
         assert ImportRequest.objects.filter(pk=req.pk).exists()
+
+    def test_purge_respects_custom_retention_window(self, project: Project) -> None:
+        from unittest.mock import patch
+
+        from django.utils import timezone
+
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+        # 10 days old: purged under the default 7-day window, kept under 30 days.
+        kept = ImportRequest.objects.create(
+            project=project, filename="kept.xml", file_content_b64="dGVzdA=="
+        )
+        ImportRequest.objects.filter(pk=kept.pk).update(
+            status=ImportRequestStatus.DONE,
+            requested_at=timezone.now() - timedelta(days=10),
+        )
+        # 40 days old: beyond the 30-day window.
+        purged = ImportRequest.objects.create(
+            project=project, filename="purged.xml", file_content_b64="dGVzdA=="
+        )
+        ImportRequest.objects.filter(pk=purged.pk).update(
+            status=ImportRequestStatus.DEAD,
+            requested_at=timezone.now() - timedelta(days=40),
+        )
+        with patch("django.conf.settings.TRUEPPM_IMPORT_RETENTION_DAYS", 30):
+            self._purge()
+        assert ImportRequest.objects.filter(pk=kept.pk).exists()
+        assert not ImportRequest.objects.filter(pk=purged.pk).exists()
+
+    def test_purge_disabled_when_retention_none(self, project: Project) -> None:
+        from unittest.mock import patch
+
+        from django.utils import timezone
+
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+        req = ImportRequest.objects.create(
+            project=project, filename="p.xml", file_content_b64="dGVzdA=="
+        )
+        ImportRequest.objects.filter(pk=req.pk).update(
+            status=ImportRequestStatus.DONE,
+            requested_at=timezone.now() - timedelta(days=999),
+        )
+        with patch("django.conf.settings.TRUEPPM_IMPORT_RETENTION_DAYS", None):
+            self._purge()
+        assert ImportRequest.objects.filter(pk=req.pk).exists()
