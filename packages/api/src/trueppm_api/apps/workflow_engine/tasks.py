@@ -22,14 +22,17 @@ from __future__ import annotations
 
 import logging
 from datetime import timedelta
+from typing import TYPE_CHECKING, Any
 
 from celery import shared_task
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
 from trueppm_api.apps.workflow_engine.models import (
-    WorkflowActivityExecution,
     WorkflowHistoryEvent,
     WorkflowInstance,
     WorkflowOutboxRow,
@@ -65,14 +68,14 @@ def _mark_row(row: WorkflowOutboxRow, status: str) -> None:
     WorkflowOutboxRow.objects.filter(id=row.id).update(status=status)
 
 
-def _complete(instance: WorkflowInstance) -> None:
-    """Finalize a workflow whose last step just completed."""
-    results = {
-        execution.activity_name: execution.result
-        for execution in WorkflowActivityExecution.objects.filter(workflow=instance).exclude(
-            result=None
-        )
-    }
+def _complete(instance: WorkflowInstance, results: dict[str, Any]) -> None:
+    """Finalize a workflow whose last step just completed.
+
+    ``results`` is the already-aggregated activity output, passed in by the
+    caller, which holds it from the step context it just built — re-querying
+    ``WorkflowActivityExecution`` here would be a redundant scan on the
+    completion path of every workflow.
+    """
     instance.status = WorkflowStatus.COMPLETED
     instance.result = results
     instance.completed_at = timezone.now()
@@ -173,7 +176,15 @@ def _do_advance(outbox_row_id: str) -> None:
         if step_index + 1 < len(steps):
             enqueue_step(str(instance.id), step_index + 1)
         else:
-            _complete(instance)
+            # The final aggregate is the prior-step results (already fetched into
+            # the step context, excluding None) plus this step's result. Holding
+            # the instance lock, no other step can have written an execution
+            # between step_context() and here, so this reproduces the full scan
+            # without re-querying. None results stay excluded, matching get_state.
+            results = dict(context["prior"])
+            if result is not None:
+                results[step.name] = result
+            _complete(instance, results)
 
 
 @shared_task(  # type: ignore[untyped-decorator]
@@ -267,19 +278,48 @@ def _do_timer_drain() -> None:
         logger.info("workflows_timer_drain: fired=%d", fired)
 
 
+def _chunked_delete(queryset: QuerySet[Any], batch_size: int) -> int:
+    """Delete every row matching ``queryset`` in bounded ``batch_size`` chunks.
+
+    Each chunk is a separate statement, so the purge never holds a single lock
+    over an unbounded slice of the table — important on the first run of a mature
+    install, where the eligible set can be a large fraction of the table. The
+    filter is re-evaluated per pass, so rows deleted (or newly written) between
+    passes are naturally excluded.
+    """
+    model = queryset.model
+    total = 0
+    while True:
+        batch_ids = list(queryset.values_list("pk", flat=True)[:batch_size])
+        if not batch_ids:
+            break
+        deleted, _ = model.objects.filter(pk__in=batch_ids).delete()
+        total += deleted
+        if len(batch_ids) < batch_size:
+            break
+    return total
+
+
 def _do_purge_workflow_records() -> None:
     """Delete terminal step rows past 7 days and history past the retention window."""
     now = timezone.now()
-    outbox_deleted, _ = WorkflowOutboxRow.objects.filter(
-        status__in=[WorkflowOutboxStatus.DONE, WorkflowOutboxStatus.DEAD],
-        created_at__lt=now - _OUTBOX_RETENTION,
-    ).delete()
+    batch_size = settings.WORKFLOW_PURGE_BATCH_SIZE
+    outbox_deleted = _chunked_delete(
+        WorkflowOutboxRow.objects.filter(
+            status__in=[WorkflowOutboxStatus.DONE, WorkflowOutboxStatus.DEAD],
+            created_at__lt=now - _OUTBOX_RETENTION,
+        ),
+        batch_size,
+    )
     history_days = settings.WORKFLOW_HISTORY_RETENTION_DAYS
     history_deleted = 0
     if history_days:
-        history_deleted, _ = WorkflowHistoryEvent.objects.filter(
-            created_at__lt=now - timedelta(days=history_days),
-        ).delete()
+        history_deleted = _chunked_delete(
+            WorkflowHistoryEvent.objects.filter(
+                created_at__lt=now - timedelta(days=history_days),
+            ),
+            batch_size,
+        )
     logger.info("purge_old_workflow_records: outbox=%d history=%d", outbox_deleted, history_deleted)
 
 

@@ -96,13 +96,16 @@ class WorkflowHistoryEvent(models.Model):
     class Meta:
         ordering = ["workflow_id", "seq"]
         constraints = [
+            # The unique B-tree on (workflow, seq) also serves the ordered
+            # get_history lookup and the Max(seq) aggregate in record_history, so
+            # no separate (workflow, seq) index is needed — a named one would be
+            # pure write amplification on this hot, every-step-written table.
             models.UniqueConstraint(
                 fields=["workflow", "seq"],
                 name="workflow_history_seq_uniq",
             ),
         ]
         indexes = [
-            models.Index(fields=["workflow", "seq"], name="workflow_history_lookup_idx"),
             # Retention sweep (30-day default, configurable).
             models.Index(fields=["created_at"], name="workflow_history_retention_idx"),
         ]
