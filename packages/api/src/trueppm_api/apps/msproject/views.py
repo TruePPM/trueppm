@@ -16,6 +16,7 @@ from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import IsProjectNotArchived
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +57,16 @@ def _check_project_member(user: object, project_pk: str) -> None:
         raise PermissionDenied("You must be a member of this project.")
 
 
-class MsProjectImportView(APIView):
+class MsProjectImportView(IdempotencyMixin, APIView):
     """Upload and import an MS Project file (.mpp or .xml).
 
     Requires project Admin role. The import runs asynchronously via Celery;
     the response includes the celery_task_id for progress tracking.
     """
 
+    # Exempt from the generic Idempotency-Key path (ADR-0083): this is a multipart
+    # upload, and the import is already deduped at the table level via ImportRequest.
+    idempotency_exempt = True
     permission_classes = [IsAuthenticated, IsProjectNotArchived]
     parser_classes = [MultiPartParser]
 

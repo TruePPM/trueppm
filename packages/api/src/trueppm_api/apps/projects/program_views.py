@@ -36,6 +36,7 @@ from trueppm_api.apps.access.services import (
     delete_program_cascade,
     transfer_program_sponsorship,
 )
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Methodology, Program, Project
 from trueppm_api.apps.projects.serializers import (
     ProgramRiskPolicySerializer,
@@ -45,7 +46,7 @@ from trueppm_api.apps.projects.serializers import (
 )
 
 
-class ProgramViewSet(viewsets.ModelViewSet[Program]):
+class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
     """CRUD for programs.
 
     URL: ``/api/v1/programs/``

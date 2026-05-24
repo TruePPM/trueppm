@@ -59,6 +59,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.integrations",
     "trueppm_api.apps.observability",
     "trueppm_api.apps.workflow_engine",
+    "trueppm_api.apps.idempotency",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -258,6 +259,13 @@ CELERY_BEAT_SCHEDULE = {
         # 04:00 UTC — after the other nightly purge jobs.
         "schedule": crontab(hour=4, minute=0),
     },
+    # Hourly cleanup: deletes stored Idempotency-Key rows older than
+    # IDEMPOTENCY_RETENTION_HOURS. Hourly (not nightly) so the 24h contract holds —
+    # a nightly job would let rows live up to ~48h (ADR-0083).
+    "idempotency-keys-purge-hourly": {
+        "task": "idempotency.purge_old_keys",
+        "schedule": crontab(minute=5),
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -443,6 +451,19 @@ WORKFLOW_HISTORY_RETENTION_DAYS: int | None = env.int("WORKFLOW_HISTORY_RETENTIO
 # per run so a large backlog (e.g. after a broker outage) can't exceed the task
 # time_limit — subsequent ticks drain the remainder.
 WORKFLOW_DRAIN_BATCH_SIZE = env.int("WORKFLOW_DRAIN_BATCH_SIZE", default=200)
+
+# ---------------------------------------------------------------------------
+# Idempotency-Key retention (trueppm_api.apps.idempotency, ADR-0083)
+# ---------------------------------------------------------------------------
+
+# Retention window in hours for stored Idempotency-Key responses. Purged hourly by
+# the Celery beat task in trueppm_api.apps.idempotency.tasks. After expiry, a retry
+# with the same key re-runs the mutation. Set to None to disable automatic purging.
+IDEMPOTENCY_RETENTION_HOURS: int | None = env.int("IDEMPOTENCY_RETENTION_HOURS", default=24)
+# Maximum stored response body size (bytes). Responses larger than this are not stored
+# (the claim row is dropped, so a retry re-runs). Mutation responses are single objects
+# and effectively never approach this.
+IDEMPOTENCY_MAX_BODY_BYTES: int = env.int("IDEMPOTENCY_MAX_BODY_BYTES", default=1 * 1024 * 1024)
 
 # ---------------------------------------------------------------------------
 # drf-spectacular (OpenAPI)

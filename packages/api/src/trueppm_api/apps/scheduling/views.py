@@ -26,6 +26,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectNotArchived,
     IsProjectScheduler,
 )
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
     Dependency,
     EstimateStatus,
@@ -263,7 +264,7 @@ class MonteCarloLatestView(APIView):
         return Response(cached)
 
 
-class FailedTaskViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):  # type: ignore[type-arg]
+class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):  # type: ignore[type-arg]
     """Admin endpoint for dead-lettered Celery tasks.
 
     List/detail/retry/dismiss: admin users only. The serializer exposes
@@ -304,6 +305,7 @@ class FailedTaskViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet):  # 
 
 
 class VelocitySuggestionViewSet(
+    IdempotencyMixin,
     ListModelMixin,
     RetrieveModelMixin,
     GenericViewSet[VelocitySuggestion],

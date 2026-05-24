@@ -24,6 +24,7 @@ from trueppm_api.apps.access.permissions import (
     IsProgramMember,
     IsProgramNotClosed,
 )
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
     CeremonyTemplate,
     PhaseGateConfig,
@@ -36,6 +37,7 @@ from trueppm_api.apps.projects.serializers import (
 
 
 class CeremonyTemplateViewSet(
+    IdempotencyMixin,
     mixins.ListModelMixin,
     mixins.CreateModelMixin,
     mixins.RetrieveModelMixin,
@@ -88,7 +90,7 @@ class CeremonyTemplateViewSet(
         instance.soft_delete()
 
 
-class PhaseGateConfigView(RetrieveUpdateAPIView[PhaseGateConfig]):
+class PhaseGateConfigView(IdempotencyMixin, RetrieveUpdateAPIView[PhaseGateConfig]):
     """Singleton phase-gate calendar config per program.
 
     URL: ``/api/v1/programs/<program_pk>/phase-gate-config/``

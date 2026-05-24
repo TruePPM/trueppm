@@ -26,6 +26,7 @@ from rest_framework.serializers import BaseSerializer
 from rest_framework.viewsets import GenericViewSet
 
 from trueppm_api.apps.access.permissions import IsProjectAdmin, IsProjectMember
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project
 from trueppm_api.apps.webhooks.models import Webhook, WebhookDelivery
 from trueppm_api.apps.webhooks.serializers import (
@@ -40,6 +41,7 @@ _BROKER_ERRORS = (KombuOperationalError, ConnectionError, redis_lib.ConnectionEr
 
 
 class WebhookViewSet(
+    IdempotencyMixin,
     CreateModelMixin,
     RetrieveModelMixin,
     UpdateModelMixin,

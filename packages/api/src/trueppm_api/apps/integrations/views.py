@@ -24,6 +24,8 @@ from rest_framework import status, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
+
 from .models import IntegrationCredential
 from .registry import TASK_LINK_PROVIDERS
 from .serializers import (
@@ -38,7 +40,9 @@ if TYPE_CHECKING:
 
 
 @extend_schema(tags=["me"])
-class IntegrationCredentialViewSet(viewsets.GenericViewSet[IntegrationCredential]):
+class IntegrationCredentialViewSet(
+    IdempotencyMixin, viewsets.GenericViewSet[IntegrationCredential]
+):
     """Per-user integration credentials.
 
     Lookup is by ``provider`` key rather than the row PK so the URL is

@@ -51,6 +51,7 @@ from trueppm_api.apps.access.permissions import (
     ProjectScopedViewSet,
 )
 from trueppm_api.apps.access.services import transfer_project_ownership
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
     ApiToken,
     Baseline,
@@ -1874,7 +1875,7 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
         )
 
 
-class BaselineActivateView(APIView):
+class BaselineActivateView(IdempotencyMixin, APIView):
     """Activate a specific baseline, deactivating all others for the project.
 
     POST /api/v1/projects/{project_pk}/baselines/{baseline_pk}/activate/
@@ -2039,7 +2040,7 @@ def _build_wbs_path(parent_path: str, position: int) -> str:
     return f"{parent_path}.{label}" if parent_path else label
 
 
-class TaskReorderView(APIView):
+class TaskReorderView(IdempotencyMixin, APIView):
     """Reorder sibling tasks within a WBS level.
 
     POST /api/v1/projects/{pk}/tasks/reorder/
@@ -2187,7 +2188,7 @@ def _rewrite_descendants(
     return updated
 
 
-class TaskIndentView(APIView):
+class TaskIndentView(IdempotencyMixin, APIView):
     """Indent a task — make it the last child of its previous sibling.
 
     POST /api/v1/projects/{pk}/tasks/{task_id}/indent/
@@ -2271,7 +2272,7 @@ class TaskIndentView(APIView):
         )
 
 
-class TaskOutdentView(APIView):
+class TaskOutdentView(IdempotencyMixin, APIView):
     """Outdent a task — promote to parent's level (MS Project convention).
 
     POST /api/v1/projects/{pk}/tasks/{task_id}/outdent/
@@ -2404,7 +2405,7 @@ class TaskOutdentView(APIView):
         )
 
 
-class TaskReparentView(APIView):
+class TaskReparentView(IdempotencyMixin, APIView):
     """Reparent a task — move it under an arbitrary summary (or to root).
 
     POST /api/v1/projects/{pk}/tasks/{task_id}/reparent/
@@ -2522,7 +2523,7 @@ class TaskReparentView(APIView):
         )
 
 
-class TaskBulkView(APIView):
+class TaskBulkView(IdempotencyMixin, APIView):
     """Atomically create, update, and delete tasks in a single request.
 
     POST /api/v1/projects/{pk}/tasks/bulk/
@@ -2933,7 +2934,7 @@ def _task_webhook_payload(task: Task, source: str = "unknown") -> dict:  # type:
 # ---------------------------------------------------------------------------
 
 
-class BoardColumnConfigView(APIView):
+class BoardColumnConfigView(IdempotencyMixin, APIView):
     """GET/PUT per-project board column configuration.
 
     GET returns the saved config or the hardcoded 5-column defaults.
@@ -2985,7 +2986,7 @@ class BoardColumnConfigView(APIView):
 # ---------------------------------------------------------------------------
 
 
-class BoardSavedViewListView(APIView):
+class BoardSavedViewListView(IdempotencyMixin, APIView):
     """GET/POST per-project board saved view list.
 
     GET  returns all saved views for the project, ordered by name.
@@ -3033,7 +3034,7 @@ class BoardSavedViewListView(APIView):
         )
 
 
-class BoardSavedViewDetailView(APIView):
+class BoardSavedViewDetailView(IdempotencyMixin, APIView):
     """PATCH/DELETE a single board saved view.
 
     PATCH updates name and/or config. Only the creator or a Scheduler-role
@@ -3639,7 +3640,7 @@ class TaskBaselineDetailView(APIView):
         )
 
 
-class PhaseReorderView(APIView):
+class PhaseReorderView(IdempotencyMixin, APIView):
     """Reorder phase columns on the board by updating priority_rank on WBS L1 tasks.
 
     PATCH /api/v1/projects/{pk}/phases/reorder/
@@ -5245,7 +5246,7 @@ def _client_ip(request: Request) -> str | None:
     return request.META.get("REMOTE_ADDR") or None
 
 
-class TaskSyncView(APIView):
+class TaskSyncView(IdempotencyMixin, APIView):
     """``POST /api/v1/projects/{project_id}/task-sync/`` — inbound task push.
 
     Authenticated via project-scoped API token (Authorization: Bearer tppm_…).
@@ -5259,6 +5260,11 @@ class TaskSyncView(APIView):
     Per-project rate limit applies via ``TaskSyncThrottle`` (100 req/min steady,
     1000 req/min during the first 60 minutes after token creation).
     """
+
+    # Exempt from the generic Idempotency-Key path (ADR-0083): inbound sync is already
+    # idempotent by (project, source, external_id) upsert (ADR-0068), and requests carry
+    # a token principal rather than a JWT/session user to scope keys by.
+    idempotency_exempt = True
 
     # Only token auth — explicitly disable JWT/Session so a logged-in user
     # cannot hit this endpoint with their normal credentials and bypass the
@@ -5327,7 +5333,7 @@ class TaskSyncView(APIView):
         )
 
 
-class ProjectApiTokenViewSet(viewsets.ModelViewSet[Any]):
+class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
     """``/api/v1/projects/{project_pk}/api-tokens/`` — token CRUD for Admin/PM.
 
     ``list`` / ``retrieve`` are open to any project member so the team can see
@@ -5337,6 +5343,11 @@ class ProjectApiTokenViewSet(viewsets.ModelViewSet[Any]):
     The raw token is returned only on ``create``, in a one-time response field
     ``token``.  Subsequent reads never expose it.
     """
+
+    # Exempt from the generic Idempotency-Key path (ADR-0083): the create response
+    # carries the one-time plaintext token, which must never be persisted in the
+    # idempotency store for replay. Token issuance is also throttled separately.
+    idempotency_exempt = True
 
     from trueppm_api.apps.projects.throttles import TokenIssuanceThrottle
 

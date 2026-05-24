@@ -11,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -729,7 +730,7 @@ class IsTokenForProject(BasePermission):
 # ---------------------------------------------------------------------------
 
 
-class ProjectScopedViewSet(viewsets.GenericViewSet):  # type: ignore[type-arg]
+class ProjectScopedViewSet(IdempotencyMixin, viewsets.GenericViewSet):  # type: ignore[type-arg]
     """Mixin that restricts every queryset to projects the user is a member of.
 
     Prevents IDOR: an unauthenticated or non-member request will receive an
@@ -739,6 +740,11 @@ class ProjectScopedViewSet(viewsets.GenericViewSet):  # type: ignore[type-arg]
 
     Subclasses should call super().get_queryset() and then apply additional
     filters on top of the membership-scoped queryset.
+
+    Inherits IdempotencyMixin (ADR-0083) so every project-scoped mutation honors the
+    Idempotency-Key header. The mixin precedes GenericViewSet in the MRO so its
+    initial()/finalize_response()/handle_exception() overrides run inside the
+    ATOMIC_REQUESTS transaction. Opt out with ``idempotency_exempt = True``.
     """
 
     def get_queryset(self) -> QuerySet[Any]:

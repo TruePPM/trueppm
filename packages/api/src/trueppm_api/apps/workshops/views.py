@@ -16,6 +16,7 @@ from trueppm_api.apps.access.permissions import (
     IsProjectMember,
     IsProjectNotArchived,
 )
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project
 from trueppm_api.apps.workshops.models import WorkshopSession
 from trueppm_api.apps.workshops.permissions import IsProjectAdminOrSessionOwner
@@ -23,7 +24,7 @@ from trueppm_api.apps.workshops.serializers import WorkshopSessionSerializer
 from trueppm_api.apps.workshops.services import end_workshop, force_end_workshop, start_workshop
 
 
-class WorkshopStartView(APIView):
+class WorkshopStartView(IdempotencyMixin, APIView):
     """Start a workshop session for a project.
 
     POST /api/v1/projects/{pk}/workshop/start/
@@ -52,7 +53,7 @@ class WorkshopStartView(APIView):
         return Response(WorkshopSessionSerializer(session).data, status=status.HTTP_201_CREATED)
 
 
-class WorkshopEndView(APIView):
+class WorkshopEndView(IdempotencyMixin, APIView):
     """End the active workshop session for a project.
 
     POST /api/v1/projects/{pk}/workshop/end/
@@ -86,7 +87,7 @@ class WorkshopEndView(APIView):
         return Response(WorkshopSessionSerializer(session).data)
 
 
-class WorkshopForceEndView(APIView):
+class WorkshopForceEndView(IdempotencyMixin, APIView):
     """Force-end the active workshop session (admin recovery for crashed sessions).
 
     POST /api/v1/projects/{pk}/workshop/force-end/
