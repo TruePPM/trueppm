@@ -291,7 +291,7 @@ class DefaultWorkflowBackend(WorkflowBackend):
                 payload=event.payload,
                 occurred_at=event.created_at,
             )
-            for event in WorkflowHistoryEvent.objects.filter(workflow_id=workflow_id).order_by(
+            for event in WorkflowHistoryEvent.objects.filter(workflow__id=workflow_id).order_by(
                 "seq"
             )
         ]
