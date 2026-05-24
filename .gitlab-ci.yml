@@ -65,12 +65,12 @@ workflow:
 # api includes scheduler paths because the API package installs the scheduler
 # as a dependency; a scheduler change can break API type-checking.
 #
-# Security jobs that span packages (pip-audit, license:check) declare a
-# single optional needs on ci:build-api-image so they enter DAG mode and run
-# in parallel with the test stage rather than waiting for it to finish. The
+# API-side security jobs (pip-audit, license:check:py) declare a single
+# optional needs on ci:build-api-image so they enter DAG mode and run in
+# parallel with the test stage rather than waiting for it to finish. The
 # optional+single-dep shape avoids blocked-job cascades on single-package
 # MRs: if only the API changed, web:test is skipped, but pip-audit and
-# license:check still run because they don't depend on web:test.
+# license:check:py still run because they don't depend on web:test.
 # ---------------------------------------------------------------------------
 
 .rules-scheduler: &rules-scheduler
@@ -1242,8 +1242,8 @@ pages:
 # ---------------------------------------------------------------------------
 # SECURITY — CVE scans + license audit. MR + main only.
 #
-# pip-audit and license:check use no needs: and rely on stage ordering.
-# This avoids blocked-job cascades on single-package MRs: if only the API
+# pip-audit and the license:check:* jobs use no needs: and rely on stage
+# ordering. This avoids blocked-job cascades on single-package MRs: if only the API
 # changed, web:test is skipped; a needs: [api:test, web:test] would then
 # skip security too, silently dropping the Python CVE scan.
 # ---------------------------------------------------------------------------
@@ -1253,7 +1253,7 @@ security:pip-audit:
   #
   # Uses the ci-api image (kaizen #651 follow-up to #640) so the apt-get
   # install of libpq-dev/gcc and the cold pip install of the scheduler +
-  # api dev-dep wheels is no longer paid per run. Mirrors the license:check
+  # api dev-dep wheels is no longer paid per run. Mirrors the license:check:py
   # migration in #640. Saves ~3min off this job on every pipeline.
   stage: security
   image: $CI_REGISTRY_IMAGE/ci-api:py3.11
@@ -1314,31 +1314,29 @@ web:security:
   script:
     - npm audit --audit-level=high
 
-license:check:
-  # Verify no copyleft-licensed dependency has been introduced.
-  # Checks both Python (pip-licenses) and npm (license-checker) packages.
+license:check:py:
+  # Verify no copyleft-licensed Python dependency has been introduced.
   # LGPL is permitted (library-linking exemption applies).
   #
-  # Kaizen #640 N1: narrowed `changes:` to dep manifests only. License
-  # composition only changes when manifests/lock files do; main + scheduled
-  # runs catch transitive drift that a lock-file refresh might miss.
+  # Split from a former single license:check job (kaizen): mixing Python +
+  # Node in one container forced a per-run `apt-get install nodejs npm` onto
+  # the python-slim ci-api image (network-bound, the dominant cost) and made
+  # the two halves run serially. Splitting drops the apt install entirely,
+  # runs the halves in parallel, and scopes each rule to its own manifests so
+  # a web-only dep bump no longer pays the Python re-link and vice versa.
+  # Mirrors the existing pip-audit (ci-api) / web:security (node) split.
   #
-  # Uses the ci-api image (kaizen #640 item 3) so the apt-get install
-  # of libpq-dev / gcc is no longer paid per-run. The web-npm cache is
-  # pulled so `npm install --prefix packages/web` resolves from cache
-  # instead of cold-installing the full web dep tree (~5min saved on a
-  # cache hit; the cache key is package-lock.json so license drift still
-  # invalidates correctly).
+  # Kaizen #640 N1: `changes:` is dep manifests only — license composition
+  # only changes when manifests/lock files do; main + scheduled runs catch
+  # transitive drift that a lock-file refresh might miss.
   stage: security
   image: $CI_REGISTRY_IMAGE/ci-api:py3.11
   needs:
     - job: ci:build-api-image
       optional: true
   cache:
-    - <<: *api-cache
-      policy: pull
-    - <<: *web-cache
-      policy: pull
+    <<: *api-cache
+    policy: pull
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
@@ -1346,30 +1344,53 @@ license:check:
       changes:
         - packages/scheduler/pyproject.toml
         - packages/api/pyproject.toml
-        - packages/web/package.json
-        - packages/web/package-lock.json
-        - packages/wasm-scheduler/Cargo.toml
-        - packages/wasm-scheduler/Cargo.lock
         - .gitlab-ci.yml
   before_script:
-    # ci-api image has libpq-dev + gcc; still need nodejs for the npm
-    # license check (TypeScript deps), and pip-licenses for the python side.
-    - apt-get update -qq && apt-get install -y -qq --no-install-recommends nodejs npm
+    # Image already has scheduler[dev] + api[dev] dev-dep wheels resident;
+    # these installs are fast editable re-links against the checked-out source.
     - pip install pip-licenses --quiet
     - pip install -e "packages/scheduler[dev]" --quiet
     - pip install -e packages/api --quiet
-    - npm install --prefix packages/web --prefer-offline --quiet
   script:
-    # --- Python ---
     - pip-licenses --order=license --format=plain-vertical
     - >-
       pip-licenses
       --fail-on="GNU General Public License v2 (GPLv2);
                  GNU General Public License v3 (GPLv3);
                  GNU Affero General Public License v3 (AGPLv3)"
-    # --- npm ---
+
+license:check:web:
+  # Verify no copyleft-licensed npm dependency has been introduced.
+  # node:20-alpine already ships node, so there is no apt install to pay.
+  # See license:check:py above for why this was split out.
+  stage: security
+  image: node:20-alpine
+  cache:
+    <<: *web-cache
+    policy: pull
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/web/package.json
+        - packages/web/package-lock.json
+        - .gitlab-ci.yml
+  before_script:
+    - cd packages/web
+    # npm ci is deterministic against the lockfile and faster than npm install.
+    # --omit=dev installs only the production dependency subset: a license audit
+    # of `--production` deps never needs the ~600 dev-tool packages, so skipping
+    # them shrinks both the install and the tree license-checker has to walk.
+    # --prefer-offline resolves from the pulled web-npm cache.
+    - npm ci --omit=dev --prefer-offline --quiet
+  script:
     # --onlyAllow covers --failOn implicitly: any license not in the list fails.
-    - npx --prefix packages/web license-checker --production
+    # trueppm-web declares license "Apache-2.0" in package.json and is audited
+    # like any other package. It must NOT be "private": true — license-checker
+    # force-reports every private package as UNLICENSED (lib/index.js), which the
+    # allow-list then rejects. Dropping `private` lets its real license show.
+    - npx license-checker --production
         --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-3.0;CC-BY-4.0;Python-2.0;Unlicense;WTFPL;BlueOak-1.0.0"
 
 wasm:license-check:
