@@ -23,6 +23,7 @@ from rest_framework.viewsets import GenericViewSet
 from trueppm_api.apps.access.permissions import (
     IsProjectAdmin,
     IsProjectMember,
+    IsProjectNotArchived,
     IsProjectScheduler,
 )
 from trueppm_api.apps.projects.models import (
@@ -46,7 +47,7 @@ from trueppm_api.apps.scheduling.services import enqueue_recalculate
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated, IsProjectScheduler])
+@permission_classes([IsAuthenticated, IsProjectScheduler, IsProjectNotArchived])
 def trigger_schedule(request: Request, pk: str) -> Response:
     """Manually trigger a CPM recalculation for a project.
 
@@ -76,7 +77,7 @@ def trigger_schedule(request: Request, pk: str) -> Response:
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated, IsProjectMember])
+@permission_classes([IsAuthenticated, IsProjectMember, IsProjectNotArchived])
 def run_monte_carlo(request: Request, pk: str) -> Response:
     """Run a Monte Carlo probabilistic schedule simulation synchronously.
 
@@ -247,7 +248,7 @@ class MonteCarloLatestView(APIView):
     Permission: Member (any role ≥ Viewer).
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
         """Return the latest cached Monte Carlo result for the project."""
@@ -368,7 +369,7 @@ class VelocitySuggestionViewSet(
     @action(
         detail=True,
         methods=["post"],
-        permission_classes=[IsAuthenticated, IsProjectAdmin],
+        permission_classes=[IsAuthenticated, IsProjectAdmin, IsProjectNotArchived],
     )
     def accept(self, request: Request, pk: str | None = None) -> Response:
         """Apply the suggested duration to the task and enqueue a CPM recompute.
@@ -415,7 +416,7 @@ class VelocitySuggestionViewSet(
     @action(
         detail=True,
         methods=["post"],
-        permission_classes=[IsAuthenticated, IsProjectAdmin],
+        permission_classes=[IsAuthenticated, IsProjectAdmin, IsProjectNotArchived],
     )
     def dismiss(self, request: Request, pk: str | None = None) -> Response:
         """Mark a suggestion as dismissed without touching the task.

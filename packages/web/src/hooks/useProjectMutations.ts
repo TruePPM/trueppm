@@ -118,3 +118,90 @@ export function useCalendars() {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Project lifecycle (#530) — archive / unarchive / transfer / delete
+// ---------------------------------------------------------------------------
+
+/** POST /api/v1/projects/:id/archive/ — mark a project read-only. Owner only. */
+export function useArchiveProject(projectId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      if (!projectId) throw new Error('projectId is required');
+      const res = await apiClient.post<ApiProject>(`/projects/${projectId}/archive/`);
+      return res.data;
+    },
+    onSuccess: () => {
+      if (projectId) {
+        void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      }
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}
+
+/** POST /api/v1/projects/:id/unarchive/ — restore writes to an archived project. */
+export function useUnarchiveProject(projectId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      if (!projectId) throw new Error('projectId is required');
+      const res = await apiClient.post<ApiProject>(`/projects/${projectId}/unarchive/`);
+      return res.data;
+    },
+    onSuccess: () => {
+      if (projectId) {
+        void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+      }
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}
+
+export interface TransferProjectPayload {
+  new_owner_user_id: string;
+}
+
+/** POST /api/v1/projects/:id/transfer/ — hand ownership to another member. */
+export function useTransferProject(projectId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: TransferProjectPayload) => {
+      if (!projectId) throw new Error('projectId is required');
+      const res = await apiClient.post<ApiProject>(
+        `/projects/${projectId}/transfer/`,
+        payload,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      if (projectId) {
+        void queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+        void queryClient.invalidateQueries({ queryKey: ['project-members', projectId] });
+      }
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}
+
+/**
+ * DELETE /api/v1/projects/:id/ — soft-delete by default; pass ``force=true``
+ * for a permanent hard delete (requires the project to already be archived).
+ */
+export function useDeleteProject(projectId: string | null | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ force = false }: { force?: boolean } = {}) => {
+      if (!projectId) throw new Error('projectId is required');
+      const url = force ? `/projects/${projectId}/?force=true` : `/projects/${projectId}/`;
+      await apiClient.delete(url);
+    },
+    onSuccess: () => {
+      if (projectId) {
+        void queryClient.removeQueries({ queryKey: ['project', projectId] });
+      }
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+    },
+  });
+}

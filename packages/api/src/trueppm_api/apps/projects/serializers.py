@@ -133,8 +133,18 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "agile_features",
             "methodology",
             "program",
+            # Lifecycle (#530) — read-only; flipped via /archive/ and /unarchive/.
+            "is_archived",
+            "archived_at",
+            "archived_by",
         ]
-        read_only_fields = ["id", "server_version"]
+        read_only_fields = [
+            "id",
+            "server_version",
+            "is_archived",
+            "archived_at",
+            "archived_by",
+        ]
 
     def validate_code(self, value: str) -> str:
         """Project code format: uppercase A-Z, 0-9, and hyphen, ≤12 chars.
@@ -262,6 +272,10 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "my_role_label",
             "project_count",
             "member_count",
+            # Lifecycle (#530) — read-only; flipped via /close/ and /reopen/.
+            "is_closed",
+            "closed_at",
+            "closed_by",
         ]
         read_only_fields = [
             "id",
@@ -274,6 +288,9 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "my_role_label",
             "project_count",
             "member_count",
+            "is_closed",
+            "closed_at",
+            "closed_by",
         ]
 
     def get_my_role(self, obj: Program) -> int | None:

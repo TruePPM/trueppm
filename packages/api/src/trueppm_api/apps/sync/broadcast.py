@@ -32,6 +32,16 @@ def broadcast_board_event(
     asyncio.run() so the existing thread's event-loop context is reused
     instead of a fresh one being booted per call.
 
+    Durability: this broadcast is **best-effort by design** and safe to lose.
+    Every event it carries is durably persisted in the DB before the broadcast
+    is scheduled (callers wrap this in ``transaction.on_commit``), and clients
+    reconcile by pulling the sync delta on (re)connect. If the channel layer is
+    down at commit time the event is dropped and the client recovers it on its
+    next delta fetch — nothing durable is lost. This is why ``on_commit``
+    callbacks that *only* broadcast need no outbox row, whereas callbacks that
+    dispatch Celery work must commit one first. See
+    ``docs/durability/on-commit-audit.md`` (#659).
+
     Args:
         project_id:  UUID string of the project whose group to broadcast to.
         event_type:  Short identifier for the event, e.g. "task_created" or

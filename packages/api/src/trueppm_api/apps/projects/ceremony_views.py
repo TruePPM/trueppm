@@ -19,7 +19,11 @@ from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.serializers import BaseSerializer
 
-from trueppm_api.apps.access.permissions import IsProgramAdmin, IsProgramMember
+from trueppm_api.apps.access.permissions import (
+    IsProgramAdmin,
+    IsProgramMember,
+    IsProgramNotClosed,
+)
 from trueppm_api.apps.projects.models import (
     CeremonyTemplate,
     PhaseGateConfig,
@@ -52,8 +56,8 @@ class CeremonyTemplateViewSet(
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
-            return [IsAuthenticated(), IsProgramMember()]
-        return [IsAuthenticated(), IsProgramAdmin()]
+            return [IsAuthenticated(), IsProgramMember(), IsProgramNotClosed()]
+        return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
 
     def get_queryset(self) -> QuerySet[CeremonyTemplate]:
         # ``program_pk`` is guaranteed by the URL pattern; cast to str so the
@@ -101,8 +105,8 @@ class PhaseGateConfigView(RetrieveUpdateAPIView[PhaseGateConfig]):
 
     def get_permissions(self) -> list[BasePermission]:
         if self.request.method in ("GET", "HEAD", "OPTIONS"):
-            return [IsAuthenticated(), IsProgramMember()]
-        return [IsAuthenticated(), IsProgramAdmin()]
+            return [IsAuthenticated(), IsProgramMember(), IsProgramNotClosed()]
+        return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
 
     def get_object(self) -> PhaseGateConfig:
         program_pk = self.kwargs["program_pk"]

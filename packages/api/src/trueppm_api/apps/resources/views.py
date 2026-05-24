@@ -20,6 +20,7 @@ from trueppm_api.apps.access.permissions import (
     IsOrgAdmin,
     IsOrgScheduler,
     IsProjectMember,
+    IsProjectNotArchived,
     ProjectScopedViewSet,
     _membership_role,
 )
@@ -132,7 +133,7 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
     live task assignments exist.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember, CanAssignResource]
+    permission_classes = [IsAuthenticated, IsProjectMember, CanAssignResource, IsProjectNotArchived]
     serializer_class = ProjectResourceSerializer
     filter_backends = [filters.OrderingFilter]
     queryset = (
@@ -538,7 +539,7 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
     on the mixin fallthrough.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember, CanAssignResource]
+    permission_classes = [IsAuthenticated, IsProjectMember, CanAssignResource, IsProjectNotArchived]
     serializer_class = TaskResourceSerializer
     filter_backends = [filters.OrderingFilter]
     queryset = TaskResource.objects.select_related("task", "resource")

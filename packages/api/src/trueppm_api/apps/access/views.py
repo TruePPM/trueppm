@@ -19,7 +19,9 @@ from rest_framework.views import APIView
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
     IsProgramMember,
+    IsProgramNotClosed,
     IsProjectMember,
+    IsProjectNotArchived,
     _membership_role,
     _program_membership_role,
 )
@@ -50,7 +52,7 @@ class ProjectMembershipViewSet(viewsets.GenericViewSet[ProjectMembership]):
                        (last-Owner guard prevents stranding a project)
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get_queryset(self) -> QuerySet[ProjectMembership]:
         project_pk = self.kwargs["project_pk"]
@@ -318,7 +320,7 @@ class ProgramMembershipViewSet(viewsets.GenericViewSet[ProgramMembership]):
       destroy        — Owner only for others; self-remove allowed; last-Owner guard
     """
 
-    permission_classes = [IsAuthenticated, IsProgramMember]
+    permission_classes = [IsAuthenticated, IsProgramMember, IsProgramNotClosed]
 
     def get_queryset(self) -> QuerySet[ProgramMembership]:
         program_pk = self.kwargs["program_pk"]

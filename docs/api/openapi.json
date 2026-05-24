@@ -1838,6 +1838,67 @@
                 }
             }
         },
+        "/api/v1/programs/{id}/close/": {
+            "post": {
+                "operationId": "v1_programs_close_create",
+                "description": "Mark the program as closed (read-only shell). Owner only (#530).\n\nClosing a program freezes the program-level surfaces (members, settings,\nceremonies). Child projects are NOT cascaded — they retain their own\nlifecycle, matching the UI dialog's \"projects remain active\" warning.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{id}/integrations-summary/": {
             "get": {
                 "operationId": "v1_programs_integrations_summary_retrieve",
@@ -1898,6 +1959,67 @@
                 "tags": [
                     "v1"
                 ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{id}/reopen/": {
+            "post": {
+                "operationId": "v1_programs_reopen_create",
+                "description": "Reopen a closed program. Owner only (#530).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -2095,6 +2217,128 @@
                             }
                         }
                     }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{id}/split/": {
+            "post": {
+                "operationId": "v1_programs_split_create",
+                "description": "Split a program into sub-programs — stub for 0.2 (#530).\n\nValidates payload shape and Owner role, then returns 501 so the UI\ncan render the dialog and a coherent \"coming soon\" toast without a\nclient-side feature flag. Real implementation is tracked in a\nfollow-up issue; the contract here is the one the eventual handler\nwill accept.\n\nBody: ``{\"splits\": [{\"name\": str, \"project_ids\": [uuid]}, ...]}``",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Program"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{id}/transfer-sponsorship/": {
+            "post": {
+                "operationId": "v1_programs_transfer_sponsorship_create",
+                "description": "Transfer program sponsorship to another existing member (#530).\n\nBody: ``{\"new_owner_user_id\": \"<uuid>\", \"new_lead_user_id\": \"<uuid>?\"}``.\nThe new sponsor must already hold a ``ProgramMembership`` at any role —\ninvite first if not. The current OWNER is atomically demoted to ADMIN.\nOptionally rotates ``program.lead`` so the program header chip moves\nwith the role.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this program.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProgramRequest"
+                            }
+                        }
+                    },
+                    "required": true
                 },
                 "security": [
                     {
@@ -3411,6 +3655,67 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/archive/": {
+            "post": {
+                "operationId": "v1_projects_archive_create",
+                "description": "Mark the project as archived (read-only) (#530).\n\nIdempotent — archiving an already-archived project succeeds with the\nexisting ``archived_at`` / ``archived_by`` values preserved. Owner only.\nBroadcasts ``project_archived`` so connected clients flip their UI to\nread-only without a manual refresh.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/attention/": {
             "get": {
                 "operationId": "v1_projects_attention_retrieve",
@@ -4448,6 +4753,128 @@
                 "responses": {
                     "200": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/transfer/": {
+            "post": {
+                "operationId": "v1_projects_transfer_create",
+                "description": "Transfer project ownership to another existing member (#530).\n\nBody: ``{\"new_owner_user_id\": \"<uuid>\"}``. The target must already be\na project member at any role — invite first if necessary. The current\nOWNER is atomically demoted to ADMIN.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/unarchive/": {
+            "post": {
+                "operationId": "v1_projects_unarchive_create",
+                "description": "Restore writes on an archived project (#530). Owner only.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ProjectRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -15102,12 +15529,30 @@
                         "type": "integer",
                         "readOnly": true,
                         "default": 0
+                    },
+                    "is_closed": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "closed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "closed_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 },
                 "required": [
+                    "closed_at",
+                    "closed_by",
                     "created_at",
                     "created_by",
                     "id",
+                    "is_closed",
                     "lead_detail",
                     "member_count",
                     "my_role",
@@ -15309,10 +15754,28 @@
                         "type": "string",
                         "format": "uuid",
                         "nullable": true
+                    },
+                    "is_archived": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "archived_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "archived_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 },
                 "required": [
+                    "archived_at",
+                    "archived_by",
                     "id",
+                    "is_archived",
                     "name",
                     "server_version",
                     "start_date"
@@ -15518,13 +15981,31 @@
                         "format": "uuid",
                         "nullable": true
                     },
+                    "is_archived": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "archived_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "archived_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "unresolved_assignee_count": {
                         "type": "integer",
                         "readOnly": true
                     }
                 },
                 "required": [
+                    "archived_at",
+                    "archived_by",
                     "id",
+                    "is_archived",
                     "name",
                     "server_version",
                     "start_date",
