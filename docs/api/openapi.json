@@ -16164,7 +16164,7 @@
             },
             "ProjectMembershipRead": {
                 "type": "object",
-                "description": "Response serializer — includes user_detail and role_label for list/retrieve.\n\nrole       — integer ordinal (canonical wire format; use for comparisons)\nrole_label — human-readable label e.g. \"Project Manager\" (display only)",
+                "description": "Response serializer — includes user_detail and role_label for list/retrieve.\n\nrole            — integer ordinal (canonical wire format; use for comparisons)\nrole_label      — human-readable label e.g. \"Project Manager\" (display only)\njoined_at       — when this membership row was created (per-project access evidence)\nrole_changed_at — when the role last changed, or null if unchanged since joining",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -16204,12 +16204,25 @@
                     "role_label": {
                         "type": "string",
                         "readOnly": true
+                    },
+                    "joined_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "role_changed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 },
                 "required": [
                     "id",
+                    "joined_at",
                     "project",
                     "role",
+                    "role_changed_at",
                     "role_label",
                     "server_version",
                     "user",

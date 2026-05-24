@@ -61,6 +61,8 @@ const makeOwner = (overrides: Partial<ProjectMembership> = {}): ProjectMembershi
   user_detail: { id: 'user-owner', username: 'alice', email: 'alice@example.com' },
   role: 400,
   role_label: 'Project Admin',
+  joined_at: '2026-04-12T12:00:00Z',
+  role_changed_at: null,
   ...overrides,
 });
 
@@ -72,8 +74,15 @@ const makeMember = (overrides: Partial<ProjectMembership> = {}): ProjectMembersh
   user_detail: { id: 'user-bob', username: 'bob', email: 'bob@example.com' },
   role: 100,
   role_label: 'Team Member',
+  joined_at: '2026-04-12T12:00:00Z',
+  role_changed_at: null,
   ...overrides,
 });
+
+// Format an ISO timestamp exactly as MemberRow does, so date assertions stay
+// correct regardless of the CI runner's timezone.
+const fmt = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 
 let mockMembers: ProjectMembership[];
 
@@ -160,5 +169,24 @@ describe('MembersTab', () => {
     mockMembers = [];
     render();
     expect(screen.getByText(/no members yet/i)).toBeInTheDocument();
+  });
+
+  // Per-project access evidence (#590)
+  it('shows the join date and omits the role-change line when role_changed_at is null', () => {
+    mockMembers = [makeMember({ joined_at: '2026-04-12T12:00:00Z', role_changed_at: null })];
+    render();
+    const bobRow = screen.getByText('bob').closest('li')!;
+    expect(within(bobRow).getByText(new RegExp(`Joined ${fmt('2026-04-12T12:00:00Z')}`))).toBeInTheDocument();
+    expect(within(bobRow).queryByText(/Role changed/)).not.toBeInTheDocument();
+  });
+
+  it('shows both the join date and the role-change date when role_changed_at is after joined_at', () => {
+    mockMembers = [
+      makeMember({ joined_at: '2026-04-12T12:00:00Z', role_changed_at: '2026-05-01T12:00:00Z' }),
+    ];
+    render();
+    const bobRow = screen.getByText('bob').closest('li')!;
+    expect(within(bobRow).getByText(new RegExp(`Joined ${fmt('2026-04-12T12:00:00Z')}`))).toBeInTheDocument();
+    expect(within(bobRow).getByText(new RegExp(`Role changed ${fmt('2026-05-01T12:00:00Z')}`))).toBeInTheDocument();
   });
 });

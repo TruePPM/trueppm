@@ -21,8 +21,10 @@ class _UserSummarySerializer(serializers.ModelSerializer):  # type: ignore[type-
 class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembership]):
     """Response serializer — includes user_detail and role_label for list/retrieve.
 
-    role       — integer ordinal (canonical wire format; use for comparisons)
-    role_label — human-readable label e.g. "Project Manager" (display only)
+    role            — integer ordinal (canonical wire format; use for comparisons)
+    role_label      — human-readable label e.g. "Project Manager" (display only)
+    joined_at       — when this membership row was created (per-project access evidence)
+    role_changed_at — when the role last changed, or null if unchanged since joining
     """
 
     user_detail = _UserSummarySerializer(source="user", read_only=True)
@@ -41,8 +43,19 @@ class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembers
             "user_detail",
             "role",
             "role_label",
+            "joined_at",
+            "role_changed_at",
         ]
-        read_only_fields = ["id", "server_version", "project", "user", "user_detail", "role_label"]
+        read_only_fields = [
+            "id",
+            "server_version",
+            "project",
+            "user",
+            "user_detail",
+            "role_label",
+            "joined_at",
+            "role_changed_at",
+        ]
 
 
 class ProjectMembershipWriteSerializer(serializers.ModelSerializer[ProjectMembership]):

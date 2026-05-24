@@ -279,3 +279,89 @@ def test_partial_update_cannot_assign_equal_role(
     """Owner (role == Role.OWNER) cannot assign Owner role (>= own role) to another member."""
     resp = owner_client.patch(_url(project, member_membership.pk), {"role": Role.OWNER})
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# #590: per-project access evidence (joined_at / role_changed_at)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_new_membership_backfills_joined_at_and_null_role_changed_at(
+    member_membership: ProjectMembership,
+) -> None:
+    """A freshly created membership has joined_at set and role_changed_at NULL.
+
+    role_changed_at NULL is the "no role change since joining" signal the read
+    serializer and UI key off; the migration leaves existing rows in the same
+    state (joined_at backfilled via default, role_changed_at NULL).
+    """
+    assert member_membership.joined_at is not None
+    assert member_membership.role_changed_at is None
+
+
+@pytest.mark.django_db
+def test_list_includes_access_evidence_fields(
+    owner_client: APIClient, project: Project, owner_membership: ProjectMembership
+) -> None:
+    resp = owner_client.get(_url(project))
+    assert resp.status_code == 200
+    row = next(m for m in resp.data if m["id"] == str(owner_membership.pk))
+    assert row["joined_at"] is not None
+    assert row["role_changed_at"] is None
+
+
+@pytest.mark.django_db
+def test_partial_update_stamps_role_changed_at(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+) -> None:
+    """An actual role change stamps role_changed_at at/after the join time."""
+    assert member_membership.role_changed_at is None
+    resp = owner_client.patch(_url(project, member_membership.pk), {"role": Role.SCHEDULER})
+    assert resp.status_code == 200
+    assert resp.data["role_changed_at"] is not None
+    member_membership.refresh_from_db()
+    assert member_membership.role_changed_at is not None
+    assert member_membership.role_changed_at >= member_membership.joined_at
+
+
+@pytest.mark.django_db
+def test_partial_update_same_role_does_not_stamp(
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+) -> None:
+    """A no-op PATCH that re-sends the current role must not advance role_changed_at."""
+    resp = owner_client.patch(_url(project, member_membership.pk), {"role": Role.MEMBER})
+    assert resp.status_code == 200
+    member_membership.refresh_from_db()
+    assert member_membership.role_changed_at is None
+
+
+@pytest.mark.django_db
+def test_transfer_project_ownership_stamps_both_rows(
+    project: Project,
+    owner: object,
+    member_user: object,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+) -> None:
+    """The ownership-transfer service stamps role_changed_at on both affected rows.
+
+    This is the second role-change path (alongside the PATCH endpoint); without
+    stamping here the access-evidence timestamp would silently miss transfers.
+    """
+    from trueppm_api.apps.access.services import transfer_project_ownership
+
+    transfer_project_ownership(project=project, new_owner=member_user, actor=owner)
+
+    owner_membership.refresh_from_db()
+    member_membership.refresh_from_db()
+    assert owner_membership.role == Role.ADMIN
+    assert member_membership.role == Role.OWNER
+    assert owner_membership.role_changed_at is not None
+    assert member_membership.role_changed_at is not None
