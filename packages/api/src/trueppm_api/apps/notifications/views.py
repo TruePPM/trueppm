@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.permissions import IsProjectMember
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project
 
 from .models import (
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
 
 
 class NotificationViewSet(
+    IdempotencyMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -96,6 +98,7 @@ class NotificationViewSet(
 
 
 class NotificationPreferenceViewSet(
+    IdempotencyMixin,
     mixins.ListModelMixin,
     mixins.UpdateModelMixin,
     viewsets.GenericViewSet[NotificationPreference],
@@ -166,7 +169,7 @@ def _merge_matrix(
     return merged
 
 
-class ProjectNotificationPreferenceView(APIView):
+class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
     """GET/PATCH per-project notification preferences for the current user.
 
     Mounted at ``/api/v1/projects/<pk>/notification-preferences/``. Any project

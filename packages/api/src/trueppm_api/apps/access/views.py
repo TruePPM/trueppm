@@ -33,12 +33,13 @@ from trueppm_api.apps.access.serializers import (
     ProjectMembershipWriteSerializer,
     UserSearchResultSerializer,
 )
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Program, Project
 
 _PK = str | uuid.UUID
 
 
-class ProjectMembershipViewSet(viewsets.GenericViewSet[ProjectMembership]):
+class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[ProjectMembership]):
     """Nested CRUD for project memberships.
 
     URL: /api/v1/projects/{project_pk}/members/
@@ -307,7 +308,7 @@ class MeView(APIView):
         return Response(MeSerializer(request.user).data)
 
 
-class ProgramMembershipViewSet(viewsets.GenericViewSet[ProgramMembership]):
+class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[ProgramMembership]):
     """Nested CRUD for program memberships (ADR-0070).
 
     URL: ``/api/v1/programs/{program_pk}/members/``

@@ -24,6 +24,7 @@ from trueppm_api.apps.access.permissions import (
     ProjectScopedViewSet,
     _membership_role,
 )
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Task
 from trueppm_api.apps.resources.models import (
     Proficiency,
@@ -50,7 +51,7 @@ from trueppm_api.apps.scheduling.services import enqueue_recalculate as _enqueue
 # ---------------------------------------------------------------------------
 
 
-class SkillViewSet(viewsets.ModelViewSet[Skill]):
+class SkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[Skill]):
     """CRUD for the org-level skill catalog.
 
     Any authenticated user may read. Writes require ``SCHEDULER+`` on at least
@@ -92,7 +93,7 @@ class SkillViewSet(viewsets.ModelViewSet[Skill]):
 # ---------------------------------------------------------------------------
 
 
-class ResourceSkillViewSet(viewsets.ModelViewSet[ResourceSkill]):
+class ResourceSkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[ResourceSkill]):
     """CRUD for skill tags on resources.
 
     Read: any authenticated user (resource catalog is org-shared).
@@ -245,7 +246,7 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
 # ---------------------------------------------------------------------------
 
 
-class TaskSkillRequirementViewSet(viewsets.ModelViewSet[TaskSkillRequirement]):
+class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSkillRequirement]):
     """CRUD for skill requirements on tasks.
 
     Read: authenticated users scoped to their member projects.
@@ -367,7 +368,7 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
     return []
 
 
-class ResourceViewSet(viewsets.ModelViewSet[Resource]):
+class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
     """CRUD for the org-level resource catalog (issue #155).
 
     Permission model (ADR-0034):

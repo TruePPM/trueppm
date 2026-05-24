@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet, ReadOnlyModelViewSet
 
 from trueppm_api.apps.access.permissions import IsProjectAdmin, IsProjectMember
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
 from trueppm_api.apps.taskruns.serializers import SchedulerRunSerializer, TaskRunSerializer
 
@@ -21,7 +22,9 @@ from trueppm_api.apps.taskruns.serializers import SchedulerRunSerializer, TaskRu
 SCHEDULER_TASK_NAME = "scheduling.recalculate"
 
 
-class ProjectTaskRunViewSet(ListModelMixin, RetrieveModelMixin, GenericViewSet[TaskRun]):
+class ProjectTaskRunViewSet(
+    IdempotencyMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet[TaskRun]
+):
     """List and retrieve TaskRuns scoped to a project.
 
     List/retrieve: Viewer+ (IsProjectMember).

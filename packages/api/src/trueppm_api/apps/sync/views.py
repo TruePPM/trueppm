@@ -19,6 +19,7 @@ from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import _membership_role
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
@@ -46,7 +47,7 @@ from trueppm_api.apps.sync.serializers import (
 )
 
 
-class ProjectSyncView(APIView):
+class ProjectSyncView(IdempotencyMixin, APIView):
     """Pull-only delta sync endpoint for the mobile offline store.
 
     Returns all rows (live and soft-deleted) whose server_version is strictly
@@ -61,6 +62,10 @@ class ProjectSyncView(APIView):
         GET /api/v1/projects/{pk}/sync/?since=0
     """
 
+    # Exempt from the generic Idempotency-Key path (ADR-0083): the upload POST is already
+    # idempotent by client_batch_id (SyncBatch dedup, ADR-0082); the generic header would
+    # be redundant and the sync protocol uses its own batch id.
+    idempotency_exempt = True
     permission_classes = [IsAuthenticated]
 
     def get(self, request: Request, pk: str) -> Response:
