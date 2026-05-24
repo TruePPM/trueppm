@@ -90,6 +90,10 @@ export default defineConfig({
             { slug: "administration/admin-password" },
             { slug: "administration/rbac" },
             { slug: "administration/security" },
+            { slug: "administration/project-settings" },
+            { slug: "administration/management-commands" },
+            { slug: "administration/durability" },
+            { slug: "administration/retention" },
           ],
         },
         // --- Feature reference (sub-grouped) ---
@@ -103,6 +107,8 @@ export default defineConfig({
                 { slug: "features/unified-data-model" },
                 { slug: "features/methodology-preset" },
                 { slug: "features/programs" },
+                { slug: "features/calendars" },
+                { slug: "features/resources" },
               ],
             },
             {
@@ -114,6 +120,7 @@ export default defineConfig({
                 { slug: "features/schedule-build-mode" },
                 { slug: "features/summary-tasks" },
                 { slug: "features/subtasks" },
+                { slug: "features/baselines" },
               ],
             },
             {
@@ -123,6 +130,7 @@ export default defineConfig({
                 { slug: "features/board" },
                 { slug: "features/board-sprint-panel" },
                 { slug: "features/wip-overload" },
+                { slug: "features/workshops" },
                 { slug: "features/sprints" },
                 { slug: "features/plan-sprint" },
                 { slug: "features/sprint-backlog" },
@@ -150,6 +158,7 @@ export default defineConfig({
               items: [
                 { slug: "features/real-time" },
                 { slug: "features/task-collaboration" },
+                { slug: "features/change-history" },
                 { slug: "features/offline-sync" },
                 { slug: "features/webhooks" },
                 { slug: "features/inbound-task-sync" },

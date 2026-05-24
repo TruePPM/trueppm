@@ -4,10 +4,45 @@ description: Import and export Microsoft Project .xml and .mpp files from TruePP
 ---
 
 :::note[0.1]
-MS Project import/export shipped in 0.1. Additional importers (Primavera P6, GanttProject, Linear, Trello, Notion CSV) are planned for 0.5.
+MS Project import/export shipped in 0.1. Additional importers — Primavera P6, GanttProject, OmniPlan, ProjectLibre, and the top-10 PM tools (Jira, Asana, Trello, Notion, Linear, and more) — are planned for 0.5.
 :::
 
-TruePPM can import project schedules from Microsoft Project XML (`.xml`) and binary (`.mpp`) files, and export any project back to MS Project XML. This page documents which MS Project fields are mapped, which are silently ignored, and what warnings to expect for edge-case inputs.
+:::caution[API only — no UI yet]
+Import and export are currently **REST API endpoints only** — there is no in-app
+import/export button. Use the endpoints documented under [Using the API](#using-the-api).
+An import/export UI is planned alongside the broader importer work in 0.5.
+:::
+
+TruePPM can import project schedules from Microsoft Project XML (`.xml`) and binary (`.mpp`) files, and export any project back to MS Project XML. This page documents how to call the import and export endpoints, which MS Project fields are mapped, which are silently ignored, and what warnings to expect for edge-case inputs.
+
+## Using the API
+
+Both operations are project-scoped and authenticated with a bearer token (`$JWT`); `$PROJECT_ID` is the project UUID.
+
+### Import a file
+
+```bash
+# POST a .mpp or .xml file as multipart form-data (field name: "file").
+# Requires project Admin. Maximum file size 10 MB.
+curl -X POST \
+  -H "Authorization: Bearer $JWT" \
+  -F "file=@plan.mpp" \
+  https://trueppm.example.com/api/v1/projects/$PROJECT_ID/import/msproject/
+# 202 Accepted: {"detail": "Import queued.", "import_request_id": "<uuid>"}
+```
+
+The import runs **asynchronously** — a `202` means the file was accepted and queued, not
+that parsing is finished. Imports are durable: if the task broker is briefly unavailable
+the request stays queued and is picked up automatically within ~30 seconds.
+
+### Export a project
+
+```bash
+# GET MS Project XML (2003+). Requires project Member (viewer or above).
+curl -H "Authorization: Bearer $JWT" \
+  https://trueppm.example.com/api/v1/projects/$PROJECT_ID/export/msproject.xml \
+  -o project.xml
+```
 
 ## Import formats
 

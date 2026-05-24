@@ -81,6 +81,34 @@ multiple programs at once.
 The sidebar shows a `Program · {name}` line under each project that belongs to
 a program.
 
+## Program settings
+
+Deeper program configuration lives under **/programs/:id/settings**:
+
+- **General** — name, description, code, health, visibility, and the methodology
+  default for new projects. The program lead is shown read-only. Edits are staged
+  and committed through a save bar.
+- **Access** — manage program membership: invite members, change roles, and remove
+  members (the same membership model as the Members tab).
+- **Projects** — the child projects in the program.
+- **Rollup KPIs** — choose which indicators roll up across the program's projects —
+  schedule health, schedule variance, critical-task counts, risk score, and more.
+  Toggles save as you change them.
+- **Risk policy** — program-wide risk rules: which dependency types are allowed
+  (FS / SS / FF / SF), which risk fields are mandatory, and escalation thresholds.
+- **Lifecycle** — close or reopen the program, and transfer sponsorship to another
+  owner.
+
+The rollup-KPI and risk-policy settings are backed by
+`GET`/`PATCH /api/v1/programs/{id}/rollup-config/` and `/risk-policy/` respectively;
+lifecycle actions map to `POST /api/v1/programs/{id}/close/`, `/reopen/`, and
+`/transfer-sponsorship/`.
+
+:::note[In development]
+The **Cadence** and program-level **Integrations** settings pages are placeholders
+and not yet functional.
+:::
+
 ## Deleting a program
 
 Only the Program Owner can delete a program. The delete dialog explicitly
