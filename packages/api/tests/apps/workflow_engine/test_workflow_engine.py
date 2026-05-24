@@ -31,6 +31,7 @@ from trueppm_api.apps.workflow_engine.models import (
     WorkflowTimer,
 )
 from trueppm_api.apps.workflow_engine.tasks import (
+    _complete,
     _do_advance,
     _do_outbox_drain,
     _do_purge_workflow_records,
@@ -213,6 +214,45 @@ def test_run_activity_oaoo_returns_cached_result(
     assert (
         WorkflowActivityExecution.objects.filter(workflow=instance, activity_name="a").count() == 1
     )
+
+
+def test_completion_result_excludes_none_final_step(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    """A final step returning None is excluded from the aggregate result, the
+    same as the prior WorkflowActivityExecution query (which did .exclude(result=None))."""
+    _register(
+        "ends_none",
+        [
+            WorkflowStep("produce", lambda ctx: {"value": 1}),
+            WorkflowStep("noop_tail", lambda ctx: None),
+        ],
+    )
+    wf_id = backend.start_workflow("ends_none", {})
+    _drive(wf_id)
+    instance = WorkflowInstance.objects.get(id=wf_id)
+    assert instance.status == WorkflowStatus.COMPLETED
+    assert instance.result == {"produce": {"value": 1}}  # None tail omitted
+
+
+def test_complete_uses_passed_results_without_requerying(
+    registry: None, backend: DefaultWorkflowBackend
+) -> None:
+    """_complete finalizes from the caller-supplied aggregate, not a fresh scan
+    of WorkflowActivityExecution. Passing a result with no matching execution row
+    proves the value comes from the argument, not the DB (the collapsed query)."""
+    instance = WorkflowInstance.objects.create(
+        name="x", input={}, idempotency_key="k", status=WorkflowStatus.RUNNING
+    )
+    _complete(instance, {"phantom": {"v": 9}})
+    instance.refresh_from_db()
+    assert instance.status == WorkflowStatus.COMPLETED
+    assert instance.completed_at is not None
+    # No WorkflowActivityExecution rows exist; a re-query would have yielded {}.
+    assert instance.result == {"phantom": {"v": 9}}
+    assert WorkflowHistoryEvent.objects.filter(
+        workflow=instance, event_type="workflow_completed"
+    ).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -408,3 +448,32 @@ def test_purge_deletes_old_terminal_rows_and_history(
 
     assert WorkflowOutboxRow.objects.filter(workflow_id=wf_id).count() == 0
     assert WorkflowHistoryEvent.objects.filter(workflow_id=wf_id).count() == 0
+
+
+def test_purge_chunks_across_batch_boundary(
+    registry: None, backend: DefaultWorkflowBackend, settings: Any
+) -> None:
+    """With more eligible rows than the batch size, the purge must loop until the
+    set is drained — a single bounded delete would leave the remainder behind."""
+    settings.WORKFLOW_PURGE_BATCH_SIZE = 2
+    instance = WorkflowInstance.objects.create(
+        name="bulk", input={}, idempotency_key="bulk-k", status=WorkflowStatus.COMPLETED
+    )
+    old = timezone.now() - timedelta(days=31)
+    for seq in range(5):
+        WorkflowHistoryEvent.objects.create(workflow=instance, seq=seq, event_type="e", payload={})
+        WorkflowOutboxRow.objects.create(
+            workflow=instance,
+            step_name=str(seq),
+            step_input={},
+            status=WorkflowOutboxStatus.DONE,
+        )
+    WorkflowHistoryEvent.objects.filter(workflow=instance).update(created_at=old)
+    WorkflowOutboxRow.objects.filter(workflow=instance).update(created_at=old)
+    assert WorkflowHistoryEvent.objects.filter(workflow=instance).count() == 5  # > batch size
+
+    _do_purge_workflow_records()
+
+    # Every eligible row deleted despite five rows / batch of two (loop ran 3x).
+    assert WorkflowHistoryEvent.objects.filter(workflow=instance).count() == 0
+    assert WorkflowOutboxRow.objects.filter(workflow=instance).count() == 0
