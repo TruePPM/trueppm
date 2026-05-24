@@ -39,6 +39,10 @@ def get_history(workflow_id: str) -> list[HistoryEvent]: ...
 
 **Default behaviour:** `start_workflow` defaults to fire-and-forget (`wait_for_completion=False`). Workflows that block the caller defeat the durability point.
 
+**Authoring model — workflows are declarative, the imperative primitives are engine-internal.** A workflow is authored as a registered `WorkflowDefinition` whose `build_steps(input)` returns an ordered list of `WorkflowStep(activity, compensate)` — the `TaskChain` shape from #65. The engine advances the chain step-by-step (each step-advance writes an outbox row per §D), compensating completed steps in reverse on failure. The eight interface methods (`run_activity`, `sleep`, `signal_workflow`, …) are the primitives the *engine* uses to drive a definition and the verbs *callers* use to interact with a running workflow — they are **not** an imperative authoring surface where a workflow is a Python function resumed by replay.
+
+This is a deliberate neutrality decision, not just a simplicity one. A declarative step list is backend-portable: the default Celery+outbox backend, the DBOS adapter, and a future Temporal adapter can each execute the *same* `WorkflowDefinition`. An imperative durable-function model, by contrast, can only run on a replay-capable backend — and deterministic replay is explicitly excluded above — so it would couple every workflow author to a class of backend, which is exactly the leak §E forbids. The default backend threads `workflow_id` explicitly through each step (matching the codebase's explicit-context convention); it never reaches for ambient/replay state. The engine model lives entirely behind the 8-method ABC, so it does not constrain the interface the #654 DBOS spike validates — the contract is the ABC plus the `WorkflowDefinition` registry, never the `TaskChain` internals.
+
 ### B. OSS / Enterprise classification
 
 Per `enterprise-check` verdict, each component is independently classified:
