@@ -7,6 +7,7 @@ import uuid
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import Q, QuerySet
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
@@ -205,7 +206,13 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
                 # Last-Owner guard: if demoting an Owner, ensure another Owner exists.
                 if instance.role == Role.OWNER and new_role < Role.OWNER:
                     self._check_last_owner_guard(project.pk, exclude_pk=instance.pk)
-                serializer.save()
+                # Stamp role_changed_at only on an actual role change (#590) so a
+                # no-op PATCH that re-sends the same role does not falsely advance
+                # the per-project access-evidence timestamp.
+                if new_role != instance.role:
+                    serializer.save(role_changed_at=timezone.now())
+                else:
+                    serializer.save()
             else:
                 serializer.save()
 

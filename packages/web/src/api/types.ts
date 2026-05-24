@@ -35,6 +35,10 @@ export interface ProjectMembership {
   user_detail: UserSummary;
   role: number;
   role_label: string;
+  /** ISO 8601 timestamp of when the member was added to the project. */
+  joined_at: string;
+  /** ISO 8601 timestamp of the last role change, or null if unchanged since joining. */
+  role_changed_at: string | null;
 }
 
 export interface UserSearchResult {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from trueppm_api.apps.projects.models import VersionedModel
 
@@ -72,6 +73,18 @@ class ProjectMembership(VersionedModel):
         related_name="memberships",
     )
     role = models.IntegerField(choices=Role.choices)
+    # Per-project access evidence (#590): the OSS surface needs a minimum-viable
+    # "who has access and since when" answer for compliance questionnaires.
+    # VersionedModel deliberately omits created_at/updated_at (sync uses
+    # server_version), so these are explicit columns rather than inherited.
+    # joined_at uses default=timezone.now (not auto_now_add) so the AddField
+    # migration backfills existing rows non-interactively at migration time.
+    joined_at = models.DateTimeField(default=timezone.now, editable=False)
+    # NULL means the role has never changed since the member joined; it is
+    # stamped with timezone.now() only on an actual role change (the viewset
+    # partial_update and the ownership-transfer service). The UI shows the
+    # "role changed" line only when this is set.
+    role_changed_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         db_table = "access_project_membership"

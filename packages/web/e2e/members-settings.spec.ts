@@ -40,12 +40,16 @@ const FIXTURE_MEMBERS = [
     project: PROJECT_ID, user: ME_ID,
     user_detail: { id: ME_ID, username: 'alice', email: 'alice@example.com' },
     role: 400, role_label: 'Project Admin',
+    joined_at: '2026-04-12T12:00:00Z', role_changed_at: null,
   },
   {
+    // bob's role was changed after joining — exercises the access-evidence
+    // "Role changed" line (#590).
     id: MEM_BOB_ID, server_version: 1,
     project: PROJECT_ID, user: BOB_ID,
     user_detail: { id: BOB_ID, username: 'bob', email: 'bob@example.com' },
     role: 100, role_label: 'Team Member',
+    joined_at: '2026-04-12T12:00:00Z', role_changed_at: '2026-05-01T12:00:00Z',
   },
 ];
 
@@ -142,6 +146,19 @@ test.describe('Members Settings — golden path', () => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
     await expect(page.getByText('(you)')).toBeVisible();
+  });
+
+  test('shows access-evidence join date and role-change date (#590)', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings/members`);
+    // alice has never changed role since joining → join date only.
+    const aliceRow = page.locator('li').filter({ hasText: 'alice' }).first();
+    await expect(aliceRow.getByText(/Joined/)).toBeVisible();
+    await expect(aliceRow.getByText(/Role changed/)).toHaveCount(0);
+    // bob's role changed after joining → both lines present.
+    const bobRow = page.locator('li').filter({ hasText: 'bob' }).first();
+    await expect(bobRow.getByText(/Joined/)).toBeVisible();
+    await expect(bobRow.getByText(/Role changed/)).toBeVisible();
   });
 
   test('OWNER badge shown for alice (Project Admin, non-editable)', async ({ page }) => {
@@ -243,6 +260,7 @@ test.describe('Members Settings — invite form', () => {
           id: 'mem-carol', server_version: 1, project: PROJECT_ID, user: 'user-carol',
           user_detail: { id: 'user-carol', username: 'carol', email: 'carol@example.com' },
           role: 100, role_label: 'Team Member',
+          joined_at: '2026-05-24T12:00:00Z', role_changed_at: null,
         }) });
       }
       return r.continue();

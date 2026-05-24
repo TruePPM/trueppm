@@ -15,6 +15,7 @@ from typing import Any
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.utils import timezone
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.projects.models import Methodology, Program, Project
@@ -175,11 +176,17 @@ def transfer_project_ownership(
 
     # Demote the actor first so the OWNER count never exceeds the previous
     # state mid-transaction — defensive against future single-owner constraints.
+    # role_changed_at is stamped alongside role on both rows so the per-project
+    # access-evidence timestamp (#590) stays accurate on this path too, not just
+    # on the partial_update endpoint.
+    now = timezone.now()
     actor_row.role = Role.ADMIN
-    actor_row.save(update_fields=["role"])
+    actor_row.role_changed_at = now
+    actor_row.save(update_fields=["role", "role_changed_at"])
 
     target.role = Role.OWNER
-    target.save(update_fields=["role"])
+    target.role_changed_at = now
+    target.save(update_fields=["role", "role_changed_at"])
     return target
 
 

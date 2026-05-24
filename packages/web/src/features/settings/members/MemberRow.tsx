@@ -3,6 +3,21 @@ import type { ProjectMembership } from '@/api/types';
 import { ROLE_OWNER } from '@/lib/roles';
 import { RolePicker } from './RolePicker';
 
+/**
+ * Format an ISO timestamp as an absolute "MMM D, YYYY" date for access evidence.
+ *
+ * Absolute (not relative) because the compliance use case — "who has Owner
+ * access and since when" — needs the calendar date a reviewer can screenshot,
+ * including the year, since memberships span years.
+ */
+function formatAccessDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 interface MemberRowProps {
   membership: ProjectMembership;
   isSelf: boolean;
@@ -25,9 +40,20 @@ export function MemberRow({
   isUpdatingRole,
   isRemoving,
 }: MemberRowProps) {
-  const { user_detail, role, role_label } = membership;
+  const { user_detail, role, role_label, joined_at, role_changed_at } = membership;
   const initials = membership.user_detail.username.slice(0, 2).toUpperCase();
   const isOwnerMember = role === ROLE_OWNER;
+
+  // Per-project access evidence (#590): show when the member joined, plus the
+  // last role-change date when the role has actually moved since they joined.
+  // role_changed_at is null until the first role change, so a freshly added
+  // member shows "Joined …" only. Narrowing inside the ternary keeps the
+  // formatter call non-null without a type assertion.
+  const roleChangedLabel =
+    role_changed_at != null &&
+    new Date(role_changed_at).getTime() > new Date(joined_at).getTime()
+      ? formatAccessDate(role_changed_at)
+      : null;
 
   // Non-OWNER callers cannot change the role of an OWNER member.
   const canEditRole = isOwnerRole && !isOwnerMember;
@@ -63,6 +89,15 @@ export function MemberRow({
           )}
         </p>
         <p className="text-xs text-neutral-text-secondary truncate">{user_detail.email}</p>
+        <p className="tppm-mono text-xs text-neutral-text-secondary mt-0.5">
+          Joined {formatAccessDate(joined_at)}
+          {roleChangedLabel && (
+            <>
+              {' · '}
+              <span>Role changed {roleChangedLabel}</span>
+            </>
+          )}
+        </p>
       </div>
 
       {/* Role — editable for OWNER callers on non-OWNER members */}
