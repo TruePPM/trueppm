@@ -1,14 +1,23 @@
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Program } from '@/api/types';
 import { ProgramListPage } from './ProgramListPage';
 
 const usePrograms = vi.fn();
+const useUngroupedProjects = vi.fn();
 
 vi.mock('@/hooks/usePrograms', () => ({
   usePrograms: () => usePrograms() as { data: unknown; isLoading: boolean; error: Error | null },
+}));
+
+// ProgramListPage renders <UngroupedProjectsSection/>, which calls this hook.
+// Mock it so the page stays isolated; default to "no ungrouped projects" so the
+// section self-hides and existing assertions are unaffected.
+vi.mock('@/hooks/useUngroupedProjects', () => ({
+  useUngroupedProjects: () =>
+    useUngroupedProjects() as { data: unknown; isLoading: boolean; error: Error | null },
 }));
 
 function renderPage() {
@@ -49,6 +58,11 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
 }
 
 describe('ProgramListPage', () => {
+  beforeEach(() => {
+    // Default: no ungrouped projects, so the section self-hides.
+    useUngroupedProjects.mockReturnValue({ data: [], isLoading: false, error: null });
+  });
+
   it('renders hero empty state when no programs', () => {
     usePrograms.mockReturnValue({ data: [], isLoading: false, error: null });
     renderPage();
@@ -88,5 +102,31 @@ describe('ProgramListPage', () => {
     expect(screen.getByText(/4 projects · 7 members · HYBRID/)).toBeInTheDocument();
     expect(screen.getByText('Customer Health')).toBeInTheDocument();
     expect(screen.getByText('Viewer')).toBeInTheDocument();
+  });
+
+  it('renders the ungrouped-projects section when standalone projects exist', () => {
+    usePrograms.mockReturnValue({
+      data: [makeProgram({ id: 'p-1', name: 'Phase 2' })],
+      isLoading: false,
+      error: null,
+    });
+    useUngroupedProjects.mockReturnValue({
+      data: [
+        {
+          id: 'pr-1',
+          name: 'Neptune Cryo Rig',
+          code: 'NEP',
+          healthState: 'on-track',
+          percentComplete: 38,
+          memberCount: 4,
+        },
+      ],
+      isLoading: false,
+      error: null,
+    });
+    renderPage();
+    expect(screen.getByRole('heading', { name: /Ungrouped projects/i })).toBeInTheDocument();
+    expect(screen.getByText('1 need a home')).toBeInTheDocument();
+    expect(screen.getByText('Neptune Cryo Rig')).toBeInTheDocument();
   });
 });

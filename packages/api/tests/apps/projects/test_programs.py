@@ -18,7 +18,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Methodology, Program, Project
+from trueppm_api.apps.projects.models import Calendar, Methodology, Program, Project, Task
 
 User = get_user_model()
 
@@ -546,3 +546,91 @@ def test_general_field_patch_requires_admin(owner: object, other_user: object) -
     assert resp.status_code == 403
     program.refresh_from_db()
     assert program.health == "AUTO"
+
+
+# ---------------------------------------------------------------------------
+# Ungrouped projects filter — GET /projects/?program__isnull=true (ADR-0083, #697)
+# ---------------------------------------------------------------------------
+
+
+def _make_project(owner_user: object, calendar: Calendar, **kwargs: object) -> Project:
+    """Create a project the owner_user can see (active OWNER membership)."""
+    defaults: dict[str, object] = {"name": "P", "start_date": date(2026, 4, 1)}
+    defaults.update(kwargs)
+    project = Project.objects.create(calendar=calendar, **defaults)
+    ProjectMembership.objects.create(project=project, user=owner_user, role=Role.OWNER)
+    return project
+
+
+@pytest.mark.django_db
+def test_ungrouped_filter_returns_only_standalone_projects(
+    owner: object, calendar: Calendar
+) -> None:
+    program = _create_program(_client(owner))
+    standalone = _make_project(owner, calendar, name="Standalone")
+    _make_project(owner, calendar, name="Grouped", program=program)
+
+    resp = _client(owner).get("/api/v1/projects/?program__isnull=true")
+
+    assert resp.status_code == 200, resp.content
+    ids = {row["id"] for row in resp.data["results"]}
+    assert ids == {str(standalone.pk)}
+
+
+@pytest.mark.django_db
+def test_ungrouped_filter_is_rbac_scoped(
+    owner: object, stranger: object, calendar: Calendar
+) -> None:
+    # The stranger has a standalone project; the owner has none of their own.
+    _make_project(stranger, calendar, name="Stranger's standalone")
+
+    resp = _client(owner).get("/api/v1/projects/?program__isnull=true")
+
+    assert resp.status_code == 200, resp.content
+    assert resp.data["results"] == []
+
+
+@pytest.mark.django_db
+def test_ungrouped_filter_annotates_member_count_and_percent_complete(
+    owner: object, other_user: object, calendar: Calendar
+) -> None:
+    project = _make_project(owner, calendar, name="Has members and tasks")
+    ProjectMembership.objects.create(project=project, user=other_user, role=Role.MEMBER)
+    Task.objects.create(project=project, name="A", percent_complete=100.0)
+    Task.objects.create(project=project, name="B", percent_complete=0.0)
+
+    resp = _client(owner).get("/api/v1/projects/?program__isnull=true")
+
+    assert resp.status_code == 200, resp.content
+    row = next(r for r in resp.data["results"] if r["id"] == str(project.pk))
+    assert row["member_count"] == 2  # owner + other_user
+    assert row["percent_complete"] == 50.0  # mean of 100 and 0
+
+
+@pytest.mark.django_db
+def test_ungrouped_filter_excludes_archived_projects(
+    owner: object, calendar: Calendar
+) -> None:
+    _make_project(owner, calendar, name="Archived", is_archived=True)
+
+    resp = _client(owner).get("/api/v1/projects/?program__isnull=true")
+
+    assert resp.status_code == 200, resp.content
+    assert resp.data["results"] == []
+
+
+@pytest.mark.django_db
+def test_default_project_list_does_not_annotate_aggregates(
+    owner: object, calendar: Calendar
+) -> None:
+    # The hot /projects/ list stays lightweight — the aggregates are null unless
+    # the ungrouped branch is requested (ADR-0083).
+    project = _make_project(owner, calendar, name="Plain")
+    Task.objects.create(project=project, name="A", percent_complete=100.0)
+
+    resp = _client(owner).get("/api/v1/projects/")
+
+    assert resp.status_code == 200, resp.content
+    row = next(r for r in resp.data["results"] if r["id"] == str(project.pk))
+    assert row["member_count"] is None
+    assert row["percent_complete"] is None

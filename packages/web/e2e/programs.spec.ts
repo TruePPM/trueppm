@@ -257,6 +257,88 @@ test.describe('Programs — shell tabs', () => {
   });
 });
 
+test.describe('Programs — ungrouped projects (#697, ADR-0083)', () => {
+  const STANDALONE_ID = 'e2e-standalone-uuid-00000697';
+
+  const FIXTURE_UNGROUPED = {
+    id: STANDALONE_ID,
+    name: 'Neptune Cryo Rig',
+    code: 'NEP',
+    health: 'ON_TRACK',
+    percent_complete: 38,
+    member_count: 4,
+  };
+
+  test('renders the ungrouped section below the program cards', async ({ page }) => {
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    // The ungrouped GET carries a query string the setup `**/projects/` glob
+    // does not match — a regex route handles it and takes precedence.
+    await page.route(/\/api\/v1\/projects\/\?.*program__isnull=true/, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ results: [FIXTURE_UNGROUPED], count: 1, next: null, previous: null }),
+      }),
+    );
+
+    await page.goto('/programs');
+    await expect(page.getByRole('heading', { name: /^Ungrouped projects$/i })).toBeVisible();
+    await expect(page.getByText('1 need a home')).toBeVisible();
+    const row = page.getByRole('listitem').filter({ hasText: 'Neptune Cryo Rig' });
+    await expect(row).toBeVisible();
+    await expect(row.getByText('NEP')).toBeVisible();
+    await expect(row.getByText('38%')).toBeVisible();
+    await expect(row.getByText('4 members')).toBeVisible();
+  });
+
+  test('moves a standalone project into a program, then the section self-hides', async ({
+    page,
+  }) => {
+    let ungrouped: Array<typeof FIXTURE_UNGROUPED> = [FIXTURE_UNGROUPED];
+    let patchedProgram: unknown = null;
+
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    await page.route(/\/api\/v1\/projects\/\?.*program__isnull=true/, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          results: ungrouped,
+          count: ungrouped.length,
+          next: null,
+          previous: null,
+        }),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${STANDALONE_ID}/`, (r) => {
+      if (r.request().method() === 'PATCH') {
+        patchedProgram = (r.request().postDataJSON() as Record<string, unknown>).program;
+        ungrouped = []; // now grouped → drops out of the ungrouped list
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ id: STANDALONE_ID, server_version: 2, program: PROGRAM_ID }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: STANDALONE_ID }) });
+    });
+
+    await page.goto('/programs');
+    const row = page.getByRole('listitem').filter({ hasText: 'Neptune Cryo Rig' });
+    await row.getByRole('button', { name: /Move to program/i }).click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('radio', { name: /Phase 2 Modernization/i }).click();
+    await dialog.getByRole('button', { name: /^Move project$/i }).click();
+
+    // Dialog closes and the section self-hides once the list is empty.
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: /^Ungrouped projects$/i })).toHaveCount(0);
+    expect(patchedProgram).toBe(PROGRAM_ID);
+  });
+});
+
 test.describe('Programs — sidebar entry', () => {
   test('PROGRAMS section lists the program after creation', async ({ page }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
