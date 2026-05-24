@@ -14,13 +14,13 @@ Foundation for self-hosted, scheduling-first PPM. Everything below is in `main` 
 | Surface | What landed |
 |---------|-------------|
 | Scheduling | CPM engine (4 dependency types, calendar-aware lag, cycle detection), Monte Carlo P50/P80/P95, auto-reschedule on every write, WASM CPM for sub-100ms drag preview |
-| Schedule view | Custom canvas Gantt with critical path, baselines, milestones, unscheduled gutter, drag-to-reschedule, dependency editing UX (#249), design polish parity (#248) |
+| Schedule view | Custom canvas Gantt with critical path, milestones, unscheduled gutter, drag-to-reschedule, dependency editing UX (#249), design polish parity (#248) |
 | Agile | Board / Kanban (5-column, swimlanes, WIP-overload), Sprints workspace (header + goal + milestone link + cadence + backlog + burndown + capacity + velocity + retro), multi-team Sprints lens, sprint header buttons (#299) |
 | Hybrid bridge | Velocity feedback loop (`VelocitySuggestion` model, ADR-0065) — sprint velocity suggests revised CPM durations non-destructively |
 | Contributor surface | "My Work" page — flat task list across projects with planned/estimated date disambiguation |
 | Risk | Risk Register tab — probability × impact scoring, lifecycle states, task links, CSV import (#223) |
 | Methodology | Waterfall / Agile / Hybrid preset driving tab visibility |
-| Data exchange | MS Project import/export UI (#68), CSV/Excel import (#111), inbound task-sync webhook |
+| Data exchange | MS Project & CSV/Excel import/export via REST API — no in-app UI yet (#68 #111), inbound task-sync webhook |
 | Platform | REST API, 5-role RBAC, real-time WebSocket, offline sync (WatermelonDB-compatible), application shell, project settings RBAC UI (#144) |
 | Operations | Helm 3 chart, Docker images, PyPI publish path for `trueppm-scheduler` (#301) |
 

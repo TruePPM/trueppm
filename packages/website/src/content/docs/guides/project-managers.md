@@ -46,7 +46,7 @@ TruePPM lets you add three-point estimates (optimistic, most likely, pessimistic
 
 ### Baselines
 
-Capture a baseline at any point to freeze the planned dates. The Gantt overlays baseline bars alongside current dates so you can see schedule variance visually at a glance. Multiple baselines are supported for rebaseline events.
+Capture a baseline to freeze the planned dates at a point in time. Capturing and managing baselines is currently done through the **REST API** — there is no in-app capture button yet (a UI is on the 0.4 roadmap). Once a baseline is active, the task detail drawer shows a read-only baseline-vs-current comparison so you can see schedule variance. Multiple baselines are supported for rebaseline events. See [Baselines](/features/baselines/) for the full API workflow.
 
 ### Working calendars
 
@@ -117,7 +117,7 @@ When a scheduler or admin changes the plan, all connected browsers update immedi
 |---------|--------|
 | CPM scheduling (all 4 dependency types) | Shipped |
 | Monte Carlo risk analysis (P50/P80/P95) | Shipped |
-| Baselines + baseline overlay on Gantt | Shipped |
+| Baselines (capture & compare) | Shipped — API only, no UI yet |
 | Critical path highlighting | Shipped |
 | Risk register | Shipped |
 | Board / Kanban view | Shipped |
@@ -125,7 +125,7 @@ When a scheduler or admin changes the plan, all connected browsers update immedi
 | Schedule build mode (keyboard-first) | Shipped |
 | Summary tasks + WBS rollup | Shipped |
 | Hybrid velocity → CPM forecast | Shipped |
-| MS Project import/export | Shipped |
+| MS Project import/export | Shipped — API only, no UI yet |
 | Gantt drag-to-reschedule (WASM CPM) | Shipped |
 | Multi-baseline support | Roadmap (0.4) |
 | Time tracking | Roadmap (0.4) |
