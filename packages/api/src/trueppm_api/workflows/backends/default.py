@@ -10,7 +10,7 @@ backend safe under the outbox's at-least-once delivery.
 
 This module is a backend implementation, not consumer code — it may import
 Django and (lazily) Celery. The shared engine helpers live here so the step task
-(:mod:`trueppm_api.apps.workflows.tasks`) can reuse them without a circular import.
+(:mod:`trueppm_api.apps.workflow_engine.tasks`) can reuse them without a circular import.
 """
 
 from __future__ import annotations

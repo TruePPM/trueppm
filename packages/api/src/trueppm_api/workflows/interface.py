@@ -23,7 +23,7 @@ from typing import Any
 class WorkflowStatus(enum.StrEnum):
     """Backend-neutral workflow lifecycle status.
 
-    Values mirror ``trueppm_api.apps.workflows.models.WorkflowStatus`` (the
+    Values mirror ``trueppm_api.apps.workflow_engine.models.WorkflowStatus`` (the
     default backend's persistence enum) and must stay in sync; they are defined
     here too so consumers can reason about status without importing Django models.
     """

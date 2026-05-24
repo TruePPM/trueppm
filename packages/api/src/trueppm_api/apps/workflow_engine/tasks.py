@@ -218,7 +218,7 @@ def _do_outbox_drain() -> None:
         WorkflowOutboxRow.objects.filter(
             status=WorkflowOutboxStatus.PENDING,
             created_at__lt=now - _OUTBOX_ORPHAN_WINDOW,
-        )
+        ).order_by("created_at")[: settings.WORKFLOW_DRAIN_BATCH_SIZE]
     )
     dispatched = 0
     for row in pending:
@@ -249,7 +249,9 @@ def _do_timer_drain() -> None:
     """
     now = timezone.now()
     due = list(
-        WorkflowTimer.objects.filter(fired=False, fire_at__lte=now).select_related("workflow")
+        WorkflowTimer.objects.filter(fired=False, fire_at__lte=now).order_by("fire_at")[
+            : settings.WORKFLOW_DRAIN_BATCH_SIZE
+        ]
     )
     fired = 0
     for timer in due:

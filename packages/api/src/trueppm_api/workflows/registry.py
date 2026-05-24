@@ -11,7 +11,7 @@ Celery+outbox backend, the DBOS adapter, and a future Temporal adapter can each
 execute the same definition. See ADR-0080 §A "Authoring model".
 
 Registration mirrors the integration ``ProviderRegistry`` pattern (ADR-0049):
-OSS definitions register in ``WorkflowsConfig.ready()``; enterprise definitions
+OSS definitions register in ``WorkflowEngineConfig.ready()``; enterprise definitions
 register from their own ``AppConfig.ready()`` — same hook, no ``if enterprise``.
 """
 

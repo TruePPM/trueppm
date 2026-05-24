@@ -439,6 +439,11 @@ WORKFLOW_BACKEND = env.str(
 # workflows.purge_old_records). Set to None / 0 to disable history purging.
 WORKFLOW_HISTORY_RETENTION_DAYS: int | None = env.int("WORKFLOW_HISTORY_RETENTION_DAYS", default=30)
 
+# Max rows the workflow outbox/timer drains process per tick. Bounds the work
+# per run so a large backlog (e.g. after a broker outage) can't exceed the task
+# time_limit — subsequent ticks drain the remainder.
+WORKFLOW_DRAIN_BATCH_SIZE = env.int("WORKFLOW_DRAIN_BATCH_SIZE", default=200)
+
 # ---------------------------------------------------------------------------
 # drf-spectacular (OpenAPI)
 # ---------------------------------------------------------------------------
