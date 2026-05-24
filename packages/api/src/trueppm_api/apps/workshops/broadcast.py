@@ -26,6 +26,12 @@ def broadcast_workshop_event(
 ) -> None:
     """Send a JSON event to all clients connected to the project's workshop group.
 
+    Durability: best-effort by design and safe to lose, like
+    ``broadcast_board_event`` — workshop presence/cursor/edit events are a push
+    optimization, and clients re-sync session state on reconnect. A dropped
+    broadcast (channel layer down at commit) loses nothing durable. See
+    ``docs/durability/on-commit-audit.md`` (#659).
+
     Uses async_to_sync(channel_layer.group_send) for thread-safe dispatch.
     The channel-layer message envelope intentionally differs from
     broadcast_board_event: event_type and payload are nested under a "content" key so that
