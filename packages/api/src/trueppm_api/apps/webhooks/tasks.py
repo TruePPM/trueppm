@@ -78,6 +78,12 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
             "X-TruePPM-Signature": f"sha256={signature}",
             "X-TruePPM-Event": delivery.event_type,
             "X-TruePPM-Delivery": str(delivery.pk),
+            # Per-subscription monotonic sequence (#664). Stable across retries —
+            # the same delivery row keeps its number. Consumers MAY use it to
+            # detect gaps (a missing number signals a lost event) and reorder
+            # events that arrive out of order. It is a hint, not a strict-order
+            # or exactly-once guarantee.
+            "X-TruePPM-Webhook-Sequence": str(delivery.sequence_number),
         },
         method="POST",
     )

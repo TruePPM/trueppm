@@ -49,6 +49,7 @@ class WebhookDeliverySerializer(serializers.ModelSerializer[WebhookDelivery]):
         fields = [
             "id",
             "event_type",
+            "sequence_number",
             "payload",
             "status",
             "response_status",
