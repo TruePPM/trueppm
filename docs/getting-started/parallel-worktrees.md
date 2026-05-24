@@ -76,6 +76,60 @@ One Docker stack, one dev database, multiple worktrees:
   `make down` there. Worktrees just point at the running containers via
   `COMPOSE_PROJECT_NAME=trueppm`.
 
+## Troubleshooting: `column … already exists` on startup
+
+**Symptom.** The `trueppm-api-1` container loops on boot and never goes
+healthy; the web app shows `ECONNREFUSED`. Its logs show `migrate` failing
+with, e.g.:
+
+```
+django.db.utils.ProgrammingError: column "is_archived" of relation
+"projects_project" already exists
+  Applying projects.0044_project_archive_program_close...
+```
+
+**Cause.** A merged branch *renamed or renumbered* one of its migrations at
+merge time (common when a merge migration reorders the graph). Your shared dev
+DB already applied that migration under its **old** name, so the column exists —
+but `django_migrations` has no record under the **new** name on `main`, so
+Django re-runs it and collides. This is a shared-DB-across-worktrees artifact,
+not a code bug: the migration on `main` is correct, and a *fresh* DB migrates
+cleanly.
+
+**Confirm it's a rename** — the recorded name has no file, the file has no
+record (substitute the app from the traceback):
+
+```bash
+# what the DB thinks is applied
+docker exec trueppm-db-1 psql -U trueppm -d trueppm -tAc \
+  "SELECT name FROM django_migrations WHERE app='projects' ORDER BY name;"
+# what the merged code actually ships
+ls packages/api/src/trueppm_api/apps/projects/migrations/
+```
+
+If you see the *same* migration under two numbers (one recorded, one on disk),
+it's a rename.
+
+**Fix (preserves dev data)** — correct the recorded name to match the file,
+then restart:
+
+```bash
+docker exec trueppm-db-1 psql -U trueppm -d trueppm -c \
+  "UPDATE django_migrations SET name='<new-name>' \
+   WHERE app='<app>' AND name='<old-name>';"
+docker restart trueppm-api-1
+```
+
+Prefer the `UPDATE` over `migrate <app> <migration> --fake`: faking adds a
+*second* record and leaves the old, file-less one orphaned.
+
+**Fix (nuclear)** — if the divergence is tangled or you don't care about local
+data, reset the dev DB from the main checkout:
+
+```bash
+docker compose down -v && make up   # destroys all local dev data
+```
+
 ## When to skip the helper
 
 - Read-only browsing of someone else's branch — just `git checkout` for a
