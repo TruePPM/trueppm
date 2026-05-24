@@ -133,7 +133,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
             onClick={onClose}
             disabled={saving}
             aria-label="Close"
-            className="text-neutral-text-secondary hover:text-neutral-text-primary text-lg leading-none px-1 disabled:opacity-50"
+            className="text-neutral-text-secondary hover:text-neutral-text-primary text-lg leading-none px-1 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
           >
             ✕
           </button>
@@ -148,7 +148,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://hooks.slack.com/services/…"
-                className="tppm-mono w-full h-8 px-2 text-[13px] border border-neutral-border rounded bg-neutral-surface focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                className="tppm-mono w-full h-8 px-2 text-[13px] border border-neutral-border rounded bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               />
             </Field>
 
@@ -166,6 +166,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
                       title={f.hint}
                       className={[
                         'h-7 px-3 rounded text-[12px] font-medium border',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
                         active
                           ? 'bg-brand-primary text-white border-brand-primary'
                           : 'border-neutral-border text-neutral-text-secondary hover:text-neutral-text-primary',
@@ -189,7 +190,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
                 value={secret}
                 onChange={(e) => setSecret(e.target.value)}
                 placeholder={isEdit ? '••••••••  (unchanged)' : 'whsec_…'}
-                className="tppm-mono w-full h-8 px-2 text-[13px] border border-neutral-border rounded bg-neutral-surface focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                className="tppm-mono w-full h-8 px-2 text-[13px] border border-neutral-border rounded bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               />
             </Field>
 
@@ -219,7 +220,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
                             type="checkbox"
                             checked={events.has(ev.id)}
                             onChange={() => toggleEvent(ev.id)}
-                            className="accent-brand-primary"
+                            className="accent-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
                           />
                           <span className="tppm-mono text-[11px] text-neutral-text-secondary">
                             {ev.id}
@@ -257,7 +258,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="h-8 px-3 rounded border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50"
+            className="h-8 px-3 rounded border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             Cancel
           </button>
@@ -265,7 +266,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
             type="button"
             onClick={handleSubmit}
             disabled={saving}
-            className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50"
+            className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create webhook'}
           </button>
@@ -300,6 +301,9 @@ function SlackPreview() {
       <div className="text-[11px] uppercase tracking-wide font-semibold text-neutral-text-secondary mb-2">
         Slack renderer preview
       </div>
+      {/* The hex colors below are deliberate Slack-message fidelity (Slack's own
+          palette), not TruePPM chrome — intentionally exempt from web CLAUDE.md
+          rule 8. The avatar/accent use TruePPM brand tokens. */}
       <div className="bg-white border border-[#E4E4E0] rounded-lg p-3.5 text-[13px] text-[#1d1c1d] leading-snug">
         <div className="flex gap-2.5 mb-2">
           <span className="w-8 h-8 rounded bg-brand-primary text-white inline-flex items-center justify-center font-bold text-[13px] shrink-0">

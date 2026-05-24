@@ -71,7 +71,7 @@ export function ApiTokensManager({ scope }: ApiTokensManagerProps) {
             <button
               type="button"
               onClick={() => void refetch()}
-              className="h-7 px-3 text-[12px] font-medium border border-neutral-border rounded text-neutral-text-primary hover:bg-neutral-surface-sunken"
+              className="h-7 px-3 text-[12px] font-medium border border-neutral-border rounded text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               Retry
             </button>
@@ -108,7 +108,7 @@ export function ApiTokensManager({ scope }: ApiTokensManagerProps) {
                   <button
                     type="button"
                     onClick={() => setConfirmRevoke(tok)}
-                    className="h-6 px-2 text-[11px] font-medium rounded border border-neutral-border text-semantic-critical hover:bg-neutral-surface-sunken shrink-0"
+                    className="h-6 px-2 text-[11px] font-medium rounded border border-neutral-border text-semantic-critical hover:bg-neutral-surface-sunken shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
                   >
                     Revoke
                   </button>
@@ -217,12 +217,12 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
                 value={revealed}
                 onFocus={(e) => e.currentTarget.select()}
                 aria-label="New API token"
-                className="tppm-mono flex-1 h-8 px-2 text-[12px] border border-neutral-border rounded bg-neutral-surface-sunken"
+                className="tppm-mono flex-1 h-8 px-2 text-[12px] border border-neutral-border rounded bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               />
               <button
                 type="button"
                 onClick={() => void copy()}
-                className="h-8 px-3 rounded bg-brand-primary text-white text-[12px] font-medium hover:bg-brand-primary-dark"
+                className="h-8 px-3 rounded bg-brand-primary text-white text-[12px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 {copied ? 'Copied ✓' : 'Copy'}
               </button>
@@ -231,7 +231,7 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
               <button
                 type="button"
                 onClick={onClose}
-                className="h-8 px-3 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken"
+                className="h-8 px-3 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 Done
               </button>
@@ -253,7 +253,7 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Jira Production"
-              className="w-full h-8 px-2 text-[13px] border border-neutral-border rounded bg-neutral-surface focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+              className="w-full h-8 px-2 text-[13px] border border-neutral-border rounded bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             />
             {error && (
               <p className="text-[12px] text-semantic-critical mt-2" role="alert">
@@ -265,7 +265,7 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
                 type="button"
                 onClick={onClose}
                 disabled={create.isPending}
-                className="h-8 px-3 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50"
+                className="h-8 px-3 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 Cancel
               </button>
@@ -273,7 +273,7 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
                 type="button"
                 onClick={handleCreate}
                 disabled={create.isPending}
-                className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50"
+                className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 {create.isPending ? 'Creating…' : 'Create token'}
               </button>

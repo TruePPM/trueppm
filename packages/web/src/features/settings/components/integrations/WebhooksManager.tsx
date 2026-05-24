@@ -80,7 +80,7 @@ export function WebhooksManager({ scope }: WebhooksManagerProps) {
             <button
               type="button"
               onClick={() => void refetch()}
-              className="h-7 px-3 text-[12px] font-medium border border-neutral-border rounded text-neutral-text-primary hover:bg-neutral-surface-sunken"
+              className="h-7 px-3 text-[12px] font-medium border border-neutral-border rounded text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               Retry
             </button>
@@ -195,6 +195,7 @@ function RowButton({
       disabled={disabled}
       className={[
         'h-6 px-2 text-[11px] font-medium rounded border border-neutral-border hover:bg-neutral-surface-sunken disabled:opacity-50',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
         variant === 'danger' ? 'text-semantic-critical' : 'text-neutral-text-secondary',
       ].join(' ')}
     >
@@ -236,7 +237,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={pending}
-            className="h-8 px-3 rounded border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50"
+            className="h-8 px-3 rounded border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             Cancel
           </button>
@@ -244,7 +245,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={pending}
-            className="h-8 px-3 rounded bg-semantic-critical text-white text-[13px] font-medium hover:opacity-90 disabled:opacity-50"
+            className="h-8 px-3 rounded bg-semantic-critical text-white text-[13px] font-medium hover:opacity-90 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
           >
             {pending ? 'Working…' : confirmLabel}
           </button>
