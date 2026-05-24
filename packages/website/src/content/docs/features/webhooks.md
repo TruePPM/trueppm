@@ -7,7 +7,8 @@ Webhooks let you subscribe to TruePPM project events and receive an HTTP POST to
 
 ## Registering a webhook
 
-Webhooks are scoped to a project. Register one via the API or (once the Integrations UI lands) from the project settings page.
+Register a webhook from the **Integrations** page (`Project → Settings →
+Integrations` or `Program → Settings → Integrations`) or via the API:
 
 ```http
 POST /api/v1/projects/{project_id}/webhooks/
@@ -16,25 +17,58 @@ Content-Type: application/json
 {
   "url": "https://hooks.example.com/trueppm",
   "secret": "your-shared-secret",
-  "events": ["task.created", "task.updated", "schedule.recalculated"]
+  "events": ["task.created", "task.updated", "schedule.recalculated"],
+  "format": "generic"
 }
 ```
 
-`events` is an array of one or more event type strings (see below). Omit `events` to subscribe to all event types.
+`events` is an array of one or more event type strings (see below). Omit `events` to subscribe to all event types. `format` selects how the payload is rendered — `generic` (default) or `slack` (see [Payload format](#payload-format)).
 
-**Permissions**: requires Admin role (role ≥ 4) on the project.
+**Permissions**: requires Admin role on the project (or program, for program-scoped webhooks).
+
+### Project vs. program scope
+
+A webhook is scoped to exactly one project **or** one program:
+
+- **Project** — `/api/v1/projects/{id}/webhooks/` — fires for events on that one project.
+- **Program** — `/api/v1/programs/{id}/webhooks/` — fires for events on **any** project in the program. Configure one endpoint once instead of copying it into every child project.
+
+Program-scoped reads require program Viewer+; mutations require program Admin. The two scopes are additive: a project event reaches both its own project webhooks and its program's webhooks.
+
+## Payload format
+
+Each webhook renders its payload in one of two OSS formats, set per subscription via the `format` field:
+
+| Format | What is sent |
+|--------|--------------|
+| `generic` (default) | The raw TruePPM event envelope, unchanged (see [Payload shape](#payload-shape)). |
+| `slack` | A Slack incoming-webhook message (`text` + a single attachment). Discord and Mattermost incoming webhooks accept the same shape, so one format covers all three. |
+
+Point a `slack`-format webhook at a Slack/Discord/Mattermost incoming-webhook URL and messages render in-channel with no consumer-side parsing. Richer formats (Slack App, Teams, PagerDuty) are an Enterprise feature and register against the same extension point without an OSS change.
 
 ## Event types
+
+OSS fires **11 event types** (a deliberate hard cap):
 
 | Event | When fired |
 |-------|-----------|
 | `task.created` | A task is created |
 | `task.updated` | A task field is changed |
 | `task.deleted` | A task is deleted |
+| `task.assigned` | A task's assignee transitions from nobody to a user |
+| `task.assignee_changed` | A task is reassigned from one user to another |
+| `task.mentioned` | A new comment mentions a user |
+| `task.due_date_changed` | A task's planned date changes (see note) |
 | `dependency.created` | A task link (FS/SS/FF/SF) is created |
 | `dependency.deleted` | A task link is deleted |
 | `schedule.recalculated` | The CPM scheduler completes a recalculation |
 | `project.created` | A new project is created in the organization |
+
+The last four task events were added in 0.2. A single PATCH that both reassigns a task and moves its date fires `task.updated` **plus** the specific events — subscribe to whichever you want.
+
+:::caution[`task.due_date_changed` currently tracks `planned_start`]
+`Task` has no dedicated deadline field yet, so this event fires when a task's **planned start** (the PM-committed date) changes. A future release adds a `planned_finish` deadline field and re-binds the event to it; the event name and payload shape stay stable.
+:::
 
 ## Payload shape
 
@@ -105,12 +139,13 @@ The same value is also returned as `sequence_number` on each record from the [de
 
 ## Delivery retries
 
-TruePPM retries failed deliveries (non-2xx response or connection error) up to **3 times** with exponential back-off (10s, 60s, 300s). After 3 failures the delivery record is marked `failed`.
+TruePPM retries failed deliveries (non-2xx response or connection error) up to **5 times** with exponential back-off (30s, 60s, 120s, 240s, 480s). After the final failure the delivery record is marked `failed`.
 
 ## Delivery history
 
 ```http
 GET /api/v1/projects/{project_id}/webhooks/{webhook_id}/deliveries/
+GET /api/v1/programs/{program_id}/webhooks/{webhook_id}/deliveries/
 ```
 
 Returns paginated `WebhookDelivery` records with `sequence_number`, `status`, `response_status`, `attempt_count`, and timestamps. Useful for debugging and for inspecting a delivery flagged as a gap by its sequence number.
@@ -130,3 +165,5 @@ PATCH /api/v1/projects/{project_id}/webhooks/{webhook_id}/
 |--------|-------------|
 | List / view webhooks | Viewer |
 | Create / update / delete webhooks | Admin |
+
+The same roles apply at each scope: project Viewer/Admin for project-scoped webhooks, program Viewer/Admin for program-scoped ones.

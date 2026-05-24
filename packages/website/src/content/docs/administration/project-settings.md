@@ -52,14 +52,17 @@ The **Lifecycle** page handles a project's end-of-life:
 - **Transfer ownership** — hand the Owner role to another member.
 - **Delete** — permanently remove the project (Owner only).
 
+The **Integrations** page provides full management of outbound webhooks and
+inbound API tokens — add, edit, test, and delete webhooks (with a format picker
+and delivery log) and mint and revoke API tokens. See [Webhooks](../features/webhooks.md) and
+[Inbound task sync](../features/inbound-task-sync.md) for details.
+
 ## Not yet available
 
-Two pages exist in the UI but are not yet functional:
+One page exists in the UI but is not yet functional:
 
 - **Methodology** — agile defaults (sprint length, story-point scale, velocity
   lookback) are planned.
-- **Integrations** — the page shows a read-only summary of connected integrations;
-  adding and removing connectors from here is not yet available.
 
 ## Backing API
 
@@ -71,3 +74,4 @@ The functional pages map to these endpoints:
 | Access | `GET`/`POST`/`PATCH`/`DELETE /api/v1/projects/{id}/members/…` |
 | Workflow & fields | `GET`/`PUT /api/v1/projects/{id}/board-config/`, `…/custom-fields/…` |
 | Lifecycle | `POST /api/v1/projects/{id}/archive/`, `…/unarchive/`, `…/transfer/`, `DELETE /api/v1/projects/{id}/` |
+| Integrations | `GET`/`POST`/`PATCH`/`DELETE /api/v1/projects/{id}/webhooks/…`, `…/api-tokens/…` |
