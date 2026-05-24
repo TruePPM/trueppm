@@ -2132,10 +2132,22 @@ class ApiTokenAuditEntry(models.Model):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # Scope mirrors ApiToken: project XOR program (ADR-0076 program extension).
+    # project becomes nullable so program-scoped tokens can be audited; existing
+    # rows are all project-scoped and satisfy the XOR (program null).
     project = models.ForeignKey(
         Project,
         on_delete=models.CASCADE,
         related_name="api_token_audit",
+        null=True,
+        blank=True,
+    )
+    program = models.ForeignKey(
+        "projects.Program",
+        on_delete=models.CASCADE,
+        related_name="api_token_audit",
+        null=True,
+        blank=True,
     )
     token = models.ForeignKey(
         ProjectApiToken,
@@ -2166,10 +2178,22 @@ class ApiTokenAuditEntry(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["project", "-created_at"], name="api_token_audit_proj_idx"),
+            models.Index(fields=["program", "-created_at"], name="api_token_audit_prog_idx"),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                # Exactly one of project / program is non-null — mirrors ApiToken.
+                condition=(
+                    Q(project__isnull=False, program__isnull=True)
+                    | Q(project__isnull=True, program__isnull=False)
+                ),
+                name="api_token_audit_scope_xor",
+            ),
         ]
 
     def __str__(self) -> str:
-        return f"ApiTokenAuditEntry({self.action} {self.token_prefix} project={self.project_id})"
+        scope = f"program={self.program_id}" if self.program_id else f"project={self.project_id}"
+        return f"ApiTokenAuditEntry({self.action} {self.token_prefix} {scope})"
 
 
 # ---------------------------------------------------------------------------

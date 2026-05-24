@@ -41,6 +41,9 @@ from rest_framework.views import APIView
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
     IsOrgAdmin,
+    IsProgramAdmin,
+    IsProgramMember,
+    IsProgramNotClosed,
     IsProjectAdmin,
     IsProjectMember,
     IsProjectMemberWrite,
@@ -5457,19 +5460,30 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
             return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
-    def get_queryset(self) -> QuerySet[Any]:
+    # Scope hooks — the program subclass (ProgramApiTokenViewSet) overrides these
+    # so the create/destroy/list bodies stay scope-agnostic (ADR-0076).
+    _scope_field = "project"  # ApiToken / audit FK field name for this scope
+    _scope_kwarg = "project_pk"  # URL kwarg carrying the scope id
 
-        project_pk = self.kwargs["project_pk"]
+    def _resolve_scope(self) -> Any:
+        """Return the Project this viewset is scoped to (404 if missing)."""
+        return self._get_project_or_404(self.kwargs[self._scope_kwarg])
+
+    def get_queryset(self) -> QuerySet[Any]:
         return (
-            ProjectApiToken.objects.filter(project_id=project_pk, is_deleted=False)
-            .select_related("created_by", "project")
+            ProjectApiToken.objects.filter(
+                **{f"{self._scope_field}_id": self.kwargs[self._scope_kwarg]},
+                is_deleted=False,
+            )
+            .select_related("created_by", self._scope_field)
             .order_by("-created_at")
         )
 
     def get_object(self) -> Any:
         obj = super().get_object()
-        # IsProjectAdmin checks against the project on the object.
-        self.check_object_permissions(self.request, obj.project)
+        # Object-level RBAC against the token's scope object — the active
+        # permission classes (Is{Project,Program}Admin) match the scope.
+        self.check_object_permissions(self.request, getattr(obj, self._scope_field))
         return obj
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -5490,8 +5504,8 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
         )
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        project_pk = self.kwargs["project_pk"]
-        project = self._get_project_or_404(project_pk)
+        scope_obj = self._resolve_scope()
+        scope_kwargs = {self._scope_field: scope_obj}
 
         write_serializer = ProjectApiTokenCreateSerializer(data=request.data)
         write_serializer.is_valid(raise_exception=True)
@@ -5501,7 +5515,7 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
 
         with transaction.atomic():
             token = ProjectApiToken.objects.create(
-                project=project,
+                **scope_kwargs,
                 name=write_serializer.validated_data["name"],
                 status_map=write_serializer.validated_data.get("status_map", {}),
                 token_prefix=token_prefix,
@@ -5509,7 +5523,7 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                 created_by=request.user if request.user.is_authenticated else None,
             )
             ApiTokenAuditEntry.objects.create(
-                project=project,
+                **scope_kwargs,
                 token=token,
                 token_prefix=token_prefix,
                 actor=request.user if request.user.is_authenticated else None,
@@ -5517,18 +5531,21 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                 source_ip=_client_ip(request),
                 detail={"name": token.name},
             )
-            # Capture plain strings inside the atomic block, then bind via
-            # default-argument so the lambda freezes the values at registration
-            # time (defensive against any later closure-variable mutation).
-            project_id = str(project.pk)
-            token_name = token.name
+            # Project-scoped mints surface on the project board over WS. Program
+            # tokens have no single board, so the broadcast is skipped — the
+            # audit row is the durable record either way.
+            if self._scope_field == "project":
+                project_id = str(scope_obj.pk)
+                token_name = token.name
 
-            def _broadcast_mint(
-                pid: str = project_id, pfx: str = token_prefix, nm: str = token_name
-            ) -> None:
-                broadcast_board_event(pid, "api_token_minted", {"token_prefix": pfx, "name": nm})
+                def _broadcast_mint(
+                    pid: str = project_id, pfx: str = token_prefix, nm: str = token_name
+                ) -> None:
+                    broadcast_board_event(
+                        pid, "api_token_minted", {"token_prefix": pfx, "name": nm}
+                    )
 
-            transaction.on_commit(_broadcast_mint)
+                transaction.on_commit(_broadcast_mint)
 
         # Single-shot response: token field is present here, never on subsequent reads.
         read_data = ProjectApiTokenSerializer(token).data
@@ -5553,7 +5570,7 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                 token.revoked_at = timezone.now()
                 token.save(update_fields=["revoked_at"])
                 ApiTokenAuditEntry.objects.create(
-                    project=token.project,
+                    **{self._scope_field: getattr(token, self._scope_field)},
                     token=token,
                     token_prefix=token.token_prefix,
                     actor=request.user if request.user.is_authenticated else None,
@@ -5561,18 +5578,19 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                     source_ip=_client_ip(request),
                     detail={"name": token.name},
                 )
-                project_id = str(token.project_id)
-                token_prefix = token.token_prefix
-                token_name = token.name
+                if token.project_id is not None:
+                    project_id = str(token.project_id)
+                    token_prefix = token.token_prefix
+                    token_name = token.name
 
-                def _broadcast_revoke(
-                    pid: str = project_id, pfx: str = token_prefix, nm: str = token_name
-                ) -> None:
-                    broadcast_board_event(
-                        pid, "api_token_revoked", {"token_prefix": pfx, "name": nm}
-                    )
+                    def _broadcast_revoke(
+                        pid: str = project_id, pfx: str = token_prefix, nm: str = token_name
+                    ) -> None:
+                        broadcast_board_event(
+                            pid, "api_token_revoked", {"token_prefix": pfx, "name": nm}
+                        )
 
-                transaction.on_commit(_broadcast_revoke)
+                    transaction.on_commit(_broadcast_revoke)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _get_project_or_404(self, project_pk: Any) -> Project:
@@ -5584,6 +5602,35 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
             from django.http import Http404
 
             raise Http404("Project not found.") from exc
+
+
+class ProgramApiTokenViewSet(ProjectApiTokenViewSet):
+    """``/api/v1/programs/{program_pk}/api-tokens/`` — program-scoped token CRUD.
+
+    A program-scoped token authorizes inbound writes into any project within the
+    program (ADR-0076). Reuses the one-time-reveal create, soft-delete revoke,
+    and audit substrate from ProjectApiTokenViewSet via the scope hooks; only the
+    scope resolution and RBAC ladder change. Reads: Program Member+; create/revoke:
+    Program Admin+ on a non-closed program.
+    """
+
+    _scope_field = "program"
+    _scope_kwarg = "program_pk"
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action in ("create", "destroy"):
+            return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
+        return [IsAuthenticated(), IsProgramMember()]
+
+    def _resolve_scope(self) -> Any:
+        from django.http import Http404
+
+        from trueppm_api.apps.projects.models import Program
+
+        try:
+            return Program.objects.get(pk=self.kwargs["program_pk"], is_deleted=False)
+        except Program.DoesNotExist as exc:
+            raise Http404("Program not found.") from exc
 
 
 class _ApiTokenAuditPagination(pagination.LimitOffsetPagination):
@@ -5619,6 +5666,26 @@ class ApiTokenAuditView(generics.ListAPIView[Any]):
         project_pk = self.kwargs["project_pk"]
         return (
             ApiTokenAuditEntry.objects.filter(project_id=project_pk)
+            .select_related("actor", "token")
+            .order_by("-created_at")
+        )
+
+
+class ProgramApiTokenAuditView(ApiTokenAuditView):
+    """``GET /api/v1/programs/{program_pk}/api-token-audit/`` — program audit log.
+
+    Visible to any program member. Mirrors the project audit view; filters the
+    append-only ApiTokenAuditEntry rows by program scope (ADR-0076).
+    """
+
+    permission_classes = [IsAuthenticated, IsProgramMember]
+
+    def get_queryset(self) -> QuerySet[Any]:
+        from trueppm_api.apps.projects.models import ApiTokenAuditEntry
+
+        program_pk = self.kwargs["program_pk"]
+        return (
+            ApiTokenAuditEntry.objects.filter(program_id=program_pk)
             .select_related("actor", "token")
             .order_by("-created_at")
         )
