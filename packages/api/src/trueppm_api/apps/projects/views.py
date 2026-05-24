@@ -208,6 +208,14 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         qs = super().get_queryset()
         flag = self.request.query_params.get("program__isnull")
         if flag is not None and flag.lower() in ("true", "1", "yes"):
+            # Both aggregates LEFT JOIN a different to-many relation, so the rows
+            # fan out (memberships × tasks) before aggregation. ``member_count``
+            # is safe because ``distinct=True`` collapses the duplicates; the
+            # ``Avg`` is safe because a mean is invariant under the *uniform*
+            # duplication this fan-out produces. WARNING: any non-distinct,
+            # non-mean aggregate (Sum, Count) added to this same .annotate() over
+            # ``tasks`` or ``memberships`` WILL be inflated by the join — split it
+            # into a Subquery annotation instead of adding it here.
             qs = qs.filter(program__isnull=True, is_deleted=False, is_archived=False).annotate(
                 member_count=Count(
                     "memberships",

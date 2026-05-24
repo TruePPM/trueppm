@@ -596,21 +596,23 @@ def test_ungrouped_filter_annotates_member_count_and_percent_complete(
 ) -> None:
     project = _make_project(owner, calendar, name="Has members and tasks")
     ProjectMembership.objects.create(project=project, user=other_user, role=Role.MEMBER)
+    # Deliberately unequal member (2) and task (3) counts: the two aggregates
+    # share one .annotate() and fan out (2 × 3 = 6 joined rows). member_count
+    # must stay 2 — if distinct=True were dropped it would inflate to 6.
     Task.objects.create(project=project, name="A", percent_complete=100.0)
-    Task.objects.create(project=project, name="B", percent_complete=0.0)
+    Task.objects.create(project=project, name="B", percent_complete=50.0)
+    Task.objects.create(project=project, name="C", percent_complete=0.0)
 
     resp = _client(owner).get("/api/v1/projects/?program__isnull=true")
 
     assert resp.status_code == 200, resp.content
     row = next(r for r in resp.data["results"] if r["id"] == str(project.pk))
-    assert row["member_count"] == 2  # owner + other_user
-    assert row["percent_complete"] == 50.0  # mean of 100 and 0
+    assert row["member_count"] == 2  # owner + other_user, not 6 (fan-out)
+    assert row["percent_complete"] == 50.0  # mean of 100, 50, 0
 
 
 @pytest.mark.django_db
-def test_ungrouped_filter_excludes_archived_projects(
-    owner: object, calendar: Calendar
-) -> None:
+def test_ungrouped_filter_excludes_archived_projects(owner: object, calendar: Calendar) -> None:
     _make_project(owner, calendar, name="Archived", is_archived=True)
 
     resp = _client(owner).get("/api/v1/projects/?program__isnull=true")
