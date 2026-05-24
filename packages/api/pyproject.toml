@@ -37,6 +37,7 @@ dev = [
     "pytest-asyncio>=0.23",
     "pytest-cov>=4.0",
     "pytest-xdist>=3.6",
+    "pytest-split>=0.9",
     "diff-cover>=9.0",
     "mypy>=1.0",
     "django-stubs[compatible-mypy]>=5.0",

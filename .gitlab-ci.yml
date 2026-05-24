@@ -808,6 +808,16 @@ wasm:conformance:
 api:test:
   extends: .api
   stage: test
+  # Sharded across 3 runners with pytest-split; -n auto still fans each shard out
+  # across that runner's 4 cores, and pytest-django gives every xdist worker its
+  # own test DB (test_trueppm_test_gw0, _gw1, …) so isolation is preserved.
+  # Without a committed .test_durations baseline pytest-split falls back to an
+  # even test-count split; generate one with `pytest --store-durations` to
+  # balance by wall-time (follow-up #687). Each shard emits a partial coverage
+  # data file (.coverage.<index>); api:coverage combines them into coverage.xml
+  # for the diff-coverage gate and the package soft floor. Mirrors the
+  # web:e2e shard → web:e2e:report stitch pattern.
+  parallel: 3
   needs:
     - api:lint
     - api:type-check
@@ -816,14 +826,39 @@ api:test:
     - job: ci:build-api-image
       optional: true
   <<: *rules-api
+  variables:
+    # Distinct data file per shard so api:coverage's combine doesn't clash.
+    # pytest-cov honors COVERAGE_FILE for the final xdist-combined data file.
+    COVERAGE_FILE: ".coverage.$CI_NODE_INDEX"
   script:
-    # -n auto fans out across all 4 cores on the runner. pytest-django creates
-    # a per-worker test DB (test_trueppm_test_gw0, _gw1, …) so isolation is
-    # preserved. pytest-cov has built-in xdist support — combined report writes
-    # to coverage.xml as before.
     - cd packages/api
     - python -m pytest tests/ --tb=short -q -n auto
-        --cov=trueppm_api --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+        --splits "$CI_NODE_TOTAL" --group "$CI_NODE_INDEX"
+        --cov=trueppm_api --cov-report=
+  artifacts:
+    paths:
+      - packages/api/.coverage.*
+    expire_in: 1 day
+    when: always
+
+api:coverage:
+  # Combines the per-shard coverage data from api:test into a single coverage.xml
+  # for api:diff-coverage (the primary tests gate) and enforces the package-total
+  # soft floor against legacy regressions. Runs in the same ci-api image the
+  # shards used, so the coverage data format matches.
+  extends: .api-no-db
+  stage: test
+  needs:
+    - job: api:test
+      artifacts: true
+    - job: ci:build-api-image
+      optional: true
+  <<: *rules-api
+  script:
+    - cd packages/api
+    - coverage combine
+    - coverage xml
+    - coverage report --fail-under=80
   coverage: '/TOTAL.*\s(\d+%)/'
   artifacts:
     paths:
@@ -834,11 +869,49 @@ api:test:
 web:test:
   extends: .web
   stage: test
+  # Sharded across 3 runners (vitest splits by test file). The configured
+  # singleFork pool keeps each shard's jsdom heap bounded, and fewer files per
+  # shard eases the OOM pressure that forced singleFork in the first place. Each
+  # shard writes partial istanbul coverage (coverage-final.json) to
+  # coverage-<index>/; web:coverage stitches them for the diff-coverage gate. The
+  # `--` forwards the shard + output-dir flags to vitest while preserving the dir
+  # filter and coverage config from test:coverage.
   needs: [web:lint, web:type-check, web:build]
+  parallel: 3
   <<: *rules-web
   script:
-    - npm run test:coverage
-  coverage: '/^All files\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*[\d.]+\s*\|\s*([\d.]+)/'
+    - npm run test:coverage --
+        --shard="$CI_NODE_INDEX/$CI_NODE_TOTAL"
+        --coverage.reportsDirectory="coverage-$CI_NODE_INDEX"
+  artifacts:
+    paths:
+      - packages/web/coverage-*/coverage-final.json
+    expire_in: 1 day
+    when: always
+
+web:coverage:
+  # Stitches the per-shard istanbul coverage from web:test into a single
+  # coverage/lcov.info for web:diff-coverage (the primary tests gate) and enforces
+  # the package-total line floor. Runs in the cached node image (.web) and merges
+  # the coverage maps with scripts/merge-coverage.mjs — no GNU lcov install. The
+  # old python:3.11-slim job had to `apt-get install lcov`, which drags in
+  # perl + binutils for ~5 min while the merge itself took <1s; the map-level
+  # merge here is <1s and also sidesteps the istanbul duplicate-function-name
+  # inconsistency that forced --ignore-errors on the lcov text-merge path.
+  extends: .web
+  stage: test
+  needs:
+    - job: web:test
+      artifacts: true
+  <<: *rules-web
+  variables:
+    # Package-total line floor against legacy regressions, enforced on the merged
+    # result (vitest can't — no single shard sees it). Mirrors the api:coverage
+    # --fail-under=80 soft floor. The primary gate is web:diff-coverage.
+    WEB_COVERAGE_MIN: "75"
+  script:
+    - node scripts/merge-coverage.mjs
+  coverage: '/line coverage ([\d.]+)%/'
   artifacts:
     paths:
       - packages/web/coverage/lcov.info
@@ -890,7 +963,7 @@ api:diff-coverage:
   extends: .diff-coverage
   image: python:3.11-slim
   needs:
-    - job: api:test
+    - job: api:coverage
       artifacts: true
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -918,7 +991,7 @@ web:diff-coverage:
   # natively. Avoids npm install just to run diff-cover.
   image: python:3.11-slim
   needs:
-    - job: web:test
+    - job: web:coverage
       artifacts: true
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
