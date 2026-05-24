@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { usePrograms } from '@/hooks/usePrograms';
 import { ProgramCard } from './ProgramCard';
 import { NewProgramModal } from './NewProgramModal';
+import { UngroupedProjectsSection } from './UngroupedProjectsSection';
 
 /**
  * /programs — list of programs the current user is a member of (ADR-0070).
@@ -74,14 +75,19 @@ export function ProgramListPage() {
         )}
 
         {!isLoading && !error && programs && programs.length > 0 && (
-          <ul
-            aria-label="Programs"
-            className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
-          >
-            {programs.map((p) => (
-              <ProgramCard key={p.id} program={p} />
-            ))}
-          </ul>
+          <>
+            <ul
+              aria-label="Programs"
+              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+            >
+              {programs.map((p) => (
+                <ProgramCard key={p.id} program={p} />
+              ))}
+            </ul>
+            {/* Standalone projects that aren't in any program (ADR-0083, #697).
+                Self-hides when there are none. */}
+            <UngroupedProjectsSection />
+          </>
         )}
       </div>
 
