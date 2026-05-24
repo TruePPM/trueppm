@@ -65,9 +65,12 @@ workflow:
 # api includes scheduler paths because the API package installs the scheduler
 # as a dependency; a scheduler change can break API type-checking.
 #
-# Security jobs that span packages (pip-audit, license:check) use no needs:
-# and rely on stage ordering instead. This avoids blocked-job cascades when
-# only one of their dependency test jobs runs and the other is skipped.
+# Security jobs that span packages (pip-audit, license:check) declare a
+# single optional needs on ci:build-api-image so they enter DAG mode and run
+# in parallel with the test stage rather than waiting for it to finish. The
+# optional+single-dep shape avoids blocked-job cascades on single-package
+# MRs: if only the API changed, web:test is skipped, but pip-audit and
+# license:check still run because they don't depend on web:test.
 # ---------------------------------------------------------------------------
 
 .rules-scheduler: &rules-scheduler
@@ -411,6 +414,46 @@ ci:build-scheduler-image:
         --cache-from "$IMAGE"
         --tag "$IMAGE"
         --file .gitlab/ci-images/scheduler.Dockerfile
+        .
+    - docker push "$IMAGE"
+
+ci:build-integration-image:
+  # Rebuild and push the custom ci-integration image used by web:integration.
+  # Bakes Python 3 + libpq-dev + gcc + uvicorn + scheduler[dev] + api[dev]
+  # dev-deps on top of the Playwright image so the integration job skips
+  # the ~3min apt+pip cold install on every main run.
+  #
+  # Trigger: same shape as ci:build-api-image — Dockerfile / pyproject changes,
+  # plus the weekly scheduled run. Validated on MR pipelines when the relevant
+  # files change so a broken Dockerfile is caught before merge; web:integration
+  # itself is main-only and pulls the existing registry tag in steady state.
+  stage: lint
+  image: docker:27
+  services:
+    - docker:27-dind
+  variables:
+    DOCKER_TLS_CERTDIR: "/certs"
+    IMAGE: "$CI_REGISTRY_IMAGE/ci-integration:noble"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - packages/scheduler/pyproject.toml
+        - packages/api/pyproject.toml
+        - .gitlab/ci-images/integration.Dockerfile
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - packages/scheduler/pyproject.toml
+        - packages/api/pyproject.toml
+        - .gitlab/ci-images/integration.Dockerfile
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+  script:
+    - docker pull "$IMAGE" || true
+    - docker build
+        --cache-from "$IMAGE"
+        --tag "$IMAGE"
+        --file .gitlab/ci-images/integration.Dockerfile
         .
     - docker push "$IMAGE"
 
@@ -961,8 +1004,17 @@ web:integration:
   #
   # Main-only: runs after every merge to verify end-to-end stack health.
   # Does not block MR pipelines (those rely on the mocked web:e2e job).
+  #
+  # Uses the custom ci-integration image (built by `ci:build-integration-image`)
+  # which pre-bakes Python 3 + libpq-dev + gcc + uvicorn + scheduler[dev] +
+  # api[dev] dev-deps on top of the Playwright base. The runtime `pip install -e`
+  # only re-links the editable packages — no apt-get, no wheel downloads.
+  # Mirrors the #640 ci-api / #651 ci-scheduler pattern.
   stage: test
-  image: mcr.microsoft.com/playwright:v1.58.2-noble
+  image: $CI_REGISTRY_IMAGE/ci-integration:noble
+  needs:
+    - job: ci:build-integration-image
+      optional: true
   services:
     - name: postgres:16-alpine
       alias: postgres
@@ -997,22 +1049,18 @@ web:integration:
         - .cache/pip/
       policy: pull
   before_script:
-    # The playwright:noble image is Ubuntu 24.04 with Node pre-installed.
-    # Add Python 3 and the C build deps required by psycopg2.
-    - apt-get update -qq && apt-get install -y -qq --no-install-recommends
-        python3 python3-pip python3-venv python3-dev libpq-dev gcc
-    - python3 -m venv /opt/api-venv
-    - /opt/api-venv/bin/pip install --upgrade pip --quiet
-    - /opt/api-venv/bin/pip install -e "packages/scheduler[dev]" --quiet
-    - /opt/api-venv/bin/pip install -e "packages/api[dev]" --quiet
-    - /opt/api-venv/bin/pip install uvicorn[standard] --quiet
+    # Image has Python 3 + uvicorn + scheduler[dev] + api[dev] dev-deps resident
+    # under /opt/api-venv (on PATH). These installs are fast editable re-links
+    # against the checked-out source.
+    - pip install -e "packages/scheduler[dev]" --quiet
+    - pip install -e "packages/api[dev]" --quiet
     # Migrate and seed integration fixtures.
     - cd packages/api
-    - /opt/api-venv/bin/python manage.py migrate --noinput
-    - /opt/api-venv/bin/python manage.py seed_integration_fixtures
+    - python manage.py migrate --noinput
+    - python manage.py seed_integration_fixtures
     # Start the Django ASGI server in the background.
     - >
-      PYTHONPATH=src /opt/api-venv/bin/uvicorn trueppm_api.asgi:application
+      PYTHONPATH=src uvicorn trueppm_api.asgi:application
       --host 127.0.0.1 --port 8000 &
     - cd ../..
     # Wait up to 30 s for Django to accept connections.
@@ -1152,24 +1200,27 @@ license:check:
   # Verify no copyleft-licensed dependency has been introduced.
   # Checks both Python (pip-licenses) and npm (license-checker) packages.
   # LGPL is permitted (library-linking exemption applies).
-  # No needs: — stage ordering ensures tests passed; see note above.
   #
-  # Kaizen #640 N1: narrowed `changes:` to dep manifests only. The job is
-  # ~5min (npm install dominates) and the previous filter (any source
-  # change) triggered it on every MR. License composition only changes
-  # when manifests/lock files do; main + scheduled runs catch transitive
-  # drift that a lock-file refresh might miss.
+  # Kaizen #640 N1: narrowed `changes:` to dep manifests only. License
+  # composition only changes when manifests/lock files do; main + scheduled
+  # runs catch transitive drift that a lock-file refresh might miss.
   #
   # Uses the ci-api image (kaizen #640 item 3) so the apt-get install
-  # of libpq-dev / gcc / nodejs / npm is no longer paid per-run.
+  # of libpq-dev / gcc is no longer paid per-run. The web-npm cache is
+  # pulled so `npm install --prefix packages/web` resolves from cache
+  # instead of cold-installing the full web dep tree (~5min saved on a
+  # cache hit; the cache key is package-lock.json so license drift still
+  # invalidates correctly).
   stage: security
   image: $CI_REGISTRY_IMAGE/ci-api:py3.11
   needs:
     - job: ci:build-api-image
       optional: true
   cache:
-    <<: *api-cache
-    policy: pull
+    - <<: *api-cache
+      policy: pull
+    - <<: *web-cache
+      policy: pull
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
