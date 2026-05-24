@@ -7,12 +7,16 @@ the retention purge deletes delivery rows.
 
 from __future__ import annotations
 
+import importlib
 import urllib.request
-from datetime import date
+from datetime import date, timedelta
+from types import ModuleType
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 from trueppm_api.apps.projects.models import Calendar, Project
 from trueppm_api.apps.webhooks.models import Webhook, WebhookDelivery
@@ -231,3 +235,111 @@ def test_deliveries_endpoint_exposes_sequence(
     resp = client.get(f"/api/v1/projects/{project.pk}/webhooks/{webhook.pk}/deliveries/")
     assert resp.status_code == 200
     assert resp.data[0]["sequence_number"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Migration 0005 backfill (#664)
+# ---------------------------------------------------------------------------
+
+
+def _set_created_at(delivery: WebhookDelivery, when: object) -> None:
+    """Stamp ``created_at`` directly (it is ``auto_now_add``, so the model never
+    lets us set it through ``save()``) to make backfill ordering deterministic."""
+    WebhookDelivery.objects.filter(pk=delivery.pk).update(created_at=when)
+
+
+def _reset_to_pre_migration_state(*webhooks: Webhook) -> None:
+    """Simulate the rows as they looked before migration 0005 ran: every
+    sequence field at its ``default=0``, as if the columns were just added."""
+    WebhookDelivery.objects.all().update(sequence_number=0)
+    for hook in webhooks:
+        Webhook.objects.filter(pk=hook.pk).update(delivery_sequence=0)
+
+
+@pytest.mark.django_db
+class TestBackfillSequenceNumbers:
+    """The 0005 RunPython helpers number historical deliveries per subscription.
+
+    The forward helper is invoked directly with the live app registry (the same
+    pattern as the WBS backfill test) because Django applies migrations before
+    any rows exist, so the loop body is never exercised by ordinary test setup.
+    """
+
+    def _migration(self) -> ModuleType:
+        return importlib.import_module(
+            "trueppm_api.apps.webhooks.migrations.0005_webhook_delivery_sequence_numbers"
+        )
+
+    def test_backfill_numbers_by_created_at_not_insertion_order(self, webhook: Webhook) -> None:
+        # Insert in one order, then rewrite created_at into a different order so
+        # the assertion proves the backfill keys off created_at, not PK/insertion.
+        first_inserted = _make_delivery(webhook)
+        second_inserted = _make_delivery(webhook)
+        third_inserted = _make_delivery(webhook)
+
+        base = timezone.now()
+        _set_created_at(third_inserted, base)  # earliest
+        _set_created_at(first_inserted, base + timedelta(minutes=1))
+        _set_created_at(second_inserted, base + timedelta(minutes=2))  # latest
+
+        _reset_to_pre_migration_state(webhook)
+        self._migration().backfill_sequence_numbers(django_apps, None)
+
+        third_inserted.refresh_from_db()
+        first_inserted.refresh_from_db()
+        second_inserted.refresh_from_db()
+        assert third_inserted.sequence_number == 1
+        assert first_inserted.sequence_number == 2
+        assert second_inserted.sequence_number == 3
+
+        # The subscription counter continues from the highest backfilled value,
+        # so the next live delivery does not collide with a historical one.
+        webhook.refresh_from_db()
+        assert webhook.delivery_sequence == 3
+        assert _make_delivery(webhook).sequence_number == 4
+
+    def test_backfill_is_independent_per_subscription(self, project: Project, user: object) -> None:
+        hook_a = Webhook.objects.create(
+            project=project, url="https://a.example/h", secret="s", events=["task.created"]
+        )
+        hook_b = Webhook.objects.create(
+            project=project, url="https://b.example/h", secret="s", events=["task.created"]
+        )
+        _make_delivery(hook_a)
+        _make_delivery(hook_a)
+        _make_delivery(hook_b)
+
+        _reset_to_pre_migration_state(hook_a, hook_b)
+        self._migration().backfill_sequence_numbers(django_apps, None)
+
+        hook_a.refresh_from_db()
+        hook_b.refresh_from_db()
+        assert hook_a.delivery_sequence == 2
+        assert hook_b.delivery_sequence == 1
+        a_seqs = sorted(
+            WebhookDelivery.objects.filter(webhook=hook_a).values_list("sequence_number", flat=True)
+        )
+        b_seqs = sorted(
+            WebhookDelivery.objects.filter(webhook=hook_b).values_list("sequence_number", flat=True)
+        )
+        assert a_seqs == [1, 2]
+        assert b_seqs == [1]
+
+    def test_backfill_leaves_counter_at_zero_for_subscription_with_no_deliveries(
+        self, webhook: Webhook
+    ) -> None:
+        _reset_to_pre_migration_state(webhook)
+        self._migration().backfill_sequence_numbers(django_apps, None)
+
+        webhook.refresh_from_db()
+        assert webhook.delivery_sequence == 0  # `if seq > 0` guard skips the update
+
+    def test_reverse_backfill_zeroes_all_sequences(self, webhook: Webhook) -> None:
+        _make_delivery(webhook)
+        _make_delivery(webhook)
+
+        self._migration().reverse_backfill(django_apps, None)
+
+        webhook.refresh_from_db()
+        assert webhook.delivery_sequence == 0
+        assert list(WebhookDelivery.objects.values_list("sequence_number", flat=True)) == [0, 0]
