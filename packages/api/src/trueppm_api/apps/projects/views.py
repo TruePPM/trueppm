@@ -1453,10 +1453,14 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         # values here (#638 / ADR-0083). Captured as plain scalars so the
         # on_commit lambdas don't close over the ORM object.
         old_assignee_id = (
-            str(serializer.instance.assignee_id) if serializer.instance.assignee_id else None
+            str(serializer.instance.assignee_id)
+            if serializer.instance and serializer.instance.assignee_id
+            else None
         )
         old_planned_start = (
-            str(serializer.instance.planned_start) if serializer.instance.planned_start else None
+            str(serializer.instance.planned_start)
+            if serializer.instance and serializer.instance.planned_start
+            else None
         )
 
         instance = serializer.save()
