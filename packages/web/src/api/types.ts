@@ -113,6 +113,10 @@ export interface Program {
   /** Live counts annotated on the list endpoint — defaults to 0. */
   project_count: number;
   member_count: number;
+  /** Lifecycle (#530) — closed programs are read-only at the program shell. */
+  is_closed: boolean;
+  closed_at: string | null;
+  closed_by: string | null;
 }
 
 export interface ProgramMembership {

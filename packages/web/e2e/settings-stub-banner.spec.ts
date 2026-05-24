@@ -136,9 +136,11 @@ test.describe('Settings stub banner (#538)', () => {
     await page.getByRole('button', { name: /dismiss preview banner/i }).click();
     await expect(page.getByTestId('stub-page-banner')).toBeHidden();
 
-    // Lifecycle is a separate stub page with a different issue ref — its
-    // banner must remain visible because dismissal is keyed per pageIssue.
-    await page.getByRole('link', { name: 'Lifecycle' }).click();
+    // Workspace General is a separate stub page with a different issue ref
+    // (#517 vs Methodology's #511) — its banner must remain visible because
+    // dismissal is keyed per pageIssue. (Project Lifecycle, the previous
+    // second stub here, is now API-wired by #530 and no longer renders one.)
+    await page.getByRole('button', { name: 'Workspace', exact: true }).click();
     await expect(page.getByTestId('stub-page-banner')).toBeVisible();
   });
 

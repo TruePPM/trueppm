@@ -44,11 +44,13 @@ from trueppm_api.apps.access.permissions import (
     IsProjectMember,
     IsProjectMemberWrite,
     IsProjectMemberWriteOrOwn,
+    IsProjectNotArchived,
     IsProjectOwner,
     IsProjectScheduler,
     IsTokenForProject,
     ProjectScopedViewSet,
 )
+from trueppm_api.apps.access.services import transfer_project_ownership
 from trueppm_api.apps.projects.models import (
     ApiToken,
     Baseline,
@@ -136,7 +138,7 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
     Write operations: org admin (Project Manager+ on at least one project).
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
     queryset = Calendar.objects.prefetch_related("exceptions").order_by("name")
     serializer_class = CalendarSerializer
     search_fields = ["name"]
@@ -164,14 +166,17 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
       destroy                     — Project Admin (Owner) only (IsProjectOwner)
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get_permissions(self) -> list[BasePermission]:
-        if self.action == "destroy":
-            return [IsAuthenticated(), IsProjectOwner()]
+        # Lifecycle actions (archive/unarchive/destroy/transfer) bypass the
+        # IsProjectNotArchived gate via its _ARCHIVE_BYPASS_ACTIONS set —
+        # otherwise an Owner could never unarchive or delete an archived row.
+        if self.action in ("destroy", "archive", "unarchive", "transfer"):
+            return [IsAuthenticated(), IsProjectOwner(), IsProjectNotArchived()]
         if self.action in ("utilization", "resource_allocation", "heatmap", "resources_summary"):
-            return [IsAuthenticated(), IsProjectScheduler()]
-        return [IsAuthenticated(), IsProjectMember()]
+            return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
     queryset = Project.objects.select_related("calendar").order_by("start_date", "name")
     serializer_class = ProjectSerializer
@@ -218,13 +223,144 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         )
 
     def perform_destroy(self, instance: Project) -> None:
+        """Delete a project — soft by default, hard when ``?force=true``.
+
+        Soft delete (default): bumps ``server_version`` and sets ``is_deleted``;
+        mobile sync clients receive a tombstone. Always permitted for Owner.
+
+        Hard delete (``?force=true``): permanently removes the row. Requires
+        the project to already be archived — the two-step "archive → force
+        delete" pattern matches the UI dialog and prevents accidental
+        irreversible loss. Issues a distinct ``project_hard_deleted`` event so
+        clients can hard-evict rather than mark-tombstoned.
+        """
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project_id = str(instance.pk)
+        force_raw = (self.request.query_params.get("force") or "").lower()
+        force = force_raw in ("1", "true", "yes")
+
+        if force:
+            if not instance.is_archived:
+                from rest_framework.exceptions import ValidationError as DRFValidationError
+
+                raise DRFValidationError(
+                    {"detail": "Archive the project before requesting a permanent delete."}
+                )
+            # ProjectMembership.project is on_delete=PROTECT so a bare
+            # Project.delete() raises ProtectedError. The two-step archive →
+            # force-delete dialog already gates against accidents; at this
+            # point the Owner has confirmed and the membership rows must go
+            # with the project row.
+            from trueppm_api.apps.access.models import ProjectMembership
+
+            ProjectMembership.objects.filter(project=instance).delete()
+            Project.objects.filter(pk=instance.pk).delete()
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    project_id, "project_hard_deleted", {"id": project_id}
+                )
+            )
+            return
+
         instance.soft_delete()
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "project_deleted", {"id": project_id})
         )
+
+    @action(detail=True, methods=["post"], url_path="archive")
+    def archive(self, request: Request, pk: str | None = None) -> Response:
+        """Mark the project as archived (read-only) (#530).
+
+        Idempotent — archiving an already-archived project succeeds with the
+        existing ``archived_at`` / ``archived_by`` values preserved. Owner only.
+        Broadcasts ``project_archived`` so connected clients flip their UI to
+        read-only without a manual refresh.
+        """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project = self.get_object()
+        if not project.is_archived:
+            project.is_archived = True
+            project.archived_at = timezone.now()
+            project.archived_by = request.user
+            project.save(update_fields=["is_archived", "archived_at", "archived_by"])
+            project_id = str(project.pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "project_archived", {"id": project_id})
+            )
+        serializer = self.get_serializer(project)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="unarchive")
+    def unarchive(self, request: Request, pk: str | None = None) -> Response:
+        """Restore writes on an archived project (#530). Owner only."""
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project = self.get_object()
+        if project.is_archived:
+            project.is_archived = False
+            project.archived_at = None
+            project.archived_by = None
+            project.save(update_fields=["is_archived", "archived_at", "archived_by"])
+            project_id = str(project.pk)
+            transaction.on_commit(
+                lambda: broadcast_board_event(project_id, "project_unarchived", {"id": project_id})
+            )
+        serializer = self.get_serializer(project)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="transfer")
+    def transfer(self, request: Request, pk: str | None = None) -> Response:
+        """Transfer project ownership to another existing member (#530).
+
+        Body: ``{"new_owner_user_id": "<uuid>"}``. The target must already be
+        a project member at any role — invite first if necessary. The current
+        OWNER is atomically demoted to ADMIN.
+        """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        project = self.get_object()
+        new_owner_id = request.data.get("new_owner_user_id")
+        if not new_owner_id:
+            return Response(
+                {"detail": "new_owner_user_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        from django.contrib.auth import get_user_model
+
+        User = get_user_model()
+        try:
+            new_owner = User.objects.get(pk=new_owner_id)
+        except (User.DoesNotExist, DjangoValidationError, ValueError):
+            return Response(
+                {"detail": "User not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            transfer_project_ownership(
+                project=project,
+                new_owner=new_owner,
+                actor=request.user,
+            )
+        except DjangoValidationError as exc:
+            return Response(
+                {"detail": exc.messages[0] if exc.messages else str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        project_id = str(project.pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id,
+                "project_transferred",
+                {"id": project_id, "new_owner_id": str(new_owner.pk)},
+            )
+        )
+        serializer = self.get_serializer(project)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["get"], url_path="utilization")
     def utilization(self, request: Request, pk: str | None = None) -> Response:
@@ -913,16 +1049,16 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
       update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMemberWrite]
+    permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("update", "partial_update", "destroy"):
-            return [IsAuthenticated(), IsProjectMemberWriteOrOwn()]
+            return [IsAuthenticated(), IsProjectMemberWriteOrOwn(), IsProjectNotArchived()]
         if self.action == "create":
-            return [IsAuthenticated(), IsProjectMemberWrite()]
+            return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
         if self.action == "approve_estimates":
-            return [IsAuthenticated(), IsProjectScheduler()]
-        return [IsAuthenticated(), IsProjectMember()]
+            return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
     serializer_class = TaskSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
@@ -1365,7 +1501,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         detail=True,
         methods=["post"],
         url_path="approve-estimates",
-        permission_classes=[IsAuthenticated, IsProjectScheduler],
+        permission_classes=[IsAuthenticated, IsProjectScheduler, IsProjectNotArchived],
     )
     def approve_estimates(self, request: Request, **kwargs: Any) -> Response:
         """Accept pending three-point estimates on a task.
@@ -1647,10 +1783,10 @@ class BaselineViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Baseline]):
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
-            return [IsAuthenticated(), IsProjectMember()]
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         if self.action == "destroy":
-            return [IsAuthenticated(), IsProjectOwner()]
-        return [IsAuthenticated(), IsProjectAdmin()]
+            return [IsAuthenticated(), IsProjectOwner(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
 
     def get_queryset(self) -> QuerySet[Baseline]:
         qs = super().get_queryset()
@@ -1747,7 +1883,7 @@ class BaselineActivateView(APIView):
     Returns 200 with the updated baseline object.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectAdmin]
+    permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]
 
     def post(self, request: Request, project_pk: str, baseline_pk: str) -> Response:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -1780,12 +1916,12 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
     (IsProjectScheduler) is required for write operations (issue #11 role matrix).
     """
 
-    permission_classes = [IsAuthenticated, IsProjectScheduler]
+    permission_classes = [IsAuthenticated, IsProjectScheduler, IsProjectNotArchived]
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
-            return [IsAuthenticated(), IsProjectMember()]
-        return [IsAuthenticated(), IsProjectScheduler()]
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
 
     serializer_class = DependencySerializer
     filter_backends = [filters.OrderingFilter]
@@ -1922,7 +2058,7 @@ class TaskReorderView(APIView):
         200 { "updated": [{ "id": "<uuid>", "wbs_path": "1.2.1" }, ...] }
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMemberWrite]
+    permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def post(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -2064,7 +2200,7 @@ class TaskIndentView(APIView):
         400 when the task is first at its level (no previous sibling).
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMemberWrite]
+    permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def post(self, request: Request, pk: str, task_id: str) -> Response:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -2148,7 +2284,7 @@ class TaskOutdentView(APIView):
         400 when the task is at root level.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMemberWrite]
+    permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def post(self, request: Request, pk: str, task_id: str) -> Response:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -2286,7 +2422,7 @@ class TaskReparentView(APIView):
         404 when new_parent_id does not exist in the project.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMemberWrite]
+    permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def post(self, request: Request, pk: str, task_id: str) -> Response:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -2412,7 +2548,7 @@ class TaskBulkView(APIView):
         }
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMemberWrite]
+    permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def post(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -2584,10 +2720,10 @@ class RiskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Risk]):
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
-            return [IsAuthenticated(), IsProjectMember()]
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         if self.action == "destroy":
-            return [IsAuthenticated(), IsProjectOwner()]
-        return [IsAuthenticated(), IsProjectMemberWrite()]
+            return [IsAuthenticated(), IsProjectOwner(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
 
     def get_queryset(self) -> QuerySet[Risk]:
         qs = super().get_queryset()
@@ -2689,8 +2825,8 @@ class RiskCommentViewSet(
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action == "create":
-            return [IsAuthenticated(), IsProjectMemberWrite()]
-        return [IsAuthenticated(), IsProjectMember()]
+            return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
     def perform_create(self, serializer: BaseSerializer[RiskComment]) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -2730,7 +2866,7 @@ class ProjectPresenceView(APIView):
     Response: ``[{user_id: str, display_name: str}, …]``
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
         """Return JSON list of online users for the given project."""
@@ -2808,8 +2944,8 @@ class BoardColumnConfigView(APIView):
 
     def get_permissions(self) -> list[BasePermission]:
         if self.request.method in SAFE_METHODS:
-            return [IsAuthenticated(), IsProjectMember()]
-        return [IsAuthenticated(), IsProjectScheduler()]
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
 
     def get(self, request: Request, pk: str) -> Response:
         project = get_object_or_404(Project, pk=pk)
@@ -2857,7 +2993,7 @@ class BoardSavedViewListView(APIView):
     Any authenticated project member may read and create views.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
         project = get_object_or_404(Project, pk=pk)
@@ -2905,7 +3041,7 @@ class BoardSavedViewDetailView(APIView):
     DELETE removes the view with the same role constraints.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def _get_view_or_403(self, request: Request, pk: str, view_pk: str) -> BoardSavedView:
         """Return the view, enforcing creator-or-Scheduler write permission."""
@@ -2972,7 +3108,7 @@ class ProjectOverviewView(APIView):
     Permission: Member (any role ≥ Viewer).
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
         """Return KPI data for the project overview page."""
@@ -3124,7 +3260,7 @@ class ProjectAttentionView(APIView):
     Permission: Member (any role ≥ Viewer).
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     # Maximum items returned per severity bucket — keeps the panel scannable.
     _MAX_PER_BUCKET = 3
@@ -3292,7 +3428,7 @@ class ProjectMyTasksView(APIView):
     Permission: Member (any role ≥ Viewer) — a user can only see their own tasks.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
         """Return this week's tasks for the requesting user."""
@@ -3384,7 +3520,7 @@ class TaskHistoryView(APIView):
     of the user who made the change; null for programmatic writes.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, project_pk: str, task_pk: str) -> Response:
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
@@ -3441,7 +3577,7 @@ class TaskBaselineDetailView(APIView):
       in_baseline=False  — the task was added after the baseline was taken
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, project_pk: str, task_pk: str) -> Response:
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
@@ -3526,7 +3662,7 @@ class PhaseReorderView(APIView):
     belonging to this project — any violation returns 400.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectAdmin]
+    permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]
 
     def patch(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -3645,8 +3781,8 @@ class PhaseViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
-            return [IsAuthenticated(), IsProjectMember()]
-        return [IsAuthenticated(), IsProjectAdmin()]
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
 
     def _attach_task_counts(self, phases: list[Task]) -> list[Task]:
         """Set ``descendants_count`` on each phase from a single grouped query.
@@ -3808,8 +3944,8 @@ class ProjectCustomFieldViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Proj
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
-            return [IsAuthenticated(), IsProjectMember()]
-        return [IsAuthenticated(), IsProjectScheduler()]
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
 
     def get_queryset(self) -> QuerySet[ProjectCustomField]:
         qs = super().get_queryset()
@@ -3891,21 +4027,21 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve", "burndown", "capacity"):
-            return [IsAuthenticated(), IsProjectMember()]
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         # `retro` accepts GET (read) / POST (write) / PATCH (partial write).
         # Read needs membership; writes need write role.
         if self.action == "retro" and self.request.method == "GET":
-            return [IsAuthenticated(), IsProjectMember()]
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         # Retro-related read-only actions (prior retro): Viewer+ on the project.
         if self.action == "retro_prior":
-            return [IsAuthenticated(), IsProjectMember()]
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         # Pulling a carryover item into the sprint requires SCHEDULER+ — the
         # sole path that can assign a retro action item to a sprint per ADR-0071.
         if self.action == "pull_action_item_to_sprint":
-            return [IsAuthenticated(), IsProjectScheduler()]
+            return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
         if self.action == "destroy":
-            return [IsAuthenticated(), IsProjectAdmin()]
-        return [IsAuthenticated(), IsProjectMemberWrite()]
+            return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
 
     def get_queryset(self) -> QuerySet[Sprint]:
         qs = super().get_queryset()
@@ -4968,7 +5104,7 @@ def _me_work_retro_action_items(user: Any) -> list[dict[str, Any]]:
 class ProjectVelocityView(APIView):
     """``GET /api/v1/projects/<pk>/velocity/`` — last 8 closed sprints + stats."""
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.projects.services import velocity_summary
@@ -4993,7 +5129,7 @@ class ProjectBurnView(APIView):
       ``until``      — window end, ISO date; defaults to today
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.projects.services import burn_series
@@ -5204,7 +5340,7 @@ class ProjectApiTokenViewSet(viewsets.ModelViewSet[Any]):
 
     from trueppm_api.apps.projects.throttles import TokenIssuanceThrottle
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
     serializer_class = ProjectApiTokenSerializer
     http_method_names = ["get", "post", "delete", "head", "options"]
 
@@ -5217,8 +5353,8 @@ class ProjectApiTokenViewSet(viewsets.ModelViewSet[Any]):
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("create", "destroy"):
-            return [IsAuthenticated(), IsProjectAdmin()]
-        return [IsAuthenticated(), IsProjectMember()]
+            return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
     def get_queryset(self) -> QuerySet[Any]:
 
@@ -5372,7 +5508,7 @@ class ApiTokenAuditView(generics.ListAPIView[Any]):
     URL kwarg.
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember]
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
     serializer_class = ApiTokenAuditEntrySerializer
     pagination_class = _ApiTokenAuditPagination
 
@@ -5442,8 +5578,8 @@ class TaskAttachmentViewSet(
 
     def get_permissions(self) -> list[BasePermission]:
         if self.action in ("create", "destroy"):
-            return [IsAuthenticated(), IsProjectMemberWrite()]
-        return [IsAuthenticated(), IsProjectMember()]
+            return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
     def perform_create(self, serializer: BaseSerializer[TaskAttachment]) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -5599,8 +5735,8 @@ class TaskCommentViewSet(
         # `acknowledge` is the active "I'm on it" stance — Member+ only;
         # Viewers shouldn't be able to ack per ADR-0075 §A.3.
         if self.action in ("create", "partial_update", "update", "destroy", "acknowledge"):
-            return [IsAuthenticated(), IsProjectMemberWrite()]
-        return [IsAuthenticated(), IsProjectMember()]
+            return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
 
     def perform_create(self, serializer: BaseSerializer[TaskComment]) -> None:
         from trueppm_api.apps.access.permissions import _membership_role

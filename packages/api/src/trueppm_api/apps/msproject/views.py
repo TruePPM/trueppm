@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.permissions import IsProjectNotArchived
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ class MsProjectImportView(APIView):
     the response includes the celery_task_id for progress tracking.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsProjectNotArchived]
     parser_classes = [MultiPartParser]
 
     def post(self, request: Request, project_pk: str) -> Response:
@@ -126,7 +127,7 @@ class MsProjectExportView(APIView):
     Requires project Member role (viewer or above).
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsProjectNotArchived]
 
     def get(self, request: Request, project_pk: str) -> Response:
         _check_project_member(request.user, project_pk)

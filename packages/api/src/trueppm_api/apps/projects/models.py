@@ -378,6 +378,21 @@ class Program(VersionedModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Lifecycle (#530). A closed program is read-only at the program-shell
+    # level (members, settings, ceremonies); child projects are intentionally
+    # not cascaded — they often outlive the program structure (re-org, hand-off).
+    # The UI dialog explicitly warns "projects remain active." See
+    # ``IsProgramNotClosed`` for the write-side enforcement.
+    is_closed = models.BooleanField(default=False, db_index=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="programs_closed",
+    )
+
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
 
     class Meta:
@@ -618,6 +633,22 @@ class Project(VersionedModel):
         blank=True,
         db_index=True,
         related_name="projects",
+    )
+
+    # Lifecycle (#530). An archived project is hard read-only across all
+    # writes (tasks, deps, members, settings) — enforced by ``IsProjectNotArchived``
+    # applied to every write action on this and nested viewsets. Reads remain
+    # unrestricted. Soft-archive (UI-only hide) was rejected in the architect
+    # review because it invites accidental edits to historical projects and
+    # confuses sync clients. Use ``POST /unarchive/`` to restore writes.
+    is_archived = models.BooleanField(default=False, db_index=True)
+    archived_at = models.DateTimeField(null=True, blank=True)
+    archived_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="projects_archived",
     )
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
