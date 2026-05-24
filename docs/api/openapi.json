@@ -14987,7 +14987,7 @@
             },
             "PatchedProjectRequest": {
                 "type": "object",
-                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.\n\n``member_count`` and ``percent_complete`` are populated only when the\nviewset annotates them — currently just the ``?program__isnull=true``\n(ungrouped) list branch consumed by the Programs directory (ADR-0083).\nThey return ``null`` on every other path so the default project list stays\na single unaggregated query (the list is deliberately lightweight at\nportfolio scale — see ``ProjectViewSet.get_serializer_class``).",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -15817,7 +15817,7 @@
             },
             "Project": {
                 "type": "object",
-                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.\n\n``member_count`` and ``percent_complete`` are populated only when the\nviewset annotates them — currently just the ``?program__isnull=true``\n(ungrouped) list branch consumed by the Programs directory (ADR-0083).\nThey return ``null`` on every other path so the default project list stays\na single unaggregated query (the list is deliberately lightweight at\nportfolio scale — see ``ProjectViewSet.get_serializer_class``).",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -15875,6 +15875,19 @@
                         "format": "uuid",
                         "nullable": true
                     },
+                    "member_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Active membership count — only annotated on the ungrouped list\nbranch (ADR-0083). ``None`` elsewhere; never triggers a per-row query.",
+                        "readOnly": true
+                    },
+                    "percent_complete": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true,
+                        "description": "Task-weighted mean progress — annotated only on the ungrouped list\nbranch (ADR-0083). ``None`` when unannotated or the project has no\ntasks. Rounded to one decimal for display stability.",
+                        "readOnly": true
+                    },
                     "is_archived": {
                         "type": "boolean",
                         "readOnly": true
@@ -15896,7 +15909,9 @@
                     "archived_by",
                     "id",
                     "is_archived",
+                    "member_count",
                     "name",
+                    "percent_complete",
                     "server_version",
                     "start_date"
                 ]
@@ -16101,6 +16116,19 @@
                         "format": "uuid",
                         "nullable": true
                     },
+                    "member_count": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Active membership count — only annotated on the ungrouped list\nbranch (ADR-0083). ``None`` elsewhere; never triggers a per-row query.",
+                        "readOnly": true
+                    },
+                    "percent_complete": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true,
+                        "description": "Task-weighted mean progress — annotated only on the ungrouped list\nbranch (ADR-0083). ``None`` when unannotated or the project has no\ntasks. Rounded to one decimal for display stability.",
+                        "readOnly": true
+                    },
                     "is_archived": {
                         "type": "boolean",
                         "readOnly": true
@@ -16126,7 +16154,9 @@
                     "archived_by",
                     "id",
                     "is_archived",
+                    "member_count",
                     "name",
+                    "percent_complete",
                     "server_version",
                     "start_date",
                     "unresolved_assignee_count"
@@ -16232,7 +16262,7 @@
             },
             "ProjectRequest": {
                 "type": "object",
-                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.",
+                "description": "Read/write serializer for projects.\n\ncalendar is optional on create — the API will use the board's default\ncalendar when omitted.\n\nestimation_mode controls who may write three-point estimates on tasks.\nDefaults to 'open'; writable by IsProjectScheduler+ only (enforced in\nProjectViewSet.update via permission check on the field).\n\nprogram is optional and writable on update (ADR-0070). Cross-permission\ncheck: assigning or moving requires the caller to hold ADMIN on the\n*new* program AND ADMIN on this project (and ADMIN on the *old* program\nwhen reassigning away from one). Enforced in ``validate_program``.\n\n``member_count`` and ``percent_complete`` are populated only when the\nviewset annotates them — currently just the ``?program__isnull=true``\n(ungrouped) list branch consumed by the Programs directory (ADR-0083).\nThey return ``null`` on every other path so the default project list stays\na single unaggregated query (the list is deliberately lightweight at\nportfolio scale — see ``ProjectViewSet.get_serializer_class``).",
                 "properties": {
                     "name": {
                         "type": "string",
