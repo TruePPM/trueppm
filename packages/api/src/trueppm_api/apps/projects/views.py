@@ -1445,6 +1445,17 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     def perform_update(self, serializer: BaseSerializer[Task]) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
+        # Snapshot the fields the granular webhook events compare on, BEFORE the
+        # save mutates the instance. serializer.instance still holds the prior DB
+        # values here (#638 / ADR-0083). Captured as plain scalars so the
+        # on_commit lambdas don't close over the ORM object.
+        old_assignee_id = (
+            str(serializer.instance.assignee_id) if serializer.instance.assignee_id else None
+        )
+        old_planned_start = (
+            str(serializer.instance.planned_start) if serializer.instance.planned_start else None
+        )
+
         instance = serializer.save()
         project_id = str(instance.project_id)
         task_id = str(instance.pk)
@@ -1463,6 +1474,35 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         source = raw_source if _VALID_SOURCE.fullmatch(raw_source) else "unknown"
         payload = _task_webhook_payload(instance, source=source)
         transaction.on_commit(lambda: _dispatch_webhooks(project_id, "task.updated", payload))
+
+        # Granular task events (#638). Each fires only when the relevant field
+        # actually changed — a PATCH that doesn't touch the assignee/date does
+        # not emit the specific event (keeps the at-least-once stream meaningful
+        # and the before/after snapshot is the idempotency guard, ADR-0083).
+        new_assignee_id = payload["assignee"]
+        if new_assignee_id != old_assignee_id:
+            assignee_payload = {**payload, "previous_assignee": old_assignee_id}
+            # None → user is an assignment; user → user is a reassignment.
+            # Clearing the assignee (user → None) is just task.updated.
+            if old_assignee_id is None and new_assignee_id is not None:
+                transaction.on_commit(
+                    lambda: _dispatch_webhooks(project_id, "task.assigned", assignee_payload)
+                )
+            elif new_assignee_id is not None:
+                transaction.on_commit(
+                    lambda: _dispatch_webhooks(
+                        project_id, "task.assignee_changed", assignee_payload
+                    )
+                )
+
+        # task.due_date_changed binds to planned_start (the PM-committed date) —
+        # Task has no dedicated deadline field; #690 rebinds this to planned_finish.
+        new_planned_start = payload["planned_start"]
+        if new_planned_start != old_planned_start:
+            date_payload = {**payload, "previous_planned_start": old_planned_start}
+            transaction.on_commit(
+                lambda: _dispatch_webhooks(project_id, "task.due_date_changed", date_payload)
+            )
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
@@ -1633,9 +1673,11 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         with transaction.atomic():
             task = Task.objects.select_for_update().get(pk=suggestion.task_id)
             assignee_conflict = False
+            assigned_now = False
             if task.assignee_id is None:
                 task.assignee_id = suggestion.suggested_user_id
                 task.save(update_fields=["assignee", "server_version"])
+                assigned_now = True
             elif task.assignee_id != suggestion.suggested_user_id:
                 assignee_conflict = True
             suggestion.state = SuggestionState.ACCEPTED
@@ -1649,6 +1691,17 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                     project_id, "task_updated", {"id": task_id, "source": "suggestion_accept"}
                 )
             )
+            # Fire task.assigned (#638) when this accept actually bound the
+            # assignee (None → suggested_user). Mirrors the perform_update path
+            # so the retro-flow assignment isn't a blind spot for consumers.
+            if assigned_now:
+                assigned_payload = {
+                    **_task_webhook_payload(task, source="suggestion_accept"),
+                    "previous_assignee": None,
+                }
+                transaction.on_commit(
+                    lambda: _dispatch_webhooks(project_id, "task.assigned", assigned_payload)
+                )
 
         if assignee_conflict:
             return Response(
@@ -2959,6 +3012,7 @@ def _task_webhook_payload(task: Task, source: str = "unknown") -> dict:  # type:
         "status": task.status,
         "duration": task.duration,
         "assignee": str(task.assignee_id) if task.assignee_id else None,
+        "planned_start": str(task.planned_start) if task.planned_start else None,
         "actual_start": str(task.actual_start) if task.actual_start else None,
         "actual_finish": str(task.actual_finish) if task.actual_finish else None,
         "source": source,
@@ -5836,6 +5890,21 @@ class TaskCommentViewSet(
                 project_id=project_pk,
             )
             record_mention_usage(str(self.request.user.pk), created)
+
+            # Fire task.mentioned (#638) once per comment that actually mentioned
+            # someone. The webhook is deferred (on_commit) even though the
+            # notification fan-out is synchronous — the notification count must be
+            # in the API response, but the outbound webhook must not enqueue for a
+            # rolled-back comment (ADR-0083 / ADR-0019).
+            if created:
+                mention_payload = {
+                    **_task_webhook_payload(task),
+                    "comment_id": comment_id_str,
+                    "mention_count": created,
+                }
+                transaction.on_commit(
+                    lambda: _dispatch_webhooks(project_id_str, "task.mentioned", mention_payload)
+                )
 
         transaction.on_commit(
             lambda: broadcast_board_event(

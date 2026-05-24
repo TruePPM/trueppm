@@ -28,17 +28,36 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
         fields = [
             "id",
             "project",
+            "program",
             "url",
             "secret",
             "events",
+            "format",
             "is_active",
             "created_at",
             "created_by",
         ]
-        read_only_fields = ["id", "project", "created_at", "created_by"]
+        read_only_fields = ["id", "project", "program", "created_at", "created_by"]
         extra_kwargs = {
             "secret": {"write_only": True},
         }
+
+    def validate_format(self, value: str) -> str:
+        """Validate ``format`` against the registered outgoing providers.
+
+        Validation is dynamic (not a ``TextChoices`` list) so Enterprise can
+        register ``slack_app``/``teams`` against ``OUTGOING_CHANNEL_PROVIDERS``
+        without an OSS migration (ADR-0049). The error lists the currently
+        registered keys so the client knows what is selectable.
+        """
+        from trueppm_api.apps.integrations.registry import OUTGOING_CHANNEL_PROVIDERS
+
+        if value not in OUTGOING_CHANNEL_PROVIDERS:
+            valid = ", ".join(OUTGOING_CHANNEL_PROVIDERS.keys())
+            raise serializers.ValidationError(
+                f"Unknown format {value!r}. Registered formats: {valid}."
+            )
+        return value
 
 
 class WebhookDeliverySerializer(serializers.ModelSerializer[WebhookDelivery]):
