@@ -58,6 +58,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.notifications",
     "trueppm_api.apps.integrations",
     "trueppm_api.apps.observability",
+    "trueppm_api.apps.workflow_engine",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -238,6 +239,25 @@ CELERY_BEAT_SCHEDULE = {
         # 03:45 UTC — after the other nightly purge jobs.
         "schedule": crontab(hour=3, minute=45),
     },
+    # Workflow step-outbox drain: re-dispatch stranded WorkflowOutboxRow rows
+    # every 30 s and recover rows orphaned by a dead worker (ADR-0080 §D).
+    "drain-workflow-outbox": {
+        "task": "workflows.outbox_drain",
+        "schedule": 30.0,
+    },
+    # Workflow sleep-timer drain: fire due WorkflowTimer rows and wake their
+    # sleeping workflows. 60 s cadence — sleep durations are minute-grained.
+    "drain-workflow-timers": {
+        "task": "workflows.timer_drain",
+        "schedule": 60.0,
+    },
+    # Nightly cleanup: terminal workflow outbox rows >7 days and history past
+    # the configurable retention window.
+    "purge-workflow-records": {
+        "task": "workflows.purge_old_records",
+        # 04:00 UTC — after the other nightly purge jobs.
+        "schedule": crontab(hour=4, minute=0),
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -402,6 +422,27 @@ TRUEPPM_SYNC_BATCH_RETENTION_HOURS: int = env.int("TRUEPPM_SYNC_BATCH_RETENTION_
 # batch (ADR-0082). The batch applies in one transaction; this bounds how long
 # that transaction (and its per-task row locks) can be held by one request.
 TRUEPPM_SYNC_BATCH_MAX_ROWS: int = env.int("TRUEPPM_SYNC_BATCH_MAX_ROWS", default=500)
+
+# ---------------------------------------------------------------------------
+# Workflow execution engine (ADR-0080)
+# ---------------------------------------------------------------------------
+
+# Dotted path to the WorkflowBackend implementation. The OSS default composes
+# the transactional outbox + Celery; enterprise editions register an alternate
+# (e.g. Temporal) by overriding this — the edition-routing pattern of ADR-0030.
+WORKFLOW_BACKEND = env.str(
+    "WORKFLOW_BACKEND",
+    default="trueppm_api.workflows.backends.default.DefaultWorkflowBackend",
+)
+
+# Retention window in days for WorkflowHistoryEvent rows (purged nightly by
+# workflows.purge_old_records). Set to None / 0 to disable history purging.
+WORKFLOW_HISTORY_RETENTION_DAYS: int | None = env.int("WORKFLOW_HISTORY_RETENTION_DAYS", default=30)
+
+# Max rows the workflow outbox/timer drains process per tick. Bounds the work
+# per run so a large backlog (e.g. after a broker outage) can't exceed the task
+# time_limit — subsequent ticks drain the remainder.
+WORKFLOW_DRAIN_BATCH_SIZE = env.int("WORKFLOW_DRAIN_BATCH_SIZE", default=200)
 
 # ---------------------------------------------------------------------------
 # drf-spectacular (OpenAPI)
