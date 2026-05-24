@@ -811,9 +811,11 @@ api:test:
   # Sharded across 3 runners with pytest-split; -n auto still fans each shard out
   # across that runner's 4 cores, and pytest-django gives every xdist worker its
   # own test DB (test_trueppm_test_gw0, _gw1, …) so isolation is preserved.
-  # Without a committed .test_durations baseline pytest-split falls back to an
-  # even test-count split; generate one with `pytest --store-durations` to
-  # balance by wall-time (follow-up #687). Each shard emits a partial coverage
+  # pytest-split reads the committed packages/api/.test_durations baseline to
+  # balance the groups by wall-time; the api:test-durations job (manual +
+  # scheduled, #687) regenerates that file. If the baseline is ever missing,
+  # pytest-split falls back to an even test-count split. Each shard emits a
+  # partial coverage
   # data file (.coverage.<index>); api:coverage combines them into coverage.xml
   # for the diff-coverage gate and the package soft floor. Mirrors the
   # web:e2e shard → web:e2e:report stitch pattern.
@@ -864,6 +866,49 @@ api:coverage:
     paths:
       - packages/api/coverage.xml
     expire_in: 7 days
+    when: always
+
+api:test-durations:
+  # Generates packages/api/.test_durations — the per-test wall-time baseline
+  # pytest-split uses to balance the three api:test shards (#687, follow-up to
+  # the #680 sharding). Without this file pytest-split falls back to an even
+  # test-COUNT split, which unbalances the shards whenever a few slow tests
+  # dominate one group and erases the sharding win.
+  #
+  # Runs serially and WITHOUT coverage so the recorded numbers are clean
+  # per-test wall-times: coverage tracing and xdist contention both skew them,
+  # and pytest-split only needs the relative ordering to pack the groups.
+  # --clean-durations prunes entries for tests that no longer exist so the
+  # committed baseline doesn't accumulate dead weight across refreshes.
+  #
+  # Trigger:
+  #   - scheduled pipelines refresh the baseline as the suite grows;
+  #   - manual on any MR or main to regenerate on demand.
+  # This job does NOT commit its result — it publishes .test_durations as an
+  # artifact. Refresh cadence: download the artifact from the latest scheduled
+  # run and commit it to packages/api/.test_durations (a periodic chore, or
+  # whenever shard balance visibly drifts). allow_failure keeps a slow or
+  # flaky full-suite run from ever blocking an MR.
+  extends: .api
+  stage: test
+  needs:
+    - job: ci:build-api-image
+      optional: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: true
+  script:
+    - cd packages/api
+    - python -m pytest tests/ -q --store-durations --clean-durations
+  artifacts:
+    paths:
+      - packages/api/.test_durations
+    expire_in: 30 days
     when: always
 
 web:test:
