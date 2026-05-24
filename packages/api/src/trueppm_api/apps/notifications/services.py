@@ -13,12 +13,16 @@ caller in the same transaction so the API response can include the count).
 
 from __future__ import annotations
 
+import datetime
 import logging
 import re
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
+from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.utils import timezone
 
 # django-stubs needs a real class for type annotations; get_user_model() returns
 # a runtime alias that mypy can't use in a type position. Import the concrete
@@ -37,10 +41,15 @@ from trueppm_api.apps.access.groups import (
 
 from .models import (
     DEFAULT_PREFERENCES,
+    PROJECT_NOTIFICATION_DEFAULT_MATRIX,
     Mention,
     MentionScope,
     Notification,
+    NotificationChannel,
+    NotificationEventType,
     NotificationPreference,
+    ProjectNotificationChannel,
+    ProjectNotificationEventType,
     ProjectNotificationPreference,
 )
 
@@ -157,6 +166,123 @@ def get_or_create_default_preferences(user: UserType) -> list[NotificationPrefer
 
 
 # ---------------------------------------------------------------------------
+# Project-scoped delivery gate (#674)
+# ---------------------------------------------------------------------------
+
+# Channels carrying a durable record rather than a transient ping. The in-app
+# inbox row *is* the notification — suppressing it during quiet hours would
+# lose the mention outright instead of deferring a ping, so quiet hours never
+# gate it (the matrix in_app cell still does). Email / Slack / mobile push are
+# transient interrupts and ARE silenced inside the window. Mirrors Slack and
+# GitHub DND: the record persists; only the interruption is held back.
+_QUIET_HOURS_EXEMPT_CHANNELS = frozenset({ProjectNotificationChannel.IN_APP.value})
+
+
+def _project_timezone(project: Any) -> ZoneInfo:
+    """Resolve the tz that a project's quiet-hours window is interpreted in.
+
+    The default ``auth.User`` carries no timezone, so quiet hours anchor to the
+    project's IANA timezone (``Project.timezone``, #520), falling back to the
+    workspace default (``settings.TIME_ZONE``) and finally UTC. Unparseable tz
+    data degrades to UTC rather than raising inside a dispatch path.
+    """
+    name = (getattr(project, "timezone", "") or "").strip() or settings.TIME_ZONE or "UTC"
+    try:
+        return ZoneInfo(name)
+    except Exception:
+        # Bad tz data must never break a dispatch path — degrade to UTC.
+        return ZoneInfo("UTC")
+
+
+def _in_quiet_window(now_local: datetime.time, start: datetime.time, end: datetime.time) -> bool:
+    """True if ``now_local`` falls in the half-open ``[start, end)`` window.
+
+    Handles the wrap-past-midnight case (e.g. 22:00–07:00, where ``start > end``).
+    A zero-width window (``start == end``) means "no quiet hours".
+    """
+    if start == end:
+        return False
+    if start < end:
+        return start <= now_local < end
+    return now_local >= start or now_local < end
+
+
+def _matrix_cell(matrix: Any, event_type: str, channel: str) -> bool:
+    """Effective on/off for one ``(event_type, channel)`` cell.
+
+    Falls through to ``PROJECT_NOTIFICATION_DEFAULT_MATRIX`` whenever the stored
+    matrix omits the event type or channel, so a stale row that predates a newly
+    added event still routes correctly. Unknown keys resolve to ``False`` — a
+    safe default that also neutralizes any legacy garbage that escaped key
+    validation (#675).
+    """
+    if isinstance(matrix, dict):
+        row = matrix.get(event_type)
+        if isinstance(row, dict):
+            cell = row.get(channel)
+            if isinstance(cell, bool):
+                return cell
+    default_row = PROJECT_NOTIFICATION_DEFAULT_MATRIX.get(event_type, {})
+    return bool(default_row.get(channel, False))
+
+
+def _preference_allows(
+    pref: ProjectNotificationPreference,
+    *,
+    event_type: str,
+    channel: str,
+    now: datetime.datetime,
+    tz: ZoneInfo,
+) -> bool:
+    """Evaluate the delivery gate against an already-loaded preference row.
+
+    Pure (no DB access) so a fan-out can batch-load every recipient's row in one
+    query and evaluate each without an N+1 or a write-amplifying get_or_create.
+    An unsaved ``ProjectNotificationPreference()`` carries the model defaults, so
+    callers can pass a fresh instance for a recipient who has no row yet.
+    """
+    # Per-project kill-switch (#589) overrides the matrix entirely.
+    if pref.paused:
+        return False
+    if not _matrix_cell(pref.matrix, event_type, channel):
+        return False
+    if channel not in _QUIET_HOURS_EXEMPT_CHANNELS and pref.quiet_hours_enabled:
+        now_local = now.astimezone(tz).time()
+        if _in_quiet_window(now_local, pref.quiet_hours_from, pref.quiet_hours_until):
+            return False
+    return True
+
+
+def should_deliver(
+    user: Any,
+    project: Any,
+    event_type: str,
+    channel: str,
+    *,
+    now: datetime.datetime | None = None,
+) -> bool:
+    """Whether a project-scoped notification should be delivered to ``user``.
+
+    The routing source of truth for project notifications (#674). Loads — and
+    lazily creates — the user's :class:`ProjectNotificationPreference` row, then
+    applies, in order: the per-project pause kill-switch (#589), the matrix cell
+    (defaults overlaid for missing keys), and the quiet-hours window (transient
+    channels only — the in-app inbox is always recorded). ``now`` defaults to the
+    current time and is injectable for testing.
+
+    Call before sending at any project-scoped dispatch site. For a fan-out to
+    many recipients, batch-load rows and reuse :func:`_preference_allows` rather
+    than calling this once per recipient.
+    """
+    if now is None:
+        now = timezone.now()
+    pref, _ = ProjectNotificationPreference.objects.get_or_create(project=project, user=user)
+    return _preference_allows(
+        pref, event_type=event_type, channel=channel, now=now, tz=_project_timezone(project)
+    )
+
+
+# ---------------------------------------------------------------------------
 # Mention fan-out
 # ---------------------------------------------------------------------------
 
@@ -240,6 +366,7 @@ def create_mention_notifications(
     parsed_result: MentionParseResult,
     project_id: uuid.UUID | str,
     scope: MentionScope = MentionScope.PROJECT_VISIBLE,
+    now: datetime.datetime | None = None,
 ) -> int:
     """Create Mention + Notification rows from a parsed comment.
 
@@ -247,10 +374,18 @@ def create_mention_notifications(
     group members are deduplicated per-recipient (one user mentioned both
     directly and via @scrum-team gets one Notification, not two).
 
+    Each recipient is gated by their ProjectNotificationPreference for the
+    `comment_mention` event (#674): the in-app row is created only if the matrix
+    `in_app` cell is on, and `email_pending` is set only if the matrix `email`
+    cell is on AND outside quiet hours AND the user's global mention email
+    preference is on. `now` is injectable so quiet-hours behavior is testable.
+
     All writes happen in the caller's transaction — the response can include
     the count immediately. Email delivery is best-effort via `email_pending`
     + the `drain_notification_emails` Beat task (not this function).
     """
+    if now is None:
+        now = timezone.now()
     mentions: list[Mention] = []
 
     # Direct user mentions
@@ -305,44 +440,71 @@ def create_mention_notifications(
     if not recipients:
         return 0
 
-    # Per-project kill-switch (#589). Drop any recipient who has paused all
-    # notifications on this project — both the in-app row and the email
-    # enqueue. The matrix is preserved so unpausing restores prior routing.
-    paused_user_ids = set(
-        ProjectNotificationPreference.objects.filter(
-            project_id=project_id,
-            user_id__in=list(recipients.keys()),
-            paused=True,
-        ).values_list("user_id", flat=True)
-    )
-    if paused_user_ids:
-        for uid in paused_user_ids:
-            recipients.pop(uid, None)
-    if not recipients:
-        return 0
+    # Project-scoped routing gate (#674). Batch-load each recipient's project
+    # preference once and evaluate the matrix + pause kill-switch + quiet-hours
+    # window per recipient without an N+1. A recipient with no row yet evaluates
+    # against an unsaved instance carrying the model defaults, so we neither
+    # write a row per comment nor lose the defaults overlay. This subsumes the
+    # standalone pause check (#589) — _preference_allows returns False for a
+    # paused user on every channel.
+    from trueppm_api.apps.projects.models import Project
 
-    # Look up preferences in one query for all recipients
-    prefs = NotificationPreference.objects.filter(user_id__in=recipients.keys())
-    prefs_by_user: dict[int | str, dict[tuple[str, str], bool]] = {}
-    for pref in prefs:
-        prefs_by_user.setdefault(pref.user_id, {})[(pref.event_type, pref.channel)] = pref.enabled
+    project = Project.objects.filter(pk=project_id).only("timezone").first()
+    project_tz = _project_timezone(project)
+    project_prefs: dict[int | str, ProjectNotificationPreference] = {
+        proj_pref.user_id: proj_pref
+        for proj_pref in ProjectNotificationPreference.objects.filter(
+            project_id=project_id, user_id__in=list(recipients.keys())
+        )
+    }
+    event_type_project = ProjectNotificationEventType.COMMENT_MENTION.value
 
-    # Default to enabled in-app, disabled email for any user without explicit
-    # preferences (matches DEFAULT_PREFERENCES — backfilled lazily here).
-    def _email_enabled(user_id: int | str, event_type: str) -> bool:
-        per_user = prefs_by_user.get(user_id, {})
-        return per_user.get((event_type, "email"), False)
+    # Global per-user mention email preference (#311). A comment mention emails
+    # only when BOTH the project matrix (comment_mention/email, above) and this
+    # global toggle allow it; in-app inbox routing is governed by the project
+    # matrix alone.
+    global_email: dict[int | str, dict[str, bool]] = {}
+    for global_pref in NotificationPreference.objects.filter(
+        user_id__in=recipients.keys(), channel=NotificationChannel.EMAIL
+    ):
+        global_email.setdefault(global_pref.user_id, {})[global_pref.event_type] = (
+            global_pref.enabled
+        )
 
     notifications: list[Notification] = []
     for user_id, source_mention in recipients.items():
-        event_type = "mention_individual" if source_mention.mentioned_user_id else "mention_group"
+        pref = project_prefs.get(user_id) or ProjectNotificationPreference()
+        # In-app inbox row — matrix-gated only; quiet hours never drop the
+        # durable record (see _QUIET_HOURS_EXEMPT_CHANNELS).
+        if not _preference_allows(
+            pref,
+            event_type=event_type_project,
+            channel=ProjectNotificationChannel.IN_APP.value,
+            now=now,
+            tz=project_tz,
+        ):
+            continue
+        global_event = (
+            NotificationEventType.MENTION_INDIVIDUAL.value
+            if source_mention.mentioned_user_id
+            else NotificationEventType.MENTION_GROUP.value
+        )
+        email_pending = _preference_allows(
+            pref,
+            event_type=event_type_project,
+            channel=ProjectNotificationChannel.EMAIL.value,
+            now=now,
+            tz=project_tz,
+        ) and global_email.get(user_id, {}).get(global_event, False)
         notifications.append(
             Notification(
                 recipient_id=user_id,
                 mention=source_mention,
                 project_id=project_id,
-                email_pending=_email_enabled(user_id, event_type),
+                email_pending=email_pending,
             )
         )
+    if not notifications:
+        return 0
     Notification.objects.bulk_create(notifications)
     return len(notifications)

@@ -21,6 +21,8 @@ from .models import (
     PROJECT_NOTIFICATION_DEFAULT_MATRIX,
     Notification,
     NotificationPreference,
+    ProjectNotificationChannel,
+    ProjectNotificationEventType,
     ProjectNotificationPreference,
 )
 from .serializers import (
@@ -145,6 +147,10 @@ class NotificationPreferenceViewSet(
 # ---------------------------------------------------------------------------
 
 
+_VALID_EVENT_TYPES = {choice.value for choice in ProjectNotificationEventType}
+_VALID_CHANNELS = {choice.value for choice in ProjectNotificationChannel}
+
+
 def _merge_matrix(
     stored: dict[str, dict[str, bool]],
     incoming: dict[str, dict[str, bool]],
@@ -155,17 +161,25 @@ def _merge_matrix(
     not have to repost the full 36-cell grid. The defaults dict is also
     overlaid on the response so a freshly added event type is populated for
     a user whose row predates the event.
+
+    Unknown event-type / channel keys, and non-bool leaves, are dropped (#675):
+    the serializer now rejects them on write, but a row persisted before that
+    validation shipped could still carry garbage. Filtering here keeps it out of
+    the GET response and the dispatcher's view even on an un-migrated row, and
+    matches the dispatcher's `_matrix_cell` so the echo and the effective value
+    agree — defense-in-depth on top of the one-shot cleanup migration.
     """
     merged: dict[str, dict[str, bool]] = {
         evt: dict(chans) for evt, chans in PROJECT_NOTIFICATION_DEFAULT_MATRIX.items()
     }
-    for evt, chans in stored.items():
-        if evt not in merged:
-            merged[evt] = {}
-        for ch, enabled in chans.items():
-            merged[evt][ch] = enabled
-    for evt, chans in incoming.items():
-        merged.setdefault(evt, {}).update(chans)
+    for source in (stored, incoming):
+        for evt, chans in source.items():
+            if evt not in _VALID_EVENT_TYPES or not isinstance(chans, dict):
+                continue
+            row = merged.setdefault(evt, {})
+            for ch, enabled in chans.items():
+                if ch in _VALID_CHANNELS and isinstance(enabled, bool):
+                    row[ch] = enabled
     return merged
 
 

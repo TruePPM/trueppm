@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from datetime import date, time
+from importlib import import_module
 
 import pytest
+from django.apps import apps as django_apps
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APIClient
@@ -262,6 +264,66 @@ def test_patch_rejects_non_bool_value(
         format="json",
     )
     assert response.status_code == 400
+
+
+def test_get_drops_legacy_unknown_keys(
+    alice_client: APIClient, project: Project, alice: object, memberships: dict
+) -> None:
+    """A row carrying pre-validation garbage returns only valid keys on GET (#675).
+
+    The serializer now rejects unknown keys on write, but rows persisted before
+    that shipped can still hold them. _merge_matrix filters them out so they
+    never reach the client or the dispatcher, independent of the cleanup
+    migration.
+    """
+    ProjectNotificationPreference.objects.create(
+        project=project,
+        user=alice,
+        matrix={
+            "not_an_event": {"not_a_channel": True},
+            ProjectNotificationEventType.TASK_ASSIGNED.value: {
+                "email": False,
+                "pager": True,  # unknown channel
+            },
+        },
+    )
+    body = alice_client.get(_url(project)).json()
+    assert "not_an_event" not in body["matrix"]
+    assert set(body["matrix"].keys()) == {c.value for c in ProjectNotificationEventType}
+    task_assigned = body["matrix"][ProjectNotificationEventType.TASK_ASSIGNED.value]
+    assert "pager" not in task_assigned
+    assert set(task_assigned.keys()) == {c.value for c in ProjectNotificationChannel}
+    # The valid cell the user actually set is preserved.
+    assert task_assigned["email"] is False
+
+
+def test_cleanup_migration_strips_unknown_keys(
+    project: Project, alice: object, memberships: dict
+) -> None:
+    """The 0004 data migration drops persisted garbage keys in place (#675)."""
+    row = ProjectNotificationPreference.objects.create(
+        project=project,
+        user=alice,
+        matrix={
+            "not_an_event": {"email": True},
+            ProjectNotificationEventType.TASK_ASSIGNED.value: {
+                "email": True,
+                "pager": True,  # unknown channel
+                "slack": "yes",  # non-bool leaf
+            },
+        },
+    )
+    migration = import_module(
+        "trueppm_api.apps.notifications.migrations.0004_clean_unknown_matrix_keys"
+    )
+    # The model shape is unchanged since this migration, so the live app
+    # registry is a valid stand-in for the historical one.
+    migration._clean_matrix(django_apps, None)
+
+    row.refresh_from_db()
+    assert "not_an_event" not in row.matrix
+    task_assigned = row.matrix[ProjectNotificationEventType.TASK_ASSIGNED.value]
+    assert task_assigned == {"email": True}  # unknown + non-bool dropped, valid kept
 
 
 # ---------------------------------------------------------------------------
