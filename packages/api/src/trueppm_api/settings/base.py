@@ -58,7 +58,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.notifications",
     "trueppm_api.apps.integrations",
     "trueppm_api.apps.observability",
-    "trueppm_api.apps.workflows",
+    "trueppm_api.apps.workflow_engine",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
