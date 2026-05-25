@@ -3,7 +3,7 @@
 Covers: the conservative default seeds, create_event_notifications gating,
 the generalized (mention-free) email render, NOTIFICATION_CHANNELS registration,
 the read-only SMTP status endpoint, and end-to-end event dispatch on task PATCH /
-comment create (ADR-0084).
+comment create (ADR-0085).
 """
 
 from __future__ import annotations

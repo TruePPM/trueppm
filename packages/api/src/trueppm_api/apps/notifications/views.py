@@ -243,7 +243,7 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
 class EmailSettingsStatusView(APIView):
     """``GET /api/v1/workspace/email-settings/`` — read-only Email & SMTP status.
 
-    Surfaces how TruePPM sends outbound mail (#639, ADR-0084 §5). The transport is
+    Surfaces how TruePPM sends outbound mail (#639, ADR-0085 §5). The transport is
     configured via Django settings / Helm env (``EMAIL_BACKEND``, ``EMAIL_HOST``,
     ``DEFAULT_FROM_EMAIL`` …), so this endpoint exposes only the **safe** subset —
     never the SMTP password or username — for the workspace admin to confirm the

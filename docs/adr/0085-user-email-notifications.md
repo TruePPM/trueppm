@@ -1,4 +1,4 @@
-# ADR-0084: Per-User Email Notifications for Task Events
+# ADR-0085: Per-User Email Notifications for Task Events
 
 ## Status
 Proposed

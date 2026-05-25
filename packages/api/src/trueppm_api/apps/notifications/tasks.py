@@ -195,7 +195,7 @@ def _send_email_for_notification(notif: object) -> bool:
         )
         return False
 
-    # A notification is mention-sourced OR event-sourced (#639, ADR-0084 §3);
+    # A notification is mention-sourced OR event-sourced (#639, ADR-0085 §3);
     # _render_email handles both shapes and returns ("", "") if neither yields
     # renderable content (e.g. the source comment was deleted).
     subject, body = _render_email(notif_obj)

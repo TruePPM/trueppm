@@ -50,7 +50,7 @@ class NotificationEventType(models.TextChoices):
     """Event types that produce notifications.
 
     Mapped to NotificationPreference rows so users can independently toggle
-    in_app / email per event type. The own-task events (#639, ADR-0084) reuse
+    in_app / email per event type. The own-task events (#639, ADR-0085) reuse
     the WebhookEventType string values where one exists (task.assigned,
     task.due_date_changed) so event names share one source of truth across the
     webhook and notification subsystems; comment_on_my_task is notification-only.
@@ -240,7 +240,7 @@ class Notification(models.Model):
     )
 
     # Source — a notification is EITHER mention-sourced (mention set, rendered
-    # from the comment) OR event-sourced (#639, ADR-0084 §3: event_type + the
+    # from the comment) OR event-sourced (#639, ADR-0085 §3: event_type + the
     # pre-rendered subject/body set, mention null). Both feed the one inbox.
     mention = models.ForeignKey(
         Mention,
@@ -335,7 +335,7 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     (NotificationEventType.MENTION_GROUP, NotificationChannel.IN_APP, True),
     (NotificationEventType.MENTION_GROUP, NotificationChannel.EMAIL, False),
     # Own-task events (#639): in-app ON, email OFF. Email is strictly opt-in —
-    # aggressive email defaults were Priya's VoC blocker (ADR-0084 §1, ADR-0075 V2).
+    # aggressive email defaults were Priya's VoC blocker (ADR-0085 §1, ADR-0075 V2).
     (NotificationEventType.TASK_ASSIGNED, NotificationChannel.IN_APP, True),
     (NotificationEventType.TASK_ASSIGNED, NotificationChannel.EMAIL, False),
     (NotificationEventType.TASK_DUE_DATE_CHANGED, NotificationChannel.IN_APP, True),

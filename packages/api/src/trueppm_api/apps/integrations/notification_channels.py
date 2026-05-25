@@ -1,4 +1,4 @@
-"""OSS ``NOTIFICATION_CHANNELS`` registrations (ADR-0049 §1, ADR-0084 §2).
+"""OSS ``NOTIFICATION_CHANNELS`` registrations (ADR-0049 §1, ADR-0085 §2).
 
 Two channels ship in OSS: ``in_app`` (the durable inbox row) and ``email``
 (SMTP, opt-in). The registry's job is to (a) validate the ``channel`` field on

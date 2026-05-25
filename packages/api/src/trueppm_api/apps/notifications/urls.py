@@ -45,7 +45,7 @@ urlpatterns = [
         ProjectNotificationPreferenceView.as_view(),
         name="project-notification-preferences",
     ),
-    # Workspace Email & SMTP status — read-only (#639, ADR-0084 §5)
+    # Workspace Email & SMTP status — read-only (#639, ADR-0085 §5)
     path(
         "workspace/email-settings/",
         EmailSettingsStatusView.as_view(),

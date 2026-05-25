@@ -1487,7 +1487,7 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         # not emit the specific event (keeps the at-least-once stream meaningful
         # and the before/after snapshot is the idempotency guard, ADR-0083).
         # The same field-change triggers ALSO drive per-user email/in-app
-        # notifications (#639, ADR-0084) — a sibling dispatch to the new assignee
+        # notifications (#639, ADR-0085) — a sibling dispatch to the new assignee
         # / task owner, never the actor.
         actor_id = str(self.request.user.pk) if self.request.user.is_authenticated else None
         task_name = payload["name"]
@@ -6023,7 +6023,7 @@ class TaskCommentViewSet(
                     lambda: _dispatch_webhooks(project_id_str, "task.mentioned", mention_payload)
                 )
 
-        # comment_on_my_task (#639, ADR-0084 §4): notify the task's assignee that
+        # comment_on_my_task (#639, ADR-0085 §4): notify the task's assignee that
         # their task got a comment — unless they wrote it, or were already
         # @mentioned in it (the mention path notifies them separately, so we
         # de-dup to avoid two pings for one comment).

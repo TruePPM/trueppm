@@ -524,7 +524,7 @@ def create_event_notifications(
     ``(event_type, channel)`` — the per-user toggles on the User → Settings →
     Notifications page — falling back to ``DEFAULT_PREFERENCES`` for users who
     have never visited that page (no stored rows). Mirrors the mention path's
-    coupling (ADR-0084 §4): the in-app inbox row is the durable record, created
+    coupling (ADR-0085 §4): the in-app inbox row is the durable record, created
     only when ``in_app`` is enabled; ``email_pending`` is set additionally when
     ``email`` is enabled (default OFF — Priya's VoC blocker). A recipient who has
     turned ``in_app`` off for this event opts out of both channels.
