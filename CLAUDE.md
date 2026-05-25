@@ -214,6 +214,20 @@ scripts/export-openapi.sh    # regenerate from the fully-merged codebase
 git add docs/api/openapi.json && git commit
 ```
 
+A `pre-commit` hook (`openapi-schema`) regenerates `docs/api/openapi.json`
+automatically and re-stages it whenever a commit touches `packages/api/src/`, so a
+forgotten regenerate after a serializer or `@action` change can't slip past local
+review and surface only at merge (#642).
+
+**Worktree gotcha (shared venv).** `scripts/wt new` symlinks `packages/api/.venv`
+back to the main checkout, and the venv's editable install resolves `trueppm_api`
+from whichever tree first ran `pip install -e` — the main checkout, not the
+worktree. A naive `spectacular` run from a worktree therefore regenerates *main's*
+schema into the worktree. `scripts/export-openapi.sh` guards against this by forcing
+`PYTHONPATH` to its own checkout's `packages/api/src`, so both the manual command
+and the pre-commit hook generate from the code you're actually committing. You no
+longer need to set `PYTHONPATH` by hand when running it from a worktree.
+
 ### Before marking any feature complete
 
 1. Grep changed files for new public functions/classes missing docstrings

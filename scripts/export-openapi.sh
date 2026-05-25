@@ -34,6 +34,16 @@ trap 'rm -f "${TMP}"' EXIT
 # (see #256 — guard prevents AllowAny from leaking into staging/prod by accident).
 export TRUEPPM_ALLOW_DEV_SETTINGS=1
 
+# Force *this checkout's* source onto PYTHONPATH before generating the schema.
+# The venv's editable install resolves trueppm_api from wherever `pip install -e`
+# first ran; in a per-issue worktree that shares the main checkout's venv
+# (scripts/wt symlinks packages/api/.venv) that's the MAIN tree, not this one —
+# so a bare `spectacular` run regenerates main's schema into the worktree,
+# producing self-consistent garbage the api:schema-drift check is happy with (#642).
+# REPO_ROOT is this script's own tree, so this pins generation to the committed
+# source. No-op in the main checkout (same path the editable install resolves).
+export PYTHONPATH="${REPO_ROOT}/packages/api/src${PYTHONPATH:+:${PYTHONPATH}}"
+
 "${PYTHON_BIN}" manage.py spectacular --format openapi-json --file "${TMP}" > /dev/null
 
 if [[ "${CHECK}" -eq 1 ]]; then
