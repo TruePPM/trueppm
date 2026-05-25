@@ -817,6 +817,24 @@ api:testdb-dump:
   stage: lint
   <<: *rules-api
   script:
+    # Bootstrap fallback for a stale cached image. The ci-api image bakes
+    # postgresql-client-16 (api.Dockerfile), but it ships under the mutable
+    # :py3.11 tag, and runners here pull with if-not-present (they disallow
+    # `always`) — so the very pipeline that first adds the client can land on a
+    # runner still holding the prior image without it. Install at runtime only
+    # when pg_dump is missing; once main rebuilds the image this is a no-op.
+    # Mirrors the Dockerfile's PGDG install (#688).
+    - &ensure-pg-client |
+      if ! command -v pg_dump >/dev/null 2>&1; then
+        echo "pg_dump missing — installing postgresql-client-16 (stale cached image)"
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends curl ca-certificates gnupg
+        install -d /usr/share/postgresql-common/pgdg
+        curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+        echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends postgresql-client-16
+      fi
     - cd packages/api
     - python manage.py migrate --no-input
     # --no-owner/--no-privileges keep the dump role-portable so it reloads
@@ -862,6 +880,9 @@ api:test:
     # migrations. Built from the api:testdb-dump artifact in before_script.
     TRUEPPM_TEST_DB_TEMPLATE: migrated
   before_script:
+    # Same stale-image bootstrap fallback as api:testdb-dump — installs psql/
+    # pg_dump when the cached image predates them; a no-op once baked (#688).
+    - *ensure-pg-client
     # before_script OVERRIDES (does not merge with) .api's, so the editable
     # re-link is repeated here.
     - pip install -e "packages/scheduler[dev]" --quiet
