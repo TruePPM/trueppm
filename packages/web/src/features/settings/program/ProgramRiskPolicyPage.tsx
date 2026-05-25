@@ -78,22 +78,26 @@ export function ProgramRiskPolicyPage() {
   const [slip, setSlip] = useState<SlipPropagation>('warn');
   const [days, setDays] = useState<number>(3);
 
-  // Seed once on first successful load — guard prevents a refetch (e.g.
-  // sibling page mutation invalidating the cache) from wiping in-progress
-  // edits. Initial-* doubles as the discard snapshot and the useDirtyForm
-  // dirty-compare source.
-  const seededRef = useRef(false);
+  // Re-seed whenever the program in the route changes. React Router reuses this
+  // component across `:programId` changes (no `key` → no remount), so a one-shot
+  // boolean guard would strand the form on the first program's policy when the
+  // user switches programs in Settings (#750). The policy has no own id, so key
+  // on programId. A same-program refetch (e.g. a sibling page invalidating the
+  // cache) keeps the same id, so in-progress edits are still preserved — the
+  // original guard's intent. Initial-* doubles as the discard snapshot and the
+  // useDirtyForm dirty-compare source.
+  const seededProgramIdRef = useRef<string | undefined>(undefined);
   const [initialSlip, setInitialSlip] = useState<SlipPropagation>('warn');
   const [initialDays, setInitialDays] = useState<number>(3);
 
   useEffect(() => {
-    if (!policy || seededRef.current) return;
-    seededRef.current = true;
+    if (!policy || seededProgramIdRef.current === programId) return;
+    seededProgramIdRef.current = programId;
     setSlip(policy.slip_propagation);
     setDays(policy.escalation_days);
     setInitialSlip(policy.slip_propagation);
     setInitialDays(policy.escalation_days);
-  }, [policy]);
+  }, [policy, programId]);
 
   const values = useMemo(() => ({ slip, days }), [slip, days]);
   const initialValues = useMemo(

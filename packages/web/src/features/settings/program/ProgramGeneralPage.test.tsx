@@ -78,6 +78,35 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(screen.getByRole('button', { name: 'Hybrid', pressed: true })).toBeInTheDocument();
   });
 
+  it('re-seeds the form when the program in the route changes (no remount)', () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // Fresh element each call so React re-renders (identical references bail
+    // out); same queryClient + matching types preserve the page instance —
+    // a route param change without a remount.
+    const tree = () => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/programs/p-1/settings/general']}>
+          <Routes>
+            <Route path="/programs/:programId/settings/general" element={<ProgramGeneralPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree());
+    expect(screen.getByLabelText('Program name')).toHaveValue('Phase 2 Modernization');
+
+    // Switch programs — same component instance, no remount. The one-shot seed
+    // guard regression (#750) would strand 'Phase 2 Modernization' here.
+    useProgram.mockReturnValue({
+      data: makeProgram({ id: 'p-2', name: 'Apollo Program', code: 'APOLLO' }),
+    });
+    rerender(tree());
+
+    expect(screen.getByLabelText('Program name')).toHaveValue('Apollo Program');
+    expect(screen.getByLabelText('Program code')).toHaveValue('APOLLO');
+  });
+
   it('renders the lead username + initials when lead_detail is present', () => {
     useProgram.mockReturnValue({ data: makeProgram() });
     renderPage();

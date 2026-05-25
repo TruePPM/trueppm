@@ -49,9 +49,10 @@ function initialsFor(username: string | null | undefined): string {
  * button is disabled and a follow-up will swap in the picker).
  *
  * Save contract: publishes (dirty, save, reset) up to ``SettingsShell`` via
- * ``useDirtyForm``. Initial values are seeded once via ``seededRef`` so a
- * refetch (e.g. cache invalidation after another page's mutation) does not
- * blow away the user's in-progress edits.
+ * ``useDirtyForm``. Initial values re-seed whenever the routed program changes
+ * (keyed on ``program.id``) so switching programs refreshes the form, while a
+ * same-program refetch (e.g. cache invalidation after another page's mutation)
+ * does not blow away the user's in-progress edits.
  */
 export function ProgramGeneralPage() {
   const { programId } = useParams<{ programId: string }>();
@@ -67,10 +68,15 @@ export function ProgramGeneralPage() {
   // null = no accent chosen (renders as a health-tinted neutral on the card).
   const [color, setColor] = useState<string | null>(null);
 
-  // Seed once on first successful load — guard prevents refetch from wiping user edits.
+  // Re-seed whenever the loaded program's identity changes. React Router reuses
+  // this component across `:programId` changes (no `key` → no remount), so a
+  // one-shot boolean guard would strand the form on the first program's values
+  // when the user switches programs in Settings (#750). Keying on the id — rather
+  // than on every `program` reference — still prevents a same-program background
+  // refetch from clobbering in-progress edits, which was the original guard's intent.
   // The initial-* setters double as the "last-saved snapshot" used by the discard
   // handler and the useDirtyForm dirty-compare.
-  const seededRef = useRef(false);
+  const seededProgramIdRef = useRef<string | null>(null);
   const [initialName, setInitialName] = useState('');
   const [initialDescription, setInitialDescription] = useState('');
   const [initialCode, setInitialCode] = useState('');
@@ -80,8 +86,8 @@ export function ProgramGeneralPage() {
   const [initialColor, setInitialColor] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!program || seededRef.current) return;
-    seededRef.current = true;
+    if (!program || seededProgramIdRef.current === program.id) return;
+    seededProgramIdRef.current = program.id;
     setName(program.name);
     setDescription(program.description ?? '');
     setCode(program.code ?? '');

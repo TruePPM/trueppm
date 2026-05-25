@@ -37,6 +37,15 @@ vi.mock('./useProgramRiskPolicy', async () => {
   };
 });
 
+// Drive the route's :programId directly so a test can switch programs without
+// remounting the page (react-router reuses the component across param changes).
+// Vitest permits a `mock`-prefixed variable inside a hoisted factory.
+let mockProgramId = 'p-1';
+vi.mock('react-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-router')>();
+  return { ...actual, useParams: () => ({ programId: mockProgramId }) };
+});
+
 function defaultPolicy(overrides: Partial<ProgramRiskPolicy> = {}): ProgramRiskPolicy {
   return { slip_propagation: 'warn', escalation_days: 3, ...overrides };
 }
@@ -59,6 +68,7 @@ function renderPage() {
 
 describe('ProgramRiskPolicyPage (settings)', () => {
   beforeEach(() => {
+    mockProgramId = 'p-1';
     useProgram.mockReset();
     useProgramRiskPolicy.mockReset();
     saveMutateAsync.mockReset();
@@ -89,6 +99,49 @@ describe('ProgramRiskPolicyPage (settings)', () => {
     expect(screen.getByRole('radio', { name: /Block & escalate/i })).toBeChecked();
     expect(screen.getByRole('spinbutton')).toHaveValue(7);
     expect(screen.queryByTestId('stub-page-banner')).not.toBeInTheDocument();
+  });
+
+  it('re-seeds when the program in the route changes (no remount)', () => {
+    useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
+    useProgramRiskPolicy.mockReturnValue({
+      data: defaultPolicy({ slip_propagation: 'warn', escalation_days: 3 }),
+      isLoading: false,
+      isError: false,
+      refetch,
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // Fresh element each call so React re-renders (an identical reference bails
+    // out); the same queryClient + matching element types preserve the page
+    // instance — a route param change without a remount.
+    const tree = () => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/programs/p-1/settings/risk']}>
+          <Routes>
+            <Route
+              path="/programs/:programId/settings/risk"
+              element={<ProgramRiskPolicyPage />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree());
+    expect(screen.getByRole('radio', { name: /Warn only/i })).toBeChecked();
+    expect(screen.getByRole('spinbutton')).toHaveValue(3);
+
+    // Switch programs — same component instance, no remount. The one-shot seed
+    // guard regression (#750) would strand the first program's policy here.
+    mockProgramId = 'p-2';
+    useProgramRiskPolicy.mockReturnValue({
+      data: defaultPolicy({ slip_propagation: 'block', escalation_days: 14 }),
+      isLoading: false,
+      isError: false,
+      refetch,
+    });
+    rerender(tree());
+
+    expect(screen.getByRole('radio', { name: /Block & escalate/i })).toBeChecked();
+    expect(screen.getByRole('spinbutton')).toHaveValue(14);
   });
 
   it('non-admin sees disabled fieldset and a Read-only pill', () => {
