@@ -2743,6 +2743,410 @@
                 }
             }
         },
+        "/api/v1/programs/{program_pk}/backlog-items/": {
+            "get": {
+                "operationId": "v1_programs_backlog_items_list",
+                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedBacklogItemList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_programs_backlog_items_create",
+                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BacklogItemRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BacklogItemRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BacklogItemRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BacklogItem"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{program_pk}/backlog-items/{id}/": {
+            "get": {
+                "operationId": "v1_programs_backlog_items_retrieve",
+                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BacklogItem"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_programs_backlog_items_update",
+                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BacklogItemRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BacklogItemRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BacklogItemRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BacklogItem"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_programs_backlog_items_partial_update",
+                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBacklogItemRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBacklogItemRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBacklogItemRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BacklogItem"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_programs_backlog_items_destroy",
+                "description": "CRUD + pull for program backlog items.\n\nURL: ``/api/v1/programs/<program_pk>/backlog-items/[<pk>/]``\n     ``/api/v1/programs/<program_pk>/backlog-items/<pk>/pull/``",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{program_pk}/backlog-items/{id}/pull/": {
+            "post": {
+                "operationId": "v1_programs_backlog_items_pull_create",
+                "description": "Pull a PROPOSED item into a project's backlog (ADR-0069 Erratum §5).\n\nBody: ``{\"project_id\": \"<uuid>\"}``. Creates a Task (status=BACKLOG,\nsprint=NULL) in the target project and transitions the item to PULLED.\nRequires program-write (gated by ``get_permissions``) **and** write role\non the target project (checked here). Never assigns a sprint.\n\nReturns ``201`` with the created task and the updated backlog item.\n``400`` if project_id is missing / not in this program; ``403`` if the\ncaller lacks project-write; ``409`` if the item is no longer PROPOSED.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BacklogItemRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BacklogItemRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BacklogItemRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BacklogItem"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{program_pk}/ceremonies/": {
             "get": {
                 "operationId": "v1_programs_ceremonies_list",
@@ -14382,6 +14786,141 @@
                     "token_prefix"
                 ]
             },
+            "BacklogItem": {
+                "type": "object",
+                "description": "Read/write serializer for program backlog items (ADR-0069, #737).\n\n``program`` is bound by URL (set in the view's ``perform_create``) and is\nread-only here so a client cannot retarget an item to another program by\npayload. ``pulled_*`` are read-only — they are written only by the ``pull``\naction via ``backlog_services``. ``status`` is writable for archive /\nun-archive (PROPOSED ↔ ARCHIVED) but ``validate_status`` rejects a direct\nset to ``PULLED``: the only PROPOSED→PULLED path is the ``pull`` action.\n``tags`` is a free-form list of short strings.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 512
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "item_type": {
+                        "$ref": "#/components/schemas/ItemTypeEnum"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/BacklogItemStatusEnum"
+                    },
+                    "tags": {},
+                    "priority_rank": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "pulled_task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "pulled_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "pulled_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "created_by",
+                    "id",
+                    "program",
+                    "pulled_at",
+                    "pulled_by",
+                    "pulled_task",
+                    "server_version",
+                    "title",
+                    "updated_at"
+                ]
+            },
+            "BacklogItemRequest": {
+                "type": "object",
+                "description": "Read/write serializer for program backlog items (ADR-0069, #737).\n\n``program`` is bound by URL (set in the view's ``perform_create``) and is\nread-only here so a client cannot retarget an item to another program by\npayload. ``pulled_*`` are read-only — they are written only by the ``pull``\naction via ``backlog_services``. ``status`` is writable for archive /\nun-archive (PROPOSED ↔ ARCHIVED) but ``validate_status`` rejects a direct\nset to ``PULLED``: the only PROPOSED→PULLED path is the ``pull`` action.\n``tags`` is a free-form list of short strings.",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "item_type": {
+                        "$ref": "#/components/schemas/ItemTypeEnum"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/BacklogItemStatusEnum"
+                    },
+                    "tags": {},
+                    "priority_rank": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "title"
+                ]
+            },
+            "BacklogItemStatusEnum": {
+                "enum": [
+                    "proposed",
+                    "pulled",
+                    "archived"
+                ],
+                "type": "string",
+                "description": "* `proposed` - Proposed\n* `pulled` - Pulled\n* `archived` - Archived"
+            },
             "Baseline": {
                 "type": "object",
                 "description": "List / create response shape for Baseline.\n\ntask_count is annotated by BaselineViewSet.get_queryset() and is read-only.\nname is optional on create — the view supplies an auto-generated default.",
@@ -15319,6 +15858,16 @@
                     "token"
                 ]
             },
+            "ItemTypeEnum": {
+                "enum": [
+                    "epic",
+                    "feature",
+                    "story",
+                    "task"
+                ],
+                "type": "string",
+                "description": "* `epic` - Epic\n* `feature` - Feature\n* `story` - Story\n* `task` - Task"
+            },
             "Me": {
                 "type": "object",
                 "description": "Read-only serializer for GET /api/v1/auth/me/.",
@@ -15686,6 +16235,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/ApiTokenAuditEntry"
+                        }
+                    }
+                }
+            },
+            "PaginatedBacklogItemList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BacklogItem"
                         }
                     }
                 }
@@ -16651,6 +17231,39 @@
                     }
                 }
             },
+            "PatchedBacklogItemRequest": {
+                "type": "object",
+                "description": "Read/write serializer for program backlog items (ADR-0069, #737).\n\n``program`` is bound by URL (set in the view's ``perform_create``) and is\nread-only here so a client cannot retarget an item to another program by\npayload. ``pulled_*`` are read-only — they are written only by the ``pull``\naction via ``backlog_services``. ``status`` is writable for archive /\nun-archive (PROPOSED ↔ ARCHIVED) but ``validate_status`` rejects a direct\nset to ``PULLED``: the only PROPOSED→PULLED path is the ``pull`` action.\n``tags`` is a free-form list of short strings.",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "item_type": {
+                        "$ref": "#/components/schemas/ItemTypeEnum"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/BacklogItemStatusEnum"
+                    },
+                    "tags": {},
+                    "priority_rank": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "story_points": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    }
+                }
+            },
             "PatchedCalendarRequest": {
                 "type": "object",
                 "description": "Read/write serializer for project calendars.\n\nNests exceptions as read-only — exceptions are managed through the\n/calendars/{pk}/exceptions/ sub-resource, not via this serializer.",
@@ -16850,6 +17463,12 @@
                     },
                     "visibility": {
                         "$ref": "#/components/schemas/VisibilityEnum"
+                    },
+                    "color": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Program accent color as #RRGGBB hex, or null when unset.",
+                        "maxLength": 7
                     },
                     "lead": {
                         "type": "integer",
@@ -17572,6 +18191,12 @@
                     "visibility": {
                         "$ref": "#/components/schemas/VisibilityEnum"
                     },
+                    "color": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Program accent color as #RRGGBB hex, or null when unset.",
+                        "maxLength": 7
+                    },
                     "lead": {
                         "type": "integer",
                         "nullable": true
@@ -17774,6 +18399,12 @@
                     },
                     "visibility": {
                         "$ref": "#/components/schemas/VisibilityEnum"
+                    },
+                    "color": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Program accent color as #RRGGBB hex, or null when unset.",
+                        "maxLength": 7
                     },
                     "lead": {
                         "type": "integer",

@@ -19,6 +19,8 @@ from trueppm_api.apps.projects.models import (
     PROJECT_CUSTOM_FIELD_MAX,
     RESERVED_SCRUM_CEREMONY_NAMES,
     ApiTokenAuditEntry,
+    BacklogItem,
+    BacklogItemStatus,
     Baseline,
     BaselineTask,
     BoardSavedView,
@@ -287,6 +289,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "methodology",
             "health",
             "visibility",
+            "color",
             "lead",
             "lead_detail",
             "created_by",
@@ -356,6 +359,19 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
                 "The selected user must be a member of this program before they "
                 "can be assigned as lead."
             )
+        return value
+
+    def validate_color(self, value: str | None) -> str | None:
+        """Normalize the accent color to a #RRGGBB hex or null (#698).
+
+        Empty string collapses to null so the model's "unset" semantics hold
+        regardless of whether the client sends ``""`` or omits the field —
+        mirrors ``PhaseSerializer.validate_color``.
+        """
+        if not value:
+            return None
+        if not _HEX_COLOR_RE.fullmatch(value):
+            raise serializers.ValidationError("color must be a #RRGGBB hex string or null.")
         return value
 
     def get_my_role_label(self, obj: Program) -> str | None:
@@ -575,6 +591,79 @@ class PhaseGateConfigSerializer(serializers.ModelSerializer[PhaseGateConfig]):
             "program",
             "updated_at",
         ]
+
+
+class BacklogItemSerializer(serializers.ModelSerializer[BacklogItem]):
+    """Read/write serializer for program backlog items (ADR-0069, #737).
+
+    ``program`` is bound by URL (set in the view's ``perform_create``) and is
+    read-only here so a client cannot retarget an item to another program by
+    payload. ``pulled_*`` are read-only — they are written only by the ``pull``
+    action via ``backlog_services``. ``status`` is writable for archive /
+    un-archive (PROPOSED ↔ ARCHIVED) but ``validate_status`` rejects a direct
+    set to ``PULLED``: the only PROPOSED→PULLED path is the ``pull`` action.
+    ``tags`` is a free-form list of short strings.
+    """
+
+    class Meta:
+        model = BacklogItem
+        fields = [
+            "id",
+            "server_version",
+            "program",
+            "title",
+            "description",
+            "item_type",
+            "status",
+            "tags",
+            "priority_rank",
+            "story_points",
+            "pulled_task",
+            "pulled_at",
+            "pulled_by",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "server_version",
+            "program",
+            "pulled_task",
+            "pulled_at",
+            "pulled_by",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_title(self, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise serializers.ValidationError("Title is required.")
+        return normalized
+
+    def validate_status(self, value: str) -> str:
+        # PULLED is reachable only through the pull action — it records the
+        # created Task and bumps both rows atomically. Allowing a bare PATCH to
+        # PULLED would leave pulled_task NULL and desync the lifecycle.
+        if value == BacklogItemStatus.PULLED:
+            raise serializers.ValidationError(
+                "An item becomes 'pulled' only via the pull action, not a direct update."
+            )
+        return value
+
+    def validate_tags(self, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            raise serializers.ValidationError("tags must be a list of strings.")
+        cleaned: list[str] = []
+        for tag in value:
+            if not isinstance(tag, str):
+                raise serializers.ValidationError("Each tag must be a string.")
+            tag = tag.strip()
+            if tag and tag not in cleaned:
+                cleaned.append(tag)
+        return cleaned
 
 
 class TaskAssignmentSerializer(serializers.ModelSerializer[TaskResource]):

@@ -1,10 +1,12 @@
 # ADR-0069: Dual-Level Backlog — Program BacklogItem and Project Backlog
 
 ## Status
-Proposed — **depends on Program entity ADR (to be written)**. The `BacklogItem` model
-described here attaches to `Program`, not `Project`. The Program entity design (OSS
-lightweight container for related projects) must be resolved before this ADR can be
-implemented. See implementation notes.
+Accepted (2026-05-25) — Program entity shipped (ADR-0070, #502). The `BacklogItem`
+model attaches to `Program`, not `Project`. **See the Erratum at the end of this
+document** — the `## Decision` code block below is the superseded *project-scoped*
+draft; the implemented design is program-scoped per the Erratum and ADR-0070.
+Implemented across #733 (model + sync-readiness + migration), #737 (list + pull-down
+endpoints), and #739 (pg_trgm search).
 
 ## Context
 
@@ -271,3 +273,162 @@ BACKLOG rail and `SprintBacklogTable` — no change to those surfaces.
 8. **Dead-letter / failure handling**: Pull is synchronous; if Task creation fails, the
    database transaction rolls back and `BacklogItem.status` remains `PROPOSED` — no
    dead-letter needed. CPM recompute failure handling is unchanged (ADR-0027 retry/DLQ).
+
+---
+
+## Erratum (2026-05-25) — Program-scoped implementation (#733 / #737 / #739)
+
+The `## Decision` section above predates the Program entity and describes a
+**project-scoped** `BacklogItem` (a `project` FK, `short_id` from
+`Project.object_sequence`, endpoints under `/projects/{pk}/`). That draft is
+**superseded**. The ADR header and Context already mark project-scoping as the wrong
+scope; ADR-0070 (Accepted) confirms `BacklogItem.program`. The issues #733/#737/#739
+are the authoritative current scope. This erratum records the design as actually built.
+
+### 1. Scope — program, not project
+
+`BacklogItem.program` is a `ForeignKey(Program, on_delete=CASCADE)`. The intake pool
+lives at the program level so a PM can pull a feature into whichever of the program's
+projects is ready for it. There is no `short_id` (programs have no `object_sequence`
+counter; the ID is the UUID PK).
+
+**Endpoints** are nested under the program:
+
+```
+GET/POST   /api/v1/programs/{program_pk}/backlog-items/
+GET/PATCH/DELETE  /api/v1/programs/{program_pk}/backlog-items/{pk}/
+POST       /api/v1/programs/{program_pk}/backlog-items/{pk}/pull/   body: {"project_id": "<uuid>"}
+```
+
+### 2. Sync participation — VersionedModel-readiness only; delta wiring deferred
+
+#733 asks that `BacklogItem` "participate in the offline-sync delta." The only delta
+endpoint (`ProjectSyncView`, `GET /api/v1/projects/{pk}/sync/`) is **project-scoped**
+and structurally cannot reach a program-scoped row. This mirrors the existing,
+deliberate decision for `Program`/`ProgramMembership` themselves (see
+`sync/serializers.py::SyncProjectSerializer` docstring): program-level rows are *not*
+fanned into the project delta; mobile uses REST online and cached project rows offline,
+with a dedicated program-sync path deferred to a follow-up.
+
+**Ruling**: `BacklogItem` extends `VersionedModel`, so it is **sync-ready** —
+`server_version` bumps atomically on every save and `soft_delete()` sets
+`is_deleted`/`deleted_version` (tombstone). Wiring it into a delta payload is deferred
+to the same follow-up that owns program-level sync; fanning a program's items into each
+member project's delta would duplicate rows and mis-scope items that aren't pulled into
+any project yet. This is a deliberate deviation from the literal wording of #733's
+"appears in sync push/pull payload" criterion, consistent with established precedent.
+The #733 sync test therefore asserts the `VersionedModel` contract (server_version
+bump on create/update, `soft_delete` tombstone) rather than the project-delta endpoint.
+Follow-up tracked: program-level offline sync (Program, ProgramMembership, BacklogItem).
+
+### 3. Field set (as implemented)
+
+Minimal set satisfying #733 + the #737 pull/rollback mechanics. `acceptance_criteria`
+from the original draft is deferred (no consumer until the #742 UI needs it; additive).
+
+```python
+class BacklogItem(VersionedModel):           # id (UUID), server_version, is_deleted, deleted_version
+    program       = FK(Program, CASCADE, related_name="backlog_items")
+    title         = CharField(512)
+    description   = TextField(blank=True, default="")
+    item_type     = CharField(choices=BacklogItemType, default=TASK)   # epic/feature/story/task
+    status        = CharField(choices=BacklogItemStatus, default=PROPOSED, db_index=True)  # proposed/pulled/archived
+    tags          = JSONField(default=list, blank=True)   # repo convention (Program.rollup_enabled_kpis et al.)
+    priority_rank = PositiveIntegerField(null=True, blank=True)   # lower = higher priority; list ordering
+    story_points  = PositiveSmallIntegerField(null=True, blank=True)  # mapped to Task.story_points on pull
+    pulled_task   = OneToOneField(Task, SET_NULL, null=True, blank=True, related_name="source_backlog_item")
+    pulled_at     = DateTimeField(null=True, blank=True)
+    pulled_by     = FK(AUTH_USER_MODEL, SET_NULL, null=True, blank=True, related_name="+")
+    created_by    = FK(AUTH_USER_MODEL, SET_NULL, null=True, blank=True, related_name="+")
+    created_at    = DateTimeField(auto_now_add=True)
+    updated_at    = DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            Index(fields=["program", "status"]),                      # list + filter
+            GinIndex(fields=["title"], opclasses=["gin_trgm_ops"], name="backlogitem_title_trgm"),  # #739
+        ]
+```
+
+`item_type`/`status` are `TextChoices`; `tags` is a JSON list (trigram search is on
+`title` only, so no ArrayField is needed). All added columns are nullable or have a
+default — no NOT NULL without default.
+
+### 4. RBAC — program write **and** target-project write
+
+"EDITOR+" in the issues maps to `access.models.Role.MEMBER` (100) — the first write
+band. List/create/update/delete on `/programs/{pk}/backlog-items/` is gated by
+`IsProgramMember` for read and `IsProgramEditor` (role ≥ MEMBER) for write.
+
+The **pull** action is the boundary-crossing operation: it both reads the program item
+and *writes a Task into a project*. It therefore requires write role on the **program**
+(`IsProgramEditor`) **and** write role on the **target project** (the project's
+membership role ≥ MEMBER), checked inside the action against `project_id`. A pull whose
+`project_id` is not a member of the program is rejected (`400`); a caller lacking
+project write is rejected (`403`); a non-`PROPOSED` item is rejected (`409`).
+
+### 5. Pull mechanics (confirmed)
+
+`projects/backlog_services.py::pull_to_project_backlog(item, project, actor)`, atomic:
+1. `select_for_update()` the `BacklogItem`; assert `status == PROPOSED` else `409`.
+2. Create `Task(project=project, name=item.title, notes=item.description,
+   story_points=item.story_points, status=BACKLOG, sprint=None)`.
+3. Set item `status=PULLED`, `pulled_task=task`, `pulled_at=now()`, `pulled_by=actor`; save (bumps `server_version` on both rows).
+4. `transaction.on_commit`: `enqueue_recalculate(project.id, reason=TASK_CHANGE)` (existing CPM outbox — no new outbox category) **and** `broadcast_board_event(project.id, "task_created", {"id": str(task.id)})`.
+5. Return `201 {"task": TaskSerializer(task).data, "backlog_item": BacklogItemSerializer(item).data}`.
+
+**Rollback**: a `post_delete` signal on `Task` resets any `BacklogItem` whose
+`pulled_task` was the deleted Task back to `status=PROPOSED` (`pulled_task`/`pulled_at`/
+`pulled_by` cleared) so it can be re-pulled. The `OneToOne` on `pulled_task` uses
+`SET_NULL` so Task deletion never cascades to the item.
+
+The pull viewset uses `IdempotencyMixin` (header-based replay, ADR-0083); the
+`status==PROPOSED` guard under `select_for_update` is the domain-level double-pull guard.
+
+### 6. Trigram search (#739)
+
+- A migration enables the `pg_trgm` extension via
+  `django.contrib.postgres.operations.TrigramExtension` (first repo use) and adds the
+  `GinIndex(opclasses=["gin_trgm_ops"])` on `title`. The extension operation runs
+  **before** the `AddIndex`. Staged as a **separate** migration after the model-create
+  migration so the #739 migration is "extension + index only," additive, and orders the
+  extension ahead of the index.
+- `?q=` filters with `title__trigram_similar` (the `%` operator — the form the
+  `gin_trgm_ops` GIN index accelerates) and orders by an annotated
+  `TrigramSimilarity("title", q)` so the closest title ranks first. The filter form
+  matters: a scored `filter(similarity__gt=…)` cannot use the GIN index and would
+  seq-scan (perf-check 🔴 caught this in review). Matching uses pg_trgm's
+  `similarity_threshold` (default 0.3). Combinable with the `item_type`/`status`/`tags`
+  filters and program-scoped via `get_queryset`; empty/absent `q` is a no-op. **Index on
+  `title` only**; `description` search is deferred (acceptable per the Search API note).
+- **Deployment note**: this is the repo's first `CREATE EXTENSION`. `pg_trgm` is a
+  *trusted* extension on PostgreSQL 13+ (TruePPM requires 16+), so the application's own
+  database owner can create it without superuser; the migration uses
+  `CREATE EXTENSION IF NOT EXISTS` and is idempotent. Least-privilege installs that
+  revoke `CREATE` on the database from the migration role must pre-create the extension.
+
+### 8. Out of scope / follow-ups
+
+- **`task.created` webhook on pull (deferred)**: the normal `TaskViewSet` create path
+  fires a `task.created` outbound webhook (`_dispatch_webhooks`), but the pull path
+  fires only the CPM recalc + WS `task_created` broadcast (the side-effects this ADR
+  scoped). A backlog task created via pull is therefore not visible to webhook
+  integrations until it is next edited. `_dispatch_webhooks`/`_task_webhook_payload` are
+  module-private to `projects/views.py`; wiring them into the service cleanly needs a
+  small refactor. Tracked as **#752** (broadcast-check 🟡). Other 🟡s noted in review:
+  unindexed `tags__contains` scan and the default sort on the unindexed nullable
+  `priority_rank` — both bounded by per-program scope + `PAGE_SIZE=50` and accepted for
+  this MR.
+
+### 7. ADR-0069 §Decision corrections (for future readers)
+
+Within the superseded `## Decision` block: read `project` → `program`; ignore
+`short_id`; the pull endpoint is `/programs/{pk}/backlog-items/{pk}/pull/` with a
+`{project_id}` body (not `/projects/{pk}/...`); `IsProjectMember role ≥ EDITOR` becomes
+`IsProgramEditor` on the program **plus** project-write on the pull target.
+
+### Blocking questions
+
+None. Both critical questions (scope, sync) are resolved above with codebase-backed
+reasoning. The one deviation from an issue's literal wording (#733 sync) is recorded in
+§2 and is consistent with the established program-sync-deferred precedent.

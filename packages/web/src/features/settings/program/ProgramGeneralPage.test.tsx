@@ -28,6 +28,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     methodology: 'HYBRID',
     health: 'AUTO',
     visibility: 'WORKSPACE',
+    color: null,
     lead: 'u-1',
     lead_detail: { id: 'u-1', username: 'anika.k', email: 'anika@example.com' },
     created_by: 'u-1',
@@ -75,6 +76,35 @@ describe('ProgramGeneralPage (settings)', () => {
     expect(screen.getByLabelText('Program code')).toHaveValue('PH2');
     expect(screen.getByRole('button', { name: 'Auto', pressed: true })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Hybrid', pressed: true })).toBeInTheDocument();
+  });
+
+  it('re-seeds the form when the program in the route changes (no remount)', () => {
+    useProgram.mockReturnValue({ data: makeProgram() });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // Fresh element each call so React re-renders (identical references bail
+    // out); same queryClient + matching types preserve the page instance —
+    // a route param change without a remount.
+    const tree = () => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/programs/p-1/settings/general']}>
+          <Routes>
+            <Route path="/programs/:programId/settings/general" element={<ProgramGeneralPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree());
+    expect(screen.getByLabelText('Program name')).toHaveValue('Phase 2 Modernization');
+
+    // Switch programs — same component instance, no remount. The one-shot seed
+    // guard regression (#750) would strand 'Phase 2 Modernization' here.
+    useProgram.mockReturnValue({
+      data: makeProgram({ id: 'p-2', name: 'Apollo Program', code: 'APOLLO' }),
+    });
+    rerender(tree());
+
+    expect(screen.getByLabelText('Program name')).toHaveValue('Apollo Program');
+    expect(screen.getByLabelText('Program code')).toHaveValue('APOLLO');
   });
 
   it('renders the lead username + initials when lead_detail is present', () => {
@@ -132,6 +162,70 @@ describe('ProgramGeneralPage (settings)', () => {
         health: 'CRITICAL',
         methodology: 'HYBRID',
         visibility: 'WORKSPACE',
+        color: null,
+      },
+    });
+  });
+
+  it('selecting an accent swatch marks the form dirty and saves the chosen hex', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+
+    // Seeded with no color → store starts clean.
+    expect(useSettingsSaveStore.getState().dirty).toBe(false);
+
+    await user.click(screen.getByRole('button', { name: /Accent color #0EA5E9/i }));
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+    expect(screen.getByRole('button', { name: /Accent color #0EA5E9/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith({
+      programId: 'p-1',
+      patch: {
+        name: 'Phase 2 Modernization',
+        description: 'Q3 platform rebuild',
+        code: 'PH2',
+        health: 'AUTO',
+        methodology: 'HYBRID',
+        visibility: 'WORKSPACE',
+        color: '#0EA5E9',
+      },
+    });
+  });
+
+  it('clicking the active swatch clears the accent back to null', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram({ color: '#7C3AED' }) });
+    renderPage();
+
+    const swatch = screen.getByRole('button', { name: /Accent color #7C3AED/i });
+    expect(swatch).toHaveAttribute('aria-pressed', 'true');
+
+    // Toggle off via the swatch itself.
+    await user.click(swatch);
+    expect(swatch).toHaveAttribute('aria-pressed', 'false');
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    expect(mutateAsync).toHaveBeenCalledWith({
+      programId: 'p-1',
+      patch: {
+        name: 'Phase 2 Modernization',
+        description: 'Q3 platform rebuild',
+        code: 'PH2',
+        health: 'AUTO',
+        methodology: 'HYBRID',
+        visibility: 'WORKSPACE',
+        color: null,
       },
     });
   });

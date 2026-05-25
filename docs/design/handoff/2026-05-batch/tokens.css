@@ -1,0 +1,92 @@
+/* TruePPM design tokens — extracted from tailwind.config.ts + globals.css conventions.
+   No shadows. Borders for separation. Inter + JetBrains Mono. */
+
+:root {
+  /* Brand */
+  --brand-primary: #1C6B3A;
+  --brand-primary-dark: #145229;
+  --brand-primary-light: #D4EDDA;
+  --brand-accent: #E8A020;
+  --brand-accent-dark: #C17A10;
+  --brand-accent-light: #FFF3CD;
+
+  /* Neutrals (light) */
+  --neutral-surface: 255 255 255;
+  --neutral-surface-raised: 250 249 247;
+  --neutral-surface-sunken: 235 235 235;
+  --neutral-border: 212 210 206;
+  --neutral-text-primary: 26 25 23;
+  --neutral-text-secondary: 107 105 101;
+  --neutral-text-disabled: 154 152 148;
+  --neutral-text-inverse: 255 255 255;
+
+  /* Semantic */
+  --semantic-critical: 185 28 28;
+  --semantic-warning: 232 160 32;
+  --semantic-on-track: 22 101 52;
+  --semantic-at-risk: 232 160 32;
+
+  --sem-critical-bg: rgba(185, 28, 28, 0.08);
+  --sem-at-risk-bg: rgba(232, 160, 32, 0.10);
+  --sem-on-track-bg: rgba(22, 101, 52, 0.08);
+
+  /* Chrome */
+  --chrome-surface: 248 246 242;
+  --chrome-surface-raised: 252 251 248;
+  --chrome-text-primary: 26 25 23;
+  --chrome-text-secondary: 107 105 101;
+  --chrome-border: 0 0 0;
+  --chrome-row-hover: rgba(0, 0, 0, 0.04);
+}
+
+.dark {
+  --neutral-surface: 18 20 30;
+  --neutral-surface-raised: 26 28 38;
+  --neutral-surface-sunken: 12 14 22;
+  --neutral-border: 44 46 56;
+  --neutral-text-primary: 232 232 232;
+  --neutral-text-secondary: 148 163 184;
+  --neutral-text-disabled: 100 116 139;
+
+  --semantic-critical: 248 113 113;
+  --semantic-on-track: 74 222 128;
+  --semantic-at-risk: 251 146 60;
+
+  --chrome-surface: 15 17 23;
+  --chrome-surface-raised: 22 25 33;
+  --chrome-text-primary: 232 232 232;
+  --chrome-text-secondary: 148 163 184;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  color: rgb(var(--neutral-text-primary));
+  background: rgb(var(--neutral-surface-sunken));
+  -webkit-font-smoothing: antialiased;
+}
+
+.tppm-mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+
+/* Utility helpers used across dialogs */
+.surface { background: rgb(var(--neutral-surface)); }
+.surface-raised { background: rgb(var(--neutral-surface-raised)); }
+.surface-sunken { background: rgb(var(--neutral-surface-sunken)); }
+.border-n { border: 1px solid rgb(var(--neutral-border)); }
+.border-t-n { border-top: 1px solid rgb(var(--neutral-border)); }
+.border-b-n { border-bottom: 1px solid rgb(var(--neutral-border)); }
+
+button { font-family: inherit; }
+input, textarea, select { font-family: inherit; font-size: 14px; }
+
+/* Focus rings */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px white, 0 0 0 4px var(--brand-primary);
+}

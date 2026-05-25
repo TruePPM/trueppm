@@ -41,6 +41,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     methodology: 'HYBRID',
     health: 'AUTO',
     visibility: 'WORKSPACE',
+    color: null,
     lead: null,
     lead_detail: null,
     created_by: 'u-1',

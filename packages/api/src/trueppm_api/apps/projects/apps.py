@@ -23,3 +23,7 @@ class ProjectsConfig(AppConfig):
         # Register the post_save handler that seeds methodology-aware rollup
         # config when a Program is created (ADR-0079, #527).
         receivers._register_program_rollup_seed_receiver()
+
+        # Register the post_save handler that resets a pulled BacklogItem to
+        # PROPOSED when its Task is soft-deleted (ADR-0069 rollback, #737).
+        receivers._register_backlog_pull_rollback_receiver()

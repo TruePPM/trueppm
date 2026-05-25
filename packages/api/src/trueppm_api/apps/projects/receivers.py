@@ -180,3 +180,41 @@ def _register_milestone_rollup_receiver() -> None:
                 instance.pk,
                 milestone_id,
             )
+
+
+def _register_backlog_pull_rollback_receiver() -> None:
+    """Register the Task post_save receiver that rolls back a pulled BacklogItem.
+
+    ADR-0069 rollback: when the Task created by a backlog pull is soft-deleted,
+    the originating BacklogItem must become re-pullable. TruePPM Tasks are
+    soft-deleted (VersionedModel sets is_deleted=True and saves), so this hooks
+    post_save and reacts to the is_deleted transition — mirroring the existing
+    RetroActionItem soft-delete receiver above. ``pulled_task`` is SET_NULL, so
+    deletion never cascades to the item; this restores its PROPOSED status.
+
+    No-op for INSERT and for any save where is_deleted is False (the common
+    Task-update case). Wrapped in a function for the import-timing reason noted
+    on the other receivers. Called from ``ProjectsConfig.ready()``.
+    """
+    from trueppm_api.apps.projects.models import Task
+
+    @receiver(post_save, sender=Task, dispatch_uid="backlog_pull_rollback_on_task_save")
+    def _on_task_soft_delete_reset_backlog_item(
+        sender: Any,
+        instance: Any,
+        created: bool,
+        **kwargs: Any,
+    ) -> None:
+        if created or not getattr(instance, "is_deleted", False):
+            return
+        from trueppm_api.apps.projects.backlog_services import (
+            reset_pulled_item_on_task_delete,
+        )
+
+        try:
+            reset_pulled_item_on_task_delete(str(instance.pk))
+        except Exception:
+            logger.exception(
+                "backlog rollback: failed to reset BacklogItem for deleted task=%s",
+                instance.pk,
+            )
