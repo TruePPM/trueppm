@@ -1,11 +1,9 @@
 /**
- * Program-backlog domain types — the UI contract pinned by ADR-0069.
- *
- * The field shapes here mirror what the (still-unbuilt) `BacklogItem` API
- * (#737) will return, so the fixture-backed hooks in `./hooks` can be swapped
- * for real queries without touching any component. Do not add UI-only fields
- * to `BacklogItem` — denormalized display data (owner name, project meta)
- * lives in the sibling `BacklogMember` / `MemberProject` types instead.
+ * Program-backlog domain types — the UI's view of the ADR-0069 `BacklogItem`
+ * API (#737). Field names are camelCase here; the snake_case API shapes are
+ * mapped at the boundary in `./api`. Only fields the real serializer exposes
+ * are modeled — the API has no assignee, and a pulled item links to a task id
+ * (not a project name), so those are absent / optional accordingly.
  */
 
 export type BacklogItemStatus = 'PROPOSED' | 'PULLED' | 'ARCHIVED';
@@ -21,18 +19,24 @@ export const BACKLOG_ITEM_TYPES: readonly BacklogItemType[] = [
   'bug',
 ] as const;
 
-/** Where a PULLED item landed — links the item to the task it created. */
+/**
+ * Where a PULLED item landed. The API exposes only the created task id and
+ * timestamp; `projectId`/`projectName` are known optimistically (the user just
+ * picked the target) but are not returned by the list serializer, so they are
+ * optional and absent after a reload.
+ */
 export interface BacklogPullLink {
-  projectId: string;
-  projectName: string;
   taskId: string;
   /** ISO timestamp of the pull. */
   at: string;
+  projectId?: string;
+  projectName?: string;
 }
 
-/** A single program-backlog row, per the ADR-0069 contract. */
+/** A single program-backlog row, mapped from the `BacklogItem` serializer. */
 export interface BacklogItem {
-  id: string; // BI-001
+  /** UUID primary key. */
+  id: string;
   programId: string;
   title: string;
   description?: string;
@@ -41,31 +45,25 @@ export interface BacklogItem {
   tags: string[];
   /** Integer; lower = higher priority. Sort key for the list. */
   priorityRank: number;
-  assigneeId?: string;
+  /** Optional agile estimate (`story_points`); surfaced read-only where shown. */
+  storyPoints?: number | null;
+  serverVersion: number;
   createdAt: string;
   updatedAt: string;
   /** Present only when `status === 'PULLED'`. */
   pulledTo?: BacklogPullLink;
 }
 
-/** A program member — resolves `assigneeId` to a display name + avatar. */
-export interface BacklogMember {
-  id: string;
-  name: string;
-  /** 1–2 character avatar initials, e.g. "RK". */
-  initials: string;
-}
-
 /** A project the program owns — a candidate pull target. */
 export interface MemberProject {
   id: string;
   name: string;
-  /** Short project code shown in the picker meta line, e.g. "ARTM-3". */
-  code: string;
+  /** Short project code shown in the picker meta line, when available. */
+  code?: string;
   /** Hex stripe color shown left of the name in the radio picker. */
-  color: string;
-  /** Count of items already in this project's backlog (picker meta). */
-  backlogCount: number;
+  color?: string;
+  /** Count of items already in this project's backlog, when available. */
+  backlogCount?: number;
 }
 
 /** Status values the inline status dropdown may set (PULLED excluded — that

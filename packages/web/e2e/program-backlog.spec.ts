@@ -3,11 +3,9 @@ import { test, expect } from '@playwright/test';
 /**
  * Program backlog E2E (#742).
  *
- * The backlog UI is fixture-backed until ADR-0069's endpoints land (#737), so
- * the data comes from the client-side fixture, not the API. These tests only
- * stub the surrounding program endpoints (auth, edition, program detail) and
- * then drive the real UI: search → select → pull → undo (golden path), and the
- * no-results recovery state.
+ * Drives the real UI against mocked ADR-0069 endpoints (#737): the backlog-item
+ * list, the program's projects (pull targets), and the pull action. Covers the
+ * golden path (search → select → pull → confirmation) and the no-results state.
  */
 
 const ME_ID = 'user-alice';
@@ -35,9 +33,54 @@ const FIXTURE_PROGRAM = {
   updated_at: '2026-05-18T00:00:00Z',
   my_role: 400, // Owner (ROLE_OWNER) — can create / pull / delete
   my_role_label: 'Project Admin',
-  project_count: 4,
+  project_count: 3,
   member_count: 4,
 };
+
+const PROJECTS = [
+  { id: 'proj-lift', name: 'Artemis IV Lift' },
+  { id: 'proj-avionics', name: 'Avionics' },
+  { id: 'proj-ground', name: 'Ground Ops' },
+];
+
+function apiItem(
+  i: number,
+  title: string,
+  item_type: string,
+  status: 'proposed' | 'pulled' = 'proposed',
+) {
+  return {
+    id: `item-${String(i).padStart(3, '0')}`,
+    server_version: 1,
+    program: PROGRAM_ID,
+    title,
+    description: '',
+    item_type,
+    status,
+    tags: [],
+    priority_rank: i,
+    story_points: null,
+    pulled_task: status === 'pulled' ? `task-${i}` : null,
+    pulled_at: status === 'pulled' ? '2026-05-23T00:00:00Z' : null,
+    pulled_by: null,
+    created_by: ME_ID,
+    created_at: '2026-05-10T00:00:00Z',
+    updated_at: '2026-05-20T00:00:00Z',
+  };
+}
+
+// 9 items total: 7 proposed, 2 pulled — drives "All 9 · Proposed 7 · Pulled 2".
+const BACKLOG_ITEMS = [
+  apiItem(1, 'Crew safety review', 'epic'),
+  apiItem(2, 'Range licensing coordination', 'story'),
+  apiItem(3, 'Telemetry channel B', 'story'),
+  apiItem(4, 'FAT prep harness', 'spike'),
+  apiItem(5, 'Decommission legacy console', 'chore'),
+  apiItem(6, 'Valve telemetry dropout', 'bug'),
+  apiItem(7, 'Weather-hold automation', 'story'),
+  apiItem(8, 'Pad water-deluge study', 'spike', 'pulled'),
+  apiItem(9, 'Bench power supply upgrade', 'chore', 'pulled'),
+];
 
 type Page = import('@playwright/test').Page;
 
@@ -54,7 +97,7 @@ async function setup(page: Page) {
 
   const pj = (data: unknown) => JSON.stringify(data);
 
-  // Default everything to empty so unmocked calls don't 401-loop.
+  // Catch-all first; specific routes registered after win (last-match wins).
   await page.route('**/api/v1/**', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
@@ -67,16 +110,30 @@ async function setup(page: Page) {
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROGRAM) }),
   );
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(PROJECTS) }),
+  );
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/**`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(BACKLOG_ITEMS) }),
+  );
+  // Pull action (registered last so it wins over the list route for this path).
+  await page.route('**/api/v1/programs/*/backlog-items/*/pull/', (r) =>
+    r.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: pj({ task: { id: 'task-new' } }),
+    }),
+  );
 
   await page.goto(`/programs/${PROGRAM_ID}/backlog`);
 }
 
 test.describe('Program backlog', () => {
-  test('golden path — search, select, pull, undo', async ({ page }) => {
+  test('golden path — search, select, pull', async ({ page }) => {
     await setup(page);
 
     await expect(page.getByRole('heading', { name: 'Backlog' })).toBeVisible();
-    const row = page.getByRole('button', { name: 'BI-003: Telemetry channel B (redundant link)' });
+    const row = page.getByRole('button', { name: 'Telemetry channel B', exact: true });
     await expect(row).toBeVisible();
 
     // Search narrows the match counter.
@@ -86,9 +143,7 @@ test.describe('Program backlog', () => {
 
     // Select → detail pane.
     await row.click();
-    await expect(
-      page.getByRole('heading', { name: 'Telemetry channel B (redundant link)' }),
-    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Telemetry channel B' })).toBeVisible();
 
     // Enter the pull flow and confirm to Avionics.
     await page.getByRole('button', { name: 'Pull to project…' }).click();
@@ -96,9 +151,8 @@ test.describe('Program backlog', () => {
     await page.getByRole('radio', { name: /Avionics/ }).click();
     await page.getByRole('button', { name: 'Pull to Avionics' }).click();
 
-    // Optimistic success toast with an undo affordance.
+    // Confirmation toast.
     await expect(page.getByText('Pulled to Avionics.')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Undo' })).toBeVisible();
   });
 
   test('no-results state offers recovery', async ({ page }) => {

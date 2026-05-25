@@ -7,7 +7,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { CloseIcon } from '@/components/Icons';
-import { BACKLOG_ITEM_TYPES, type BacklogItemType, type BacklogMember } from '../types';
+import { BACKLOG_ITEM_TYPES, type BacklogItemType } from '../types';
 import type { CreateBacklogItemInput } from '../hooks/useBacklogMutations';
 import { TagInput } from './TagInput';
 import { BTN_GHOST, BTN_PRIMARY, FOCUS_RING, INPUT_BASE } from './styles';
@@ -21,16 +21,14 @@ const TYPE_LABELS: Record<BacklogItemType, string> = {
 };
 
 interface DetailCreateProps {
-  members: BacklogMember[];
   tagSuggestions: string[];
   onCancel: () => void;
   onCreate: (input: CreateBacklogItemInput) => Promise<void>;
 }
 
-export function DetailCreate({ members, tagSuggestions, onCancel, onCreate }: DetailCreateProps) {
+export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreateProps) {
   const [title, setTitle] = useState('');
   const [itemType, setItemType] = useState<BacklogItemType>('story');
-  const [assigneeId, setAssigneeId] = useState('');
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +51,6 @@ export function DetailCreate({ members, tagSuggestions, onCancel, onCreate }: De
       await onCreate({
         title,
         itemType,
-        assigneeId: assigneeId || undefined,
         description: description || undefined,
         tags,
       });
@@ -102,48 +99,25 @@ export function DetailCreate({ members, tagSuggestions, onCancel, onCreate }: De
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label
-              htmlFor="backlog-create-type"
-              className="text-[10px] font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary"
-            >
-              Type
-            </label>
-            <select
-              id="backlog-create-type"
-              value={itemType}
-              onChange={(e) => setItemType(e.target.value as BacklogItemType)}
-              className={`mt-1 h-8 ${INPUT_BASE}`}
-            >
-              {BACKLOG_ITEM_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {TYPE_LABELS[t]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label
-              htmlFor="backlog-create-owner"
-              className="text-[10px] font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary"
-            >
-              Owner
-            </label>
-            <select
-              id="backlog-create-owner"
-              value={assigneeId}
-              onChange={(e) => setAssigneeId(e.target.value)}
-              className={`mt-1 h-8 ${INPUT_BASE}`}
-            >
-              <option value="">Unassigned</option>
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div>
+          <label
+            htmlFor="backlog-create-type"
+            className="text-[10px] font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary"
+          >
+            Type
+          </label>
+          <select
+            id="backlog-create-type"
+            value={itemType}
+            onChange={(e) => setItemType(e.target.value as BacklogItemType)}
+            className={`mt-1 h-8 ${INPUT_BASE}`}
+          >
+            {BACKLOG_ITEM_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {TYPE_LABELS[t]}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>

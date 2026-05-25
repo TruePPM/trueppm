@@ -72,16 +72,20 @@ export function ProjectPickerRadioList({
             </span>
             <span
               aria-hidden="true"
-              className="h-6 w-1.5 shrink-0 rounded-full"
-              style={{ backgroundColor: project.color }}
+              className="h-6 w-1.5 shrink-0 rounded-full bg-neutral-border"
+              style={project.color ? { backgroundColor: project.color } : undefined}
             />
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium text-neutral-text-primary">
                 {project.name}
               </span>
-              <span className="tppm-mono block text-[10px] text-neutral-text-secondary">
-                {project.code} · {project.backlogCount} backlog
-              </span>
+              {(project.code || project.backlogCount !== undefined) && (
+                <span className="tppm-mono block text-[10px] text-neutral-text-secondary">
+                  {project.code}
+                  {project.code && project.backlogCount !== undefined ? ' · ' : ''}
+                  {project.backlogCount !== undefined ? `${project.backlogCount} backlog` : ''}
+                </span>
+              )}
             </span>
           </button>
         );

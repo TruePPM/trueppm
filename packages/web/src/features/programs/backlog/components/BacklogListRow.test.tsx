@@ -12,6 +12,7 @@ function row(overrides: Partial<BacklogItem> = {}) {
     status: 'PROPOSED',
     tags: ['architecture'],
     priorityRank: 3,
+    serverVersion: 1,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     ...overrides,
@@ -21,7 +22,6 @@ function row(overrides: Partial<BacklogItem> = {}) {
   render(
     <BacklogListRow
       item={item}
-      owner={{ id: 'u', name: 'Riya Kapoor', initials: 'RK' }}
       selected={false}
       dim={false}
       query=""
@@ -37,9 +37,8 @@ function row(overrides: Partial<BacklogItem> = {}) {
 }
 
 describe('BacklogListRow', () => {
-  it('renders the id, title, type, and a Pull action for proposed items', () => {
+  it('renders the title, type, and a Pull action for proposed items', () => {
     row();
-    expect(screen.getByText('BI-003')).toBeInTheDocument();
     expect(screen.getByText('Telemetry channel B')).toBeInTheDocument();
     expect(screen.getByText('Story')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Pull Telemetry channel B/ })).toBeInTheDocument();

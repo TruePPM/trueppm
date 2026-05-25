@@ -7,15 +7,13 @@
 
 import { formatRelative } from '@/lib/formatRelative';
 import { ArrowRightIcon } from '@/components/Icons';
-import type { BacklogItem, BacklogMember } from '../../types';
-import { Avatar } from '../Avatar';
+import type { BacklogItem } from '../../types';
 import { HighlightedTitle } from '../HighlightedTitle';
 import { ItemTypeBadge } from '../ItemTypeBadge';
 import { FOCUS_RING } from '../styles';
 
 interface MobileBacklogCardProps {
   item: BacklogItem;
-  owner?: BacklogMember;
   query: string;
   canEdit: boolean;
   onSelect: () => void;
@@ -24,7 +22,6 @@ interface MobileBacklogCardProps {
 
 export function MobileBacklogCard({
   item,
-  owner,
   query,
   canEdit,
   onSelect,
@@ -35,12 +32,12 @@ export function MobileBacklogCard({
     <button
       type="button"
       onClick={onSelect}
-      aria-label={`${item.id}: ${item.title}`}
+      aria-label={item.title}
       className={`flex w-full flex-col gap-1.5 rounded-lg border border-neutral-border bg-neutral-surface px-3.5 py-3 text-left ${FOCUS_RING}`}
     >
       <div className="flex items-center gap-2">
         <span className="tppm-mono flex-1 text-[10px] text-neutral-text-disabled">
-          #{item.priorityRank} · {item.id}
+          #{item.priorityRank}
         </span>
         <ItemTypeBadge type={item.itemType} />
       </div>
@@ -50,7 +47,6 @@ export function MobileBacklogCard({
       </div>
 
       <div className="flex items-center gap-2">
-        {owner && <Avatar initials={owner.initials} name={owner.name} size={20} />}
         <div className="flex min-w-0 flex-1 flex-wrap gap-1">
           {tags.map((tag) => (
             <span
@@ -85,7 +81,8 @@ export function MobileBacklogCard({
         )}
         {item.status === 'PULLED' && item.pulledTo && (
           <span className="tppm-mono shrink-0 text-[10px] text-neutral-text-secondary">
-            {item.pulledTo.projectName} · {formatRelative(new Date(item.pulledTo.at))}
+            {item.pulledTo.projectName ? `${item.pulledTo.projectName} · ` : ''}
+            {formatRelative(new Date(item.pulledTo.at))}
           </span>
         )}
       </div>

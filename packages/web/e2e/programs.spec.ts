@@ -145,11 +145,13 @@ test.describe('Programs — empty state and creation', () => {
 });
 
 test.describe('Programs — shell tabs', () => {
-  test('Backlog tab renders the backlog workspace', async ({ page }) => {
+  test('Backlog tab renders the backlog workspace (empty)', async ({ page }) => {
+    // No backlog-items are mocked here (catch-all returns []), so the workspace
+    // shows its empty state. Populated behavior is covered in program-backlog.spec.ts.
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.goto(`/programs/${PROGRAM_ID}/backlog`);
     await expect(page.getByRole('heading', { name: 'Backlog' })).toBeVisible();
-    await expect(page.getByText('Crew safety review — second pass')).toBeVisible();
+    await expect(page.getByText('The program backlog is empty')).toBeVisible();
   });
 
   test('Projects tab shows empty state for an empty program', async ({ page }) => {

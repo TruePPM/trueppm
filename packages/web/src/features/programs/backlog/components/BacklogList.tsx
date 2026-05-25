@@ -8,10 +8,10 @@
  * priorityRank to the dragged item, and the mutation re-stripes ranks.
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { matchesSearch } from '../filter';
 import type { BacklogController } from '../hooks/useBacklogController';
-import type { BacklogItem, BacklogMember } from '../types';
+import type { BacklogItem } from '../types';
 import { BacklogListHeader } from './BacklogListHeader';
 import { BacklogListRow } from './BacklogListRow';
 import { NoResults } from './NoResults';
@@ -22,24 +22,10 @@ interface BacklogListProps {
 }
 
 export function BacklogList({ controller }: BacklogListProps) {
-  const {
-    url,
-    mainItems,
-    pulledItems,
-    members,
-    canEdit,
-    pendingPullItemId,
-    searchActive,
-    matchCount,
-  } = controller;
+  const { url, mainItems, pulledItems, canEdit, pendingPullItemId, searchActive, matchCount } =
+    controller;
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-
-  const memberById = useMemo(() => {
-    const map = new Map<string, BacklogMember>();
-    for (const member of members ?? []) map.set(member.id, member);
-    return map;
-  }, [members]);
 
   // Facets emptied the list, or search matched nothing → recovery state.
   const facetsEmpty = mainItems.length === 0 && pulledItems.length === 0;
@@ -62,7 +48,6 @@ export function BacklogList({ controller }: BacklogListProps) {
       <BacklogListRow
         key={item.id}
         item={item}
-        owner={item.assigneeId ? memberById.get(item.assigneeId) : undefined}
         selected={url.selectedItemId === item.id}
         dim={searchActive && !matchesSearch(item, url.query)}
         query={url.query}

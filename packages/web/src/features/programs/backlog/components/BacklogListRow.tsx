@@ -1,9 +1,8 @@
 /**
  * One backlog row. Click (or Enter/Space) selects the item into the right
- * pane; the Pull button is a nested, stop-propagated target. PULLED rows swap
- * their status cell for the destination project (dot + name) and their action
- * cell for a relative "pulled" timestamp. Selection is a constant-width left
- * border (transparent when unselected) so selecting never shifts the grid.
+ * pane; the Pull button is a nested, stop-propagated target. PULLED rows show
+ * the destination project (when known) and a relative "pulled" timestamp.
+ * Selection is a constant-width left border so selecting never shifts the grid.
  *
  * Drag-to-reorder is native HTML5 DnD, enabled only for PROPOSED rows when the
  * viewer can edit; the grip replaces the rank number on hover.
@@ -12,8 +11,7 @@
 import type { DragEvent, KeyboardEvent } from 'react';
 import { formatRelative } from '@/lib/formatRelative';
 import { ArrowRightIcon, DragHandleIcon } from '@/components/Icons';
-import type { BacklogItem, BacklogMember } from '../types';
-import { Avatar } from './Avatar';
+import type { BacklogItem } from '../types';
 import { HighlightedTitle } from './HighlightedTitle';
 import { ItemTypeBadge } from './ItemTypeBadge';
 import { StatusChip } from './StatusChip';
@@ -21,7 +19,6 @@ import { FOCUS_RING, LIST_GRID } from './styles';
 
 interface BacklogListRowProps {
   item: BacklogItem;
-  owner?: BacklogMember;
   selected: boolean;
   dim: boolean;
   query: string;
@@ -42,7 +39,6 @@ const MAX_INLINE_TAGS = 2;
 
 export function BacklogListRow({
   item,
-  owner,
   selected,
   dim,
   query,
@@ -72,7 +68,7 @@ export function BacklogListRow({
       role="button"
       tabIndex={0}
       aria-current={selected ? 'true' : undefined}
-      aria-label={`${item.id}: ${item.title}`}
+      aria-label={item.title}
       onClick={onSelect}
       onKeyDown={handleKeyDown}
       draggable={draggable}
@@ -81,11 +77,11 @@ export function BacklogListRow({
       onDragOver={(e: DragEvent) => draggable && e.preventDefault()}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
-      className={`group grid ${LIST_GRID} h-11 items-center gap-2 border-b border-neutral-border/60
-        border-l-2 px-3.5 text-[13px] cursor-pointer ${FOCUS_RING}
+      className={`group grid ${LIST_GRID} h-11 cursor-pointer items-center gap-2 border-b border-l-2
+        border-neutral-border/60 px-3.5 text-[13px] ${FOCUS_RING}
         ${selected ? 'border-l-brand-primary bg-brand-primary-light' : 'border-l-transparent hover:bg-chrome-row-hover'}
         ${dim ? 'opacity-45' : ''}
-        ${pending ? 'outline-dashed outline-1 outline-brand-primary animate-pulse' : ''}
+        ${pending ? 'animate-pulse outline-dashed outline-1 outline-brand-primary' : ''}
         ${isDropTarget ? 'border-t-2 border-t-brand-primary' : ''}`}
     >
       {/* Rank / drag grip */}
@@ -102,9 +98,6 @@ export function BacklogListRow({
           />
         )}
       </span>
-
-      {/* ID */}
-      <span className="tppm-mono truncate text-[10px] text-neutral-text-disabled">{item.id}</span>
 
       {/* Type */}
       <span>
@@ -133,7 +126,7 @@ export function BacklogListRow({
 
       {/* Status (or destination project for PULLED) */}
       <span className="min-w-0">
-        {item.status === 'PULLED' && item.pulledTo ? (
+        {item.status === 'PULLED' && item.pulledTo?.projectName ? (
           <span
             className="flex min-w-0 items-center gap-1.5"
             title={`Pulled to ${item.pulledTo.projectName}`}
@@ -146,11 +139,6 @@ export function BacklogListRow({
         ) : (
           <StatusChip status={item.status} />
         )}
-      </span>
-
-      {/* Owner */}
-      <span className="flex justify-start">
-        {owner && <Avatar initials={owner.initials} name={owner.name} />}
       </span>
 
       {/* Action */}

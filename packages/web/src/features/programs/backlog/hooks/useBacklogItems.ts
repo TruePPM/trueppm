@@ -1,56 +1,49 @@
 /**
- * Fixture-backed read layer for the program backlog.
+ * Read layer for the program backlog, wired to the ADR-0069 API (#737).
  *
- * ADR-0069's endpoints (#737) and trigram search (#739) are not built yet, so
- * every query here resolves from the static fixtures in `../fixtures`. The
- * hook signatures and query keys are the contract: when the API lands, only
- * the `queryFn` bodies change — components, mutations, and the cache-update
- * helpers keep working unchanged.
- *
- * `staleTime: Infinity` means the seed fetch runs once per session; thereafter
- * the TanStack cache *is* the store, and the mutation hooks edit it in place.
- * (With a real API this becomes a normal stale-while-revalidate query.)
+ * The list is fetched whole and filtered/sorted/searched client-side (see
+ * `../filter`), so the query is a single GET. NOTE: the endpoint paginates at
+ * 50; we request a larger page defensively, but a program backlog that exceeds
+ * the page size will need server-side filtering — tracked as follow-up. The
+ * mutation hooks edit the cached list through `patchBacklogCache`.
  */
 
+import { useMemo } from 'react';
 import {
   useQuery,
   useQueryClient,
   type QueryClient,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import { BACKLOG_ITEMS, BACKLOG_MEMBERS, MEMBER_PROJECTS } from '../fixtures';
-import type { BacklogItem, BacklogMember, MemberProject } from '../types';
+import { apiClient } from '@/api/client';
+import { useProgramProjects } from '@/hooks/useProgramProjects';
+import { fromApiItem, toMemberProject, type ApiBacklogItem } from '../api';
+import type { BacklogItem, MemberProject } from '../types';
 
 export const backlogKeys = {
   items: (programId: string | undefined) => ['program-backlog', programId, 'items'] as const,
-  members: (programId: string | undefined) => ['program-backlog', programId, 'members'] as const,
-  projects: (programId: string | undefined) => ['program-backlog', programId, 'projects'] as const,
 };
 
-const FIXTURE_LATENCY_MS = 280;
-
-function delay<T>(value: T, ms = FIXTURE_LATENCY_MS): Promise<T> {
-  return new Promise((resolve) => setTimeout(() => resolve(value), ms));
+interface Paginated<T> {
+  results: T[];
 }
 
-/**
- * GET /api/v1/programs/{id}/backlog-items/ — the full set (counts derived
- * client-side). Until the API exists the fixture stands in for *any* program
- * so the page renders live in the running app; the sentinel id `__empty__`
- * returns nothing, which lets the empty-state path be exercised by a route.
- */
+function unwrap<T>(data: T[] | Paginated<T>): T[] {
+  return Array.isArray(data) ? data : (data.results ?? []);
+}
+
+/** GET /api/v1/programs/{id}/backlog-items/ — the full set (counts derived client-side). */
 export function useBacklogItems(programId: string | undefined): UseQueryResult<BacklogItem[]> {
   return useQuery({
     queryKey: backlogKeys.items(programId),
-    queryFn: () =>
-      delay(
-        programId === '__empty__'
-          ? []
-          : BACKLOG_ITEMS.map((item) => ({ ...item, tags: [...item.tags] })),
-      ),
+    queryFn: async () => {
+      const res = await apiClient.get<ApiBacklogItem[] | Paginated<ApiBacklogItem>>(
+        `/programs/${programId}/backlog-items/`,
+        { params: { page_size: 200 } },
+      );
+      return unwrap(res.data).map(fromApiItem);
+    },
     enabled: !!programId,
-    staleTime: Infinity,
-    gcTime: Infinity,
   });
 }
 
@@ -64,29 +57,16 @@ export function useBacklogItem(
   return data?.find((item) => item.id === itemId);
 }
 
-export function useBacklogMembers(programId: string | undefined): UseQueryResult<BacklogMember[]> {
-  return useQuery({
-    queryKey: backlogKeys.members(programId),
-    queryFn: () => delay(BACKLOG_MEMBERS),
-    enabled: !!programId,
-    staleTime: Infinity,
-  });
-}
-
-/** Member projects = the candidate pull targets for this program. */
-export function useMemberProjects(programId: string | undefined): UseQueryResult<MemberProject[]> {
-  return useQuery({
-    queryKey: backlogKeys.projects(programId),
-    queryFn: () => delay(programId === '__empty__' ? [] : MEMBER_PROJECTS),
-    enabled: !!programId,
-    staleTime: Infinity,
-  });
+/** Member projects = the candidate pull targets, mapped from the program's projects. */
+export function useMemberProjects(programId: string | undefined): { data: MemberProject[] } {
+  const query = useProgramProjects(programId);
+  const data = useMemo(() => (query.data ?? []).map(toMemberProject), [query.data]);
+  return { data };
 }
 
 /**
- * Apply an in-place edit to the cached item list. The single seam every
- * mutation funnels through, so swapping the read layer for a real API later
- * only means deleting the optimistic cache writes — not rewriting callers.
+ * Apply an in-place edit to the cached item list — the single seam every
+ * optimistic mutation funnels through.
  */
 export function patchBacklogCache(
   queryClient: QueryClient,
@@ -98,7 +78,7 @@ export function patchBacklogCache(
   );
 }
 
-/** Snapshot/restore helper for optimistic rollback. */
+/** Snapshot for optimistic rollback. */
 export function readBacklogCache(
   queryClient: QueryClient,
   programId: string | undefined,

@@ -16,11 +16,9 @@ export function BacklogListHeader() {
       <span className="text-center" title="Priority rank">
         #
       </span>
-      <span>ID</span>
       <span>Type</span>
       <span>Title</span>
       <span>Status</span>
-      <span>Owner</span>
       <span className="sr-only">Actions</span>
     </div>
   );

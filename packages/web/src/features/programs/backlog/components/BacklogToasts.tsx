@@ -83,24 +83,13 @@ export function BacklogToasts({ controller }: BacklogToastsProps) {
     );
   }
 
-  const message = toast.kind === 'undo' ? `Pulled to ${toast.project.name}.` : toast.message;
-
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-5 z-50 flex justify-center px-4">
       <div
         role="status"
         className="pointer-events-auto flex items-center gap-3 rounded-md bg-neutral-text-primary px-4 py-2.5 text-sm text-neutral-text-inverse shadow-lg"
       >
-        <span>{message}</span>
-        {toast.kind === 'undo' && (
-          <button
-            type="button"
-            onClick={controller.undoPull}
-            className={`font-semibold text-brand-primary-light underline ${FOCUS_RING}`}
-          >
-            Undo
-          </button>
-        )}
+        <span>{toast.message}</span>
       </div>
     </div>
   );

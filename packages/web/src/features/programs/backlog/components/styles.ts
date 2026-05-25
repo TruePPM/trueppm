@@ -8,9 +8,11 @@
 export const FOCUS_RING =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1';
 
-/** Shared list grid template (# · ID · Type · Title · Status · Owner · action),
- *  applied to both the column header and every row so they stay aligned. */
-export const LIST_GRID = 'grid-cols-[16px_56px_60px_1fr_130px_70px_90px]';
+/** Shared list grid template (# · Type · Title · Status · action), applied to
+ *  both the column header and every row so they stay aligned. (The API has no
+ *  assignee, so there is no Owner column; ids are UUIDs, not shown in the dense
+ *  list.) */
+export const LIST_GRID = 'grid-cols-[20px_60px_1fr_140px_84px]';
 
 /** Text input / select / textarea base style. */
 export const INPUT_BASE =

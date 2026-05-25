@@ -23,6 +23,7 @@ const ITEM: BacklogItem = {
   status: 'PROPOSED',
   tags: [],
   priorityRank: 1,
+  serverVersion: 1,
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: '2026-01-01T00:00:00Z',
 };
@@ -70,28 +71,5 @@ describe('usePullItem', () => {
     await waitFor(() => expect(onError).toHaveBeenCalledTimes(1));
     expect(read()[0].status).toBe('PROPOSED');
     expect(read()[0].pulledTo).toBeUndefined();
-  });
-
-  it('undo reverts a pulled item and calls the reverse endpoint', async () => {
-    const undoFn = vi.fn().mockResolvedValue(undefined);
-    const pulled: BacklogItem = {
-      ...ITEM,
-      status: 'PULLED',
-      pulledTo: {
-        projectId: 'p-3',
-        projectName: 'Avionics',
-        taskId: 't-1',
-        at: '2026-01-02T00:00:00Z',
-      },
-    };
-    const { result, read } = setup({ undoFn }, [pulled]);
-
-    await act(async () => {
-      await result.current.undo(pulled);
-    });
-
-    expect(read()[0].status).toBe('PROPOSED');
-    expect(read()[0].pulledTo).toBeUndefined();
-    expect(undoFn).toHaveBeenCalledWith({ item: pulled });
   });
 });

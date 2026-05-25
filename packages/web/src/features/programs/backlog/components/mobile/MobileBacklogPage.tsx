@@ -5,11 +5,11 @@
  * controller verbatim with the desktop layout, so behavior never diverges.
  */
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { PlusIcon } from '@/components/Icons';
 import { matchesSearch } from '../../filter';
-import { BACKLOG_ITEM_TYPES, type BacklogItemType, type BacklogMember } from '../../types';
+import { BACKLOG_ITEM_TYPES, type BacklogItemType } from '../../types';
 import type { BacklogController } from '../../hooks/useBacklogController';
 import { BacklogToasts } from '../BacklogToasts';
 import { DetailCreate } from '../DetailCreate';
@@ -43,7 +43,6 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
     allItems,
     mainItems,
     pulledItems,
-    members,
     memberProjects,
     counts,
     tagUniverse,
@@ -55,12 +54,6 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
     isLoading,
   } = controller;
   const [filterSheet, setFilterSheet] = useState<'type' | 'tags' | null>(null);
-
-  const memberById = useMemo(() => {
-    const map = new Map<string, BacklogMember>();
-    for (const m of members ?? []) map.set(m.id, m);
-    return map;
-  }, [members]);
 
   const typeOptions: FacetOption[] = BACKLOG_ITEM_TYPES.map((t) => ({
     value: t,
@@ -85,7 +78,6 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
       >
         <MobileBacklogCard
           item={item}
-          owner={item.assigneeId ? memberById.get(item.assigneeId) : undefined}
           query={url.query}
           canEdit={canEdit}
           onSelect={() => url.selectItem(item.id)}
@@ -225,7 +217,6 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
         {selectedItem && (
           <DetailView
             item={selectedItem}
-            members={members ?? []}
             tagSuggestions={tagUniverse}
             canEdit={canEdit}
             canDelete={canDelete}
@@ -258,7 +249,6 @@ export function MobileBacklogPage({ controller }: MobileBacklogPageProps) {
       >
         {url.isNew && (
           <DetailCreate
-            members={members ?? []}
             tagSuggestions={tagUniverse}
             onCancel={url.closeDetail}
             onCreate={async (input) => {

@@ -22,12 +22,7 @@ import {
   type StatusCounts,
 } from '../filter';
 import type { BacklogItem, MemberProject } from '../types';
-import {
-  useBacklogItem,
-  useBacklogItems,
-  useBacklogMembers,
-  useMemberProjects,
-} from './useBacklogItems';
+import { useBacklogItem, useBacklogItems, useMemberProjects } from './useBacklogItems';
 import { useBacklogMutations, type CreateBacklogItemInput } from './useBacklogMutations';
 import { usePullItem, type UsePullItemOptions } from './usePullItem';
 import { useBacklogUrlState, type BacklogUrlState } from './useBacklogUrlState';
@@ -37,11 +32,9 @@ import { useBacklogUrlState, type BacklogUrlState } from './useBacklogUrlState';
  *  require Admin (the "full edit" tier, the PM/PO mapping of #737's "editor+");
  *  hard delete requires Owner. UI affordances only — server enforcement lands
  *  with #737. */
-const UNDO_WINDOW_MS = 8000;
 const SUCCESS_TOAST_MS = 4000;
 
 export type BacklogToast =
-  | { kind: 'undo'; item: BacklogItem; project: MemberProject }
   | { kind: 'error'; item: BacklogItem; project: MemberProject; message: string; offline: boolean }
   | { kind: 'success'; message: string }
   | null;
@@ -76,7 +69,6 @@ export interface BacklogController {
   counts: StatusCounts;
   tagUniverse: string[];
   selectedItem: BacklogItem | undefined;
-  members: ReturnType<typeof useBacklogMembers>['data'];
   memberProjects: MemberProject[];
 
   canEdit: boolean;
@@ -89,7 +81,6 @@ export interface BacklogController {
   alertMessage: string;
 
   pullItem: (item: BacklogItem, project: MemberProject) => void;
-  undoPull: () => void;
   retryPull: () => void;
   dismissToast: () => void;
   /** Transient status toast for not-yet-wired affordances (e.g. Import CSV). */
@@ -111,7 +102,6 @@ export function useBacklogController(
   const url = useBacklogUrlState();
   const { data: program } = useProgram(programId);
   const itemsQuery = useBacklogItems(programId);
-  const membersQuery = useBacklogMembers(programId);
   const projectsQuery = useMemberProjects(programId);
   const mutations = useBacklogMutations(programId);
   const pull = usePullItem(programId, pullOptions);
@@ -121,11 +111,9 @@ export function useBacklogController(
   const [pendingPullItemId, setPendingPullItemId] = useState<string | null>(null);
   const [liveMessage, setLiveMessage] = useState('');
   const [alertMessage, setAlertMessage] = useState('');
-  const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const successTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const clearTimers = useCallback(() => {
-    if (undoTimer.current) clearTimeout(undoTimer.current);
     if (successTimer.current) clearTimeout(successTimer.current);
   }, []);
   useEffect(() => clearTimers, [clearTimers]);
@@ -157,15 +145,18 @@ export function useBacklogController(
   const pullItem = useCallback(
     (item: BacklogItem, project: MemberProject) => {
       clearTimers();
-      setToast({ kind: 'undo', item, project });
+      // The pull commits immediately and there is no un-pull endpoint, so this
+      // is a confirmation (auto-dismiss), not an undo.
+      setToast({ kind: 'success', message: `Pulled to ${project.name}.` });
       setPendingPullItemId(item.id);
       setLiveMessage(`Pulled ${item.title} to ${project.name}.`);
       // Leaving pull mode in the URL returns the right pane to the item view.
       if (url.isPull) url.closePull();
 
-      undoTimer.current = setTimeout(() => {
-        setToast((prev) => (prev?.kind === 'undo' ? null : prev));
-      }, UNDO_WINDOW_MS);
+      successTimer.current = setTimeout(
+        () => setToast((prev) => (prev?.kind === 'success' ? null : prev)),
+        SUCCESS_TOAST_MS,
+      );
 
       pull.pull(
         { item, project },
@@ -188,20 +179,6 @@ export function useBacklogController(
     },
     [clearTimers, pull, url],
   );
-
-  const undoPull = useCallback(() => {
-    setToast((prev) => {
-      if (prev?.kind !== 'undo') return prev;
-      clearTimers();
-      void pull.undo(prev.item);
-      setLiveMessage('Pull undone.');
-      successTimer.current = setTimeout(
-        () => setToast((t) => (t?.kind === 'success' ? null : t)),
-        SUCCESS_TOAST_MS,
-      );
-      return { kind: 'success', message: 'Pull undone.' };
-    });
-  }, [clearTimers, pull]);
 
   const retryPull = useCallback(() => {
     setToast((prev) => {
@@ -255,8 +232,7 @@ export function useBacklogController(
     counts,
     tagUniverse,
     selectedItem,
-    members: membersQuery.data,
-    memberProjects: projectsQuery.data ?? [],
+    memberProjects: projectsQuery.data,
 
     canEdit,
     canDelete,
@@ -267,7 +243,6 @@ export function useBacklogController(
     alertMessage,
 
     pullItem,
-    undoPull,
     retryPull,
     dismissToast,
     notify,
