@@ -1,4 +1,4 @@
-# ADR-0085: `schema_version` Convention for User-Saved JSON State
+# ADR-0086: `schema_version` Convention for User-Saved JSON State
 
 ## Status
 Accepted
