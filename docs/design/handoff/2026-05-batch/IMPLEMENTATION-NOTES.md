@@ -34,9 +34,9 @@ already shipped and are *conversation*; Notes are *content* (kept, edited, decis
 
 1. **#740 search model — card-scoped dim only.** Ship §12's card-scoped
    client-side substring dim (`N of M notes`, 0.3 opacity, matches #323).
-   Project-scoped Postgres FTS (GIN `SearchVector` + endpoint) is **split into a
-   separate follow-up issue** — §12 itself defers it as "the future global notes
-   search." #740 does **not** carry the FTS migration.
+   Project-scoped Postgres FTS (GIN `SearchVector` + endpoint) is **split into
+   #751** — §12 itself defers it as "the future global notes search." #740 does
+   **not** carry the FTS migration.
 2. **#740 pinning — folded into #740.** Add a `pinned` bool to the notes model
    + sort `pinned > date desc` + pin affordance. It is part of the list §12 draws.
 3. **#745 mention targets — RBAC auto-groups only.** Picker offers users +
