@@ -15147,7 +15147,7 @@
                         "type": "integer",
                         "maximum": 32767,
                         "minimum": -32768,
-                        "description": "Bitmask of working days: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64"
+                        "description": "Bitmask: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64"
                     },
                     "hours_per_day": {
                         "type": "number",
@@ -15235,7 +15235,7 @@
                         "type": "integer",
                         "maximum": 32767,
                         "minimum": -32768,
-                        "description": "Bitmask of working days: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64"
+                        "description": "Bitmask: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64"
                     },
                     "hours_per_day": {
                         "type": "number",
@@ -15543,8 +15543,8 @@
                     },
                     "lag": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": -36525,
                         "description": "Lag in calendar days (positive = delay, negative = lead)"
                     }
                 },
@@ -15576,8 +15576,8 @@
                     },
                     "lag": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": -36525,
                         "description": "Lag in calendar days (positive = delay, negative = lead)"
                     }
                 },
@@ -17277,7 +17277,7 @@
                         "type": "integer",
                         "maximum": 32767,
                         "minimum": -32768,
-                        "description": "Bitmask of working days: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64"
+                        "description": "Bitmask: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64"
                     },
                     "hours_per_day": {
                         "type": "number",
@@ -17347,8 +17347,8 @@
                     },
                     "lag": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": -36525,
                         "description": "Lag in calendar days (positive = delay, negative = lead)"
                     }
                 }
@@ -17824,8 +17824,8 @@
                     },
                     "duration": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": 0,
                         "description": "Duration in working days"
                     },
                     "percent_complete": {
@@ -17856,20 +17856,20 @@
                     },
                     "optimistic_duration": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": 0,
                         "nullable": true
                     },
                     "most_likely_duration": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": 0,
                         "nullable": true
                     },
                     "pessimistic_duration": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": 0,
                         "nullable": true
                     },
                     "estimate_status": {
@@ -20018,8 +20018,8 @@
                     },
                     "duration": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": 0,
                         "description": "Duration in working days"
                     },
                     "percent_complete": {
@@ -20091,20 +20091,20 @@
                     },
                     "optimistic_duration": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": 0,
                         "nullable": true
                     },
                     "most_likely_duration": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": 0,
                         "nullable": true
                     },
                     "pessimistic_duration": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": 0,
                         "nullable": true
                     },
                     "estimate_status": {
@@ -20534,8 +20534,8 @@
                     },
                     "duration": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": 0,
                         "description": "Duration in working days"
                     },
                     "percent_complete": {
@@ -20566,20 +20566,20 @@
                     },
                     "optimistic_duration": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": 0,
                         "nullable": true
                     },
                     "most_likely_duration": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": 0,
                         "nullable": true
                     },
                     "pessimistic_duration": {
                         "type": "integer",
-                        "maximum": 2147483647,
-                        "minimum": -2147483648,
+                        "maximum": 36525,
+                        "minimum": 0,
                         "nullable": true
                     },
                     "estimate_status": {
