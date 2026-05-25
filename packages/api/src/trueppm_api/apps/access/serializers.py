@@ -21,17 +21,54 @@ class _UserSummarySerializer(serializers.ModelSerializer):  # type: ignore[type-
 class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembership]):
     """Response serializer — includes user_detail and role_label for list/retrieve.
 
-    role            — integer ordinal (canonical wire format; use for comparisons)
-    role_label      — human-readable label e.g. "Project Manager" (display only)
-    joined_at       — when this membership row was created (per-project access evidence)
-    role_changed_at — when the role last changed, or null if unchanged since joining
+    role                       — integer ordinal (canonical wire format; use for comparisons)
+    role_label                 — human-readable label e.g. "Project Manager" (display only)
+    joined_at                  — when this membership row was created (per-project access evidence)
+    role_changed_at            — when the role last changed, or null if unchanged since joining
+    other_active_project_count — how many OTHER active (non-archived, non-deleted) projects this
+                                 user belongs to, excluding the current one. A resource-load
+                                 signal for the assigner (#598). The full count is shown; it is a
+                                 number only and leaks no project identities.
+    other_active_project_names — names of those other projects, but ONLY the ones the *requesting*
+                                 user is OWNER of (visibility gate — never reveal the name of a
+                                 project the requester cannot already see). Empty for non-OWNERs.
     """
 
     user_detail = _UserSummarySerializer(source="user", read_only=True)
     role_label = serializers.SerializerMethodField()
+    other_active_project_count = serializers.SerializerMethodField()
+    other_active_project_names = serializers.SerializerMethodField()
 
     def get_role_label(self, obj: ProjectMembership) -> str:
         return Role(obj.role).label
+
+    def get_other_active_project_count(self, obj: ProjectMembership) -> int:
+        # list/retrieve annotate this on the queryset (one Subquery, no N+1). create/
+        # partial_update serialize a fresh, un-annotated instance — fall back to a
+        # single count query there (rare, one row).
+        annotated = getattr(obj, "other_active_count", None)
+        if annotated is not None:
+            return int(annotated)
+        return (
+            ProjectMembership.objects.filter(
+                user_id=obj.user_id,
+                is_deleted=False,
+                project__is_deleted=False,
+                project__is_archived=False,
+            )
+            .exclude(project_id=obj.project_id)
+            .values("project_id")
+            .distinct()
+            .count()
+        )
+
+    def get_other_active_project_names(self, obj: ProjectMembership) -> list[str]:
+        # Names are visibility-gated and prebuilt once per request by the viewset
+        # (see ProjectMembershipViewSet._build_other_project_names_map). When the map
+        # is absent (create/partial_update responses) return [] — the client re-fetches
+        # the list, which carries the gated names.
+        names_map: dict[Any, list[str]] = self.context.get("other_project_names_map") or {}
+        return names_map.get(obj.user_id, [])
 
     class Meta:
         model = ProjectMembership
@@ -45,6 +82,8 @@ class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembers
             "role_label",
             "joined_at",
             "role_changed_at",
+            "other_active_project_count",
+            "other_active_project_names",
         ]
         read_only_fields = [
             "id",
@@ -55,6 +94,8 @@ class ProjectMembershipReadSerializer(serializers.ModelSerializer[ProjectMembers
             "role_label",
             "joined_at",
             "role_changed_at",
+            "other_active_project_count",
+            "other_active_project_names",
         ]
 
 

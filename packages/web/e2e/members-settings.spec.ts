@@ -41,15 +41,18 @@ const FIXTURE_MEMBERS = [
     user_detail: { id: ME_ID, username: 'alice', email: 'alice@example.com' },
     role: 400, role_label: 'Project Admin',
     joined_at: '2026-04-12T12:00:00Z', role_changed_at: null,
+    other_active_project_count: 0, other_active_project_names: [],
   },
   {
     // bob's role was changed after joining — exercises the access-evidence
-    // "Role changed" line (#590).
+    // "Role changed" line (#590). bob is also on 2 other active projects, with
+    // names visible to the viewer — exercises the resource-load badge (#598).
     id: MEM_BOB_ID, server_version: 1,
     project: PROJECT_ID, user: BOB_ID,
     user_detail: { id: BOB_ID, username: 'bob', email: 'bob@example.com' },
     role: 100, role_label: 'Team Member',
     joined_at: '2026-04-12T12:00:00Z', role_changed_at: '2026-05-01T12:00:00Z',
+    other_active_project_count: 2, other_active_project_names: ['Apollo', 'Gemini'],
   },
 ];
 
@@ -165,6 +168,19 @@ test.describe('Members Settings — golden path', () => {
     await setup(page);
     await page.goto(`/projects/${PROJECT_ID}/settings/members`);
     await expect(page.getByText('Project Admin')).toBeVisible();
+  });
+
+  test('shows the other-active-projects badge with names tooltip (#598)', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings/members`);
+    // bob is on 2 other active projects, with names visible to the viewer.
+    const bobRow = page.locator('li').filter({ hasText: 'bob' }).first();
+    const badge = bobRow.getByText('+2 other projects');
+    await expect(badge).toBeVisible();
+    await expect(badge).toHaveAttribute('title', 'Also on: Apollo, Gemini');
+    // alice carries no other active projects → no badge on her row.
+    const aliceRow = page.locator('li').filter({ hasText: 'alice' }).first();
+    await expect(aliceRow.getByText(/other project/)).toHaveCount(0);
   });
 
   test('invite form visible to OWNER', async ({ page }) => {

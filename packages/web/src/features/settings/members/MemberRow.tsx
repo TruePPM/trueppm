@@ -40,7 +40,15 @@ export function MemberRow({
   isUpdatingRole,
   isRemoving,
 }: MemberRowProps) {
-  const { user_detail, role, role_label, joined_at, role_changed_at } = membership;
+  const {
+    user_detail,
+    role,
+    role_label,
+    joined_at,
+    role_changed_at,
+    other_active_project_count: otherProjectCount,
+    other_active_project_names: otherProjectNames,
+  } = membership;
   const initials = membership.user_detail.username.slice(0, 2).toUpperCase();
   const isOwnerMember = role === ROLE_OWNER;
 
@@ -98,6 +106,21 @@ export function MemberRow({
             </>
           )}
         </p>
+        {/* Resource-load signal (#598): how many other active projects this member
+            carries. Names appear in the tooltip only for projects the viewer owns
+            (visibility-gated server-side); otherwise the tooltip shows the count alone. */}
+        {otherProjectCount > 0 && (
+          <span
+            className="mt-1 inline-flex items-center rounded-full bg-neutral-surface-sunken px-2 py-0.5 text-xs font-medium text-neutral-text-secondary"
+            title={
+              otherProjectNames.length > 0
+                ? `Also on: ${otherProjectNames.join(', ')}`
+                : `On ${otherProjectCount} other active ${otherProjectCount === 1 ? 'project' : 'projects'}`
+            }
+          >
+            +{otherProjectCount} other {otherProjectCount === 1 ? 'project' : 'projects'}
+          </span>
+        )}
       </div>
 
       {/* Role — editable for OWNER callers on non-OWNER members */}
