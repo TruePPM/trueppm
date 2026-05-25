@@ -24,6 +24,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.workspace import services
 from trueppm_api.apps.workspace.models import (
     Group,
@@ -190,7 +191,7 @@ def _invite_dict(invite: WorkspaceInvite) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-class WorkspaceSettingsView(APIView):
+class WorkspaceSettingsView(IdempotencyMixin, APIView):
     """GET/PATCH /api/v1/workspace/ — singleton workspace config (#517).
 
     Read for any active member; PATCH requires workspace ADMIN+.
@@ -250,7 +251,7 @@ class WorkspaceMemberListView(APIView):
         return Response(WorkspaceMemberSerializer(_build_member_rows(users), many=True).data)
 
 
-class WorkspaceMemberDetailView(APIView):
+class WorkspaceMemberDetailView(IdempotencyMixin, APIView):
     """PATCH/DELETE /api/v1/workspace/members/{user_id}/ (#518). Admin only."""
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
@@ -340,7 +341,7 @@ class WorkspaceMemberDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class WorkspaceInviteListView(APIView):
+class WorkspaceInviteListView(IdempotencyMixin, APIView):
     """GET/POST /api/v1/workspace/invites/ (#518). Admin only."""
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
@@ -385,7 +386,7 @@ class WorkspaceInviteListView(APIView):
         return Response(_invite_dict(invite), status=status.HTTP_201_CREATED)
 
 
-class WorkspaceInviteDetailView(APIView):
+class WorkspaceInviteDetailView(IdempotencyMixin, APIView):
     """DELETE /api/v1/workspace/invites/{id}/ — revoke a pending invite (#518)."""
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
@@ -400,7 +401,7 @@ class WorkspaceInviteDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class InviteAcceptView(APIView):
+class InviteAcceptView(IdempotencyMixin, APIView):
     """POST /api/v1/workspace/invites/accept/ — accept an invite (public, token-auth).
 
     No session required: the one-time token in the body is the credential. Errors
@@ -434,7 +435,7 @@ class InviteAcceptView(APIView):
 # ---------------------------------------------------------------------------
 
 
-class GroupListView(APIView):
+class GroupListView(IdempotencyMixin, APIView):
     """GET/POST /api/v1/workspace/groups/ (#519). Read: any member; create: admin."""
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
@@ -452,7 +453,7 @@ class GroupListView(APIView):
         return Response(_build_group_dict(group), status=status.HTTP_201_CREATED)
 
 
-class GroupDetailView(APIView):
+class GroupDetailView(IdempotencyMixin, APIView):
     """GET/PATCH/DELETE /api/v1/workspace/groups/{id}/ (#519)."""
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
@@ -480,7 +481,7 @@ class GroupDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class GroupMemberView(APIView):
+class GroupMemberView(IdempotencyMixin, APIView):
     """POST/DELETE /api/v1/workspace/groups/{id}/members/[{user_id}/] (#519)."""
 
     permission_classes = [IsAuthenticated, IsWorkspaceAdmin]
@@ -521,7 +522,7 @@ class GroupMemberView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class GroupProjectView(APIView):
+class GroupProjectView(IdempotencyMixin, APIView):
     """POST/DELETE /api/v1/workspace/groups/{id}/projects/[{project_id}/] (#519).
 
     Linking a group to a project confers the chosen role on every group member
