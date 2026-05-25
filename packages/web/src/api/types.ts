@@ -39,6 +39,10 @@ export interface ProjectMembership {
   joined_at: string;
   /** ISO 8601 timestamp of the last role change, or null if unchanged since joining. */
   role_changed_at: string | null;
+  /** Count of other active (non-archived) projects this user belongs to, excluding this one (#598). */
+  other_active_project_count: number;
+  /** Names of those other projects, limited to ones the requesting user owns (visibility-gated). */
+  other_active_project_names: string[];
 }
 
 export interface UserSearchResult {

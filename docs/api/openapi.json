@@ -16948,7 +16948,7 @@
             },
             "ProjectMembershipRead": {
                 "type": "object",
-                "description": "Response serializer — includes user_detail and role_label for list/retrieve.\n\nrole            — integer ordinal (canonical wire format; use for comparisons)\nrole_label      — human-readable label e.g. \"Project Manager\" (display only)\njoined_at       — when this membership row was created (per-project access evidence)\nrole_changed_at — when the role last changed, or null if unchanged since joining",
+                "description": "Response serializer — includes user_detail and role_label for list/retrieve.\n\nrole                       — integer ordinal (canonical wire format; use for comparisons)\nrole_label                 — human-readable label e.g. \"Project Manager\" (display only)\njoined_at                  — when this membership row was created (per-project access evidence)\nrole_changed_at            — when the role last changed, or null if unchanged since joining\nother_active_project_count — how many OTHER active (non-archived, non-deleted) projects this\n                             user belongs to, excluding the current one. A resource-load\n                             signal for the assigner (#598). The full count is shown; it is a\n                             number only and leaks no project identities.\nother_active_project_names — names of those other projects, but ONLY the ones the *requesting*\n                             user is OWNER of (visibility gate — never reveal the name of a\n                             project the requester cannot already see). Empty for non-OWNERs.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -16999,11 +16999,24 @@
                         "format": "date-time",
                         "readOnly": true,
                         "nullable": true
+                    },
+                    "other_active_project_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "other_active_project_names": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "id",
                     "joined_at",
+                    "other_active_project_count",
+                    "other_active_project_names",
                     "project",
                     "role",
                     "role_changed_at",

@@ -6,7 +6,8 @@ import uuid
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Count, IntegerField, OuterRef, Q, QuerySet, Subquery
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers as drf_serializers
@@ -58,9 +59,74 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
 
     def get_queryset(self) -> QuerySet[ProjectMembership]:
         project_pk = self.kwargs["project_pk"]
-        return ProjectMembership.objects.select_related("project", "user").filter(
-            project_id=project_pk, is_deleted=False
+        # Annotate each row with the member's count of OTHER active projects (#598)
+        # via a correlated subquery — one extra query for the whole page, no N+1.
+        # Coalesce to 0 for members who are on no other active project.
+        other_active = (
+            ProjectMembership.objects.filter(
+                user_id=OuterRef("user_id"),
+                is_deleted=False,
+                project__is_deleted=False,
+                project__is_archived=False,
+            )
+            .exclude(project_id=project_pk)
+            .values("user_id")
+            .annotate(c=Count("project_id", distinct=True))
+            .values("c")
         )
+        return (
+            ProjectMembership.objects.select_related("project", "user")
+            .filter(project_id=project_pk, is_deleted=False)
+            .annotate(
+                other_active_count=Coalesce(Subquery(other_active, output_field=IntegerField()), 0)
+            )
+        )
+
+    def _build_other_project_names_map(
+        self, request: Request, memberships: list[ProjectMembership], current_project_pk: _PK
+    ) -> dict[object, list[str]]:
+        """Map user_id -> names of their other active projects the REQUESTER owns (#598).
+
+        Visibility gate: a project name is revealed only for projects the requesting user
+        is OWNER of — never leak the name of a project the requester cannot already see.
+        Bounded query cost: one query for the requester's owned projects + one for the
+        members' memberships within that owned set (no per-row queries).
+        """
+        names_map: dict[object, list[str]] = {m.user_id: [] for m in memberships}
+        if not memberships:
+            return names_map
+        owned_ids = set(
+            ProjectMembership.objects.filter(
+                # IsAuthenticated guarantees a real User, but mypy still sees
+                # request.user as User | AnonymousUser for the lookup.
+                user=request.user,  # type: ignore[misc]
+                role=Role.OWNER,
+                is_deleted=False,
+                project__is_deleted=False,
+                project__is_archived=False,
+            )
+            .exclude(project_id=current_project_pk)
+            .values_list("project_id", flat=True)
+        )
+        if not owned_ids:
+            return names_map
+        rows = (
+            ProjectMembership.objects.filter(
+                user_id__in=list(names_map.keys()),
+                is_deleted=False,
+                project_id__in=owned_ids,
+                # Self-contained active-project gate (defense in depth): owned_ids is
+                # already built from active projects, but pin it here too so a future
+                # change to owned_ids can't silently surface an archived/deleted name.
+                project__is_deleted=False,
+                project__is_archived=False,
+            )
+            .select_related("project")
+            .order_by("project__name")
+        )
+        for row in rows:
+            names_map[row.user_id].append(row.project.name)
+        return names_map
 
     def get_serializer_class(self) -> type[BaseSerializer[ProjectMembership]]:
         if self.action in ("create", "partial_update", "update"):
@@ -116,13 +182,25 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             user_pk = request.user.pk
             assert user_pk is not None  # IsAuthenticated ensures a real user
             qs = qs.filter(user_id=user_pk)
-        serializer = ProjectMembershipReadSerializer(qs, many=True)
+        memberships = list(qs)
+        names_map = self._build_other_project_names_map(request, memberships, project.pk)
+        serializer = ProjectMembershipReadSerializer(
+            memberships,
+            many=True,
+            context={"request": request, "other_project_names_map": names_map},
+        )
         return Response(serializer.data)
 
     def retrieve(self, request: Request, pk: object = None, **kwargs: object) -> Response:
-        self._get_project_or_404()
+        project = self._get_project_or_404()
         instance = self.get_object()
-        return Response(ProjectMembershipReadSerializer(instance).data)
+        names_map = self._build_other_project_names_map(request, [instance], project.pk)
+        return Response(
+            ProjectMembershipReadSerializer(
+                instance,
+                context={"request": request, "other_project_names_map": names_map},
+            ).data
+        )
 
     def create(self, request: Request, **kwargs: object) -> Response:
         project = self._get_project_or_404()

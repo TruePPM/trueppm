@@ -63,6 +63,8 @@ const makeOwner = (overrides: Partial<ProjectMembership> = {}): ProjectMembershi
   role_label: 'Project Admin',
   joined_at: '2026-04-12T12:00:00Z',
   role_changed_at: null,
+  other_active_project_count: 0,
+  other_active_project_names: [],
   ...overrides,
 });
 
@@ -76,6 +78,8 @@ const makeMember = (overrides: Partial<ProjectMembership> = {}): ProjectMembersh
   role_label: 'Team Member',
   joined_at: '2026-04-12T12:00:00Z',
   role_changed_at: null,
+  other_active_project_count: 0,
+  other_active_project_names: [],
   ...overrides,
 });
 
@@ -188,5 +192,49 @@ describe('MembersTab', () => {
     const bobRow = screen.getByText('bob').closest('li')!;
     expect(within(bobRow).getByText(new RegExp(`Joined ${fmt('2026-04-12T12:00:00Z')}`))).toBeInTheDocument();
     expect(within(bobRow).getByText(new RegExp(`Role changed ${fmt('2026-05-01T12:00:00Z')}`))).toBeInTheDocument();
+  });
+
+  // Other-active-projects badge (#598)
+  it('shows the other-active-projects badge when the count is positive', () => {
+    mockMembers = [makeMember({ other_active_project_count: 3 })];
+    render();
+    const bobRow = screen.getByText('bob').closest('li')!;
+    expect(within(bobRow).getByText('+3 other projects')).toBeInTheDocument();
+  });
+
+  it('uses the singular noun for a count of one', () => {
+    mockMembers = [makeMember({ other_active_project_count: 1 })];
+    render();
+    const bobRow = screen.getByText('bob').closest('li')!;
+    expect(within(bobRow).getByText('+1 other project')).toBeInTheDocument();
+  });
+
+  it('omits the badge when the member is on no other active project', () => {
+    mockMembers = [makeMember({ other_active_project_count: 0 })];
+    render();
+    const bobRow = screen.getByText('bob').closest('li')!;
+    expect(within(bobRow).queryByText(/other project/)).not.toBeInTheDocument();
+  });
+
+  it('lists visible project names in the badge tooltip', () => {
+    mockMembers = [
+      makeMember({ other_active_project_count: 2, other_active_project_names: ['Apollo', 'Gemini'] }),
+    ];
+    render();
+    const bobRow = screen.getByText('bob').closest('li')!;
+    expect(within(bobRow).getByText('+2 other projects')).toHaveAttribute(
+      'title',
+      'Also on: Apollo, Gemini',
+    );
+  });
+
+  it('falls back to a count-only tooltip when no names are visible to the viewer', () => {
+    mockMembers = [makeMember({ other_active_project_count: 2, other_active_project_names: [] })];
+    render();
+    const bobRow = screen.getByText('bob').closest('li')!;
+    expect(within(bobRow).getByText('+2 other projects')).toHaveAttribute(
+      'title',
+      'On 2 other active projects',
+    );
   });
 });

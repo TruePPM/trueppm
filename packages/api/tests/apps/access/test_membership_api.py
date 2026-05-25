@@ -365,3 +365,109 @@ def test_transfer_project_ownership_stamps_both_rows(
     assert member_membership.role == Role.OWNER
     assert owner_membership.role_changed_at is not None
     assert member_membership.role_changed_at is not None
+
+
+# ---------------------------------------------------------------------------
+# Other-active-projects count + visibility-gated names (#598)
+# ---------------------------------------------------------------------------
+
+
+def _make_project(name: str, *, archived: bool = False, deleted: bool = False) -> Project:
+    p = Project.objects.create(name=name, start_date=date(2026, 1, 1))
+    if archived:
+        p.is_archived = True
+        p.save(update_fields=["is_archived"])
+    if deleted:
+        p.is_deleted = True
+        p.save(update_fields=["is_deleted"])
+    return p
+
+
+def _row_for(resp: object, user: object) -> dict[str, object]:
+    return next(r for r in resp.data if str(r["user"]) == str(user.pk))  # type: ignore[attr-defined]
+
+
+@pytest.mark.django_db
+def test_list_includes_other_active_project_count(
+    owner_client: APIClient,
+    project: Project,
+    member_user: object,
+    member_membership: ProjectMembership,
+) -> None:
+    for name in ("Apollo", "Gemini"):
+        ProjectMembership.objects.create(
+            project=_make_project(name), user=member_user, role=Role.MEMBER
+        )
+    resp = owner_client.get(_url(project))
+    assert resp.status_code == 200
+    assert _row_for(resp, member_user)["other_active_project_count"] == 2
+
+
+@pytest.mark.django_db
+def test_count_excludes_archived_and_soft_deleted_projects(
+    owner_client: APIClient,
+    project: Project,
+    member_user: object,
+    member_membership: ProjectMembership,
+) -> None:
+    ProjectMembership.objects.create(
+        project=_make_project("ActiveOne"), user=member_user, role=Role.MEMBER
+    )
+    ProjectMembership.objects.create(
+        project=_make_project("Archived", archived=True), user=member_user, role=Role.MEMBER
+    )
+    ProjectMembership.objects.create(
+        project=_make_project("Deleted", deleted=True), user=member_user, role=Role.MEMBER
+    )
+    resp = owner_client.get(_url(project))
+    assert _row_for(resp, member_user)["other_active_project_count"] == 1  # only ActiveOne
+
+
+@pytest.mark.django_db
+def test_count_excludes_the_current_project(
+    owner_client: APIClient,
+    project: Project,
+    member_user: object,
+    member_membership: ProjectMembership,
+) -> None:
+    resp = owner_client.get(_url(project))
+    assert _row_for(resp, member_user)["other_active_project_count"] == 0
+
+
+@pytest.mark.django_db
+def test_names_listed_only_for_projects_the_requester_owns(
+    owner: object,
+    owner_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_user: object,
+    member_membership: ProjectMembership,
+) -> None:
+    # member_user is on two other active projects; the requester (owner) is OWNER of
+    # Apollo but only a MEMBER of Gemini — so only Apollo's name may be revealed.
+    apollo = _make_project("Apollo")
+    gemini = _make_project("Gemini")
+    ProjectMembership.objects.create(project=apollo, user=member_user, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=gemini, user=member_user, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=apollo, user=owner, role=Role.OWNER)
+    ProjectMembership.objects.create(project=gemini, user=owner, role=Role.MEMBER)
+
+    row = _row_for(owner_client.get(_url(project)), member_user)
+    assert row["other_active_project_count"] == 2  # full count is not gated
+    assert row["other_active_project_names"] == ["Apollo"]  # names are gated to owned projects
+
+
+@pytest.mark.django_db
+def test_names_empty_when_requester_owns_no_shared_projects(
+    owner: object,
+    member_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    member_membership: ProjectMembership,
+) -> None:
+    # The requester (a plain MEMBER) owns no other projects, so they see counts but
+    # no project names for anyone.
+    ProjectMembership.objects.create(project=_make_project("Apollo"), user=owner, role=Role.MEMBER)
+    row = _row_for(member_client.get(_url(project)), owner)
+    assert row["other_active_project_count"] == 1
+    assert row["other_active_project_names"] == []
