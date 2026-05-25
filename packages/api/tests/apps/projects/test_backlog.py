@@ -7,14 +7,18 @@ Covers:
   permission matrix; archive PATCH vs the rejected direct-PULLED PATCH; the
   pull action (happy path, never-a-sprint, RBAC on program + target project,
   cross-program rejection, double-pull idempotency); project-backlog read via
-  the existing Task filters; post-delete rollback to PROPOSED.
+  the existing Task filters; post-delete rollback to PROPOSED; the task.created
+  webhook fired on pull and suppressed on a rolled-back pull (#752).
 - #739 trigram search: fuzzy match, similarity ordering, combines with filters,
   empty-q no-op, program scoping (no cross-program leakage).
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -289,6 +293,71 @@ def test_pull_happy_path_creates_backlog_task(
     assert item.pulled_task_id == task.pk
     assert item.pulled_by_id == member.pk  # type: ignore[attr-defined]
     assert item.pulled_at is not None
+
+
+@pytest.mark.django_db
+def test_pull_fires_task_created_webhook(
+    member: object,
+    program: Program,
+    project: Project,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """A pull is a real Task-create, so it fires the task.created webhook (#752).
+
+    The service imports ``dispatch_webhooks`` at call time, so patch it on its
+    source module; ``django_capture_on_commit_callbacks(execute=True)`` runs the
+    deferred ``transaction.on_commit`` dispatch so the mock records the call.
+    """
+    item = _item(program)
+    with (
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks") as mock_dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = _client(member).post(
+            f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+            {"project_id": str(project.pk)},
+            format="json",
+        )
+    assert resp.status_code == 201
+    task_id = resp.data["task"]["id"]
+
+    fired = {c.args[1]: c.args[2] for c in mock_dispatch.call_args_list}
+    assert "task.created" in fired, mock_dispatch.call_args_list
+    payload = fired["task.created"]
+    assert payload["id"] == str(task_id)
+    assert payload["project"] == str(project.pk)
+    assert payload["status"] == TaskStatus.BACKLOG
+    # source distinguishes a pull from a board/schedule/sync create (ADR-0065).
+    assert payload["source"] == "backlog_pull"
+
+
+@pytest.mark.django_db
+def test_rejected_pull_fires_no_webhook(
+    member: object,
+    program: Program,
+    calendar: Calendar,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """A cross-program pull rolls back before commit, so no webhook is delivered."""
+    other = Program.objects.create(name="Other")
+    ProgramMembership.objects.create(program=other, user=member, role=Role.OWNER)
+    other_project = Project.objects.create(
+        name="Other build", start_date=date(2026, 4, 1), calendar=calendar, program=other
+    )
+    ProjectMembership.objects.create(project=other_project, user=member, role=Role.MEMBER)
+    item = _item(program)
+
+    with (
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks") as mock_dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = _client(member).post(
+            f"/api/v1/programs/{program.pk}/backlog-items/{item.pk}/pull/",
+            {"project_id": str(other_project.pk)},
+            format="json",
+        )
+    assert resp.status_code == 400
+    mock_dispatch.assert_not_called()
 
 
 @pytest.mark.django_db
