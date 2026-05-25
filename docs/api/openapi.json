@@ -13271,6 +13271,28 @@
                     }
                 }
             }
+        },
+        "/api/v1/workspace/email-settings/": {
+            "get": {
+                "operationId": "v1_workspace_email_settings_retrieve",
+                "description": "``GET /api/v1/workspace/email-settings/`` — read-only Email & SMTP status.\n\nSurfaces how TruePPM sends outbound mail (#639, ADR-0085 §5). The transport is\nconfigured via Django settings / Helm env (``EMAIL_BACKEND``, ``EMAIL_HOST``,\n``DEFAULT_FROM_EMAIL`` …), so this endpoint exposes only the **safe** subset —\nnever the SMTP password or username — for the workspace admin to confirm the\nFrom identity and that a host is configured. Org-admin gated. The writable SMTP\nconfig (transport switch, BYO credentials) is #712.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
         }
     },
     "components": {

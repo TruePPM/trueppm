@@ -1,7 +1,7 @@
 # TruePPM — Project Intelligence
 
 ## About
-Self-hosted open-core Project, Program, and Portfolio Management (P3M) platform. Built with Django 5.1, Django REST Framework, React 19 + TypeScript, and PostgreSQL. Scheduling-first alternative to MS Project and Planview — CPM is the engine, not a bolt-on; agile boards and sprints are an overlay on the schedule rather than the primary workflow. The scheduling engine ships as a standalone Apache 2.0 Python package on PyPI (`trueppm-scheduler`). Features: CPM (all 4 dependency types, calendar-aware lag, cycle detection), Monte Carlo risk analysis (P50/P80/P95), custom canvas Gantt renderer, Kanban boards and sprint lifecycle (plan/activate/close) layered on the schedule, real-time collaboration via WebSockets, 5-role RBAC per project (Owner/Admin/Scheduler/Member/Viewer), offline sync protocol (WatermelonDB-compatible delta with tombstones), MS Project import/export, time tracking, baselines, and production-ready Helm 3 chart for Kubernetes. Community edition is Apache 2.0; Enterprise adds portfolio governance, SSO/SAML/OIDC, LDAP sync, cross-program resource leveling, and approval workflows.
+Self-hosted open-core Project, Program, and Portfolio Management (P3M) platform. Built with Django 5.2, Django REST Framework, React 19 + TypeScript, and PostgreSQL. Scheduling-first alternative to MS Project and Planview — CPM is the engine, not a bolt-on; agile boards and sprints are an overlay on the schedule rather than the primary workflow. The scheduling engine ships as a standalone Apache 2.0 Python package on PyPI (`trueppm-scheduler`). Features: CPM (all 4 dependency types, calendar-aware lag, cycle detection), Monte Carlo risk analysis (P50/P80/P95), custom canvas Gantt renderer, Kanban boards and sprint lifecycle (plan/activate/close) layered on the schedule, real-time collaboration via WebSockets, 5-role RBAC per project (Owner/Admin/Scheduler/Member/Viewer), offline sync protocol (WatermelonDB-compatible delta with tombstones), MS Project import/export, time tracking, baselines, and production-ready Helm 3 chart for Kubernetes. Community edition is Apache 2.0; Enterprise adds portfolio governance, SSO/SAML/OIDC, LDAP sync, cross-program resource leveling, and approval workflows.
 
 - **Company**: TruePPM, Inc. | trueppm.com
 - **License**: Community edition is Apache 2.0. Enterprise features are proprietary.
@@ -14,7 +14,7 @@ Self-hosted open-core Project, Program, and Portfolio Management (P3M) platform.
 trueppm-suite/
 ├── packages/
 │   ├── scheduler/       # trueppm-scheduler (Python, pip package, Apache 2.0)
-│   ├── api/             # Django 5.1 REST + Channels backend
+│   ├── api/             # Django 5.2 REST + Channels backend
 │   ├── web/             # React 19 + TypeScript + Vite frontend
 │   ├── helm/            # Helm 3 chart for Kubernetes deployment
 │   └── website/         # Docusaurus documentation site
@@ -26,7 +26,7 @@ trueppm-suite/
 ### Tech Stack (do not deviate without explicit approval)
 | Layer | Technology | Version |
 |-------|-----------|---------|
-| API | Django + DRF | 5.1+ / 3.15+ |
+| API | Django + DRF | 5.2 LTS / 3.15+ |
 | Real-time | Django Channels | 4.x |
 | Queue | Celery + Valkey (Redis-compatible) | 5.4+ / 8+ |
 | Database | PostgreSQL | 16+ |

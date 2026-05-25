@@ -13,7 +13,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from trueppm_api.apps.access.permissions import IsProjectMember
+from trueppm_api.apps.access.permissions import IsOrgAdmin, IsProjectMember
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Project
 
@@ -238,3 +238,43 @@ class ProjectNotificationPreferenceView(IdempotencyMixin, APIView):
         payload = ProjectNotificationPreferenceSerializer(pref).data
         payload["matrix"] = _merge_matrix(pref.matrix or {}, {})
         return Response(payload, status=status.HTTP_200_OK)
+
+
+class EmailSettingsStatusView(APIView):
+    """``GET /api/v1/workspace/email-settings/`` — read-only Email & SMTP status.
+
+    Surfaces how TruePPM sends outbound mail (#639, ADR-0085 §5). The transport is
+    configured via Django settings / Helm env (``EMAIL_BACKEND``, ``EMAIL_HOST``,
+    ``DEFAULT_FROM_EMAIL`` …), so this endpoint exposes only the **safe** subset —
+    never the SMTP password or username — for the workspace admin to confirm the
+    From identity and that a host is configured. Org-admin gated. The writable SMTP
+    config (transport switch, BYO credentials) is #712.
+    """
+
+    permission_classes = [IsAuthenticated, IsOrgAdmin]
+
+    def get(self, request: Request) -> Response:
+        from django.conf import settings
+
+        backend = getattr(settings, "EMAIL_BACKEND", "") or ""
+        host = getattr(settings, "EMAIL_HOST", "") or ""
+        if "smtp" in backend.lower():
+            transport = "smtp"
+        elif "console" in backend.lower():
+            transport = "console"
+        elif "locmem" in backend.lower():
+            transport = "in-memory"
+        else:
+            transport = backend.rsplit(".", 1)[-1] or "unknown"
+        return Response(
+            {
+                "transport": transport,
+                "host": host,
+                "host_configured": bool(host),
+                "port": getattr(settings, "EMAIL_PORT", None),
+                "use_tls": bool(getattr(settings, "EMAIL_USE_TLS", False)),
+                "use_ssl": bool(getattr(settings, "EMAIL_USE_SSL", False)),
+                "from_email": getattr(settings, "DEFAULT_FROM_EMAIL", "") or "",
+                "configured_via": "environment",
+            }
+        )

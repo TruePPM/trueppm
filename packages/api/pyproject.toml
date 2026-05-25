@@ -12,38 +12,49 @@ requires-python = ">=3.11"
 authors = [
     { name = "Kelly Hair" },
 ]
+# Runtime deps carry an explicit upper bound on the next major. A bare `>=`
+# floor lets `pip install` resolve to the latest major at install time, with no
+# protection against a breaking release — that is how the local venv silently
+# drifted to Django 6.0 (which needs Python 3.12+, so CI on 3.11 was unaffected
+# and the skew went unnoticed). Bounds are capped one major above the version CI
+# currently resolves; patch/minor security fixes within the current major are
+# still allowed.
 dependencies = [
     "trueppm-scheduler>=0.1.0a0",
-    "django>=5.1",
-    "djangorestframework>=3.15",
-    "djangorestframework-simplejwt>=5.3",
-    "django-allauth>=0.63",
-    "channels>=4.0",
-    "channels-redis>=4.0",
-    "celery>=5.4",
-    "redis>=5.0",
-    "psycopg[binary]>=3.1",
-    "django-environ>=0.11",
-    "django-simple-history>=3.7",
-    "drf-spectacular>=0.27",
-    "uvicorn[standard]>=0.29",
+    "django>=5.2,<6.0",
+    "djangorestframework>=3.15,<4.0",
+    "djangorestframework-simplejwt>=5.3,<6.0",
+    "django-allauth>=65.0,<66.0",
+    "channels>=4.0,<5.0",
+    "channels-redis>=4.0,<5.0",
+    "celery>=5.4,<6.0",
+    "redis>=5.0,<8.0",
+    "psycopg[binary]>=3.1,<4.0",
+    "django-environ>=0.11,<1.0",
+    "django-simple-history>=3.7,<4.0",
+    "drf-spectacular>=0.27,<1.0",
+    "uvicorn[standard]>=0.29,<1.0",
     "cryptography>=46.0.7,<47",
 ]
 
 [project.optional-dependencies]
+# Dev/toolchain deps are capped on the next major too — an unpinned `ruff` or
+# `mypy` that drifts a major between a local run and CI produces format/type
+# failures that only surface in the pipeline. (Exact-version reproducibility is
+# a lockfile concern, tracked separately; these caps are the cheap floor.)
 dev = [
-    "pytest>=8.0",
-    "pytest-django>=4.8",
-    "pytest-asyncio>=0.23",
-    "pytest-cov>=4.0",
-    "pytest-xdist>=3.6",
-    "pytest-split>=0.9",
-    "diff-cover>=9.0",
-    "mypy>=1.0",
-    "django-stubs[compatible-mypy]>=5.0",
-    "djangorestframework-stubs[compatible-mypy]>=3.15",
-    "ruff>=0.8",
-    "testcontainers[postgres]>=4.7",
+    "pytest>=8.0,<10.0",
+    "pytest-django>=4.8,<5.0",
+    "pytest-asyncio>=0.23,<2.0",
+    "pytest-cov>=4.0,<8.0",
+    "pytest-xdist>=3.6,<4.0",
+    "pytest-split>=0.9,<1.0",
+    "diff-cover>=9.0,<10.0",
+    "mypy>=1.0,<2.0",
+    "django-stubs[compatible-mypy]>=5.0,<7.0",
+    "djangorestframework-stubs[compatible-mypy]>=3.15,<4.0",
+    "ruff>=0.8,<1.0",
+    "testcontainers[postgres]>=4.7,<5.0",
 ]
 
 [tool.hatch.build.targets.wheel]

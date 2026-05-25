@@ -25,6 +25,19 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
     title: "When a group you're in is @-mentioned",
     example: '“@scrum-team please review the spec”',
   },
+  // Own-task events (#639) — keys match the WebhookEventType values.
+  'task.assigned': {
+    title: 'When a task is assigned to you',
+    example: 'You become the owner of “Foundation pour”',
+  },
+  'task.due_date_changed': {
+    title: 'When the planned date of your task changes',
+    example: '“Foundation pour” moves to Aug 14',
+  },
+  comment_on_my_task: {
+    title: 'When someone comments on your task',
+    example: 'A teammate leaves a note on a task you own',
+  },
 };
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -93,7 +106,13 @@ export function NotificationPreferencesPage() {
       return [...out, ...rest];
     };
     return {
-      eventTypes: ordered(eventSet, ['mention_individual', 'mention_group']),
+      eventTypes: ordered(eventSet, [
+        'mention_individual',
+        'mention_group',
+        'task.assigned',
+        'task.due_date_changed',
+        'comment_on_my_task',
+      ]),
       channels: ordered(channelSet, ['in_app', 'email']),
       prefByKey: byKey,
     };

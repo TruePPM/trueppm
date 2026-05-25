@@ -195,14 +195,9 @@ def _send_email_for_notification(notif: object) -> bool:
         )
         return False
 
-    mention = notif_obj.mention
-    if mention is None:
-        logger.warning(
-            "drain_notification_emails: notif %s has no source mention, skipping",
-            notif_obj.pk,
-        )
-        return False
-
+    # A notification is mention-sourced OR event-sourced (#639, ADR-0085 §3);
+    # _render_email handles both shapes and returns ("", "") if neither yields
+    # renderable content (e.g. the source comment was deleted).
     subject, body = _render_email(notif_obj)
     if not subject or not body:
         return False
@@ -239,7 +234,9 @@ def _render_email(notif: object) -> tuple[str, str]:
     notif_obj: Notification = notif  # type: ignore[assignment]
     mention = notif_obj.mention
     if mention is None:
-        return "", ""
+        # Event-sourced notification (#639): the subject/body were rendered at
+        # dispatch time and frozen on the row. Empty subject => nothing to send.
+        return notif_obj.subject, notif_obj.body
 
     mentioner = mention.mentioner
     mentioner_name = (

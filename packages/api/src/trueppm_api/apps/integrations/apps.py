@@ -21,9 +21,14 @@ class IntegrationsConfig(AppConfig):
         ``OUTGOING_CHANNEL_PROVIDERS`` is populated here by #638 with the OSS
         ``generic`` and ``slack`` renderers.
         """
+        from .notification_channels import OSS_NOTIFICATION_CHANNELS
         from .outgoing import OSS_OUTGOING_CHANNEL_PROVIDERS
         from .providers import OSS_TASK_LINK_PROVIDERS
-        from .registry import OUTGOING_CHANNEL_PROVIDERS, TASK_LINK_PROVIDERS
+        from .registry import (
+            NOTIFICATION_CHANNELS,
+            OUTGOING_CHANNEL_PROVIDERS,
+            TASK_LINK_PROVIDERS,
+        )
 
         for handler in OSS_TASK_LINK_PROVIDERS:
             # Idempotent: skip if a re-import (e.g. tests reloading the app)
@@ -36,3 +41,7 @@ class IntegrationsConfig(AppConfig):
         for channel in OSS_OUTGOING_CHANNEL_PROVIDERS:
             if OUTGOING_CHANNEL_PROVIDERS.get(channel.key) is None:
                 OUTGOING_CHANNEL_PROVIDERS.register(channel.key, channel)
+
+        for notif_channel in OSS_NOTIFICATION_CHANNELS:
+            if NOTIFICATION_CHANNELS.get(notif_channel.key) is None:
+                NOTIFICATION_CHANNELS.register(notif_channel.key, notif_channel)

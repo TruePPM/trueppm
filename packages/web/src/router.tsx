@@ -170,6 +170,11 @@ const WorkspaceMethodologyPage = lazy(() =>
     default: m.WorkspaceMethodologyPage,
   }))
 );
+const WorkspaceEmailPage = lazy(() =>
+  import('@/features/settings/workspace/WorkspaceEmailPage').then((m) => ({
+    default: m.WorkspaceEmailPage,
+  }))
+);
 const IntegrationsRedirect = lazy(() =>
   import('@/features/settings/workspace/IntegrationsRedirect').then((m) => ({
     default: m.IntegrationsRedirect,
@@ -673,6 +678,14 @@ export const router = createBrowserRouter([
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
                     <WorkspaceMethodologyPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'email',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <WorkspaceEmailPage />
                   </Suspense>
                 ),
               },

@@ -95,6 +95,7 @@ export default defineConfig({
             { slug: "administration/durability" },
             { slug: "administration/dead-letter-alerting" },
             { slug: "administration/retention" },
+            { slug: "administration/email" },
           ],
         },
         // --- Feature reference (sub-grouped) ---

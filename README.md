@@ -75,7 +75,7 @@ Full documentation at **[docs.trueppm.com](https://docs.trueppm.com)** (publishe
 trueppm-suite/
 ├── packages/
 │   ├── scheduler/   # CPM + Monte Carlo engine (pip: trueppm-scheduler)
-│   ├── api/         # Django 5.1 REST + Channels backend
+│   ├── api/         # Django 5.2 REST + Channels backend
 │   ├── web/         # React 19 + TypeScript frontend
 │   ├── helm/        # Helm 3 chart for Kubernetes deployment
 │   └── website/     # Astro Starlight documentation site
