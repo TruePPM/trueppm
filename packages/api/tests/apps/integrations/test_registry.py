@@ -14,6 +14,9 @@ from typing import Any, ClassVar
 
 import pytest
 
+from trueppm_api.apps.integrations.notification_channels import (
+    OSS_NOTIFICATION_CHANNELS,
+)
 from trueppm_api.apps.integrations.outgoing import OSS_OUTGOING_CHANNEL_PROVIDERS
 from trueppm_api.apps.integrations.providers import OSS_TASK_LINK_PROVIDERS
 from trueppm_api.apps.integrations.registry import (
@@ -94,11 +97,16 @@ def test_oss_outgoing_channel_providers_registered_at_app_ready() -> None:
         assert OUTGOING_CHANNEL_PROVIDERS.get(handler.key) is handler
 
 
-def test_notification_registry_exists_but_empty() -> None:
-    """0.2 reserves the notification slot so #639 can register cleanly, but
-    does not populate it. If this is ever non-empty in OSS without #639 being
-    merged, something registered out-of-band."""
-    assert NOTIFICATION_CHANNELS.keys() == []
+def test_oss_notification_channels_registered_at_app_ready() -> None:
+    """#639 populates ``NOTIFICATION_CHANNELS`` with the OSS ``in_app`` +
+    ``email`` channels at app-ready. If this fails, ``NotificationPreference``
+    rows can't validate their ``channel`` field against a known key set and the
+    Enterprise channel seam (``slack_dm`` / ``teams_dm`` / ``sms``) has nothing
+    to register alongside."""
+    keys = NOTIFICATION_CHANNELS.keys()
+    assert set(keys) >= {"in_app", "email"}
+    for handler in OSS_NOTIFICATION_CHANNELS:
+        assert NOTIFICATION_CHANNELS.get(handler.key) is handler
 
 
 # ---------------------------------------------------------------------------
