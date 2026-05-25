@@ -1,0 +1,946 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Visual specs — 2026-05 batch · TruePPM</title>
+<link rel="stylesheet" href="tokens.css">
+<style>
+  body { max-width: 1240px; margin: 0 auto; padding: 56px 32px 120px; line-height: 1.5; }
+  h1 { font-weight: 600; font-size: 32px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: rgb(var(--neutral-text-secondary)); font-size: 14px; margin: 0 0 40px; max-width: 64ch; }
+  h2 {
+    font-weight: 600; font-size: 21px;
+    margin: 72px 0 4px;
+    padding-top: 22px;
+    border-top: 1px solid rgb(var(--neutral-border));
+    letter-spacing: -0.005em;
+  }
+  h2 .num { color: rgb(var(--neutral-text-disabled)); font-family: 'JetBrains Mono', monospace; font-size: 15px; margin-right: 12px; font-weight: 500; }
+  h2 .ticket { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: rgb(var(--neutral-text-secondary)); font-weight: 500; margin-left: 12px; padding: 2px 6px; background: rgb(var(--neutral-surface-raised)); border: 1px solid rgb(var(--neutral-border)); border-radius: 3px; }
+  h3 { font-weight: 600; font-size: 12px; margin: 24px 0 8px; color: rgb(var(--neutral-text-secondary)); text-transform: uppercase; letter-spacing: 0.08em; }
+  p.lead { margin: 4px 0 20px; color: rgb(var(--neutral-text-secondary)); max-width: 76ch; }
+  .frame { background: rgb(var(--neutral-surface)); border: 1px solid rgb(var(--neutral-border)); border-radius: 4px; overflow: hidden; margin: 18px 0; }
+  .frame-title {
+    background: rgb(var(--neutral-surface-raised));
+    border-bottom: 1px solid rgb(var(--neutral-border));
+    padding: 8px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: rgb(var(--neutral-text-secondary));
+    display: flex; justify-content: space-between;
+  }
+  .frame-body { padding: 24px; }
+  .annot { font-size: 12px; color: rgb(var(--neutral-text-secondary)); margin: 8px 0 0; font-style: italic; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+
+  /* Chrome bits */
+  .toolbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: rgb(var(--neutral-surface-raised)); border-bottom: 1px solid rgb(var(--neutral-border)); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; background: rgb(var(--neutral-surface)); border: 1px solid rgb(var(--neutral-border)); border-radius: 4px; font-size: 12px; }
+  .seg { display: inline-flex; border: 1px solid rgb(var(--neutral-border)); border-radius: 4px; overflow: hidden; background: rgb(var(--neutral-surface)); }
+  .seg button { height: 28px; padding: 0 10px; background: transparent; border: 0; color: rgb(var(--neutral-text-secondary)); font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .seg button + button { border-left: 1px solid rgb(var(--neutral-border)); }
+  .seg button.active { background: var(--brand-primary); color: #fff; }
+  .btn { height: 30px; padding: 0 14px; background: var(--brand-primary); color: #fff; border: 0; border-radius: 4px; font-size: 13px; font-weight: 500; cursor: pointer; }
+  .btn.secondary { background: rgb(var(--neutral-surface)); color: rgb(var(--neutral-text-primary)); border: 1px solid rgb(var(--neutral-border)); }
+  .btn.destructive { background: rgb(var(--semantic-critical)); color: #fff; }
+  .btn.ghost { background: transparent; color: rgb(var(--neutral-text-primary)); border: 0; }
+  .kbd { font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 1px 6px; background: rgb(var(--neutral-surface-raised)); border: 1px solid rgb(var(--neutral-border)); border-radius: 3px; }
+  .tag { display: inline-block; font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 1px 6px; background: rgb(var(--neutral-surface-sunken)); color: rgb(var(--neutral-text-secondary)); border-radius: 2px; }
+
+  /* Board card */
+  .bcard { background: rgb(var(--neutral-surface)); border: 1px solid rgb(var(--neutral-border)); border-left: 3px solid var(--brand-primary); border-radius: 3px; padding: 10px 10px 10px 12px; margin-bottom: 8px; position: relative; font-size: 13px; }
+  .bcard .id { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: rgb(var(--neutral-text-secondary)); }
+  .bcard .title { font-weight: 500; margin-top: 2px; line-height: 1.35; }
+  .bcard .meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; color: rgb(var(--neutral-text-secondary)); }
+  .avatar { width: 18px; height: 18px; border-radius: 50%; background: #C8B79D; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; color: #fff; font-weight: 600; }
+  .avatar.b { background: #8EA88E; }
+  .avatar.c { background: #C5876A; }
+  .avatar.d { background: #9C9590; }
+  .chip { display: inline-flex; height: 16px; padding: 0 6px; font-size: 10px; background: rgb(var(--neutral-surface-sunken)); border-radius: 8px; align-items: center; color: rgb(var(--neutral-text-secondary)); font-family: 'JetBrains Mono', monospace; }
+  .check { width: 14px; height: 14px; border: 1.5px solid rgb(var(--neutral-border)); border-radius: 3px; background: #fff; position: absolute; top: 8px; left: 8px; display: inline-flex; align-items: center; justify-content: center; }
+  .check.on { background: var(--brand-primary); border-color: var(--brand-primary); }
+  .check.on::after { content: '✓'; color: #fff; font-size: 10px; line-height: 1; }
+  .bcard.has-check { padding-left: 28px; }
+  .bcard.selected { border-color: var(--brand-primary); background: var(--brand-primary-light); }
+  .bcard.dim { opacity: 0.18; filter: saturate(0.4); }
+  .bcard mark { background: var(--brand-accent-light); color: inherit; border-radius: 2px; padding: 0 2px; }
+  .bcard.proc { border-left-color: var(--brand-accent-dark); }
+  .bcard.ops  { border-left-color: #6B7B8C; }
+
+  /* Mini board grid */
+  .miniboard { display: grid; grid-template-columns: 144px repeat(4, 1fr); }
+  .col-header, .lane-meta { padding: 8px 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; background: rgb(var(--neutral-surface-raised)); border-bottom: 1px solid rgb(var(--neutral-border)); color: rgb(var(--neutral-text-secondary)); display: flex; align-items: center; gap: 8px; }
+  .col-header { border-right: 1px solid rgb(var(--neutral-border)); }
+  .col-header:last-child { border-right: 0; }
+  .lane-meta { border-right: 1px solid rgb(var(--neutral-border)); text-transform: none; font-weight: 500; font-size: 12px; letter-spacing: 0; color: rgb(var(--neutral-text-primary)); }
+  .lane-meta .sm { font-size: 10px; color: rgb(var(--neutral-text-secondary)); font-family: 'JetBrains Mono', monospace; }
+  .lane-cell { padding: 10px; border-right: 1px solid rgb(var(--neutral-border)); border-bottom: 1px solid rgb(var(--neutral-border)); min-height: 88px; background: #fff; }
+  .lane-cell:last-of-type { border-right: 0; }
+
+  /* Action bar */
+  .actbar { background: rgb(var(--neutral-surface-raised)); border: 1px solid rgb(var(--neutral-border)); border-radius: 6px; padding: 6px 6px 6px 14px; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+  .actbar .count { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+  .actbar .sep { width: 1px; height: 20px; background: rgb(var(--neutral-border)); margin: 0 6px; }
+  .actbar .act { height: 28px; padding: 0 10px; background: transparent; border: 0; border-radius: 4px; color: rgb(var(--neutral-text-primary)); font-size: 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .actbar .act:hover { background: var(--chrome-row-hover); }
+  .actbar .act.destructive { color: rgb(var(--semantic-critical)); }
+  .actbar .act.gated { color: rgb(var(--neutral-text-disabled)); cursor: not-allowed; }
+  .actbar .clear { color: rgb(var(--neutral-text-secondary)); }
+
+  /* Search field */
+  .searchfield { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; background: rgb(var(--neutral-surface)); border: 1px solid rgb(var(--neutral-border)); border-radius: 4px; width: 280px; }
+  .searchfield input { border: 0; outline: 0; flex: 1; font-size: 13px; background: transparent; color: inherit; width: 100%; }
+  .searchfield .counter { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: rgb(var(--neutral-text-secondary)); }
+  .searchfield .clearx { color: rgb(var(--neutral-text-secondary)); cursor: pointer; font-size: 14px; }
+
+  /* Activity rail */
+  .actrail-shell { display: grid; grid-template-columns: 1fr 320px; min-height: 380px; }
+  .actrail-content { padding: 24px; background: rgb(var(--neutral-surface-sunken)); color: rgb(var(--neutral-text-secondary)); font-size: 12px; }
+  .actrail { background: rgb(var(--neutral-surface)); border-left: 1px solid rgb(var(--neutral-border)); display: flex; flex-direction: column; }
+  .actrail-head { padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgb(var(--neutral-border)); }
+  .actrail-head h4 { margin: 0; font-size: 13px; font-weight: 600; }
+  .actrail-chips { display: flex; gap: 6px; padding: 10px 14px; border-bottom: 1px solid rgb(var(--neutral-border)); flex-wrap: wrap; }
+  .actrail-chip { height: 24px; padding: 0 10px; font-size: 11px; border-radius: 12px; background: rgb(var(--neutral-surface-sunken)); color: rgb(var(--neutral-text-secondary)); border: 0; cursor: pointer; }
+  .actrail-chip.active { background: var(--brand-primary); color: #fff; }
+  .actrail-day { padding: 14px 14px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: rgb(var(--neutral-text-secondary)); display: flex; align-items: center; gap: 8px; }
+  .actrail-day::before, .actrail-day::after { content: ''; flex: 1; height: 1px; background: rgb(var(--neutral-border)); }
+  .actrail-event { padding: 8px 14px; display: flex; gap: 8px; font-size: 12px; align-items: flex-start; }
+  .actrail-event .body { flex: 1; line-height: 1.4; }
+  .actrail-event .body b { font-weight: 600; }
+  .actrail-event .body .target { color: var(--brand-primary); cursor: pointer; }
+  .actrail-event .time { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: rgb(var(--neutral-text-disabled)); margin-top: 4px; }
+
+  /* Density tier cards */
+  .dtier { background: rgb(var(--neutral-surface-raised)); border: 1px dashed rgb(var(--neutral-border)); padding: 14px; border-radius: 4px; }
+  .dtier h5 { margin: 0 0 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: rgb(var(--neutral-text-secondary)); display: flex; justify-content: space-between; }
+  .dtier h5 .px { font-family: 'JetBrains Mono', monospace; color: rgb(var(--neutral-text-disabled)); }
+  .bcard.compact { height: 32px; padding: 7px 10px 7px 12px; display: flex; align-items: center; gap: 8px; }
+  .bcard.compact .id { font-size: 10px; }
+  .bcard.compact .title { margin: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bcard.detail .desc { font-size: 11px; color: rgb(var(--neutral-text-secondary)); margin-top: 6px; line-height: 1.4; padding-bottom: 8px; border-bottom: 1px solid rgb(var(--neutral-border)); }
+  .progress { display: inline-flex; gap: 1px; }
+  .progress span { width: 8px; height: 4px; background: rgb(var(--neutral-surface-sunken)); }
+  .progress span.on { background: var(--brand-primary); }
+  .labels { display: flex; gap: 4px; margin-top: 6px; }
+  .labels .lbl { font-size: 10px; padding: 1px 6px; border-radius: 2px; background: rgb(var(--neutral-surface-sunken)); color: rgb(var(--neutral-text-secondary)); }
+
+  /* Cross-view drag */
+  .cv-shell { display: grid; grid-template-columns: 240px 1fr; min-height: 380px; }
+  .cv-rail { background: rgb(var(--neutral-surface)); border-right: 1px solid rgb(var(--neutral-border)); padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .cv-rail h4 { margin: 0 0 4px; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+  .cv-rail h4 .ct { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: rgb(var(--neutral-text-secondary)); font-weight: 500; }
+  .cv-rail .footer { margin-top: auto; padding-top: 8px; border-top: 1px solid rgb(var(--neutral-border)); font-size: 11px; color: rgb(var(--neutral-text-secondary)); cursor: pointer; }
+  .cv-canvas { background:
+    linear-gradient(rgb(var(--neutral-surface-raised)) 0, rgb(var(--neutral-surface-raised)) 28px, transparent 28px),
+    repeating-linear-gradient(90deg, rgb(var(--neutral-surface)) 0, rgb(var(--neutral-surface)) 79px, rgb(var(--neutral-border)) 79px, rgb(var(--neutral-border)) 80px);
+    position: relative; min-height: 380px;
+  }
+  .cv-canvas .dayhead { position: absolute; top: 6px; font-size: 10px; font-family: 'JetBrains Mono', monospace; color: rgb(var(--neutral-text-secondary)); }
+  .gantt-row { position: absolute; left: 12px; right: 12px; height: 28px; display: flex; align-items: center; gap: 8px; }
+  .gantt-label { font-size: 11px; color: rgb(var(--neutral-text-secondary)); width: 96px; flex-shrink: 0; }
+  .gantt-bar { height: 18px; background: var(--brand-primary); border-radius: 3px; opacity: 0.9; }
+  .gantt-bar.proc { background: var(--brand-accent-dark); }
+  .gantt-bar.ops  { background: #6B7B8C; }
+  .gantt-ghost { height: 22px; background: rgba(28,107,58,0.12); border: 1.5px dashed var(--brand-primary); border-radius: 3px; display: flex; align-items: center; padding: 0 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--brand-primary-dark); }
+  .day-tint { position: absolute; top: 28px; bottom: 0; background: rgba(28,107,58,0.10); border-left: 1px solid rgba(28,107,58,0.35); border-right: 1px solid rgba(28,107,58,0.35); pointer-events: none; }
+  .row-tint { position: absolute; left: 0; right: 0; background: rgba(28,107,58,0.06); border-top: 1px dashed rgba(28,107,58,0.35); border-bottom: 1px dashed rgba(28,107,58,0.35); pointer-events: none; }
+
+  /* Import dropzone */
+  .dropzone { border: 1.5px dashed rgb(var(--neutral-border)); background: rgb(var(--neutral-surface-raised)); border-radius: 6px; padding: 44px 24px; text-align: center; color: rgb(var(--neutral-text-secondary)); }
+  .dropzone .ic { font-size: 28px; margin-bottom: 12px; opacity: 0.6; }
+  .dropzone .ttl { font-size: 14px; color: rgb(var(--neutral-text-primary)); font-weight: 500; margin-bottom: 6px; }
+  .dropzone .meta { font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+  .dropzone.over { border-color: var(--brand-primary); background: var(--brand-primary-light); color: var(--brand-primary-dark); border-style: solid; }
+  .progress-row { background: rgb(var(--neutral-surface-raised)); border: 1px solid rgb(var(--neutral-border)); border-radius: 4px; padding: 14px 16px; }
+  .progress-row .label { font-size: 13px; margin-bottom: 8px; display: flex; justify-content: space-between; }
+  .progress-bar { height: 6px; background: rgb(var(--neutral-surface-sunken)); border-radius: 3px; overflow: hidden; }
+  .progress-bar > i { display: block; height: 100%; background: var(--brand-primary); }
+  .result-row { padding: 14px 16px; border-radius: 4px; }
+  .result-row.ok { background: var(--sem-on-track-bg); border: 1px solid rgba(22,101,52,0.3); }
+  .result-row.partial { background: var(--sem-at-risk-bg); border: 1px solid rgba(232,160,32,0.4); }
+  .result-row.err { background: var(--sem-critical-bg); border: 1px solid rgba(185,28,28,0.3); }
+  .result-row h5 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+  .result-row.ok h5 { color: var(--brand-primary-dark); }
+  .result-row.partial h5 { color: var(--brand-accent-dark); }
+  .result-row.err h5 { color: rgb(var(--semantic-critical)); }
+
+  /* Wizard */
+  .stepper { display: flex; align-items: center; gap: 14px; padding: 0 0 18px; font-size: 13px; border-bottom: 1px solid rgb(var(--neutral-border)); margin-bottom: 22px; }
+  .stepper .step { color: rgb(var(--neutral-text-disabled)); }
+  .stepper .step.past { color: var(--brand-primary); }
+  .stepper .step.active { color: rgb(var(--neutral-text-primary)); font-weight: 600; }
+  .stepper .step .n { font-family: 'JetBrains Mono', monospace; margin-right: 6px; opacity: 0.7; }
+  .stepper .chev { color: rgb(var(--neutral-text-disabled)); }
+  table.mapping { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.mapping th, table.mapping td { text-align: left; padding: 10px 12px; border-bottom: 1px solid rgb(var(--neutral-border)); }
+  table.mapping th { background: rgb(var(--neutral-surface-raised)); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: rgb(var(--neutral-text-secondary)); font-weight: 600; }
+  table.mapping select { width: 200px; padding: 5px 8px; border: 1px solid rgb(var(--neutral-border)); border-radius: 4px; background: #fff; font-size: 13px; font-family: inherit; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 2px 6px; border-radius: 3px; border: 1px solid; font-family: 'JetBrains Mono', monospace; }
+  .badge.ok { color: var(--brand-primary-dark); background: var(--brand-primary-light); border-color: var(--brand-primary); }
+  .badge.maybe { color: var(--brand-accent-dark); background: var(--brand-accent-light); border-color: var(--brand-accent); }
+  .preview-tree { font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 12px 14px; background: rgb(var(--neutral-surface-raised)); border: 1px solid rgb(var(--neutral-border)); border-radius: 4px; line-height: 1.7; }
+  .preview-tree .lvl1 { font-weight: 600; }
+  .preview-tree .lvl2 { padding-left: 22px; color: rgb(var(--neutral-text-secondary)); }
+
+  /* Overalloc */
+  .ob { background: var(--brand-accent-light); border: 1px solid var(--brand-accent); border-left: 3px solid var(--brand-accent-dark); padding: 14px 16px; border-radius: 4px; }
+  .ob.critical { background: var(--sem-critical-bg); border-color: rgb(var(--semantic-critical)); border-left-color: rgb(var(--semantic-critical)); }
+  .ob h5 { margin: 0 0 4px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; color: var(--brand-accent-dark); }
+  .ob.critical h5 { color: rgb(var(--semantic-critical)); }
+  .ob .row { display: grid; grid-template-columns: 110px 1fr 60px; gap: 10px; align-items: center; margin: 6px 0; font-size: 12px; }
+  .ob .bar { height: 6px; background: rgb(var(--neutral-surface-sunken)); border-radius: 3px; overflow: hidden; }
+  .ob .bar > i { display: block; height: 100%; background: var(--brand-accent); }
+  .ob.critical .bar > i { background: rgb(var(--semantic-critical)); }
+  .ob .pct { font-family: 'JetBrains Mono', monospace; text-align: right; font-size: 12px; }
+  .ob .footer { margin-top: 14px; display: flex; gap: 8px; justify-content: flex-end; }
+  .ob .delta { margin-top: 10px; font-size: 12px; color: rgb(var(--neutral-text-secondary)); font-style: italic; }
+  .obadge { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; font-size: 11px; font-family: 'JetBrains Mono', monospace; border: 1px solid var(--brand-accent); background: var(--brand-accent-light); color: var(--brand-accent-dark); border-radius: 10px; }
+  .obadge.critical { border-color: rgb(var(--semantic-critical)); color: rgb(var(--semantic-critical)); background: var(--sem-critical-bg); }
+  table.alloc { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.alloc th, table.alloc td { padding: 12px 14px; border-bottom: 1px solid rgb(var(--neutral-border)); text-align: left; vertical-align: middle; }
+  table.alloc th { background: rgb(var(--neutral-surface-raised)); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: rgb(var(--neutral-text-secondary)); font-weight: 600; }
+  table.alloc .name { display: flex; align-items: center; gap: 8px; }
+  table.alloc input.pct { width: 56px; padding: 4px 6px; border: 1px solid rgb(var(--neutral-border)); border-radius: 3px; font-family: 'JetBrains Mono', monospace; }
+  .stack-bar { display: inline-flex; gap: 0; border-radius: 3px; overflow: hidden; }
+  .stack-bar span { display: inline-block; height: 8px; }
+
+  /* Notes / mentions */
+  .note { padding: 14px 0; border-bottom: 1px solid rgb(var(--neutral-border)); }
+  .note:last-of-type { border-bottom: 0; }
+  .note .meta { font-size: 11px; color: rgb(var(--neutral-text-secondary)); display: flex; align-items: center; gap: 8px; }
+  .note .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand-primary); }
+  .note.decision { background: rgba(28,107,58,0.06); margin: 0 -14px; padding: 14px; border-radius: 4px; border: 1px solid rgba(28,107,58,0.18); border-bottom: 1px solid rgba(28,107,58,0.18); }
+  .note p { margin: 6px 0 0; font-size: 13px; line-height: 1.55; }
+  .mention { background: var(--brand-primary-light); color: var(--brand-primary-dark); padding: 1px 6px; border-radius: 10px; font-size: 12px; font-weight: 500; }
+  .composer { background: rgb(var(--neutral-surface-raised)); border: 1px solid rgb(var(--neutral-border)); border-radius: 4px; padding: 12px; margin-top: 14px; }
+  .composer .area { min-height: 60px; font-size: 13px; color: rgb(var(--neutral-text-secondary)); border-bottom: 1px solid rgb(var(--neutral-border)); padding-bottom: 10px; }
+  .composer .row { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+  .composer .tools { display: flex; gap: 4px; }
+  .composer .tools button { width: 26px; height: 26px; background: transparent; border: 0; color: rgb(var(--neutral-text-secondary)); cursor: pointer; border-radius: 3px; font-size: 12px; }
+  .composer .tools button:hover { background: rgb(var(--neutral-surface)); }
+  .checkbox-row { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: rgb(var(--neutral-text-secondary)); }
+  .mp { background: rgb(var(--neutral-surface)); border: 1px solid rgb(var(--neutral-border)); border-radius: 4px; width: 280px; padding: 4px; font-size: 13px; }
+  .mp .header { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: rgb(var(--neutral-text-secondary)); padding: 6px 8px; border-bottom: 1px solid rgb(var(--neutral-border)); }
+  .mp .row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 3px; cursor: pointer; }
+  .mp .row.active, .mp .row:hover { background: var(--brand-primary-light); }
+  .mp .row .name { flex: 1; }
+  .mp .row .role { font-size: 11px; color: rgb(var(--neutral-text-secondary)); }
+  .mp .section { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: rgb(var(--neutral-text-disabled)); padding: 8px 8px 4px; }
+
+  /* PDF */
+  .pdf-sheet { background: #fff; border: 1px solid rgb(var(--neutral-border)); padding: 28px 24px; aspect-ratio: 1.414 / 1; max-width: 760px; margin: 0 auto; font-size: 9pt; color: #1A1917; }
+  .pdf-sheet h1 { font-size: 15pt; margin: 0; font-weight: 600;}
+  .pdf-sheet .pdf-meta { color: #6B6965; font-size: 9pt; margin: 2px 0 18px; display: flex; justify-content: space-between; }
+  .pdf-grid { display: grid; grid-template-columns: 72px repeat(4, 1fr); gap: 3px; }
+  .pdf-cell { border: 1px solid #D4D2CE; padding: 4px 6px; min-height: 48px; font-size: 8pt; }
+  .pdf-cell.head { background: #FAF9F7; font-weight: 600; font-size: 8pt; text-transform: uppercase; letter-spacing: 0.06em; min-height: 0; }
+  .pdf-cell.lane { background: #FAF9F7; font-weight: 600; font-size: 8pt; }
+  .pdf-cell .pid { font-family: 'JetBrains Mono', monospace; font-size: 7pt; color: #6B6965; }
+  .pdf-cell .pt { font-weight: 600; font-size: 8pt; margin-top: 1px; }
+  .pdf-cell .pm { color: #6B6965; font-size: 7pt; margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+  .pdf-foot { display: flex; justify-content: space-between; margin-top: 18px; font-size: 8pt; color: #6B6965; font-family: 'JetBrains Mono', monospace; }
+
+  /* TOC */
+  nav.toc { background: rgb(var(--neutral-surface)); border: 1px solid rgb(var(--neutral-border)); border-radius: 4px; padding: 16px 20px; margin-bottom: 36px; columns: 2; column-gap: 24px; }
+  nav.toc h4 { margin: 0 0 10px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: rgb(var(--neutral-text-secondary)); column-span: all; }
+  nav.toc ol { margin: 0; padding-left: 22px; font-size: 13px; line-height: 1.9; }
+  nav.toc a { color: rgb(var(--neutral-text-primary)); text-decoration: none; }
+  nav.toc a:hover { color: var(--brand-primary); text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<h1>Visual specs · 2026-05 batch</h1>
+<p class="sub">Reference visuals for the surfaces where a picture clarifies what the words can't. Read the matching <code>.md</code> spec alongside — these frames are illustrative, not pixel-perfect comps.</p>
+
+<nav class="toc">
+  <h4>Sections</h4>
+  <ol>
+    <li><a href="#s1">Bulk select &amp; action bar</a></li>
+    <li><a href="#s2">Board search (dim in place)</a></li>
+    <li><a href="#s3">GroupBy + swimlanes</a></li>
+    <li><a href="#s4">Activity rail</a></li>
+    <li><a href="#s5">Density tiers (zoom)</a></li>
+    <li><a href="#s6">Cross-view drag (Backlog → Schedule)</a></li>
+    <li><a href="#s7">Import modal pattern</a></li>
+    <li><a href="#s8">CSV/Excel import wizard</a></li>
+    <li><a href="#s9">Overallocation language</a></li>
+    <li><a href="#s10">Notes, mentions, decisions</a></li>
+    <li><a href="#s11">PDF export preview</a></li>
+  </ol>
+</nav>
+
+<!-- §1 -->
+<h2 id="s1"><span class="num">§1</span>Board bulk select &amp; action bar<span class="ticket">#276</span></h2>
+<p class="lead">Implicit selection: checkbox appears on hover/focus or once any selection exists. Sticky bottom action bar shows count + actions. Lower roles see disabled buttons (not hidden).</p>
+
+<div class="frame">
+  <div class="frame-title"><span>Board with 3-card selection · desktop</span><span>01-board-bulk-select.md</span></div>
+  <div class="frame-body" style="background: rgb(var(--neutral-surface-sunken)); padding: 0;">
+    <div class="miniboard" style="background: rgb(var(--neutral-surface));">
+      <div class="lane-meta"></div>
+      <div class="col-header">Backlog · 4</div>
+      <div class="col-header">To Do · 3</div>
+      <div class="col-header">In Progress · 3</div>
+      <div class="col-header">Done · 2</div>
+
+      <div class="lane-meta" style="flex-direction: column; align-items: flex-start; gap: 2px;">Engineering<span class="sm">5 cards</span></div>
+      <div class="lane-cell">
+        <div class="bcard has-check selected"><span class="check on"></span><div class="id">T-001</div><div class="title">Pad lighting study</div></div>
+        <div class="bcard has-check"><span class="check"></span><div class="id">T-002</div><div class="title">LED panel research</div></div>
+      </div>
+      <div class="lane-cell">
+        <div class="bcard has-check selected"><span class="check on"></span><div class="id">T-014</div><div class="title">12V regulator harness</div><div class="meta"><span class="avatar">A</span><span class="chip">May 28</span></div></div>
+      </div>
+      <div class="lane-cell">
+        <div class="bcard has-check"><span class="check"></span><div class="id">T-020</div><div class="title">Mid-bay LED replacement</div><div class="meta"><span class="avatar b">D</span><span class="chip">5/30</span></div></div>
+      </div>
+      <div class="lane-cell"></div>
+
+      <div class="lane-meta" style="flex-direction: column; align-items: flex-start; gap: 2px;">Procurement<span class="sm">4 cards</span></div>
+      <div class="lane-cell">
+        <div class="bcard has-check selected proc"><span class="check on"></span><div class="id">T-031</div><div class="title">Vendor RFQ — panels</div></div>
+      </div>
+      <div class="lane-cell">
+        <div class="bcard has-check proc"><span class="check"></span><div class="id">T-036</div><div class="title">PO routing review</div></div>
+      </div>
+      <div class="lane-cell"></div>
+      <div class="lane-cell">
+        <div class="bcard has-check proc"><span class="check"></span><div class="id">T-040</div><div class="title">Supplier MoU signed</div></div>
+      </div>
+    </div>
+
+    <div style="display: flex; justify-content: center; padding: 16px; background: rgb(var(--neutral-surface-sunken));">
+      <div class="actbar">
+        <span class="count">3 selected</span>
+        <span class="sep"></span>
+        <button class="act">↗ Assign…</button>
+        <button class="act">→ Move…</button>
+        <button class="act">📦 Archive</button>
+        <button class="act gated" title="Deleting requires Admin role">🗑 Delete</button>
+        <span class="sep"></span>
+        <button class="act clear">Esc · Clear</button>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="annot">Selected cards: brand-primary border + tinted background; phase-color left stripe is preserved on top. Delete is role-gated for non-admins — render disabled with tooltip, never hidden.</p>
+
+
+<!-- §2 -->
+<h2 id="s2"><span class="num">§2</span>Board full-text search (dim in place)<span class="ticket">#323</span></h2>
+<p class="lead">Matches stay at full opacity; non-matches dim to 0.18 + desaturate. Counter inside the field reads <code>"3 of 40"</code> in mono. Matching substring gets an amber text highlight.</p>
+
+<div class="frame">
+  <div class="frame-title"><span>Query <code>"led"</code> · 3 of 40</span><span>02-board-search.md</span></div>
+  <div class="frame-body" style="background: rgb(var(--neutral-surface-sunken)); padding: 0;">
+    <div class="toolbar">
+      <div class="searchfield">
+        <span style="color: rgb(var(--neutral-text-secondary))">🔍</span>
+        <input value="led">
+        <span class="counter">3 of 40</span>
+        <span class="clearx">×</span>
+      </div>
+      <span style="flex:1"></span>
+      <span class="tag">aria-live polite · "3 cards match led"</span>
+    </div>
+
+    <div class="miniboard">
+      <div class="lane-meta">Engineering</div>
+      <div class="lane-cell">
+        <div class="bcard dim"><div class="id">T-001</div><div class="title">Pad lighting study</div></div>
+        <div class="bcard"><div class="id">T-002</div><div class="title"><mark>LED</mark> panel research</div><div class="meta"><span class="avatar">A</span></div></div>
+      </div>
+      <div class="lane-cell">
+        <div class="bcard dim"><div class="id">T-014</div><div class="title">12V regulator harness</div></div>
+      </div>
+      <div class="lane-cell">
+        <div class="bcard"><div class="id">T-020</div><div class="title">Mid-bay <mark>LED</mark> replacement test</div><div class="meta"><span class="avatar b">D</span></div></div>
+      </div>
+      <div class="lane-cell"></div>
+
+      <div class="lane-meta">Procurement</div>
+      <div class="lane-cell">
+        <div class="bcard dim proc"><div class="id">T-031</div><div class="title">Vendor RFQ — panels</div></div>
+      </div>
+      <div class="lane-cell">
+        <div class="bcard dim proc"><div class="id">T-036</div><div class="title">PO routing review</div></div>
+      </div>
+      <div class="lane-cell"></div>
+      <div class="lane-cell">
+        <div class="bcard proc"><div class="id">T-040</div><div class="title">Supplier MoU: <mark>LED</mark>-grade panels</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="annot">No positive ring/glow on matches — the dim <em>is</em> the contrast. Highlight inside title uses <code>background: var(--brand-accent-light)</code> on the matched substring only. <span class="kbd">/</span> focuses, <span class="kbd">Esc</span> clears.</p>
+
+
+<!-- §3 -->
+<h2 id="s3"><span class="num">§3</span>Unified groupBy + swimlanes<span class="ticket">#324 + #608</span></h2>
+<p class="lead">One segmented control, four axes. Lane headers render identically regardless of axis: collapse caret, axis-aware label, count, summary chip. Empty lanes don't auto-collapse.</p>
+
+<div class="frame">
+  <div class="frame-title"><span>groupBy = Assignee · current view</span><span>03-board-groupby.md</span></div>
+  <div class="frame-body" style="padding: 0; background: rgb(var(--neutral-surface-sunken));">
+    <div class="toolbar">
+      <span class="tag">My view ▾</span>
+      <div class="seg" role="radiogroup" aria-label="Group cards by">
+        <button>📊 Phase</button>
+        <button>🔁 Sprint</button>
+        <button class="active">👤 Assignee</button>
+        <button>👥 Team</button>
+      </div>
+      <span style="flex:1"></span>
+      <div class="searchfield" style="width:200px;"><span>🔍</span><input placeholder="Search…"></div>
+    </div>
+
+    <div class="miniboard">
+      <div class="lane-meta"></div>
+      <div class="col-header">Backlog</div>
+      <div class="col-header">To Do</div>
+      <div class="col-header">In Progress</div>
+      <div class="col-header">Done</div>
+
+      <div class="lane-meta" style="padding: 12px 10px; gap: 10px;">
+        <span style="color: rgb(var(--neutral-text-secondary)); font-size: 10px;">▾</span>
+        <span class="avatar">A</span>
+        <div style="display: flex; flex-direction: column; min-width: 0;"><span>Amelia Park</span><span class="sm">12 · 4 in progress</span></div>
+      </div>
+      <div class="lane-cell"><div class="bcard"><div class="id">T-001</div><div class="title">Pad lighting study</div></div></div>
+      <div class="lane-cell"><div class="bcard"><div class="id">T-014</div><div class="title">12V regulator harness</div></div></div>
+      <div class="lane-cell"><div class="bcard"><div class="id">T-020</div><div class="title">Mid-bay LED replacement</div></div></div>
+      <div class="lane-cell"><div class="bcard"><div class="id">T-098</div><div class="title">Requirements draft</div></div></div>
+
+      <div class="lane-meta" style="padding: 12px 10px; gap: 10px;">
+        <span style="color: rgb(var(--neutral-text-secondary)); font-size: 10px;">▾</span>
+        <span class="avatar b">D</span>
+        <div style="display: flex; flex-direction: column; min-width: 0;"><span>Diego Reyes</span><span class="sm" style="color: rgb(var(--semantic-critical))">8 · 2 blocked ❗</span></div>
+      </div>
+      <div class="lane-cell"></div>
+      <div class="lane-cell"><div class="bcard proc"><div class="id">T-040</div><div class="title">Supplier MoU signed</div></div></div>
+      <div class="lane-cell"><div class="bcard proc"><div class="id">T-031</div><div class="title">Vendor RFQ — panels</div><div class="meta"><span style="color: rgb(var(--semantic-critical))">❗ blocked</span></div></div></div>
+      <div class="lane-cell"></div>
+
+      <div class="lane-meta" style="padding: 12px 10px; gap: 10px; opacity: 0.7;">
+        <span style="color: rgb(var(--neutral-text-secondary)); font-size: 10px;">▾</span>
+        <span class="avatar d">·</span>
+        <div style="display: flex; flex-direction: column; min-width: 0;"><span>Unassigned</span><span class="sm">3</span></div>
+      </div>
+      <div class="lane-cell" style="grid-column: span 4; color: rgb(var(--neutral-text-disabled)); font-style: italic; text-align: center; padding: 24px; border-right: 0; min-height: 0;">No cards in this lane</div>
+    </div>
+  </div>
+</div>
+<p class="annot">Below 720px the segmented control collapses to icons-only; below 480px it becomes a dropdown. Persistence is on <code>BoardSavedView</code> (not <code>useBoardToolbarPrefs</code>) — see README D1.</p>
+
+
+<!-- §4 -->
+<h2 id="s4"><span class="num">§4</span>Board activity rail<span class="ticket">#325</span></h2>
+<p class="lead">Docked right rail, 320px, collapsible to a 32px strip. Clicking the target card name in an event row focuses the card on the board (pulse outline). Clicking row body opens the dialog.</p>
+
+<div class="frame">
+  <div class="frame-title"><span>Activity rail open</span><span>04-board-activity.md</span></div>
+  <div class="frame-body" style="padding: 0;">
+    <div class="actrail-shell">
+      <div class="actrail-content">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div class="seg"><button class="active">📊 Phase</button><button>🔁 Sprint</button></div>
+          <span class="tag">board content elided</span>
+        </div>
+        <p style="margin-top: 18px;">The board canvas sits here. Rail occupies the right 320px.</p>
+      </div>
+      <aside class="actrail">
+        <div class="actrail-head">
+          <h4>Activity</h4>
+          <span style="color: rgb(var(--neutral-text-secondary)); cursor: pointer; font-size: 14px;">▶</span>
+        </div>
+        <div class="actrail-chips" role="radiogroup">
+          <button class="actrail-chip active">All</button>
+          <button class="actrail-chip">Status</button>
+          <button class="actrail-chip">Comments</button>
+          <button class="actrail-chip">Mine</button>
+          <button class="actrail-chip">+ Actor</button>
+        </div>
+        <div class="actrail-day">Today</div>
+        <div class="actrail-event">
+          <span class="avatar">A</span>
+          <div class="body">
+            <b>Amelia</b> moved <span class="target">Pad lighting study</span> from To Do → In Progress
+            <div class="time">2m ago</div>
+          </div>
+        </div>
+        <div class="actrail-event">
+          <span class="avatar b">D</span>
+          <div class="body">
+            <b>Diego</b> blocked <span class="target">Vendor RFQ — panels</span>
+            <div style="font-size:11px; color:rgb(var(--neutral-text-secondary)); margin-top:2px; font-style: italic;">"Waiting on vendor for valve spec confirmation."</div>
+            <div class="time">14:02</div>
+          </div>
+        </div>
+        <div class="actrail-event">
+          <span class="avatar c">S</span>
+          <div class="body">
+            <b>Sarah</b> added a decision note on <span class="target">LED replacement test</span>
+            <div class="time">11:18</div>
+          </div>
+        </div>
+        <div class="actrail-day">Yesterday</div>
+        <div class="actrail-event">
+          <span class="avatar">A</span>
+          <div class="body">
+            <b>Amelia</b> assigned <span class="target">12V regulator harness</span> to herself
+            <div class="time">May 24, 17:42</div>
+          </div>
+        </div>
+        <div class="actrail-event">
+          <span class="avatar b">D</span>
+          <div class="body">
+            <b>Diego</b> commented on <span class="target">Supplier MoU signed</span>
+            <div class="time">May 24, 09:14</div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+<p class="annot">Mobile (≤ 768px) replaces the rail with a bottom sheet. Real-time events prepend with a 200ms brand-primary-light flash and announce via aria-live polite (only when the rail is open).</p>
+
+
+<!-- §5 -->
+<h2 id="s5"><span class="num">§5</span>Density tiers (board zoom)<span class="ticket">#379</span></h2>
+<p class="lead">Four discrete tiers, not continuous scale. Persists on the saved view. <span class="kbd">⌘+</span>/<span class="kbd">⌘-</span> jumps a tier; <span class="kbd">⌘0</span> resets to normal.</p>
+
+<div class="frame">
+  <div class="frame-title"><span>All four tiers, same card</span><span>06-board-zoom.md</span></div>
+  <div class="frame-body">
+    <div class="grid-4">
+      <div class="dtier">
+        <h5><span>Compact</span><span class="px">h: 32</span></h5>
+        <div class="bcard compact"><div class="id">T-001</div><div class="title">Pad lighting study</div></div>
+        <div class="bcard compact"><div class="id">T-014</div><div class="title">12V regulator harness</div></div>
+        <div class="bcard compact proc"><div class="id">T-031</div><div class="title">Vendor RFQ — panels</div></div>
+      </div>
+      <div class="dtier">
+        <h5><span>Normal</span><span class="px">h: 64</span></h5>
+        <div class="bcard"><div class="id">T-001</div><div class="title">Pad lighting study</div><div class="meta"><span class="avatar">A</span><span class="chip">May 28</span></div></div>
+      </div>
+      <div class="dtier">
+        <h5><span>Roomy</span><span class="px">h: 88</span></h5>
+        <div class="bcard">
+          <div class="id">T-001</div>
+          <div class="title">Pad lighting study</div>
+          <div class="labels"><span class="lbl">field-test</span><span class="lbl">eng-mvp</span></div>
+          <div class="meta"><span class="avatar">A</span><span class="chip">May 28</span></div>
+        </div>
+      </div>
+      <div class="dtier detail">
+        <h5><span>Detail</span><span class="px">h: 132</span></h5>
+        <div class="bcard detail">
+          <div class="id">T-001 · Engineering</div>
+          <div class="title">Pad lighting study</div>
+          <div class="desc">Verify mid-bay LED replacements at 24V over 8h continuous duty.</div>
+          <div class="labels"><span class="lbl">field-test</span><span class="lbl">eng-mvp</span></div>
+          <div class="meta"><span class="avatar">A</span><span class="chip">May 28</span><span class="progress"><span class="on"></span><span class="on"></span><span class="on"></span><span></span></span><span style="font-family: 'JetBrains Mono', monospace; font-size: 10px;">65%</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="annot">Field hiding is via CSS attribute selectors on <code>[data-board-zoom="..."]</code> on the board root. Column min-widths also scale per tier (156 / 188 / 220 / 260).</p>
+
+
+<!-- §6 -->
+<h2 id="s6"><span class="num">§6</span>Cross-view drag: Backlog rail → Schedule canvas<span class="ticket">#318</span></h2>
+<p class="lead">Schedule view gains a 240px docked rail (collapsible) on its left edge. Drag a backlog card onto the canvas → day-column tint + row tint + ghost bar of default duration. Drop schedules + auto-transitions BACKLOG → NOT_STARTED.</p>
+
+<div class="frame">
+  <div class="frame-title"><span>Mid-drag · T-001 hovering Engineering / May 28</span><span>08-cross-view-drag.md</span></div>
+  <div class="frame-body" style="padding: 0;">
+    <div class="cv-shell">
+      <aside class="cv-rail">
+        <h4>Backlog <span class="ct">4</span></h4>
+        <div class="searchfield" style="width: auto; height: 28px;"><span>🔍</span><input placeholder="Search backlog…"></div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <span class="chip">Engineering</span>
+          <span class="chip">+ Filter</span>
+        </div>
+        <div class="bcard compact" style="opacity: 0.5;"><div class="id">T-001</div><div class="title">Pad lighting study</div></div>
+        <div class="bcard compact"><div class="id">T-014</div><div class="title">12V regulator harness</div></div>
+        <div class="bcard compact"><div class="id">T-020</div><div class="title">Mid-bay LED replacement</div></div>
+        <div class="bcard compact proc"><div class="id">T-031</div><div class="title">Vendor RFQ — panels</div></div>
+        <div class="footer">◀ Hide rail</div>
+      </aside>
+      <div class="cv-canvas">
+        <div class="dayhead" style="left: 12px;">May 18</div>
+        <div class="dayhead" style="left: 92px;">May 25</div>
+        <div class="dayhead" style="left: 172px;">Jun 1</div>
+        <div class="dayhead" style="left: 252px;">Jun 8</div>
+        <div class="dayhead" style="left: 332px;">Jun 15</div>
+
+        <!-- highlights -->
+        <div class="day-tint" style="left: 192px; width: 22px;"></div>
+        <div class="row-tint" style="top: 56px; height: 52px;"></div>
+
+        <!-- existing bars -->
+        <div class="gantt-row" style="top: 64px;">
+          <span class="gantt-label">Engineering</span>
+          <span class="gantt-bar" style="width: 90px;"></span>
+        </div>
+        <div class="gantt-row" style="top: 64px;">
+          <span class="gantt-label" style="visibility: hidden;">.</span>
+          <span style="width: 192px;"></span>
+          <span class="gantt-ghost" style="width: 96px;">T-001 · May 28 – Jun 2 · 5d</span>
+        </div>
+        <div class="gantt-row" style="top: 116px;">
+          <span class="gantt-label">Procurement</span>
+          <span style="width: 70px;"></span>
+          <span class="gantt-bar proc" style="width: 120px;"></span>
+        </div>
+        <div class="gantt-row" style="top: 168px;">
+          <span class="gantt-label">Pad Ops</span>
+          <span style="width: 140px;"></span>
+          <span class="gantt-bar ops" style="width: 60px;"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="annot">If the drop lane has a different existing assignee, an inline reassign confirm appears at the drop point before commit. Toast on commit: <code>"Scheduled T-001 for May 28. [Undo]"</code> (8s window). Mobile has no drag — use "Schedule…" from the row menu.</p>
+
+
+<!-- §7 -->
+<h2 id="s7"><span class="num">§7</span>Import modal pattern (shared shell)<span class="ticket">#68</span></h2>
+<p class="lead">Format-agnostic shell: dropzone → progress → results. Reused by #111 and #223. Triggered from the project overflow menu or by dragging a file onto the project page.</p>
+
+<div class="grid-2">
+  <div class="frame">
+    <div class="frame-title"><span>Idle dropzone (.mpp/.mpx)</span><span>09-import-pattern.md</span></div>
+    <div class="frame-body">
+      <div class="dropzone">
+        <div class="ic">📂</div>
+        <div class="ttl">Drag a file here, or browse…</div>
+        <div class="meta">.mpp, .mpx · up to 50 MB</div>
+      </div>
+    </div>
+  </div>
+  <div class="frame">
+    <div class="frame-title"><span>Drag-over state</span><span>09-import-pattern.md</span></div>
+    <div class="frame-body">
+      <div class="dropzone over">
+        <div class="ic">📥</div>
+        <div class="ttl">Drop to upload</div>
+        <div class="meta">Project-Q3.mpp · 4.2 MB</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="frame">
+  <div class="frame-title"><span>Progress + result states</span><span>09-import-pattern.md</span></div>
+  <div class="frame-body" style="display: grid; gap: 16px;">
+    <div class="progress-row">
+      <div class="label"><span>Uploading Project-Q3.mpp</span><span class="tag">62%</span></div>
+      <div class="progress-bar"><i style="width: 62%;"></i></div>
+    </div>
+    <div class="progress-row">
+      <div class="label"><span>Parsing 1,432 tasks…</span><span class="tag">37%</span></div>
+      <div class="progress-bar"><i style="width: 37%;"></i></div>
+    </div>
+    <div class="result-row ok">
+      <h5>✓ Imported 1,432 tasks.</h5>
+      <div style="font-size: 12px; color: rgb(var(--neutral-text-secondary));">View summary →</div>
+    </div>
+    <div class="result-row partial">
+      <h5>⚠ Imported 1,398 of 1,432 tasks.</h5>
+      <div style="font-size: 12px; color: rgb(var(--neutral-text-secondary));">34 rows had errors and were skipped. <a href="#" style="color: var(--brand-accent-dark);">Download error report</a></div>
+    </div>
+    <div class="result-row err">
+      <h5>✕ Couldn't import this file.</h5>
+      <div style="font-size: 12px; color: rgb(var(--neutral-text-secondary)); font-family: 'JetBrains Mono', monospace;">Unexpected token at byte 0x14a2. File may be corrupted or unsupported version.</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- §8 -->
+<h2 id="s8"><span class="num">§8</span>CSV / Excel import wizard (3-step)<span class="ticket">#111</span></h2>
+<p class="lead">Stepper at top. Auto-match badges: green ✓ = confident, amber ? = fuzzy suggestion. Title is required. WBS indent detected from a chosen source; preview pane confirms before commit.</p>
+
+<div class="frame">
+  <div class="frame-title"><span>Step 2 · Map columns</span><span>10-import-wizard.md</span></div>
+  <div class="frame-body">
+    <div class="stepper">
+      <span class="step past"><span class="n">1</span>Upload ✓</span>
+      <span class="chev">›</span>
+      <span class="step active"><span class="n">2</span>Map columns</span>
+      <span class="chev">›</span>
+      <span class="step"><span class="n">3</span>Confirm</span>
+    </div>
+    <table class="mapping">
+      <thead><tr><th>Source column</th><th>TruePPM field</th><th>Match</th></tr></thead>
+      <tbody>
+        <tr><td>Task Name</td><td><select><option>Title</option></select></td><td><span class="badge ok">auto ✓</span></td></tr>
+        <tr><td>Start</td><td><select><option>Start date</option></select></td><td><span class="badge ok">auto ✓</span></td></tr>
+        <tr><td>Duration</td><td><select><option>Duration</option></select></td><td><span class="badge maybe">auto ?</span></td></tr>
+        <tr><td>% Done</td><td><select><option>Progress</option></select></td><td><span class="badge ok">auto ✓</span></td></tr>
+        <tr><td>Resource</td><td><select><option>— Ignore —</option></select></td><td></td></tr>
+        <tr><td>Notes</td><td><select><option>Description</option></select></td><td><span class="badge ok">auto ✓</span></td></tr>
+      </tbody>
+    </table>
+
+    <h3 style="margin-top: 24px;">WBS indent source</h3>
+    <div class="seg"><button class="active">Outline column "Outline"</button><button>Leading whitespace</button><button>Dot notation</button><button>Flat</button></div>
+
+    <h3 style="margin-top: 22px;">Preview (first 6 rows)</h3>
+    <div class="preview-tree">
+      <div class="lvl1">▾ 1 &nbsp; Engineering</div>
+      <div class="lvl2">▸ 1.1 &nbsp; Pad lighting study &nbsp;&nbsp; May 28 – Jun 2 &nbsp;&nbsp; Amelia</div>
+      <div class="lvl2">▸ 1.2 &nbsp; LED replacement test &nbsp;&nbsp; Jun 3 – Jun 8 &nbsp;&nbsp; Diego</div>
+      <div class="lvl1">▾ 2 &nbsp; Procurement</div>
+      <div class="lvl2">▸ 2.1 &nbsp; Vendor RFQ — panels &nbsp;&nbsp; May 30 – Jun 6 &nbsp;&nbsp; Diego</div>
+      <div class="lvl2">▸ 2.2 &nbsp; PO routing review &nbsp;&nbsp; Jun 7 – Jun 9 &nbsp;&nbsp; Sarah</div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; margin-top: 22px;">
+      <button class="btn secondary">← Back</button>
+      <button class="btn">Next: Confirm →</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- §9 -->
+<h2 id="s9"><span class="num">§9</span>Overallocation visual language<span class="ticket">#330 + #489</span></h2>
+<p class="lead">One pattern, three densities. <code>&lt;OverallocBadge&gt;</code> and <code>&lt;OverallocBanner&gt;</code> are shared primitives — both the assignee picker (#330) and the Team-tab allocation table (#489) consume them.</p>
+
+<div class="grid-2">
+  <div class="frame">
+    <div class="frame-title"><span>Banner — over (inside assignee picker)</span><span>11-overalloc-language.md</span></div>
+    <div class="frame-body">
+      <div style="font-size: 12px; color: rgb(var(--neutral-text-secondary)); margin-bottom: 8px;">Assignee</div>
+      <div class="pill" style="margin-bottom: 12px;"><span class="avatar">A</span> Amelia Park <span style="color: rgb(var(--neutral-text-disabled)); margin-left: 4px;">▾</span></div>
+      <div class="ob">
+        <h5>⚠ Amelia is at 134% across 3 projects.</h5>
+        <div class="row"><span>Artemis IV</span><span class="bar"><i style="width: 60%"></i></span><span class="pct">60%</span></div>
+        <div class="row"><span>Helios</span><span class="bar"><i style="width: 50%"></i></span><span class="pct">50%</span></div>
+        <div class="row"><span>Backstop</span><span class="bar"><i style="width: 24%"></i></span><span class="pct">24%</span></div>
+        <div class="delta">Adding this card would push to 142%.</div>
+        <div class="footer">
+          <button class="btn secondary">Cancel</button>
+          <button class="btn">Assign anyway</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="frame">
+    <div class="frame-title"><span>Banner — critical (>120%)</span><span>11-overalloc-language.md</span></div>
+    <div class="frame-body">
+      <div class="ob critical">
+        <h5>❗ Diego is at 168% across 4 projects.</h5>
+        <div class="row"><span>Artemis IV</span><span class="bar"><i style="width: 50%"></i></span><span class="pct">50%</span></div>
+        <div class="row"><span>Helios</span><span class="bar"><i style="width: 70%"></i></span><span class="pct">70%</span></div>
+        <div class="row"><span>Backstop</span><span class="bar"><i style="width: 40%"></i></span><span class="pct">40%</span></div>
+        <div class="row"><span>Falcon</span><span class="bar"><i style="width: 8%"></i></span><span class="pct">8%</span></div>
+        <div class="delta">Assigning would push to 178%.</div>
+        <div class="footer">
+          <button class="btn secondary">Cancel</button>
+          <button class="btn destructive">Assign anyway</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="frame">
+  <div class="frame-title"><span>Team tab · allocation table</span><span>11-overalloc-language.md</span></div>
+  <div class="frame-body">
+    <table class="alloc">
+      <thead><tr><th>Person</th><th>This %</th><th>Other allocations</th><th></th></tr></thead>
+      <tbody>
+        <tr>
+          <td><div class="name"><span class="avatar">A</span> Amelia Park</div></td>
+          <td><input class="pct" value="60">%</td>
+          <td>
+            <div class="stack-bar" style="width: 200px;"><span style="background: var(--brand-primary); width: 60%;"></span><span style="background: #8EA88E; width: 50%;"></span><span style="background: var(--brand-accent); width: 24%;"></span></div>
+            <div style="font-size: 11px; color: rgb(var(--neutral-text-secondary)); margin-top: 4px; font-family: 'JetBrains Mono', monospace;">Helios 50 · Backstop 24</div>
+          </td>
+          <td><span class="obadge">⚠ +34%</span></td>
+        </tr>
+        <tr>
+          <td><div class="name"><span class="avatar b">D</span> Diego Reyes</div></td>
+          <td><input class="pct" value="50">%</td>
+          <td>
+            <div class="stack-bar" style="width: 200px;"><span style="background: var(--brand-primary); width: 50%;"></span><span style="background: #8EA88E; width: 70%;"></span><span style="background: var(--brand-accent); width: 40%;"></span><span style="background: #C5876A; width: 8%;"></span></div>
+            <div style="font-size: 11px; color: rgb(var(--neutral-text-secondary)); margin-top: 4px; font-family: 'JetBrains Mono', monospace;">Helios 70 · Backstop 40 · Falcon 8</div>
+          </td>
+          <td><span class="obadge critical">❗ +68%</span></td>
+        </tr>
+        <tr>
+          <td><div class="name"><span class="avatar c">S</span> Sarah Tan</div></td>
+          <td><input class="pct" value="40">%</td>
+          <td>
+            <div class="stack-bar" style="width: 200px;"><span style="background: var(--brand-primary); width: 40%;"></span><span style="background: #8EA88E; width: 30%;"></span></div>
+            <div style="font-size: 11px; color: rgb(var(--neutral-text-secondary)); margin-top: 4px; font-family: 'JetBrains Mono', monospace;">Helios 30</div>
+          </td>
+          <td></td>
+        </tr>
+        <tr>
+          <td colspan="4" style="color: var(--brand-primary); font-size: 12px;">+ Add person</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="margin-top: 14px; font-size: 12px; color: rgb(var(--neutral-text-secondary));">Total committed: <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: rgb(var(--neutral-text-primary));">150%</span> · 2 people over 100%</div>
+  </div>
+</div>
+<p class="annot">Thresholds: ok ≤ 100% · over 101–120% · critical &gt; 120%. <code>classifyAllocation(total, thresholds)</code> is a shared utility. Inline edit cell on mobile becomes a tap-to-edit number-keypad modal.</p>
+
+
+<!-- §10 -->
+<h2 id="s10"><span class="num">§10</span>Notes, mentions, decisions<span class="ticket">#735 / #740 / #745 / #748</span></h2>
+<p class="lead">Lives inside the new card dialog (#303 redesign). Notes are content; comments stay conversational. Decision notes get a green dot + tinted card. <code>@</code> opens the mention picker; mentions fire in-app notifications and surface in a top-level "My mentions" feed.</p>
+
+<div class="grid-2">
+  <div class="frame">
+    <div class="frame-title"><span>Notes section in card dialog body</span><span>12-notes-mentions-decisions.md</span></div>
+    <div class="frame-body" style="padding: 16px 20px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+        <h3 style="margin: 0;">Notes <span style="color: rgb(var(--neutral-text-disabled)); font-family: 'JetBrains Mono', monospace; font-weight: 500;">12</span></h3>
+        <div class="searchfield" style="width: 160px; height: 26px;"><span>🔍</span><input placeholder="Search notes"></div>
+      </div>
+
+      <div class="note decision">
+        <div class="meta"><span class="dot"></span><b style="color: rgb(var(--neutral-text-primary));">Decision</b> · May 23 · Diego R.</div>
+        <p>We're switching to the 12V LED panel. Vendor confirmed lead time of 4 weeks. <span class="mention">@Amelia Park</span> please update the engineering plan.</p>
+      </div>
+
+      <div class="note">
+        <div class="meta">📝 May 22 · Amelia P.</div>
+        <p>Field test revealed flicker at low duty cycle below 18%. Recommend specifying minimum dimming at 20% in the procurement RFP.</p>
+      </div>
+
+      <div class="note">
+        <div class="meta">📝 May 20 · Diego R.</div>
+        <p>Talked to procurement, awaiting confirmation on lead time. Will update by EOW.</p>
+      </div>
+
+      <div class="composer">
+        <div class="area">Add a note… (markdown supported)</div>
+        <div class="row">
+          <div class="tools">
+            <button>B</button>
+            <button><i>I</i></button>
+            <button>↗</button>
+            <button>`</button>
+            <button>@</button>
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <label class="checkbox-row"><input type="checkbox"> Decision</label>
+            <button class="btn">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 18px;">
+
+    <div class="frame">
+      <div class="frame-title"><span>Sidebar — Blocker tri-state</span><span>#735</span></div>
+      <div class="frame-body" style="padding: 16px 20px; font-size: 13px;">
+        <div style="font-size: 11px; color: rgb(var(--neutral-text-secondary)); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;">Blocker</div>
+        <div style="background: var(--sem-critical-bg); border: 1px solid rgba(185,28,28,0.4); border-radius: 4px; padding: 10px 12px; display: flex; align-items: flex-start; gap: 8px;">
+          <span style="color: rgb(var(--semantic-critical)); font-size: 16px; line-height: 1;">❗</span>
+          <div>
+            <div style="font-weight: 600; color: rgb(var(--semantic-critical)); margin-bottom: 2px;">Blocked</div>
+            <div style="font-size: 12px; color: rgb(var(--neutral-text-secondary));">Waiting on vendor for valve spec confirmation.</div>
+          </div>
+        </div>
+        <div style="font-size: 11px; color: rgb(var(--neutral-text-secondary)); margin-top: 12px;">Tri-state: None · Blocked · Self-blocked. Reason required for Blocked.</div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="frame-title"><span>Mention picker · typed "@am"</span><span>#745</span></div>
+      <div class="frame-body" style="padding: 18px; display: flex; justify-content: center;">
+        <div class="mp">
+          <div class="header">@ am</div>
+          <div class="row active"><span class="avatar">A</span><span class="name">Amelia Park</span><span class="role">Engineering</span></div>
+          <div class="row"><span class="avatar d">A</span><span class="name">Amir Hadid</span><span class="role">Procurement</span></div>
+          <div class="section">Teams</div>
+          <div class="row"><span style="width: 18px; height: 18px; border-radius: 4px; background: #E0DCD6; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; color: #6B6965;">AV</span><span class="name">Avionics</span><span class="role">7 people</span></div>
+          <div class="section">Roles</div>
+          <div class="row"><span style="width: 18px; height: 18px; border-radius: 4px; background: var(--brand-primary-light); display: inline-flex; align-items: center; justify-content: center; font-size: 9px; color: var(--brand-primary-dark);">@A</span><span class="name">@ admins</span><span class="role">notify 4</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="frame-title"><span>Sidebar — decisions chip</span><span>#748</span></div>
+      <div class="frame-body" style="padding: 16px 20px; display: flex; gap: 10px; align-items: center;">
+        <button class="pill" style="background: var(--brand-primary-light); border-color: var(--brand-primary); color: var(--brand-primary-dark);">
+          <span class="dot" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--brand-primary);"></span>
+          <span class="tppm-mono">2 decisions</span>
+        </button>
+        <span style="font-size: 12px; color: rgb(var(--neutral-text-secondary));">Click → scroll to first decision note.</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+<p class="annot">Notes search dim treatment matches #323 (0.18 opacity). The Decision green dot is the same brand-primary family as on-track signals — used consistently across the composer toggle, notes list, sidebar chip, project Decisions view, and sprint Decisions section.</p>
+
+
+<!-- §11 -->
+<h2 id="s11"><span class="num">§11</span>PDF export preview (WeasyPrint)<span class="ticket">#326</span></h2>
+<p class="lead">Server-side print stylesheet. No oklch. Bundle Inter + JetBrains Mono in the print template. Monochrome toggle replaces color stripes with letter codes for B&amp;W printers.</p>
+
+<div class="frame">
+  <div class="frame-title"><span>A4 landscape · first page</span><span>05-board-pdf.md</span></div>
+  <div class="frame-body" style="background: rgb(var(--neutral-surface-sunken));">
+    <div class="pdf-sheet">
+      <h1>TruePPM · Artemis IV Launch Program</h1>
+      <div class="pdf-meta">
+        <span>Board · Phase view · Group: Phase · Filter: assignee=Amelia</span>
+        <span>2026-05-25</span>
+      </div>
+
+      <div class="pdf-grid">
+        <div class="pdf-cell head"></div>
+        <div class="pdf-cell head">Backlog</div>
+        <div class="pdf-cell head">To Do</div>
+        <div class="pdf-cell head">In Progress</div>
+        <div class="pdf-cell head">Done</div>
+
+        <div class="pdf-cell lane">Engineering</div>
+        <div class="pdf-cell"><div class="pid">T-001</div><div class="pt">Pad lighting study</div><div class="pm">Amelia</div></div>
+        <div class="pdf-cell"><div class="pid">T-014</div><div class="pt">12V regulator harness</div><div class="pm">Amelia · May 28</div></div>
+        <div class="pdf-cell"><div class="pid">T-020</div><div class="pt">Mid-bay LED replacement</div><div class="pm">Diego · May 30</div></div>
+        <div class="pdf-cell"></div>
+
+        <div class="pdf-cell lane">Procurement</div>
+        <div class="pdf-cell"><div class="pid">T-031</div><div class="pt">Vendor RFQ — panels</div><div class="pm">Diego</div></div>
+        <div class="pdf-cell"><div class="pid">T-036</div><div class="pt">PO routing review</div><div class="pm">Sarah</div></div>
+        <div class="pdf-cell"></div>
+        <div class="pdf-cell"><div class="pid">T-040</div><div class="pt">Supplier MoU signed</div><div class="pm">Diego · May 18</div></div>
+
+        <div class="pdf-cell lane">Pad Ops</div>
+        <div class="pdf-cell"></div>
+        <div class="pdf-cell"><div class="pid">T-061</div><div class="pt">Range safety review</div><div class="pm">Sarah</div></div>
+        <div class="pdf-cell"><div class="pid">T-068</div><div class="pt">Pad cleanup pass</div><div class="pm">Diego</div></div>
+        <div class="pdf-cell"></div>
+      </div>
+
+      <div class="pdf-foot">
+        <span>Artemis IV launch program</span>
+        <span>1 / 3</span>
+        <span>Exported 2026-05-25</span>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="annot">Cards use <code>break-inside: avoid</code>. Tall boards repeat the lane header on continuation pages. Wide boards paginate columns left → right. Unlicensed builds add a footer line; no diagonal watermark.</p>
+
+</body>
+</html>
