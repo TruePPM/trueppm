@@ -32,6 +32,10 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
     """
     from django.db.models import Q
 
+    from trueppm_api.apps.integrations.registry import (
+        OUTGOING_CHANNEL_PROVIDERS,
+        OutgoingChannelEvent,
+    )
     from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.webhooks.models import Webhook, WebhookDelivery
     from trueppm_api.apps.webhooks.tasks import deliver_webhook
@@ -51,11 +55,22 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
         events__contains=[event_type],
     )
 
+    event = OutgoingChannelEvent(event_type=event_type, project_id=str(project_id), payload=payload)
+
     for webhook in webhooks:
+        # Render per-webhook: each subscription may have a different format
+        # (one project can have a Slack webhook and a generic JSON webhook on
+        # the same event). The rendered dict is frozen onto the delivery row,
+        # so deliver_webhook posts it verbatim and the row is the audit record
+        # of exactly what was sent. An un-registered format (e.g. an Enterprise
+        # provider after a downgrade) degrades to the raw payload rather than
+        # 500ing — matches ProviderRegistry.get() returning None by design.
+        provider_cls = OUTGOING_CHANNEL_PROVIDERS.get(webhook.format)
+        rendered = provider_cls().render(event) if provider_cls is not None else payload
         delivery = WebhookDelivery.objects.create(
             webhook=webhook,
             event_type=event_type,
-            payload=payload,
+            payload=rendered,
         )
         try:
             deliver_webhook.delay(str(delivery.pk))

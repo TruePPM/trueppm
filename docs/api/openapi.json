@@ -2418,6 +2418,269 @@
                 }
             }
         },
+        "/api/v1/programs/{program_pk}/api-token-audit/": {
+            "get": {
+                "operationId": "v1_programs_api_token_audit_list",
+                "description": "``GET /api/v1/programs/{program_pk}/api-token-audit/`` — program audit log.\n\nVisible to any program member. Mirrors the project audit view; filters the\nappend-only ApiTokenAuditEntry rows by program scope (ADR-0076).",
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "required": false,
+                        "in": "query",
+                        "description": "The initial index from which to return the results.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedApiTokenAuditEntryList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{program_pk}/api-tokens/": {
+            "get": {
+                "operationId": "v1_programs_api_tokens_list",
+                "description": "``/api/v1/programs/{program_pk}/api-tokens/`` — program-scoped token CRUD.\n\nA program-scoped token authorizes inbound writes into any project within the\nprogram (ADR-0076). Reuses the one-time-reveal create, soft-delete revoke,\nand audit substrate from ProjectApiTokenViewSet via the scope hooks; only the\nscope resolution and RBAC ladder change. Reads: Program Member+; create/revoke:\nProgram Admin+ on a non-closed program.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedProjectApiTokenList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_programs_api_tokens_create",
+                "description": "Mint a new token and return the raw value once.\n\nAfter the response is sent the raw token is not retrievable; it must\nbe copied at this moment.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectApiToken"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{program_pk}/api-tokens/{id}/": {
+            "get": {
+                "operationId": "v1_programs_api_tokens_retrieve",
+                "description": "``/api/v1/programs/{program_pk}/api-tokens/`` — program-scoped token CRUD.\n\nA program-scoped token authorizes inbound writes into any project within the\nprogram (ADR-0076). Reuses the one-time-reveal create, soft-delete revoke,\nand audit substrate from ProjectApiTokenViewSet via the scope hooks; only the\nscope resolution and RBAC ladder change. Reads: Program Member+; create/revoke:\nProgram Admin+ on a non-closed program.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectApiToken"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_programs_api_tokens_destroy",
+                "description": "Revoke (soft-delete) a token.  Idempotent — re-revoking is a no-op.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/programs/{program_pk}/ceremonies/": {
             "get": {
                 "operationId": "v1_programs_ceremonies_list",
@@ -3122,6 +3385,457 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/PhaseGateConfig"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{program_pk}/webhooks/": {
+            "get": {
+                "operationId": "v1_programs_webhooks_list",
+                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember), mutations require\nProgram Admin+ (IsProgramAdmin).",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedWebhookList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_programs_webhooks_create",
+                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember), mutations require\nProgram Admin+ (IsProgramAdmin).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WebhookRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WebhookRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WebhookRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Webhook"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{program_pk}/webhooks/{id}/": {
+            "get": {
+                "operationId": "v1_programs_webhooks_retrieve",
+                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember), mutations require\nProgram Admin+ (IsProgramAdmin).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Webhook"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_programs_webhooks_update",
+                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember), mutations require\nProgram Admin+ (IsProgramAdmin).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WebhookRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WebhookRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WebhookRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Webhook"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_programs_webhooks_partial_update",
+                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember), mutations require\nProgram Admin+ (IsProgramAdmin).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedWebhookRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedWebhookRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedWebhookRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Webhook"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_programs_webhooks_destroy",
+                "description": "CRUD for outbound webhooks scoped to a program (ADR-0076).\n\nA program-scoped webhook fires for events on any project within the program.\nInherits the test/deliveries actions and the rendering/dispatch substrate\nfrom WebhookViewSet; only the scope resolution and RBAC ladder change:\nlist/retrieve require Program Viewer+ (IsProgramMember), mutations require\nProgram Admin+ (IsProgramAdmin).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{program_pk}/webhooks/{id}/deliveries/": {
+            "get": {
+                "operationId": "v1_programs_webhooks_deliveries_retrieve",
+                "description": "List recent deliveries for this webhook.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Webhook"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/programs/{program_pk}/webhooks/{id}/test/": {
+            "post": {
+                "operationId": "v1_programs_webhooks_test_create",
+                "description": "Send a test ping event to the webhook URL.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "program_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WebhookRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WebhookRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WebhookRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Webhook"
                                 }
                             }
                         },
@@ -13325,10 +14039,14 @@
                     "dependency.created",
                     "dependency.deleted",
                     "schedule.recalculated",
-                    "project.created"
+                    "project.created",
+                    "task.assigned",
+                    "task.assignee_changed",
+                    "task.mentioned",
+                    "task.due_date_changed"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created"
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed"
             },
             "FailedTask": {
                 "type": "object",
@@ -15472,6 +16190,11 @@
                             "$ref": "#/components/schemas/EventsEnum"
                         }
                     },
+                    "format": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32
+                    },
                     "is_active": {
                         "type": "boolean"
                     }
@@ -15948,6 +16671,20 @@
                         "format": "uuid",
                         "readOnly": true
                     },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Set when the token authorizes writes into a single project. Exactly one of project/program is non-null (DB constraint)."
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Set when the token authorizes writes into any project within this program. Exactly one of project/program is non-null (DB constraint)."
+                    },
                     "name": {
                         "type": "string",
                         "readOnly": true,
@@ -15998,6 +16735,8 @@
                     "is_revoked",
                     "last_used_at",
                     "name",
+                    "program",
+                    "project",
                     "revoked_at",
                     "status_map",
                     "token_prefix"
@@ -18407,6 +19146,13 @@
                         "nullable": true,
                         "description": "Set when the webhook fires for events on a single project. Exactly one of project/program is non-null (DB constraint)."
                     },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Set when the webhook fires for events on any project within this program. Exactly one of project/program is non-null (DB constraint)."
+                    },
                     "url": {
                         "type": "string",
                         "format": "uri",
@@ -18417,6 +19163,10 @@
                         "items": {
                             "$ref": "#/components/schemas/EventsEnum"
                         }
+                    },
+                    "format": {
+                        "type": "string",
+                        "maxLength": 32
                     },
                     "is_active": {
                         "type": "boolean"
@@ -18437,6 +19187,7 @@
                     "created_by",
                     "events",
                     "id",
+                    "program",
                     "project",
                     "url"
                 ]
@@ -18462,6 +19213,11 @@
                         "items": {
                             "$ref": "#/components/schemas/EventsEnum"
                         }
+                    },
+                    "format": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32
                     },
                     "is_active": {
                         "type": "boolean"

@@ -46,8 +46,11 @@ TRUEPPM_WEBHOOK_RETENTION_DAYS=30
 - **Non-terminal rows.** `PENDING` webhook deliveries and `PENDING`/`DISPATCHED`
   import requests are still in flight — the drain may re-dispatch them — so they are
   excluded from the purge regardless of age. Only terminal rows are eligible.
-- **Active business data.** Retention purges target *outbox and audit* tables only.
+- **Active business data.** Retention purges target *outbox and history* tables only.
   Projects, tasks, schedules, and baselines are never touched by these jobs.
+- **API-token audit log.** `ApiTokenAuditEntry` rows (project- and
+  program-scoped token mint/revoke events) are **never** purged — they are kept
+  indefinitely as compliance evidence and have no retention window.
 
 ## Why two prefixes?
 

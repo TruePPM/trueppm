@@ -24,6 +24,8 @@ from trueppm_api.apps.projects.views import (
     MeWorkView,
     PhaseReorderView,
     PhaseViewSet,
+    ProgramApiTokenAuditView,
+    ProgramApiTokenViewSet,
     ProjectApiTokenViewSet,
     ProjectAttentionView,
     ProjectBurnView,
@@ -340,6 +342,22 @@ urlpatterns = [
         "projects/<project_pk>/api-token-audit/",
         ApiTokenAuditView.as_view(),
         name="project-api-token-audit",
+    ),
+    # Program-scoped API tokens (ADR-0076 program extension, #600)
+    path(
+        "programs/<program_pk>/api-tokens/",
+        ProgramApiTokenViewSet.as_view({"get": "list", "post": "create"}),
+        name="program-api-tokens-list",
+    ),
+    path(
+        "programs/<program_pk>/api-tokens/<pk>/",
+        ProgramApiTokenViewSet.as_view({"get": "retrieve", "delete": "destroy"}),
+        name="program-api-tokens-detail",
+    ),
+    path(
+        "programs/<program_pk>/api-token-audit/",
+        ProgramApiTokenAuditView.as_view(),
+        name="program-api-token-audit",
     ),
     # Task collaboration endpoints (ADR-0075, #310 #311)
     path(

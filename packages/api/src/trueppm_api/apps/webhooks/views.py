@@ -25,9 +25,14 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 from rest_framework.viewsets import GenericViewSet
 
-from trueppm_api.apps.access.permissions import IsProjectAdmin, IsProjectMember
+from trueppm_api.apps.access.permissions import (
+    IsProgramAdmin,
+    IsProgramMember,
+    IsProjectAdmin,
+    IsProjectMember,
+)
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
-from trueppm_api.apps.projects.models import Project
+from trueppm_api.apps.projects.models import Program, Project
 from trueppm_api.apps.webhooks.models import Webhook, WebhookDelivery
 from trueppm_api.apps.webhooks.serializers import (
     WebhookDeliverySerializer,
@@ -85,9 +90,20 @@ class WebhookViewSet(
 
     def get_object(self) -> Webhook:
         obj: Webhook = super().get_object()
-        # Object-level permission check against the project.
-        self.check_object_permissions(self.request, obj.project)
+        # Object-level permission check against the webhook's scope object —
+        # the Project for project-scoped webhooks, the Program for program-scoped
+        # ones (ADR-0076). The active permission classes (Is{Project,Program}*)
+        # match because get_permissions is scope-specific per subclass.
+        self.check_object_permissions(self.request, self._scope_object(obj))
         return obj
+
+    def _scope_object(self, webhook: Webhook) -> Project | Program:
+        """Return the Project or Program a webhook is scoped to (XOR)."""
+        scope = webhook.program if webhook.program_id else webhook.project
+        # The webhook_scope_xor DB constraint guarantees exactly one is set, so
+        # scope is never None here — assert narrows the type for mypy.
+        assert scope is not None
+        return scope
 
     @action(detail=True, methods=["post"], url_path="test")
     def test_ping(self, request: Request, **kwargs: object) -> Response:
@@ -126,3 +142,35 @@ class WebhookViewSet(
         deliveries = WebhookDelivery.objects.filter(webhook=webhook).order_by("-created_at")[:50]
         serializer = WebhookDeliverySerializer(deliveries, many=True)
         return Response(serializer.data)
+
+
+class ProgramWebhookViewSet(WebhookViewSet):
+    """CRUD for outbound webhooks scoped to a program (ADR-0076).
+
+    A program-scoped webhook fires for events on any project within the program.
+    Inherits the test/deliveries actions and the rendering/dispatch substrate
+    from WebhookViewSet; only the scope resolution and RBAC ladder change:
+    list/retrieve require Program Viewer+ (IsProgramMember), mutations require
+    Program Admin+ (IsProgramAdmin).
+    """
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action in ("create", "update", "partial_update", "destroy", "test_ping"):
+            return [IsAuthenticated(), IsProgramAdmin()]
+        return [IsAuthenticated(), IsProgramMember()]
+
+    def get_queryset(self) -> QuerySet[Webhook]:
+        program_pk = self.kwargs["program_pk"]
+        return Webhook.objects.filter(program_id=program_pk).order_by("-created_at")
+
+    def perform_create(self, serializer: BaseSerializer[Webhook]) -> None:
+        program_pk = self.kwargs["program_pk"]
+        try:
+            program = Program.objects.get(pk=program_pk, is_deleted=False)
+        except Program.DoesNotExist:
+            from rest_framework.exceptions import NotFound
+
+            raise NotFound("Program not found.") from None
+
+        self.check_object_permissions(self.request, program)
+        serializer.save(program=program, created_by=self.request.user)

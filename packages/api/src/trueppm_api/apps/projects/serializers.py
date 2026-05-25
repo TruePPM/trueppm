@@ -2263,6 +2263,8 @@ class ProjectApiTokenSerializer(serializers.ModelSerializer[ProjectApiToken]):
         model = ProjectApiToken
         fields = [
             "id",
+            "project",
+            "program",
             "name",
             "token_prefix",
             "status_map",
