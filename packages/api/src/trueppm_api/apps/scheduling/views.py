@@ -11,6 +11,7 @@ from django.core.cache import cache
 from django.db import models, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
@@ -270,11 +271,45 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
     List/detail/retry/dismiss: admin users only. The serializer exposes
     tracebacks, args, and kwargs which may contain internal paths or partial
     secrets and must not be visible to unprivileged members.
+
+    The list endpoint backs the dead-letter inspector (#694, ADR-0086) and
+    accepts read-only filters: ``?status=`` (one of the FailedTaskStatus
+    values), ``?task_name=`` (case-insensitive substring), and
+    ``?failed_after=`` / ``?failed_before=`` (ISO-8601, filtered on
+    ``last_failed_at``). Results keep the model default ordering
+    (``-last_failed_at``, newest failure first).
     """
 
     serializer_class = FailedTaskSerializer
     permission_classes = [IsAdminUser]
     queryset = FailedTask.objects.all()
+
+    def get_queryset(self) -> models.QuerySet[FailedTask]:
+        """Apply the inspector's read-only filters to the dead-letter list.
+
+        Invalid filter values are ignored rather than raising, so a malformed
+        bookmarked URL degrades to "no filter" instead of a 400 — an operator
+        diagnosing an incident should never be blocked by a bad query string.
+        """
+        qs = FailedTask.objects.all()
+
+        status_filter = self.request.query_params.get("status")
+        if status_filter in FailedTaskStatus.values:
+            qs = qs.filter(status=status_filter)
+
+        task_name = self.request.query_params.get("task_name")
+        if task_name:
+            qs = qs.filter(task_name__icontains=task_name)
+
+        failed_after = parse_datetime(self.request.query_params.get("failed_after", ""))
+        if failed_after is not None:
+            qs = qs.filter(last_failed_at__gte=failed_after)
+
+        failed_before = parse_datetime(self.request.query_params.get("failed_before", ""))
+        if failed_before is not None:
+            qs = qs.filter(last_failed_at__lte=failed_before)
+
+        return qs
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
     def retry(self, request: Request, pk: str | None = None) -> Response:

@@ -14,6 +14,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from trueppm_api.apps.observability.models import BeatHeartbeat
+from trueppm_api.apps.observability.selectors import get_system_health
 from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
 
 # Matches trueppm_api.apps.observability.tasks._SINGLETON_KEY — the single row.
@@ -120,3 +121,44 @@ def dead_letter_metrics(_request: Request) -> HttpResponse:
 
     body = "\n".join(lines) + "\n"
     return HttpResponse(body, content_type=_PROMETHEUS_CONTENT_TYPE)
+
+
+@extend_schema(
+    summary="System health overview (operator dashboard)",
+    description=(
+        "Aggregated, read-only snapshot of the durable-execution layer for the "
+        "workspace-admin System Health dashboard (#692, ADR-0086): five component "
+        "status cards (outbox dispatcher, Celery Beat, dead-letter alerting, "
+        "notification dispatcher, retention purge), the Beat heartbeat panel and "
+        "configured schedule, a dead-letter summary, and the read-only retention "
+        "configuration. Composes existing committed state — no payloads or task "
+        "arguments are exposed here. Always responds 200 with statuses in the body "
+        "(unlike `/health/beat/`, which is a 200/503 probe). Requires a staff "
+        "(admin) account."
+    ),
+    responses={
+        200: inline_serializer(
+            "SystemHealthResponse",
+            {
+                "generated_at": serializers.DateTimeField(),
+                "components": serializers.ListField(child=serializers.DictField()),
+                "beat": serializers.DictField(),
+                "scheduled_tasks": serializers.ListField(child=serializers.DictField()),
+                "dead_letter": serializers.DictField(),
+                "retention": serializers.ListField(child=serializers.DictField()),
+            },
+        ),
+    },
+    tags=["meta"],
+)
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def system_health(_request: Request) -> Response:
+    """Return the aggregated System Health overview payload.
+
+    All figures are read from committed rows, so they reflect work done by the
+    Celery worker and Beat processes even though this is served by the web
+    process. Safe to poll on the dashboard's 10 s refresh — see
+    ``observability.selectors.get_system_health`` for the query budget.
+    """
+    return Response(get_system_health())
