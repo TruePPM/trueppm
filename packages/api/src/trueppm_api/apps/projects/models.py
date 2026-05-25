@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import F, Q
@@ -2525,3 +2526,135 @@ class ProjectCustomField(models.Model):
 
     def __str__(self) -> str:
         return f"ProjectCustomField({self.project_id}, {self.name!r}, {self.field_type})"
+
+
+# ---------------------------------------------------------------------------
+# Program backlog (ADR-0069 + Erratum, #733/#737/#739)
+# ---------------------------------------------------------------------------
+
+
+class BacklogItemType(models.TextChoices):
+    """Item type bridging PM and PO vocabulary (ADR-0069).
+
+    The same intake pool serves a waterfall PM (who thinks in WBS-style tasks)
+    and a product owner (who thinks in epics/stories). ``item_type`` lets each
+    framing coexist without forcing either onto the other; on pull it is carried
+    into the Task only as metadata, so the Board and Schedule views still show
+    plain Task vocabulary.
+    """
+
+    EPIC = "epic", "Epic"
+    FEATURE = "feature", "Feature"
+    STORY = "story", "Story"
+    TASK = "task", "Task"
+
+
+class BacklogItemStatus(models.TextChoices):
+    """Lifecycle of a program backlog item (ADR-0069).
+
+    Deliberately distinct from ``TaskStatus`` — a BacklogItem is a *candidate*,
+    not committed delivery. ``PROPOSED`` items are pullable; ``pull`` transitions
+    to ``PULLED`` and records the Task it became; ``ARCHIVED`` removes an item
+    from the active pool without ever creating a Task.
+    """
+
+    PROPOSED = "proposed", "Proposed"
+    PULLED = "pulled", "Pulled"
+    ARCHIVED = "archived", "Archived"
+
+
+class BacklogItem(VersionedModel):
+    """A program-level intake-pool item (ADR-0069 Erratum, #733).
+
+    The program backlog is the holding area for work *proposed* to a program but
+    not yet committed to any one project. It lives at the ``Program`` level (not
+    ``Project``) so a PM can pull a feature into whichever of the program's
+    projects is ready for it — the core program-increment-planning use case.
+    Cross-program/portfolio aggregation stays Enterprise per the Two-Repo Rule.
+
+    Extends ``VersionedModel``, so the row is offline-sync ready: ``server_version``
+    bumps atomically on every save and ``soft_delete()`` writes a tombstone
+    (``is_deleted``/``deleted_version``). The model is not yet fanned into the
+    project-scoped sync delta endpoint — that endpoint cannot reach program-scoped
+    rows, mirroring the deliberate deferral already documented for ``Program`` and
+    ``ProgramMembership`` in ``sync/serializers.py``. Program-level offline sync
+    (Program, ProgramMembership, BacklogItem together) is a tracked follow-up.
+
+    The status machine (PROPOSED → PULLED / ARCHIVED) is enforced by the pull
+    service, not the model — see ``backlog_services.pull_to_project_backlog``.
+    """
+
+    program = models.ForeignKey(
+        Program,
+        on_delete=models.CASCADE,
+        related_name="backlog_items",
+    )
+    title = models.CharField(max_length=512)
+    description = models.TextField(blank=True, default="")
+    item_type = models.CharField(
+        max_length=16,
+        choices=BacklogItemType.choices,
+        default=BacklogItemType.TASK,
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=BacklogItemStatus.choices,
+        default=BacklogItemStatus.PROPOSED,
+        db_index=True,
+    )
+    # Free-form labels. JSON list matches the repo convention for tag-like data
+    # (Program.rollup_enabled_kpis, BoardColumnConfig.columns); trigram search
+    # (#739) targets `title` only, so no ArrayField / GIN-on-tags is needed.
+    tags = models.JSONField(default=list, blank=True)
+    # Lower = higher priority. Nullable so an unranked pool is valid; drives the
+    # default list ordering for the backlog UI (#742).
+    priority_rank = models.PositiveIntegerField(null=True, blank=True)
+    # Agile estimate, optional. Mapped onto Task.story_points on pull.
+    story_points = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Set by the pull action — the Task this item became. SET_NULL (not CASCADE)
+    # so deleting the Task never deletes the originating item; a post_save
+    # rollback receiver instead resets the item to PROPOSED so it can be re-pulled.
+    pulled_task = models.OneToOneField(
+        "Task",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="source_backlog_item",
+    )
+    pulled_at = models.DateTimeField(null=True, blank=True)
+    pulled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "projects_backlog_item"
+        ordering = ["priority_rank", "-created_at"]
+        indexes = [
+            # List + filter: the program backlog list is always program-scoped
+            # and almost always status-filtered (PROPOSED by default).
+            models.Index(fields=["program", "status"]),
+            # Trigram fuzzy search on title (#739). gin_trgm_ops requires the
+            # pg_trgm extension, enabled in the same migration that adds this
+            # index (migration runs TrigramExtension before AddIndex).
+            GinIndex(
+                fields=["title"],
+                opclasses=["gin_trgm_ops"],
+                name="backlogitem_title_trgm",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"BacklogItem({self.program_id}, {self.title!r}, {self.status})"
