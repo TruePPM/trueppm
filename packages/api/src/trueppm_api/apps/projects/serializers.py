@@ -287,6 +287,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             "methodology",
             "health",
             "visibility",
+            "color",
             "lead",
             "lead_detail",
             "created_by",
@@ -356,6 +357,19 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
                 "The selected user must be a member of this program before they "
                 "can be assigned as lead."
             )
+        return value
+
+    def validate_color(self, value: str | None) -> str | None:
+        """Normalize the accent color to a #RRGGBB hex or null (#698).
+
+        Empty string collapses to null so the model's "unset" semantics hold
+        regardless of whether the client sends ``""`` or omits the field —
+        mirrors ``PhaseSerializer.validate_color``.
+        """
+        if not value:
+            return None
+        if not _HEX_COLOR_RE.fullmatch(value):
+            raise serializers.ValidationError("color must be a #RRGGBB hex string or null.")
         return value
 
     def get_my_role_label(self, obj: Program) -> str | None:

@@ -329,6 +329,17 @@ class Program(VersionedModel):
         choices=Visibility.choices,
         default=Visibility.WORKSPACE,
     )
+    # Accent color as #RRGGBB hex, or null (#698). Drives the program-scoped
+    # identity square on the list card and rollup-chart accents. Null = unset,
+    # which the card renders as a health-tinted neutral — distinct from "" so
+    # the General settings swatch picker can show "no color chosen". Mirrors
+    # the ``Task.color`` phase-accent pattern below.
+    color = models.CharField(  # noqa: DJ001 — null distinguishes "unset" from ""
+        max_length=7,
+        null=True,
+        blank=True,
+        help_text="Program accent color as #RRGGBB hex, or null when unset.",
+    )
     # Rollup config (ADR-0079, #527) — controls which KPIs appear on the
     # program overview and how project health is aggregated into the program
     # health dot. Stored as two columns on Program so the existing

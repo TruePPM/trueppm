@@ -177,6 +177,61 @@ def test_update_requires_admin(owner: object, other_user: object) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Accent color (#698) — serializer validation + round-trip
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_create_program_color_defaults_to_null(owner: object) -> None:
+    program = _create_program(_client(owner))
+    assert program.color is None
+
+
+@pytest.mark.django_db
+def test_update_accepts_valid_hex_color(owner: object) -> None:
+    program = _create_program(_client(owner))
+    resp = _client(owner).patch(
+        f"/api/v1/programs/{program.pk}/", {"color": "#1C6B3A"}, format="json"
+    )
+    assert resp.status_code == 200, resp.content
+    assert resp.data["color"] == "#1C6B3A"
+    program.refresh_from_db()
+    assert program.color == "#1C6B3A"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad", ["red", "1C6B3A", "#FFF", "#12345", "#1234567", "#12345G"])
+def test_update_rejects_malformed_color(owner: object, bad: str) -> None:
+    program = _create_program(_client(owner))
+    resp = _client(owner).patch(f"/api/v1/programs/{program.pk}/", {"color": bad}, format="json")
+    assert resp.status_code == 400, resp.content
+    assert "color" in resp.data
+
+
+@pytest.mark.django_db
+def test_update_accepts_null_color(owner: object) -> None:
+    program = _create_program(_client(owner))
+    program.color = "#DC2626"
+    program.save(update_fields=["color"])
+    resp = _client(owner).patch(f"/api/v1/programs/{program.pk}/", {"color": None}, format="json")
+    assert resp.status_code == 200, resp.content
+    assert resp.data["color"] is None
+    program.refresh_from_db()
+    assert program.color is None
+
+
+@pytest.mark.django_db
+def test_update_empty_color_normalizes_to_null(owner: object) -> None:
+    """Empty string collapses to null so "unset" semantics hold (#698)."""
+    program = _create_program(_client(owner))
+    program.color = "#0EA5E9"
+    program.save(update_fields=["color"])
+    resp = _client(owner).patch(f"/api/v1/programs/{program.pk}/", {"color": ""}, format="json")
+    assert resp.status_code == 200, resp.content
+    assert resp.data["color"] is None
+
+
+# ---------------------------------------------------------------------------
 # Delete — OWNER + cascade
 # ---------------------------------------------------------------------------
 

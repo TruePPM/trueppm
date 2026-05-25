@@ -16851,6 +16851,12 @@
                     "visibility": {
                         "$ref": "#/components/schemas/VisibilityEnum"
                     },
+                    "color": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Program accent color as #RRGGBB hex, or null when unset.",
+                        "maxLength": 7
+                    },
                     "lead": {
                         "type": "integer",
                         "nullable": true
@@ -17572,6 +17578,12 @@
                     "visibility": {
                         "$ref": "#/components/schemas/VisibilityEnum"
                     },
+                    "color": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Program accent color as #RRGGBB hex, or null when unset.",
+                        "maxLength": 7
+                    },
                     "lead": {
                         "type": "integer",
                         "nullable": true
@@ -17774,6 +17786,12 @@
                     },
                     "visibility": {
                         "$ref": "#/components/schemas/VisibilityEnum"
+                    },
+                    "color": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Program accent color as #RRGGBB hex, or null when unset.",
+                        "maxLength": 7
                     },
                     "lead": {
                         "type": "integer",
