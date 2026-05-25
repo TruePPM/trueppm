@@ -229,6 +229,47 @@ trueppm-scheduler monte-carlo --input project.json
 trueppm-scheduler monte-carlo --input project.json --json --distribution
 ```
 
+## Errors and input limits
+
+Every exception the engine raises subclasses `ValueError`, so a single
+`except ValueError` covers them — but each is individually catchable.
+
+| Exception | Raised when |
+|-----------|-------------|
+| `CyclicDependencyError` | The dependency graph contains a cycle. `.cycle` holds the offending task IDs. |
+| `SimulationCapExceeded` | `monte_carlo(runs=…)` exceeds `max_runs`, or the project has more tasks than `max_tasks`. |
+| `InvalidScheduleInput` | The input is structurally valid but out of range (see below). |
+
+Because the engine walks the working calendar one day at a time, it validates
+input up front rather than spinning on a degenerate project (a calendar with no
+working day, or a century-long duration, would otherwise drive the day-by-day
+walk to the `date` ceiling and raise an opaque `OverflowError`):
+
+| Input | Limit |
+|-------|-------|
+| `Calendar.working_days` | Must set at least one weekday bit (Mon–Sun). A calendar whose `exceptions` blanket the whole search window is also rejected. |
+| Task `duration` (and each PERT estimate) | `0` to `MAX_DURATION_DAYS` (`36_525`, ~100 years); negatives rejected. |
+| `Dependency.lag` | Within `±MAX_LAG_DAYS` (`36_525`). |
+| `monte_carlo(runs=…)` | Must be `>= 1`. |
+
+`Project.from_json()` rejects the non-standard JSON literals `NaN`, `Infinity`,
+and `-Infinity`.
+
+```python
+from trueppm_scheduler import schedule, InvalidScheduleInput
+
+try:
+    result = schedule(project)
+except InvalidScheduleInput as e:
+    print("Bad input:", e)
+```
+
+:::note
+`MAX_DURATION_DAYS` and `MAX_LAG_DAYS` are exported from `trueppm_scheduler.engine`
+so an application embedding the engine (such as the TruePPM API) can enforce the
+same bounds at its own edge instead of letting them drift.
+:::
+
 ## Auto-scheduling in the API
 
 The `recalculate_schedule` Celery task fires automatically via `transaction.on_commit()` after every Task or Dependency write:
