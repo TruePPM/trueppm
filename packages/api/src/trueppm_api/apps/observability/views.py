@@ -127,7 +127,7 @@ def dead_letter_metrics(_request: Request) -> HttpResponse:
     summary="System health overview (operator dashboard)",
     description=(
         "Aggregated, read-only snapshot of the durable-execution layer for the "
-        "workspace-admin System Health dashboard (#692, ADR-0086): five component "
+        "workspace-admin System Health dashboard (#692, ADR-0087): five component "
         "status cards (outbox dispatcher, Celery Beat, dead-letter alerting, "
         "notification dispatcher, retention purge), the Beat heartbeat panel and "
         "configured schedule, a dead-letter summary, and the read-only retention "

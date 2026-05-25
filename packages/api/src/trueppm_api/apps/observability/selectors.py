@@ -1,4 +1,4 @@
-"""Read-only aggregation for the System Health overview (#692, ADR-0086).
+"""Read-only aggregation for the System Health overview (#692, ADR-0087).
 
 Composes existing durable-execution signals into a single payload for the
 workspace-admin overview dashboard. Pure reads — no writes, no dispatch — so
@@ -34,7 +34,7 @@ from trueppm_api.apps.scheduling.models import (
 )
 from trueppm_api.apps.workflow_engine.models import WorkflowOutboxRow, WorkflowOutboxStatus
 
-# Status literals shared with the frontend contract (ADR-0086).
+# Status literals shared with the frontend contract (ADR-0087).
 STATUS_OK = "ok"
 STATUS_WARN = "warn"
 STATUS_CRIT = "crit"
@@ -49,13 +49,13 @@ _OUTBOX_STUCK_THRESHOLD = timedelta(minutes=10)
 
 # A notification still pending after this many failed attempts/age is "stuck".
 # The Notification row has no terminal DEAD state, so dispatcher health is a
-# heuristic, not an exact signal (ADR-0086 §3).
+# heuristic, not an exact signal (ADR-0087 §3).
 _NOTIFICATION_STUCK_THRESHOLD = timedelta(hours=1)
 
 # A dead-letter parked longer than this escalates the component from warn→crit.
 _DEAD_LETTER_CRIT_THRESHOLD = timedelta(hours=24)
 
-# Retention settings surfaced read-only on the overview (ADR-0086 §2). Each maps
+# Retention settings surfaced read-only on the overview (ADR-0087 §2). Each maps
 # a settings key to a human label and a unit. ``None`` means purge is disabled.
 _RETENTION_KEYS: list[tuple[str, str, str]] = [
     ("TRUEPPM_WEBHOOK_RETENTION_DAYS", "Webhook deliveries", "days"),
@@ -126,7 +126,7 @@ def _scheduled_tasks() -> list[dict[str, str]]:
 
     This is the *configured* schedule, not per-task last-run status — TruePPM
     records only a single global heartbeat, not per-task execution times
-    (ADR-0086 §4). Overall Beat liveness is answered by the heartbeat panel.
+    (ADR-0087 §4). Overall Beat liveness is answered by the heartbeat panel.
     """
     rows: list[dict[str, str]] = []
     for name, entry in settings.CELERY_BEAT_SCHEDULE.items():
@@ -268,7 +268,7 @@ def _notification_card() -> dict[str, str]:
     The ``Notification`` row carries no terminal DEAD state — a stuck email just
     accumulates ``email_attempts`` and an ``email_failed_at`` indefinitely. So
     we infer "stuck" from pending rows that have already failed at least once
-    and are older than the threshold (ADR-0086 §3).
+    and are older than the threshold (ADR-0087 §3).
     """
     cutoff = timezone.now() - _NOTIFICATION_STUCK_THRESHOLD
     stuck = Notification.objects.filter(
@@ -298,7 +298,7 @@ def _retention() -> tuple[list[dict[str, Any]], dict[str, str]]:
 
     The card is always ``unknown``: no purge-run history model exists in OSS, so
     we cannot report whether the last purge succeeded — only the configured
-    windows. This is intentional and resolved by #693 (ADR-0086 §3).
+    windows. This is intentional and resolved by #693 (ADR-0087 §3).
     """
     rows: list[dict[str, Any]] = []
     for key, label, unit in _RETENTION_KEYS:
@@ -336,7 +336,7 @@ def _format_age(seconds: int | None) -> str:
 
 
 def get_system_health() -> dict[str, Any]:
-    """Aggregate the full System Health overview payload (ADR-0086 §2).
+    """Aggregate the full System Health overview payload (ADR-0087 §2).
 
     Returns the component cards, Beat heartbeat panel + configured schedule,
     dead-letter summary, and read-only retention config. All reads are committed

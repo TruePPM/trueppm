@@ -1,4 +1,4 @@
-# ADR-0086: System Health Operator UI — Read API Surface
+# ADR-0087: System Health Operator UI — Read API Surface
 
 ## Status
 Proposed
@@ -180,8 +180,9 @@ ux-design and docs.
 
 **Risks:** (1) the Notification-dispatcher status is a heuristic (no terminal dead state) —
 documented as best-effort. (2) The aggregation endpoint must stay within query budget at
-10 s refresh — perf-check gate before merge. (3) ADR number 0086 chosen to avoid colliding
-with an in-flight (unmerged) 0085 in a parallel worktree.
+10 s refresh — perf-check gate before merge. (3) ADR number 0087: 0085 and 0086 were taken
+by the schema_version ADR (renumbered 0085 → 0086 in #649) while this branch was in flight,
+so this ADR took the next free number.
 
 ## Implementation Notes
 

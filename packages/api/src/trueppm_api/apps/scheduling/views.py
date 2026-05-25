@@ -272,7 +272,7 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
     tracebacks, args, and kwargs which may contain internal paths or partial
     secrets and must not be visible to unprivileged members.
 
-    The list endpoint backs the dead-letter inspector (#694, ADR-0086) and
+    The list endpoint backs the dead-letter inspector (#694, ADR-0087) and
     accepts read-only filters: ``?status=`` (one of the FailedTaskStatus
     values), ``?task_name=`` (case-insensitive substring), and
     ``?failed_after=`` / ``?failed_before=`` (ISO-8601, filtered on
