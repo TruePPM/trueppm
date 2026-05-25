@@ -93,6 +93,37 @@ describe('ProjectGeneralPage', () => {
     expect(defaultView).not.toBeDisabled();
   });
 
+  it('re-seeds the form when the project in the route changes (no remount)', () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // A fresh element each call so React actually re-renders (an identical
+    // element reference would bail out); the same queryClient + matching element
+    // types preserve the ProjectGeneralPage instance, mirroring a route param
+    // change without a remount.
+    const tree = () => (
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/projects/p-1/settings/general']}>
+          <Routes>
+            <Route path="/projects/:projectId/settings/general" element={<ProjectGeneralPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree());
+    expect(screen.getByRole('textbox', { name: /project name/i })).toHaveValue('Atlas Migration');
+
+    // Switch to a different project. react-router reuses this component across
+    // :projectId changes (no remount), so the one-shot seed guard regression
+    // (#750) would leave 'Atlas Migration' stranded here.
+    useProjectId.mockReturnValue('p-2');
+    useProject.mockReturnValue({
+      data: { ...SEED_PROJECT, id: 'p-2', name: 'Beacon Rollout', code: 'BEACON' },
+    });
+    rerender(tree());
+
+    expect(screen.getByRole('textbox', { name: /project name/i })).toHaveValue('Beacon Rollout');
+    expect(screen.getByRole('textbox', { name: /project code/i })).toHaveValue('BEACON');
+  });
+
   it('uppercases code input on the fly so server validation stays satisfied', () => {
     useProject.mockReturnValue({ data: { ...SEED_PROJECT, code: '' } });
     renderPage();

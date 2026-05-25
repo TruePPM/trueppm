@@ -76,10 +76,15 @@ export function ProjectGeneralPage() {
   const [defaultView, setDefaultView] = useState<ProjectDefaultView>('SCHEDULE');
   const [calendarId, setCalendarId] = useState<string | null>(null);
 
-  // Seed once on first successful load — guard prevents refetch from wiping user edits.
+  // Re-seed whenever the loaded project's identity changes. React Router reuses
+  // this component across `:projectId` changes (no `key` → no remount), so a
+  // one-shot boolean guard would strand the form on the first project's values
+  // when the user switches projects in Settings (#750). Keying on the id — rather
+  // than on every `project` reference — still prevents a same-project background
+  // refetch from clobbering in-progress edits, which was the original guard's intent.
   // The `initial*` snapshots are what the discard handler reverts to and what
   // useDirtyForm compares against to compute the dirty flag.
-  const seededRef = useRef(false);
+  const seededProjectIdRef = useRef<string | null>(null);
   const [initialName, setInitialName] = useState('');
   const [initialDescription, setInitialDescription] = useState('');
   const [initialCode, setInitialCode] = useState('');
@@ -90,8 +95,8 @@ export function ProjectGeneralPage() {
   const [initialCalendarId, setInitialCalendarId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!project || seededRef.current) return;
-    seededRef.current = true;
+    if (!project || seededProjectIdRef.current === project.id) return;
+    seededProjectIdRef.current = project.id;
     setName(project.name);
     setDescription(project.description ?? '');
     setCode(project.code);
