@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from trueppm_api.apps.projects.backlog_views import BacklogItemViewSet
 from trueppm_api.apps.projects.ceremony_views import (
     CeremonyTemplateViewSet,
     PhaseGateConfigView,
@@ -424,5 +425,28 @@ urlpatterns = [
         "programs/<program_pk>/phase-gate-config/",
         PhaseGateConfigView.as_view(),
         name="program-phase-gate-config",
+    ),
+    # Program backlog (ADR-0069, #737 / #739)
+    path(
+        "programs/<program_pk>/backlog-items/",
+        BacklogItemViewSet.as_view({"get": "list", "post": "create"}),
+        name="program-backlog-items-list",
+    ),
+    path(
+        "programs/<program_pk>/backlog-items/<pk>/",
+        BacklogItemViewSet.as_view(
+            {
+                "get": "retrieve",
+                "patch": "partial_update",
+                "put": "update",
+                "delete": "destroy",
+            }
+        ),
+        name="program-backlog-items-detail",
+    ),
+    path(
+        "programs/<program_pk>/backlog-items/<pk>/pull/",
+        BacklogItemViewSet.as_view({"post": "pull"}),
+        name="program-backlog-items-pull",
     ),
 ]
