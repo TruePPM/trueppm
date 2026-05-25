@@ -45,6 +45,15 @@ describe('ProjectIntegrationsPage', () => {
     ).toHaveAttribute('href', '/me/settings/connected-accounts');
   });
 
+  it('renders the connector roadmap callout (#588)', () => {
+    render(<ProjectIntegrationsPage />);
+    expect(screen.getByRole('heading', { name: 'Coming soon' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '#500' })).toHaveAttribute(
+      'href',
+      'https://gitlab.com/trueppm/trueppm/-/issues/500',
+    );
+  });
+
   it('returns null when projectId is unavailable', () => {
     useProjectId.mockReturnValue(undefined);
     const { container } = render(<ProjectIntegrationsPage />);

@@ -14,6 +14,7 @@ import { SettingsPageTitle } from '../SettingsShell';
 import { registry } from '@/lib/widget-registry';
 import { WebhooksManager } from '../components/integrations/WebhooksManager';
 import { ApiTokensManager } from '../components/integrations/ApiTokensManager';
+import { ConnectorRoadmapCard } from '../ConnectorRoadmapCard';
 
 export function ProgramIntegrationsPage() {
   const { programId } = useParams<{ programId: string }>();
@@ -34,6 +35,8 @@ export function ProgramIntegrationsPage() {
           <WebhooksManager scope={scope} />
           <ApiTokensManager scope={scope} />
         </div>
+
+        <ConnectorRoadmapCard />
 
         {enterpriseSlots.length > 0 && (
           <div className="space-y-4" data-testid="enterprise-integration-slot">

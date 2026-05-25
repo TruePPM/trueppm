@@ -126,6 +126,8 @@ test.describe('Project Integrations — CRUD UI', () => {
     await expect(page.getByText('CI Pipeline')).toBeVisible();
     await expect(page.getByRole('button', { name: 'New webhook' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Create token' })).toBeVisible();
+    // Roadmap callout (#588) — the "this is coming" discoverability signal.
+    await expect(page.getByRole('heading', { name: 'Coming soon' })).toBeVisible();
   });
 
   test('opens the webhook editor with the real event catalog', async ({ page }) => {
