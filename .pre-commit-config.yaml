@@ -23,6 +23,20 @@ repos:
         # only. Match that here; tests are checked by the pytest run, not mypy.
         files: ^packages/scheduler/src/
         stages: [pre-commit]
+  - repo: local
+    hooks:
+      # Regenerate docs/api/openapi.json on any api-source commit and re-stage it.
+      # api:schema-drift only checks self-consistency, so a forgotten regenerate
+      # passes locally and only fails the regression guard at merge (#642). This
+      # closes the gap at commit time. Wrapper is worktree-safe (export-openapi.sh
+      # pins PYTHONPATH to this checkout's source).
+      - id: openapi-schema
+        name: regenerate openapi.json when api source changes
+        entry: bash scripts/precommit-openapi.sh
+        language: system
+        files: ^packages/api/src/.*\.py$
+        pass_filenames: false
+        stages: [pre-commit]
   # Pre-push gate — checks that require the full codebase state and are NOT
   # covered by the per-file commit hooks above: web eslint and tsc (no
   # commit-time hook because cross-file TS errors need a project-wide pass),
