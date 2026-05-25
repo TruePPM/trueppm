@@ -22,6 +22,9 @@ class SchedulingConfig(AppConfig):
         """
         from celery.signals import task_failure, task_postrun, task_prerun, task_retry
 
+        # Register the OSS dead-letter alerting receiver (ADR-0084). Side-effect
+        # import: the @receiver decorator in receivers.py connects on load.
+        from trueppm_api.apps.scheduling import receivers  # noqa: F401
         from trueppm_api.apps.scheduling.signals import (
             celery_task_failed,
             celery_task_retried,

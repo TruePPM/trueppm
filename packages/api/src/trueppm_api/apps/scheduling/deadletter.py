@@ -14,13 +14,22 @@ def record_failed_task(
     args: list[object] | tuple[object, ...],
     kwargs: dict[str, object],
     exception: BaseException,
+    project_id: str | None = None,
 ) -> None:
     """Write a FailedTask row for a permanently failed Celery task.
 
     Called from the on_failure handler when max_retries is exhausted.
     Safe to call from within a Celery worker — uses its own DB connection.
+
+    On the *terminal* transition (a FailedTask row is newly created) this fires
+    ``celery_task_permanently_failed`` so OSS logs an alert and Enterprise can
+    register PagerDuty/Slack receivers (ADR-0084). A repeat dead-letter of the
+    same ``task_id`` only bumps ``failure_count`` and does **not** re-alert, so
+    the signal means "newly dead-lettered", not "failed again". ``project_id``
+    is threaded through from the caller when known (it is not derivable here).
     """
     from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
+    from trueppm_api.apps.scheduling.signals import celery_task_permanently_failed
 
     exc_type = type(exception).__qualname__
     exc_msg = str(exception)
@@ -52,3 +61,15 @@ def record_failed_task(
         exc_type,
         exc_msg,
     )
+
+    if created:
+        # send_robust: a misbehaving receiver (incl. enterprise PagerDuty/Slack)
+        # must never break the dead-letter recording path.
+        celery_task_permanently_failed.send_robust(
+            sender=task_name,
+            task_id=task_id,
+            task_name=task_name,
+            exception=exception,
+            traceback_str=exc_tb,
+            project_id=project_id,
+        )
