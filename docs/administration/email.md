@@ -34,9 +34,9 @@ not in plain `values.yaml`.
 
 ## The read-only status page
 
-**Workspace → Settings → Email & SMTP** (visible to org admins — any user with
-the Admin role on a project) shows the resolved transport mode, host, port,
-TLS/SSL, and the From address — sourced from the settings above. It is
+**Workspace → Settings → Email & SMTP** (visible to workspace Admins and Owners)
+shows the resolved transport mode, host, port, TLS/SSL, and the From address —
+sourced from the settings above. It is
 **read-only**: the page never displays the username or password, and it cannot
 change configuration. To change transport, update the environment / Helm values
 and redeploy.

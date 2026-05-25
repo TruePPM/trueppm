@@ -13334,6 +13334,81 @@
                 }
             }
         },
+        "/api/v1/workspace/": {
+            "get": {
+                "operationId": "v1_workspace_retrieve",
+                "description": "GET/PATCH /api/v1/workspace/ — singleton workspace config (#517).\n\nRead for any active member; PATCH requires workspace ADMIN+.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkspaceSettings"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_workspace_partial_update",
+                "description": "GET/PATCH /api/v1/workspace/ — singleton workspace config (#517).\n\nRead for any active member; PATCH requires workspace ADMIN+.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedWorkspaceSettingsRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedWorkspaceSettingsRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedWorkspaceSettingsRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkspaceSettings"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/workspace/email-settings/": {
             "get": {
                 "operationId": "v1_workspace_email_settings_retrieve",
@@ -13351,6 +13426,880 @@
                 ],
                 "responses": {
                     "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/groups/": {
+            "get": {
+                "operationId": "v1_workspace_groups_list",
+                "description": "GET/POST /api/v1/workspace/groups/ (#519). Read: any member; create: admin.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/Group"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_workspace_groups_create",
+                "description": "GET/POST /api/v1/workspace/groups/ (#519). Read: any member; create: admin.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupWriteRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Group"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/groups/{group_id}/": {
+            "get": {
+                "operationId": "v1_workspace_groups_retrieve",
+                "description": "GET/PATCH/DELETE /api/v1/workspace/groups/{id}/ (#519).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "group_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Group"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_workspace_groups_partial_update",
+                "description": "GET/PATCH/DELETE /api/v1/workspace/groups/{id}/ (#519).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "group_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedGroupWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedGroupWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedGroupWriteRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Group"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_workspace_groups_destroy",
+                "description": "GET/PATCH/DELETE /api/v1/workspace/groups/{id}/ (#519).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "group_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/groups/{group_id}/members/": {
+            "post": {
+                "operationId": "v1_workspace_groups_members_create",
+                "description": "POST/DELETE /api/v1/workspace/groups/{id}/members/[{user_id}/] (#519).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "group_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupMemberAddRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupMemberAddRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupMemberAddRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Group"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_workspace_groups_members_destroy",
+                "description": "POST/DELETE /api/v1/workspace/groups/{id}/members/[{user_id}/] (#519).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "group_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/groups/{group_id}/members/{user_id}/": {
+            "post": {
+                "operationId": "v1_workspace_groups_members_create_2",
+                "description": "POST/DELETE /api/v1/workspace/groups/{id}/members/[{user_id}/] (#519).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "group_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "user_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupMemberAddRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupMemberAddRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupMemberAddRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Group"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_workspace_groups_members_destroy_2",
+                "description": "POST/DELETE /api/v1/workspace/groups/{id}/members/[{user_id}/] (#519).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "group_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "user_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/groups/{group_id}/projects/": {
+            "post": {
+                "operationId": "v1_workspace_groups_projects_create",
+                "description": "POST/DELETE /api/v1/workspace/groups/{id}/projects/[{project_id}/] (#519).\n\nLinking a group to a project confers the chosen role on every group member\nvia the cascade (ADR-0087 §5).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "group_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupProjectWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupProjectWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupProjectWriteRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Group"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_workspace_groups_projects_destroy",
+                "description": "POST/DELETE /api/v1/workspace/groups/{id}/projects/[{project_id}/] (#519).\n\nLinking a group to a project confers the chosen role on every group member\nvia the cascade (ADR-0087 §5).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "group_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/groups/{group_id}/projects/{project_id}/": {
+            "post": {
+                "operationId": "v1_workspace_groups_projects_create_2",
+                "description": "POST/DELETE /api/v1/workspace/groups/{id}/projects/[{project_id}/] (#519).\n\nLinking a group to a project confers the chosen role on every group member\nvia the cascade (ADR-0087 §5).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "group_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupProjectWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupProjectWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/GroupProjectWriteRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Group"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_workspace_groups_projects_destroy_2",
+                "description": "POST/DELETE /api/v1/workspace/groups/{id}/projects/[{project_id}/] (#519).\n\nLinking a group to a project confers the chosen role on every group member\nvia the cascade (ADR-0087 §5).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "group_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/invites/": {
+            "get": {
+                "operationId": "v1_workspace_invites_list",
+                "description": "GET/POST /api/v1/workspace/invites/ (#518). Admin only.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/WorkspaceInvite"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_workspace_invites_create",
+                "description": "GET/POST /api/v1/workspace/invites/ (#518). Admin only.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WorkspaceInviteCreateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WorkspaceInviteCreateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WorkspaceInviteCreateRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkspaceInvite"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/invites/{invite_id}/": {
+            "delete": {
+                "operationId": "v1_workspace_invites_destroy",
+                "description": "DELETE /api/v1/workspace/invites/{id}/ — revoke a pending invite (#518).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "invite_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/invites/accept/": {
+            "post": {
+                "operationId": "v1_workspace_invites_accept_create",
+                "description": "POST /api/v1/workspace/invites/accept/ — accept an invite (public, token-auth).\n\nNo session required: the one-time token in the body is the credential. Errors\nare generic to avoid token enumeration.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InviteAcceptRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InviteAcceptRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/InviteAcceptRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/members/": {
+            "get": {
+                "operationId": "v1_workspace_members_list",
+                "description": "GET /api/v1/workspace/members/ — list members (#518).\n\nAdmins see every member; a non-admin member sees only their own row.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/WorkspaceMember"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/members/{user_id}/": {
+            "patch": {
+                "operationId": "v1_workspace_members_partial_update",
+                "description": "PATCH/DELETE /api/v1/workspace/members/{user_id}/ (#518). Admin only.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "user_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedWorkspaceMemberUpdateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedWorkspaceMemberUpdateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedWorkspaceMemberUpdateRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkspaceMember"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_workspace_members_destroy",
+                "description": "PATCH/DELETE /api/v1/workspace/members/{user_id}/ (#518). Admin only.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "user_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
                         "description": "No response body"
                     }
                 }
@@ -14228,6 +15177,105 @@
                 "type": "string",
                 "description": "* `TEXT` - Text\n* `NUMBER` - Number\n* `DATE` - Date\n* `SINGLE_SELECT` - Single-select\n* `MULTI_SELECT` - Multi-select\n* `USER` - Person\n* `BOOLEAN` - Boolean"
             },
+            "Group": {
+                "type": "object",
+                "description": "Read serializer for a group row (fed a pre-built dict).",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "lead": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "lead_user_id": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "member_count": {
+                        "type": "integer"
+                    },
+                    "members": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    },
+                    "projects": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": [
+                    "description",
+                    "id",
+                    "lead",
+                    "lead_user_id",
+                    "member_count",
+                    "members",
+                    "name",
+                    "projects"
+                ]
+            },
+            "GroupMemberAddRequest": {
+                "type": "object",
+                "description": "POST /groups/{id}/members/ — add a member to a group (#519).\n\n``user`` is the stock ``auth.User`` integer PK (TruePPM has no custom user\nmodel), not a UUID.",
+                "properties": {
+                    "user": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "user"
+                ]
+            },
+            "GroupProjectWriteRequest": {
+                "type": "object",
+                "description": "POST /groups/{id}/projects/ — link a group to a project with a conferred role.",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "role": {
+                        "type": "integer",
+                        "default": 100
+                    }
+                },
+                "required": [
+                    "project"
+                ]
+            },
+            "GroupWriteRequest": {
+                "type": "object",
+                "description": "POST/PATCH body for a group (#519).",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "lead": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "name"
+                ]
+            },
             "HealthEnum": {
                 "enum": [
                     "AUTO",
@@ -14247,6 +15295,28 @@
                 },
                 "required": [
                     "status"
+                ]
+            },
+            "InviteAcceptRequest": {
+                "type": "object",
+                "description": "POST body to accept an invite. username/password required only when no\naccount already exists for the invited email.",
+                "properties": {
+                    "token": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "username": {
+                        "type": "string",
+                        "default": ""
+                    },
+                    "password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "default": ""
+                    }
+                },
+                "required": [
+                    "token"
                 ]
             },
             "Me": {
@@ -15670,6 +16740,24 @@
                     }
                 }
             },
+            "PatchedGroupWriteRequest": {
+                "type": "object",
+                "description": "POST/PATCH body for a group (#519).",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 120
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "lead": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                }
+            },
             "PatchedNotificationPreferenceRequest": {
                 "type": "object",
                 "description": "Per-user (event_type, channel) toggle.\n\nPATCH on the viewset only modifies `enabled` — event_type / channel /\nuser are immutable.",
@@ -16280,6 +17368,57 @@
                         "maxLength": 32
                     },
                     "is_active": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "PatchedWorkspaceMemberUpdateRequest": {
+                "type": "object",
+                "description": "PATCH body for a member — role and/or status (#518).",
+                "properties": {
+                    "role": {
+                        "type": "integer"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/WorkspaceMemberUpdateStatusEnum"
+                    }
+                }
+            },
+            "PatchedWorkspaceSettingsRequest": {
+                "type": "object",
+                "description": "GET/PATCH /api/v1/workspace/. ``subdomain`` is read-only (#517).",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                    },
+                    "fiscal_year_start": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32
+                    },
+                    "work_week": {
+                        "type": "array",
+                        "items": {
+                            "type": "boolean"
+                        },
+                        "maxItems": 7
+                    },
+                    "default_project_view": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32
+                    },
+                    "allow_guests": {
+                        "type": "boolean"
+                    },
+                    "public_sharing": {
                         "type": "boolean"
                     }
                 }
@@ -19461,6 +20600,184 @@
                     "project_id",
                     "started_at",
                     "started_by_id"
+                ]
+            },
+            "WorkspaceInvite": {
+                "type": "object",
+                "description": "Read serializer for a pending invite (#518).",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email"
+                    },
+                    "role": {
+                        "type": "string"
+                    },
+                    "role_value": {
+                        "type": "integer"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "invited_by": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "email",
+                    "expires_at",
+                    "id",
+                    "invited_by",
+                    "role",
+                    "role_value",
+                    "status"
+                ]
+            },
+            "WorkspaceInviteCreateRequest": {
+                "type": "object",
+                "description": "POST body to create an invite (#518).",
+                "properties": {
+                    "email": {
+                        "type": "string",
+                        "format": "email",
+                        "minLength": 1
+                    },
+                    "role": {
+                        "type": "integer",
+                        "default": 100
+                    }
+                },
+                "required": [
+                    "email"
+                ]
+            },
+            "WorkspaceMember": {
+                "type": "object",
+                "description": "Read serializer for a workspace member row (fed a pre-built dict).",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "initials": {
+                        "type": "string"
+                    },
+                    "color": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email"
+                    },
+                    "role": {
+                        "type": "string"
+                    },
+                    "role_value": {
+                        "type": "integer"
+                    },
+                    "groups": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "project_count": {
+                        "type": "integer"
+                    },
+                    "last_active": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "sso": {
+                        "type": "boolean"
+                    },
+                    "two_fa": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "color",
+                    "email",
+                    "groups",
+                    "id",
+                    "initials",
+                    "last_active",
+                    "name",
+                    "project_count",
+                    "role",
+                    "role_value",
+                    "sso",
+                    "status",
+                    "two_fa"
+                ]
+            },
+            "WorkspaceMemberUpdateStatusEnum": {
+                "enum": [
+                    "active",
+                    "guest",
+                    "deactivated"
+                ],
+                "type": "string",
+                "description": "* `active` - Active\n* `guest` - Guest\n* `deactivated` - Deactivated"
+            },
+            "WorkspaceSettings": {
+                "type": "object",
+                "description": "GET/PATCH /api/v1/workspace/. ``subdomain`` is read-only (#517).",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "subdomain": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "fiscal_year_start": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "work_week": {
+                        "type": "array",
+                        "items": {
+                            "type": "boolean"
+                        },
+                        "maxItems": 7
+                    },
+                    "default_project_view": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "allow_guests": {
+                        "type": "boolean"
+                    },
+                    "public_sharing": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "subdomain"
                 ]
             },
             "_MentionAuthorMini": {

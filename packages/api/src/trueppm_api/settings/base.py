@@ -60,6 +60,7 @@ LOCAL_APPS = [
     "trueppm_api.apps.observability",
     "trueppm_api.apps.workflow_engine",
     "trueppm_api.apps.idempotency",
+    "trueppm_api.apps.workspace",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -265,6 +266,20 @@ CELERY_BEAT_SCHEDULE = {
     "idempotency-keys-purge-hourly": {
         "task": "idempotency.purge_old_keys",
         "schedule": crontab(minute=5),
+    },
+    # Workspace invite email outbox drain: send queued invite emails every 30 s.
+    # Respects the 5-min orphan window so it doesn't race invite-create txns
+    # (ADR-0087 §Durable Execution item 3).
+    "drain-invite-emails": {
+        "task": "workspace.drain_invite_emails",
+        "schedule": 30.0,
+    },
+    # Nightly cleanup: expire overdue pending invites and delete terminal invites
+    # older than INVITE_RETENTION_DAYS (ADR-0087 §Durable Execution item 6).
+    "purge-stale-invites": {
+        "task": "workspace.purge_stale_invites",
+        # 04:15 UTC — after the other nightly purge jobs.
+        "schedule": crontab(hour=4, minute=15),
     },
 }
 

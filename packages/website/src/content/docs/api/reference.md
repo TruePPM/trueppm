@@ -114,6 +114,46 @@ Predecessor and successor must belong to the same project — cross-project edge
 | PUT / PATCH | `/api/v1/task-resources/{id}/` | Update |
 | DELETE | `/api/v1/task-resources/{id}/` | Remove |
 
+### Workspace
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/workspace/` | Any active member | Retrieve workspace config. |
+| PATCH | `/api/v1/workspace/` | Workspace Admin+ | Update workspace config (partial). |
+
+### Workspace members
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/workspace/members/` | Admin+ (non-admin sees own row only) | List workspace members. |
+| PATCH | `/api/v1/workspace/members/{user_id}/` | Admin+ | Change a member's role or status. |
+| DELETE | `/api/v1/workspace/members/{user_id}/` | Admin+ | Deactivate a member. |
+
+### Workspace invites
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/workspace/invites/` | Admin+ | List pending invites. |
+| POST | `/api/v1/workspace/invites/` | Admin+ | Create an invite (email queued asynchronously). |
+| DELETE | `/api/v1/workspace/invites/{id}/` | Admin+ | Revoke a pending invite. |
+| POST | `/api/v1/workspace/invites/accept/` | **Public** | Accept an invite with a one-time token. Rate-limited: 20 req/min. |
+
+See [Workspace Settings](/administration/workspace-settings/) for invite token security and the group-access cascade.
+
+### Workspace groups
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/workspace/groups/` | Any member | List groups. |
+| POST | `/api/v1/workspace/groups/` | Admin+ | Create a group. |
+| GET | `/api/v1/workspace/groups/{id}/` | Any member | Retrieve a group. |
+| PATCH | `/api/v1/workspace/groups/{id}/` | Admin+ | Update name, description, or lead. |
+| DELETE | `/api/v1/workspace/groups/{id}/` | Admin+ | Delete group (removes group-conferred memberships). |
+| POST | `/api/v1/workspace/groups/{id}/members/` | Admin+ | Add a member (triggers project-access cascade). |
+| DELETE | `/api/v1/workspace/groups/{id}/members/{user_id}/` | Admin+ | Remove a member (triggers cascade). |
+| POST | `/api/v1/workspace/groups/{id}/projects/` | Admin+ | Link group to a project with a conferred role (triggers cascade). |
+| DELETE | `/api/v1/workspace/groups/{id}/projects/{project_id}/` | Admin+ | Unlink group from a project (removes group-conferred memberships). |
+
 ### Sync
 
 | Method | Path | Description |
