@@ -1,0 +1,69 @@
+{
+  "id": "inv-span-over-max",
+  "name": "Cumulative span over max (11 x 100yr tasks)",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {
+      "id": "t0",
+      "name": "Task 0",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t1",
+      "name": "Task 1",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t2",
+      "name": "Task 2",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t3",
+      "name": "Task 3",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t4",
+      "name": "Task 4",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t5",
+      "name": "Task 5",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t6",
+      "name": "Task 6",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t7",
+      "name": "Task 7",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t8",
+      "name": "Task 8",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t9",
+      "name": "Task 9",
+      "duration": 3155760000.0
+    },
+    {
+      "id": "t10",
+      "name": "Task 10",
+      "duration": 3155760000.0
+    }
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

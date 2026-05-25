@@ -24,6 +24,7 @@ pub fn incremental_update(
     if project.tasks.is_empty() {
         return Err("Project must have at least one task.".to_string());
     }
+    crate::validate::validate_project(project)?;
 
     let pg = build_graph(project).map_err(|e| e.to_string())?;
 

@@ -1,0 +1,15 @@
+{
+  "id": "inv-zero-working-days",
+  "name": "Zero working days",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 432000.0}
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 0,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

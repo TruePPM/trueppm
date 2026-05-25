@@ -207,6 +207,14 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
         )
     except (CyclicDependencyError, ValueError) as exc:
         return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except OverflowError:
+        # Defense in depth: the engine's MAX_PROJECT_SPAN_DAYS guard makes this
+        # unreachable for any realistic start date, but never let a date-range
+        # overflow surface as a 500 (OverflowError is not a ValueError).
+        return Response(
+            {"detail": "Project schedule exceeds the representable date range."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     dist = mc_result.distribution
     if dist:

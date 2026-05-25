@@ -47,6 +47,42 @@ print(build.early_finish)  # 2026-01-21 (5 + 10 working days from 2026-01-05)
 
 See [the full documentation](https://docs.trueppm.com/features/scheduler) for CPM output fields, Monte Carlo usage, and CLI reference.
 
+## Errors and input limits
+
+Every exception the engine raises subclasses `ValueError`, so one
+`except ValueError` catches them all — but each is individually catchable:
+
+| Exception | Raised when |
+|-----------|-------------|
+| `CyclicDependencyError` | The dependency graph contains a cycle. `.cycle` lists the task IDs forming it. |
+| `SimulationCapExceeded` | `monte_carlo(runs=…)` exceeds `max_runs`, or the project has more tasks than `max_tasks`. |
+| `InvalidScheduleInput` | The input is structurally valid but out of range (see limits below). |
+
+The engine walks the working calendar one day at a time, so it validates input
+up front rather than spinning on a degenerate project:
+
+- **Calendar** — `working_days` must set at least one weekday bit (Mon–Sun); a
+  calendar whose `exceptions` blanket the entire search window is rejected too.
+- **Duration** — each task duration must be between `0` and `MAX_DURATION_DAYS`
+  (`36_525`, ~100 years). Negative durations are rejected.
+- **Lag** — each dependency lag must be within `±MAX_LAG_DAYS` (`36_525`).
+- **Project span** — the cumulative span (every task's worst-case duration plus
+  the magnitude of every lag) must stay under `MAX_PROJECT_SPAN_DAYS`
+  (`366_000`, ~1000 years), regardless of task count.
+- **Monte Carlo** — `runs` must be `>= 1`.
+
+`Project.from_json()` also rejects the non-standard JSON literals `NaN`,
+`Infinity`, and `-Infinity`.
+
+```python
+from trueppm_scheduler import schedule, InvalidScheduleInput
+
+try:
+    result = schedule(project)
+except InvalidScheduleInput as e:
+    print("Bad input:", e)  # "Task 't-1' duration exceeds the maximum of 36525 days (got …)."
+```
+
 ## License
 
 Apache 2.0

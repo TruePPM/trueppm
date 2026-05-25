@@ -38,6 +38,48 @@ class SimulationCapExceeded(ValueError):
     """
 
 
+class InvalidScheduleInput(ValueError):
+    """Raised when a project's input is structurally valid but out of range.
+
+    Covers the degenerate inputs that would otherwise drive the day-by-day
+    calendar walk into a multi-million-iteration spin and an uncaught
+    ``OverflowError`` (a calendar with no working day, an absurd duration or
+    lag), plus malformed ``children_map`` cycles. Subclasses :class:`ValueError`
+    so existing ``except ValueError`` callers keep working; raised eagerly at
+    the public entry points so a single hostile project can never tie up a
+    worker. The message is user-facing.
+    """
+
+
+# ---------------------------------------------------------------------------
+# Input bounds
+# ---------------------------------------------------------------------------
+#
+# The CPM engine walks the calendar one day at a time, so every loop's cost is
+# linear in the day span it covers. Python's ``date`` ceiling (year 9999) is
+# the only thing that bounds an unguarded walk today — a ~2.9M-iteration spin
+# that ends in an uncaught ``OverflowError``. These caps reject the pathological
+# inputs up front instead. They are deliberately generous (no real project task
+# runs for a century) and exported so downstream validators (e.g. the TruePPM
+# API) can enforce the *same* limit rather than drift from it.
+
+MAX_DURATION_DAYS = 36_525  # ~100 years — a single task longer than this is degenerate
+MAX_LAG_DAYS = 36_525  # ~100 years of lead/lag in either direction
+# Largest run of consecutive non-working days to scan before declaring a
+# calendar degenerate. A working calendar always has a working day within a
+# week; 100 years of uninterrupted holidays means working_days/exceptions are
+# broken, not that the project is real.
+MAX_CALENDAR_SCAN_DAYS = 366 * 100
+# Upper bound on the cumulative project span: the sum of every task's (worst-case)
+# duration plus the magnitude of every lag. Per-task/-lag caps alone don't bound
+# this — a long dependency chain still accumulates dates one working day at a
+# time, so without this an 80+ task max-duration chain would spin
+# _build_working_day_index / the forward pass and could walk a date past the
+# representable range (an uncaught OverflowError). 1000 years is far beyond any
+# real program and keeps every walk bounded regardless of task count.
+MAX_PROJECT_SPAN_DAYS = 366 * 1000
+
+
 # ---------------------------------------------------------------------------
 # Result types
 # ---------------------------------------------------------------------------
@@ -93,16 +135,39 @@ class MonteCarloResult:
 
 
 def _next_working_day(d: date, calendar: Calendar) -> date:
-    """Return d if it is a working day, otherwise the next working day."""
+    """Return d if it is a working day, otherwise the next working day.
+
+    Guarded against a degenerate calendar (no working day, or exceptions
+    blanketing the search window): rather than spin to the ``date`` ceiling and
+    raise an opaque ``OverflowError``, it bails out with an actionable
+    :class:`InvalidScheduleInput` after :data:`MAX_CALENDAR_SCAN_DAYS`.
+    """
+    scanned = 0
     while not calendar.is_working_day(d):
+        if scanned >= MAX_CALENDAR_SCAN_DAYS:
+            raise InvalidScheduleInput(
+                f"Calendar has no working day within {MAX_CALENDAR_SCAN_DAYS} days "
+                "of the requested date; check the working_days bitmask and exceptions."
+            )
         d += timedelta(days=1)
+        scanned += 1
     return d
 
 
 def _prev_working_day(d: date, calendar: Calendar) -> date:
-    """Return d if it is a working day, otherwise the previous working day."""
+    """Return d if it is a working day, otherwise the previous working day.
+
+    Guarded symmetrically to :func:`_next_working_day`.
+    """
+    scanned = 0
     while not calendar.is_working_day(d):
+        if scanned >= MAX_CALENDAR_SCAN_DAYS:
+            raise InvalidScheduleInput(
+                f"Calendar has no working day within {MAX_CALENDAR_SCAN_DAYS} days "
+                "of the requested date; check the working_days bitmask and exceptions."
+            )
         d -= timedelta(days=1)
+        scanned += 1
     return d
 
 
@@ -220,6 +285,11 @@ def find_cycle(
         The cycle as an ordered list of task IDs with the first repeated at
         the end (e.g. ``['A', 'B', 'C', 'A']``) so callers can render an
         unambiguous path. Returns ``None`` if the graph is acyclic.
+
+    Raises:
+        InvalidScheduleInput: If ``children_map`` itself contains a cycle
+            (a summary that is its own ancestor) — distinct from a cycle in the
+            ``edges`` being validated, which is returned, not raised.
     """
     if children_map:
         edges = _expand_edges_for_cycle_check(edges, children_map)
@@ -432,16 +502,37 @@ def _collect_leaves(
     task_id: str,
     children_map: dict[str, list[str]],
 ) -> list[str]:
-    """Recursively collect leaf task IDs under a summary task.
+    """Collect leaf task IDs under a summary task.
 
-    A leaf is a task that has no children in children_map.
+    A leaf is a task that has no children in children_map. Traversal is
+    iterative with an explicit stack and an active-path set, so a malformed
+    ``children_map`` (a parent-child cycle, or nesting deeper than Python's
+    recursion limit) raises a clean :class:`InvalidScheduleInput` instead of a
+    ``RecursionError``. A node legitimately reachable via multiple parents (a
+    diamond) is *not* a cycle and still yields its leaf once per path — callers
+    deduplicate edges downstream, matching the previous recursive behaviour.
     """
-    children = children_map.get(task_id)
-    if not children:
-        return [task_id]
     leaves: list[str] = []
-    for child_id in children:
-        leaves.extend(_collect_leaves(child_id, children_map))
+    # Stack entries are (node, is_exit_marker). The exit marker pops the node
+    # back off the active path once its whole subtree has been visited.
+    stack: list[tuple[str, bool]] = [(task_id, False)]
+    path: set[str] = set()
+    while stack:
+        node, is_exit = stack.pop()
+        if is_exit:
+            path.discard(node)
+            continue
+        children = children_map.get(node)
+        if not children:
+            leaves.append(node)
+            continue
+        if node in path:
+            raise InvalidScheduleInput(f"children_map contains a cycle through task {node!r}.")
+        path.add(node)
+        stack.append((node, True))
+        # Push children in reverse so they pop in declared order (stable output).
+        for child_id in reversed(children):
+            stack.append((child_id, False))
     return leaves
 
 
@@ -505,6 +596,77 @@ def expand_summary_dependencies(
 
 
 # ---------------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------------
+
+
+def _check_duration(td: timedelta, label: str) -> None:
+    """Reject a negative or absurdly large working-day duration."""
+    days = td.days
+    if days < 0:
+        raise InvalidScheduleInput(f"{label} must not be negative (got {days} days).")
+    if days > MAX_DURATION_DAYS:
+        raise InvalidScheduleInput(
+            f"{label} exceeds the maximum of {MAX_DURATION_DAYS} days (got {days})."
+        )
+
+
+def _validate_project(project: Project) -> None:
+    """Reject degenerate input before any calendar walk runs.
+
+    A pure-Python CPM pass walks the calendar one day at a time, so an empty
+    working-day mask or a century-long duration/lag turns into a multi-million-
+    iteration spin. Validating here keeps a single hostile or fat-fingered
+    project from tying up the caller (notably the synchronous Monte Carlo
+    request path in the TruePPM API).
+    """
+    if project.calendar.working_days & 0b111_1111 == 0:
+        raise InvalidScheduleInput(
+            "Calendar has no working weekday set (working_days bitmask is empty); "
+            "at least one of Mon-Sun must be a working day."
+        )
+    for t in project.tasks:
+        _check_duration(t.duration, f"Task {t.id!r} duration")
+        for field_name, value in (
+            ("optimistic_duration", t.optimistic_duration),
+            ("most_likely_duration", t.most_likely_duration),
+            ("pessimistic_duration", t.pessimistic_duration),
+        ):
+            if value is not None:
+                _check_duration(value, f"Task {t.id!r} {field_name}")
+    for dep in project.dependencies:
+        if abs(dep.lag.days) > MAX_LAG_DAYS:
+            raise InvalidScheduleInput(
+                f"Dependency {dep.predecessor_id!r} → {dep.successor_id!r} lag exceeds "
+                f"the maximum of ±{MAX_LAG_DAYS} days (got {dep.lag.days})."
+            )
+
+    # Cumulative span: an upper bound on the longest path (and on the Monte Carlo
+    # completion offset, which can sample each task up to its pessimistic
+    # duration). Bounding the sum keeps the day-by-day walk and the working-day
+    # index build from spinning — or overflowing the date range — no matter how
+    # many tasks are chained.
+    total_span = 0
+    for t in project.tasks:
+        # Worst case across the deterministic duration AND every PERT estimate:
+        # Monte Carlo samples within [optimistic, pessimistic] but falls back to
+        # most_likely when the range is degenerate, so most_likely (which may
+        # exceed pessimistic) must count too.
+        task_max_days = t.duration.days
+        for est in (t.optimistic_duration, t.most_likely_duration, t.pessimistic_duration):
+            if est is not None:
+                task_max_days = max(task_max_days, est.days)
+        total_span += max(0, task_max_days)
+    total_span += sum(abs(dep.lag.days) for dep in project.dependencies)
+    if total_span > MAX_PROJECT_SPAN_DAYS:
+        raise InvalidScheduleInput(
+            f"Total project span ({total_span} days across all task durations and lags) "
+            f"exceeds the maximum of {MAX_PROJECT_SPAN_DAYS} days; the schedule cannot be "
+            "computed within a representable date range."
+        )
+
+
+# ---------------------------------------------------------------------------
 # Public API: schedule()
 # ---------------------------------------------------------------------------
 
@@ -523,10 +685,13 @@ def schedule(project: Project) -> ScheduleResult:
 
     Raises:
         CyclicDependencyError: If the dependency graph contains a cycle.
+        InvalidScheduleInput: If the calendar has no working day, or a duration
+            or lag is negative/out of range.
         ValueError: If a dependency references an unknown task ID.
     """
     if not project.tasks:
         raise ValueError("Project must have at least one task.")
+    _validate_project(project)
 
     g = _build_graph(project)
     _check_cycles(g)
@@ -652,8 +817,12 @@ def monte_carlo(
         SimulationCapExceeded: If ``runs`` exceeds ``max_runs`` or the project
             has more tasks than ``max_tasks``.
         CyclicDependencyError: If the dependency graph contains a cycle.
-        ValueError: If the project has no tasks.
+        InvalidScheduleInput: If the calendar has no working day, or a duration
+            or lag is negative/out of range.
+        ValueError: If the project has no tasks or ``runs`` is less than 1.
     """
+    if runs < 1:
+        raise ValueError(f"runs must be a positive integer (got {runs}).")
     if max_tasks is not None and len(project.tasks) > max_tasks:
         raise SimulationCapExceeded(
             f"This project has {len(project.tasks)} tasks. "
@@ -667,6 +836,7 @@ def monte_carlo(
         )
     if not project.tasks:
         raise ValueError("Project must have at least one task.")
+    _validate_project(project)
 
     g = _build_graph(project)
     _check_cycles(g)

@@ -14,16 +14,25 @@ from pathlib import Path
 
 import pytest
 
+from trueppm_scheduler import InvalidScheduleInput
 from trueppm_scheduler.engine import schedule
 from trueppm_scheduler.models import Project
 
 FIXTURES_DIR = Path(__file__).resolve().parent.parent.parent / "wasm-scheduler" / "fixtures"
 EXPECTED_DIR = FIXTURES_DIR / "expected"
+INVALID_DIR = FIXTURES_DIR / "invalid"
 
 
 def fixture_names() -> list[str]:
     """Discover all fixture JSON files (excluding the expected/ subdirectory)."""
     return sorted(p.stem for p in FIXTURES_DIR.glob("*.json"))
+
+
+def invalid_fixture_names() -> list[str]:
+    """Discover adversarial fixtures that both engines must reject."""
+    if not INVALID_DIR.exists():
+        return []
+    return sorted(p.stem for p in INVALID_DIR.glob("*.json"))
 
 
 def task_result_to_dict(task: object) -> dict:
@@ -87,3 +96,19 @@ def test_fixture_conformance(fixture_name: str) -> None:
             json.dump(actual, f, indent=2)
             f.write("\n")
         pytest.skip(f"Generated expected output for {fixture_name}")
+
+
+@pytest.mark.parametrize("invalid_name", invalid_fixture_names(), ids=invalid_fixture_names())
+def test_invalid_fixture_rejected(invalid_name: str) -> None:
+    """Adversarial fixtures must be rejected by both engines (#749).
+
+    The Rust engine asserts the same set in
+    ``packages/wasm-scheduler/tests/invalid_conformance.rs``. Each fixture
+    parses cleanly but is structurally degenerate, so ``schedule()`` must raise
+    ``InvalidScheduleInput`` rather than spin the calendar walk.
+    """
+    with open(INVALID_DIR / f"{invalid_name}.json") as f:
+        data = json.load(f)
+    project = Project.from_dict(data)
+    with pytest.raises(InvalidScheduleInput):
+        schedule(project)

@@ -7,6 +7,7 @@ from typing import Any
 
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import F, Q
@@ -15,6 +16,27 @@ from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
 from trueppm_api.fields import LtreeField
+
+# Engine input bounds — mirror of trueppm_scheduler.engine.MAX_DURATION_DAYS /
+# MAX_LAG_DAYS (~100 years). Kept as local constants so loading models does not
+# pull numpy/networkx in through the scheduler engine (the engine is imported
+# lazily inside the views). test_scheduler_bound_parity asserts these stay in
+# lockstep with the engine's exported values. See issue #749.
+MAX_TASK_DURATION_DAYS = 36_525
+MAX_DEPENDENCY_LAG_DAYS = 36_525
+
+
+def validate_working_day_mask(value: int) -> None:
+    """Reject a calendar bitmask with no working weekday.
+
+    ``is_working_day`` only consults bits 0-6 (Mon-Sun), so a mask of 0 — or one
+    that sets only bits >= 7 — has no working day at all. Feeding that to the CPM
+    engine would drive its day-by-day calendar walk into a multi-million-iteration
+    spin; reject it at the write boundary instead. See trueppm_scheduler and #749.
+    """
+    if value & 0b111_1111 == 0:
+        raise ValidationError("working_days must set at least one weekday bit (Mon=1 … Sun=64).")
+
 
 # CPM output fields and sync internals — excluded from history tracking.
 # These are written by the scheduling engine via bulk_update (bypassing signals
@@ -141,7 +163,8 @@ class Calendar(VersionedModel):
     # Bitmask: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64
     working_days = models.SmallIntegerField(
         default=31,  # Mon–Fri
-        help_text="Bitmask of working days: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64",
+        help_text="Bitmask: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64",
+        validators=[validate_working_day_mask],
     )
     hours_per_day = models.FloatField(default=8.0)
     timezone = models.CharField(max_length=64, default="UTC")
@@ -769,7 +792,11 @@ class Task(VersionedModel):
         blank=True,
     )
     # Duration in working days — mirrors trueppm_scheduler.Task.duration.days
-    duration = models.IntegerField(default=1, help_text="Duration in working days")
+    duration = models.IntegerField(
+        default=1,
+        help_text="Duration in working days",
+        validators=[MinValueValidator(0), MaxValueValidator(MAX_TASK_DURATION_DAYS)],
+    )
     status = models.CharField(
         max_length=12,
         choices=TaskStatus.choices,
@@ -817,9 +844,21 @@ class Task(VersionedModel):
     # Three-point PERT estimates (optional; used by Monte Carlo if present).
     # All three must be set for the scheduler to use them (all-or-none rule).
     # estimate_status governs approval when project.estimation_mode=SUGGEST_APPROVE.
-    optimistic_duration = models.IntegerField(null=True, blank=True)
-    most_likely_duration = models.IntegerField(null=True, blank=True)
-    pessimistic_duration = models.IntegerField(null=True, blank=True)
+    optimistic_duration = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(MAX_TASK_DURATION_DAYS)],
+    )
+    most_likely_duration = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(MAX_TASK_DURATION_DAYS)],
+    )
+    pessimistic_duration = models.IntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(MAX_TASK_DURATION_DAYS)],
+    )
     estimate_status = models.CharField(  # noqa: DJ001 — null distinguishes "unset" from ""
         max_length=12,
         choices=EstimateStatus.choices,
@@ -1019,6 +1058,10 @@ class Dependency(VersionedModel):
     lag = models.IntegerField(
         default=0,
         help_text="Lag in calendar days (positive = delay, negative = lead)",
+        validators=[
+            MinValueValidator(-MAX_DEPENDENCY_LAG_DAYS),
+            MaxValueValidator(MAX_DEPENDENCY_LAG_DAYS),
+        ],
     )
 
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)

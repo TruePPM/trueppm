@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import enum
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Self
@@ -82,6 +83,9 @@ class Task:
         d["duration"] = _parse_timedelta(d["duration"])
         d["total_float"] = _parse_timedelta(d.get("total_float", 0))
         d["free_float"] = _parse_timedelta(d.get("free_float", 0))
+        pc = d.get("percent_complete")
+        if pc is not None and not math.isfinite(float(pc)):
+            raise ValueError("percent_complete must be a finite number.")
         for f in (
             "planned_start",
             "planned_finish",
@@ -203,10 +207,19 @@ class Project:
 
     @classmethod
     def from_json(cls, s: str) -> Self:
-        return cls.from_dict(json.loads(s))
+        # json.loads accepts the non-standard literals NaN/Infinity/-Infinity by
+        # default; reject them so a hostile document can't smuggle a non-finite
+        # duration (→ OverflowError) or percent_complete (→ invalid JSON on the
+        # way back out) into the engine.
+        return cls.from_dict(json.loads(s, parse_constant=_reject_nonfinite))
 
 
 # --- Serialization helpers ---
+
+
+def _reject_nonfinite(token: str) -> Any:
+    """parse_constant hook: reject NaN / Infinity / -Infinity in a project document."""
+    raise ValueError(f"Non-finite JSON literal {token!r} is not allowed in a project document.")
 
 
 def _serialize(obj: Any) -> Any:
@@ -225,7 +238,16 @@ def _serialize(obj: Any) -> Any:
 
 
 def _parse_timedelta(val: Any) -> timedelta:
-    """Parse a timedelta from seconds (int/float) or an existing timedelta."""
+    """Parse a timedelta from seconds (int/float) or an existing timedelta.
+
+    Rejects non-finite values: ``timedelta(seconds=inf)`` raises a bare
+    ``OverflowError`` that callers don't expect, so normalise it to a
+    ``ValueError`` here (covers the ``from_dict`` path, which does not go
+    through ``json.loads``).
+    """
     if isinstance(val, timedelta):
         return val
-    return timedelta(seconds=float(val))
+    seconds = float(val)
+    if not math.isfinite(seconds):
+        raise ValueError(f"Duration must be a finite number of seconds, got {val!r}.")
+    return timedelta(seconds=seconds)
