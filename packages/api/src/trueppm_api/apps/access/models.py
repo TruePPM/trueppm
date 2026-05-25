@@ -85,6 +85,17 @@ class ProjectMembership(VersionedModel):
     # partial_update and the ownership-transfer service). The UI shows the
     # "role changed" line only when this is set.
     role_changed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # Set when this membership was materialized by a workspace Group→project
+    # cascade (ADR-0087 §5) rather than a direct invite. A direct grant
+    # (source_group IS NULL) always wins: group reconciliation never alters or
+    # revokes a direct membership, and only removes rows it created itself.
+    source_group = models.ForeignKey(
+        "workspace.Group",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="granted_memberships",
+    )
 
     class Meta:
         db_table = "access_project_membership"

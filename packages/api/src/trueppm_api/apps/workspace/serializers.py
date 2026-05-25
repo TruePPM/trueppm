@@ -1,0 +1,224 @@
+"""Serializers for the workspace app (#517/#518/#519, ADR-0087).
+
+Wire format is snake_case (DRF default); the web hooks map to camelCase. Member
+and group *read* serializers are plain ``Serializer`` subclasses fed pre-built
+dicts by the viewsets — the member "row" is a join across ``auth.User``,
+``WorkspaceMembership``, group memberships, and a project count, so there is no
+single model to bind a ``ModelSerializer`` to.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from rest_framework import serializers
+
+from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.workspace.models import (
+    Group,
+    MemberStatus,
+    Workspace,
+    WorkspaceRole,
+)
+
+# Deterministic avatar palette — index by a stable hash of the user id so a
+# given user always renders the same dot color across sessions and clients.
+_AVATAR_PALETTE = [
+    "#1C6B3A",
+    "#C17A10",
+    "#7C3AED",
+    "#0EA5E9",
+    "#DC2626",
+    "#0F766E",
+    "#92400E",
+    "#475569",
+]
+
+
+def initials_for(first_name: str, last_name: str, username: str) -> str:
+    parts: list[str] = []
+    if first_name:
+        parts.append(first_name[0].upper())
+    if last_name:
+        parts.append(last_name[0].upper())
+    if parts:
+        return "".join(parts[:2])
+    return username[:2].upper()
+
+
+def display_name_for(first_name: str, last_name: str, username: str) -> str:
+    name = f"{first_name} {last_name}".strip()
+    return name or username
+
+
+def color_for(user_id: Any) -> str:
+    return _AVATAR_PALETTE[hash(str(user_id)) % len(_AVATAR_PALETTE)]
+
+
+# ---------------------------------------------------------------------------
+# #517 — Workspace general settings
+# ---------------------------------------------------------------------------
+
+
+class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
+    """GET/PATCH /api/v1/workspace/. ``subdomain`` is read-only (#517)."""
+
+    class Meta:
+        model = Workspace
+        fields = [
+            "name",
+            "subdomain",
+            "timezone",
+            "fiscal_year_start",
+            "work_week",
+            "default_project_view",
+            "allow_guests",
+            "public_sharing",
+        ]
+        read_only_fields = ["subdomain"]
+
+    def validate_work_week(self, value: list[bool]) -> list[bool]:
+        if len(value) != 7:
+            raise serializers.ValidationError("work_week must have exactly 7 entries (Mon-Sun).")
+        return value
+
+
+# ---------------------------------------------------------------------------
+# #518 — Members
+# ---------------------------------------------------------------------------
+
+
+class WorkspaceMemberSerializer(serializers.Serializer[Any]):
+    """Read serializer for a workspace member row (fed a pre-built dict)."""
+
+    id = serializers.CharField()
+    name = serializers.CharField()
+    initials = serializers.CharField()
+    color = serializers.CharField()
+    email = serializers.EmailField()
+    role = serializers.CharField()  # human label, e.g. "Admin"
+    role_value = serializers.IntegerField()  # ordinal — use for comparisons
+    groups = serializers.ListField(child=serializers.CharField())
+    project_count = serializers.IntegerField()
+    last_active = serializers.CharField(allow_null=True)
+    status = serializers.CharField()
+    # SSO / 2FA are Enterprise identity features — always false in OSS, surfaced
+    # read-only so the members table renders without conditional columns.
+    sso = serializers.BooleanField()
+    two_fa = serializers.BooleanField()
+
+
+class WorkspaceMemberUpdateSerializer(serializers.Serializer[Any]):
+    """PATCH body for a member — role and/or status (#518)."""
+
+    role = serializers.IntegerField(required=False)
+    status = serializers.ChoiceField(choices=MemberStatus.choices, required=False)
+
+    def validate_role(self, value: int) -> int:
+        valid = {r.value for r in WorkspaceRole}
+        if value not in valid:
+            raise serializers.ValidationError(f"Invalid role. Choose from {sorted(valid)}.")
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if "role" not in attrs and "status" not in attrs:
+            raise serializers.ValidationError("Provide at least one of: role, status.")
+        return attrs
+
+
+class WorkspaceInviteSerializer(serializers.Serializer[Any]):
+    """Read serializer for a pending invite (#518)."""
+
+    id = serializers.CharField()
+    email = serializers.EmailField()
+    role = serializers.CharField()  # human label
+    role_value = serializers.IntegerField()
+    status = serializers.CharField()
+    invited_by = serializers.CharField(allow_null=True)  # initials
+    created_at = serializers.DateTimeField()
+    expires_at = serializers.DateTimeField()
+
+
+class WorkspaceInviteCreateSerializer(serializers.Serializer[Any]):
+    """POST body to create an invite (#518)."""
+
+    email = serializers.EmailField()
+    role = serializers.IntegerField(default=WorkspaceRole.MEMBER)
+
+    def validate_role(self, value: int) -> int:
+        valid = {r.value for r in WorkspaceRole}
+        if value not in valid:
+            raise serializers.ValidationError(f"Invalid role. Choose from {sorted(valid)}.")
+        return value
+
+
+class InviteAcceptSerializer(serializers.Serializer[Any]):
+    """POST body to accept an invite. username/password required only when no
+    account already exists for the invited email."""
+
+    token = serializers.CharField()
+    username = serializers.CharField(required=False, allow_blank=True, default="")
+    password = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        write_only=True,
+        style={"input_type": "password"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# #519 — Groups & teams
+# ---------------------------------------------------------------------------
+
+
+class GroupSerializer(serializers.Serializer[Any]):
+    """Read serializer for a group row (fed a pre-built dict)."""
+
+    id = serializers.CharField()
+    name = serializers.CharField()
+    description = serializers.CharField(allow_blank=True)
+    lead = serializers.CharField(allow_null=True)  # initials
+    lead_user_id = serializers.CharField(allow_null=True)
+    member_count = serializers.IntegerField()
+    members = serializers.ListField(child=serializers.DictField())
+    projects = serializers.ListField(child=serializers.CharField())
+
+
+class GroupWriteSerializer(serializers.ModelSerializer[Group]):
+    """POST/PATCH body for a group (#519)."""
+
+    class Meta:
+        model = Group
+        fields = ["name", "description", "lead"]
+        extra_kwargs = {
+            "description": {"required": False},
+            "lead": {"required": False, "allow_null": True},
+        }
+
+
+class GroupMemberAddSerializer(serializers.Serializer[Any]):
+    """POST /groups/{id}/members/ — add a member to a group (#519).
+
+    ``user`` is the stock ``auth.User`` integer PK (TruePPM has no custom user
+    model), not a UUID.
+    """
+
+    user = serializers.IntegerField()
+
+
+class GroupProjectWriteSerializer(serializers.Serializer[Any]):
+    """POST /groups/{id}/projects/ — link a group to a project with a conferred role."""
+
+    project = serializers.UUIDField()
+    role = serializers.IntegerField(default=Role.MEMBER)
+
+    def validate_role(self, value: int) -> int:
+        valid = {r.value for r in Role}
+        if value not in valid:
+            raise serializers.ValidationError(f"Invalid role. Choose from {sorted(valid)}.")
+        # A group can never confer project ownership — the last-owner guard must
+        # stay meaningful (ADR-0087 §5).
+        if value >= Role.OWNER:
+            raise serializers.ValidationError("A group cannot confer the Owner role.")
+        return value

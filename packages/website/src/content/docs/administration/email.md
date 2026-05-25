@@ -37,8 +37,8 @@ in plain `values.yaml`.
 
 ## Read-only status page
 
-**Workspace → Settings → Email & SMTP** (org admins only) shows the resolved
-transport mode, host, port, TLS/SSL, and From address. It never displays the
+**Workspace → Settings → Email & SMTP** (workspace Admins and Owners only) shows
+the resolved transport mode, host, port, TLS/SSL, and From address. It never displays the
 username or password and cannot change configuration — update the environment /
 Helm values and redeploy to change transport. A writable in-app SMTP
 configuration surface is a planned follow-up, not part of the community edition

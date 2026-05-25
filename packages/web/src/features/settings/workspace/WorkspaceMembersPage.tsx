@@ -1,7 +1,8 @@
-import { useId, useMemo, useState } from 'react';
+import { type FormEvent, useId, useMemo, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
-import { StubPageBanner } from '../components/StubPageBanner';
 import { useWorkspaceMembers, type WorkspaceMember } from '../hooks/useWorkspaceMembers';
+import { useUpdateWorkspaceMember, useRemoveWorkspaceMember } from '../hooks/useUpdateWorkspaceMember';
+import { useCreateInvite, useRevokeInvite } from '../hooks/useWorkspaceInvites';
 import { filterMembers } from './filterMembers';
 
 const ROLE_PALETTE: Record<string, { bg: string; text: string }> = {
@@ -17,6 +18,13 @@ const STATUS_DOT: Record<string, string> = {
   guest:       'bg-semantic-warning',
   deactivated: 'bg-neutral-text-disabled',
 };
+
+/** Integer role values for the invite role selector. */
+const ROLE_INT_OPTIONS = [
+  { label: 'Member', value: 100 },
+  { label: 'Admin', value: 300 },
+  { label: 'Owner', value: 400 },
+];
 
 function RoleBadge({ role }: { role: string }) {
   const p = ROLE_PALETTE[role] ?? ROLE_PALETTE.Member;
@@ -39,7 +47,20 @@ function Avatar({ initials, color, size = 26 }: { initials: string; color: strin
   );
 }
 
-function MemberTableRow({ m, last }: { m: WorkspaceMember; last: boolean }) {
+interface MemberTableRowProps {
+  m: WorkspaceMember;
+  last: boolean;
+  onRoleChange: (userId: string, roleValue: number) => void;
+  onRemove: (userId: string) => void;
+  /** True when the most recent mutation for this row failed. */
+  hasError?: boolean;
+}
+
+function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTableRowProps) {
+  // Two-step destructive confirm: the ✕ reveals an inline "Remove? · Confirm ·
+  // Cancel" control rather than firing the DELETE immediately, so a misclick
+  // does not silently strip a member's workspace access.
+  const [confirming, setConfirming] = useState(false);
   return (
     <div
       className={[
@@ -68,8 +89,19 @@ function MemberTableRow({ m, last }: { m: WorkspaceMember; last: boolean }) {
           <span className="text-[11px] text-neutral-text-secondary truncate">{m.email}</span>
         </span>
       </span>
-      {/* Role */}
-      <span><RoleBadge role={m.role} /></span>
+      {/* Role — editable select */}
+      <span>
+        <select
+          aria-label={`Role for ${m.name}`}
+          value={m.roleValue}
+          onChange={(e) => onRoleChange(m.id, Number(e.target.value))}
+          className="h-7 pl-1.5 pr-5 rounded border border-neutral-border text-[11px] bg-neutral-surface-raised appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+        >
+          {ROLE_INT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </span>
       {/* Groups */}
       <span className="flex flex-wrap gap-1">
         {m.groups.slice(0, 2).map((g) => (
@@ -84,7 +116,7 @@ function MemberTableRow({ m, last }: { m: WorkspaceMember; last: boolean }) {
       {/* Projects */}
       <span className="tppm-mono text-[12px] text-neutral-text-secondary">{m.projectCount}</span>
       {/* Last active */}
-      <span className="text-[12px] text-neutral-text-secondary">{m.lastActive}</span>
+      <span className="text-[12px] text-neutral-text-secondary">{m.lastActive ?? '—'}</span>
       {/* Status */}
       <span className="flex items-center gap-1.5">
         <span
@@ -93,10 +125,46 @@ function MemberTableRow({ m, last }: { m: WorkspaceMember; last: boolean }) {
         />
         <span className="text-[11px] text-neutral-text-secondary capitalize">{m.status}</span>
       </span>
-      {/* Badges */}
-      <span className="flex items-center gap-1 justify-end">
-        {m.sso  && <span className="text-[9px] px-1 py-px rounded bg-neutral-surface-sunken text-neutral-text-secondary font-bold">SSO</span>}
-        {m.twoFa && <span className="text-[9px] px-1 py-px rounded bg-semantic-on-track-bg text-semantic-on-track font-bold">2FA</span>}
+      {/* Actions + badges */}
+      <span className="flex flex-col items-end gap-0.5">
+        <span className="flex items-center gap-1 justify-end">
+          {m.sso  && <span className="text-[10px] px-1 py-px rounded bg-neutral-surface-sunken text-neutral-text-secondary font-bold">SSO</span>}
+          {m.twoFa && <span className="text-[10px] px-1 py-px rounded bg-semantic-on-track-bg text-semantic-on-track font-bold">2FA</span>}
+          {confirming ? (
+            <span className="flex items-center gap-1.5 text-[11px]" role="group" aria-label={`Confirm remove ${m.name}`}>
+              <button
+                type="button"
+                onClick={() => { setConfirming(false); onRemove(m.id); }}
+                className="text-semantic-critical font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded"
+              >
+                Confirm
+              </button>
+              <span className="text-neutral-text-disabled" aria-hidden="true">·</span>
+              <button
+                type="button"
+                onClick={() => setConfirming(false)}
+                className="text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+              >
+                Cancel
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirming(true)}
+              aria-label={`Remove ${m.name}`}
+              aria-expanded={confirming}
+              className="ml-1 text-[10px] text-neutral-text-disabled hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded"
+            >
+              ✕
+            </button>
+          )}
+        </span>
+        {hasError && (
+          <span role="alert" className="text-semantic-critical text-[11px]">
+            Action failed. Try again.
+          </span>
+        )}
       </span>
     </div>
   );
@@ -107,19 +175,67 @@ const ROLE_OPTIONS = ['Admin', 'PM', 'Lead', 'Member', 'Viewer'] as const;
 /** Workspace > Members management page. */
 export function WorkspaceMembersPage() {
   const { members, pendingInvites, isLoading } = useWorkspaceMembers();
+  const updateMember = useUpdateWorkspaceMember();
+  const removeMember = useRemoveWorkspaceMember();
+  const createInvite = useCreateInvite();
+  const revokeInvite = useRevokeInvite();
+
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState(100);
+  // The member id whose most recent role-change / removal mutation failed.
+  // Tracked per-row (rather than via the shared mutation error) so the inline
+  // alert renders next to the control the user actually touched.
+  const [errorMemberId, setErrorMemberId] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState(false);
+  // The pending-invite id whose most recent revoke failed.
+  const [errorInviteId, setErrorInviteId] = useState<string | null>(null);
+
   const searchInputId = useId();
   const roleSelectId = useId();
+  const inviteEmailId = useId();
+  const inviteRoleId = useId();
 
-  // Client-side filter against the hook's data. When #518 swaps the hook to
-  // the real API, this same call site keeps working — the filter is a pure
-  // function over WorkspaceMember[].
   const visibleMembers = useMemo(
     () => filterMembers(members, { query, role: roleFilter }),
     [members, query, roleFilter],
   );
   const hasFilter = query.trim() !== '' || roleFilter !== null;
+
+  function handleRoleChange(userId: string, roleValue: number) {
+    updateMember.mutateAsync({ userId, role: roleValue }).then(
+      () => setErrorMemberId((prev) => (prev === userId ? null : prev)),
+      () => setErrorMemberId(userId),
+    );
+  }
+
+  function handleRemove(userId: string) {
+    removeMember.mutateAsync(userId).then(
+      () => setErrorMemberId((prev) => (prev === userId ? null : prev)),
+      () => setErrorMemberId(userId),
+    );
+  }
+
+  function handleInvite(e: FormEvent) {
+    e.preventDefault();
+    if (!inviteEmail.trim()) return;
+    setInviteError(false);
+    createInvite.mutateAsync({ email: inviteEmail.trim(), role: inviteRole }).then(
+      () => {
+        setInviteEmail('');
+        setInviteRole(100);
+      },
+      () => setInviteError(true),
+    );
+  }
+
+  function handleRevoke(inviteId: string) {
+    revokeInvite.mutateAsync(inviteId).then(
+      () => setErrorInviteId((prev) => (prev === inviteId ? null : prev)),
+      () => setErrorInviteId(inviteId),
+    );
+  }
 
   if (isLoading) {
     return (
@@ -133,7 +249,6 @@ export function WorkspaceMembersPage() {
 
   return (
     <div>
-      <StubPageBanner pageIssue={518} />
       <SettingsPageTitle
         title="Members"
         count={`${members.length} members · ${pendingInvites.length} pending`}
@@ -146,15 +261,53 @@ export function WorkspaceMembersPage() {
             >
               Export CSV
             </button>
-            <button
-              type="button"
-              className="px-3 py-1.5 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-            >
-              + Invite members
-            </button>
           </div>
         }
       />
+
+      {/* Invite form */}
+      <form onSubmit={handleInvite} className="px-6 py-3 flex items-end gap-2 border-b border-neutral-border/55 flex-wrap">
+        <div className="flex flex-col gap-0.5">
+          <label htmlFor={inviteEmailId} className="text-[11px] font-medium text-neutral-text-secondary">
+            Email
+          </label>
+          <input
+            id={inviteEmailId}
+            type="email"
+            value={inviteEmail}
+            onChange={(e) => setInviteEmail(e.target.value)}
+            placeholder="colleague@example.com"
+            className="h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary w-[220px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary placeholder:text-neutral-text-disabled"
+          />
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <label htmlFor={inviteRoleId} className="text-[11px] font-medium text-neutral-text-secondary">
+            Role
+          </label>
+          <select
+            id={inviteRoleId}
+            value={inviteRole}
+            onChange={(e) => setInviteRole(Number(e.target.value))}
+            className="h-8 pl-2.5 pr-7 rounded border border-neutral-border text-[13px] bg-neutral-surface-raised appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+          >
+            {ROLE_INT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="submit"
+          disabled={!inviteEmail.trim() || createInvite.isPending}
+          className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {createInvite.isPending ? 'Sending…' : '+ Invite members'}
+        </button>
+        {inviteError && (
+          <span role="alert" className="text-semantic-critical text-[11px] w-full">
+            Could not send the invite. Check the address and try again.
+          </span>
+        )}
+      </form>
 
       {/* Search + filters */}
       <div className="px-6 py-3 flex items-center gap-2 border-b border-neutral-border/55 flex-wrap">
@@ -249,6 +402,9 @@ export function WorkspaceMembersPage() {
                 key={m.id}
                 m={m}
                 last={i === visibleMembers.length - 1 && pendingInvites.length === 0}
+                onRoleChange={handleRoleChange}
+                onRemove={handleRemove}
+                hasError={errorMemberId === m.id}
               />
             ))
           )}
@@ -284,10 +440,28 @@ export function WorkspaceMembersPage() {
                   <span /><span />
                   <span className="text-[11px]">Sent {p.sentAt}</span>
                   <span className="text-[11px]">by {p.sentBy}</span>
-                  <span className="flex justify-end">
-                    <button type="button" className="text-[11px] text-brand-primary font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded">
+                  <span className="flex flex-col items-end gap-0.5">
+                    <span className="flex justify-end gap-1">
+                    <button
+                      type="button"
+                      className="text-[11px] text-brand-primary font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+                    >
                       Resend
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRevoke(p.id)}
+                      aria-label={`Revoke invite for ${p.email}`}
+                      className="text-[11px] text-neutral-text-disabled hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded"
+                    >
+                      Revoke
+                    </button>
+                    </span>
+                    {errorInviteId === p.id && (
+                      <span role="alert" className="text-semantic-critical text-[11px]">
+                        Could not revoke. Try again.
+                      </span>
+                    )}
                   </span>
                 </div>
               ))}

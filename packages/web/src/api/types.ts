@@ -216,3 +216,107 @@ export interface PhaseGateConfig {
   invite_template: string;
   updated_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// Workspace settings types (ADR-0032, #517–#520)
+// ---------------------------------------------------------------------------
+
+/**
+ * Workspace-level settings returned by GET /workspace/ and accepted by PATCH
+ * /workspace/. `subdomain` is read-only on the wire and never sent in PATCH.
+ */
+export interface WorkspaceSettings {
+  name: string;
+  /** Read-only — set at workspace creation; never sent in PATCH. */
+  subdomain: string;
+  timezone: string;
+  /** Month name e.g. "January" */
+  fiscalYearStart: string;
+  /** 7 booleans, Monday (index 0) through Sunday (index 6). */
+  workWeek: boolean[];
+  defaultProjectView: string;
+  allowGuests: boolean;
+  publicSharing: boolean;
+}
+
+/**
+ * A single workspace member row returned by GET /workspace/members/ and PATCH
+ * /workspace/members/{user_id}/.
+ */
+export interface WorkspaceMember {
+  id: string;
+  name: string;
+  initials: string;
+  color: string;
+  email: string;
+  /** Human-readable role label e.g. "Admin". */
+  role: string;
+  /** Integer role value: MEMBER=100, ADMIN=300, OWNER=400. */
+  roleValue: number;
+  groups: string[];
+  projectCount: number;
+  /** Human-readable last-active string (may be null from the API). */
+  lastActive: string | null;
+  status: 'active' | 'guest' | 'deactivated';
+  sso: boolean;
+  twoFa: boolean;
+}
+
+/**
+ * Pending workspace invite row returned by GET /workspace/invites/.
+ */
+export interface WorkspaceInvite {
+  id: string;
+  email: string;
+  /** Human-readable role label. */
+  role: string;
+  /** Integer role value. */
+  roleValue: number;
+  status: string;
+  /** Initials of the inviter, or null when unknown. */
+  invitedBy: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
+/**
+ * Subset of WorkspaceInvite used in the Members page pending-invite section —
+ * matches the legacy stub shape so the existing component keeps compiling.
+ */
+export interface PendingInvite {
+  /** Same as `WorkspaceInvite.id` — kept so revoke can reference it. */
+  id: string;
+  email: string;
+  role: string;
+  /** Initials of the sender (mapped from `invited_by`). */
+  sentBy: string;
+  /** Human-readable relative time (mapped from `created_at`). */
+  sentAt: string;
+}
+
+/**
+ * A member entry nested inside a WorkspaceGroup.
+ */
+export interface WorkspaceGroupMember {
+  id: string;
+  name: string;
+  initials: string;
+  color: string;
+}
+
+/**
+ * A workspace group row returned by GET /workspace/groups/.
+ */
+export interface WorkspaceGroup {
+  id: string;
+  name: string;
+  description: string;
+  /** Initials of the lead user, or null when unset. */
+  lead: string | null;
+  /** UUID of the lead user, or null when unset. */
+  leadUserId: string | null;
+  memberCount: number;
+  members: WorkspaceGroupMember[];
+  /** Project names this group has access to. */
+  projects: string[];
+}

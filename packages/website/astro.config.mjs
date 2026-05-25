@@ -97,6 +97,7 @@ export default defineConfig({
             { slug: "administration/system-health" },
             { slug: "administration/retention" },
             { slug: "administration/email" },
+            { slug: "administration/workspace-settings" },
           ],
         },
         // --- Feature reference (sub-grouped) ---

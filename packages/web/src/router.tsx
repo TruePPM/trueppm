@@ -195,6 +195,11 @@ const DeadLetterInspectorPage = lazy(() =>
     '@/features/settings/workspace/systemHealth/DeadLetterInspectorPage'
   ).then((m) => ({ default: m.DeadLetterInspectorPage }))
 );
+const InviteAcceptPage = lazy(() =>
+  import('@/features/settings/workspace/InviteAcceptPage').then((m) => ({
+    default: m.InviteAcceptPage,
+  }))
+);
 
 // ── Program settings ──────────────────────────────────────────────────────────
 const ProgramSettingsPage = lazy(() =>
@@ -286,6 +291,15 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: <LoginPage />,
+  },
+  // Public route — no auth required. Handles workspace invite token redemption.
+  {
+    path: '/invite/accept',
+    element: (
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <InviteAcceptPage />
+      </Suspense>
+    ),
   },
   {
     element: <RequireAuth />,

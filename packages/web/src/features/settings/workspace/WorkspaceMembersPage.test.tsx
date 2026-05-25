@@ -1,34 +1,89 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 import { WorkspaceMembersPage } from './WorkspaceMembersPage';
 
-// Uses the real fixture hook (useWorkspaceMembers) — the page is a stub that
-// owns its fixtures, so a component-level test exercises the actual rendered
-// output without any mocking.
+// Mock apiClient so we can control responses without a running server.
+const { getMock, patchMock, deleteMock, postMock } = vi.hoisted(() => ({
+  getMock: vi.fn(),
+  patchMock: vi.fn(),
+  deleteMock: vi.fn(),
+  postMock: vi.fn(),
+}));
+
+vi.mock('@/api/client', () => ({
+  apiClient: {
+    get: getMock,
+    patch: patchMock,
+    delete: deleteMock,
+    post: postMock,
+  },
+}));
+
+const MEMBERS = [
+  { id: '1', name: 'Anika Krishnan', initials: 'AK', color: '#1C6B3A', email: 'anika.k@truescope.io', role: 'Admin',  role_value: 300, groups: ['Propulsion', 'Leadership'], project_count: 5, last_active: '2m ago',    status: 'active',      sso: true,  two_fa: true  },
+  { id: '2', name: 'Jordan Mehta',   initials: 'JM', color: '#C17A10', email: 'j.mehta@truescope.io', role: 'PM',     role_value: 100, groups: ['Stage'],                  project_count: 3, last_active: '12m ago',   status: 'active',      sso: true,  two_fa: true  },
+  { id: '3', name: 'Sam Reyes',      initials: 'SR', color: '#7C3AED', email: 'sam@truescope.io',      role: 'Lead',   role_value: 100, groups: ['Avionics'],               project_count: 2, last_active: '26m ago',   status: 'active',      sso: true,  two_fa: false },
+  { id: '4', name: 'Erin Lai',       initials: 'EL', color: '#0EA5E9', email: 'elai@truescope.io',     role: 'Lead',   role_value: 100, groups: ['Ground Ops'],             project_count: 2, last_active: '1h ago',    status: 'active',      sso: true,  two_fa: true  },
+  { id: '5', name: 'Maya Kearns',    initials: 'MK', color: '#DC2626', email: 'maya.k@truescope.io',   role: 'Member', role_value: 100, groups: ['Power'],                  project_count: 1, last_active: '3h ago',    status: 'active',      sso: true,  two_fa: true  },
+  { id: '6', name: 'Devraj Tan',     initials: 'DT', color: '#0F766E', email: 'dtan@truescope.io',     role: 'Member', role_value: 100, groups: ['Fluids'],                 project_count: 2, last_active: 'Yesterday', status: 'active',      sso: true,  two_fa: true  },
+  { id: '7', name: 'Riya Kapoor',    initials: 'RK', color: '#92400E', email: 'rk@truescope.io',       role: 'PM',     role_value: 100, groups: ['Ops', 'Leadership'],      project_count: 4, last_active: 'Yesterday', status: 'active',      sso: true,  two_fa: true  },
+  { id: '8', name: 'Theo Vasquez',   initials: 'TV', color: '#475569', email: 'theo@truescope.io',     role: 'Member', role_value: 100, groups: ['Ops'],                    project_count: 2, last_active: '3d ago',    status: 'active',      sso: false, two_fa: false },
+  { id: '9', name: 'Park Choi',      initials: 'PC', color: '#7C3AED', email: 'pchoi@vendor.x',        role: 'Viewer', role_value: 100, groups: ['Vendor: ValveCo'],        project_count: 1, last_active: '1w ago',    status: 'guest',       sso: false, two_fa: false },
+  { id: '10', name: 'Lin Mae',       initials: 'LM', color: '#1C6B3A', email: 'linmae@truescope.io',   role: 'Member', role_value: 100, groups: ['Avionics'],               project_count: 1, last_active: '2w ago',    status: 'deactivated', sso: true,  two_fa: true  },
+];
+
+function makeWrapper() {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  function Wrapper({ children }: { children: ReactNode }) {
+    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+  }
+  return Wrapper;
+}
+
+function setupMocks() {
+  getMock.mockImplementation((url: string) => {
+    if (url.includes('/workspace/members/')) return Promise.resolve({ data: MEMBERS });
+    if (url.includes('/workspace/invites/')) return Promise.resolve({ data: [] });
+    return Promise.resolve({ data: [] });
+  });
+}
 
 describe('WorkspaceMembersPage — search + filters', () => {
-  it('renders an accessible search input (not a span placeholder)', () => {
-    render(<WorkspaceMembersPage />);
-    expect(
-      screen.getByRole('searchbox', { name: /search members by name or email/i }),
-    ).toBeInTheDocument();
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupMocks();
   });
 
-  it('renders a Role filter as a real <select>', () => {
-    render(<WorkspaceMembersPage />);
-    const select = screen.getByRole('combobox', { name: /filter by role/i });
-    expect(select).toBeInTheDocument();
-    expect(select.tagName).toBe('SELECT');
+  it('renders an accessible search input (not a span placeholder)', async () => {
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    await waitFor(() =>
+      expect(screen.getByRole('searchbox', { name: /search members by name or email/i })).toBeInTheDocument(),
+    );
+  });
+
+  it('renders a Role filter as a real <select>', async () => {
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    await waitFor(() => {
+      const select = screen.getByRole('combobox', { name: /filter by role/i });
+      expect(select).toBeInTheDocument();
+      expect(select.tagName).toBe('SELECT');
+    });
   });
 
   it('narrows visible rows when typing in the search input', async () => {
     const user = userEvent.setup();
-    render(<WorkspaceMembersPage />);
-    const input = screen.getByRole('searchbox', { name: /search members/i });
-    expect(screen.getByText('Anika Krishnan')).toBeInTheDocument();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    // Wait for data to load
+    await waitFor(() => expect(screen.getByText('Anika Krishnan')).toBeInTheDocument());
     expect(screen.getByText('Maya Kearns')).toBeInTheDocument();
 
+    const input = screen.getByRole('searchbox', { name: /search members/i });
     await user.type(input, 'anika');
 
     expect(screen.getByText('Anika Krishnan')).toBeInTheDocument();
@@ -37,8 +92,9 @@ describe('WorkspaceMembersPage — search + filters', () => {
 
   it('updates the "Showing N of M" footer when filtered', async () => {
     const user = userEvent.setup();
-    render(<WorkspaceMembersPage />);
-    expect(screen.getByText(/Showing all 10/)).toBeInTheDocument();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => expect(screen.getByText(/Showing all 10/)).toBeInTheDocument());
 
     await user.type(
       screen.getByRole('searchbox', { name: /search members/i }),
@@ -50,7 +106,10 @@ describe('WorkspaceMembersPage — search + filters', () => {
 
   it('renders an empty state with the search term when nothing matches', async () => {
     const user = userEvent.setup();
-    render(<WorkspaceMembersPage />);
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => expect(screen.getByRole('searchbox')).toBeInTheDocument());
+
     await user.type(
       screen.getByRole('searchbox', { name: /search members/i }),
       'zzzzz',
@@ -60,7 +119,10 @@ describe('WorkspaceMembersPage — search + filters', () => {
 
   it('narrows visible rows when selecting a Role', async () => {
     const user = userEvent.setup();
-    render(<WorkspaceMembersPage />);
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Sam Reyes')).toBeInTheDocument());
+
     await user.selectOptions(
       screen.getByRole('combobox', { name: /filter by role/i }),
       'Lead',
@@ -70,5 +132,124 @@ describe('WorkspaceMembersPage — search + filters', () => {
     expect(screen.getByText('Erin Lai')).toBeInTheDocument();
     expect(screen.queryByText('Anika Krishnan')).not.toBeInTheDocument();
     expect(screen.getByText(/Showing 2 of 10/)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Two-step destructive confirm — member remove
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceMembersPage — two-step remove confirm', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupMocks();
+  });
+
+  it('does NOT call apiClient.delete immediately when the ✕ button is clicked', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Anika Krishnan')).toBeInTheDocument());
+
+    // The ✕ remove button is labelled "Remove <name>"
+    await user.click(screen.getByRole('button', { name: /Remove Anika Krishnan/i }));
+
+    // delete must NOT have been called yet
+    expect(deleteMock).not.toHaveBeenCalled();
+  });
+
+  it('reveals the inline Confirm/Cancel control after clicking ✕', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Anika Krishnan')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /Remove Anika Krishnan/i }));
+
+    // The confirm group and its two buttons should now be visible
+    expect(screen.getByRole('group', { name: /Confirm remove Anika Krishnan/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Confirm$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Cancel$/i })).toBeInTheDocument();
+  });
+
+  it('calls apiClient.delete with the member id when Confirm is clicked', async () => {
+    const user = userEvent.setup();
+    deleteMock.mockResolvedValue({});
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Anika Krishnan')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /Remove Anika Krishnan/i }));
+    await user.click(screen.getByRole('button', { name: /^Confirm$/i }));
+
+    await waitFor(() =>
+      expect(deleteMock).toHaveBeenCalledWith('/workspace/members/1/'),
+    );
+  });
+
+  it('dismisses the confirm control without calling delete when Cancel is clicked', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Anika Krishnan')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /Remove Anika Krishnan/i }));
+    await user.click(screen.getByRole('button', { name: /^Cancel$/i }));
+
+    expect(deleteMock).not.toHaveBeenCalled();
+    // The ✕ button should be back, the confirm group gone
+    expect(screen.getByRole('button', { name: /Remove Anika Krishnan/i })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: /Confirm remove Anika Krishnan/i })).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Inline role="alert" error — member remove failure
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceMembersPage — remove error alert', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupMocks();
+  });
+
+  it('shows a role="alert" error message when the remove mutation rejects', async () => {
+    const user = userEvent.setup();
+    deleteMock.mockRejectedValue(new Error('500'));
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => expect(screen.getByText('Anika Krishnan')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: /Remove Anika Krishnan/i }));
+    await user.click(screen.getByRole('button', { name: /^Confirm$/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/Action failed\. Try again\./i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Inline role="alert" error — invite send failure
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceMembersPage — invite error alert', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupMocks();
+  });
+
+  it('shows a role="alert" error when the invite mutation rejects', async () => {
+    const user = userEvent.setup();
+    postMock.mockRejectedValue(new Error('400'));
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    await waitFor(() => expect(screen.getByRole('searchbox')).toBeInTheDocument());
+
+    const emailInput = screen.getByRole('textbox', { name: /Email/i });
+    await user.type(emailInput, 'new@example.com');
+    await user.click(screen.getByRole('button', { name: /Invite members/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/Could not send the invite/i);
   });
 });

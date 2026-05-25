@@ -1,27 +1,41 @@
-/**
- * Stub hook — returns fixture workspace groups until
- * GET /api/v1/workspace/groups/ is implemented.
- */
-export interface WorkspaceGroup {
+import { useQuery } from '@tanstack/react-query';
+import { apiClient } from '@/api/client';
+import type { WorkspaceGroup, WorkspaceGroupMember } from '@/api/types';
+
+// Re-export types so existing call sites keep working.
+export type { WorkspaceGroup };
+
+/** snake_case shape from GET /workspace/groups/ */
+interface WorkspaceGroupRaw {
   id: string;
   name: string;
-  memberCount: number;
-  projects: string[];
-  lead: string;
   description: string;
+  lead: string | null;
+  lead_user_id: string | null;
+  member_count: number;
+  members: Array<{ id: string; name: string; initials: string; color: string }>;
+  projects: string[];
+}
+
+function mapGroup(raw: WorkspaceGroupRaw): WorkspaceGroup {
+  return {
+    id: raw.id,
+    name: raw.name,
+    description: raw.description,
+    lead: raw.lead,
+    leadUserId: raw.lead_user_id,
+    memberCount: raw.member_count,
+    members: raw.members as WorkspaceGroupMember[],
+    projects: raw.projects,
+  };
 }
 
 export function useWorkspaceGroups() {
-  const groups: WorkspaceGroup[] = [
-    { id: 'propulsion',  name: 'Propulsion',  memberCount: 14, projects: ['Artemis IV', 'Vega Stage'],                lead: 'AK', description: 'Engine, valves, plumbing, thrust-vector control' },
-    { id: 'stage',       name: 'Stage',        memberCount: 11, projects: ['Vega Stage'],                              lead: 'JM', description: 'Tank, structure, separation, recovery' },
-    { id: 'avionics',    name: 'Avionics',     memberCount: 9,  projects: ['Orion', 'Artemis IV'],                     lead: 'SR', description: 'Flight computer, FW, comms, power dist.' },
-    { id: 'groundops',   name: 'Ground Ops',   memberCount: 18, projects: ['Atlas Pad 39C', 'Polaris'],                lead: 'EL', description: 'Pad, GSE, range safety, ops procedures' },
-    { id: 'power',       name: 'Power',        memberCount: 6,  projects: ['Helios', 'Polaris'],                       lead: 'MK', description: 'Solar arrays, batteries, regulation' },
-    { id: 'fluids',      name: 'Fluids',       memberCount: 8,  projects: ['Neptune'],                                 lead: 'DT', description: 'Cryogenics, tank farm, transfer ops' },
-    { id: 'ops',         name: 'Ops',          memberCount: 12, projects: ['Polaris'],                                 lead: 'RK', description: 'Launch ops, range, safety, ground crew' },
-    { id: 'leadership',  name: 'Leadership',   memberCount: 4,  projects: ['all'],                                     lead: 'AK', description: 'Program leads — read access to every project' },
-  ];
-
-  return { groups, isLoading: false };
+  return useQuery({
+    queryKey: ['workspace-groups'],
+    queryFn: async () => {
+      const res = await apiClient.get<WorkspaceGroupRaw[]>('/workspace/groups/');
+      return res.data.map(mapGroup);
+    },
+  });
 }

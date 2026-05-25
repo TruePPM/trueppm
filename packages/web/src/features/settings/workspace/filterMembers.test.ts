@@ -4,7 +4,7 @@ import type { WorkspaceMember } from '../hooks/useWorkspaceMembers';
 
 const M = (overrides: Partial<WorkspaceMember>): WorkspaceMember => ({
   id: 'x', name: 'X', initials: 'X', color: '#000', email: 'x@x.io',
-  role: 'Member', groups: [], projectCount: 0, lastActive: '-',
+  role: 'Member', roleValue: 100, groups: [], projectCount: 0, lastActive: '-',
   status: 'active', sso: false, twoFa: false,
   ...overrides,
 });
