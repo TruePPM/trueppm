@@ -1,0 +1,15 @@
+{
+  "id": "inv-duration-over-max",
+  "name": "Duration over max (36526 days)",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "Task A", "duration": 3155846400.0}
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

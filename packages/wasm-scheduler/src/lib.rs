@@ -13,6 +13,7 @@ mod forward;
 mod graph;
 mod incremental;
 pub mod models;
+mod validate;
 
 use std::collections::HashMap;
 
@@ -65,6 +66,7 @@ pub fn schedule_impl(project: &Project) -> Result<ScheduleResult, String> {
     if project.tasks.is_empty() {
         return Err("Project must have at least one task.".to_string());
     }
+    validate::validate_project(project)?;
 
     let pg = build_graph(project).map_err(|e| e.to_string())?;
 
