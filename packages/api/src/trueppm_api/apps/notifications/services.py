@@ -508,3 +508,74 @@ def create_mention_notifications(
         return 0
     Notification.objects.bulk_create(notifications)
     return len(notifications)
+
+
+def create_event_notifications(
+    *,
+    event_type: str,
+    recipient_ids: Sequence[int | str | None],
+    subject: str,
+    body: str,
+    project_id: uuid.UUID | str,
+) -> int:
+    """Create event-sourced Notification rows for an own-task event (#639).
+
+    Gated by each recipient's **global** ``NotificationPreference`` for
+    ``(event_type, channel)`` — the per-user toggles on the User → Settings →
+    Notifications page — falling back to ``DEFAULT_PREFERENCES`` for users who
+    have never visited that page (no stored rows). Mirrors the mention path's
+    coupling (ADR-0084 §4): the in-app inbox row is the durable record, created
+    only when ``in_app`` is enabled; ``email_pending`` is set additionally when
+    ``email`` is enabled (default OFF — Priya's VoC blocker). A recipient who has
+    turned ``in_app`` off for this event opts out of both channels.
+
+    The ``subject``/``body`` are rendered by the caller at dispatch time and
+    frozen onto each row, so the drain can send the email without re-deriving it
+    from a (possibly later-mutated or deleted) source object.
+
+    Args:
+        event_type: A ``NotificationEventType`` value (e.g. ``"task.assigned"``).
+        recipient_ids: User PKs to notify; ``None`` and duplicates are dropped,
+            so callers may pass the actor without special-casing.
+        subject: Pre-rendered email subject line.
+        body: Pre-rendered plain-text email body.
+        project_id: The project the event occurred on (scopes the inbox row).
+
+    Returns:
+        The number of Notification rows created.
+    """
+    unique_ids = {rid for rid in recipient_ids if rid is not None}
+    if not unique_ids:
+        return 0
+
+    defaults = {(et, ch): enabled for et, ch, enabled in DEFAULT_PREFERENCES}
+    stored: dict[int | str, dict[str, bool]] = {}
+    for pref in NotificationPreference.objects.filter(
+        user_id__in=unique_ids, event_type=event_type
+    ):
+        stored.setdefault(pref.user_id, {})[pref.channel] = pref.enabled
+
+    def _allows(user_id: int | str, channel: str) -> bool:
+        per_user = stored.get(user_id, {})
+        if channel in per_user:
+            return per_user[channel]
+        return defaults.get((event_type, channel), False)
+
+    notifications: list[Notification] = []
+    for user_id in unique_ids:
+        if not _allows(user_id, NotificationChannel.IN_APP.value):
+            continue
+        notifications.append(
+            Notification(
+                recipient_id=user_id,
+                event_type=event_type,
+                subject=subject,
+                body=body,
+                project_id=project_id,
+                email_pending=_allows(user_id, NotificationChannel.EMAIL.value),
+            )
+        )
+    if not notifications:
+        return 0
+    Notification.objects.bulk_create(notifications)
+    return len(notifications)

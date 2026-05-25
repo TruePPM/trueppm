@@ -50,11 +50,20 @@ class NotificationEventType(models.TextChoices):
     """Event types that produce notifications.
 
     Mapped to NotificationPreference rows so users can independently toggle
-    in_app / email per event type. 0.2 has two; #476 adds note-flavored events.
+    in_app / email per event type. The own-task events (#639, ADR-0084) reuse
+    the WebhookEventType string values where one exists (task.assigned,
+    task.due_date_changed) so event names share one source of truth across the
+    webhook and notification subsystems; comment_on_my_task is notification-only.
+    @mentions of me are covered by MENTION_INDIVIDUAL / MENTION_GROUP and the
+    existing mention path — task.mentioned is not duplicated here.
     """
 
     MENTION_INDIVIDUAL = "mention_individual", "Direct @mention"
     MENTION_GROUP = "mention_group", "Group @mention"
+    # Own-task events (#639) — a user's reach over work assigned to or owned by them.
+    TASK_ASSIGNED = "task.assigned", "Assigned to me"
+    TASK_DUE_DATE_CHANGED = "task.due_date_changed", "Due date changed on my task"
+    COMMENT_ON_MY_TASK = "comment_on_my_task", "Comment on my task"
 
 
 class NotificationChannel(models.TextChoices):
@@ -230,8 +239,9 @@ class Notification(models.Model):
         related_name="notifications",
     )
 
-    # Source — nullable FKs (exactly one set today). Extends as new event
-    # types arrive without schema rewrite.
+    # Source — a notification is EITHER mention-sourced (mention set, rendered
+    # from the comment) OR event-sourced (#639, ADR-0084 §3: event_type + the
+    # pre-rendered subject/body set, mention null). Both feed the one inbox.
     mention = models.ForeignKey(
         Mention,
         on_delete=models.CASCADE,
@@ -239,6 +249,10 @@ class Notification(models.Model):
         blank=True,
         related_name="notifications",
     )
+    # Event-sourced notifications (own-task events) — blank for mention rows.
+    event_type = models.CharField(max_length=64, blank=True, default="")
+    subject = models.CharField(max_length=255, blank=True, default="")
+    body = models.TextField(blank=True, default="")
 
     project = models.ForeignKey(
         "projects.Project",
@@ -320,6 +334,14 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     (NotificationEventType.MENTION_INDIVIDUAL, NotificationChannel.EMAIL, False),
     (NotificationEventType.MENTION_GROUP, NotificationChannel.IN_APP, True),
     (NotificationEventType.MENTION_GROUP, NotificationChannel.EMAIL, False),
+    # Own-task events (#639): in-app ON, email OFF. Email is strictly opt-in —
+    # aggressive email defaults were Priya's VoC blocker (ADR-0084 §1, ADR-0075 V2).
+    (NotificationEventType.TASK_ASSIGNED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.TASK_ASSIGNED, NotificationChannel.EMAIL, False),
+    (NotificationEventType.TASK_DUE_DATE_CHANGED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.TASK_DUE_DATE_CHANGED, NotificationChannel.EMAIL, False),
+    (NotificationEventType.COMMENT_ON_MY_TASK, NotificationChannel.IN_APP, True),
+    (NotificationEventType.COMMENT_ON_MY_TASK, NotificationChannel.EMAIL, False),
 ]
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.urls import path
 
 from .views import (
+    EmailSettingsStatusView,
     NotificationPreferenceViewSet,
     NotificationViewSet,
     ProjectNotificationPreferenceView,
@@ -43,5 +44,11 @@ urlpatterns = [
         "projects/<uuid:pk>/notification-preferences/",
         ProjectNotificationPreferenceView.as_view(),
         name="project-notification-preferences",
+    ),
+    # Workspace Email & SMTP status — read-only (#639, ADR-0084 §5)
+    path(
+        "workspace/email-settings/",
+        EmailSettingsStatusView.as_view(),
+        name="workspace-email-settings",
     ),
 ]

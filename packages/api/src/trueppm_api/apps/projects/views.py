@@ -1486,6 +1486,11 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         # actually changed — a PATCH that doesn't touch the assignee/date does
         # not emit the specific event (keeps the at-least-once stream meaningful
         # and the before/after snapshot is the idempotency guard, ADR-0083).
+        # The same field-change triggers ALSO drive per-user email/in-app
+        # notifications (#639, ADR-0084) — a sibling dispatch to the new assignee
+        # / task owner, never the actor.
+        actor_id = str(self.request.user.pk) if self.request.user.is_authenticated else None
+        task_name = payload["name"]
         new_assignee_id = payload["assignee"]
         if new_assignee_id != old_assignee_id:
             assignee_payload = {**payload, "previous_assignee": old_assignee_id}
@@ -1501,6 +1506,14 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                         project_id, "task.assignee_changed", assignee_payload
                     )
                 )
+            # Notify the NEW assignee either way (assigned or reassigned to them).
+            if new_assignee_id is not None and new_assignee_id != actor_id:
+                a_subj = f"You were assigned to {task_name}"
+                a_body = f'You were assigned to the task "{task_name}" in TruePPM.'
+                a_rcpt = new_assignee_id
+                transaction.on_commit(
+                    lambda: _notify_event("task.assigned", [a_rcpt], a_subj, a_body, project_id)
+                )
 
         # task.due_date_changed binds to planned_start (the PM-committed date) —
         # Task has no dedicated deadline field; #690 rebinds this to planned_finish.
@@ -1510,6 +1523,16 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             transaction.on_commit(
                 lambda: _dispatch_webhooks(project_id, "task.due_date_changed", date_payload)
             )
+            # Notify the task's current assignee (the owner of the work), if any.
+            if new_assignee_id is not None and new_assignee_id != actor_id:
+                d_subj = f"Planned date changed on {task_name}"
+                d_body = f'The planned start of "{task_name}" changed to {new_planned_start}.'
+                d_rcpt = new_assignee_id
+                transaction.on_commit(
+                    lambda: _notify_event(
+                        "task.due_date_changed", [d_rcpt], d_subj, d_body, project_id
+                    )
+                )
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
@@ -3001,6 +3024,29 @@ def _dispatch_webhooks(project_id: str, event_type: str, payload: dict) -> None:
     from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
 
     dispatch_webhooks(project_id, event_type, payload)
+
+
+def _notify_event(
+    event_type: str,
+    recipient_ids: list[str | None],
+    subject: str,
+    body: str,
+    project_id: str,
+) -> None:
+    """Create per-user email/in-app notifications for an own-task event (#639).
+
+    Thin trampoline so call sites can defer via ``transaction.on_commit`` without
+    importing the notifications service at module load (avoids an import cycle).
+    """
+    from trueppm_api.apps.notifications.services import create_event_notifications
+
+    create_event_notifications(
+        event_type=event_type,
+        recipient_ids=recipient_ids,
+        subject=subject,
+        body=body,
+        project_id=project_id,
+    )
 
 
 def _task_webhook_payload(task: Task, source: str = "unknown") -> dict:  # type: ignore[type-arg]
@@ -5975,6 +6021,25 @@ class TaskCommentViewSet(
                 }
                 transaction.on_commit(
                     lambda: _dispatch_webhooks(project_id_str, "task.mentioned", mention_payload)
+                )
+
+        # comment_on_my_task (#639, ADR-0084 §4): notify the task's assignee that
+        # their task got a comment — unless they wrote it, or were already
+        # @mentioned in it (the mention path notifies them separately, so we
+        # de-dup to avoid two pings for one comment).
+        author_id = str(self.request.user.pk)
+        assignee_id = str(task.assignee_id) if task.assignee_id else None
+        if assignee_id and assignee_id != author_id:
+            mentioned_usernames = {p.value for p in parsed if p.kind == "user"}
+            assignee_username = task.assignee.username if task.assignee_id else ""
+            if assignee_username not in mentioned_usernames:
+                author_name = self.request.user.get_full_name() or self.request.user.username
+                c_subj = f"New comment on {task.name}"
+                c_body = f'{author_name} commented on your task "{task.name}" in TruePPM.'
+                transaction.on_commit(
+                    lambda: _notify_event(
+                        "comment_on_my_task", [assignee_id], c_subj, c_body, project_id_str
+                    )
                 )
 
         transaction.on_commit(
