@@ -12,6 +12,7 @@ from django.db import models, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
@@ -265,6 +266,33 @@ class MonteCarloLatestView(APIView):
         return Response(cached)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "status",
+                str,
+                description=(
+                    "Filter by status: dead, pending_retry, dismissed, retried. "
+                    "Invalid values are ignored (no filter)."
+                ),
+            ),
+            OpenApiParameter(
+                "task_name", str, description="Case-insensitive substring match on task_name."
+            ),
+            OpenApiParameter(
+                "failed_after",
+                str,
+                description="ISO-8601; keep tasks with last_failed_at at or after this time.",
+            ),
+            OpenApiParameter(
+                "failed_before",
+                str,
+                description="ISO-8601; keep tasks with last_failed_at at or before this time.",
+            ),
+        ],
+    ),
+)
 class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):  # type: ignore[type-arg]
     """Admin endpoint for dead-lettered Celery tasks.
 

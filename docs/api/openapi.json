@@ -9,8 +9,24 @@
         "/api/v1/admin/failed-tasks/": {
             "get": {
                 "operationId": "v1_admin_failed_tasks_list",
-                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail/retry/dismiss: admin users only. The serializer exposes\ntracebacks, args, and kwargs which may contain internal paths or partial\nsecrets and must not be visible to unprivileged members.",
+                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail/retry/dismiss: admin users only. The serializer exposes\ntracebacks, args, and kwargs which may contain internal paths or partial\nsecrets and must not be visible to unprivileged members.\n\nThe list endpoint backs the dead-letter inspector (#694, ADR-0087) and\naccepts read-only filters: ``?status=`` (one of the FailedTaskStatus\nvalues), ``?task_name=`` (case-insensitive substring), and\n``?failed_after=`` / ``?failed_before=`` (ISO-8601, filtered on\n``last_failed_at``). Results keep the model default ordering\n(``-last_failed_at``, newest failure first).",
                 "parameters": [
+                    {
+                        "in": "query",
+                        "name": "failed_after",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "ISO-8601; keep tasks with last_failed_at at or after this time."
+                    },
+                    {
+                        "in": "query",
+                        "name": "failed_before",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "ISO-8601; keep tasks with last_failed_at at or before this time."
+                    },
                     {
                         "name": "ordering",
                         "required": false,
@@ -37,6 +53,22 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter by status: dead, pending_retry, dismissed, retried. Invalid values are ignored (no filter)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "task_name",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Case-insensitive substring match on task_name."
                     }
                 ],
                 "tags": [
@@ -67,7 +99,7 @@
         "/api/v1/admin/failed-tasks/{id}/": {
             "get": {
                 "operationId": "v1_admin_failed_tasks_retrieve",
-                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail/retry/dismiss: admin users only. The serializer exposes\ntracebacks, args, and kwargs which may contain internal paths or partial\nsecrets and must not be visible to unprivileged members.",
+                "description": "Admin endpoint for dead-lettered Celery tasks.\n\nList/detail/retry/dismiss: admin users only. The serializer exposes\ntracebacks, args, and kwargs which may contain internal paths or partial\nsecrets and must not be visible to unprivileged members.\n\nThe list endpoint backs the dead-letter inspector (#694, ADR-0087) and\naccepts read-only filters: ``?status=`` (one of the FailedTaskStatus\nvalues), ``?task_name=`` (case-insensitive substring), and\n``?failed_after=`` / ``?failed_before=`` (ISO-8601, filtered on\n``last_failed_at``). Results keep the model default ordering\n(``-last_failed_at``, newest failure first).",
                 "parameters": [
                     {
                         "in": "path",
@@ -976,6 +1008,36 @@
                 "responses": {
                     "200": {
                         "description": "Prometheus text-format dead-letter gauge."
+                    }
+                }
+            }
+        },
+        "/api/v1/health/system/": {
+            "get": {
+                "operationId": "v1_health_system_retrieve",
+                "description": "Aggregated, read-only snapshot of the durable-execution layer for the workspace-admin System Health dashboard (#692, ADR-0087): five component status cards (outbox dispatcher, Celery Beat, dead-letter alerting, notification dispatcher, retention purge), the Beat heartbeat panel and configured schedule, a dead-letter summary, and the read-only retention configuration. Composes existing committed state — no payloads or task arguments are exposed here. Always responds 200 with statuses in the body (unlike `/health/beat/`, which is a 200/503 probe). Requires a staff (admin) account.",
+                "summary": "System health overview (operator dashboard)",
+                "tags": [
+                    "meta"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SystemHealthResponse"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -18100,6 +18162,52 @@
                 "required": [
                     "changes",
                     "client_batch_id"
+                ]
+            },
+            "SystemHealthResponse": {
+                "type": "object",
+                "properties": {
+                    "generated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "components": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    },
+                    "beat": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "scheduled_tasks": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    },
+                    "dead_letter": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    },
+                    "retention": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    }
+                },
+                "required": [
+                    "beat",
+                    "components",
+                    "dead_letter",
+                    "generated_at",
+                    "retention",
+                    "scheduled_tasks"
                 ]
             },
             "Task": {
