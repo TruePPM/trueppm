@@ -18,9 +18,22 @@ class WebhookEventType(models.TextChoices):
     DEPENDENCY_DELETED = "dependency.deleted", "Dependency Deleted"
     SCHEDULE_RECALCULATED = "schedule.recalculated", "Schedule Recalculated"
     PROJECT_CREATED = "project.created", "Project Created"
+    # Four new task events added in #638 (ADR-0083). task.due_date_changed
+    # currently fires on planned_start changes — #690 rebinds it to a dedicated
+    # planned_finish deadline field.
+    TASK_ASSIGNED = "task.assigned", "Task Assigned"
+    TASK_ASSIGNEE_CHANGED = "task.assignee_changed", "Task Assignee Changed"
+    TASK_MENTIONED = "task.mentioned", "Task Mentioned"
+    TASK_DUE_DATE_CHANGED = "task.due_date_changed", "Task Due Date Changed"
 
 
 ALL_WEBHOOK_EVENTS = [e.value for e in WebhookEventType]
+
+# Hard cap on the number of OSS webhook event types (ADR-0083). Adding a 12th
+# event requires its own ADR — this is the gate against the per-customer event
+# proliferation that is the explicit Enterprise upsell. ``test_event_type_cap``
+# fails loudly if WebhookEventType drifts from this number.
+OSS_WEBHOOK_EVENT_CAP = 11
 
 
 class Webhook(models.Model):
@@ -57,6 +70,11 @@ class Webhook(models.Model):
         models.CharField(max_length=30, choices=WebhookEventType.choices),
         help_text="List of event types this webhook subscribes to.",
     )
+    # Outgoing payload format (#638, ADR-0049/0083). NOT a TextChoices — validated
+    # at write time against OUTGOING_CHANNEL_PROVIDERS.keys() in the serializer, so
+    # Enterprise can register slack_app/teams without an OSS migration. Existing
+    # rows backfill to "generic" (the historical pass-through behavior).
+    format = models.CharField(max_length=32, default="generic")
     is_active = models.BooleanField(default=True)
     # Per-subscription monotonic counter for outgoing deliveries (#664). Lives on
     # the subscription, NOT derived from WebhookDelivery rows, because the

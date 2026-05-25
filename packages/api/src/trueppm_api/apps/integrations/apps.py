@@ -17,14 +17,13 @@ class IntegrationsConfig(AppConfig):
         against the same registries at the same hook — no OSS code changes
         required when Enterprise lights up Jira / ServiceNow / Slack App.
 
-        ``OUTGOING_CHANNEL_PROVIDERS`` and ``NOTIFICATION_CHANNELS`` are
-        intentionally not populated in 0.2 — #638 and #639 wire their OSS
-        providers ``slack``/``generic`` and ``email``/``in_app`` against
-        them. The registries exist so those follow-ups don't need to
-        re-architect.
+        ``NOTIFICATION_CHANNELS`` is wired by #639 (``email``/``in_app``).
+        ``OUTGOING_CHANNEL_PROVIDERS`` is populated here by #638 with the OSS
+        ``generic`` and ``slack`` renderers.
         """
+        from .outgoing import OSS_OUTGOING_CHANNEL_PROVIDERS
         from .providers import OSS_TASK_LINK_PROVIDERS
-        from .registry import TASK_LINK_PROVIDERS
+        from .registry import OUTGOING_CHANNEL_PROVIDERS, TASK_LINK_PROVIDERS
 
         for handler in OSS_TASK_LINK_PROVIDERS:
             # Idempotent: skip if a re-import (e.g. tests reloading the app)
@@ -33,3 +32,7 @@ class IntegrationsConfig(AppConfig):
             # avoids that path by re-registering deliberately.
             if TASK_LINK_PROVIDERS.get(handler.key) is None:
                 TASK_LINK_PROVIDERS.register(handler.key, handler)
+
+        for channel in OSS_OUTGOING_CHANNEL_PROVIDERS:
+            if OUTGOING_CHANNEL_PROVIDERS.get(channel.key) is None:
+                OUTGOING_CHANNEL_PROVIDERS.register(channel.key, channel)

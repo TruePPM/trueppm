@@ -14,6 +14,7 @@ from typing import Any, ClassVar
 
 import pytest
 
+from trueppm_api.apps.integrations.outgoing import OSS_OUTGOING_CHANNEL_PROVIDERS
 from trueppm_api.apps.integrations.providers import OSS_TASK_LINK_PROVIDERS
 from trueppm_api.apps.integrations.registry import (
     NOTIFICATION_CHANNELS,
@@ -81,11 +82,22 @@ def test_registry_keys_are_sorted() -> None:
     assert keys == sorted(keys)
 
 
-def test_outgoing_and_notification_registries_exist_but_empty() -> None:
-    """0.2 reserves the registry slots so #638 / #639 can register cleanly,
-    but does not populate them. If this is ever non-empty in OSS without
-    #638 / #639 being merged, something registered out-of-band."""
-    assert OUTGOING_CHANNEL_PROVIDERS.keys() == []
+def test_oss_outgoing_channel_providers_registered_at_app_ready() -> None:
+    """#638 populates ``OUTGOING_CHANNEL_PROVIDERS`` with the OSS generic +
+    slack renderers at app-ready. If this fails, ``dispatch_webhooks`` can't
+    resolve a webhook's ``format`` to a renderer and every delivery is dropped
+    as "unknown provider" — a silent failure that only surfaces in the
+    delivery log."""
+    keys = OUTGOING_CHANNEL_PROVIDERS.keys()
+    assert set(keys) >= {"generic", "slack"}
+    for handler in OSS_OUTGOING_CHANNEL_PROVIDERS:
+        assert OUTGOING_CHANNEL_PROVIDERS.get(handler.key) is handler
+
+
+def test_notification_registry_exists_but_empty() -> None:
+    """0.2 reserves the notification slot so #639 can register cleanly, but
+    does not populate it. If this is ever non-empty in OSS without #639 being
+    merged, something registered out-of-band."""
     assert NOTIFICATION_CHANNELS.keys() == []
 
 

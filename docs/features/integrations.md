@@ -50,31 +50,214 @@ A workspace-level "manage all integrations across all programs" surface is
 the Enterprise upsell — it's where governance, audit trail, and cross-program
 coordination live.
 
+### Endpoints and roles
+
+Each scope has a parallel set of REST endpoints. Reads require membership;
+mutations require Admin on the scope object.
+
+| Resource | Project scope | Program scope | Read | Mutate |
+|---|---|---|---|---|
+| Webhooks | `/api/v1/projects/{id}/webhooks/` | `/api/v1/programs/{id}/webhooks/` | Member | Admin |
+| API tokens | `/api/v1/projects/{id}/api-tokens/` | `/api/v1/programs/{id}/api-tokens/` | Member | Admin |
+| Token audit | `/api/v1/projects/{id}/api-token-audit/` | `/api/v1/programs/{id}/api-token-audit/` | Member | — |
+
+"Member" means project Viewer+ / program Viewer+; "Admin" means project Admin /
+program Admin. A program-scoped webhook fires for events on **any** project in
+the program, and a program-scoped token authorizes writes into **any** project
+the program contains — both in addition to whatever project-scoped resources
+the individual projects define.
+
 ## The Integrations page
 
-`/projects/<id>/settings/integrations` renders a **read-only summary**:
+!!! info "Version"
+    Full add/edit/delete/test management of webhooks and API tokens from the
+    UI shipped in **0.2**. Earlier releases exposed a read-only summary with a
+    "Manage via API" placeholder; mutations now happen in the page.
+
+The same page renders at two scopes:
+
+- `Project → Settings → Integrations` (`/projects/<id>/settings/integrations`)
+- `Program → Settings → Integrations` (`/programs/<id>/settings/integrations`)
+
+Both pages are built from one pair of components — a **Webhooks** manager and
+an **API Tokens** manager — parameterized by scope. The only differences are
+the section labels (Program scope reads "Program webhooks" / "Program API
+tokens") and the RBAC required to mutate (project Admin vs. program Admin).
 
 ```
 ┌──────────────────────────────────┐  ┌──────────────────────────────────┐
-│ Outbound webhooks           3 ●  │  │ Inbound API tokens          1 ●  │
+│ Outbound webhooks      3   + New │  │ Inbound API tokens     1   + New │
 │ ─────────────────────────────────  │  │ ─────────────────────────────────  │
-│ ✓ slack.com/hooks/…        3m    │  │ • CI Pipeline                    │
-│ ✓ discord.com/api/…       17m    │  │   tppm_a1b…  ·  used 14h ago     │
-│ ⚠ ops.example.com/wh       2d ✕  │  │                                   │
-│                                   │  │ Manage via API                    │
-│ Manage via API                    │  │ (UI coming in 0.3)                │
-│ (UI coming in 0.3)                │  │                                   │
+│ ● hooks.slack.com/…   Slack      │  │ • CI Pipeline                    │
+│      task.created +3   Test Edit │  │   tppm_a1b…  ·  used 14h ago     │
+│ ● ops.example.com/wh  JSON       │  │                          Revoke  │
+│      task.updated +1   Test Edit │  │                                   │
 └──────────────────────────────────┘  └──────────────────────────────────┘
 ```
 
-The summary aggregates two backend resources in a single round-trip via
-`GET /api/v1/projects/<id>/integrations-summary/`. If one subservice errors,
-the page renders the other and shows a Retry button on the failed card —
-no waterfall, no page-level blocking error.
+Each webhook row shows an active dot, the endpoint host, a **format** badge
+(`Slack` or `JSON`), its subscribed events, and **Test / Edit / Delete**
+actions. Each token row shows its name, masked prefix (`tppm_a1b…`), last-used
+time, and a **Revoke** action.
 
-In **0.3**, the underlying CRUD pages (Project → Webhooks, Project → API
-Tokens) ship and the "Manage via API" inert text becomes an active link.
-For now, mutations go through the REST API directly.
+### Managing webhooks
+
+**New** / **Edit** opens the webhook editor, where you set:
+
+- **Endpoint URL** — HTTPS only. The form rejects any non-`https://` URL.
+- **Format** — `Slack` or `Generic (JSON)` (see [Webhook formats](#webhook-formats)).
+  The picker also lists Enterprise-only formats (Discord, PagerDuty, …) as
+  disabled options labelled "Enterprise".
+- **Events** — pick one or more of the [11 OSS event types](#webhook-event-types).
+  At least one event is required.
+- **Signing secret** — used to sign each delivery with HMAC-SHA256 (see
+  [Signing secret and verification](#signing-secret-and-verification)). On
+  edit, leave the field blank to keep the existing secret; it is write-only and
+  never returned by the API.
+
+When the format is `Slack`, the editor shows a live **preview** of the message
+your endpoint will receive, so you can confirm the rendering before saving.
+
+**Test** sends a synthetic ping event to the endpoint and reports success or
+failure inline — the fastest way to confirm a URL and secret are wired up
+correctly before you depend on real events. **Delete** removes the
+subscription after a confirmation prompt; deliveries stop immediately.
+
+### Managing API tokens
+
+**New** mints an inbound API token scoped to the project or program. The raw
+token is shown **exactly once** in a one-time reveal — copy it immediately,
+because it is never retrievable again. The list thereafter shows only the
+token name, masked prefix, and last-used time.
+
+**Revoke** disables a token after a confirmation prompt. Revocation is a
+soft-delete: the token can no longer authenticate, but its audit history is
+retained for compliance. Token mint and revoke both append to the
+[API-token audit log](#api-token-audit-log).
+
+## Webhook formats
+
+Each webhook renders its payload in one of two OSS formats, chosen per
+subscription. The format is validated at write time against the registered
+outgoing-channel providers, so the API rejects an unknown value with the list
+of currently selectable formats.
+
+| Format | What is sent | Use it for |
+|---|---|---|
+| `generic` | The raw TruePPM event envelope, unchanged — `{ "event", "project_id", "timestamp", "data" }`. This is the historical behavior; existing webhooks default to `generic`. | Custom tooling, CI pipelines, any consumer that parses JSON itself. |
+| `slack` | A Slack incoming-webhook message: a `text` line plus a single attachment with the task fields and a color bar keyed to the event. | Slack — and, because Discord and Mattermost incoming webhooks accept the same shape, those two as well. |
+
+Point a `slack`-format webhook at a Slack/Discord/Mattermost **incoming-webhook
+URL** and messages appear in the channel with no consumer-side parsing. The
+attachment surfaces only the fields present on the event (status, assignee,
+planned start), so a `task.deleted` event does not render empty rows.
+
+!!! info "Edition"
+    Richer formats — a Slack App with OAuth and slash commands, Microsoft
+    Teams, PagerDuty — are part of the Enterprise edition. They register
+    against the same `OUTGOING_CHANNEL_PROVIDERS` extension point (ADR-0049),
+    so adding one requires no OSS change. The format picker shows them as
+    disabled "Enterprise" options.
+
+## Webhook event types
+
+OSS fires **11 event types** — a deliberate hard cap. Adding a twelfth requires
+its own ADR; per-customer event proliferation is an Enterprise concern, not an
+OSS one.
+
+| Event | When it fires |
+|---|---|
+| `task.created` | A task is created. |
+| `task.updated` | A task field changes. |
+| `task.deleted` | A task is deleted. |
+| `task.assigned` ✨ | A task's assignee transitions from nobody to a user. |
+| `task.assignee_changed` ✨ | A task is reassigned from one user to another. |
+| `task.mentioned` ✨ | A new comment mentions a user. |
+| `task.due_date_changed` ✨ | A task's planned date changes (see note below). |
+| `dependency.created` | A task link (FS/SS/FF/SF) is created. |
+| `dependency.deleted` | A task link is deleted. |
+| `schedule.recalculated` | The CPM scheduler completes a recalculation. |
+| `project.created` | A new project is created. |
+
+✨ = added in **0.2**.
+
+A single change can fire more than one event: a PATCH that both reassigns a
+task and moves its date fires `task.updated` **plus** the specific
+`task.assignee_changed` and `task.due_date_changed` events. Subscribe to
+whichever you care about. The specific events are guarded by a before/after
+comparison, so a no-op PATCH that does not actually change the assignee or date
+does not fire them.
+
+!!! warning "`task.due_date_changed` currently tracks `planned_start`"
+    `Task` has no dedicated deadline field today, so `task.due_date_changed`
+    fires when a task's **planned start** changes — the PM-committed date. A
+    future release ([#690](https://gitlab.com/trueppm/trueppm-suite/-/issues/690))
+    adds a `planned_finish` deadline field and re-binds this event to it. The
+    event name and payload shape are stable; only the trigger will change.
+
+## Signing secret and verification
+
+Every delivery is signed so your endpoint can confirm it came from TruePPM and
+was not tampered with. The signature is in the `X-TruePPM-Signature` header:
+
+```
+X-TruePPM-Signature: sha256=<hmac>
+```
+
+The HMAC is `HMAC-SHA256(secret, raw_body)`, where `secret` is the signing
+secret you set on the webhook and `raw_body` is the exact request bytes.
+
+```python
+import hashlib, hmac
+
+def verify(secret: str, body: bytes, signature: str) -> bool:
+    expected = "sha256=" + hmac.new(
+        secret.encode(), body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature)  # constant-time
+```
+
+Always compare in constant time to avoid timing attacks. The secret is
+write-only: it is never returned by any API response, even to the webhook's
+owner. To rotate it, edit the webhook and enter a new value; leaving the field
+blank keeps the current secret.
+
+Other delivery metadata travels in headers (the body carries the event payload
+only): `X-TruePPM-Event` (the event type), `X-TruePPM-Delivery` (the delivery
+UUID — use it as an idempotency key), and `X-TruePPM-Webhook-Sequence` (a
+monotonic per-subscription counter for gap detection). Deliveries are
+at-least-once; failed deliveries retry with exponential backoff up to 5
+attempts before the delivery row is marked `FAILED`. The
+[delivery log](#delivery-log) surfaces the outcome of every attempt.
+
+## Delivery log
+
+The webhook editor's delivery log lists recent deliveries for a subscription —
+their event type, status, HTTP response code, attempt count, and timestamps —
+so you can confirm events are arriving and debug a failing endpoint. The same
+data is available from the API:
+
+```http
+GET /api/v1/projects/{id}/webhooks/{webhook_id}/deliveries/
+GET /api/v1/programs/{id}/webhooks/{webhook_id}/deliveries/
+```
+
+Terminal delivery rows (`SUCCESS`/`FAILED`) are purged on a retention schedule;
+see [Outbox and record retention](../administration/retention.md).
+
+## API-token audit log
+
+Minting and revoking an API token both append an immutable entry to the audit
+log, scoped to the project or program. The audit trail is **not** purged with
+ordinary records — it is retained as compliance evidence.
+
+```http
+GET /api/v1/projects/{id}/api-token-audit/
+GET /api/v1/programs/{id}/api-token-audit/
+```
+
+Any project/program member may read the audit log; only an Admin may mint or
+revoke tokens.
 
 ## Connected accounts
 
@@ -117,12 +300,15 @@ preview links into issues, merge requests, and pull requests on tasks.
 
 - **#637** — Git-aware tasks: the `TaskLink` model and the refresh
   endpoint that consumes these credentials.
-- **#638** — Outgoing webhook `format` extension (Slack renderer + 4 new
-  task event types). Registers OSS providers against the
-  `OUTGOING_CHANNEL_PROVIDERS` registry reserved by ADR-0049.
 - **#639** — Email notifications app: `UserNotificationPreference` with
   defaults seeded for own-task events. Registers OSS channels against the
   `NOTIFICATION_CHANNELS` registry reserved by ADR-0049.
+
+The outgoing webhook `format` extension (Slack renderer + four new task event
+types, #638) and the project/program webhook & API-token CRUD UI (#600) shipped
+in **0.2** and are documented in [Webhook formats](#webhook-formats),
+[Webhook event types](#webhook-event-types), and
+[The Integrations page](#the-integrations-page) above.
 
 Enterprise registers richer providers (Jira, ServiceNow, Bitbucket,
 Azure DevOps, Slack App, SMS, …) against the same registries from its own
@@ -169,5 +355,6 @@ project scope.
 - **ADR-0050** — Task Detail Drawer Section Extension Points (where `task_detail.external_links` registers)
 - **ADR-0068** — Inbound Task Sync Protocol (the OSS API tokens)
 - **ADR-0076** — Integration Management Surface Boundary (this page's framing)
+- **ADR-0084** — Webhook Format Extension, New Task Events, and Project/Program CRUD Surface
 
 [enterprise-check]: ../adr/0076-integration-management-surface-boundary.md

@@ -17,7 +17,29 @@ from __future__ import annotations
 
 import abc
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any, ClassVar
+
+
+@dataclass(frozen=True)
+class OutgoingChannelEvent:
+    """A TruePPM event handed to an ``OutgoingChannelProvider.render``.
+
+    Carries the event name alongside the raw payload so a renderer can build a
+    provider-specific message (e.g. a Slack attachment title) without
+    re-parsing the payload. Immutable — an event is a fact that already
+    happened; a renderer must not mutate it.
+
+    Attributes:
+        event_type: The ``WebhookEventType`` value, e.g. ``"task.assigned"``.
+        project_id: UUID string of the project the event occurred on.
+        payload: The generic event payload dict (the ``generic`` provider
+            returns this unchanged).
+    """
+
+    event_type: str
+    project_id: str
+    payload: dict[str, Any]
 
 
 class ProviderRegistry:
@@ -128,8 +150,14 @@ class OutgoingChannelProvider(abc.ABC):
     label: ClassVar[str]
 
     @abc.abstractmethod
-    def render(self, event: Any) -> dict[str, Any]:
-        """Render ``event`` into the provider-specific JSON payload shape."""
+    def render(self, event: OutgoingChannelEvent) -> dict[str, Any]:
+        """Render ``event`` into the provider-specific JSON payload shape.
+
+        The returned dict becomes the HTTP POST body verbatim — the existing
+        ``deliver_webhook`` task signs and posts it unchanged (ADR-0083). The
+        provider does NOT perform the POST; transport, retries, HMAC signing,
+        and the ``X-TruePPM-Webhook-Sequence`` header stay in ``deliver_webhook``.
+        """
 
 
 class NotificationChannel(abc.ABC):
