@@ -30,6 +30,7 @@ const NAV_GROUPS: SettingsNavGroup[] = [
     label: 'Delivery',
     items: [
       { id: 'methodology', label: 'Methodology defaults', to: '/settings/methodology', icon: <NavIcon><SprintIcon aria-hidden="true" /></NavIcon> },
+      { id: 'email',       label: 'Email & SMTP',         to: '/settings/email',       icon: <NavIcon><SettingsIcon aria-hidden="true" /></NavIcon> },
     ],
   },
   // The "Connections" nav group (Integrations + Webhooks & API) is removed
