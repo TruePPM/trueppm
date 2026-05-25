@@ -805,6 +805,47 @@ wasm:conformance:
     - cd packages/scheduler
     - pytest tests/test_wasm_conformance.py -v
 
+api:testdb-dump:
+  # Run real migrations ONCE per pipeline and dump the resulting schema+data so
+  # the api:test shards clone each pytest-xdist worker DB from it instead of
+  # replaying ~147 migrations per worker (#688, follow-up to #680 sharding).
+  # The dump preserves the ltree extension, the wbs_path GiST index, and the
+  # data backfills that `--no-migrations` would skip. Lives in the lint stage so
+  # it overlaps lint/type-check and stays off the critical path — the test stage
+  # consumes its artifact via needs, by which point it has long finished.
+  extends: .api
+  stage: lint
+  <<: *rules-api
+  script:
+    # Bootstrap fallback for a stale cached image. The ci-api image bakes
+    # postgresql-client-16 (api.Dockerfile), but it ships under the mutable
+    # :py3.11 tag, and runners here pull with if-not-present (they disallow
+    # `always`) — so the very pipeline that first adds the client can land on a
+    # runner still holding the prior image without it. Install at runtime only
+    # when pg_dump is missing; once main rebuilds the image this is a no-op.
+    # Mirrors the Dockerfile's PGDG install (#688).
+    - &ensure-pg-client |
+      if ! command -v pg_dump >/dev/null 2>&1; then
+        echo "pg_dump missing — installing postgresql-client-16 (stale cached image)"
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends curl ca-certificates gnupg
+        install -d /usr/share/postgresql-common/pgdg
+        curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+        echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends postgresql-client-16
+      fi
+    - cd packages/api
+    - python manage.py migrate --no-input
+    # --no-owner/--no-privileges keep the dump role-portable so it reloads
+    # cleanly into the `migrated` template under the same CI role on the shards.
+    - pg_dump --no-owner --no-privileges --dbname "$DATABASE_URL" --file "$CI_PROJECT_DIR/testdb-schema.sql"
+  artifacts:
+    paths:
+      - testdb-schema.sql
+    expire_in: 1 day
+    when: always
+
 api:test:
   extends: .api
   stage: test
@@ -825,6 +866,8 @@ api:test:
     - api:type-check
     - api:migration-check
     - api:openapi-check
+    - job: api:testdb-dump
+      artifacts: true
     - job: ci:build-api-image
       optional: true
   <<: *rules-api
@@ -832,6 +875,23 @@ api:test:
     # Distinct data file per shard so api:coverage's combine doesn't clash.
     # pytest-cov honors COVERAGE_FILE for the final xdist-combined data file.
     COVERAGE_FILE: ".coverage.$CI_NODE_INDEX"
+    # Activates the test-only TEST.TEMPLATE branch in settings.dev (#688) so
+    # pytest-django clones each worker DB from `migrated` instead of replaying
+    # migrations. Built from the api:testdb-dump artifact in before_script.
+    TRUEPPM_TEST_DB_TEMPLATE: migrated
+  before_script:
+    # Same stale-image bootstrap fallback as api:testdb-dump — installs psql/
+    # pg_dump when the cached image predates them; a no-op once baked (#688).
+    - *ensure-pg-client
+    # before_script OVERRIDES (does not merge with) .api's, so the editable
+    # re-link is repeated here.
+    - pip install -e "packages/scheduler[dev]" --quiet
+    - pip install -e "packages/api[dev]" --quiet
+    # Build the `migrated` template DB from the dumped schema (#688). Each
+    # parallel shard has its own postgres service, so each builds its own copy;
+    # the dump already contains CREATE EXTENSION ltree + the GiST index + data.
+    - psql "postgres://trueppm:trueppm@postgres/trueppm_test" -c "CREATE DATABASE migrated;"
+    - psql "postgres://trueppm:trueppm@postgres/migrated" -f "$CI_PROJECT_DIR/testdb-schema.sql"
   script:
     - cd packages/api
     - python -m pytest tests/ --tb=short -q -n auto
