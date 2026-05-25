@@ -19,6 +19,10 @@ pub const MAX_LAG_DAYS: i64 = 36_525;
 /// Largest run of consecutive non-working days to scan from the project start
 /// before declaring the calendar degenerate.
 pub const MAX_CALENDAR_SCAN_DAYS: i64 = 366 * 100;
+/// Upper bound on the cumulative project span (sum of worst-case task durations
+/// plus the magnitude of every lag). Bounds the day-by-day walk regardless of
+/// task count. Mirrors `trueppm_scheduler.engine.MAX_PROJECT_SPAN_DAYS`.
+pub const MAX_PROJECT_SPAN_DAYS: i64 = 366 * 1000;
 
 /// Reject degenerate input before any calendar walk runs.
 ///
@@ -58,6 +62,34 @@ pub fn validate_project(project: &Project) -> Result<(), String> {
                 dep.predecessor_id, dep.successor_id, MAX_LAG_DAYS, lag
             ));
         }
+    }
+
+    // Cumulative span: an upper bound on the longest path (and the Monte Carlo
+    // completion offset, which samples up to the pessimistic duration). Bounding
+    // the sum keeps the day-by-day walk from spinning or overflowing the date
+    // range no matter how many tasks are chained.
+    let mut total_span: i64 = 0;
+    for t in &project.tasks {
+        // Worst case across the deterministic duration AND every PERT estimate:
+        // Monte Carlo falls back to most_likely when the range is degenerate, so
+        // most_likely (which may exceed pessimistic) must count too.
+        let mut task_max = i64::from(t.duration_days());
+        for seconds in [t.optimistic_duration, t.most_likely_duration, t.pessimistic_duration]
+            .into_iter()
+            .flatten()
+        {
+            task_max = task_max.max((seconds / 86_400.0).round() as i64);
+        }
+        total_span += task_max.max(0);
+    }
+    for dep in &project.dependencies {
+        total_span += dep.lag_days().abs();
+    }
+    if total_span > MAX_PROJECT_SPAN_DAYS {
+        return Err(format!(
+            "Total project span ({total_span} days across all task durations and lags) \
+             exceeds the maximum of {MAX_PROJECT_SPAN_DAYS} days."
+        ));
     }
 
     // Reachability: a working day must exist within MAX_CALENDAR_SCAN_DAYS of
@@ -191,6 +223,30 @@ mod tests {
             lag: day(MAX_LAG_DAYS + 1),
         }];
         let p = project(vec![task("A", 1), task("B", 1)], deps, Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_cumulative_span_over_max() {
+        // Each task is within the per-task cap, but together they exceed the
+        // cumulative project span (11 * 36525 = 401,775 > 366,000).
+        let tasks: Vec<Task> = (0..11).map(|i| task(&format!("t{i}"), MAX_DURATION_DAYS)).collect();
+        let p = project(tasks, vec![], Calendar::default());
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_span_via_most_likely_estimate() {
+        // PERT bypass: zero deterministic duration but a huge most_likely, which
+        // Monte Carlo samples as a constant. The span must count it.
+        let tasks: Vec<Task> = (0..11)
+            .map(|i| {
+                let mut t = task(&format!("t{i}"), 0);
+                t.most_likely_duration = Some(day(MAX_DURATION_DAYS));
+                t
+            })
+            .collect();
+        let p = project(tasks, vec![], Calendar::default());
         assert!(validate_project(&p).is_err());
     }
 }

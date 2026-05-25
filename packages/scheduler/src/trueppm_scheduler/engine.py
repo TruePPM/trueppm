@@ -70,6 +70,14 @@ MAX_LAG_DAYS = 36_525  # ~100 years of lead/lag in either direction
 # week; 100 years of uninterrupted holidays means working_days/exceptions are
 # broken, not that the project is real.
 MAX_CALENDAR_SCAN_DAYS = 366 * 100
+# Upper bound on the cumulative project span: the sum of every task's (worst-case)
+# duration plus the magnitude of every lag. Per-task/-lag caps alone don't bound
+# this — a long dependency chain still accumulates dates one working day at a
+# time, so without this an 80+ task max-duration chain would spin
+# _build_working_day_index / the forward pass and could walk a date past the
+# representable range (an uncaught OverflowError). 1000 years is far beyond any
+# real program and keeps every walk bounded regardless of task count.
+MAX_PROJECT_SPAN_DAYS = 366 * 1000
 
 
 # ---------------------------------------------------------------------------
@@ -632,6 +640,30 @@ def _validate_project(project: Project) -> None:
                 f"Dependency {dep.predecessor_id!r} → {dep.successor_id!r} lag exceeds "
                 f"the maximum of ±{MAX_LAG_DAYS} days (got {dep.lag.days})."
             )
+
+    # Cumulative span: an upper bound on the longest path (and on the Monte Carlo
+    # completion offset, which can sample each task up to its pessimistic
+    # duration). Bounding the sum keeps the day-by-day walk and the working-day
+    # index build from spinning — or overflowing the date range — no matter how
+    # many tasks are chained.
+    total_span = 0
+    for t in project.tasks:
+        # Worst case across the deterministic duration AND every PERT estimate:
+        # Monte Carlo samples within [optimistic, pessimistic] but falls back to
+        # most_likely when the range is degenerate, so most_likely (which may
+        # exceed pessimistic) must count too.
+        task_max_days = t.duration.days
+        for est in (t.optimistic_duration, t.most_likely_duration, t.pessimistic_duration):
+            if est is not None:
+                task_max_days = max(task_max_days, est.days)
+        total_span += max(0, task_max_days)
+    total_span += sum(abs(dep.lag.days) for dep in project.dependencies)
+    if total_span > MAX_PROJECT_SPAN_DAYS:
+        raise InvalidScheduleInput(
+            f"Total project span ({total_span} days across all task durations and lags) "
+            f"exceeds the maximum of {MAX_PROJECT_SPAN_DAYS} days; the schedule cannot be "
+            "computed within a representable date range."
+        )
 
 
 # ---------------------------------------------------------------------------

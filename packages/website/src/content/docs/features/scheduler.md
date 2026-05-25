@@ -250,6 +250,7 @@ walk to the `date` ceiling and raise an opaque `OverflowError`):
 | `Calendar.working_days` | Must set at least one weekday bit (Mon–Sun). A calendar whose `exceptions` blanket the whole search window is also rejected. |
 | Task `duration` (and each PERT estimate) | `0` to `MAX_DURATION_DAYS` (`36_525`, ~100 years); negatives rejected. |
 | `Dependency.lag` | Within `±MAX_LAG_DAYS` (`36_525`). |
+| Cumulative project span | Sum of every task's worst-case duration + every lag must stay under `MAX_PROJECT_SPAN_DAYS` (`366_000`, ~1000 years), regardless of task count. |
 | `monte_carlo(runs=…)` | Must be `>= 1`. |
 
 `Project.from_json()` rejects the non-standard JSON literals `NaN`, `Infinity`,

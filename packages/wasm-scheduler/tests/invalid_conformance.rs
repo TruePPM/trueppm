@@ -48,3 +48,8 @@ fn rejects_negative_duration() {
 fn rejects_lag_over_max() {
     assert_rejected("lag_over_max");
 }
+
+#[test]
+fn rejects_project_span_over_max() {
+    assert_rejected("project_span_over_max");
+}

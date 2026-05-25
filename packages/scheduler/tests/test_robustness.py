@@ -28,6 +28,7 @@ from trueppm_scheduler import (
 from trueppm_scheduler.engine import (
     MAX_DURATION_DAYS,
     MAX_LAG_DAYS,
+    MAX_PROJECT_SPAN_DAYS,
     _collect_leaves,
 )
 
@@ -122,6 +123,42 @@ class TestLagBounds:
         )
         with pytest.raises(InvalidScheduleInput, match="lag exceeds"):
             schedule(p)
+
+
+class TestProjectSpan:
+    def test_cumulative_span_over_max_rejected(self) -> None:
+        # Each task is within the per-task cap, but together they exceed the
+        # cumulative project span — the case per-field bounds alone miss.
+        n = MAX_PROJECT_SPAN_DAYS // MAX_DURATION_DAYS + 2
+        p = make_project([task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)])
+        with pytest.raises(InvalidScheduleInput, match="Total project span"):
+            schedule(p)
+
+    def test_cumulative_span_rejected_in_monte_carlo(self) -> None:
+        n = MAX_PROJECT_SPAN_DAYS // MAX_DURATION_DAYS + 2
+        p = make_project([task(f"t{i}", MAX_DURATION_DAYS) for i in range(n)])
+        with pytest.raises(InvalidScheduleInput, match="Total project span"):
+            monte_carlo(p, runs=10, max_tasks=None)
+
+    def test_span_counts_most_likely_estimate(self) -> None:
+        # Guard against the PERT bypass: zero deterministic/optimistic/pessimistic
+        # durations but a huge most_likely, which Monte Carlo samples as a
+        # constant when the [opt, pess] range is degenerate. The span must still
+        # count it, or the eager guard would never fire on these tasks.
+        n = MAX_PROJECT_SPAN_DAYS // MAX_DURATION_DAYS + 2
+        tasks = [
+            task(
+                f"t{i}",
+                0,
+                optimistic_duration=timedelta(0),
+                most_likely_duration=timedelta(days=MAX_DURATION_DAYS),
+                pessimistic_duration=timedelta(0),
+            )
+            for i in range(n)
+        ]
+        p = make_project(tasks)
+        with pytest.raises(InvalidScheduleInput, match="Total project span"):
+            monte_carlo(p, runs=10, max_tasks=None)
 
 
 class TestRunsGuard:

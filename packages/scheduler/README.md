@@ -66,6 +66,9 @@ up front rather than spinning on a degenerate project:
 - **Duration** — each task duration must be between `0` and `MAX_DURATION_DAYS`
   (`36_525`, ~100 years). Negative durations are rejected.
 - **Lag** — each dependency lag must be within `±MAX_LAG_DAYS` (`36_525`).
+- **Project span** — the cumulative span (every task's worst-case duration plus
+  the magnitude of every lag) must stay under `MAX_PROJECT_SPAN_DAYS`
+  (`366_000`, ~1000 years), regardless of task count.
 - **Monte Carlo** — `runs` must be `>= 1`.
 
 `Project.from_json()` also rejects the non-standard JSON literals `NaN`,
