@@ -30,7 +30,7 @@ export function WorkspaceEmailPage() {
           </SettingsCard>
         ) : isError || !data ? (
           <SettingsCard className="border-semantic-critical/40">
-            <div className="px-4 py-4 flex items-center gap-3">
+            <div className="px-4 py-4 flex items-center gap-3" role="alert">
               <p className="flex-1 text-[13px] text-neutral-text-secondary">
                 Couldn&apos;t load email settings.
               </p>

@@ -94,6 +94,7 @@ export default defineConfig({
             { slug: "administration/management-commands" },
             { slug: "administration/durability" },
             { slug: "administration/retention" },
+            { slug: "administration/email" },
           ],
         },
         // --- Feature reference (sub-grouped) ---
