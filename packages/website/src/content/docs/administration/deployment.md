@@ -57,7 +57,7 @@ TruePPM runs as a set of cooperating services:
 
 | Service | Technology | Purpose |
 |---------|-----------|---------|
-| **API** | Django 5.1 (ASGI via uvicorn) | REST API, WebSocket connections, authentication |
+| **API** | Django 5.2 (ASGI via uvicorn) | REST API, WebSocket connections, authentication |
 | **Celery worker** | Celery 5.4 | Background CPM scheduling, async task processing |
 | **PostgreSQL** | PostgreSQL 16 | Primary data store, ltree WBS hierarchy |
 | **Valkey** | Valkey 8 (Redis-compatible) | Celery task broker, Django Channels layer, scheduling locks |
