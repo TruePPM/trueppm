@@ -957,6 +957,29 @@
                 }
             }
         },
+        "/api/v1/health/dead-letter/": {
+            "get": {
+                "operationId": "v1_health_dead_letter_retrieve",
+                "description": "Prometheus 0.0.4 text exposition of permanently dead-lettered Celery tasks currently awaiting operator action, labelled by `task_name`. Derived on read from the `FailedTask` table — no metrics client or scrape agent runs in-process (ADR-0084). A gauge, not a counter: the value falls when a task is dismissed, retried, or purged. Requires a staff (admin) account; scrape with a bearer token. The OSS receiver also emits a structured WARNING log line per new dead-letter, so log-based alerting works without scraping this endpoint.",
+                "summary": "Dead-letter parked-task metrics (Prometheus)",
+                "tags": [
+                    "meta"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Prometheus text-format dead-letter gauge."
+                    }
+                }
+            }
+        },
         "/api/v1/me/active-sprints/": {
             "get": {
                 "operationId": "v1_me_active_sprints_retrieve",

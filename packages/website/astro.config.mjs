@@ -93,6 +93,7 @@ export default defineConfig({
             { slug: "administration/project-settings" },
             { slug: "administration/management-commands" },
             { slug: "administration/durability" },
+            { slug: "administration/dead-letter-alerting" },
             { slug: "administration/retention" },
             { slug: "administration/email" },
           ],

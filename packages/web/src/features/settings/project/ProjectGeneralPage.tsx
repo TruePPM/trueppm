@@ -18,28 +18,36 @@ const TIMEZONES = [
 
 const DEFAULT_VIEW_OPTIONS: Array<{ id: ProjectDefaultView; label: string }> = [
   { id: 'SCHEDULE', label: 'Schedule (Gantt)' },
-  { id: 'BOARD',    label: 'Board' },
-  { id: 'TABLE',    label: 'Table' },
+  { id: 'BOARD', label: 'Board' },
+  { id: 'TABLE', label: 'Table' },
   { id: 'OVERVIEW', label: 'Overview' },
 ];
 
 const HEALTH_OPTIONS: Array<{ id: ProjectHealth; label: string }> = [
   { id: 'ON_TRACK', label: 'On track' },
-  { id: 'AT_RISK',  label: 'At risk' },
+  { id: 'AT_RISK', label: 'At risk' },
   { id: 'CRITICAL', label: 'Critical' },
-  { id: 'AUTO',     label: 'Auto' },
+  { id: 'AUTO', label: 'Auto' },
 ];
 
 const HEALTH_ACTIVE: Record<ProjectHealth, string> = {
   ON_TRACK: 'bg-semantic-on-track-bg text-semantic-on-track border-semantic-on-track/40',
-  AT_RISK:  'bg-semantic-at-risk-bg text-semantic-at-risk border-semantic-at-risk/40',
+  AT_RISK: 'bg-semantic-at-risk-bg text-semantic-at-risk border-semantic-at-risk/40',
   CRITICAL: 'bg-semantic-critical/10 text-semantic-critical border-semantic-critical/40',
-  AUTO:     'bg-brand-primary-light text-brand-primary border-brand-primary/40',
+  AUTO: 'bg-brand-primary-light text-brand-primary border-brand-primary/40',
 };
 
 const VISIBILITY_OPTIONS: Array<{ id: ProjectVisibility; label: string; hint: string }> = [
-  { id: 'WORKSPACE', label: 'Workspace', hint: 'Anyone in the workspace can view; editing follows role.' },
-  { id: 'PRIVATE',   label: 'Private',   hint: 'Only invited members and groups can see this project.' },
+  {
+    id: 'WORKSPACE',
+    label: 'Workspace',
+    hint: 'Anyone in the workspace can view; editing follows role.',
+  },
+  {
+    id: 'PRIVATE',
+    label: 'Private',
+    hint: 'Only invited members and groups can see this project.',
+  },
 ];
 
 /**
@@ -103,7 +111,16 @@ export function ProjectGeneralPage() {
   }, [project]);
 
   const values = useMemo(
-    () => ({ name, description, code, health, visibility, timezone, default_view: defaultView, calendar: calendarId }),
+    () => ({
+      name,
+      description,
+      code,
+      health,
+      visibility,
+      timezone,
+      default_view: defaultView,
+      calendar: calendarId,
+    }),
     [name, description, code, health, visibility, timezone, defaultView, calendarId],
   );
   const initialValues = useMemo(
@@ -148,7 +165,17 @@ export function ProjectGeneralPage() {
     setInitialTimezone(timezone);
     setInitialDefaultView(defaultView);
     setInitialCalendarId(calendarId);
-  }, [updateProject, name, description, code, health, visibility, timezone, defaultView, calendarId]);
+  }, [
+    updateProject,
+    name,
+    description,
+    code,
+    health,
+    visibility,
+    timezone,
+    defaultView,
+    calendarId,
+  ]);
 
   const handleReset = useCallback(() => {
     setName(initialName);
@@ -198,7 +225,10 @@ export function ProjectGeneralPage() {
           />
         </FieldRow>
 
-        <FieldRow label="Project code" hint="Used as a prefix for task IDs and exports. Uppercase letters, digits, hyphens; up to 12 characters.">
+        <FieldRow
+          label="Project code"
+          hint="Used as a prefix for task IDs and exports. Uppercase letters, digits, hyphens; up to 12 characters."
+        >
           <input
             type="text"
             value={code}
@@ -228,7 +258,9 @@ export function ProjectGeneralPage() {
             >
               AK
             </span>
-            <span className="text-[13px] font-medium text-neutral-text-primary">Anika Krishnan</span>
+            <span className="text-[13px] font-medium text-neutral-text-primary">
+              Anika Krishnan
+            </span>
             <span className="text-[12px] text-neutral-text-secondary">· PM</span>
             <button
               type="button"
@@ -240,7 +272,10 @@ export function ProjectGeneralPage() {
           </div>
         </FieldRow>
 
-        <FieldRow label="Health" hint="Drives the dot color in project lists and rollups. Override is auto-cleared after 14 days.">
+        <FieldRow
+          label="Health"
+          hint="Drives the dot color in project lists and rollups. Override is auto-cleared after 14 days."
+        >
           <div className="flex gap-2">
             {HEALTH_OPTIONS.map((opt) => (
               <button
@@ -262,14 +297,19 @@ export function ProjectGeneralPage() {
           </div>
         </FieldRow>
 
-        <FieldRow label="Visibility" hint="Workspace = anyone signed in can see this project. Private = invited only.">
+        <FieldRow
+          label="Visibility"
+          hint="Workspace = anyone signed in can see this project. Private = invited only."
+        >
           <div className="flex flex-col gap-3">
             {VISIBILITY_OPTIONS.map((opt) => (
               <label key={opt.id} className="flex items-center gap-3 cursor-pointer">
                 <span
                   className={[
                     'w-4 h-4 rounded-full border-2 shrink-0 transition-colors',
-                    visibility === opt.id ? 'border-brand-primary bg-brand-primary' : 'border-neutral-border',
+                    visibility === opt.id
+                      ? 'border-brand-primary bg-brand-primary'
+                      : 'border-neutral-border',
                   ].join(' ')}
                   aria-hidden="true"
                 >
@@ -285,7 +325,9 @@ export function ProjectGeneralPage() {
                   onChange={() => setVisibility(opt.id)}
                   className="sr-only"
                 />
-                <span className="text-[13px] font-medium text-neutral-text-primary">{opt.label}</span>
+                <span className="text-[13px] font-medium text-neutral-text-primary">
+                  {opt.label}
+                </span>
                 <span className="text-[12px] text-neutral-text-secondary">· {opt.hint}</span>
               </label>
             ))}
@@ -302,47 +344,67 @@ export function ProjectGeneralPage() {
             >
               <option value="">Workspace default</option>
               {TIMEZONES.map((tz) => (
-                <option key={tz} value={tz}>{tz}</option>
+                <option key={tz} value={tz}>
+                  {tz}
+                </option>
               ))}
             </select>
-            <svg className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary" width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <svg
+              className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary"
+              width="11"
+              height="11"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+            >
               <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
           </div>
         </FieldRow>
 
-        <FieldRow label="Working calendar" hint="Override the workspace work-week and holidays. Picker UI ships with a follow-up issue.">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setCalendarId(null)}
-              aria-pressed={calendarInherited}
-              className={[
-                'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                calendarInherited
-                  ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
-                  : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
-              ].join(' ')}
-            >
-              Inherit from workspace
-            </button>
-            <button
-              type="button"
-              disabled
-              aria-pressed={!calendarInherited}
-              title="Calendar picker coming soon"
-              className={[
-                'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
-                !calendarInherited
-                  ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
-                  : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
-              ].join(' ')}
-            >
-              + Override
-            </button>
+        <FieldRow
+          label="Working calendar"
+          hint="Override the workspace work-week and holidays. Picker UI ships with a follow-up issue."
+        >
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCalendarId(null)}
+                aria-pressed={calendarInherited}
+                className={[
+                  'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                  calendarInherited
+                    ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
+                    : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
+                ].join(' ')}
+              >
+                Inherit from workspace
+              </button>
+              <button
+                type="button"
+                disabled
+                aria-pressed={!calendarInherited}
+                title="Calendar picker coming soon"
+                className={[
+                  'px-3 py-1 rounded border text-[12px] font-medium transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                  'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
+                  !calendarInherited
+                    ? 'bg-brand-primary-light text-brand-primary border-brand-primary/40'
+                    : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface-sunken',
+                ].join(' ')}
+              >
+                + Override
+              </button>
+            </div>
+            {/* The per-project calendar picker isn't wired yet; give the user a
+              path forward instead of a dead disabled button (#668, Sarah/PM). */}
+            <p className="text-[12px] text-neutral-text-secondary">
+              Workaround: set the work week per task under Task → Calendar until the project-level
+              calendar picker ships.
+            </p>
           </div>
         </FieldRow>
 
@@ -355,10 +417,19 @@ export function ProjectGeneralPage() {
               className="w-full h-8 pl-2.5 pr-8 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
               {DEFAULT_VIEW_OPTIONS.map((v) => (
-                <option key={v.id} value={v.id}>{v.label}</option>
+                <option key={v.id} value={v.id}>
+                  {v.label}
+                </option>
               ))}
             </select>
-            <svg className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary" width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <svg
+              className="pointer-events-none absolute right-2.5 top-2.5 text-neutral-text-secondary"
+              width="11"
+              height="11"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+            >
               <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
           </div>
