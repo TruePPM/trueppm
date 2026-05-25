@@ -57,7 +57,7 @@ _assert_dev_environment_safe()
 
 
 from .base import *  # noqa: F403, E402
-from .base import REST_FRAMEWORK  # noqa: E402
+from .base import DATABASES, REST_FRAMEWORK  # noqa: E402
 
 env = environ.Env()
 
@@ -100,3 +100,24 @@ LOGGING = {
         },
     },
 }
+
+# ---------------------------------------------------------------------------
+# CI test-DB prewarm (#688)
+# ---------------------------------------------------------------------------
+# When the api:test CI shards have loaded a `migrated` template database from
+# the schema dump produced by api:testdb-dump, clone each pytest-xdist worker
+# DB from it (CREATE DATABASE ... TEMPLATE, a fast file copy) and skip the
+# per-worker migration replay. The template already carries the ltree
+# extension, the wbs_path GiST index, and the data backfills, so this is
+# equivalent to a full migrate — unlike --no-migrations, which skips the
+# RunSQL that creates the ltree extension and breaks test-DB creation.
+#
+# Gated on the CI-set env var: a local `pytest` run (no `migrated` template
+# present) leaves DATABASES untouched and builds its test DB by replaying
+# migrations exactly as before. This is test-only — the TEST sub-dict is read
+# solely by Django's test-database creation, never by a running server.
+_test_db_template = os.environ.get("TRUEPPM_TEST_DB_TEMPLATE")
+if _test_db_template:
+    DATABASES["default"].setdefault("TEST", {})
+    DATABASES["default"]["TEST"]["TEMPLATE"] = _test_db_template
+    DATABASES["default"]["TEST"]["MIGRATE"] = False

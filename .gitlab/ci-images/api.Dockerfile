@@ -14,10 +14,24 @@
 # when we move requires-python.
 FROM python:3.11-slim
 
-# git is needed by drf-spectacular's schema diff and by diff-cover. The other
-# two are required to build psycopg's C extensions.
+# git is needed by drf-spectacular's schema diff and by diff-cover; libpq-dev +
+# gcc build psycopg's C extensions.
+#
+# postgresql-client-16 (pg_dump + psql) is used by api:testdb-dump (dump the
+# migrated schema) and the api:test shards (load it into the `migrated`
+# template DB) — see #688. It must be v16 to match the postgres:16 service:
+# pg_dump refuses to dump from a server newer than itself, and Debian bookworm's
+# default postgresql-client is v15, so we pull v16 from the PGDG apt repo.
 RUN apt-get update -qq \
- && apt-get install -y -qq --no-install-recommends libpq-dev gcc git \
+ && apt-get install -y -qq --no-install-recommends \
+      libpq-dev gcc git curl ca-certificates gnupg \
+ && install -d /usr/share/postgresql-common/pgdg \
+ && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+      -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+ && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list \
+ && apt-get update -qq \
+ && apt-get install -y -qq --no-install-recommends postgresql-client-16 \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/ci-deps
