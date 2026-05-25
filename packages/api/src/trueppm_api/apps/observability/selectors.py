@@ -149,7 +149,7 @@ def _beat_status() -> tuple[dict[str, Any], dict[str, str]]:
     threshold = settings.TRUEPPM_BEAT_STALE_SECONDS
 
     if row is None:
-        panel = {
+        panel: dict[str, Any] = {
             "last_heartbeat": None,
             "seconds_since": None,
             "stale": True,

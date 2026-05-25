@@ -88,7 +88,9 @@ class TestSystemHealthShape:
             data["beat"]
         )
         assert isinstance(data["scheduled_tasks"], list) and data["scheduled_tasks"]
-        assert {"parked", "oldest_age_seconds", "top_cause", "by_status"} <= set(data["dead_letter"])
+        assert {"parked", "oldest_age_seconds", "top_cause", "by_status"} <= set(
+            data["dead_letter"]
+        )
         assert isinstance(data["retention"], list) and data["retention"]
 
     def test_scheduled_tasks_are_config_shape(self) -> None:
