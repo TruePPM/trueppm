@@ -1,8 +1,30 @@
 import { Link } from 'react-router';
-import type { Program } from '@/api/types';
+import type { Program, ProgramHealth } from '@/api/types';
+import { contrastText } from './programColor';
 
 interface Props {
   program: Program;
+}
+
+/**
+ * Health-tinted neutral treatment for the identity square when no accent color
+ * is set — mirrors the token ramp used by ``ProgramGeneralPage``'s health
+ * buttons so the unset state still carries a health signal. AUTO stays neutral.
+ */
+const HEALTH_SQUARE: Record<ProgramHealth, string> = {
+  ON_TRACK: 'bg-semantic-on-track-bg text-semantic-on-track',
+  AT_RISK: 'bg-semantic-at-risk-bg text-semantic-at-risk',
+  CRITICAL: 'bg-semantic-critical/10 text-semantic-critical',
+  AUTO: 'bg-neutral-surface-sunken text-neutral-text-secondary',
+};
+
+/** Up to 3 chars for the identity square: program code if set, else name initials. */
+function squareLabel(program: Program): string {
+  if (program.code) return program.code.slice(0, 3).toUpperCase();
+  const parts = program.name.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
 /**
@@ -46,17 +68,33 @@ export function ProgramCard({ program }: Props) {
           hover:border-brand-primary/40
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
-        <div className="flex items-start justify-between gap-2">
-          <h2 className="min-w-0 truncate text-sm font-semibold text-neutral-text-primary">
-            {program.name}
-          </h2>
-          {program.my_role_label && (
-            <span
-              className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${roleChipClasses(program.my_role)}`}
-            >
-              {program.my_role_label}
-            </span>
-          )}
+        <div className="flex items-start gap-2.5">
+          <span
+            className={[
+              'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-xs font-bold',
+              program.color ? '' : (HEALTH_SQUARE[program.health] ?? HEALTH_SQUARE.AUTO),
+            ].join(' ')}
+            style={
+              program.color
+                ? { backgroundColor: program.color, color: contrastText(program.color) }
+                : undefined
+            }
+            aria-hidden="true"
+          >
+            {squareLabel(program)}
+          </span>
+          <div className="flex min-w-0 flex-1 items-start justify-between gap-2">
+            <h2 className="min-w-0 truncate text-sm font-semibold text-neutral-text-primary">
+              {program.name}
+            </h2>
+            {program.my_role_label && (
+              <span
+                className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${roleChipClasses(program.my_role)}`}
+              >
+                {program.my_role_label}
+              </span>
+            )}
+          </div>
         </div>
         {program.description && (
           <p className="line-clamp-2 text-xs text-neutral-text-secondary">{program.description}</p>

@@ -5,6 +5,7 @@ import { useDirtyForm } from '../hooks/useDirtyForm';
 import { useProgram } from '@/hooks/useProgram';
 import { useUpdateProgram } from '@/hooks/useProgramMutations';
 import type { ProgramHealth, ProgramMethodology, ProgramVisibility } from '@/api/types';
+import { PROGRAM_ACCENT_SWATCHES, contrastText } from '@/features/programs/programColor';
 
 const HEALTH_OPTIONS: Array<{ id: ProgramHealth; label: string }> = [
   { id: 'ON_TRACK', label: 'On track' },
@@ -63,6 +64,8 @@ export function ProgramGeneralPage() {
   const [health, setHealth] = useState<ProgramHealth>('AUTO');
   const [methodology, setMethodology] = useState<ProgramMethodology>('HYBRID');
   const [visibility, setVisibility] = useState<ProgramVisibility>('WORKSPACE');
+  // null = no accent chosen (renders as a health-tinted neutral on the card).
+  const [color, setColor] = useState<string | null>(null);
 
   // Seed once on first successful load — guard prevents refetch from wiping user edits.
   // The initial-* setters double as the "last-saved snapshot" used by the discard
@@ -74,6 +77,7 @@ export function ProgramGeneralPage() {
   const [initialHealth, setInitialHealth] = useState<ProgramHealth>('AUTO');
   const [initialMethodology, setInitialMethodology] = useState<ProgramMethodology>('HYBRID');
   const [initialVisibility, setInitialVisibility] = useState<ProgramVisibility>('WORKSPACE');
+  const [initialColor, setInitialColor] = useState<string | null>(null);
 
   useEffect(() => {
     if (!program || seededRef.current) return;
@@ -84,17 +88,19 @@ export function ProgramGeneralPage() {
     setHealth(program.health);
     setMethodology(program.methodology);
     setVisibility(program.visibility);
+    setColor(program.color ?? null);
     setInitialName(program.name);
     setInitialDescription(program.description ?? '');
     setInitialCode(program.code ?? '');
     setInitialHealth(program.health);
     setInitialMethodology(program.methodology);
     setInitialVisibility(program.visibility);
+    setInitialColor(program.color ?? null);
   }, [program]);
 
   const values = useMemo(
-    () => ({ name, description, code, health, methodology, visibility }),
-    [name, description, code, health, methodology, visibility],
+    () => ({ name, description, code, health, methodology, visibility, color }),
+    [name, description, code, health, methodology, visibility, color],
   );
   const initialValues = useMemo(
     () => ({
@@ -104,6 +110,7 @@ export function ProgramGeneralPage() {
       health: initialHealth,
       methodology: initialMethodology,
       visibility: initialVisibility,
+      color: initialColor,
     }),
     [
       initialName,
@@ -112,6 +119,7 @@ export function ProgramGeneralPage() {
       initialHealth,
       initialMethodology,
       initialVisibility,
+      initialColor,
     ],
   );
 
@@ -119,7 +127,7 @@ export function ProgramGeneralPage() {
     if (!programId) return;
     await updateProgram.mutateAsync({
       programId,
-      patch: { name, description, code, health, methodology, visibility },
+      patch: { name, description, code, health, methodology, visibility, color },
     });
     // Bump the snapshot — dirty flips back to false and the save bar collapses.
     setInitialName(name);
@@ -128,6 +136,7 @@ export function ProgramGeneralPage() {
     setInitialHealth(health);
     setInitialMethodology(methodology);
     setInitialVisibility(visibility);
+    setInitialColor(color);
   }, [
     programId,
     updateProgram,
@@ -137,6 +146,7 @@ export function ProgramGeneralPage() {
     health,
     methodology,
     visibility,
+    color,
   ]);
 
   const handleReset = useCallback(() => {
@@ -146,6 +156,7 @@ export function ProgramGeneralPage() {
     setHealth(initialHealth);
     setMethodology(initialMethodology);
     setVisibility(initialVisibility);
+    setColor(initialColor);
   }, [
     initialName,
     initialDescription,
@@ -153,6 +164,7 @@ export function ProgramGeneralPage() {
     initialHealth,
     initialMethodology,
     initialVisibility,
+    initialColor,
   ]);
 
   useDirtyForm({
@@ -193,6 +205,51 @@ export function ProgramGeneralPage() {
             maxLength={40}
             className="w-[140px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] tppm-mono text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           />
+        </FieldRow>
+
+        <FieldRow label="Accent color" hint="Tints this program's identity square in lists and its rollup-chart accents. Optional.">
+          <div className="flex items-center gap-2">
+            {PROGRAM_ACCENT_SWATCHES.map((swatch) => {
+              const selected = color === swatch;
+              return (
+                <button
+                  key={swatch}
+                  type="button"
+                  // Clicking the active swatch clears the accent (back to null).
+                  onClick={() => setColor(selected ? null : swatch)}
+                  aria-pressed={selected}
+                  aria-label={`Accent color ${swatch}${selected ? ', selected — activate to clear' : ''}`}
+                  title={selected ? `${swatch} — click to clear` : swatch}
+                  style={{ backgroundColor: swatch }}
+                  className={[
+                    'w-7 h-7 rounded-full inline-flex items-center justify-center transition-transform',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2',
+                    selected ? 'ring-2 ring-brand-primary ring-offset-2' : 'hover:scale-110',
+                  ].join(' ')}
+                >
+                  {selected && (
+                    <svg
+                      viewBox="0 0 16 16"
+                      className="w-3.5 h-3.5"
+                      aria-hidden="true"
+                      style={{ color: contrastText(swatch) }}
+                    >
+                      <path fill="currentColor" d="M6.4 11.3 3.5 8.4l1-1 1.9 1.9 4.1-4.1 1 1z" />
+                    </svg>
+                  )}
+                </button>
+              );
+            })}
+            {color && (
+              <button
+                type="button"
+                onClick={() => setColor(null)}
+                className="ml-1 text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </FieldRow>
 
         <FieldRow label="Description" hint="Shown on the program overview and in rollup dashboards.">

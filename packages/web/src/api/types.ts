@@ -108,6 +108,8 @@ export interface Program {
   health: ProgramHealth;
   /** Workspace or private listing scope. */
   visibility: ProgramVisibility;
+  /** Accent color as #RRGGBB hex, or null when unset (#698). */
+  color: string | null;
   /** User ID of the displayed program lead, or null when unset. */
   lead: string | null;
   /** Read-only nested user payload for the lead — null when ``lead`` is null. */

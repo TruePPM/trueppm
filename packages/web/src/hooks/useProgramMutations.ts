@@ -37,7 +37,7 @@ export interface UpdateProgramInput {
   patch: Partial<
     Pick<
       Program,
-      'name' | 'description' | 'code' | 'methodology' | 'health' | 'visibility' | 'lead'
+      'name' | 'description' | 'code' | 'methodology' | 'health' | 'visibility' | 'lead' | 'color'
     >
   >;
 }

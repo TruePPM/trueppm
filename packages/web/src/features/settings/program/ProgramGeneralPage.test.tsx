@@ -28,6 +28,7 @@ function makeProgram(overrides: Partial<Program> = {}): Program {
     methodology: 'HYBRID',
     health: 'AUTO',
     visibility: 'WORKSPACE',
+    color: null,
     lead: 'u-1',
     lead_detail: { id: 'u-1', username: 'anika.k', email: 'anika@example.com' },
     created_by: 'u-1',
@@ -132,6 +133,70 @@ describe('ProgramGeneralPage (settings)', () => {
         health: 'CRITICAL',
         methodology: 'HYBRID',
         visibility: 'WORKSPACE',
+        color: null,
+      },
+    });
+  });
+
+  it('selecting an accent swatch marks the form dirty and saves the chosen hex', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+
+    // Seeded with no color → store starts clean.
+    expect(useSettingsSaveStore.getState().dirty).toBe(false);
+
+    await user.click(screen.getByRole('button', { name: /Accent color #0EA5E9/i }));
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+    expect(screen.getByRole('button', { name: /Accent color #0EA5E9/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+
+    expect(mutateAsync).toHaveBeenCalledWith({
+      programId: 'p-1',
+      patch: {
+        name: 'Phase 2 Modernization',
+        description: 'Q3 platform rebuild',
+        code: 'PH2',
+        health: 'AUTO',
+        methodology: 'HYBRID',
+        visibility: 'WORKSPACE',
+        color: '#0EA5E9',
+      },
+    });
+  });
+
+  it('clicking the active swatch clears the accent back to null', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram({ color: '#7C3AED' }) });
+    renderPage();
+
+    const swatch = screen.getByRole('button', { name: /Accent color #7C3AED/i });
+    expect(swatch).toHaveAttribute('aria-pressed', 'true');
+
+    // Toggle off via the swatch itself.
+    await user.click(swatch);
+    expect(swatch).toHaveAttribute('aria-pressed', 'false');
+    expect(useSettingsSaveStore.getState().dirty).toBe(true);
+
+    await act(async () => {
+      await useSettingsSaveStore.getState().triggerSave();
+    });
+    expect(mutateAsync).toHaveBeenCalledWith({
+      programId: 'p-1',
+      patch: {
+        name: 'Phase 2 Modernization',
+        description: 'Q3 platform rebuild',
+        code: 'PH2',
+        health: 'AUTO',
+        methodology: 'HYBRID',
+        visibility: 'WORKSPACE',
+        color: null,
       },
     });
   });
