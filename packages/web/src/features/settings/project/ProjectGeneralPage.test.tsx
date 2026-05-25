@@ -14,8 +14,7 @@ vi.mock('@/hooks/useProjectId', () => ({
 }));
 
 vi.mock('@/hooks/useProject', () => ({
-  useProject: (projectId: string | undefined) =>
-    useProject(projectId) as { data: unknown },
+  useProject: (projectId: string | undefined) => useProject(projectId) as { data: unknown },
 }));
 
 vi.mock('@/hooks/useProjectMutations', () => ({
@@ -112,6 +111,13 @@ describe('ProjectGeneralPage', () => {
 
     fireEvent.click(inherit);
     expect(inherit).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('shows a workaround hint for the still-stubbed calendar override (#668)', () => {
+    renderPage();
+    expect(
+      screen.getByText(/Workaround: set the work week per task under Task . Calendar/i),
+    ).toBeInTheDocument();
   });
 
   it('persists every edited field through the save mutation', async () => {
