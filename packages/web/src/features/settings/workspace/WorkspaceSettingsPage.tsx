@@ -12,6 +12,15 @@ import {
   WarningIcon,
 } from '@/components/Icons';
 
+/** Inline Activity icon for the System Health nav item (no lucide-react dep). */
+function ActivityNavIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function NavIcon({ children }: { children: ReactNode }) {
   return <span className="w-4 h-4 inline-flex items-center justify-center shrink-0">{children}</span>;
 }
@@ -39,6 +48,12 @@ const NAV_GROUPS: SettingsNavGroup[] = [
   // as redirect shims so external bookmarks don't 404, and Enterprise
   // re-injects this group via the slot registry to host the workspace hub UI
   // (trueppm-enterprise#114).
+  {
+    label: 'System',
+    items: [
+      { id: 'health', label: 'System health', to: '/settings/health', icon: <NavIcon><ActivityNavIcon /></NavIcon> },
+    ],
+  },
   {
     label: 'Danger',
     items: [
