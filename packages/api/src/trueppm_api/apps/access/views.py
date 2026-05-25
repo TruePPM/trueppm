@@ -97,7 +97,9 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
             return names_map
         owned_ids = set(
             ProjectMembership.objects.filter(
-                user=request.user,
+                # IsAuthenticated guarantees a real User, but mypy still sees
+                # request.user as User | AnonymousUser for the lookup.
+                user=request.user,  # type: ignore[misc]
                 role=Role.OWNER,
                 is_deleted=False,
                 project__is_deleted=False,
