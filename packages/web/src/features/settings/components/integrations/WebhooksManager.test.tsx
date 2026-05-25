@@ -92,4 +92,20 @@ describe('WebhooksManager', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(refetch).toHaveBeenCalled();
   });
+
+  it('renders explanatory copy scoped to the project (#597)', () => {
+    useWebhooks.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
+    render(<WebhooksManager scope={SCOPE} />);
+    expect(
+      screen.getByText(/Webhooks let external systems receive real-time events/i),
+    ).toBeInTheDocument();
+  });
+
+  it('renders program-scoped explanatory copy at program scope (#597)', () => {
+    useWebhooks.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
+    render(<WebhooksManager scope={{ kind: 'program', id: 'prog-1' }} />);
+    expect(
+      screen.getByText(/Program webhooks let external systems receive real-time events/i),
+    ).toBeInTheDocument();
+  });
 });

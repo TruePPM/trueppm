@@ -66,6 +66,12 @@ export function WebhooksManager({ scope }: WebhooksManagerProps) {
         </button>
       </div>
 
+      <p className="px-4 pt-3 text-[12px] text-neutral-text-secondary">
+        {scope.kind === 'program'
+          ? 'Program webhooks let external systems receive real-time events (task created, status changed, milestone reached) from every project in this program.'
+          : 'Webhooks let external systems receive real-time events (task created, status changed, milestone reached) from this project.'}
+      </p>
+
       <div className="px-4 py-3">
         {isLoading ? (
           <div className="space-y-2" aria-busy="true" aria-label="Loading webhooks">

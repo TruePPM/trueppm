@@ -57,6 +57,12 @@ export function ApiTokensManager({ scope }: ApiTokensManagerProps) {
         </button>
       </div>
 
+      <p className="px-4 pt-3 text-[12px] text-neutral-text-secondary">
+        {scope.kind === 'program'
+          ? 'Program API tokens authenticate scripts and integrations that read or modify any project in this program via the REST API.'
+          : 'API tokens authenticate scripts and integrations that read or modify this project’s data via the REST API.'}
+      </p>
+
       <div className="px-4 py-3">
         {isLoading ? (
           <div className="space-y-2" aria-busy="true" aria-label="Loading tokens">
