@@ -11,6 +11,8 @@ Covers:
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Iterator
 from unittest.mock import patch
 
 import pytest
@@ -19,6 +21,7 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.scheduling.deadletter import record_failed_task
 from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
+from trueppm_api.apps.scheduling.signals import celery_task_permanently_failed
 
 User = get_user_model()
 
@@ -91,6 +94,94 @@ class TestDeadLetterRecording:
 
 
 # ---------------------------------------------------------------------------
+# Dead-letter alerting signal + OSS receiver (ADR-0084, issue #660)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def captured_alerts() -> Iterator[list[dict[str, object]]]:
+    """Connect a temporary receiver capturing celery_task_permanently_failed payloads."""
+    captured: list[dict[str, object]] = []
+
+    def _capture(sender: object, **kwargs: object) -> None:
+        captured.append(kwargs)
+
+    celery_task_permanently_failed.connect(_capture, weak=False)
+    try:
+        yield captured
+    finally:
+        celery_task_permanently_failed.disconnect(_capture)
+
+
+@pytest.mark.django_db
+class TestDeadLetterSignal:
+    def test_fires_once_on_new_dead_letter_with_project_id(
+        self, captured_alerts: list[dict[str, object]]
+    ) -> None:
+        exc = RuntimeError("boom")
+        record_failed_task(
+            task_name="scheduling.recalculate_schedule",
+            task_id="sig-001",
+            args=["proj-9"],
+            kwargs={},
+            exception=exc,
+            project_id="proj-9",
+        )
+        assert len(captured_alerts) == 1
+        payload = captured_alerts[0]
+        assert payload["task_name"] == "scheduling.recalculate_schedule"
+        assert payload["task_id"] == "sig-001"
+        assert payload["project_id"] == "proj-9"
+        assert payload["exception"] is exc
+
+    def test_does_not_refire_on_duplicate_task_id(
+        self, captured_alerts: list[dict[str, object]]
+    ) -> None:
+        # Only the terminal transition (FailedTask created) alerts; a repeat
+        # dead-letter of the same task_id only bumps failure_count.
+        record_failed_task("t", "sig-dup", [], {}, RuntimeError("first"))
+        record_failed_task("t", "sig-dup", [], {}, RuntimeError("second"))
+        assert len(captured_alerts) == 1
+
+    def test_project_id_defaults_to_none_when_unknown(
+        self, captured_alerts: list[dict[str, object]]
+    ) -> None:
+        record_failed_task("t", "sig-noproj", [], {}, RuntimeError("x"))
+        assert captured_alerts[0]["project_id"] is None
+
+    def test_misbehaving_receiver_does_not_break_recording(self) -> None:
+        # send_robust isolates receiver failures from the dead-letter write.
+        def _boom(sender: object, **kwargs: object) -> None:
+            raise ValueError("receiver exploded")
+
+        celery_task_permanently_failed.connect(_boom, weak=False)
+        try:
+            record_failed_task("t", "sig-robust", [], {}, RuntimeError("x"))
+        finally:
+            celery_task_permanently_failed.disconnect(_boom)
+        # The FailedTask row was still written despite the receiver raising.
+        assert FailedTask.objects.filter(task_id="sig-robust").count() == 1
+
+    def test_oss_receiver_logs_structured_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        logger_name = "trueppm_api.apps.scheduling.receivers"
+        with caplog.at_level(logging.WARNING, logger=logger_name):
+            record_failed_task(
+                task_name="scheduling.recalculate_schedule",
+                task_id="sig-log",
+                args=[],
+                kwargs={},
+                exception=RuntimeError("boom"),
+                project_id="proj-log",
+            )
+        records = [r for r in caplog.records if r.name == logger_name]
+        assert any("dead-letter alert" in r.message for r in records)
+        rec = next(r for r in records if "dead-letter alert" in r.message)
+        assert rec.task_name == "scheduling.recalculate_schedule"  # type: ignore[attr-defined]
+        assert rec.exception_type == "RuntimeError"  # type: ignore[attr-defined]
+        assert rec.project_id == "proj-log"  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
 # Task lifecycle signals
 # ---------------------------------------------------------------------------
 
@@ -100,17 +191,19 @@ class TestTaskLifecycleSignals:
     def test_signals_are_importable(self) -> None:
         from trueppm_api.apps.scheduling.signals import (
             celery_task_failed,
+            celery_task_permanently_failed,
             celery_task_retried,
             celery_task_started,
             celery_task_succeeded,
         )
 
-        # All four signals exist and are Django Signal instances
+        # All five signals exist and are Django Signal instances
         signals = (
             celery_task_started,
             celery_task_succeeded,
             celery_task_failed,
             celery_task_retried,
+            celery_task_permanently_failed,
         )
         for sig in signals:
             assert hasattr(sig, "send")

@@ -196,6 +196,7 @@ def _dead_letter_current(task: object, project_id: str, exc: BaseException) -> N
         args=[project_id],
         kwargs={},
         exception=exc,
+        project_id=project_id,
     )
 
 
