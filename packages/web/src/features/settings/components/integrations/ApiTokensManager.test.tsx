@@ -78,4 +78,20 @@ describe('ApiTokensManager', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Revoke token' }));
     expect(revokeMutate).toHaveBeenCalledWith('tok-1', expect.anything());
   });
+
+  it('renders program-scoped explanatory copy at program scope (#597)', () => {
+    useApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
+    render(<ApiTokensManager scope={SCOPE} />);
+    expect(
+      screen.getByText(/Program API tokens authenticate scripts and integrations/i),
+    ).toBeInTheDocument();
+  });
+
+  it('renders project-scoped explanatory copy at project scope (#597)', () => {
+    useApiTokens.mockReturnValue({ data: [], isLoading: false, isError: false, refetch: vi.fn() });
+    render(<ApiTokensManager scope={{ kind: 'project', id: 'p-1' }} />);
+    expect(
+      screen.getByText(/API tokens authenticate scripts and integrations that read or modify/i),
+    ).toBeInTheDocument();
+  });
 });
