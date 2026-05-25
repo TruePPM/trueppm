@@ -348,7 +348,10 @@ def resolve_parsed_mentions(
         except (InvalidGroupKeyError, GroupTooLargeError):
             skipped_groups.append(key)
             continue
-        members = list(User.objects.filter(pk__in=member_ids))
+        # resolve_group_members annotates its result list[UUID], but the `pk`
+        # lookup is typed Iterable[str|int] under django-stubs; stringify so the
+        # ids satisfy the lookup type (Django coerces them back to the User pk).
+        members = list(User.objects.filter(pk__in=[str(uid) for uid in member_ids]))
         group_targets.append((key, members))
 
     return MentionParseResult(

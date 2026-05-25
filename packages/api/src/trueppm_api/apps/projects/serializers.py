@@ -1360,7 +1360,9 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
 
         existing_qs = Dependency.objects.filter(
             is_deleted=False,
-            predecessor_id__in=task_ids,
+            # task_ids are stringified for the children-map keys above; the FK
+            # `_id` lookup is typed to want UUID objects, so convert back here.
+            predecessor_id__in=[uuid.UUID(t) for t in task_ids],
         ).values_list("predecessor_id", "successor_id")
         if self.instance is not None:
             existing_qs = existing_qs.exclude(pk=self.instance.pk)
