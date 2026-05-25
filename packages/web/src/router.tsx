@@ -185,6 +185,16 @@ const WorkspaceDangerPage = lazy(() =>
     default: m.WorkspaceDangerPage,
   }))
 );
+const SystemHealthOverviewPage = lazy(() =>
+  import(
+    '@/features/settings/workspace/systemHealth/SystemHealthOverviewPage'
+  ).then((m) => ({ default: m.SystemHealthOverviewPage }))
+);
+const DeadLetterInspectorPage = lazy(() =>
+  import(
+    '@/features/settings/workspace/systemHealth/DeadLetterInspectorPage'
+  ).then((m) => ({ default: m.DeadLetterInspectorPage }))
+);
 
 // ── Program settings ──────────────────────────────────────────────────────────
 const ProgramSettingsPage = lazy(() =>
@@ -710,6 +720,22 @@ export const router = createBrowserRouter([
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
                     <WorkspaceDangerPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'health',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <SystemHealthOverviewPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'health/dead-letters',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <DeadLetterInspectorPage />
                   </Suspense>
                 ),
               },
