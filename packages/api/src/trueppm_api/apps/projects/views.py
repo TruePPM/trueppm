@@ -6027,13 +6027,16 @@ class TaskCommentViewSet(
         # their task got a comment — unless they wrote it, or were already
         # @mentioned in it (the mention path notifies them separately, so we
         # de-dup to avoid two pings for one comment).
-        author_id = str(self.request.user.pk)
+        from django.contrib.auth.models import User as _User
+
+        author = cast(_User, self.request.user)
+        author_id = str(author.pk)
         assignee_id = str(task.assignee_id) if task.assignee_id else None
-        if assignee_id and assignee_id != author_id:
+        if assignee_id and assignee_id != author_id and task.assignee:
             mentioned_usernames = {p.value for p in parsed if p.kind == "user"}
-            assignee_username = task.assignee.username if task.assignee_id else ""
+            assignee_username = task.assignee.username
             if assignee_username not in mentioned_usernames:
-                author_name = self.request.user.get_full_name() or self.request.user.username
+                author_name = author.get_full_name() or author.username
                 c_subj = f"New comment on {task.name}"
                 c_body = f'{author_name} commented on your task "{task.name}" in TruePPM.'
                 transaction.on_commit(
