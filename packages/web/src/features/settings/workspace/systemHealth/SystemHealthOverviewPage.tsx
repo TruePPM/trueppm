@@ -29,8 +29,21 @@ import axios from 'axios';
 
 function ActivityIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0">
-      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className="shrink-0"
+    >
+      <polyline
+        points="22 12 18 12 15 21 9 3 6 12 2 12"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -45,47 +58,155 @@ function RefreshIcon({ spinning }: { spinning?: boolean }) {
       aria-hidden="true"
       className={spinning ? 'animate-spin shrink-0' : 'shrink-0'}
     >
-      <polyline points="23 4 23 10 17 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points="1 20 1 14 7 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline
+        points="23 4 23 10 17 10"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <polyline
+        points="1 20 1 14 7 14"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
 
 function ExternalLinkIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0">
-      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points="15 3 21 3 21 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <line x1="10" y1="14" x2="21" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className="shrink-0"
+    >
+      <path
+        d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <polyline
+        points="15 3 21 3 21 9"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <line
+        x1="10"
+        y1="14"
+        x2="21"
+        y2="3"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
 
 function HeartPulseIcon() {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0 text-neutral-text-disabled">
-      <path d="M20.42 4.58a5.4 5.4 0 0 0-7.65 0l-.77.78-.77-.78a5.4 5.4 0 0 0-7.65 7.65l1.06 1.06L12 21.23l7.77-7.94 1.06-1.06a5.4 5.4 0 0 0-.41-7.65Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points="3.54 12 6 12 8 6 10 18 12 12 14 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className="shrink-0 text-neutral-text-disabled"
+    >
+      <path
+        d="M20.42 4.58a5.4 5.4 0 0 0-7.65 0l-.77.78-.77-.78a5.4 5.4 0 0 0-7.65 7.65l1.06 1.06L12 21.23l7.77-7.94 1.06-1.06a5.4 5.4 0 0 0-.41-7.65Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <polyline
+        points="3.54 12 6 12 8 6 10 18 12 12 14 12"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
 
 function DrainIcon() {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0 text-neutral-text-disabled">
-      <polyline points="23 4 23 10 17 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <polyline points="1 20 1 14 7 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className="shrink-0 text-neutral-text-disabled"
+    >
+      <polyline
+        points="23 4 23 10 17 10"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <polyline
+        points="1 20 1 14 7 14"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
 
 function PurgeIcon() {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0 text-neutral-text-disabled">
-      <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className="shrink-0 text-neutral-text-disabled"
+    >
+      <polyline
+        points="3 6 5 6 21 6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
       <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
@@ -93,8 +214,21 @@ function PurgeIcon() {
 
 function SnapshotIcon() {
   return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0 text-neutral-text-disabled">
-      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className="shrink-0 text-neutral-text-disabled"
+    >
+      <path
+        d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
       <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="2" />
     </svg>
   );
@@ -102,7 +236,10 @@ function SnapshotIcon() {
 
 function OtherDotIcon() {
   return (
-    <span className="w-[13px] h-[13px] inline-flex items-center justify-center shrink-0 text-neutral-text-disabled" aria-hidden="true">
+    <span
+      className="w-[13px] h-[13px] inline-flex items-center justify-center shrink-0 text-neutral-text-disabled"
+      aria-hidden="true"
+    >
       <span className="w-2 h-2 rounded-full bg-neutral-text-disabled inline-block" />
     </span>
   );
@@ -114,17 +251,17 @@ function OtherDotIcon() {
 
 /** Maps API component status → Tailwind color classes for the status dot. */
 const STATUS_DOT_CLASS: Record<ComponentStatus, string> = {
-  ok:      'bg-semantic-on-track',
-  warn:    'bg-semantic-at-risk',
-  crit:    'bg-semantic-critical',
+  ok: 'bg-semantic-on-track',
+  warn: 'bg-semantic-at-risk',
+  crit: 'bg-semantic-critical',
   // unknown is a hollow ring — visually "not measured", never looks like an error.
   unknown: 'bg-transparent ring-1 ring-neutral-border',
 };
 
 const STATUS_DOT_ARIA: Record<ComponentStatus, string> = {
-  ok:      'OK',
-  warn:    'Warning',
-  crit:    'Critical',
+  ok: 'OK',
+  warn: 'Warning',
+  crit: 'Critical',
   unknown: 'Unknown',
 };
 
@@ -144,11 +281,16 @@ function StatusDot({ status }: { status: ComponentStatus }) {
 
 function CategoryIcon({ category }: { category: ScheduledTaskCategory }) {
   switch (category) {
-    case 'heartbeat': return <HeartPulseIcon />;
-    case 'drain':     return <DrainIcon />;
-    case 'purge':     return <PurgeIcon />;
-    case 'snapshot':  return <SnapshotIcon />;
-    default:          return <OtherDotIcon />;
+    case 'heartbeat':
+      return <HeartPulseIcon />;
+    case 'drain':
+      return <DrainIcon />;
+    case 'purge':
+      return <PurgeIcon />;
+    case 'snapshot':
+      return <SnapshotIcon />;
+    default:
+      return <OtherDotIcon />;
   }
 }
 
@@ -165,13 +307,18 @@ function ComponentCard({ component }: { component: SystemHealthComponent }) {
           {component.label}
         </span>
       </div>
-      <p className={[
-        'text-[12px] font-medium',
-        component.status === 'ok' ? 'text-semantic-on-track' :
-        component.status === 'warn' ? 'text-semantic-at-risk' :
-        component.status === 'crit' ? 'text-semantic-critical' :
-        'text-neutral-text-secondary',
-      ].join(' ')}>
+      <p
+        className={[
+          'text-[12px] font-medium',
+          component.status === 'ok'
+            ? 'text-semantic-on-track'
+            : component.status === 'warn'
+              ? 'text-semantic-at-risk'
+              : component.status === 'crit'
+                ? 'text-semantic-critical'
+                : 'text-neutral-text-secondary',
+        ].join(' ')}
+      >
         {component.state_label}
       </p>
       <p className="text-[11px] text-neutral-text-secondary leading-snug">{component.meta}</p>
@@ -187,9 +334,15 @@ function OverviewSkeleton() {
   return (
     <div className="px-6 py-5 space-y-5" aria-label="Loading system health" aria-busy="true">
       {/* Component cards */}
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}
+      >
         {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="h-[90px] rounded-lg bg-neutral-surface-raised animate-pulse border border-neutral-border" />
+          <div
+            key={i}
+            className="h-[90px] rounded-lg bg-neutral-surface-raised animate-pulse border border-neutral-border"
+          />
         ))}
       </div>
       {/* Beat panel */}
@@ -227,10 +380,7 @@ export function SystemHealthOverviewPage() {
   }, []);
 
   // Detect 403 separately so the error message is role-aware.
-  const is403 =
-    error !== null &&
-    axios.isAxiosError(error) &&
-    error.response?.status === 403;
+  const is403 = error !== null && axios.isAxiosError(error) && error.response?.status === 403;
 
   // First-load skeleton (only on isLoading, not background isFetching).
   if (isLoading) {
@@ -249,7 +399,7 @@ export function SystemHealthOverviewPage() {
           <button
             type="button"
             onClick={() => void refetch()}
-            className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
           >
             Retry
           </button>
@@ -274,7 +424,7 @@ export function SystemHealthOverviewPage() {
               type="button"
               onClick={() => void refetch()}
               disabled={isFetching}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track disabled:opacity-60"
             >
               <RefreshIcon spinning={isFetching} />
               {isFetching ? 'Refreshing…' : 'Force refresh'}
@@ -283,7 +433,7 @@ export function SystemHealthOverviewPage() {
               href="/docs/administration/system-health"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track"
             >
               Open runbook
               <ExternalLinkIcon />
@@ -345,28 +495,55 @@ export function SystemHealthOverviewPage() {
 
           {/* Scheduled-task reference table — static reference list, no per-row status */}
           <div className="border-t border-neutral-border/55">
-            <h3 className="px-4 py-2 text-[10px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary bg-neutral-surface-sunken border-b border-neutral-border/55">
+            <h3 className="px-4 py-2 text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary bg-neutral-surface-sunken border-b border-neutral-border/55">
               Scheduled tasks ({health.scheduled_tasks.length})
             </h3>
             <div className="max-h-[320px] overflow-auto">
               <table className="w-full text-[12px]" aria-label="Scheduled tasks reference">
                 <thead className="sticky top-0 bg-neutral-surface-raised z-10">
                   <tr className="border-b border-neutral-border/55">
-                    <th className="px-4 py-2 text-left font-semibold text-neutral-text-secondary text-[10px] tracking-[.06em] uppercase" scope="col">Name</th>
-                    <th className="px-4 py-2 text-left font-semibold text-neutral-text-secondary text-[10px] tracking-[.06em] uppercase" scope="col">Cadence</th>
-                    <th className="px-4 py-2 text-center font-semibold text-neutral-text-secondary text-[10px] tracking-[.06em] uppercase w-10" scope="col">Type</th>
+                    <th
+                      className="px-4 py-2 text-left font-semibold text-neutral-text-secondary text-[11px] tracking-[.06em] uppercase"
+                      scope="col"
+                    >
+                      Name
+                    </th>
+                    <th
+                      className="px-4 py-2 text-left font-semibold text-neutral-text-secondary text-[11px] tracking-[.06em] uppercase"
+                      scope="col"
+                    >
+                      Cadence
+                    </th>
+                    <th
+                      className="px-4 py-2 text-center font-semibold text-neutral-text-secondary text-[11px] tracking-[.06em] uppercase w-10"
+                      scope="col"
+                    >
+                      Type
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {health.scheduled_tasks.map((task, i) => (
                     <tr
                       key={task.task}
-                      className={i < health.scheduled_tasks.length - 1 ? 'border-b border-neutral-border/55' : ''}
+                      className={
+                        i < health.scheduled_tasks.length - 1
+                          ? 'border-b border-neutral-border/55'
+                          : ''
+                      }
                     >
                       <td className="px-4 py-2 text-neutral-text-primary">{task.name}</td>
-                      <td className="px-4 py-2 tppm-mono text-neutral-text-secondary">{task.cadence}</td>
-                      <td className="px-4 py-2 flex justify-center items-center">
-                        <CategoryIcon category={task.category} />
+                      <td className="px-4 py-2 tppm-mono text-neutral-text-secondary">
+                        {task.cadence}
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        <span
+                          className="inline-flex justify-center items-center"
+                          title={task.category}
+                        >
+                          <CategoryIcon category={task.category} />
+                          <span className="sr-only">{task.category}</span>
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -381,7 +558,9 @@ export function SystemHealthOverviewPage() {
           {/* Dead-letter summary */}
           <SettingsCard>
             <div className="px-4 py-3 border-b border-neutral-border/55">
-              <h2 className="text-[13px] font-semibold text-neutral-text-primary">Dead-letter queue</h2>
+              <h2 className="text-[13px] font-semibold text-neutral-text-primary">
+                Dead-letter queue
+              </h2>
             </div>
             <div className="px-4 py-3 space-y-3">
               <div className="flex items-baseline gap-1.5">
@@ -393,13 +572,19 @@ export function SystemHealthOverviewPage() {
 
               {health.dead_letter.oldest_age_seconds !== null && (
                 <div className="text-[12px] text-neutral-text-secondary">
-                  Oldest: <span className="font-medium text-neutral-text-primary tppm-mono">{formatAge(health.dead_letter.oldest_age_seconds)}</span>
+                  Oldest:{' '}
+                  <span className="font-medium text-neutral-text-primary tppm-mono">
+                    {formatAge(health.dead_letter.oldest_age_seconds)}
+                  </span>
                 </div>
               )}
 
               {health.dead_letter.top_cause !== null && (
                 <div className="text-[12px] text-neutral-text-secondary">
-                  Top cause: <span className="font-medium text-neutral-text-primary">{health.dead_letter.top_cause}</span>
+                  Top cause:{' '}
+                  <span className="font-medium text-neutral-text-primary">
+                    {health.dead_letter.top_cause}
+                  </span>
                 </div>
               )}
 
@@ -419,7 +604,7 @@ export function SystemHealthOverviewPage() {
 
               <Link
                 to="/settings/health/dead-letters"
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded"
               >
                 Open inspector →
               </Link>
@@ -429,7 +614,9 @@ export function SystemHealthOverviewPage() {
           {/* Retention summary */}
           <SettingsCard>
             <div className="px-4 py-3 border-b border-neutral-border/55">
-              <h2 className="text-[13px] font-semibold text-neutral-text-primary">Retention policy</h2>
+              <h2 className="text-[13px] font-semibold text-neutral-text-primary">
+                Retention policy
+              </h2>
             </div>
             <div className="px-4 py-3">
               {health.retention.map((entry) => (

@@ -10,7 +10,12 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
-import { useFailedTask, useFailedTasks, type FailedTaskFilters, type FailedTaskStatus } from '@/hooks/useFailedTasks';
+import {
+  useFailedTask,
+  useFailedTasks,
+  type FailedTaskFilters,
+  type FailedTaskStatus,
+} from '@/hooks/useFailedTasks';
 import { formatAge } from './formatAge';
 
 // ---------------------------------------------------------------------------
@@ -19,25 +24,64 @@ import { formatAge } from './formatAge';
 
 function ChevronLeftIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0">
-      <polyline points="15 18 9 12 15 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className="shrink-0"
+    >
+      <polyline
+        points="15 18 9 12 15 6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
 
 function ChevronRightIcon() {
   return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0 text-neutral-text-disabled">
-      <polyline points="9 18 15 12 9 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className="shrink-0 text-neutral-text-disabled"
+    >
+      <polyline
+        points="9 18 15 12 9 6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
 
 function CheckCircleIcon() {
   return (
-    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="text-semantic-on-track">
+    <svg
+      width="32"
+      height="32"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+      className="text-semantic-on-track"
+    >
       <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
-      <polyline points="9 12 11 14 15 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline
+        points="9 12 11 14 15 10"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -47,29 +91,33 @@ function CheckCircleIcon() {
 // ---------------------------------------------------------------------------
 
 const STATUS_DOT_CLASS: Record<FailedTaskStatus, string> = {
-  dead:          'bg-semantic-critical',
+  dead: 'bg-semantic-critical',
   pending_retry: 'bg-semantic-at-risk',
-  dismissed:     'bg-neutral-text-disabled',
-  retried:       'bg-neutral-text-disabled',
+  dismissed: 'bg-neutral-text-disabled',
+  retried: 'bg-neutral-text-disabled',
 };
 
 const STATUS_LABEL: Record<FailedTaskStatus, string> = {
-  dead:          'Dead',
+  dead: 'Dead',
   pending_retry: 'Pending retry',
-  dismissed:     'Dismissed',
-  retried:       'Retried',
+  dismissed: 'Dismissed',
+  retried: 'Retried',
 };
 
 const STATUS_PILL_CLASS: Record<FailedTaskStatus, string> = {
-  dead:          'bg-semantic-critical/10 text-semantic-critical',
-  pending_retry: 'bg-semantic-at-risk/10 text-semantic-at-risk',
-  dismissed:     'bg-neutral-surface-sunken text-neutral-text-secondary',
-  retried:       'bg-neutral-surface-sunken text-neutral-text-secondary',
+  // rule 8b: badge fills use the pre-computed -bg tokens, never the /N opacity
+  // modifier (which diverges from the dark-mode RGBA in globals.css).
+  dead: 'bg-semantic-critical-bg text-semantic-critical border border-semantic-critical/80',
+  pending_retry: 'bg-semantic-at-risk-bg text-semantic-at-risk border border-semantic-at-risk/80',
+  dismissed: 'bg-neutral-surface-sunken text-neutral-text-secondary',
+  retried: 'bg-neutral-surface-sunken text-neutral-text-secondary',
 };
 
 function StatusPill({ status }: { status: FailedTaskStatus }) {
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_PILL_CLASS[status]}`}>
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${STATUS_PILL_CLASS[status]}`}
+    >
       {STATUS_LABEL[status]}
     </span>
   );
@@ -120,7 +168,14 @@ function TaskListRow({
   selected,
   onClick,
 }: {
-  task: { id: string; task_name: string; task_id: string; failure_count: number; last_failed_at: string; status: FailedTaskStatus };
+  task: {
+    id: string;
+    task_name: string;
+    task_id: string;
+    failure_count: number;
+    last_failed_at: string;
+    status: FailedTaskStatus;
+  };
   selected: boolean;
   onClick: () => void;
 }) {
@@ -129,10 +184,10 @@ function TaskListRow({
       type="button"
       onClick={onClick}
       className={[
-        'w-full text-left flex items-center gap-2.5 px-3.5 py-2.5 border-b border-neutral-border/55 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary',
+        'w-full text-left flex items-center gap-2.5 px-3.5 py-2.5 border-b border-neutral-border/55 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track',
         selected ? 'bg-brand-primary/8' : 'hover:bg-neutral-surface-raised',
       ].join(' ')}
-      aria-pressed={selected}
+      aria-current={selected ? 'true' : undefined}
     >
       <span
         className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT_CLASS[task.status]}`}
@@ -147,9 +202,7 @@ function TaskListRow({
           <span className="tppm-mono text-[11px] text-neutral-text-secondary truncate max-w-[120px]">
             {task.task_id.slice(0, 8)}…
           </span>
-          <span className="text-[11px] text-neutral-text-secondary">
-            ×{task.failure_count}
-          </span>
+          <span className="text-[11px] text-neutral-text-secondary">×{task.failure_count}</span>
           <span className="text-[11px] text-neutral-text-secondary ml-auto shrink-0">
             {relativeAge(task.last_failed_at)}
           </span>
@@ -168,7 +221,10 @@ function ListSkeleton() {
   return (
     <div aria-label="Loading tasks" aria-busy="true">
       {[1, 2, 3, 4, 5].map((i) => (
-        <div key={i} className="flex items-center gap-3 px-3.5 py-2.5 border-b border-neutral-border/55 animate-pulse">
+        <div
+          key={i}
+          className="flex items-center gap-3 px-3.5 py-2.5 border-b border-neutral-border/55 animate-pulse"
+        >
           <span className="w-2 h-2 rounded-full bg-neutral-surface-raised shrink-0" />
           <span className="flex-1">
             <span className="block h-3.5 w-2/3 rounded bg-neutral-surface-raised" />
@@ -198,9 +254,7 @@ function DetailPane({ id }: { id: string }) {
   if (error !== null || !data) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-[13px] text-semantic-critical">
-          Failed to load task details.
-        </p>
+        <p className="text-[13px] text-semantic-critical">Failed to load task details.</p>
       </div>
     );
   }
@@ -210,12 +264,17 @@ function DetailPane({ id }: { id: string }) {
       {/* Header */}
       <div>
         <div className="flex items-start gap-2 flex-wrap">
-          <h2 className="text-[16px] font-bold text-neutral-text-primary break-all">{data.task_name}</h2>
+          <h2 className="text-[16px] font-bold text-neutral-text-primary break-all">
+            {data.task_name}
+          </h2>
           <StatusPill status={data.status} />
         </div>
-        <p className="mt-1 tppm-mono text-[11px] text-neutral-text-secondary break-all">{data.task_id}</p>
+        <p className="mt-1 tppm-mono text-[11px] text-neutral-text-secondary break-all">
+          {data.task_id}
+        </p>
         <p className="mt-0.5 text-[11px] text-neutral-text-secondary">
-          first {new Date(data.first_failed_at).toLocaleString()} · last {new Date(data.last_failed_at).toLocaleString()}
+          first {new Date(data.first_failed_at).toLocaleString()} · last{' '}
+          {new Date(data.last_failed_at).toLocaleString()}
         </p>
       </div>
 
@@ -229,15 +288,21 @@ function DetailPane({ id }: { id: string }) {
         <div className="px-4 py-3 space-y-1.5">
           <div className="flex items-center gap-2 text-[13px]">
             <span className="text-neutral-text-secondary w-36 shrink-0">Failure count</span>
-            <span className="font-semibold tppm-mono text-neutral-text-primary">{data.failure_count}</span>
+            <span className="font-semibold tppm-mono text-neutral-text-primary">
+              {data.failure_count}
+            </span>
           </div>
           <div className="flex items-center gap-2 text-[13px]">
             <span className="text-neutral-text-secondary w-36 shrink-0">First failed</span>
-            <span className="text-neutral-text-primary">{new Date(data.first_failed_at).toLocaleString()}</span>
+            <span className="text-neutral-text-primary">
+              {new Date(data.first_failed_at).toLocaleString()}
+            </span>
           </div>
           <div className="flex items-center gap-2 text-[13px]">
             <span className="text-neutral-text-secondary w-36 shrink-0">Last failed</span>
-            <span className="text-neutral-text-primary">{new Date(data.last_failed_at).toLocaleString()}</span>
+            <span className="text-neutral-text-primary">
+              {new Date(data.last_failed_at).toLocaleString()}
+            </span>
           </div>
           <div className="flex items-center gap-2 text-[13px]">
             <span className="text-neutral-text-secondary w-36 shrink-0">Exception type</span>
@@ -257,11 +322,13 @@ function DetailPane({ id }: { id: string }) {
           </h3>
         </div>
         <div className="px-4 py-3 space-y-2">
-          <p className="text-[13px] font-semibold tppm-mono text-semantic-critical">{data.exception_type}</p>
+          <p className="text-[13px] font-semibold tppm-mono text-semantic-critical">
+            {data.exception_type}
+          </p>
           <p className="text-[12px] text-neutral-text-primary">{data.exception_message}</p>
           {data.traceback && (
             <details className="mt-2">
-              <summary className="cursor-pointer text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded">
+              <summary className="cursor-pointer text-[12px] text-brand-primary font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded">
                 Traceback
               </summary>
               <pre className="mt-2 p-3 rounded border border-neutral-border bg-neutral-surface-sunken text-[11px] font-mono text-neutral-text-secondary overflow-auto max-h-[40vh] whitespace-pre-wrap break-all">
@@ -294,7 +361,7 @@ function DetailPane({ id }: { id: string }) {
 // ---------------------------------------------------------------------------
 
 const SELECT_CLASS =
-  'h-7 pl-2.5 pr-7 rounded border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary bg-neutral-surface-raised appearance-none bg-no-repeat bg-[right_0.45rem_center]';
+  'h-7 pl-2.5 pr-7 rounded border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track bg-neutral-surface-raised appearance-none bg-no-repeat bg-[right_0.45rem_center]';
 
 const SELECT_STYLE = {
   backgroundImage:
@@ -330,21 +397,27 @@ export function DeadLetterInspectorPage() {
 
   const handleSelectTask = useCallback(
     (id: string) => {
-      setSearchParams((prev) => {
-        const next = new URLSearchParams(prev);
-        next.set('selected', id);
-        return next;
-      }, { replace: false });
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('selected', id);
+          return next;
+        },
+        { replace: false },
+      );
     },
     [setSearchParams],
   );
 
   const handleClearSelection = useCallback(() => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete('selected');
-      return next;
-    }, { replace: false });
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('selected');
+        return next;
+      },
+      { replace: false },
+    );
   }, [setSearchParams]);
 
   const statusSelectId = useId();
@@ -357,27 +430,28 @@ export function DeadLetterInspectorPage() {
     selectedRowRef.current?.scrollIntoView({ block: 'nearest' });
   }, [selectedId]);
 
-  // Narrow viewport: show detail full-width when a task is selected.
-  const showDetailOnly = selectedId !== null && typeof window !== 'undefined' && window.innerWidth < 768;
-
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Breadcrumb */}
       <div className="px-6 pt-4 pb-2 flex items-center gap-1.5 shrink-0">
         <Link
           to="/settings/health"
-          className="inline-flex items-center gap-1 text-[13px] text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+          className="inline-flex items-center gap-1 text-[13px] text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded"
         >
           <ChevronLeftIcon />
           System health
         </Link>
         <span className="text-neutral-text-disabled text-[13px]">/</span>
-        <span className="text-[13px] text-neutral-text-primary font-medium">Dead-letter inspector</span>
+        <span className="text-[13px] text-neutral-text-primary font-medium">
+          Dead-letter inspector
+        </span>
       </div>
 
       {/* Filter row */}
       <div className="px-6 py-2.5 flex items-center gap-2 border-b border-neutral-border/55 flex-wrap shrink-0">
-        <label htmlFor={statusSelectId} className="sr-only">Filter by status</label>
+        <label htmlFor={statusSelectId} className="sr-only">
+          Filter by status
+        </label>
         <select
           id={statusSelectId}
           value={statusFilter}
@@ -392,9 +466,18 @@ export function DeadLetterInspectorPage() {
           <option value="retried">Retried</option>
         </select>
 
-        <label htmlFor={taskNameInputId} className="sr-only">Search by task name</label>
-        <div className="flex items-center gap-2 h-7 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] w-[220px] focus-within:ring-2 focus-within:ring-brand-primary focus-within:border-brand-primary">
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="text-neutral-text-disabled shrink-0">
+        <label htmlFor={taskNameInputId} className="sr-only">
+          Search by task name
+        </label>
+        <div className="flex items-center gap-2 h-7 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] w-[220px] focus-within:ring-2 focus-within:ring-brand-primary dark:focus-within:ring-semantic-on-track focus-within:border-brand-primary">
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+            className="text-neutral-text-disabled shrink-0"
+          >
             <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5" />
             <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
@@ -408,7 +491,9 @@ export function DeadLetterInspectorPage() {
           />
         </div>
 
-        <label htmlFor={timeWindowSelectId} className="sr-only">Filter by time window</label>
+        <label htmlFor={timeWindowSelectId} className="sr-only">
+          Filter by time window
+        </label>
         <select
           id={timeWindowSelectId}
           value={timeWindow}
@@ -431,31 +516,34 @@ export function DeadLetterInspectorPage() {
 
       {/* Split-view body */}
       <div className="flex flex-1 min-h-0">
-        {/* Left list */}
-        {(!showDetailOnly) && (
-          <div className="w-full md:w-[380px] md:shrink-0 flex flex-col border-r border-neutral-border overflow-hidden">
-            <div className="flex-1 overflow-y-auto">
-              {isLoading && <ListSkeleton />}
+        {/* Left list — on < md it's hidden once a task is selected (CSS, not JS width). */}
+        <div
+          className={`${selectedId ? 'hidden md:flex' : 'flex'} w-full md:w-[380px] md:shrink-0 flex-col border-r border-neutral-border overflow-hidden`}
+        >
+          <div className="flex-1 overflow-y-auto">
+            {isLoading && <ListSkeleton />}
 
-              {!isLoading && error !== null && (
-                <div className="px-4 py-6 text-center">
-                  <p className="text-[13px] text-semantic-critical">Failed to load tasks.</p>
-                </div>
-              )}
+            {!isLoading && error !== null && (
+              <div className="px-4 py-6 text-center">
+                <p className="text-[13px] text-semantic-critical">Failed to load tasks.</p>
+              </div>
+            )}
 
-              {!isLoading && !error && tasks.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-12 gap-3 px-4 text-center">
-                  <CheckCircleIcon />
-                  <p className="text-[13px] font-medium text-neutral-text-primary">
-                    No dead-lettered tasks
-                  </p>
-                  <p className="text-[12px] text-neutral-text-secondary">
-                    Background processing is clean.
-                  </p>
-                </div>
-              )}
+            {!isLoading && !error && tasks.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-12 gap-3 px-4 text-center">
+                <CheckCircleIcon />
+                <p className="text-[13px] font-medium text-neutral-text-primary">
+                  No dead-lettered tasks
+                </p>
+                <p className="text-[12px] text-neutral-text-secondary">
+                  Background processing is clean.
+                </p>
+              </div>
+            )}
 
-              {!isLoading && !error && tasks.map((task) => (
+            {!isLoading &&
+              !error &&
+              tasks.map((task) => (
                 <div key={task.id} ref={task.id === selectedId ? selectedRowRef : undefined}>
                   <TaskListRow
                     task={task}
@@ -464,22 +552,18 @@ export function DeadLetterInspectorPage() {
                   />
                 </div>
               ))}
-            </div>
           </div>
-        )}
+        </div>
 
-        {/* Right detail */}
-        <div className={[
-          'flex flex-1 min-w-0',
-          showDetailOnly ? 'flex-col' : '',
-        ].join(' ')}>
+        {/* Right detail — hidden on < md until a task is selected. */}
+        <div className={`${selectedId ? 'flex' : 'hidden md:flex'} flex-1 min-w-0 flex-col`}>
           {/* On mobile, show a back button when detail is open */}
-          {showDetailOnly && selectedId && (
-            <div className="px-4 pt-3 pb-2 shrink-0 border-b border-neutral-border/55">
+          {selectedId && (
+            <div className="md:hidden px-4 pt-3 pb-2 shrink-0 border-b border-neutral-border/55">
               <button
                 type="button"
                 onClick={handleClearSelection}
-                className="inline-flex items-center gap-1 text-[13px] text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded"
+                className="inline-flex items-center gap-1 text-[13px] text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded"
               >
                 <ChevronLeftIcon />
                 Back to list
