@@ -8,7 +8,7 @@ import trueppm_api.apps.projects.models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0047_apitokenauditentry_program_and_more"),
+        ("projects", "0050_backlog_item_trgm_search"),
     ]
 
     operations = [
