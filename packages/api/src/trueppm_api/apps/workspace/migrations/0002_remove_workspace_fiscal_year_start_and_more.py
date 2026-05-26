@@ -10,6 +10,7 @@ read, so the migration never aborts on a hand-edited value.
 """
 
 import logging
+from typing import Any
 
 import django.core.validators
 from django.db import migrations, models
@@ -100,7 +101,7 @@ def _parse_fiscal_text(raw: str) -> tuple[int, int]:
     return (month, day)
 
 
-def _forward(apps, schema_editor):
+def _forward(apps: Any, schema_editor: Any) -> None:
     Workspace = apps.get_model("workspace", "Workspace")
     for ws in Workspace.objects.all():
         month, day = _parse_fiscal_text(ws.fiscal_year_start or "")
@@ -109,7 +110,7 @@ def _forward(apps, schema_editor):
         ws.save(update_fields=["fiscal_year_start_month", "fiscal_year_start_day"])
 
 
-def _reverse(apps, schema_editor):
+def _reverse(apps: Any, schema_editor: Any) -> None:
     """Reconstruct the free-text label from the structured pair."""
     names = (
         "",
