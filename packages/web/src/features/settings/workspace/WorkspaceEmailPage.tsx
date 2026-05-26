@@ -1,9 +1,10 @@
 /**
  * Workspace → Settings → Email & SMTP — read-only status (#639, ADR-0084 §5).
  *
- * How TruePPM sends outbound mail. The transport is configured via environment
- * / Helm (no in-app credentials); this page confirms the From identity and that
- * a host is configured. Writable SMTP configuration is a follow-up (#712).
+ * How TruePPM sends outbound mail. This page confirms the From identity and
+ * whether a host is configured. Binding the EMAIL_* transport settings to env
+ * vars / Helm values is not yet wired (#764); a writable in-app SMTP
+ * configuration surface is a separate follow-up (#712).
  */
 
 import type { ReactNode } from 'react';
@@ -17,7 +18,7 @@ export function WorkspaceEmailPage() {
     <div>
       <SettingsPageTitle
         title="Email & SMTP"
-        subtitle="How TruePPM sends outbound mail. Configured via your environment / Helm values."
+        subtitle="How TruePPM sends outbound mail. Transport is configured server-side and read-only here."
       />
 
       <div className="px-6 py-5 space-y-6 max-w-2xl">
@@ -85,17 +86,16 @@ export function WorkspaceEmailPage() {
             <SettingsCard className="bg-neutral-surface-sunken">
               <div className="px-4 py-3.5">
                 <p className="text-[13px] text-neutral-text-secondary">
-                  Email transport is configured via environment variables / Helm values
-                  (<span className="tppm-mono">EMAIL_HOST</span>,{' '}
-                  <span className="tppm-mono">DEFAULT_FROM_EMAIL</span>, …) and is read-only here.
-                  See the{' '}
+                  Email transport is read-only here. Binding the{' '}
+                  <span className="tppm-mono">EMAIL_*</span> settings to environment
+                  variables / Helm values is not yet wired — see the{' '}
                   <a
                     href="/docs/administration/email"
                     className="text-brand-primary underline-offset-2 hover:underline"
                   >
                     email administration guide
                   </a>{' '}
-                  to change it.
+                  for the current setup.
                 </p>
               </div>
             </SettingsCard>
