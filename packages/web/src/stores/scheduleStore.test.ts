@@ -3,7 +3,8 @@ import { useScheduleStore } from './scheduleStore';
 
 describe('useScheduleStore', () => {
   beforeEach(() => {
-    useScheduleStore.setState({ zoomLevel: 'week', selectedTaskId: null });
+    localStorage.removeItem('schedule.quarterMode');
+    useScheduleStore.setState({ zoomLevel: 'week', selectedTaskId: null, quarterMode: 'fiscal' });
   });
 
   it('starts with week zoom and no selection', () => {
@@ -36,5 +37,17 @@ describe('useScheduleStore', () => {
     useScheduleStore.setState({ scrollToTaskId: 't2' });
     useScheduleStore.getState().scrollToTask(null);
     expect(useScheduleStore.getState().scrollToTaskId).toBeNull();
+  });
+
+  it('defaults quarterMode to fiscal', () => {
+    expect(useScheduleStore.getState().quarterMode).toBe('fiscal');
+  });
+
+  it('setQuarterMode updates state and persists to localStorage (#755)', () => {
+    useScheduleStore.getState().setQuarterMode('calendar');
+    expect(useScheduleStore.getState().quarterMode).toBe('calendar');
+    expect(localStorage.getItem('schedule.quarterMode')).toBe('calendar');
+    useScheduleStore.getState().setQuarterMode('fiscal');
+    expect(localStorage.getItem('schedule.quarterMode')).toBe('fiscal');
   });
 });

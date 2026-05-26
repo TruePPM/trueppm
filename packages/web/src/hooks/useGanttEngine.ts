@@ -11,8 +11,8 @@
  */
 
 import { useState, useEffect, type RefObject } from 'react';
-import type { GanttEngine, ZoomLevel } from '@/features/schedule/engine';
-import { GanttEngineImpl } from '@/features/schedule/engine';
+import type { FiscalConfig, GanttEngine, ZoomLevel } from '@/features/schedule/engine';
+import { CALENDAR_QUARTERS, GanttEngineImpl } from '@/features/schedule/engine';
 
 export function useGanttEngine(
   containerRef: RefObject<HTMLDivElement | null>,
@@ -21,6 +21,7 @@ export function useGanttEngine(
   ixCanvasRef: RefObject<HTMLCanvasElement | null>,
   zoomLevel: ZoomLevel,
   isDark = false,
+  fiscalConfig: FiscalConfig = CALENDAR_QUARTERS,
 ): GanttEngine | null {
   const [engine, setEngine] = useState<GanttEngine | null>(null);
 
@@ -72,6 +73,13 @@ export function useGanttEngine(
     if (!engine) return;
     engine.setDark(isDark);
   }, [engine, isDark]);
+
+  // Respond to fiscal quarter-mode changes (#755). The caller memoizes
+  // `fiscalConfig` so this only fires when startMonth or mode actually changes.
+  useEffect(() => {
+    if (!engine) return;
+    engine.setFiscalConfig(fiscalConfig);
+  }, [engine, fiscalConfig]);
 
   return engine;
 }
