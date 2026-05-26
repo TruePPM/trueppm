@@ -83,8 +83,10 @@ permanently-failed Celery tasks (the `FailedTask` records that back
   - **Last error** — exception type, message, and the full traceback (collapsible).
   - **Payload** — the pretty-printed task `args` and `kwargs`.
 
-This surface is **read-only** in the current release. Requeue and drop actions (which
-mutate the workflow backend) are a planned follow-up.
+The inspector **UI** is read-only — retry and dismiss buttons in the console are a
+planned follow-up. The actions themselves are available today via the API (below):
+`retry` re-enqueues the original task with its stored args/kwargs, and `dismiss`
+acknowledges a dead-lettered task without retrying it.
 
 ## API
 
@@ -96,6 +98,10 @@ The console is API-first; both surfaces are admin-only (`IsAdminUser`):
   `?status=`, `?task_name=`, `?failed_after=`, and `?failed_before=`.
 - `GET /api/v1/admin/failed-tasks/{id}/` — a single failed-task record, including its
   payload and traceback.
+- `POST /api/v1/admin/failed-tasks/{id}/retry/` — re-enqueue the original task with its
+  stored args/kwargs.
+- `POST /api/v1/admin/failed-tasks/{id}/dismiss/` — mark a dead-lettered task as
+  dismissed (acknowledged, no retry).
 
 See the API reference for full schemas.
 

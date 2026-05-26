@@ -41,8 +41,7 @@ following Monday. Add a holiday exception in that span and the finish slides ano
 
 ## Managing calendars
 
-Calendars are managed from the calendar grid in settings — a visual day-of-week selector
-with a date-range picker for exceptions. Via the API:
+Calendars are managed via the REST API (a visual settings editor is planned):
 
 | Method & path | Purpose |
 |---|---|

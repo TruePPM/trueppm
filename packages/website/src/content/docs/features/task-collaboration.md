@@ -150,7 +150,7 @@ notification read on the way.
 `/me/settings/notifications/` exposes the per-`(event_type, channel)`
 preference matrix. On desktop it renders as a `<table>` — one row per event,
 one column per channel. On mobile each event becomes its own card with
-channel sub-rows. The four 0.2 toggles are:
+channel sub-rows. The two 0.2 mention events — each with an in-app and an email toggle — are:
 
 | Event | In-app | Email |
 |---|---|---|
