@@ -11,7 +11,9 @@ interface WorkspaceSettingsRaw {
   name: string;
   subdomain: string;
   timezone: string;
-  fiscal_year_start: string;
+  fiscal_year_start_month: number;
+  fiscal_year_start_day: number;
+  fiscal_year_start_display: string;
   work_week: boolean[];
   default_project_view: string;
   allow_guests: boolean;
@@ -24,7 +26,9 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     name: raw.name,
     subdomain: raw.subdomain,
     timezone: raw.timezone,
-    fiscalYearStart: raw.fiscal_year_start,
+    fiscalYearStartMonth: raw.fiscal_year_start_month,
+    fiscalYearStartDay: raw.fiscal_year_start_day,
+    fiscalYearStartDisplay: raw.fiscal_year_start_display,
     workWeek: raw.work_week,
     defaultProjectView: raw.default_project_view,
     allowGuests: raw.allow_guests,

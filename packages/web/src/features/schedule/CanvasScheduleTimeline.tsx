@@ -14,11 +14,13 @@
  * - Rule 67: ScheduleAriaOverlay mandatory; canvas elements aria-hidden
  */
 
-import { useRef, useEffect, type CSSProperties, type RefObject } from 'react';
+import { useRef, useEffect, useMemo, type CSSProperties, type RefObject } from 'react';
 import type { Task, TaskLink } from '@/types';
 import type { GanttEngine, ZoomLevel } from './engine';
 import { useGanttEngine } from '@/hooks/useGanttEngine';
 import { useIsDark } from '@/hooks/useIsDark';
+import { useFiscalYearStartMonth } from '@/hooks/useFiscalYearStartMonth';
+import { useScheduleStore } from '@/stores/scheduleStore';
 import { ScheduleAriaOverlay } from './ScheduleAriaOverlay';
 
 interface CanvasScheduleTimelineProps {
@@ -41,6 +43,13 @@ export function CanvasScheduleTimeline({
   const ixCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const isDark = useIsDark();
+  const fiscalStartMonth = useFiscalYearStartMonth();
+  const quarterMode = useScheduleStore((s) => s.quarterMode);
+  // Memoized so the engine's setFiscalConfig effect only fires on real changes.
+  const fiscalConfig = useMemo(
+    () => ({ startMonth: fiscalStartMonth, mode: quarterMode }),
+    [fiscalStartMonth, quarterMode],
+  );
 
   const engine = useGanttEngine(
     containerRef,
@@ -49,6 +58,7 @@ export function CanvasScheduleTimeline({
     ixCanvasRef,
     zoomLevel,
     isDark,
+    fiscalConfig,
   );
 
   // Feed tasks to engine (rule 55: setTasks/setLinks are not subscriptions)

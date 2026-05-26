@@ -15,7 +15,9 @@ import { formatToggleAnnouncement } from './wbsAnnouncement';
 import { TaskListPanel, type TaskDepChips } from './TaskListPanel';
 import { CanvasScheduleTimeline } from './CanvasScheduleTimeline';
 import { ZoomControl } from './ZoomControl';
+import { QuarterModeControl } from './QuarterModeControl';
 import { ScheduleToolbarToggle } from './ScheduleToolbarToggle';
+import { useFiscalYearStartMonth } from '@/hooks/useFiscalYearStartMonth';
 import { ScheduleSummaryChip } from './ScheduleSummaryChip';
 import { ScheduleAddMilestoneButton } from './ScheduleAddMilestoneButton';
 import { MilestonePulseOverlay } from './MilestonePulseOverlay';
@@ -342,6 +344,9 @@ export function ScheduleView() {
   const zoomLevel         = useScheduleStore((s) => s.zoomLevel);
   const selectedTaskId    = useScheduleStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
+  const quarterMode       = useScheduleStore((s) => s.quarterMode);
+  const setQuarterMode    = useScheduleStore((s) => s.setQuarterMode);
+  const fiscalStartMonth  = useFiscalYearStartMonth();
   const selectedTask      = selectedTaskId
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
     : null;
@@ -1040,10 +1045,26 @@ export function ScheduleView() {
           Today
         </button>
         <ZoomControl />
+        {/* Fiscal/calendar quarter toggle (#755) — inline next to zoom at md+,
+            folded into the overflow menu at sm. Self-hides off quarter/year
+            zoom and when the workspace fiscal year starts in January. */}
+        {toolbarShowSecondaryInline && <QuarterModeControl />}
         {breakpoint === 'sm' && (
           <ToolbarOverflowMenu
             triggerAriaLabel="Schedule overflow menu"
             items={[
+              ...((zoomLevel === 'quarter' || zoomLevel === 'year') && fiscalStartMonth !== 1
+                ? [
+                    {
+                      kind: 'checkbox' as const,
+                      id: 'fiscal-quarters',
+                      label: 'Fiscal quarters',
+                      checked: quarterMode === 'fiscal',
+                      onChange: (next: boolean) =>
+                        setQuarterMode(next ? 'fiscal' : 'calendar'),
+                    },
+                  ]
+                : []),
               {
                 kind: 'checkbox',
                 id: 'cp-only',

@@ -67,6 +67,78 @@ function quarterLabel(date: Date): string {
   return `Q${q} ${FMT_QUARTER_YEAR.format(date)}`;
 }
 
+// ---------------------------------------------------------------------------
+// Fiscal quarters (#755)
+// ---------------------------------------------------------------------------
+
+/**
+ * How the timeline labels quarters and years.
+ *
+ * - `calendar` — Q1 = Jan–Mar, year = calendar year (the historical behaviour).
+ * - `fiscal` — quarters and years follow the workspace `fiscal_year_start`
+ *   month, so a workspace whose fiscal year starts in April shows Q1 = Apr–Jun.
+ */
+export type QuarterMode = 'fiscal' | 'calendar';
+
+/** Quarter-tier config threaded into the header renderer. `startMonth` is 1–12. */
+export interface FiscalConfig {
+  readonly startMonth: number;
+  readonly mode: QuarterMode;
+}
+
+/** Default = plain calendar quarters; the engine swaps it via `setFiscalConfig`. */
+export const CALENDAR_QUARTERS: FiscalConfig = { startMonth: 1, mode: 'calendar' };
+
+/**
+ * Resolve the fiscal quarter (1–4) and fiscal-year *label number* for a date,
+ * given the fiscal-year start month (1–12).
+ *
+ * Fiscal years are labelled by the calendar year in which they **end** (the
+ * common US/UK convention): a fiscal year that starts in April 2026 runs to
+ * March 2027 and is "FY27". A January start is just the calendar year (it
+ * begins and ends in the same one).
+ */
+export function fiscalQuarter(
+  date: Date,
+  startMonth: number,
+): { quarter: number; fiscalYear: number } {
+  const month0 = date.getUTCMonth();
+  const startMonth0 = startMonth - 1;
+  const monthsSinceStart = (month0 - startMonth0 + 12) % 12;
+  const quarter = Math.floor(monthsSinceStart / 3) + 1;
+  const fyStartYear = month0 >= startMonth0 ? date.getUTCFullYear() : date.getUTCFullYear() - 1;
+  const fiscalYear = startMonth0 === 0 ? fyStartYear : fyStartYear + 1;
+  return { quarter, fiscalYear };
+}
+
+/** Two-digit fiscal-year suffix, e.g. 2027 → "27", 2007 → "07". */
+function fyy(fiscalYear: number): string {
+  return String(((fiscalYear % 100) + 100) % 100).padStart(2, '0');
+}
+
+/** Minor-row quarter label in fiscal mode, e.g. "Q1 FY27". */
+export function fiscalQuarterLabel(date: Date, startMonth: number): string {
+  const { quarter, fiscalYear } = fiscalQuarter(date, startMonth);
+  return `Q${quarter} FY${fyy(fiscalYear)}`;
+}
+
+/** Major/minor-row year label in fiscal mode, e.g. "FY27". */
+export function fiscalYearLabel(date: Date, startMonth: number): string {
+  const { fiscalYear } = fiscalQuarter(date, startMonth);
+  return `FY${fyy(fiscalYear)}`;
+}
+
+/** Stable grouping key for a fiscal quarter cell (boundary detection). */
+export function fiscalQuarterKey(date: Date, startMonth: number): string {
+  const { quarter, fiscalYear } = fiscalQuarter(date, startMonth);
+  return `FY${fiscalYear}-Q${quarter}`;
+}
+
+/** Stable grouping key for a fiscal year cell (boundary detection). */
+export function fiscalYearKey(date: Date, startMonth: number): string {
+  return `FY${fiscalQuarter(date, startMonth).fiscalYear}`;
+}
+
 function weekLabel(date: Date): string {
   // ISO week number: days since nearest Thursday's week
   const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));

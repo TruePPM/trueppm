@@ -25,6 +25,7 @@ import uuid
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 
@@ -32,6 +33,26 @@ from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.projects.models import VersionedModel
 
 INVITE_TTL_DAYS = 7  # ADR-0087 §4 — invite token validity window
+
+# English month names, indexed 1–12, for the fiscal-year display label (#756).
+# Hard-coded rather than derived from ``calendar``/``strftime`` because those are
+# locale-sensitive and the workspace anchor must read identically regardless of
+# the server's LC_TIME (UI copy is US-English per project convention).
+_MONTH_NAMES = (
+    "",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+)
 
 
 class WorkspaceRole(models.IntegerChoices):
@@ -93,9 +114,20 @@ class Workspace(models.Model):
     # exists so a future hosted edition can populate it without a schema change.
     subdomain = models.CharField(max_length=63, blank=True, default="")
     timezone = models.CharField(max_length=64, default="UTC")
-    # Free-text fiscal-year anchor, e.g. "January 1" / "April 1" — matches the
-    # settings UI which presents it as a label, not a structured date.
-    fiscal_year_start = models.CharField(max_length=32, default="January 1")
+    # Structured fiscal-year anchor (#756): month (1–12) + day (1–31), replacing
+    # the former free-text ``fiscal_year_start`` CharField. Year-agnostic — a
+    # workspace whose FY starts April 1 stores (4, 1). Drives quarter labels and
+    # boundaries across the workspace, including the Schedule timeline (#755).
+    # Day-vs-month validity (no Feb 30) is enforced in the settings serializer,
+    # which is the only write path; the model carries the coarse range validators.
+    fiscal_year_start_month = models.PositiveSmallIntegerField(
+        default=1,
+        validators=[MinValueValidator(1), MaxValueValidator(12)],
+    )
+    fiscal_year_start_day = models.PositiveSmallIntegerField(
+        default=1,
+        validators=[MinValueValidator(1), MaxValueValidator(31)],
+    )
     work_week = ArrayField(models.BooleanField(), size=7, default=_default_work_week)
     default_project_view = models.CharField(max_length=32, default="board")
     allow_guests = models.BooleanField(default=True)
@@ -115,6 +147,15 @@ class Workspace(models.Model):
         """Return the singleton, creating it on first access."""
         obj, _ = cls.objects.get_or_create(singleton_key=1)
         return obj
+
+    @property
+    def fiscal_year_start_display(self) -> str:
+        """Human label for the fiscal-year anchor, e.g. ``"April 6"`` (#756).
+
+        Read-only convenience exposed on the settings serializer for back-compat
+        with any reader that previously consumed the free-text ``fiscal_year_start``.
+        """
+        return f"{_MONTH_NAMES[self.fiscal_year_start_month]} {self.fiscal_year_start_day}"
 
 
 class WorkspaceMembership(VersionedModel):

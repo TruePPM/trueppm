@@ -18304,7 +18304,7 @@
             },
             "PatchedWorkspaceSettingsRequest": {
                 "type": "object",
-                "description": "GET/PATCH /api/v1/workspace/. ``subdomain`` is read-only (#517).",
+                "description": "GET/PATCH /api/v1/workspace/. ``subdomain`` is read-only (#517).\n\nThe fiscal-year anchor is a structured ``(month, day)`` pair (#756). The\nfree-text ``fiscal_year_start`` it replaced is no longer accepted;\n``fiscal_year_start_display`` is a read-only convenience label.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -18316,10 +18316,15 @@
                         "minLength": 1,
                         "maxLength": 64
                     },
-                    "fiscal_year_start": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": 32
+                    "fiscal_year_start_month": {
+                        "type": "integer",
+                        "maximum": 12,
+                        "minimum": 1
+                    },
+                    "fiscal_year_start_day": {
+                        "type": "integer",
+                        "maximum": 31,
+                        "minimum": 1
                     },
                     "work_week": {
                         "type": "array",
@@ -21922,7 +21927,7 @@
             },
             "WorkspaceSettings": {
                 "type": "object",
-                "description": "GET/PATCH /api/v1/workspace/. ``subdomain`` is read-only (#517).",
+                "description": "GET/PATCH /api/v1/workspace/. ``subdomain`` is read-only (#517).\n\nThe fiscal-year anchor is a structured ``(month, day)`` pair (#756). The\nfree-text ``fiscal_year_start`` it replaced is no longer accepted;\n``fiscal_year_start_display`` is a read-only convenience label.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -21936,9 +21941,19 @@
                         "type": "string",
                         "maxLength": 64
                     },
-                    "fiscal_year_start": {
+                    "fiscal_year_start_month": {
+                        "type": "integer",
+                        "maximum": 12,
+                        "minimum": 1
+                    },
+                    "fiscal_year_start_day": {
+                        "type": "integer",
+                        "maximum": 31,
+                        "minimum": 1
+                    },
+                    "fiscal_year_start_display": {
                         "type": "string",
-                        "maxLength": 32
+                        "readOnly": true
                     },
                     "work_week": {
                         "type": "array",
@@ -21959,6 +21974,7 @@
                     }
                 },
                 "required": [
+                    "fiscal_year_start_display",
                     "subdomain"
                 ]
             },

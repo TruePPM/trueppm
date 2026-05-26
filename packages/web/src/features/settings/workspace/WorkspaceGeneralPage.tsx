@@ -3,6 +3,7 @@ import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings';
 import { useDirtyForm } from '../hooks/useDirtyForm';
+import { FiscalYearStartField } from '../components/FiscalYearStartField';
 
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
@@ -22,21 +23,6 @@ const TIMEZONE_OPTIONS = [
   'Asia/Kolkata',
   'Australia/Sydney',
   'UTC',
-];
-
-const FISCAL_YEAR_OPTIONS = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
 ];
 
 const DEFAULT_VIEW_OPTIONS = [
@@ -60,13 +46,13 @@ export function WorkspaceGeneralPage() {
   const { data: ws, isLoading } = useWorkspaceSettings();
   const updateSettings = useUpdateWorkspaceSettings();
   const timezoneId = useId();
-  const fiscalId = useId();
   const defaultViewId = useId();
 
   // Page-local form state — initialised from the loaded settings.
   const [name, setName] = useState('');
   const [timezone, setTimezone] = useState('');
-  const [fiscalYearStart, setFiscalYearStart] = useState('');
+  const [fiscalMonth, setFiscalMonth] = useState(1);
+  const [fiscalDay, setFiscalDay] = useState(1);
   const [defaultProjectView, setDefaultProjectView] = useState('');
   const [workWeek, setWorkWeek] = useState<boolean[]>([true, true, true, true, true, false, false]);
   const [allowGuests, setAllowGuests] = useState(false);
@@ -77,7 +63,8 @@ export function WorkspaceGeneralPage() {
   const [initial, setInitial] = useState({
     name: '',
     timezone: '',
-    fiscalYearStart: '',
+    fiscalMonth: 1,
+    fiscalDay: 1,
     defaultProjectView: '',
     workWeek: [true, true, true, true, true, false, false] as boolean[],
     allowGuests: false,
@@ -90,7 +77,8 @@ export function WorkspaceGeneralPage() {
     const snap = {
       name: ws.name,
       timezone: ws.timezone,
-      fiscalYearStart: ws.fiscalYearStart,
+      fiscalMonth: ws.fiscalYearStartMonth,
+      fiscalDay: ws.fiscalYearStartDay,
       defaultProjectView: ws.defaultProjectView,
       workWeek: ws.workWeek,
       allowGuests: ws.allowGuests,
@@ -98,7 +86,8 @@ export function WorkspaceGeneralPage() {
     };
     setName(snap.name);
     setTimezone(snap.timezone);
-    setFiscalYearStart(snap.fiscalYearStart);
+    setFiscalMonth(snap.fiscalMonth);
+    setFiscalDay(snap.fiscalDay);
     setDefaultProjectView(snap.defaultProjectView);
     setWorkWeek(snap.workWeek);
     setAllowGuests(snap.allowGuests);
@@ -106,26 +95,56 @@ export function WorkspaceGeneralPage() {
     setInitial(snap);
   }, [ws]);
 
-  const values = { name, timezone, fiscalYearStart, defaultProjectView, workWeek, allowGuests, publicSharing };
+  const values = {
+    name,
+    timezone,
+    fiscalMonth,
+    fiscalDay,
+    defaultProjectView,
+    workWeek,
+    allowGuests,
+    publicSharing,
+  };
 
   const onSave = useCallback(async () => {
     await updateSettings.mutateAsync({
       name,
       timezone,
-      fiscalYearStart,
+      fiscalYearStartMonth: fiscalMonth,
+      fiscalYearStartDay: fiscalDay,
       defaultProjectView,
       workWeek,
       allowGuests,
       publicSharing,
     });
     // Bump the saved snapshot so dirty goes false immediately.
-    setInitial({ name, timezone, fiscalYearStart, defaultProjectView, workWeek, allowGuests, publicSharing });
-  }, [name, timezone, fiscalYearStart, defaultProjectView, workWeek, allowGuests, publicSharing, updateSettings]);
+    setInitial({
+      name,
+      timezone,
+      fiscalMonth,
+      fiscalDay,
+      defaultProjectView,
+      workWeek,
+      allowGuests,
+      publicSharing,
+    });
+  }, [
+    name,
+    timezone,
+    fiscalMonth,
+    fiscalDay,
+    defaultProjectView,
+    workWeek,
+    allowGuests,
+    publicSharing,
+    updateSettings,
+  ]);
 
   const onReset = useCallback(() => {
     setName(initial.name);
     setTimezone(initial.timezone);
-    setFiscalYearStart(initial.fiscalYearStart);
+    setFiscalMonth(initial.fiscalMonth);
+    setFiscalDay(initial.fiscalDay);
     setDefaultProjectView(initial.defaultProjectView);
     setWorkWeek(initial.workWeek);
     setAllowGuests(initial.allowGuests);
@@ -214,19 +233,18 @@ export function WorkspaceGeneralPage() {
           </select>
         </FieldRow>
 
-        <FieldRow label="Fiscal year starts" hint="Drives the rollup quarter labels and capacity periods.">
-          <label htmlFor={fiscalId} className="sr-only">Fiscal year starts</label>
-          <select
-            id={fiscalId}
-            value={fiscalYearStart}
-            onChange={(e) => setFiscalYearStart(e.target.value)}
-            className={`${SELECT_CLASS} w-[160px]`}
-            style={SELECT_STYLE}
-          >
-            {FISCAL_YEAR_OPTIONS.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
+        <FieldRow
+          label="Fiscal year starts"
+          hint="Controls how quarters are labeled across the workspace, including the Schedule timeline."
+        >
+          <FiscalYearStartField
+            month={fiscalMonth}
+            day={fiscalDay}
+            onChange={(m, d) => {
+              setFiscalMonth(m);
+              setFiscalDay(d);
+            }}
+          />
         </FieldRow>
 
         <FieldRow label="Work week" hint="Non-working days are skipped by the scheduler.">

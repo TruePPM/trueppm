@@ -232,8 +232,12 @@ export interface WorkspaceSettings {
   /** Read-only — set at workspace creation; never sent in PATCH. */
   subdomain: string;
   timezone: string;
-  /** Month name e.g. "January" */
-  fiscalYearStart: string;
+  /** Fiscal-year anchor month, 1 (January) – 12 (December). */
+  fiscalYearStartMonth: number;
+  /** Fiscal-year anchor day of month, 1 – 31 (validated against the month). */
+  fiscalYearStartDay: number;
+  /** Read-only human label derived from month/day, e.g. "April 6". */
+  fiscalYearStartDisplay: string;
   /** 7 booleans, Monday (index 0) through Sunday (index 6). */
   workWeek: boolean[];
   defaultProjectView: string;

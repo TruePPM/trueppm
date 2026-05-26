@@ -293,6 +293,38 @@ describe('drawTimelineHeader — sticky label (#96)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// drawTimelineHeader — fiscal quarter tiers (#755)
+// ---------------------------------------------------------------------------
+
+describe('drawTimelineHeader — fiscal quarters (#755)', () => {
+  // Quarter zoom across an April-fiscal-year boundary: Mar 2026 → Feb 2027.
+  const scales = buildScaleData('quarter', '2026-03-01', '2027-02-01');
+  const CANVAS_W = 1600;
+  const labelsFrom = (calls: Array<{ name: string; args: unknown[] }>) =>
+    calls.filter((c) => c.name === 'fillText').map((c) => c.args[0] as string);
+
+  it('renders calendar quarter labels by default', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTimelineHeader(ctx, scales, 0, CANVAS_W);
+    const labels = labelsFrom(calls);
+    expect(labels.some((l) => /^Q\d 2026$/.test(l))).toBe(true);
+    expect(labels.some((l) => l.includes('FY'))).toBe(false);
+  });
+
+  it('renders fiscal quarter + fiscal year labels in fiscal mode (April start)', () => {
+    const { ctx, calls } = makeCtxSpy();
+    drawTimelineHeader(ctx, scales, 0, CANVAS_W, { startMonth: 4, mode: 'fiscal' });
+    const labels = labelsFrom(calls);
+    // Minor row: fiscal quarter labels. Apr–Jun 2026 = Q1 FY27.
+    expect(labels).toContain('Q1 FY27');
+    // Major row: fiscal year label spanning the range.
+    expect(labels).toContain('FY27');
+    // No calendar "Q1 2026" form in fiscal mode.
+    expect(labels.some((l) => /^Q\d 20\d\d$/.test(l))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // drawTaskBar — wave 3 bar render (#212)
 // ---------------------------------------------------------------------------
 

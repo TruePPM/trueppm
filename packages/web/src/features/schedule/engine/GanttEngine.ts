@@ -12,7 +12,7 @@
  */
 
 import type { Task, TaskLink } from '@/types';
-import type { GanttScaleData, ZoomLevel } from './GanttScaleData';
+import type { FiscalConfig, GanttScaleData, ZoomLevel } from './GanttScaleData';
 
 /**
  * Hover chain payload pushed from React via `engine.setHoverChain` (#475).
@@ -248,6 +248,16 @@ export interface GanttEngine {
    * Triggers a full repaint automatically.
    */
   setDark(dark: boolean): void;
+
+  // ── Fiscal quarters ───────────────────────────────────────────────────────
+
+  /**
+   * Set how the quarter/year header tiers are labelled and bounded (#755).
+   * In `fiscal` mode the tiers follow `startMonth` (the workspace
+   * `fiscal_year_start` month, 1–12); in `calendar` mode they use Jan–Mar = Q1.
+   * Triggers a full repaint automatically — only the header is affected.
+   */
+  setFiscalConfig(config: FiscalConfig): void;
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 

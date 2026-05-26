@@ -70,6 +70,29 @@ The zoom control (rightmost, above the summary chip) cycles through: **Day · We
 
 The **Today** button scrolls the timeline so today's date lands at 25% from the left edge.
 
+## Fiscal quarters
+
+At **Quarter** (and Year) zoom the timeline header groups and labels quarters by
+your workspace fiscal year rather than the calendar. A workspace whose fiscal
+year starts in April shows Q1 = Apr–Jun, labeled `Q1 FY27` — fiscal years are
+named by the calendar year in which they end. The major (year) row shows the
+fiscal year (`FY27`) and quarter boundaries fall on fiscal, not calendar, edges.
+
+A **Quarters: Fiscal ▾** control appears next to the zoom buttons at quarter and
+year zoom. It is a per-user view preference (remembered in your browser), not a
+project or workspace setting:
+
+- **Fiscal** (default) — follows the workspace fiscal-year start.
+- **Calendar** — plain Jan–Mar = Q1, labeled `Q1 2026`.
+
+The control is hidden when the workspace fiscal year starts in January, because
+fiscal and calendar quarters are then identical. The fiscal-year start itself is
+set by a workspace admin under
+[Workspace → Settings → General](/administration/workspace-settings/#fiscal-year-start).
+
+On tablet widths the toggle folds into the toolbar overflow (⋯) menu as a
+**Fiscal quarters** checkbox.
+
 ## See also
 
 - [Schedule build mode](./schedule-build-mode) — keyboard-first plan authoring (opt-in flag)

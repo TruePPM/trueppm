@@ -17,7 +17,9 @@ const WORKSPACE = {
   name: 'TrueScope Aerospace',
   subdomain: 'truescope',
   timezone: 'America/Los_Angeles',
-  fiscal_year_start: 'April',
+  fiscal_year_start_month: 1,
+  fiscal_year_start_day: 1,
+  fiscal_year_start_display: 'January 1',
   work_week: [true, true, true, true, true, false, false],
   default_project_view: 'Board',
   allow_guests: true,
@@ -154,6 +156,67 @@ test.describe('Workspace General page', () => {
     if (await saveBar.isVisible()) {
       await saveBar.click();
     }
+  });
+
+  test('fiscal year — picking a preset chip dispatches the structured month/day', async ({ page }) => {
+    await setup(page);
+    let patchBody: Record<string, unknown> | undefined;
+    await page.route('**/api/v1/workspace/', (r) => {
+      if (r.request().method() === 'PATCH') {
+        patchBody = r.request().postDataJSON();
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: pj({ ...WORKSPACE, fiscal_year_start_month: 4, fiscal_year_start_display: 'April 1' }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) });
+    });
+
+    await page.goto('/settings/general');
+
+    // Loaded value is January 1 — that chip is pressed.
+    await expect(page.getByRole('button', { name: 'Jan 1' })).toHaveAttribute('aria-pressed', 'true');
+
+    // Switch to the April-1 preset, then save via the shell save bar.
+    await page.getByRole('button', { name: 'Apr 1' }).click();
+    await expect(page.getByRole('button', { name: 'Apr 1' })).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: /save/i }).click();
+
+    await expect.poll(() => patchBody).toMatchObject({
+      fiscal_year_start_month: 4,
+      fiscal_year_start_day: 1,
+    });
+  });
+
+  test('fiscal year — Custom picker sends an oddball month/day (April 6)', async ({ page }) => {
+    await setup(page);
+    let patchBody: Record<string, unknown> | undefined;
+    await page.route('**/api/v1/workspace/', (r) => {
+      if (r.request().method() === 'PATCH') {
+        patchBody = r.request().postDataJSON();
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: pj({ ...WORKSPACE, fiscal_year_start_month: 4, fiscal_year_start_day: 6, fiscal_year_start_display: 'April 6' }),
+        });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) });
+    });
+
+    await page.goto('/settings/general');
+
+    await page.getByRole('button', { name: 'Custom…' }).click();
+    await page.getByLabel('Fiscal year start month').selectOption('4');
+    await page.getByLabel('Fiscal year start day').selectOption('6');
+    // No preset matches April 6, so the Custom chip stays pressed.
+    await expect(page.getByRole('button', { name: 'Custom…' })).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: /save/i }).click();
+
+    await expect.poll(() => patchBody).toMatchObject({
+      fiscal_year_start_month: 4,
+      fiscal_year_start_day: 6,
+    });
   });
 
   test('error state — shows loading skeleton when workspace fetch is slow', async ({ page }) => {
