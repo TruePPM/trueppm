@@ -15,11 +15,28 @@ from rest_framework import serializers
 
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.workspace.models import (
+    _MONTH_NAMES,
     Group,
     MemberStatus,
     Workspace,
     WorkspaceRole,
 )
+
+
+def _max_fiscal_day(month: int) -> int:
+    """Largest valid day-of-month for a *year-agnostic* fiscal anchor (#756).
+
+    February is capped at 28 (not 29): the anchor stores no year, so a Feb 29
+    start would be invalid in three years out of four. 30-day months reject 31.
+    This keeps ``(month, day)`` valid in every calendar year, which is what the
+    quarter-boundary math downstream assumes.
+    """
+    if month == 2:
+        return 28
+    if month in (4, 6, 9, 11):
+        return 30
+    return 31
+
 
 # Deterministic avatar palette — index by a stable hash of the user id so a
 # given user always renders the same dot color across sessions and clients.
@@ -61,7 +78,16 @@ def color_for(user_id: Any) -> str:
 
 
 class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
-    """GET/PATCH /api/v1/workspace/. ``subdomain`` is read-only (#517)."""
+    """GET/PATCH /api/v1/workspace/. ``subdomain`` is read-only (#517).
+
+    The fiscal-year anchor is a structured ``(month, day)`` pair (#756). The
+    free-text ``fiscal_year_start`` it replaced is no longer accepted;
+    ``fiscal_year_start_display`` is a read-only convenience label.
+    """
+
+    # Read-only mirror of the ``Workspace.fiscal_year_start_display`` property —
+    # ModelSerializer does not surface plain model properties automatically.
+    fiscal_year_start_display = serializers.CharField(read_only=True)
 
     class Meta:
         model = Workspace
@@ -69,18 +95,46 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             "name",
             "subdomain",
             "timezone",
-            "fiscal_year_start",
+            "fiscal_year_start_month",
+            "fiscal_year_start_day",
+            "fiscal_year_start_display",
             "work_week",
             "default_project_view",
             "allow_guests",
             "public_sharing",
         ]
-        read_only_fields = ["subdomain"]
+        read_only_fields = ["subdomain", "fiscal_year_start_display"]
 
     def validate_work_week(self, value: list[bool]) -> list[bool]:
         if len(value) != 7:
             raise serializers.ValidationError("work_week must have exactly 7 entries (Mon-Sun).")
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Reject a fiscal day that cannot exist in the chosen month (#756).
+
+        PATCH may send only one of the pair, so fall back to the instance's
+        current value for whichever field is absent before checking the matrix.
+        """
+        month = attrs.get(
+            "fiscal_year_start_month",
+            getattr(self.instance, "fiscal_year_start_month", 1),
+        )
+        day = attrs.get(
+            "fiscal_year_start_day",
+            getattr(self.instance, "fiscal_year_start_day", 1),
+        )
+        max_day = _max_fiscal_day(month)
+        if day > max_day:
+            raise serializers.ValidationError(
+                {
+                    "fiscal_year_start_day": (
+                        f"{_MONTH_NAMES[month]} has no day {day}; "
+                        f"the latest valid fiscal start in that month is {max_day}."
+                    )
+                }
+            )
+        return attrs
 
 
 # ---------------------------------------------------------------------------
