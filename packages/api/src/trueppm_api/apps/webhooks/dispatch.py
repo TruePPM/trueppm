@@ -37,7 +37,11 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
         OutgoingChannelEvent,
     )
     from trueppm_api.apps.projects.models import Project
-    from trueppm_api.apps.webhooks.models import Webhook, WebhookDelivery
+    from trueppm_api.apps.webhooks.models import (
+        Webhook,
+        WebhookDelivery,
+        _next_delivery_sequence,
+    )
     from trueppm_api.apps.webhooks.tasks import deliver_webhook
 
     # Resolve the project's program (if any) so program-scoped webhooks fire
@@ -67,10 +71,25 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
         # 500ing — matches ProviderRegistry.get() returning None by design.
         provider_cls = OUTGOING_CHANNEL_PROVIDERS.get(webhook.format)
         rendered = provider_cls().render(event) if provider_cls is not None else payload
+        # Surface the per-subscription sequence (#664) in the delivered body so a
+        # consumer can do self-contained, in-body gap detection without reading the
+        # X-TruePPM-Webhook-Sequence header (#715, ADR-0089). It goes under a reserved
+        # top-level ``_meta`` namespace, not a bare ``sequence`` key: the ``generic``
+        # body is a flat domain dict, so a bare key could collide with a future event
+        # field; Slack ignores the unknown ``_meta`` key, so one uniform rule covers
+        # every format. render() runs before the row exists, so we pre-allocate the
+        # number and pass it to create() as both the body value and ``sequence_number``
+        # — WebhookDelivery.save()'s lazy-allocation guard then no-ops, keeping this a
+        # single write where the stored row equals the wire body (ADR-0083 audit
+        # invariant). A fresh dict is built so the shared rendered/event.payload object
+        # is never mutated across the fan-out.
+        sequence = _next_delivery_sequence(webhook.id)
+        body = {**rendered, "_meta": {"sequence": sequence}}
         delivery = WebhookDelivery.objects.create(
             webhook=webhook,
             event_type=event_type,
-            payload=rendered,
+            payload=body,
+            sequence_number=sequence,
         )
         try:
             deliver_webhook.delay(str(delivery.pk))

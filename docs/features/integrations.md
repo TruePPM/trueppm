@@ -144,7 +144,7 @@ of currently selectable formats.
 
 | Format | What is sent | Use it for |
 |---|---|---|
-| `generic` | The raw TruePPM event envelope, unchanged — `{ "event", "project_id", "timestamp", "data" }`. This is the historical behavior; existing webhooks default to `generic`. | Custom tooling, CI pipelines, any consumer that parses JSON itself. |
+| `generic` | The flat TruePPM event payload — for task events, the changed task's fields at the top level (`id`, `project`, `name`, `status`, …, `source`) — plus a reserved `_meta` object carrying `_meta.sequence`. Apart from the additive `_meta` namespace, this is the historical shape; existing webhooks default to `generic`. | Custom tooling, CI pipelines, any consumer that parses JSON itself. |
 | `slack` | A Slack incoming-webhook message: a `text` line plus a single attachment with the task fields and a color bar keyed to the event. | Slack — and, because Discord and Mattermost incoming webhooks accept the same shape, those two as well. |
 
 Point a `slack`-format webhook at a Slack/Discord/Mattermost **incoming-webhook
@@ -222,10 +222,12 @@ write-only: it is never returned by any API response, even to the webhook's
 owner. To rotate it, edit the webhook and enter a new value; leaving the field
 blank keeps the current secret.
 
-Other delivery metadata travels in headers (the body carries the event payload
-only): `X-TruePPM-Event` (the event type), `X-TruePPM-Delivery` (the delivery
-UUID — use it as an idempotency key), and `X-TruePPM-Webhook-Sequence` (a
-monotonic per-subscription counter for gap detection). Deliveries are
+Other delivery metadata travels in headers: `X-TruePPM-Event` (the event type),
+`X-TruePPM-Delivery` (the delivery UUID — use it as an idempotency key), and
+`X-TruePPM-Webhook-Sequence` (a monotonic per-subscription counter for gap
+detection). The sequence is also mirrored into the body as `_meta.sequence` —
+identical to the header — so in-body gap detection needs no header parsing.
+Deliveries are
 at-least-once; failed deliveries retry with exponential backoff up to 5
 attempts before the delivery row is marked `FAILED`. The
 [delivery log](#delivery-log) surfaces the outcome of every attempt.
