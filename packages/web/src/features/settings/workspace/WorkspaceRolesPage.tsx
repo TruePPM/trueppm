@@ -1,6 +1,10 @@
 import { SettingsPageTitle } from '../SettingsShell';
 import { StubFieldset } from '../components/StubFieldset';
 import { StubPageBanner } from '../components/StubPageBanner';
+import { useEdition } from '@/hooks/useEdition';
+
+/** Where the EE badge links — the Enterprise marketing/upgrade page. */
+const ENTERPRISE_URL = 'https://trueppm.com/enterprise';
 
 const ROLES = ['Viewer', 'Member', 'Scheduler', 'Admin', 'Owner'] as const;
 type Role = (typeof ROLES)[number];
@@ -28,6 +32,13 @@ interface Capability {
   label: string;
   /** Bit mask: index = role order (Viewer, Member, Scheduler, Admin, Owner) */
   grants: boolean[];
+  /**
+   * Enterprise-only capability. Drives the inline EE upsell badge so the set of
+   * Enterprise rows is data-driven (stays in sync as the Enterprise repo adds
+   * capabilities) rather than hardcoded in the render. The badge only shows in
+   * the community edition — under Enterprise these capabilities are available.
+   */
+  ee?: boolean;
 }
 
 interface CapabilitySection {
@@ -80,11 +91,11 @@ const SECTIONS: CapabilitySection[] = [
   {
     label: 'Workspace',
     capabilities: [
-      { label: 'View audit log', grants: [false, false, false, false, true] },
-      { label: 'Manage SSO', grants: [false, false, false, false, true] },
-      { label: 'Manage integrations', grants: [false, false, false, false, true] },
-      { label: 'Manage billing', grants: [false, false, false, false, true] },
-      { label: 'Export workspace data', grants: [false, false, false, false, true] },
+      { label: 'View audit log', grants: [false, false, false, false, true], ee: true },
+      { label: 'Manage SSO', grants: [false, false, false, false, true], ee: true },
+      { label: 'Manage integrations', grants: [false, false, false, false, true], ee: true },
+      { label: 'Manage billing', grants: [false, false, false, false, true], ee: true },
+      { label: 'Export workspace data', grants: [false, false, false, false, true], ee: true },
     ],
   },
 ];
@@ -100,6 +111,29 @@ function CheckIcon() {
         strokeLinejoin="round"
       />
     </svg>
+  );
+}
+
+/**
+ * Inline upsell affordance for an Enterprise-only capability row (#541). The
+ * badge is itself the link — a hover tooltip carrying a link is unreachable
+ * (the tooltip dismisses on the way to the link), so the badge navigates
+ * directly to the Enterprise page and exposes "Available in TruePPM Enterprise"
+ * via title + aria-label. This turns the previously dead Enterprise cells
+ * (clicking Owner on "Manage SSO" did nothing) into a meaningful path.
+ */
+function EnterpriseBadge() {
+  return (
+    <a
+      href={ENTERPRISE_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="Available in TruePPM Enterprise"
+      aria-label="Available in TruePPM Enterprise — learn more"
+      className="ml-2 inline-flex items-center rounded bg-brand-primary/10 px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide text-brand-primary hover:bg-brand-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+    >
+      EE
+    </a>
   );
 }
 
@@ -138,6 +172,13 @@ function exportRolesMatrixCsv(): void {
 
 /** Workspace > Roles & permissions RBAC matrix. */
 export function WorkspaceRolesPage() {
+  // Enterprise-only rows carry an upsell badge only when running the community
+  // edition; under Enterprise those capabilities are actually available, so the
+  // badge would be noise. The set of EE rows is data-driven (Capability.ee);
+  // the edition metadata decides whether to surface the upsell.
+  const { edition } = useEdition();
+  const showUpsell = edition === 'community';
+
   return (
     <>
       <StubPageBanner pageIssue={510} />
@@ -148,7 +189,7 @@ export function WorkspaceRolesPage() {
           body below is wrapped. */}
         <SettingsPageTitle
           title="Roles & permissions"
-          subtitle="Five built-in roles map cleanly to how project teams actually work. Custom roles are an Enterprise feature."
+          subtitle="Five built-in roles map cleanly to how project teams actually work. Custom roles, and the capabilities marked EE, are part of TruePPM Enterprise."
           action={
             <div className="flex gap-2">
               <button
@@ -230,7 +271,10 @@ export function WorkspaceRolesPage() {
                       ].join(' ')}
                       style={{ gridTemplateColumns: '2.4fr repeat(5, 1fr)' }}
                     >
-                      <span className="text-[13px] text-neutral-text-primary">{cap.label}</span>
+                      <span className="text-[13px] text-neutral-text-primary">
+                        {cap.label}
+                        {cap.ee && showUpsell && <EnterpriseBadge />}
+                      </span>
                       {cap.grants.map((granted, i) => (
                         <span
                           key={i}

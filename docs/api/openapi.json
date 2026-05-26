@@ -1346,7 +1346,7 @@
             },
             "post": {
                 "operationId": "v1_me_credentials_create",
-                "description": "Connect or rotate the credential for ``provider``.\n\n``create`` is a deliberate misnomer here: connect-and-rotate are\nthe same upsert. The viewset uses ``create`` so the standard DRF\naction set names the route ``POST /<provider>/`` rather than\n``POST /<provider>/rotate/``, which is what ADR-0049 §3 spells out.",
+                "description": "Connect or rotate the credential for ``provider``.\n\n``create`` is a deliberate misnomer here: connect-and-rotate are\nthe same upsert. The viewset uses ``create`` so the standard DRF\naction set names the route ``POST /<provider>/`` rather than\n``POST /<provider>/rotate/``, which is what ADR-0049 §3 spells out.\n\nBefore persisting, the PAT is verified against the provider (#677):\nwe ping the provider's ``/user`` endpoint with the token so a wrong,\nexpired, wrong-scope, or wrong-host token is rejected here with 422\nrather than silently accepted and discovered later by #637's status\nfetch. The plaintext is never written to the DB on a failed verify —\n``upsert`` (and therefore encryption) is not reached.",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -1421,6 +1421,16 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/PaginatedCredentialSummaryList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CredentialVerificationError"
                                 }
                             }
                         },
@@ -15699,7 +15709,7 @@
             },
             "CredentialUpsertRequest": {
                 "type": "object",
-                "description": "Payload for ``POST /me/credentials/{provider}/`` (connect or rotate).\n\nValidation rules:\n- ``secret`` is required and non-empty (the encryption helper refuses\n  empty plaintext anyway; rejecting here gives a clean 400).\n- ``secret`` is write-only — never echoed back.\n- ``base_url`` is optional. When present it must be an ``http://`` or\n  ``https://`` URL; ``file://`` / ``javascript:`` / ``gopher://`` /\n  similar schemes are rejected here. SSRF resolver-level guards (block\n  RFC1918, link-local, cloud metadata) live with #637 since they need\n  DNS resolution at fetch time — this serializer is the cheap\n  first line of defense.\n- ``expires_at`` is optional and informational only.",
+                "description": "Payload for ``POST /me/credentials/{provider}/`` (connect or rotate).\n\nValidation rules:\n- ``secret`` is required and non-empty (the encryption helper refuses\n  empty plaintext anyway; rejecting here gives a clean 400).\n- ``secret`` is write-only — never echoed back.\n- ``base_url`` is optional. When present it must be an ``http://`` or\n  ``https://`` URL; ``file://`` / ``javascript:`` / ``gopher://`` /\n  similar schemes are rejected here. This serializer is the cheap first\n  line of defense; the resolver-level SSRF guard (block RFC1918, link-local,\n  cloud metadata at connect time) lands with #677's PAT verification in\n  ``integrations.http`` and is reused by #637's git-link refresh.\n- ``expires_at`` is optional and informational only.",
                 "properties": {
                     "secret": {
                         "type": "string",
@@ -15719,6 +15729,27 @@
                 },
                 "required": [
                     "secret"
+                ]
+            },
+            "CredentialVerificationError": {
+                "type": "object",
+                "description": "422 body when live PAT verification fails (#677).\n\nDocuments the shape the Connected Accounts page reads on a rejected\nconnect/rotate: a human ``detail``, the stable ``code``\n``provider_verification_failed``, and a machine-readable ``reason`` the\nclient can branch on (``invalid_token``, ``provider_unreachable``,\n``provider_timeout``, ``blocked_host``).",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "code",
+                    "detail",
+                    "reason"
                 ]
             },
             "DefaultViewEnum": {

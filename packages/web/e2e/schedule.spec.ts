@@ -95,6 +95,12 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
   );
+  // Accept the project WebSocket so the StatusBar connection pill (#643) reaches
+  // "Live" instead of stalling on "Connecting…". Leaving the socket open (never
+  // closing it) makes the client fire `open` → markLive(); we send no frames.
+  await page.routeWebSocket('**/ws/v1/projects/**', () => {
+    /* accept and hold the connection open */
+  });
   // Path-based routing (ADR-0030): /projects/:projectId/schedule
   await page.goto(`/projects/${FIXTURE_PROJECT_ID}/schedule`);
 }
@@ -185,9 +191,11 @@ test.describe('Accessibility basics', () => {
   });
 
   test('status bar shows live presence and build hash', async ({ page }) => {
+    // On a project page the connection pill (#643) goes Live once the WebSocket
+    // opens (routed in gotoSchedule), then appends the online count.
     const footer = page.getByRole('contentinfo', { name: 'Application status' });
     await expect(footer).toBeVisible();
-    await expect(footer.getByText(/Live · \d+ online/)).toBeVisible();
+    await expect(footer.getByText(/Live · \d+ online/)).toBeVisible({ timeout: 10_000 });
     await expect(footer.getByText(/build /)).toBeVisible();
   });
 });

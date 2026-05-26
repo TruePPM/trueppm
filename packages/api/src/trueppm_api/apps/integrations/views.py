@@ -16,7 +16,7 @@ All actions auto-scope to ``request.user`` via the queryset — there is no
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from django.http import Http404
 from drf_spectacular.utils import extend_schema
@@ -27,16 +27,33 @@ from rest_framework.response import Response
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 
 from .models import IntegrationCredential
-from .registry import TASK_LINK_PROVIDERS
+from .registry import TASK_LINK_PROVIDERS, TaskLinkProvider
 from .serializers import (
     CredentialSummarySerializer,
     CredentialUpsertSerializer,
+    CredentialVerificationErrorSerializer,
     serialize_credential_summaries,
 )
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
     from rest_framework.request import Request
+
+
+# Human-readable detail per ``VerifyResult.reason`` for the 422 body. The
+# machine-readable ``reason`` is returned alongside so the client can branch
+# without string-matching the prose.
+_VERIFY_FAILURE_DETAIL: dict[str | None, str] = {
+    "invalid_token": (
+        "The provider rejected this token. Check it is valid, unexpired, and "
+        "issued for the correct host."
+    ),
+    "provider_unreachable": (
+        "Could not reach the provider to verify this token. Check the host URL and try again."
+    ),
+    "provider_timeout": "Verifying this token with the provider timed out. Try again.",
+    "blocked_host": ("The host URL is not allowed — it resolves to a private or internal address."),
+}
 
 
 @extend_schema(tags=["me"])
@@ -81,7 +98,10 @@ class IntegrationCredentialViewSet(
 
     @extend_schema(
         request=CredentialUpsertSerializer,
-        responses={200: CredentialSummarySerializer(many=True)},
+        responses={
+            200: CredentialSummarySerializer(many=True),
+            422: CredentialVerificationErrorSerializer,
+        },
     )
     def create(self, request: Request, provider: str | None = None) -> Response:
         """Connect or rotate the credential for ``provider``.
@@ -90,19 +110,45 @@ class IntegrationCredentialViewSet(
         the same upsert. The viewset uses ``create`` so the standard DRF
         action set names the route ``POST /<provider>/`` rather than
         ``POST /<provider>/rotate/``, which is what ADR-0049 §3 spells out.
+
+        Before persisting, the PAT is verified against the provider (#677):
+        we ping the provider's ``/user`` endpoint with the token so a wrong,
+        expired, wrong-scope, or wrong-host token is rejected here with 422
+        rather than silently accepted and discovered later by #637's status
+        fetch. The plaintext is never written to the DB on a failed verify —
+        ``upsert`` (and therefore encryption) is not reached.
         """
-        if provider is None or TASK_LINK_PROVIDERS.get(provider) is None:
+        provider_cls = TASK_LINK_PROVIDERS.get(provider) if provider is not None else None
+        if provider is None or provider_cls is None:
             return Response(
                 {"detail": f"Unknown provider {provider!r}."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         serializer = CredentialUpsertSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        secret = serializer.validated_data["secret"]
+        base_url = serializer.validated_data.get("base_url", "")
+
+        provider_handler = cast("type[TaskLinkProvider]", provider_cls)
+        result = provider_handler.verify_token(secret, base_url=base_url or None)
+        if not result.ok:
+            return Response(
+                {
+                    "detail": _VERIFY_FAILURE_DETAIL.get(
+                        result.reason,
+                        f"Could not verify the credential with {provider}.",
+                    ),
+                    "code": "provider_verification_failed",
+                    "reason": result.reason,
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
         IntegrationCredential.upsert(
             user=request.user,
             provider=provider,
-            secret=serializer.validated_data["secret"],
-            base_url=serializer.validated_data.get("base_url", ""),
+            secret=secret,
+            base_url=base_url,
             expires_at=serializer.validated_data.get("expires_at"),
         )
         # Re-render the summary list so the client doesn't need a second

@@ -34,6 +34,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { usePresenceStore } from '@/stores/presenceStore';
 import { useSchedulerStore } from '@/stores/schedulerStore';
 import { useTaskRunStore } from '@/stores/taskRunStore';
+import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 import type { CpmError } from '@/stores/schedulerStore';
 
 interface WsEnvelope {
@@ -329,12 +330,15 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         // the socket would silently retry forever while the cache stayed
         // alive and the user kept editing into a void (#352).
         if (event.code === 4001) {
+          useWsConnectionStore.getState().markFailed();
           useAuthStore.getState().markSessionExpired();
           window.dispatchEvent(new CustomEvent('auth:sessionExpired'));
           return;
         }
-        // Exponential backoff reconnect for any other close cause
-        // (network drop, server restart, idle timeout).
+        // Retryable close (network drop, server restart, idle timeout):
+        // escalate the connection state (reconnecting → stale after a few
+        // attempts) and schedule an exponential-backoff reconnect.
+        useWsConnectionStore.getState().markDisconnected();
         retryTimer = setTimeout(() => {
           backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
           connect();
@@ -343,9 +347,13 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
 
       ws.addEventListener('open', () => {
         backoffMs = 1_000; // reset on successful connection
+        useWsConnectionStore.getState().markLive();
       });
     }
 
+    // Initial handshake. Retries are driven from the close handler and must not
+    // reset the connection state back to `connecting`.
+    useWsConnectionStore.getState().markConnecting();
     connect();
 
     return () => {
@@ -355,6 +363,9 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         ws.removeEventListener('message', handleMessage);
         ws.close();
       }
+      // Reset to idle so a stale `live`/`failed` does not linger after leaving
+      // the project (StatusBar also gates the pill on projectId).
+      useWsConnectionStore.getState().markConnecting();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, accessToken]);
