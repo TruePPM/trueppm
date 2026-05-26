@@ -281,6 +281,12 @@ preview links into issues, merge requests, and pull requests on tasks.
 - Provides per-provider **Connect**, **Rotate**, and **Revoke** actions.
   Connect and Rotate share the same upsert API — one row per
   `(user, provider)` pair, never duplicated.
+- **Connect and Rotate verify the token before storing it.** GitLab and
+  GitHub credentials are checked against the provider's `/user` endpoint;
+  a wrong, expired, wrong-scope, or wrong-host token (for example a
+  github.com PAT pasted into the GitLab section) is rejected with a clear
+  error and **nothing is stored**. The generic provider is accepted without
+  a live check, since there is no known endpoint to verify it against.
 - Renders a deep-link anchor per provider —
   `/me/settings/connected-accounts#github` scrolls straight to the GitHub
   section. The Project → Settings → Integrations page links here.
@@ -297,6 +303,11 @@ preview links into issues, merge requests, and pull requests on tasks.
 - Cross-user access is impossible by construction — the viewset's queryset
   is scoped to `request.user`, so neither the URL path nor the request
   body can address another user's row.
+- Token verification and the task-link refresh both make outbound HTTP calls
+  through a single SSRF-guarded egress helper. It resolves the target host
+  and refuses any URL that resolves to a private, loopback, link-local, or
+  cloud-metadata address, so a self-hosted host URL cannot be used to probe
+  internal services. Calls are time-bounded and do not follow redirects.
 
 ### What ships in successor issues
 

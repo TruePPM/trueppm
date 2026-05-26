@@ -15,6 +15,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AbstractBaseUser
 from rest_framework.test import APIClient
 
+from trueppm_api.apps.integrations import http
 from trueppm_api.apps.integrations.encryption import decrypt_secret
 from trueppm_api.apps.integrations.models import IntegrationCredential
 
@@ -26,6 +27,26 @@ pytestmark = pytest.mark.django_db
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _stub_token_verification(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make PAT verification pass without touching the network.
+
+    #677 wired a live ``/user`` ping into ``create()`` — these viewset tests
+    assert connect/rotate/RBAC behavior, not the network, so we stub the egress
+    layer to a 200. The real ``verify_token`` mapping (invalid/timeout/5xx/SSRF)
+    is covered in ``test_credential_verification.py``.
+    """
+
+    def _fake_get(
+        url: str, *, headers: dict[str, str] | None = None, timeout: float = http.DEFAULT_TIMEOUT
+    ) -> http.EgressResponse:
+        return http.EgressResponse(
+            status=200, body=b'{"username": "stub", "login": "stub"}', headers={}
+        )
+
+    monkeypatch.setattr(http, "get", _fake_get)
 
 
 @pytest.fixture
@@ -148,13 +169,16 @@ def test_create_rejects_blank_secret(client: APIClient) -> None:
         "gopher://example.com/",
         "ftp://example.com/",
         "example.com",  # no scheme
+        "https://gitlab.example.com/?token=x",  # query string corrupts /api/v4/user
+        "https://gitlab.example.com/#frag",  # fragment corrupts /api/v4/user
     ],
 )
 def test_create_rejects_dangerous_base_url_schemes(client: APIClient, bad_url: str) -> None:
-    """``base_url`` is operator-supplied and ends up driving #637's HTTP
-    fetches against the provider's API. Reject anything that isn't an
-    explicit ``http``/``https`` URL at write time so the resolver-level
-    SSRF guard isn't the only line of defense."""
+    """``base_url`` is operator-supplied and ends up driving the provider's
+    ``/user`` verify call (and #637's status fetches). Reject anything that
+    isn't a clean ``http``/``https`` host URL at write time — wrong scheme, no
+    scheme, or a query/fragment that would corrupt the constructed verify URL —
+    so the resolver-level SSRF guard isn't the only line of defense."""
     response = client.post(
         "/api/v1/me/credentials/gitlab/",
         {"secret": "glpat-x", "base_url": bad_url},
