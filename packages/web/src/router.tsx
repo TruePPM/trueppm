@@ -79,6 +79,11 @@ const ProgramBacklogPage = lazy(() =>
     default: m.ProgramBacklogPage,
   })),
 );
+const ProgramOverviewPage = lazy(() =>
+  import('@/features/programs/ProgramOverviewPage').then((m) => ({
+    default: m.ProgramOverviewPage,
+  })),
+);
 const ProgramViewProjectsPage = lazy(() =>
   import('@/features/programs/ProgramProjectsPage').then((m) => ({
     default: m.ProgramProjectsPage,
@@ -541,7 +546,15 @@ export const router = createBrowserRouter([
               </Suspense>
             ),
             children: [
-              { index: true, element: <Navigate to="projects" replace /> },
+              { index: true, element: <Navigate to="overview" replace /> },
+              {
+                path: 'overview',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <ProgramOverviewPage />
+                  </Suspense>
+                ),
+              },
               {
                 path: 'backlog',
                 element: (
