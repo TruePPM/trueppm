@@ -118,7 +118,11 @@ async function openDrawerLinksSection(page: Page): Promise<Locator> {
   const header = drawer.getByRole('button', { name: 'External links' });
   await expect(header).toBeVisible();
   if ((await header.getAttribute('aria-expanded')) !== 'true') await header.click();
-  return drawer;
+  // Return the section's region so queries scope to it — the drawer's meta-rail
+  // has a "+ Add resource" button that collides with our "Add" under strict mode.
+  const section = drawer.getByRole('region', { name: 'External links' });
+  await expect(section).toBeVisible();
+  return section;
 }
 
 test.describe('Task external links (#637)', () => {
@@ -130,19 +134,19 @@ test.describe('Task external links (#637)', () => {
 
   test('golden path: detect, add, then refresh to a live status', async ({ page }) => {
     await stubLinks(page);
-    const drawer = await openDrawerLinksSection(page);
+    const section = await openDrawerLinksSection(page);
 
     // Empty state.
-    await expect(drawer.getByRole('note')).toContainText(/Paste a GitLab or GitHub URL/i);
+    await expect(section.getByRole('note')).toContainText(/Paste a GitLab or GitHub URL/i);
 
     // Paste a GitHub URL → provider-detect hint appears.
-    const input = drawer.getByLabel('Add a link URL');
+    const input = section.getByLabel('Add a link URL');
     await input.fill('https://github.com/acme/api/pull/5');
-    await expect(drawer.getByText(/GitHub detected/i)).toBeVisible();
+    await expect(section.getByText(/GitHub detected/i)).toBeVisible();
 
     // Add → row appears with the UNKNOWN badge (no fetch on add).
-    await drawer.getByRole('button', { name: 'Add' }).click();
-    const row = drawer.getByRole('listitem', { name: /Link:/ });
+    await section.getByRole('button', { name: 'Add', exact: true }).click();
+    const row = section.getByRole('listitem', { name: /Link:/ });
     await expect(row).toBeVisible();
     await expect(row.getByText('UNKNOWN')).toBeVisible();
 
@@ -161,13 +165,13 @@ test.describe('Task external links (#637)', () => {
       ],
       refreshStatus: 422,
     });
-    const drawer = await openDrawerLinksSection(page);
+    const section = await openDrawerLinksSection(page);
 
-    const row = drawer.getByRole('listitem', { name: /Link:/ });
+    const row = section.getByRole('listitem', { name: /Link:/ });
     await row.getByRole('button', { name: /Refresh status/i }).click();
 
     // The 422 credential_required response surfaces a Connect link, not an error.
-    const connect = drawer.getByRole('link', { name: /Connect github to see status/i });
+    const connect = section.getByRole('link', { name: /Connect github to see status/i });
     await expect(connect).toBeVisible();
     await expect(connect).toHaveAttribute('href', '/me/settings/connected-accounts#github');
   });
