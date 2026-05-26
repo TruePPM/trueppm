@@ -3,7 +3,7 @@ stages:
   - analyze   # type-check, static analysis, migration/schema checks
   - test      # unit + integration tests (per-package, DAG-gated on analyze)
   - security  # CVE scans + license audit (MR + main only)
-  - publish   # tag-triggered: scheduler PyPI release
+  - publish   # tag-triggered: package registries (PyPI/npm) + Docker images + Helm
   - deploy    # docs deployment to GitLab Pages
 
 default:
@@ -1446,7 +1446,7 @@ license:check:web:
     - npm ci --omit=dev --prefer-offline --quiet
   script:
     # --onlyAllow covers --failOn implicitly: any license not in the list fails.
-    # trueppm-web declares license "Apache-2.0" in package.json and is audited
+    # @trueppm/web declares license "Apache-2.0" in package.json and is audited
     # like any other package. It must NOT be "private": true — license-checker
     # force-reports every private package as UNLICENSED (lib/index.js), which the
     # allow-list then rejects. Dropping `private` lets its real license show.
@@ -1639,6 +1639,105 @@ helm:publish:
       helm package packages/helm
       CHART_FILE=$(ls trueppm-*.tgz)
       helm push "$CHART_FILE" "oci://ghcr.io/${GHCR_USER}/charts"
+
+# ---------------------------------------------------------------------------
+# PUBLISH — OSS package registries (PyPI wheel + npm).
+#
+# Trigger: push a git tag matching `v*` (the same release tag as the Docker
+# image jobs above). These publish the two remaining OSS packages — trueppm-api
+# (PyPI) and @trueppm/web (npm) — as versioned, installable artifacts so that
+# trueppm-enterprise can pin exact OSS versions instead of path-dep references
+# (Enterprise ADR E-0005, phase-2 switchover). Closes #479.
+#
+# Like helm:publish, each job exits 0 — not fail — when its registry token is
+# absent. This keeps the release pipeline green before the tokens and the
+# PyPI/npm project-name reservations land (the scheduler:publish job is dormant
+# for the same reason); once the tokens are configured, a v* tag publishes
+# automatically and the E-0005 remote agent detects both packages.
+#
+# Required CI/CD variables (Settings → CI/CD → Variables), Masked + Protected:
+#   PYPI_TOKEN — PyPI API token with upload scope for the trueppm-api project.
+#   NPM_TOKEN  — npm automation token with publish scope for the @trueppm scope.
+# ---------------------------------------------------------------------------
+
+api:publish:pypi:
+  # trueppm-api → PyPI sdist + wheel. Mirrors scheduler:publish (PEP 517 build
+  # via hatchling, twine upload). Distinct from api:publish, which ships the
+  # Docker image to the container registry.
+  stage: publish
+  image: python:3.11-slim
+  <<: *rules-release-tag
+  variables:
+    TWINE_USERNAME: __token__
+    TWINE_PASSWORD: $PYPI_TOKEN
+    # Suppress the keyring warning that fires in non-interactive environments.
+    PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+  script:
+    - |
+      if [ -z "${PYPI_TOKEN}" ]; then
+        echo "INFO: PYPI_TOKEN not set — skipping PyPI publish of trueppm-api"
+        exit 0
+      fi
+    - pip install build twine --quiet
+    # Verify the tag version matches the version declared in pyproject.toml.
+    # A mismatch (e.g. forgot to bump) fails fast before uploading.
+    - |
+      PKG_VERSION=$(python -c "
+      import tomllib
+      with open('packages/api/pyproject.toml', 'rb') as f:
+          print(tomllib.load(f)['project']['version'])
+      ")
+      TAG_VERSION="${CI_COMMIT_TAG#v}"
+      if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+        echo "ERROR: tag version ($TAG_VERSION) does not match packages/api/pyproject.toml version ($PKG_VERSION)"
+        echo "Bump the version in packages/api/pyproject.toml before tagging."
+        exit 1
+      fi
+      echo "Version check passed: $PKG_VERSION"
+    - cd packages/api
+    - python -m build
+    - twine upload dist/* --non-interactive --verbose
+  artifacts:
+    # Keep the built wheel as a CI artifact for traceability (7-day expiry).
+    paths:
+      - packages/api/dist/
+    expire_in: 7 days
+
+web:publish:npm:
+  # @trueppm/web → npm registry. Builds the production bundle and publishes
+  # dist/ (package.json `files` restricts the tarball to the built output).
+  # Distinct from web:publish, which ships the Docker image.
+  stage: publish
+  image: node:20-alpine
+  <<: *rules-release-tag
+  cache:
+    <<: *web-cache
+    policy: pull
+  script:
+    - |
+      if [ -z "${NPM_TOKEN}" ]; then
+        echo "INFO: NPM_TOKEN not set — skipping npm publish of @trueppm/web"
+        exit 0
+      fi
+    - cd packages/web
+    - npm ci --prefer-offline --quiet
+    # Verify the tag version matches package.json before publishing.
+    - |
+      PKG_VERSION=$(node -p "require('./package.json').version")
+      TAG_VERSION="${CI_COMMIT_TAG#v}"
+      if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+        echo "ERROR: tag version ($TAG_VERSION) does not match packages/web/package.json version ($PKG_VERSION)"
+        echo "Bump the version in packages/web/package.json before tagging."
+        exit 1
+      fi
+      echo "Version check passed: $PKG_VERSION"
+    - npm run build
+    - echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+    - npm publish
+  artifacts:
+    paths:
+      - packages/web/dist/
+    expire_in: 7 days
 
 # ---------------------------------------------------------------------------
 # RELEASE — GitLab Release entry.

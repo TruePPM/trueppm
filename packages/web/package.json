@@ -1,8 +1,14 @@
 {
-  "name": "trueppm-web",
+  "name": "@trueppm/web",
   "version": "0.1.0-alpha.1",
   "license": "Apache-2.0",
   "type": "module",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=20.0"
   },
