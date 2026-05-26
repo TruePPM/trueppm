@@ -9,10 +9,10 @@ TruePPM uses a 5-role per-project permission model stored in `ProjectMembership`
 
 | Role | Ordinal | Label | Description |
 |------|---------|-------|-------------|
-| **Owner** | 4 | Project Admin | Full control. Manages members, can assign any role below Owner, deletes project. |
-| **Admin** | 3 | Project Manager | Full task and dependency edit, project settings, baseline creation. |
-| **Scheduler** | 2 | Resource Manager | Assigns resources and edits dependencies. Cannot edit task content. |
-| **Member** | 1 | Team Member | Edits own assigned tasks. Logs time. |
+| **Owner** | 400 | Project Admin | Full control. Manages members, can assign any role below Owner, deletes project. |
+| **Admin** | 300 | Project Manager | Full task and dependency edit, project settings, baseline creation. |
+| **Scheduler** | 200 | Resource Manager | Assigns resources and edits dependencies. Cannot edit task content. |
+| **Member** | 100 | Team Member | Edits own assigned tasks. Logs time. |
 | **Viewer** | 0 | Viewer | Read-only. Can pull delta sync to mobile. |
 
 ## Permission matrix
@@ -62,17 +62,17 @@ Members are managed at `/api/v1/projects/{project_id}/members/`.
 POST /api/v1/projects/{project_id}/members/
 Authorization: Bearer <token>
 
-{"user": "<user-id>", "role": 1}
+{"user": "<user-id>", "role": 100}
 ```
 
-**Role escalation rule:** you can only assign a role strictly below your own. An Owner (4) can assign up to Admin (3).
+**Role escalation rule:** you can only assign a role strictly below your own. An Owner (400) can assign up to Admin (300).
 
 ### Change a member's role
 
 ```http
 PATCH /api/v1/projects/{project_id}/members/{membership_id}/
 
-{"role": 2}
+{"role": 200}
 ```
 
 ### Remove a member

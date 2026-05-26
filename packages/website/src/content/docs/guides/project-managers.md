@@ -46,7 +46,7 @@ TruePPM lets you add three-point estimates (optimistic, most likely, pessimistic
 
 ### Baselines
 
-Capture a baseline to freeze the planned dates at a point in time. Capturing and managing baselines is currently done through the **REST API** — there is no in-app capture button yet (a UI is on the 0.4 roadmap). Once a baseline is active, the task detail drawer shows a read-only baseline-vs-current comparison so you can see schedule variance. Multiple baselines are supported for rebaseline events. See [Baselines](/features/baselines/) for the full API workflow.
+Capture a baseline to freeze the planned dates at a point in time. Capturing and managing baselines is currently done through the **REST API** — there is no in-app capture button yet (a UI is on the 0.5 roadmap). Once a baseline is active, the task detail drawer shows a read-only baseline-vs-current comparison so you can see schedule variance. Multiple baselines are supported for rebaseline events. See [Baselines](/features/baselines/) for the full API workflow.
 
 ### Working calendars
 
@@ -127,8 +127,8 @@ When a scheduler or admin changes the plan, all connected browsers update immedi
 | Hybrid velocity → CPM forecast | Shipped |
 | MS Project import/export | Shipped — API only, no UI yet |
 | Gantt drag-to-reschedule (WASM CPM) | Shipped |
-| Multi-baseline support | Roadmap (0.4) |
-| Time tracking | Roadmap (0.4) |
+| Multi-baseline support | Roadmap (0.5) |
+| Time tracking | Roadmap (0.5) |
 | EVM (CPI / SPI / BCWP) | Roadmap (post-1.0) |
 
 ## Getting started

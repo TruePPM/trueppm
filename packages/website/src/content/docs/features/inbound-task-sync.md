@@ -22,7 +22,6 @@ This feature closes [ADR-0065 Gap 3](https://gitlab.com/trueppm/trueppm/-/blob/m
 
 ## What's *not* in v1
 
-- **No web UI for token management** — tokens are minted and revoked via API (see [Mint a token](#1-mint-a-token-admin--pm)). A token-management screen in project settings is on the roadmap.
 - **No write-back to the external source** — TruePPM is downstream. Status, name, and assignee changes you make in TruePPM stay in TruePPM.
 - **No sprint binding from the payload** — every inbound task lands in the project backlog (`status=BACKLOG`, `sprint=null`). The PM places it into a sprint via the normal sprint-planning surface.
 - **No OAuth handshake or HMAC signature verification** — authentication is the bearer token only. If you need stronger guarantees (signed payloads, SSO-gated token issuance) those are Enterprise.
@@ -30,6 +29,10 @@ This feature closes [ADR-0065 Gap 3](https://gitlab.com/trueppm/trueppm/-/blob/m
 ## Quick start
 
 ### 1. Mint a token (Admin / PM)
+
+Tokens can be minted and revoked from the **Integrations** settings page at both
+project scope (**Project → Settings → Integrations**) and program scope
+(**Program → Settings → Integrations**), or via the API as shown below.
 
 ```bash
 curl -X POST "https://your-truppm/api/v1/projects/${PROJECT_ID}/api-tokens/" \

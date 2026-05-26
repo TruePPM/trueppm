@@ -244,16 +244,23 @@ pip install trueppm-scheduler
 ```
 
 ```python
-from trueppm_scheduler import schedule, Calendar, Project, Task, Dependency
+from datetime import date, timedelta
+from trueppm_scheduler import schedule, Calendar, Project, Task, Dependency, DependencyType
 
-calendar = Calendar(id="cal-1", name="Standard")
-project = Project(id="p-1", name="My Project", start_date="2026-01-01", calendar=calendar)
-task_a = Task(id="t-1", name="Design", duration=5, project_id="p-1")
-task_b = Task(id="t-2", name="Build", duration=10, project_id="p-1")
-dep = Dependency(id="d-1", predecessor_id="t-1", successor_id="t-2", dep_type="FS")
-
-result = schedule(project, [task_a, task_b], [dep], calendar)
-print(result.tasks["t-2"].early_finish)  # 2026-01-20
+calendar = Calendar()  # Mon–Fri working days
+project = Project(
+    id="p-1", name="My Project", start_date=date(2026, 1, 5),
+    tasks=[
+        Task(id="t-1", name="Design", duration=timedelta(days=5)),
+        Task(id="t-2", name="Build",  duration=timedelta(days=10)),
+    ],
+    dependencies=[
+        Dependency(predecessor_id="t-1", successor_id="t-2", dep_type=DependencyType.FS),
+    ],
+    calendar=calendar,
+)
+result = schedule(project)
+print(result.tasks[1].early_finish)   # 2026-01-21
 ```
 
 See the [Scheduler integration guide](/integration/standalone/) for full API reference.

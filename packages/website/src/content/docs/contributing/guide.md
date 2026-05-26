@@ -66,8 +66,8 @@ cd packages/web && npm test
 ```
 
 - **Scheduler:** pytest, coverage >= 80%
-- **API:** pytest with testcontainers PostgreSQL, coverage >= 65%
-- **Web:** vitest, coverage >= 80%
+- **API:** pytest with testcontainers PostgreSQL, coverage >= 80%
+- **Web:** vitest, coverage >= 75%
 
 All MRs require a green pipeline before merge.
 

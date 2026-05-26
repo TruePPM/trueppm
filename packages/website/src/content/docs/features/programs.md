@@ -104,11 +104,6 @@ The rollup-KPI and risk-policy settings are backed by
 lifecycle actions map to `POST /api/v1/programs/{id}/close/`, `/reopen/`, and
 `/transfer-sponsorship/`.
 
-:::note[In development]
-The **Cadence** and program-level **Integrations** settings pages are placeholders
-and not yet functional.
-:::
-
 ## Deleting a program
 
 Only the Program Owner can delete a program. The delete dialog explicitly

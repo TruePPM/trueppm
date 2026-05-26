@@ -90,7 +90,8 @@ trueppm-scheduler schedule --help
 ```python
 from trueppm_scheduler import monte_carlo
 
-mc = monte_carlo(project, runs=10_000, seed=42)
+# The OSS default run cap is 1000; pass max_runs=None to exceed it.
+mc = monte_carlo(project, runs=10_000, max_runs=None, seed=42)
 print(f"P50: {mc.p50}")
 print(f"P80: {mc.p80}  ← recommended commitment date")
 print(f"P95: {mc.p95}  ← contractual deadline buffer")
@@ -98,17 +99,6 @@ print(f"P95: {mc.p95}  ← contractual deadline buffer")
 
 See [02-monte-carlo.ipynb](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/scheduler/notebooks/02-monte-carlo.ipynb)
 for a full walkthrough with matplotlib visualisation.
-
-## Incremental scheduling
-
-When only a few tasks changed, pass their IDs to avoid a full recompute:
-
-```python
-result = schedule(project, changed_task_ids=["a", "b"])
-```
-
-Falls back to full recompute when `changed_task_ids` is `None` or exceeds 25%
-of tasks. Results are always equivalent to a full recompute.
 
 ## Error handling
 

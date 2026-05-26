@@ -119,32 +119,23 @@ from trueppm_scheduler import schedule
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=5)
-def recalculate_schedule(self, project_id: str,
-                          changed_task_ids: list[str] | None = None) -> None:
-    """Recompute CPM for the given project.
-
-    changed_task_ids: when provided, the scheduler performs an incremental pass
-    over the affected subgraph only (Wave 3 / issue #8). Falls back to a full
-    recompute when None or when the change set exceeds 25% of tasks.
-    """
+def recalculate_schedule(self, project_id: str) -> None:
+    """Recompute CPM for the given project."""
     try:
         project = Project.objects.select_related("calendar").get(pk=project_id)
     except Project.DoesNotExist:
         return  # project deleted between dispatch and execution — ignore
 
     scheduler_project = build_scheduler_project(project)
-    result = schedule(scheduler_project, changed_task_ids=changed_task_ids)
+    result = schedule(scheduler_project)
     apply_schedule_result(project, result)
 
 
 # In your view or signal handler — dispatch on commit:
-def enqueue_recalculate(project_id: str,
-                         changed_task_ids: list[str] | None = None) -> None:
+def enqueue_recalculate(project_id: str) -> None:
     """Dispatch a schedule recalculation after the current transaction commits."""
     transaction.on_commit(
-        lambda: recalculate_schedule.delay(
-            str(project_id), changed_task_ids=changed_task_ids
-        )
+        lambda: recalculate_schedule.delay(str(project_id))
     )
 ```
 
@@ -170,10 +161,7 @@ class TaskViewSet(ModelViewSet):
         # Only fields that affect the CPM graph need a recalculation.
         cpm_fields = {"duration", "early_start", "dependencies"}
         if cpm_fields & set(serializer.validated_data):
-            enqueue_recalculate(
-                project_id=instance.project_id,
-                changed_task_ids=[str(instance.pk)],
-            )
+            enqueue_recalculate(project_id=instance.project_id)
 ```
 
 ## 4. Calendar from the database

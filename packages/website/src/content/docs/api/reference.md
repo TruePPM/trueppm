@@ -22,7 +22,7 @@ http://localhost:8000/api/v1/
 ## Authentication
 
 ```http
-POST /api/token/
+POST /api/v1/auth/token/
 Content-Type: application/json
 
 {"username": "...", "password": "..."}
@@ -34,7 +34,7 @@ Returns `{"access": "<jwt>", "refresh": "<jwt>"}`. Pass the access token on all 
 Authorization: Bearer <access_token>
 ```
 
-Refresh via `POST /api/token/refresh/` with `{"refresh": "<token>"}`.
+Refresh via `POST /api/v1/auth/token/refresh/` with `{"refresh": "<token>"}`.
 
 ## Endpoints
 
@@ -167,7 +167,7 @@ See [Offline Sync](/features/offline-sync/).
 Default page size: 50. Response envelope:
 
 ```json
-{"count": 123, "next": "...?cursor=...", "previous": null, "results": [...]}
+{"count": 123, "next": "...?page=3", "previous": "...?page=1", "results": [...]}
 ```
 
 ## Status codes

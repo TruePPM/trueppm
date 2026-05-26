@@ -8,7 +8,7 @@ description: Security considerations for deploying and operating TruePPM.
 TruePPM uses JWT (JSON Web Tokens) via `djangorestframework-simplejwt`:
 
 - **Access token** — short-lived, included in every API request as `Authorization: Bearer <token>`
-- **Refresh token** — longer-lived, used to obtain new access tokens via `POST /api/token/refresh/`
+- **Refresh token** — longer-lived, used to obtain new access tokens via `POST /api/v1/auth/token/refresh/`
 - Token lifetimes are configurable in Django settings
 
 WebSocket connections authenticate via `?token=<jwt>` on the connection URL.

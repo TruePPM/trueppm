@@ -58,4 +58,4 @@ Within a program (one or more related projects), resource management will be ful
 1. Ask your admin to [set up a TruePPM instance](/getting-started/installation/)
 2. Walk through the [Quickstart](/getting-started/quickstart/) to understand the API
 3. Explore the [API reference](/api/reference/) — see the Resources and Task-Resources endpoints
-4. Review the [RBAC model](/administration/rbac/) — Admin role (3) or above is needed to manage resources
+4. Review the [RBAC model](/administration/rbac/) — Admin role (300) or above is needed to manage resources
