@@ -149,7 +149,9 @@ test.describe('Program backlog', () => {
 
     // Enter the pull flow and confirm to Avionics.
     await page.getByRole('button', { name: 'Pull to project…' }).click();
-    await expect(page.getByText('Target project')).toBeVisible();
+    // "Target project" also appears in the sr-only announcement and the
+    // explainer copy; match the section label exactly.
+    await expect(page.getByText('Target project', { exact: true })).toBeVisible();
     await page.getByRole('radio', { name: /Avionics/ }).click();
     await page.getByRole('button', { name: 'Pull to Avionics' }).click();
 

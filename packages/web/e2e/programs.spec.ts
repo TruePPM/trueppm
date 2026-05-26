@@ -153,7 +153,9 @@ test.describe('Programs — shell tabs', () => {
     // empty state. Populated behavior is covered in program-backlog.spec.ts.
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.goto(`/programs/${PROGRAM_ID}/backlog`);
-    await expect(page.getByRole('heading', { name: 'Backlog' })).toBeVisible();
+    // exact: the empty-state h2 ("The program backlog is empty") also contains
+    // "backlog", so a substring name match would resolve to two headings.
+    await expect(page.getByRole('heading', { name: 'Backlog', exact: true })).toBeVisible();
     await expect(page.getByText('The program backlog is empty')).toBeVisible();
   });
 
