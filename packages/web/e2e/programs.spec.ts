@@ -49,6 +49,20 @@ const FIXTURE_MEMBERSHIP = {
   role_label: 'Project Admin',
 };
 
+// Default program rollup (#713). project_count > 0 with a mix of a count KPI,
+// a health KPI, and a deferred KPI so the overview renders all three treatments.
+const FIXTURE_ROLLUP = {
+  aggregation_policy: 'worst',
+  policy_available: true,
+  project_count: 2,
+  program_health: 'at_risk',
+  kpis: {
+    schedule_health: { available: true, value: 'at_risk' },
+    critical_tasks: { available: true, value: 5 },
+    cost_variance: { available: false, reason: 'no_cost_data' },
+  },
+};
+
 type Page = import('@playwright/test').Page;
 
 async function setup(page: Page, { existingPrograms = [] as (typeof FIXTURE_PROGRAM)[] } = {}) {
@@ -117,6 +131,9 @@ async function setup(page: Page, { existingPrograms = [] as (typeof FIXTURE_PROG
       contentType: 'application/json',
       body: pj([FIXTURE_MEMBERSHIP]),
     }),
+  );
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup/`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ROLLUP) }),
   );
 }
 
@@ -252,6 +269,47 @@ test.describe('Programs — shell tabs', () => {
     await expect(aliceRow.getByText('(you)')).toBeVisible();
     // The role badge in the row uses the role label as exact text.
     await expect(aliceRow.getByText('Project Admin', { exact: true })).toBeVisible();
+  });
+});
+
+test.describe('Programs — overview rollup (#713)', () => {
+  test('Overview is the default landing tab and renders the health hero', async ({ page }) => {
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    // Bare program URL redirects to the Overview tab (router index Navigate).
+    await page.goto(`/programs/${PROGRAM_ID}`);
+    await expect(page).toHaveURL(`/programs/${PROGRAM_ID}/overview`);
+    await expect(page.getByLabel('Program health: At risk')).toBeVisible();
+    await expect(page.getByText('Worst-case across 2 projects')).toBeVisible();
+  });
+
+  test('renders enabled KPI values and a deferred KPI with its reason', async ({ page }) => {
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    await page.goto(`/programs/${PROGRAM_ID}/overview`);
+    const kpis = page.getByRole('region', { name: /program kpis/i });
+    await expect(kpis.getByText('5')).toBeVisible(); // critical_tasks
+    await expect(kpis.getByText('At risk')).toBeVisible(); // schedule_health band
+    // Deferred KPI is shown with its reason, not hidden.
+    await expect(kpis.getByText('Cost variance')).toBeVisible();
+    await expect(kpis.getByText('Needs cost data')).toBeVisible();
+  });
+
+  test('shows the empty state when the program has no projects', async ({ page }) => {
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          aggregation_policy: 'worst',
+          policy_available: true,
+          project_count: 0,
+          program_health: 'unknown',
+          kpis: {},
+        }),
+      }),
+    );
+    await page.goto(`/programs/${PROGRAM_ID}/overview`);
+    await expect(page.getByText('No projects in this program yet.')).toBeVisible();
   });
 });
 
