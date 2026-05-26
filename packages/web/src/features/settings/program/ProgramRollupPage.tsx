@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useProgram } from '@/hooks/useProgram';
 import { ROLE_ADMIN } from '@/lib/roles';
+import {
+  HEALTH_LABEL,
+  HEALTH_VARIANT,
+  renderKpi,
+  useProgramRollup,
+  type KpiVariant,
+} from '@/features/programs/ProgramOverviewPage';
 import {
   useProgramRollupConfig,
   useSaveProgramRollupPolicy,
@@ -173,6 +181,119 @@ interface InlineToastState {
   variant: 'error' | 'success';
 }
 
+const PREVIEW_VARIANT_TEXT: Record<KpiVariant, string> = {
+  'on-track': 'text-semantic-on-track',
+  'at-risk': 'text-semantic-at-risk',
+  critical: 'text-semantic-critical',
+  neutral: 'text-neutral-text-primary',
+};
+
+const PREVIEW_HEALTH_PILL: Record<KpiVariant, string> = {
+  'on-track': 'border-semantic-on-track/40 text-semantic-on-track',
+  'at-risk': 'border-semantic-at-risk/40 text-semantic-at-risk',
+  critical: 'border-semantic-critical/40 text-semantic-critical',
+  neutral: 'border-neutral-border text-neutral-text-disabled',
+};
+
+const PREVIEW_POLICY_LABEL: Record<AggregationPolicy, string> = {
+  worst: 'Worst-case',
+  average: 'Average',
+  weighted_by_budget: 'Budget-weighted',
+  task_weighted: 'Task-weighted',
+};
+
+/**
+ * Live "preview against current data" panel (#673). Renders the same computed
+ * rollup the program overview shows (`GET /rollup/`, ADR-0088) so an admin sees
+ * the effect of the current selection before leaving settings. Reflects the
+ * SAVED config: KPI toggles auto-save (the preview refetches once the debounced
+ * PATCH lands — the parent invalidates the query), while the policy needs an
+ * explicit Save, so a dirty draft shows a hint rather than a stale number.
+ */
+function RollupPreview({ programId, policyDirty }: { programId: string; policyDirty: boolean }) {
+  const { data: rollup, isLoading, isError } = useProgramRollup(programId);
+
+  return (
+    <section
+      aria-labelledby="preview-heading"
+      className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden"
+    >
+      <div className="px-4 py-3 border-b border-neutral-border/55">
+        <h2 id="preview-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+          Preview
+        </h2>
+        <p className="text-[12px] text-neutral-text-secondary mt-0.5">
+          How these settings roll up against your current project data.
+        </p>
+      </div>
+
+      <div className="px-4 py-3">
+        {isLoading && (
+          <div role="status" aria-label="Loading preview" className="text-xs text-neutral-text-secondary">
+            Loading…
+          </div>
+        )}
+        {isError && (
+          <div role="alert" className="text-xs text-semantic-critical">
+            Couldn&apos;t load the preview.
+          </div>
+        )}
+        {!isLoading && !isError && rollup && (
+          <>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span
+                className={`bg-transparent border rounded px-2 py-0.5 text-[12px] font-medium ${PREVIEW_HEALTH_PILL[HEALTH_VARIANT[rollup.program_health]]}`}
+                aria-label={`Program health: ${HEALTH_LABEL[rollup.program_health]}`}
+              >
+                {HEALTH_LABEL[rollup.program_health]}
+              </span>
+              <span className="text-[12px] text-neutral-text-secondary">
+                {PREVIEW_POLICY_LABEL[rollup.aggregation_policy]} across {rollup.project_count}{' '}
+                project{rollup.project_count === 1 ? '' : 's'}
+              </span>
+            </div>
+
+            {policyDirty && (
+              <p className="text-[12px] text-neutral-text-disabled mt-2">
+                Save the policy to see it reflected in the preview.
+              </p>
+            )}
+
+            {rollup.project_count === 0 ? (
+              <p className="text-[12px] text-neutral-text-secondary mt-3">
+                Add projects to the program to preview the rollup.
+              </p>
+            ) : Object.keys(rollup.kpis).length === 0 ? (
+              <p className="text-[12px] text-neutral-text-secondary mt-3">
+                No KPIs enabled — toggle one above to preview it.
+              </p>
+            ) : (
+              <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2">
+                {Object.entries(rollup.kpis).map(([key, entry]) => {
+                  const k = renderKpi(key, entry);
+                  return (
+                    <div key={k.key} className="flex items-baseline justify-between gap-3 min-w-0">
+                      <dt className="text-[12px] text-neutral-text-secondary truncate">{k.label}</dt>
+                      <dd
+                        className={`text-[13px] font-medium tppm-mono shrink-0 ${
+                          k.muted ? 'text-neutral-text-disabled' : PREVIEW_VARIANT_TEXT[k.variant]
+                        }`}
+                        title={k.muted ? k.sub : undefined}
+                      >
+                        {k.value}
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
 /**
  * Program > Rollup KPIs settings page (#527).
  *
@@ -190,8 +311,19 @@ export function ProgramRollupPage() {
   const { data: config, isLoading, isError, refetch } = useProgramRollupConfig(programId);
   const toggleKpi = useToggleProgramRollupKpi(programId ?? '');
   const savePolicy = useSaveProgramRollupPolicy(programId ?? '');
+  const queryClient = useQueryClient();
 
   const canEdit = (program?.my_role ?? 0) >= ROLE_ADMIN;
+
+  // Keep the live preview in sync with saved config: KPI toggles auto-save and
+  // policy saves both refresh the config query, so invalidate the rollup query
+  // whenever the saved selection changes — the preview then recomputes against
+  // current project data (#673).
+  useEffect(() => {
+    if (programId) {
+      void queryClient.invalidateQueries({ queryKey: ['program-rollup', programId] });
+    }
+  }, [config?.enabled_kpis, config?.aggregation_policy, programId, queryClient]);
 
   // Local draft for the policy radio. Diverges from server state until the
   // user clicks Save; matches server again after a successful save or Discard.
@@ -460,6 +592,9 @@ export function ProgramRollupPage() {
             </fieldset>
           )}
         </section>
+
+        {/* Live preview (#673) */}
+        <RollupPreview programId={programId} policyDirty={policyDirty} />
 
         {/* Inline toast */}
         {toast && (
