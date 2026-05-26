@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
@@ -13,6 +13,7 @@ import type {
 
 const useProgram = vi.fn();
 const useProgramRollupConfig = vi.fn();
+const useProgramRollup = vi.fn();
 const toggleMutate = vi.fn<(payload: RollupKpi[]) => void>();
 const savePolicyMutate = vi.fn<(payload: AggregationPolicy) => void>();
 const refetch = vi.fn();
@@ -20,6 +21,15 @@ const refetch = vi.fn();
 vi.mock('@/hooks/useProgram', () => ({
   useProgram: () => useProgram() as { data: unknown },
 }));
+
+// Partial mock: keep the real display helpers (renderKpi, HEALTH_*) used by the
+// preview, override only the data hook so the preview is deterministic (#673).
+vi.mock('@/features/programs/ProgramOverviewPage', async () => {
+  const actual = await vi.importActual<typeof import('@/features/programs/ProgramOverviewPage')>(
+    '@/features/programs/ProgramOverviewPage',
+  );
+  return { ...actual, useProgramRollup: () => useProgramRollup() as { data: unknown } };
+});
 
 vi.mock('./useProgramRollupConfig', async () => {
   const actual = await vi.importActual<typeof import('./useProgramRollupConfig')>(
@@ -47,6 +57,33 @@ function defaultConfig(overrides: Partial<ProgramRollupConfig> = {}): ProgramRol
   };
 }
 
+interface RollupShape {
+  aggregation_policy: string;
+  policy_available: boolean;
+  project_count: number;
+  program_health: string;
+  kpis: Record<string, unknown>;
+}
+
+function rollupResult(overrides: Partial<RollupShape> = {}) {
+  return {
+    data: {
+      aggregation_policy: 'worst',
+      policy_available: true,
+      project_count: 2,
+      program_health: 'at_risk',
+      kpis: {
+        schedule_health: { available: true, value: 'at_risk' },
+        p80_completion: { available: false, reason: 'no_montecarlo_store' },
+        ...overrides.kpis,
+      },
+      ...overrides,
+    },
+    isLoading: false,
+    isError: false,
+  };
+}
+
 function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -64,6 +101,8 @@ describe('ProgramRollupPage (settings)', () => {
   beforeEach(() => {
     useProgram.mockReset();
     useProgramRollupConfig.mockReset();
+    useProgramRollup.mockReset();
+    useProgramRollup.mockReturnValue(rollupResult());
     toggleMutate.mockReset();
     savePolicyMutate.mockReset();
     refetch.mockReset();
@@ -220,5 +259,53 @@ describe('ProgramRollupPage (settings)', () => {
     expect(retryButtons.length).toBeGreaterThan(0);
     await user.click(retryButtons[0]);
     expect(refetch).toHaveBeenCalled();
+  });
+
+  // --- Live preview (#673) -------------------------------------------------
+
+  it('preview shows the program health pill and the policy/project subtitle', () => {
+    useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
+    useProgramRollupConfig.mockReturnValue({
+      data: defaultConfig(),
+      isLoading: false,
+      isError: false,
+      refetch,
+    });
+    renderPage();
+    const preview = screen.getByRole('region', { name: 'Preview' });
+    expect(within(preview).getByLabelText('Program health: At risk')).toBeInTheDocument();
+    expect(within(preview).getByText('Worst-case across 2 projects')).toBeInTheDocument();
+  });
+
+  it('preview renders a deferred KPI as an em dash', () => {
+    useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
+    useProgramRollupConfig.mockReturnValue({
+      data: defaultConfig(),
+      isLoading: false,
+      isError: false,
+      refetch,
+    });
+    renderPage();
+    const preview = screen.getByRole('region', { name: 'Preview' });
+    expect(within(preview).getByText('P80 completion')).toBeInTheDocument();
+    expect(within(preview).getByText('—')).toBeInTheDocument();
+  });
+
+  it('preview prompts to save the policy when a draft policy is selected', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: { id: 'p-1', my_role: ROLE_OWNER } });
+    useProgramRollupConfig.mockReturnValue({
+      data: defaultConfig({ aggregation_policy: 'worst' }),
+      isLoading: false,
+      isError: false,
+      refetch,
+    });
+    renderPage();
+    const preview = screen.getByRole('region', { name: 'Preview' });
+    expect(
+      within(preview).queryByText(/Save the policy to see it reflected/i),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: /Average/ }));
+    expect(within(preview).getByText(/Save the policy to see it reflected/i)).toBeInTheDocument();
   });
 });

@@ -83,7 +83,9 @@ a program.
 The Overview tab rolls up the health of the program's own projects into a single
 view: a **program health dot** plus a strip of KPI cards. Which KPIs appear and
 how they combine is controlled per program in **Settings → Rollup** (the enabled
-KPI set is seeded by methodology and can be edited by a Program Admin).
+KPI set is seeded by methodology and can be edited by a Program Admin). That page
+includes a live **Preview** panel showing how the current selection rolls up
+against your real project data before you leave settings.
 
 **Aggregation policy** governs how the health bands and day-variances combine,
 and what the program health dot reflects:

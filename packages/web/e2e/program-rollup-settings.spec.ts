@@ -115,6 +115,24 @@ async function setup(page: Page, captures: Captures, opts: { myRole?: number } =
       body: pj(FIXTURE_CONFIG),
     });
   });
+  // The page now hosts a live preview (#673) that calls the rollup consumer.
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup/`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        aggregation_policy: 'worst',
+        policy_available: true,
+        project_count: 2,
+        program_health: 'at_risk',
+        kpis: {
+          schedule_health: { available: true, value: 'at_risk' },
+          milestone_health: { available: true, value: 'on_track' },
+          p80_completion: { available: false, reason: 'no_montecarlo_store' },
+        },
+      }),
+    }),
+  );
 }
 
 test.describe('Program Settings → Rollup KPIs', () => {
@@ -201,5 +219,17 @@ test.describe('Program Settings → Rollup KPIs', () => {
       'aria-disabled',
       'true',
     );
+  });
+
+  test('the live preview renders the program health and a deferred KPI (#673)', async ({ page }) => {
+    const captures: Captures = { patchCount: 0 };
+    await setup(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/rollup`);
+
+    const preview = page.getByRole('region', { name: 'Preview' });
+    await expect(preview.getByLabelText('Program health: At risk')).toBeVisible();
+    await expect(preview.getByText('Worst-case across 2 projects')).toBeVisible();
+    // Deferred KPI shows its label with an em-dash value rather than being hidden.
+    await expect(preview.getByText('P80 completion')).toBeVisible();
   });
 });

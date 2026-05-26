@@ -6,7 +6,7 @@ import { apiClient } from '@/api/client';
 // API response types (GET /programs/{id}/rollup/ — ADR-0088, #713)
 // ---------------------------------------------------------------------------
 
-type HealthBand = 'on_track' | 'at_risk' | 'critical' | 'unknown';
+export type HealthBand = 'on_track' | 'at_risk' | 'critical' | 'unknown';
 type AggregationPolicy = 'worst' | 'average' | 'weighted_by_budget' | 'task_weighted';
 
 /** A built KPI: value present (may be null when there is no data yet). */
@@ -24,7 +24,7 @@ interface UnavailableKpi {
 
 type RollupKpiEntry = AvailableKpi | UnavailableKpi;
 
-interface ProgramRollup {
+export interface ProgramRollup {
   aggregation_policy: AggregationPolicy;
   policy_available: boolean;
   project_count: number;
@@ -52,7 +52,7 @@ const KPI_LABELS: Record<string, string> = {
 const HEALTH_KPIS = new Set(['schedule_health', 'milestone_health']);
 const VARIANCE_KPIS = new Set(['baseline_variance', 'schedule_variance']);
 
-const HEALTH_LABEL: Record<HealthBand, string> = {
+export const HEALTH_LABEL: Record<HealthBand, string> = {
   on_track: 'On track',
   at_risk: 'At risk',
   critical: 'Critical',
@@ -61,7 +61,7 @@ const HEALTH_LABEL: Record<HealthBand, string> = {
 
 // Health band → KpiCard variant. unknown is neutral so a data-less program is
 // not painted as a problem (mirrors ProjectOverviewPage).
-const HEALTH_VARIANT: Record<HealthBand, KpiVariant> = {
+export const HEALTH_VARIANT: Record<HealthBand, KpiVariant> = {
   on_track: 'on-track',
   at_risk: 'at-risk',
   critical: 'critical',
@@ -101,7 +101,7 @@ export function useProgramRollup(programId: string | undefined) {
 // KPI card (mirrors ProjectOverviewPage's KpiCard visual language)
 // ---------------------------------------------------------------------------
 
-type KpiVariant = 'on-track' | 'at-risk' | 'critical' | 'neutral';
+export type KpiVariant = 'on-track' | 'at-risk' | 'critical' | 'neutral';
 
 interface KpiCardProps {
   label: string;
@@ -167,7 +167,7 @@ function formatVariance(value: number | null): { display: string; variant: KpiVa
   return { display: '0d', variant: 'neutral' };
 }
 
-interface RenderedKpi {
+export interface RenderedKpi {
   key: string;
   label: string;
   value: string;
@@ -176,7 +176,7 @@ interface RenderedKpi {
   muted: boolean;
 }
 
-function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
+export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
   const label = KPI_LABELS[key] ?? key;
 
   if (!entry.available) {
