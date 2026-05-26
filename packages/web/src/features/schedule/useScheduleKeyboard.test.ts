@@ -72,6 +72,16 @@ describe('useScheduleKeyboard', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it('does not fire when the target is inside an ARIA combobox', () => {
+    const handler = vi.fn();
+    renderHook(() => useScheduleKeyboard({ '?': handler }));
+    const combobox = document.createElement('div');
+    combobox.setAttribute('role', 'combobox');
+    document.body.appendChild(combobox);
+    combobox.dispatchEvent(new KeyboardEvent('keydown', { key: '?', bubbles: true }));
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it('unbinds when unmounted', () => {
     const handler = vi.fn();
     const { unmount } = renderHook(() => useScheduleKeyboard({ '?': handler }));

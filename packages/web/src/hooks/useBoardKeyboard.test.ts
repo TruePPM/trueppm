@@ -149,6 +149,20 @@ describe('useBoardKeyboard', () => {
     document.body.removeChild(textarea);
   });
 
+  it('suppresses shortcuts when inside an ARIA combobox', () => {
+    const onShowDeps = vi.fn();
+    renderHook(() => useBoardKeyboard({ onShowDeps }));
+
+    const combobox = document.createElement('div');
+    combobox.setAttribute('role', 'combobox');
+    document.body.appendChild(combobox);
+
+    combobox.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true }));
+    expect(onShowDeps).not.toHaveBeenCalled();
+
+    document.body.removeChild(combobox);
+  });
+
   it('suppresses shortcuts when inside a select element', () => {
     const onShowDeps = vi.fn();
     renderHook(() => useBoardKeyboard({ onShowDeps }));

@@ -24,6 +24,7 @@ import type { RecalcMessage, ResultMessage } from '@/workers/cpmWorker.types';
 import { useDragStore } from '@/stores/dragStore';
 import { buildSubgraph } from '@/features/schedule/buildSubgraph';
 import { createCpmWorker } from '@/workers/createCpmWorker';
+import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 
 interface UseDragCpmOptions {
   engine: GanttEngine | null;
@@ -148,6 +149,10 @@ export function useDragCpm({
     // Escape key to cancel (rule 28).
     // Yields to useKeyboardReschedule when keyboard mode is active (issue #34).
     const handleKeyDown = (e: KeyboardEvent) => {
+      // This listener is on `document`; guard bare-key bindings against firing
+      // while the user types in a field. Escape is exempt — it must always be
+      // able to cancel an in-flight drag.
+      if (isTypingInInput(e.target) && e.key !== 'Escape') return;
       if (e.key === 'Escape') {
         if (keyboardModeRef?.current) return;
         const phase = useDragStore.getState().phase;

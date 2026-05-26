@@ -29,6 +29,7 @@ import { useDragStore } from '@/stores/dragStore';
 import { buildSubgraph } from '@/features/schedule/buildSubgraph';
 import { nudgeWorkingDays } from '@/features/schedule/scheduleUtils';
 import { createCpmWorker } from '@/workers/createCpmWorker';
+import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 
 export interface UseKeyboardRescheduleOptions {
   engine: GanttEngine | null;
@@ -158,6 +159,12 @@ export function useKeyboardReschedule({
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // This listener is on `document`. Suppress every binding while the user
+      // is typing in a field, except Escape (which must still cancel an active
+      // reschedule). Without this guard, pressing Enter to submit a search box
+      // would initiate a keyboard reschedule on the selected task.
+      if (isTypingInInput(e.target) && e.key !== 'Escape') return;
+
       // ── Not in keyboard mode: only Enter can initiate ──────────────────────
       if (!keyboardModeRef.current) {
         if (e.key !== 'Enter') return;
