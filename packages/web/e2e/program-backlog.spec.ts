@@ -136,8 +136,10 @@ test.describe('Program backlog', () => {
     const row = page.getByRole('button', { name: 'Telemetry channel B', exact: true });
     await expect(row).toBeVisible();
 
-    // Search narrows the match counter.
-    await page.getByRole('searchbox', { name: 'Search backlog' }).fill('Telemetry');
+    // Search narrows the match counter. Use "Telemetry channel" (unique to the
+    // target row) rather than bare "Telemetry", which also matches "Valve
+    // telemetry dropout" and would make the counter "2 of 9".
+    await page.getByRole('searchbox', { name: 'Search backlog' }).fill('Telemetry channel');
     await expect(page.getByText('1 of 9')).toBeVisible();
     await page.getByRole('button', { name: 'Clear search' }).click();
 
@@ -160,6 +162,10 @@ test.describe('Program backlog', () => {
 
     await page.getByRole('searchbox', { name: 'Search backlog' }).fill('quasar');
     await expect(page.getByText('Nothing matches "quasar"')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Clear search' })).toBeVisible();
+    // Two controls share the accessible name "Clear search" while the no-results
+    // panel is up (the search field's icon button via aria-label, and this
+    // recovery button). Target the recovery button by its visible text — the
+    // icon button has none — to avoid a strict-mode match on both.
+    await expect(page.getByText('Clear search')).toBeVisible();
   });
 });

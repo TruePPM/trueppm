@@ -108,6 +108,9 @@ async function setup(page: Page, { existingPrograms = [] as (typeof FIXTURE_PROG
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
   );
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/**`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+  );
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/**`, (r) =>
     r.fulfill({
       status: 200,
@@ -146,8 +149,8 @@ test.describe('Programs — empty state and creation', () => {
 
 test.describe('Programs — shell tabs', () => {
   test('Backlog tab renders the backlog workspace (empty)', async ({ page }) => {
-    // No backlog-items are mocked here (catch-all returns []), so the workspace
-    // shows its empty state. Populated behavior is covered in program-backlog.spec.ts.
+    // backlog-items is mocked to [] in setup(), so the workspace shows its
+    // empty state. Populated behavior is covered in program-backlog.spec.ts.
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.goto(`/programs/${PROGRAM_ID}/backlog`);
     await expect(page.getByRole('heading', { name: 'Backlog' })).toBeVisible();
