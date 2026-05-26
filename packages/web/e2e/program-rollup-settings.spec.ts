@@ -227,7 +227,7 @@ test.describe('Program Settings → Rollup KPIs', () => {
     await page.goto(`/programs/${PROGRAM_ID}/settings/rollup`);
 
     const preview = page.getByRole('region', { name: 'Preview' });
-    await expect(preview.getByLabelText('Program health: At risk')).toBeVisible();
+    await expect(preview.getByLabel('Program health: At risk')).toBeVisible();
     await expect(preview.getByText('Worst-case across 2 projects')).toBeVisible();
     // Deferred KPI shows its label with an em-dash value rather than being hidden.
     await expect(preview.getByText('P80 completion')).toBeVisible();
