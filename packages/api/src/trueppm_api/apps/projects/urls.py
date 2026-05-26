@@ -47,6 +47,7 @@ from trueppm_api.apps.projects.views import (
     TaskHistoryView,
     TaskIndentView,
     TaskOutdentView,
+    TaskRecurrenceRuleViewSet,
     TaskReorderView,
     TaskReparentView,
     TaskSyncView,
@@ -59,6 +60,7 @@ router.register(r"projects", ProjectViewSet, basename="project")
 router.register(r"programs", ProgramViewSet, basename="program")
 router.register(r"tasks", TaskViewSet, basename="task")
 router.register(r"dependencies", DependencyViewSet, basename="dependency")
+router.register(r"recurrence-rules", TaskRecurrenceRuleViewSet, basename="recurrence-rule")
 
 urlpatterns = [
     *router.urls,

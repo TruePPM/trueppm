@@ -303,6 +303,13 @@ CELERY_BEAT_SCHEDULE = {
         # 04:20 UTC — after purge-stale-invites.
         "schedule": crontab(hour=4, minute=20),
     },
+    # Lazily materialize upcoming recurring-task occurrences within the
+    # TRUEPPM_RECURRENCE_HORIZON_DAYS look-ahead. Hourly: occurrences are date-grained,
+    # and a missed tick self-heals on the next one (idempotent). See ADR-0090 / #736.
+    "generate-recurring-occurrences": {
+        "task": "projects.generate_recurring_occurrences",
+        "schedule": crontab(minute=0),
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -499,6 +506,11 @@ RETENTION_PURGE_INFLIGHT_SECONDS: int = env.int("RETENTION_PURGE_INFLIGHT_SECOND
 # that transaction (and its per-task row locks) can be held by one request.
 TRUEPPM_SYNC_BATCH_MAX_ROWS: int = env.int("TRUEPPM_SYNC_BATCH_MAX_ROWS", default=500)
 
+# Look-ahead horizon (days) for lazy recurring-task occurrence generation (ADR-0090).
+# The hourly projects.generate_recurring_occurrences sweep materializes only
+# occurrences due within this window — a bounded look-ahead, never the full series.
+TRUEPPM_RECURRENCE_HORIZON_DAYS: int = env.int("TRUEPPM_RECURRENCE_HORIZON_DAYS", default=14)
+
 # ---------------------------------------------------------------------------
 # Workflow execution engine (ADR-0080)
 # ---------------------------------------------------------------------------
@@ -554,9 +566,16 @@ SPECTACULAR_SETTINGS = {
     # drf-spectacular disambiguate *both* by model prefix, renaming the sprint enum
     # away from the stable `StateEnum` component (a schema regression). Pinning the
     # sprint enum to `StateEnum` and ours to `PurgeRunStateEnum` keeps both stable.
+    # Likewise for "frequency": TaskRecurrenceRule.frequency (#736) introduces a
+    # second choice set sharing the field name with RetentionSchedule.frequency,
+    # so drf-spectacular would disambiguate both by model prefix and rename the
+    # stable `FrequencyEnum` component (a regression). Pin the retention enum back
+    # to `FrequencyEnum` and the recurrence enum to `RecurrenceFrequencyEnum`.
     "ENUM_NAME_OVERRIDES": {
         "StateEnum": "trueppm_api.apps.projects.models.SprintState",
         "PurgeRunStateEnum": "trueppm_api.apps.observability.models.PurgeRun.State",
         "PurgeRunTriggerEnum": "trueppm_api.apps.observability.models.PurgeRun.Trigger",
+        "FrequencyEnum": "trueppm_api.apps.observability.models.RetentionSchedule.Frequency",
+        "RecurrenceFrequencyEnum": "trueppm_api.apps.projects.models.TaskRecurrenceFrequency",
     },
 }

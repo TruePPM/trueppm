@@ -8,6 +8,7 @@ from datetime import date
 from typing import Any
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import serializers
 from trueppm_scheduler import find_cycle
@@ -50,6 +51,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskAttachment,
     TaskComment,
+    TaskRecurrenceRule,
     TaskStatus,
 )
 from trueppm_api.apps.resources.models import TaskResource
@@ -1410,6 +1412,90 @@ def _load_project_tasks_and_children_map(
         if parent_id:
             children_map.setdefault(parent_id, []).append(str(r["id"]))
     return task_ids, children_map
+
+
+class TaskRecurrenceRuleSerializer(serializers.ModelSerializer[TaskRecurrenceRule]):
+    """Read/write serializer for a task's recurrence rule (ADR-0090).
+
+    One rule per task. The ``task`` FK is settable on create and immutable
+    thereafter — a rule cannot be repointed to another task. ``occurrence_count``
+    exposes how many occurrences have been materialized so the #738 setup panel can
+    show series progress; ``generated_through`` is the internal generation cursor and
+    is read-only.
+    """
+
+    # Explicit queryset excludes soft-deleted tasks so a rule cannot anchor to a
+    # tombstoned template.
+    task = serializers.PrimaryKeyRelatedField(queryset=Task.objects.filter(is_deleted=False))
+    occurrence_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TaskRecurrenceRule
+        fields = [
+            "id",
+            "server_version",
+            "task",
+            "frequency",
+            "interval",
+            "weekdays",
+            "day_of_month",
+            "time_of_day",
+            "timezone",
+            "end_type",
+            "end_date",
+            "end_count",
+            "inherit_assignee",
+            "inherit_subtasks",
+            "inherit_attachments",
+            "inherit_morning_notification",
+            "generated_through",
+            "occurrence_count",
+        ]
+        read_only_fields = ["id", "server_version", "generated_through", "occurrence_count"]
+
+    def get_occurrence_count(self, obj: TaskRecurrenceRule) -> int:
+        """Count of materialized (non-deleted) occurrences generated so far.
+
+        Prefers the ``_occurrence_count`` annotation set by the viewset's get_queryset
+        (avoids a COUNT-per-row N+1 on list); falls back to a live count so the
+        serializer stays correct when used outside that queryset.
+        """
+        cached = getattr(obj, "_occurrence_count", None)
+        if cached is not None:
+            return int(cached)
+        return obj.occurrences.filter(is_deleted=False).count()
+
+    def validate_task(self, value: Task) -> Task:
+        # The rule is anchored to one template task for life — reject repointing.
+        if self.instance is not None and value != self.instance.task:
+            raise serializers.ValidationError("task cannot be changed after creation.")
+        return value
+
+    def validate_timezone(self, value: str) -> str:
+        # Reject unknown IANA zones at write time so a bad value can't silently break
+        # occurrence timing / the future morning-notification slot at generation time.
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise serializers.ValidationError("Unknown IANA timezone.") from exc
+        return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Delegate the conditional-field invariants (weekly⇒weekday, monthly⇒dom,
+        # end-type⇒date/count) to the model's clean() so the rules live in one place.
+        if self.instance is not None:
+            candidate = self.instance
+            for key, val in attrs.items():
+                setattr(candidate, key, val)
+        else:
+            candidate = TaskRecurrenceRule(**attrs)
+        try:
+            candidate.clean()
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(serializers.as_serializer_error(exc)) from exc
+        return attrs
 
 
 class DependencySerializer(serializers.ModelSerializer[Dependency]):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import time
 from typing import Any
 
 from django.conf import settings
@@ -757,7 +758,19 @@ class CommittedTaskManager(models.Manager["Task"]):
     """
 
     def get_queryset(self) -> models.QuerySet[Task]:
-        return super().get_queryset().exclude(status=TaskStatus.BACKLOG).filter(is_deleted=False)
+        # is_recurring=False excludes recurrence templates and their generated
+        # occurrences from every committed-delivery aggregate (Monte Carlo input,
+        # capacity heat map, Schedule/Gantt, client PDF export). Recurring tasks are
+        # parallel, calendar-driven activities — admitting them to these scheduling
+        # inputs would corrupt float, the critical path, and Monte Carlo P50/P80/P95.
+        # The CPM feed (scheduling/tasks.py::_run_schedule) applies the same exclusion
+        # at its own boundary. See ADR-0090.
+        return (
+            super()
+            .get_queryset()
+            .exclude(status=TaskStatus.BACKLOG)
+            .filter(is_deleted=False, is_recurring=False)
+        )
 
 
 class Task(VersionedModel):
@@ -927,6 +940,32 @@ class Task(VersionedModel):
         help_text="Phase accent color as #RRGGBB hex (root tasks only).",
     )
 
+    # Recurrence (ADR-0090). A task is either a recurrence *template* (has a
+    # TaskRecurrenceRule via the `recurrence` reverse one-to-one) or a generated
+    # *occurrence* (recurrence_rule set). Both carry is_recurring=True.
+    #
+    # is_recurring is the LOAD-BEARING CPM-exclusion key. Recurring tasks are
+    # parallel, calendar-driven activities and MUST NOT enter the scheduling-engine
+    # inputs — admitting them would corrupt CPM float, the critical path, and Monte
+    # Carlo P50/P80/P95. A single indexed boolean (rather than deriving exclusion from
+    # the FK + reverse one-to-one at every call site) guarantees the template and its
+    # occurrences are filtered together and can never be half-excluded. Enforced at
+    # both engine boundaries: scheduling/tasks.py::_run_schedule (CPM) and
+    # CommittedTaskManager (Monte Carlo, capacity, PDF, Schedule view).
+    is_recurring = models.BooleanField(default=False, db_index=True)
+    # Set on generated occurrences only; the template is reached via the rule's
+    # `task` one-to-one. CASCADE: deleting a rule removes its generated occurrences.
+    recurrence_rule = models.ForeignKey(
+        "TaskRecurrenceRule",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="occurrences",
+    )
+    # The calendar date a generated occurrence represents — the idempotency key for
+    # lazy generation (paired with recurrence_rule in the unique constraint below).
+    recurrence_occurrence_date = models.DateField(null=True, blank=True)
+
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_TASK)
 
     # Default manager — unfiltered. Listed first so it remains _default_manager
@@ -960,6 +999,13 @@ class Task(VersionedModel):
             models.UniqueConstraint(
                 fields=["project", "short_id"],
                 name="unique_task_short_id_per_project",
+            ),
+            # Lazy generation idempotency (ADR-0090): an occurrence is created at most
+            # once per (rule, date). NULL recurrence_rule (normal tasks) is distinct in
+            # Postgres, so non-recurring tasks are unconstrained by this.
+            models.UniqueConstraint(
+                fields=["recurrence_rule", "recurrence_occurrence_date"],
+                name="unique_recurrence_occurrence_per_date",
             ),
         ]
 
@@ -1038,6 +1084,142 @@ class Task(VersionedModel):
             for child in list(subtask_children):
                 child.soft_delete()
         super().soft_delete()
+
+
+# ---------------------------------------------------------------------------
+# Task recurrence (ADR-0090)
+# ---------------------------------------------------------------------------
+
+
+class TaskRecurrenceFrequency(models.TextChoices):
+    """How often a recurrence rule spawns a new task occurrence."""
+
+    DAILY = "DAILY", "Daily"
+    WEEKLY = "WEEKLY", "Weekly"
+    MONTHLY = "MONTHLY", "Monthly"
+    CUSTOM = "CUSTOM", "Custom"
+
+
+class RecurrenceEndType(models.TextChoices):
+    """When a recurrence series stops generating occurrences."""
+
+    NEVER = "NEVER", "Never"
+    ON_DATE = "ON_DATE", "On date"
+    AFTER_N = "AFTER_N", "After N occurrences"
+
+
+class TaskRecurrenceRule(VersionedModel):
+    """A calendar rule that lazily spawns parallel task occurrences from a template.
+
+    One rule per template task (OneToOne). The generator
+    (``projects.tasks.generate_recurring_occurrences``) creates upcoming
+    occurrences within a bounded horizon — never the full series — honoring the
+    per-occurrence inheritance toggles.
+
+    Recurrence templates and their occurrences are excluded from CPM and the
+    scheduling-engine inputs via ``Task.is_recurring`` (ADR-0090): they are
+    parallel, calendar-driven activities, not nodes in the project's logical
+    network. Extends VersionedModel so rule changes sync to mobile clients.
+    """
+
+    task = models.OneToOneField(
+        Task,
+        on_delete=models.CASCADE,
+        related_name="recurrence",
+        help_text="The template task this rule recurs from.",
+    )
+    frequency = models.CharField(
+        max_length=8,
+        choices=TaskRecurrenceFrequency.choices,
+        default=TaskRecurrenceFrequency.WEEKLY,
+    )
+    # "Every N" units — 1 = every period, 2 = every other, … Drives CUSTOM and any
+    # >1 multiple of the base frequency.
+    interval = models.PositiveSmallIntegerField(
+        default=1,
+        validators=[MinValueValidator(1), MaxValueValidator(365)],
+    )
+    # WEEKLY only: bitmask of weekdays (Mon=1, Tue=2, … Sun=64), mirroring the
+    # Calendar.working_days convention. 0 for non-weekly frequencies.
+    weekdays = models.SmallIntegerField(
+        default=0,
+        help_text="Weekly only: bitmask Mon=1 … Sun=64.",
+    )
+    # MONTHLY only: day-of-month 1–31, clamped to the month length at generation.
+    day_of_month = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(31)],
+    )
+    time_of_day = models.TimeField(
+        default=time(9, 0),
+        help_text="Local time the occurrence is due (morning-notification slot).",
+    )
+    timezone = models.CharField(max_length=64, default="UTC")
+
+    end_type = models.CharField(
+        max_length=8,
+        choices=RecurrenceEndType.choices,
+        default=RecurrenceEndType.NEVER,
+    )
+    end_date = models.DateField(null=True, blank=True)
+    end_count = models.PositiveIntegerField(null=True, blank=True)
+
+    # Per-occurrence inheritance toggles — which template attributes each generated
+    # occurrence copies.
+    inherit_assignee = models.BooleanField(default=True)
+    inherit_subtasks = models.BooleanField(default=False)
+    inherit_attachments = models.BooleanField(default=False)
+    # Stored for #738 and a future notification feature; OSS morning-digest delivery
+    # is net-new (the digest sender is trueppm-enterprise#112), so this toggle does
+    # not send anything yet. See ADR-0090.
+    inherit_morning_notification = models.BooleanField(default=False)
+
+    # Generation cursor — the date through which occurrences have been materialized.
+    # Lets the generator resume without rescanning the whole horizon. Null = none yet.
+    generated_through = models.DateField(null=True, blank=True)
+
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
+
+    class Meta:
+        db_table = "projects_taskrecurrencerule"
+        # Deterministic default order so list pagination is stable (one rule per task).
+        ordering = ["task_id"]
+
+    def __str__(self) -> str:
+        return f"Recurrence({self.frequency}) for task {self.task_id}"
+
+    @property
+    def project_id(self) -> Any:
+        """Surface the parent project's id for the RBAC helpers.
+
+        ``_get_project_id_from_obj`` (apps/access/permissions.py) derives object-level
+        project context by reading ``obj.project_id``. A recurrence rule is task-scoped
+        (project lives two hops away via ``task``), so without this property every
+        object-level permission check (retrieve/update/destroy) would fail closed.
+        Same pattern as ``TaskAttachment.project_id``.
+        """
+        return self.task.project_id
+
+    def clean(self) -> None:
+        """Enforce the conditional-field invariants per frequency and end type.
+
+        Defined on the model so the DRF serializer (which calls clean() in validate)
+        and the Django admin (which calls full_clean) enforce one set of rules. Code
+        paths that bypass both — bulk writes, raw sync upserts — must call full_clean
+        themselves if they need the same guarantees.
+        """
+        errors: dict[str, str] = {}
+        if self.frequency == TaskRecurrenceFrequency.WEEKLY and not (self.weekdays & 0b111_1111):
+            errors["weekdays"] = "Weekly recurrence requires at least one weekday."
+        if self.frequency == TaskRecurrenceFrequency.MONTHLY and self.day_of_month is None:
+            errors["day_of_month"] = "Monthly recurrence requires a day of month."
+        if self.end_type == RecurrenceEndType.ON_DATE and self.end_date is None:
+            errors["end_date"] = "end_date is required when end_type is ON_DATE."
+        if self.end_type == RecurrenceEndType.AFTER_N and not self.end_count:
+            errors["end_count"] = "end_count is required when end_type is AFTER_N."
+        if errors:
+            raise ValidationError(errors)
 
 
 # ---------------------------------------------------------------------------

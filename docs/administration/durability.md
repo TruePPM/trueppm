@@ -53,6 +53,21 @@ curl -fsS -H "Authorization: Bearer $ADMIN_JWT" \
 | Setting | Default | Purpose |
 |---|---|---|
 | `TRUEPPM_BEAT_STALE_SECONDS` | `120` | Age past which the heartbeat is considered stale, for both the endpoint flag and the WARNING log |
+| `TRUEPPM_RECURRENCE_HORIZON_DAYS` | `14` | Look-ahead window (days) for recurring-task occurrence generation — see below |
+
+## Recurring-task occurrence generation
+
+Recurring tasks (daily standups, weekly status reports, monthly reviews) are spawned by
+the `projects.generate_recurring_occurrences` Beat task, which runs **hourly**. It
+materializes occurrences **lazily** — only those due within
+`TRUEPPM_RECURRENCE_HORIZON_DAYS` (default 14) — rather than the full, possibly infinite
+series. A missed hourly tick self-heals on the next one (generation is idempotent via a
+per-occurrence unique constraint), so no occurrence is lost if Beat briefly stops.
+
+Recurring templates and their generated occurrences are deliberately **excluded from CPM
+and Monte Carlo** — they are parallel, calendar-driven activities, not nodes in the
+schedule's logical network. There is no operator action required; the exclusion is
+enforced in the scheduling engine (ADR-0090).
 
 ## Wiring it into Kubernetes / monitoring
 
