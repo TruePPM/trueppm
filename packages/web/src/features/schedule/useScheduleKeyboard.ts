@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 
 /**
  * View-scoped keyboard handler for the Schedule. Single home for global key
@@ -12,10 +13,11 @@ import { useEffect, useRef } from 'react';
  * Bindings are matched against the current platform's modifier convention —
  * pass `mod+x` and the hook resolves to `metaKey` on macOS, `ctrlKey` else.
  *
- * Bindings whose key fires inside an `<input>`, `<textarea>`, or
- * `contenteditable` element are silently ignored, so a literal `?` typed into
- * a search box does not open a Schedule cheatsheet. `Escape` is exempt — it is
- * commonly used to close the input itself.
+ * Bindings whose key fires inside a text-entry surface (`<input>`,
+ * `<textarea>`, `<select>`, `contenteditable`, or an ARIA combobox) are
+ * silently ignored via the shared {@link isTypingInInput} guard, so a literal
+ * `?` typed into a search box does not open a Schedule cheatsheet. `Escape` is
+ * exempt — it is commonly used to close the input itself.
  */
 export type KeyBindings = Record<string, (e: KeyboardEvent) => void>;
 
@@ -34,18 +36,6 @@ export function formatKey(e: KeyboardEvent): string {
   return parts.join('+');
 }
 
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tag = target.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA') return true;
-  // `isContentEditable` is the live computed value but jsdom does not always
-  // flip it when `contentEditable = 'true'` is set. The attribute lookup is the
-  // belt-and-braces fallback.
-  if (target.isContentEditable) return true;
-  const attr = target.getAttribute('contenteditable');
-  return attr === '' || attr === 'true' || attr === 'plaintext-only';
-}
-
 export function useScheduleKeyboard(bindings: KeyBindings): void {
   // Refs keep the binding identity stable across renders without re-binding the
   // window listener every time the parent re-renders.
@@ -54,8 +44,7 @@ export function useScheduleKeyboard(bindings: KeyBindings): void {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const editable = isEditableTarget(e.target);
-      if (editable && e.key !== 'Escape') return;
+      if (isTypingInInput(e.target) && e.key !== 'Escape') return;
       const key = formatKey(e);
       const fn = bindingsRef.current[key];
       if (fn) fn(e);

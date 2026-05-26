@@ -1,4 +1,5 @@
 import { useEffect, useCallback } from 'react';
+import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 
 export interface BoardKeyboardHandlers {
   onMoveCardFocus?: (direction: 'up' | 'down') => void;
@@ -18,25 +19,20 @@ export interface BoardKeyboardHandlers {
  * share the same key space. A single registered handler avoids race conditions
  * between two parallel listeners and keeps shortcut precedence deterministic.
  *
- * Keys are suppressed when the user is typing — input, textarea, contenteditable,
- * or any open ARIA dialog. This avoids hijacking text entry inside add-task,
- * edit, or comment forms.
+ * Keys are suppressed when the user is typing — input, textarea, select,
+ * contenteditable, or an ARIA combobox — via the shared {@link isTypingInInput}
+ * guard. This avoids hijacking text entry inside add-task, edit, or comment
+ * forms.
  */
 export function useBoardKeyboard(handlers: BoardKeyboardHandlers, enabled = true): void {
   const handleKey = useCallback(
     (e: KeyboardEvent) => {
       if (!enabled) return;
 
-      // Suppress when typing inside an editable element.
-      const target = e.target as HTMLElement | null;
-      if (
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement ||
-        (target && target.isContentEditable)
-      ) {
-        return;
-      }
+      // Suppress every board shortcut while the user is typing in a field.
+      // The board never exempts Escape here — closing an overlay from inside an
+      // open add/edit/comment form is intentionally not a board shortcut.
+      if (isTypingInInput(e.target)) return;
 
       // Don't compete with browser/OS shortcuts.
       if (e.metaKey || e.ctrlKey || e.altKey) return;
