@@ -185,8 +185,7 @@ class TaskLink(VersionedModel):
         verbose_name_plural = "Task links"
 
     def __str__(self) -> str:  # pragma: no cover — debugging aid only
-        # task_id: same django-stubs cross-app-base quirk as ``objects`` above.
-        return f"{self.provider} link on task {self.task_id}"  # type: ignore[attr-defined]
+        return f"{self.provider} link on task {self.task_id}"
 
     @property
     def project_id(self) -> Any:
