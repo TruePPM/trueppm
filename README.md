@@ -196,13 +196,19 @@ Report vulnerabilities privately via [SECURITY.md](SECURITY.md) — do not open 
 
 ## Roadmap
 
-Public milestones: [gitlab.com/trueppm/trueppm/-/milestones](https://gitlab.com/trueppm/trueppm/-/milestones). Targets, not commitments.
+Public milestones: [gitlab.com/trueppm/trueppm/-/milestones](https://gitlab.com/trueppm/trueppm/-/milestones). Targets, not commitments. The full release-by-release rationale lives in the [Roadmap doc](https://docs.trueppm.com/overview/roadmap/).
+
+From 0.3 onward each release **lands one primary persona** while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope; everything is OSS, with portfolio governance reserved for the enterprise edition after 1.0.
 
 - **0.2** — broad consolidation: settings & administration platform, the Program entity (OSS), MS Project / CSV / Excel import-export, board + schedule depth, durable-execution hardening
-- **0.3** — hybrid agile/waterfall depth + the sample-data launch demo: governance/delivery-mode model, parent rollup engine, agile-aware Monte Carlo, epic/initiative hierarchy, Product Owner role
-- **0.4** — mobile (React Native, Android-first), durable-execution OSS primitives, baselines & timesheets, offline hardening, MCP server
-- **0.5** — migration & data portability (top-10 PM-tool importers + Primavera P6), resource costs & cost reports, extension SDK
-- **1.0** — first stable GA: Team Cohesion (Brooks' Law) as a first-class scheduling input, workflow-engine maturity, iPhone/iPad parity
+- **0.3 — the agile team**: real sprint container, velocity-with-range, sprint sovereignty (audited scope changes, team-owned velocity), sprint→schedule reforecast, git PR→card auto-move, sample-data launch demo
+- **0.4 — mobile & the field PM**: native React Native editor (Android-first), iOS PWA fallback, basic client-ready PDF, ongoing one-way Jira sync, offline hardening
+- **0.5 — plan & people**: partial resource allocation + pre-commit conflict warning, timesheets, baselines, deep CPM-aware bridge, durable-execution default backend
+- **0.6 — open & portable**: multi-format import with preview, MCP server (team-scoped), public REST API depth, read-only shareable roadmap
+- **0.7 — the product owner**: editable product roadmap surface with release-target lanes, release planning, backlog↔schedule reconciliation
+- **0.8 — present & relate**: reporting (PDF, what-if, baseline variance, auto-narrative), program web view, single-program health digest, cost reports
+- **0.9 — GA candidate**: first-run onboarding, intuitiveness pass, GA hardening (API v1 freeze, WCAG 2.1 AA, perf/scale, i18n), extension SDK
+- **1.0** — first stable GA: Team Cohesion (Brooks' Law) as a first-class scheduling input, iPhone/iPad parity, workflow-engine maturity
 
 ## License
 
