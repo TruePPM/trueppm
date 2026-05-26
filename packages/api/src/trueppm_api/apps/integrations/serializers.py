@@ -11,6 +11,7 @@ tasks refresh endpoint (#637) needs it.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 from rest_framework import serializers
 
@@ -53,10 +54,10 @@ class CredentialUpsertSerializer(serializers.Serializer[Any]):
     - ``secret`` is write-only — never echoed back.
     - ``base_url`` is optional. When present it must be an ``http://`` or
       ``https://`` URL; ``file://`` / ``javascript:`` / ``gopher://`` /
-      similar schemes are rejected here. SSRF resolver-level guards (block
-      RFC1918, link-local, cloud metadata) live with #637 since they need
-      DNS resolution at fetch time — this serializer is the cheap
-      first line of defense.
+      similar schemes are rejected here. This serializer is the cheap first
+      line of defense; the resolver-level SSRF guard (block RFC1918, link-local,
+      cloud metadata at connect time) lands with #677's PAT verification in
+      ``integrations.http`` and is reused by #637's git-link refresh.
     - ``expires_at`` is optional and informational only.
     """
 
@@ -80,12 +81,35 @@ class CredentialUpsertSerializer(serializers.Serializer[Any]):
             raise serializers.ValidationError(
                 "Host URL must include a scheme (https://example.com)."
             )
-        scheme = value.split("://", 1)[0].lower()
-        if scheme not in ("http", "https"):
+        parsed = urlparse(value)
+        if parsed.scheme.lower() not in ("http", "https"):
             raise serializers.ValidationError(
-                f"Host URL scheme {scheme!r} is not allowed. Use http or https."
+                f"Host URL scheme {parsed.scheme.lower()!r} is not allowed. Use http or https."
+            )
+        # A host URL is a base — a path (self-hosted GitLab relative root, e.g.
+        # https://example.com/gitlab) is fine, but a query string or fragment is
+        # never meaningful and would corrupt the constructed ``…/api/v4/user``
+        # verify URL (e.g. https://host#frag/api/v4/user). Reject them here.
+        if parsed.query or parsed.fragment:
+            raise serializers.ValidationError(
+                "Host URL must not contain a query string or fragment."
             )
         return value
+
+
+class CredentialVerificationErrorSerializer(serializers.Serializer[Any]):
+    """422 body when live PAT verification fails (#677).
+
+    Documents the shape the Connected Accounts page reads on a rejected
+    connect/rotate: a human ``detail``, the stable ``code``
+    ``provider_verification_failed``, and a machine-readable ``reason`` the
+    client can branch on (``invalid_token``, ``provider_unreachable``,
+    ``provider_timeout``, ``blocked_host``).
+    """
+
+    detail = serializers.CharField()
+    code = serializers.CharField()
+    reason = serializers.CharField(allow_null=True)
 
 
 def serialize_credential_summaries(

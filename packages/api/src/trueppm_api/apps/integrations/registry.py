@@ -22,6 +22,31 @@ from typing import Any, ClassVar
 
 
 @dataclass(frozen=True)
+class VerifyResult:
+    """Outcome of verifying a PAT against its provider (ADR-0049 §3, #677).
+
+    Returned by :meth:`TaskLinkProvider.verify_token`. ``ok`` drives whether the
+    credentials viewset persists the row; the remaining fields are best-effort
+    metadata for the response / logs.
+
+    Attributes:
+        ok: ``True`` if the token is usable (or the provider cannot verify and
+            accepts unverified — see ``reason="unverified"``).
+        username: The authenticated account name the provider reported, if any.
+        scopes: Token scopes the provider exposed (GitHub returns these in a
+            header; GitLab does not on ``/user``), or ``None`` when unknown.
+        reason: A machine-readable code when ``ok`` is ``False``
+            (``invalid_token``, ``provider_unreachable``, ``provider_timeout``,
+            ``blocked_host``) or ``"unverified"`` when accepted without a check.
+    """
+
+    ok: bool
+    username: str | None = None
+    scopes: list[str] | None = None
+    reason: str | None = None
+
+
+@dataclass(frozen=True)
 class OutgoingChannelEvent:
     """A TruePPM event handed to an ``OutgoingChannelProvider.render``.
 
@@ -135,6 +160,27 @@ class TaskLinkProvider(abc.ABC):
 
         Implementation lands with #637 (5-second timeout, SSRF-protected).
         """
+
+    @classmethod
+    def verify_token(cls, plaintext: str, *, base_url: str | None = None) -> VerifyResult:
+        """Verify ``plaintext`` is a usable PAT for this provider (#677).
+
+        Deliberately **not** abstract: the default accepts the token without a
+        live check (``reason="unverified"``). This keeps the extension point
+        additive — Enterprise providers (``jira``, ``servicenow``) registered
+        against the base class before this method existed keep working and
+        simply degrade to "accepted, unverified" rather than failing to
+        instantiate. Providers that can cheaply verify a PAT (GitLab / GitHub
+        ping ``/user``) override this; the ``generic`` provider inherits the
+        no-op, which is exactly the "accepted but unverified" behavior ADR-0049
+        §3 specifies for it.
+
+        Args:
+            plaintext: The PAT to verify. Never logged or persisted in cleartext.
+            base_url: Self-hosted instance base URL (GitLab CE/EE, GitHub
+                Enterprise Server); ``None``/empty means the SaaS default host.
+        """
+        return VerifyResult(ok=True, reason="unverified")
 
 
 class OutgoingChannelProvider(abc.ABC):
