@@ -62,8 +62,10 @@ multiple programs at once.
 
 ## The program shell
 
-`/programs/:id` is a three-tab shell:
+`/programs/:id` is a four-tab shell:
 
+- **Overview** — the default landing tab. Shows the program health rollup (see
+  below).
 - **Backlog** — *coming next* (#501). Will be a shared pool of cross-project
   features / stories / tasks that any project in the program can pull from.
 - **Projects** — the projects currently in this program. Click a project name
@@ -75,6 +77,40 @@ multiple programs at once.
 
 The sidebar shows a `Program · {name}` line under each project that belongs to
 a program.
+
+## Program overview rollup
+
+The Overview tab rolls up the health of the program's own projects into a single
+view: a **program health dot** plus a strip of KPI cards. Which KPIs appear and
+how they combine is controlled per program in **Settings → Rollup** (the enabled
+KPI set is seeded by methodology and can be edited by a Program Admin). That page
+includes a live **Preview** panel showing how the current selection rolls up
+against your real project data before you leave settings.
+
+**Aggregation policy** governs how the health bands and day-variances combine,
+and what the program health dot reflects:
+
+- **Worst-case** (default) — the program is only as healthy as its least-healthy
+  project; a single critical project is not diluted.
+- **Average** — the mean across projects.
+- **Task-weighted** — the mean weighted by each project's committed task count.
+- **Budget-weighted** — weights by project budget. *Not yet available* — until
+  the cost model ships, this falls back to Average and the Overview notes it.
+
+Count KPIs (critical tasks, at-risk tasks) and risk exposure (risk score) always
+roll up as **program totals** regardless of policy — the total is the useful
+number for an additive metric.
+
+**Available KPIs today:** schedule health, milestone health, baseline variance,
+schedule variance, critical tasks, at-risk tasks, risk score.
+
+**KPIs that show "needs data" until a follow-up ships:** cost variance and budget
+utilization require the cost/EVM model; P80 completion requires a saved Monte
+Carlo run. If you enable one of these, its card stays visible with a short reason
+so it is clear *why* it is blank rather than silently disappearing.
+
+> The rollup is per-program only. Cross-program and portfolio rollups are an
+> Enterprise capability.
 
 ## Deleting a program
 

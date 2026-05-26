@@ -84,6 +84,10 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
             if self.request.method == "PATCH":
                 return [IsAuthenticated(), IsProgramAdmin(), IsProgramNotClosed()]
             return [IsAuthenticated(), IsProgramMember()]
+        if self.action == "rollup":
+            # Computed overview rollup — read-only. Open to any member, including
+            # on closed programs (the overview stays viewable for forensics).
+            return [IsAuthenticated(), IsProgramMember()]
         if self.action in ("retrieve", "projects", "integrations_summary"):
             return [IsAuthenticated(), IsProgramMember(), IsProgramNotClosed()]
         return [IsAuthenticated()]
@@ -410,6 +414,26 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         # field-level normalization (de-duped KPI list) applied by the
         # serializer's validators.
         return Response(ProgramRollupConfigSerializer(program).data)
+
+    @action(detail=True, methods=["get"], url_path="rollup")
+    def rollup(self, request: Request, pk: str | None = None) -> Response:
+        """Computed rollup of the enabled KPIs across the program's projects.
+
+        URL: ``GET /api/v1/programs/{pk}/rollup/``
+
+        Consumes the #527 config (``rollup_enabled_kpis`` +
+        ``rollup_aggregation_policy``) and returns the rolled-up values per
+        ADR-0088 — the program health dot, the active policy (and whether it
+        could be honored), the contributing project count, and a per-KPI map
+        where deferred KPIs carry ``{"available": False, "reason": ...}``.
+
+        Read-only and computed on demand (no persisted rollup row), so it always
+        reflects the projects' current state. Permission: any program member.
+        """
+        from trueppm_api.apps.projects.program_rollup import compute_program_rollup
+
+        program = self.get_object()
+        return Response(compute_program_rollup(program))
 
     @action(detail=True, methods=["get", "patch"], url_path="risk-policy")
     def risk_policy(self, request: Request, pk: str | None = None) -> Response:

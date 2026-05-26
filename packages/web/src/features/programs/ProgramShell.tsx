@@ -4,6 +4,7 @@ import { useProgram } from '@/hooks/useProgram';
 import { DeleteProgramDialog } from './DeleteProgramDialog';
 
 const PROGRAM_TABS = [
+  { path: 'overview', label: 'Overview' },
   { path: 'backlog', label: 'Backlog' },
   { path: 'projects', label: 'Projects' },
   { path: 'members', label: 'Members' },
@@ -13,9 +14,9 @@ const PROGRAM_TABS = [
  * /programs/:programId — program shell with secondary tab nav (ADR-0070).
  *
  * Mirrors :class:`ProjectSettingsPage` exactly — same NavLink + Outlet pattern
- * and the same tab styling. The Backlog tab is functional in the URL but
- * renders a stub until #501 (BacklogItem) lands; the Projects tab is the
- * default landing target (set by the router via index Navigate).
+ * and the same tab styling. The Overview tab is the default landing target (set
+ * by the router via index Navigate) and renders the program rollup (#713); the
+ * Backlog tab is functional in the URL but renders a stub until #501 lands.
  *
  * Header is the only thing this shell adds over the bare tab strip — it shows
  * the program name + an action menu (Edit · Delete) gated by role.
