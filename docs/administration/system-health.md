@@ -33,18 +33,18 @@ Five cards summarize the durable-execution layer. Each shows a status dot — gr
 | Celery Beat | the Beat heartbeat singleton | heartbeat younger than the stale threshold |
 | Dead-letter alerting | permanently-failed Celery tasks | no parked (`dead`) tasks |
 | Notification dispatcher | pending notification emails | nothing failed-and-pending beyond 1 hour |
-| Retention purge | configured retention windows | see the caveat below |
+| Retention purge | the most recent purge run | last run succeeded (`ok`) |
 
-**Retention purge shows "unknown".** The Retention purge card is always reported as
-*unknown* in this release. TruePPM does not yet record purge-run history, so the console
-can show the configured retention windows but cannot confirm whether the last purge
-succeeded. This is a deliberate, honest "not measured" state — not an error.
+**Retention purge.** The card reports the outcome of the most recent purge run — `ok`,
+`partial`, or `failed`. Before any run has been recorded it shows a gray hollow
+*unknown* ("not measured") state rather than an error. Configure windows, schedule, and
+on-demand runs at **System health → Retention & purge** (see [Retention](retention.md)).
 
 ### Celery Beat heartbeat
 
 The heartbeat panel shows seconds since the last recorded beat and the stale threshold
 (`TRUEPPM_BEAT_STALE_SECONDS`, default 120 s). Below it, the **Scheduled tasks** table
-lists every job Beat runs and its cadence (e.g. `every 30s`, `daily 03:30 UTC`), grouped
+lists every job Beat runs and its cadence (e.g. `every 30s`, `daily 04:00 UTC`), grouped
 by category (heartbeat, drain, purge, snapshot).
 
 This list is the *configured* schedule, not per-task last-run status — TruePPM tracks a
@@ -55,8 +55,9 @@ purge stops, so a stale heartbeat is the signal that matters.
 
 The dead-letter card shows the parked count, the age of the oldest parked task, the most
 common failure cause, and an **Open inspector** link. The retention card shows the
-current per-table retention windows (read-only here — they are set via environment
-variables / settings; see [Retention](retention.md) and ADR-0081).
+current per-table retention windows (read-only here) with a **Manage retention** link to
+the editor, where admins tune windows, schedule, and on-demand runs; see
+[Retention](retention.md) and ADR-0081 / ADR-0090.
 
 ## Dead-letter inspector
 

@@ -209,24 +209,34 @@ def _do_import_drain() -> None:
         logger.info("drain_import_queue: dispatched=%d recovered=%d", dispatched, recovered)
 
 
-def _do_import_purge() -> None:
+def _do_import_purge(*, dry_run: bool = False, override_value: int | None = None) -> int:
     """Business logic for purge_old_import_requests — extracted for testability.
 
-    Retention is operator-tunable via TRUEPPM_IMPORT_RETENTION_DAYS (default 7);
-    None disables the purge, keeping ImportRequest blobs indefinitely (ADR-0081).
+    Retention comes from ``resolve_retention`` (operator override → the
+    TRUEPPM_IMPORT_RETENTION_DAYS default, ADR-0090); ``None`` disables the purge,
+    keeping ImportRequest blobs indefinitely. Returns rows deleted, or the eligible
+    count when ``dry_run``; ``override_value`` forces a hypothetical window.
     """
-    from django.conf import settings
     from django.utils import timezone
 
     from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+    from trueppm_api.apps.observability.retention import resolve_retention
 
-    retention_days = settings.TRUEPPM_IMPORT_RETENTION_DAYS
+    retention_days = (
+        override_value
+        if override_value is not None
+        else resolve_retention("TRUEPPM_IMPORT_RETENTION_DAYS")
+    )
     if retention_days is None:
-        return
+        return 0
 
     cutoff = timezone.now() - timedelta(days=retention_days)
-    deleted, _ = ImportRequest.objects.filter(
+    qs = ImportRequest.objects.filter(
         status__in=[ImportRequestStatus.DONE, ImportRequestStatus.DEAD],
         requested_at__lt=cutoff,
-    ).delete()
+    )
+    if dry_run:
+        return qs.count()
+    deleted, _ = qs.delete()
     logger.info("purge_old_import_requests: deleted %d row(s)", deleted)
+    return deleted

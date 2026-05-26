@@ -1012,6 +1012,190 @@
                 }
             }
         },
+        "/api/v1/health/retention/": {
+            "get": {
+                "operationId": "v1_health_retention_retrieve",
+                "description": "Returns the editable retention policy for the five operational tables (event history, task runs, webhook deliveries, import requests, sync batches) with estimated row counts and sizes, the purge schedule, and the seven most recent purge runs. Row counts and sizes are PostgreSQL estimates. Workspace operators tune these from Settings → System health → Retention & purge (ADR-0090). Requires a staff (admin) account.",
+                "summary": "Retention policy editor state",
+                "tags": [
+                    "meta"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RetentionState"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_health_retention_partial_update",
+                "description": "Persist retention-window overrides and/or the purge schedule, then return the refreshed editor state. Lowering a window makes more data purge-eligible on the next run — irreversible. Requires a staff (admin) account.",
+                "summary": "Update retention policy and schedule",
+                "tags": [
+                    "meta"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRetentionUpdateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRetentionUpdateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRetentionUpdateRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RetentionState"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/health/retention/impact/": {
+            "get": {
+                "operationId": "v1_health_retention_impact_retrieve",
+                "description": "Returns how many rows (and best-effort bytes) would become purge-eligible for `key` at the proposed `value` (its native unit — days, or hours for sync batches). A pure count: nothing is deleted. Backs the dirty-state irreversibility warning when an operator lowers a window. Requires a staff (admin) account.",
+                "summary": "Estimate purge impact at a proposed retention window",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "key",
+                        "schema": {
+                            "enum": [
+                                "HISTORY_RETENTION_DAYS",
+                                "TASK_RUN_RETENTION_DAYS",
+                                "TRUEPPM_WEBHOOK_RETENTION_DAYS",
+                                "TRUEPPM_IMPORT_RETENTION_DAYS",
+                                "TRUEPPM_SYNC_BATCH_RETENTION_HOURS"
+                            ],
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS",
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "value",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 0
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "meta"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RetentionImpact"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/health/retention/runs/": {
+            "post": {
+                "operationId": "v1_health_retention_runs_create",
+                "description": "Dispatch the retention purge coordinator across all five operational tables. `dry_run=true` counts eligible rows without deleting. Best-effort dispatch: returns 202 with the new run's id; the run completes asynchronously and appears in the recent-runs log. Requires a staff (admin) account.",
+                "summary": "Run a purge now (or dry-run)",
+                "tags": [
+                    "meta"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PurgeRunRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PurgeRunRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PurgeRunRequestRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PurgeRunQueued"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/health/system/": {
             "get": {
                 "operationId": "v1_health_system_retrieve",
@@ -15757,6 +15941,15 @@
                 "type": "string",
                 "description": "* `TEXT` - Text\n* `NUMBER` - Number\n* `DATE` - Date\n* `SINGLE_SELECT` - Single-select\n* `MULTI_SELECT` - Multi-select\n* `USER` - Person\n* `BOOLEAN` - Boolean"
             },
+            "FrequencyEnum": {
+                "enum": [
+                    "daily",
+                    "weekly",
+                    "off"
+                ],
+                "type": "string",
+                "description": "* `daily` - Daily\n* `weekly` - Weekly\n* `off` - Off"
+            },
             "Group": {
                 "type": "object",
                 "description": "Read serializer for a group row (fed a pre-built dict).",
@@ -15908,6 +16101,17 @@
                 ],
                 "type": "string",
                 "description": "* `epic` - Epic\n* `feature` - Feature\n* `story` - Story\n* `task` - Task"
+            },
+            "KeyEnum": {
+                "enum": [
+                    "HISTORY_RETENTION_DAYS",
+                    "TASK_RUN_RETENTION_DAYS",
+                    "TRUEPPM_WEBHOOK_RETENTION_DAYS",
+                    "TRUEPPM_IMPORT_RETENTION_DAYS",
+                    "TRUEPPM_SYNC_BATCH_RETENTION_HOURS"
+                ],
+                "type": "string",
+                "description": "* `HISTORY_RETENTION_DAYS` - HISTORY_RETENTION_DAYS\n* `TASK_RUN_RETENTION_DAYS` - TASK_RUN_RETENTION_DAYS\n* `TRUEPPM_WEBHOOK_RETENTION_DAYS` - TRUEPPM_WEBHOOK_RETENTION_DAYS\n* `TRUEPPM_IMPORT_RETENTION_DAYS` - TRUEPPM_IMPORT_RETENTION_DAYS\n* `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` - TRUEPPM_SYNC_BATCH_RETENTION_HOURS"
             },
             "Me": {
                 "type": "object",
@@ -16248,6 +16452,14 @@
                 "enum": [
                     null
                 ]
+            },
+            "OnFailureEnum": {
+                "enum": [
+                    "continue",
+                    "stop"
+                ],
+                "type": "string",
+                "description": "* `continue` - Continue and flag the failed table\n* `stop` - Stop the run on first error"
             },
             "PaginatedApiTokenAuditEntryList": {
                 "type": "object",
@@ -17692,6 +17904,21 @@
                     }
                 }
             },
+            "PatchedRetentionUpdateRequest": {
+                "type": "object",
+                "description": "The save-bar payload: any subset of policy overrides + the schedule.",
+                "properties": {
+                    "policies": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RetentionPolicyWriteRequest"
+                        }
+                    },
+                    "schedule": {
+                        "$ref": "#/components/schemas/RetentionScheduleRequest"
+                    }
+                }
+            },
             "PatchedRiskRequest": {
                 "type": "object",
                 "description": "Read/write serializer for project risks.\n\nseverity is a computed read-only field (probability × impact); it is not\nstored in the database to avoid write-consistency hazards.\n\ntasks is a writable PrimaryKeyRelatedField that accepts task UUIDs on\ncreate and update.  The viewset annotates a severity DB expression on the\nqueryset so OrderingFilter can sort without round-tripping to Python.",
@@ -19088,6 +19315,102 @@
                     "resource"
                 ]
             },
+            "PurgeRun": {
+                "type": "object",
+                "description": "A recorded purge run with a computed duration.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "finished_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "trigger": {
+                        "$ref": "#/components/schemas/PurgeRunTriggerEnum"
+                    },
+                    "state": {
+                        "$ref": "#/components/schemas/PurgeRunStateEnum"
+                    },
+                    "tables": {},
+                    "rows_deleted": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    },
+                    "bytes_freed": {
+                        "type": "integer",
+                        "maximum": 9223372036854775807,
+                        "minimum": 0,
+                        "format": "int64",
+                        "nullable": true
+                    },
+                    "error": {
+                        "type": "string"
+                    },
+                    "duration_ms": {
+                        "type": "integer",
+                        "nullable": true,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "duration_ms",
+                    "id",
+                    "trigger"
+                ]
+            },
+            "PurgeRunQueued": {
+                "type": "object",
+                "properties": {
+                    "queued": {
+                        "type": "boolean"
+                    },
+                    "run_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "queued",
+                    "run_id"
+                ]
+            },
+            "PurgeRunRequestRequest": {
+                "type": "object",
+                "properties": {
+                    "dry_run": {
+                        "type": "boolean",
+                        "default": false
+                    }
+                }
+            },
+            "PurgeRunStateEnum": {
+                "enum": [
+                    "running",
+                    "ok",
+                    "partial",
+                    "failed"
+                ],
+                "type": "string",
+                "description": "* `running` - Running\n* `ok` - OK\n* `partial` - Partial\n* `failed` - Failed"
+            },
+            "PurgeRunTriggerEnum": {
+                "enum": [
+                    "scheduled",
+                    "manual",
+                    "dry_run"
+                ],
+                "type": "string",
+                "description": "* `scheduled` - Scheduled\n* `manual` - Manual\n* `dry_run` - Dry run"
+            },
             "Resource": {
                 "type": "object",
                 "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.",
@@ -19256,6 +19579,154 @@
                 ],
                 "type": "string",
                 "description": "* `AVOID` - Avoid\n* `MITIGATE` - Mitigate\n* `TRANSFER` - Transfer\n* `ACCEPT` - Accept"
+            },
+            "RetentionImpact": {
+                "type": "object",
+                "properties": {
+                    "eligible_rows": {
+                        "type": "integer"
+                    },
+                    "eligible_bytes": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "eligible_bytes",
+                    "eligible_rows"
+                ]
+            },
+            "RetentionPolicyRead": {
+                "type": "object",
+                "description": "One table's policy row + estimated stats (read side; serializes a dict).",
+                "properties": {
+                    "key": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "note": {
+                        "type": "string"
+                    },
+                    "unit": {
+                        "$ref": "#/components/schemas/UnitEnum"
+                    },
+                    "value": {
+                        "type": "integer"
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    },
+                    "row_count": {
+                        "type": "integer"
+                    },
+                    "bytes": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "bytes",
+                    "enabled",
+                    "key",
+                    "label",
+                    "note",
+                    "row_count",
+                    "unit",
+                    "value"
+                ]
+            },
+            "RetentionPolicyWriteRequest": {
+                "type": "object",
+                "description": "One policy override in a save-bar PATCH.",
+                "properties": {
+                    "key": {
+                        "$ref": "#/components/schemas/KeyEnum"
+                    },
+                    "value": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "enabled": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "enabled",
+                    "key",
+                    "value"
+                ]
+            },
+            "RetentionSchedule": {
+                "type": "object",
+                "description": "The purge-schedule singleton (read + write).",
+                "properties": {
+                    "frequency": {
+                        "$ref": "#/components/schemas/FrequencyEnum"
+                    },
+                    "time_of_day_utc": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "day_of_week": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "on_failure": {
+                        "$ref": "#/components/schemas/OnFailureEnum"
+                    }
+                }
+            },
+            "RetentionScheduleRequest": {
+                "type": "object",
+                "description": "The purge-schedule singleton (read + write).",
+                "properties": {
+                    "frequency": {
+                        "$ref": "#/components/schemas/FrequencyEnum"
+                    },
+                    "time_of_day_utc": {
+                        "type": "string",
+                        "format": "time"
+                    },
+                    "day_of_week": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "on_failure": {
+                        "$ref": "#/components/schemas/OnFailureEnum"
+                    }
+                }
+            },
+            "RetentionState": {
+                "type": "object",
+                "description": "Full editor payload (serializes the dict from ``get_retention_state``).",
+                "properties": {
+                    "policies": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RetentionPolicyRead"
+                        }
+                    },
+                    "schedule": {
+                        "$ref": "#/components/schemas/RetentionSchedule"
+                    },
+                    "runs": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PurgeRun"
+                        }
+                    }
+                },
+                "required": [
+                    "policies",
+                    "runs",
+                    "schedule"
+                ]
             },
             "Risk": {
                 "type": "object",
@@ -20958,6 +21429,14 @@
                 "required": [
                     "refresh"
                 ]
+            },
+            "UnitEnum": {
+                "enum": [
+                    "days",
+                    "hours"
+                ],
+                "type": "string",
+                "description": "* `days` - days\n* `hours` - hours"
             },
             "UserSearchResult": {
                 "type": "object",

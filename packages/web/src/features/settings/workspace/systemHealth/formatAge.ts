@@ -53,3 +53,42 @@ export function formatUpdatedAgo(dataUpdatedAt: number): string {
   const hours = Math.floor(minutes / 60);
   return `${hours}h ago`;
 }
+
+/**
+ * Formats a byte count as a compact, base-1024 human-readable size.
+ *
+ * Examples:
+ *   null      → "—"   (estimate unavailable)
+ *   0         → "0 B"
+ *   1536      → "1.5 KB"
+ *   480000000 → "458 MB"
+ *
+ * Sizes shown in the retention editor are PostgreSQL estimates, so one decimal
+ * place is plenty of precision. ``null`` renders as an em dash rather than a
+ * misleading 0 (ADR-0090: bytes is best-effort).
+ */
+export function formatBytes(bytes: number | null): string {
+  if (bytes === null) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
+  let value = bytes / 1024;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  // <10 keeps one decimal (e.g. 1.5 KB); ≥10 rounds to whole (e.g. 458 MB).
+  const formatted = value < 10 ? value.toFixed(1) : Math.round(value).toString();
+  return `${formatted} ${units[unitIndex]}`;
+}
+
+/**
+ * Returns a short "Ns ago" / "Nm ago" / "Nh ago" / "Nd ago" label for an ISO
+ * timestamp string, or "—" when null. Used by the purge-run log.
+ */
+export function formatTimeAgo(iso: string | null, now: number = Date.now()): string {
+  if (iso === null) return '—';
+  const elapsed = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000));
+  if (elapsed < 60) return `${elapsed}s ago`;
+  return `${formatAge(elapsed)} ago`;
+}

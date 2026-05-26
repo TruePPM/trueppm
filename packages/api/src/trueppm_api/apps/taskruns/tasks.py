@@ -7,39 +7,54 @@ from datetime import timedelta
 from typing import Any
 
 from celery import shared_task
-from django.conf import settings
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="taskruns.purge_old_records")  # type: ignore[untyped-decorator]
-def purge_old_task_runs() -> dict[str, Any]:
-    """Delete completed/failed/cancelled TaskRun records older than retention window.
+def _do_taskrun_purge(*, dry_run: bool = False, override_value: int | None = None) -> int:
+    """Business logic for purge_old_task_runs — extracted for testability.
 
-    Controlled by TASK_RUN_RETENTION_DAYS setting (default 30). Set to None to
-    disable auto-purge.
+    Deletes terminal (SUCCESS/FAILED/CANCELLED) TaskRun rows older than the window
+    resolved by ``resolve_retention`` (operator override → the
+    TASK_RUN_RETENTION_DAYS default, ADR-0090); ``None`` disables the purge. Returns
+    rows deleted, or the eligible count when ``dry_run``; ``override_value`` forces
+    a hypothetical window.
     """
+    from trueppm_api.apps.observability.retention import resolve_retention
     from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
 
-    retention_days: int | None = getattr(settings, "TASK_RUN_RETENTION_DAYS", 30)
+    retention_days = (
+        override_value
+        if override_value is not None
+        else resolve_retention("TASK_RUN_RETENTION_DAYS")
+    )
     if retention_days is None:
-        return {"deleted": 0, "skipped": "retention disabled"}
+        return 0
 
     cutoff = timezone.now() - timedelta(days=retention_days)
-    terminal_statuses = [
-        TaskRunStatus.SUCCESS,
-        TaskRunStatus.FAILED,
-        TaskRunStatus.CANCELLED,
-    ]
-    deleted, _ = TaskRun.objects.filter(
-        status__in=terminal_statuses,
+    qs = TaskRun.objects.filter(
+        status__in=[TaskRunStatus.SUCCESS, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED],
         completed_at__lt=cutoff,
-    ).delete()
-
-    logger.info(
-        "purge_old_task_runs: deleted %d records older than %d days",
-        deleted,
-        retention_days,
     )
-    return {"deleted": deleted}
+    if dry_run:
+        return qs.count()
+    deleted, _ = qs.delete()
+    logger.info("purge_old_task_runs: deleted %d records", deleted)
+    return deleted
+
+
+@shared_task(name="taskruns.purge_old_records")  # type: ignore[untyped-decorator]
+def purge_old_task_runs() -> dict[str, Any]:
+    """Delete completed/failed/cancelled TaskRun records older than the window.
+
+    Still dispatchable directly, but no longer on its own Beat schedule — the
+    consolidated retention coordinator owns scheduled purging (ADR-0090 §C).
+    Controlled by TASK_RUN_RETENTION_DAYS (default 30) plus any operator override;
+    a resolved window of None disables auto-purge.
+    """
+    from trueppm_api.apps.observability.retention import resolve_retention
+
+    if resolve_retention("TASK_RUN_RETENTION_DAYS") is None:
+        return {"deleted": 0, "skipped": "retention disabled"}
+    return {"deleted": _do_taskrun_purge()}

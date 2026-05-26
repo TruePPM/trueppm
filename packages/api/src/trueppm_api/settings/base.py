@@ -140,15 +140,16 @@ CELERY_TIMEZONE = "UTC"
 from celery.schedules import crontab  # noqa: E402 — must follow REDIS_URL
 
 CELERY_BEAT_SCHEDULE = {
-    "history-purge-nightly": {
-        "task": "history.purge_old_records",
-        # 02:00 UTC every night — off-peak, avoids overlap with report generation.
-        "schedule": crontab(hour=2, minute=0),
-    },
-    "task-runs-purge-nightly": {
-        "task": "taskruns.purge_old_records",
-        # 02:30 UTC — stagger from history purge.
-        "schedule": crontab(hour=2, minute=30),
+    # Retention purge coordinator (ADR-0090): one self-gating task that purges the
+    # five operational tables (event history, task runs, webhook deliveries, import
+    # requests, sync batches) as a single unified run, recorded in PurgeRun. Fires
+    # every 30 min and no-ops outside the operator-configured window (Settings →
+    # System health → Retention & purge). Replaces the five former per-table nightly
+    # purge entries (history/task-runs/webhook/import/sync) — the per-table tasks
+    # remain dispatchable but are no longer independently scheduled.
+    "retention-purge-coordinator": {
+        "task": "retention.run_purge",
+        "schedule": crontab(minute="*/30"),
     },
     # Outbox drain: dispatches pending ScheduleRequest rows every 30 seconds.
     # Also recovers orphaned dispatched rows (worker died before completing).
@@ -173,13 +174,6 @@ CELERY_BEAT_SCHEDULE = {
     "drain-import-queue": {
         "task": "msproject.drain_import_queue",
         "schedule": 30.0,
-    },
-    # Nightly cleanup: deletes done/dead ImportRequest rows older than 7 days,
-    # reclaiming storage for accumulated file_content_b64 blobs.
-    "import-requests-purge-nightly": {
-        "task": "msproject.purge_old_import_requests",
-        # 02:45 UTC — after other nightly purge jobs.
-        "schedule": crontab(hour=2, minute=45),
     },
     # Sprint close drain: dispatches pending SprintCloseRequest rows every 30 s.
     # Also recovers IN_FLIGHT rows orphaned past the 5-minute window.
@@ -213,13 +207,6 @@ CELERY_BEAT_SCHEDULE = {
         # 03:15 UTC — after other nightly purge/archive jobs.
         "schedule": crontab(hour=3, minute=15),
     },
-    # Nightly cleanup: deletes SUCCESS/FAILED WebhookDelivery rows older than
-    # TRUEPPM_WEBHOOK_RETENTION_DAYS. High-traffic boards generate thousands/day.
-    "webhook-deliveries-purge-nightly": {
-        "task": "webhooks.purge_old_deliveries",
-        # 03:30 UTC — distinct offset from the import purge (02:45) to spread load.
-        "schedule": crontab(hour=3, minute=30),
-    },
     # Beat liveness heartbeat: a single worker writes BeatHeartbeat.last_heartbeat
     # every 30 s. GET /api/v1/health/beat/ reads it to detect a dead Beat (ADR-0081).
     "beat-heartbeat": {
@@ -232,14 +219,6 @@ CELERY_BEAT_SCHEDULE = {
     "beat-check-stale-heartbeat": {
         "task": "beat.check_stale_heartbeat",
         "schedule": 60.0,
-    },
-    # Nightly cleanup: deletes SyncBatch idempotency rows past the dedup window
-    # (TRUEPPM_SYNC_BATCH_RETENTION_HOURS). Keeps the mobile-upload envelope
-    # table bounded (ADR-0082 §Durable Execution #6).
-    "purge-sync-batches-nightly": {
-        "task": "sync.purge_sync_batches",
-        # 03:45 UTC — after the other nightly purge jobs.
-        "schedule": crontab(hour=3, minute=45),
     },
     # Workflow step-outbox drain: re-dispatch stranded WorkflowOutboxRow rows
     # every 30 s and recover rows orphaned by a dead worker (ADR-0080 §D).
@@ -441,6 +420,12 @@ TRUEPPM_BEAT_STALE_SECONDS: int = env.int("TRUEPPM_BEAT_STALE_SECONDS", default=
 # sync.purge_sync_batches task reaps the stale row.
 TRUEPPM_SYNC_BATCH_RETENTION_HOURS: int = env.int("TRUEPPM_SYNC_BATCH_RETENTION_HOURS", default=24)
 
+# How long a manual retention purge may be considered "in progress" before the
+# run endpoint stops treating a RUNNING PurgeRow as blocking (ADR-0090 §G). Bounds
+# the API-level single-flight guard to the coordinator's Redis lock window so a
+# worker that died mid-run can't block all future manual runs with a stale row.
+RETENTION_PURGE_INFLIGHT_SECONDS: int = env.int("RETENTION_PURGE_INFLIGHT_SECONDS", default=600)
+
 # Maximum rows (created + updated + deleted) in a single mobile sync upload
 # batch (ADR-0082). The batch applies in one transaction; this bounds how long
 # that transaction (and its per-task row locks) can be held by one request.
@@ -496,4 +481,14 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "0.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
+    # Pin state-enum names (ADR-0090). PurgeRun.state shares the field name "state"
+    # with the sprint lifecycle enum; introducing a second "state" choice set makes
+    # drf-spectacular disambiguate *both* by model prefix, renaming the sprint enum
+    # away from the stable `StateEnum` component (a schema regression). Pinning the
+    # sprint enum to `StateEnum` and ours to `PurgeRunStateEnum` keeps both stable.
+    "ENUM_NAME_OVERRIDES": {
+        "StateEnum": "trueppm_api.apps.projects.models.SprintState",
+        "PurgeRunStateEnum": "trueppm_api.apps.observability.models.PurgeRun.State",
+        "PurgeRunTriggerEnum": "trueppm_api.apps.observability.models.PurgeRun.Trigger",
+    },
 }
