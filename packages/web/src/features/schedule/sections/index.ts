@@ -8,8 +8,9 @@
  *
  * Priority allocation (multiples of 100 reserved for OSS):
  *   100 Overview · 200 Dependencies · 300 Subtasks (#308)
- *   400 Attachments (#310) · 500 Comments (#311) · 600 Activity (#307)
- *   700 Recurring (#312) · 800 Estimates · 900 History · 1000 Baseline
+ *   400 Attachments (#310) · 450 External links (#637) · 500 Comments (#311)
+ *   600 Activity (#307) · 700 Recurring (#312) · 800 Estimates · 900 History
+ *   1000 Baseline
  *
  * Subtasks / Attachments / Comments / Activity / Recurring are added in
  * their own MRs as each feature ships; their absence in this index leaves
@@ -23,6 +24,7 @@ import { SprintSection } from './SprintSection';
 import { SubtasksSection } from './SubtasksSection';
 import { DependenciesSection } from './DependenciesSection';
 import { AttachmentSection } from './AttachmentSection';
+import { ExternalLinksSection } from './ExternalLinksSection';
 import { CommentSection } from './CommentSection';
 import { ActivitySection } from './ActivitySection';
 import { EstimatesSection } from './EstimatesSection';
@@ -80,6 +82,13 @@ export function registerOssDrawerSections(): void {
     title: 'Attachments',
     component: AttachmentSection,
     priority: 400,
+  });
+
+  registry.register('task_detail.section', {
+    id: 'external-links',
+    title: 'External links',
+    component: ExternalLinksSection,
+    priority: 450,
   });
 
   registry.register('task_detail.section', {
