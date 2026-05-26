@@ -74,13 +74,17 @@ test('sidebar shows PROJECTS section header', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'PROJECTS' })).toBeVisible();
 });
 
-test('status bar shows live presence and build hash', async ({ page }) => {
+test('status bar shows build hash and omits the connection pill off-project', async ({ page }) => {
   await page.goto('/');
-  // StatusBar redesigned in #201: live dot + N online + build {sha}.
+  // StatusBar (#201) shows the build hash on every view. The connection pill
+  // (#643) is gated on projectId — off a project there is no live channel, so
+  // the pill is omitted rather than showing a misleading "Live · 0 online".
   const footer = page.getByRole('contentinfo', { name: 'Application status' });
   await expect(footer).toBeVisible();
-  await expect(footer.getByText(/Live · \d+ online/)).toBeVisible();
   await expect(footer.getByText(/build /)).toBeVisible();
+  await expect(
+    footer.getByText(/Live|Connecting|Reconnecting|Connection lost|Disconnected/),
+  ).toHaveCount(0);
 });
 
 test('no console errors on load', async ({ page }) => {
