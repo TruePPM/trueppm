@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 from rest_framework import serializers
 
-from .models import IntegrationCredential
+from .models import IntegrationCredential, TaskLink
 from .registry import TASK_LINK_PROVIDERS
 
 
@@ -110,6 +110,60 @@ class CredentialVerificationErrorSerializer(serializers.Serializer[Any]):
     detail = serializers.CharField()
     code = serializers.CharField()
     reason = serializers.CharField(allow_null=True)
+
+
+class TaskLinkSerializer(serializers.ModelSerializer[TaskLink]):
+    """A git/PM link on a task (ADR-0049 §3, #637).
+
+    Only ``url`` (and optional ``display_order``) is client-writable. ``provider``
+    is resolved server-side from the URL + the user's connected hosts, and
+    ``status``/``title``/``fetched_at`` are populated by the refresh endpoint —
+    never trusted from the client. ``server_version`` is exposed so offline
+    clients can reconcile against the sync delta.
+    """
+
+    class Meta:
+        model = TaskLink
+        fields = [
+            "id",
+            "url",
+            "provider",
+            "title",
+            "status",
+            "fetched_at",
+            "display_order",
+            "server_version",
+        ]
+        read_only_fields = [
+            "id",
+            "provider",
+            "title",
+            "status",
+            "fetched_at",
+            "server_version",
+        ]
+
+    def validate_url(self, value: str) -> str:
+        # Reject non-http(s) at write time; the resolver-level SSRF guard runs
+        # at refresh time when the URL is actually fetched (integrations.http).
+        scheme = urlparse(value).scheme.lower()
+        if scheme not in ("http", "https"):
+            raise serializers.ValidationError("Link URL must be an http or https URL.")
+        return value
+
+
+class TaskLinkCredentialRequiredSerializer(serializers.Serializer[Any]):
+    """422 body when refresh needs a PAT the caller hasn't connected (#637).
+
+    Lets the task-detail UI swap the status badge for a "Connect {provider}"
+    affordance pointing at ``/me/settings/connected-accounts`` instead of
+    leaving the link stuck at ``unknown``.
+    """
+
+    detail = serializers.CharField()
+    code = serializers.CharField()
+    provider = serializers.CharField()
+    requires_credential = serializers.BooleanField()
 
 
 def serialize_credential_summaries(

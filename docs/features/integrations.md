@@ -309,19 +309,63 @@ preview links into issues, merge requests, and pull requests on tasks.
   cloud-metadata address, so a self-hosted host URL cannot be used to probe
   internal services. Calls are time-bounded and do not follow redirects.
 
-### What ships in successor issues
-
-- **#637** — Git-aware tasks: the `TaskLink` model and the refresh
-  endpoint that consumes these credentials.
-- **#639** — Email notifications app: `UserNotificationPreference` with
-  defaults seeded for own-task events. Registers OSS channels against the
-  `NOTIFICATION_CHANNELS` registry reserved by ADR-0049.
+The connected credential is consumed by **git-aware task links** (below) to
+fetch live status.
 
 The outgoing webhook `format` extension (Slack renderer + four new task event
 types, #638) and the project/program webhook & API-token CRUD UI (#600) shipped
 in **0.2** and are documented in [Webhook formats](#webhook-formats),
 [Webhook event types](#webhook-event-types), and
 [The Integrations page](#the-integrations-page) above.
+
+## Git-aware task links
+
+Paste a GitLab, GitHub, or any URL onto a task and track its live status from
+the task detail panel. Links are managed in the **External links** section of
+the task drawer.
+
+### What the section does
+
+- **Add a link** — paste a URL; the provider is detected automatically from the
+  host (gitlab.com → GitLab, github.com → GitHub, anything else → a *generic*
+  link). For a self-hosted GitLab CE/EE or GitHub Enterprise Server instance, a
+  link on that host routes to the matching provider when you have a credential
+  connected with that host as its base URL. The provider is always resolved
+  server-side — the typed hint is only a preview.
+- **Status badge** — each git link shows a cached status: **open**, **draft**,
+  **merged**, **closed**, or **unknown**. A new link starts *unknown* — there is
+  **no background polling**; status is fetched only when you refresh.
+- **Refresh** — the per-link refresh button fetches live status synchronously
+  (5-second timeout) from the provider's API using your connected personal
+  access token, mapping the PR/MR/issue state onto the badge. Merge requests and
+  pull requests resolve to merged/closed/draft/open; issues to open/closed;
+  commits and branches stay *unknown*. The fetch is SSRF-guarded (it refuses any
+  host that resolves to a private/loopback/link-local/cloud-metadata address)
+  and does not follow redirects.
+- **Connect prompt** — if the link's provider needs a personal access token you
+  haven't connected, refresh points you to
+  `User → Settings → Connected Accounts` to connect one, rather than failing
+  silently. Generic links need no credential and have no live status.
+- **Remove** — delete a link with an inline confirm.
+
+### API
+
+| Action | Endpoint | Min role |
+|---|---|---|
+| List links | `GET /api/v1/projects/{id}/tasks/{task_id}/links/` | Viewer |
+| Add link | `POST /api/v1/projects/{id}/tasks/{task_id}/links/` | Member |
+| Refresh status | `POST /api/v1/projects/{id}/tasks/{task_id}/links/{link_id}/refresh/` | Viewer |
+| Remove link | `DELETE /api/v1/projects/{id}/tasks/{task_id}/links/{link_id}/` | Member |
+
+Adding and removing follow task-edit permission; listing and refreshing follow
+task-read. Links inherit offline-sync parity with tasks, so add/remove/status
+changes reach the mobile client through the project sync delta.
+
+### Notification preferences (#639)
+
+Per-user email notifications for your own-task events ship separately; see the
+Project Notifications feature page. They register against the
+`NOTIFICATION_CHANNELS` registry reserved by ADR-0049.
 
 Enterprise registers richer providers (Jira, ServiceNow, Bitbucket,
 Azure DevOps, Slack App, SMS, …) against the same registries from its own

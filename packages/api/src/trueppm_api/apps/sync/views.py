@@ -20,6 +20,7 @@ from rest_framework.views import APIView
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import _membership_role
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
+from trueppm_api.apps.integrations.models import TaskLink
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
@@ -41,6 +42,7 @@ from trueppm_api.apps.sync.serializers import (
     SyncRiskSerializer,
     SyncSprintRetroSerializer,
     SyncSprintSerializer,
+    SyncTaskLinkSerializer,
     SyncTaskSerializer,
     SyncTaskSuggestedAssigneeSerializer,
     SyncUploadRequestSerializer,
@@ -155,6 +157,10 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                     task__project=project, server_version__gt=since
                 ),
                 SyncTaskSuggestedAssigneeSerializer,
+            ),
+            "task_links": self._collect(
+                TaskLink.objects.filter(task__project=project, server_version__gt=since),
+                SyncTaskLinkSerializer,
             ),
         }
 
@@ -386,9 +392,15 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                       FROM projects_tasksuggestedassignee sa
                       JOIN projects_task t ON sa.task_id = t.id
                      WHERE t.project_id = %s
+                    UNION ALL
+                    SELECT MAX(tl.server_version)
+                      FROM integrations_tasklink tl
+                      JOIN projects_task t ON tl.task_id = t.id
+                     WHERE t.project_id = %s
                 ) sub
                 """,
                 [
+                    project_pk,
                     project_pk,
                     project_pk,
                     project_pk,

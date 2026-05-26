@@ -11,6 +11,7 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from trueppm_api.apps.access.models import ProjectMembership
+from trueppm_api.apps.integrations.models import TaskLink
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
@@ -190,6 +191,24 @@ class SyncTaskSuggestedAssigneeSerializer(serializers.ModelSerializer[TaskSugges
             "created_at",
             "accepted_at",
             "declined_at",
+        ]
+
+
+class SyncTaskLinkSerializer(serializers.ModelSerializer[TaskLink]):
+    """Sync payload for TaskLink (ADR-0049 §3, #637) — git links on a task."""
+
+    class Meta:
+        model = TaskLink
+        fields = [
+            "id",
+            "server_version",
+            "task",
+            "url",
+            "provider",
+            "title",
+            "status",
+            "fetched_at",
+            "display_order",
         ]
 
 

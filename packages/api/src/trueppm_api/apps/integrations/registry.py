@@ -20,6 +20,44 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
+# Canonical cached-status values for a task link (#637). The provider maps a
+# provider-specific state onto one of these; the model stores the string and the
+# UI renders a badge per value. ``unknown`` covers links we can't classify
+# (commits, branches, an unreachable provider, a missing credential).
+LINK_STATUS_OPEN = "open"
+LINK_STATUS_DRAFT = "draft"
+LINK_STATUS_MERGED = "merged"
+LINK_STATUS_CLOSED = "closed"
+LINK_STATUS_UNKNOWN = "unknown"
+LINK_STATUS_VALUES: tuple[str, ...] = (
+    LINK_STATUS_OPEN,
+    LINK_STATUS_DRAFT,
+    LINK_STATUS_MERGED,
+    LINK_STATUS_CLOSED,
+    LINK_STATUS_UNKNOWN,
+)
+# Pre-built ``(value, value)`` pairs for the model's ``CharField(choices=...)``.
+# Defined here (module level) rather than as a class-body comprehension in the
+# model — the latter trips the django-stubs plugin and makes it skip the whole
+# model's manager/field inference.
+LINK_STATUS_CHOICES: tuple[tuple[str, str], ...] = tuple(
+    (value, value) for value in LINK_STATUS_VALUES
+)
+
+
+@dataclass(frozen=True)
+class LinkMetadata:
+    """Live status + title for a task link, returned by ``fetch_metadata`` (#637).
+
+    Attributes:
+        status: One of :data:`LINK_STATUS_VALUES`.
+        title: Human title the provider reported (PR/MR/issue title), or
+            ``None`` when unavailable — the UI falls back to the raw URL.
+    """
+
+    status: str
+    title: str | None = None
+
 
 @dataclass(frozen=True)
 class VerifyResult:
@@ -155,10 +193,15 @@ class TaskLinkProvider(abc.ABC):
         """
 
     @abc.abstractmethod
-    def fetch_metadata(self, url: str, credential: Any) -> Any:
-        """Fetch live status / title for ``url`` using ``credential``.
+    def fetch_metadata(self, url: str, credential: Any) -> LinkMetadata:
+        """Fetch live status / title for ``url`` using ``credential`` (#637).
 
-        Implementation lands with #637 (5-second timeout, SSRF-protected).
+        Makes a single SSRF-guarded, 5-second-bounded GET against the provider
+        API. ``credential`` is the caller's :class:`IntegrationCredential` for
+        this provider, or ``None`` when none is connected — providers that need
+        auth return ``LinkMetadata(status="unknown")`` in that case rather than
+        raising. Transport / parse failures also degrade to ``"unknown"``; the
+        method does not raise for an unreachable provider.
         """
 
     @classmethod

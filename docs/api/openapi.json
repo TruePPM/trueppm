@@ -10129,6 +10129,316 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/links/": {
+            "get": {
+                "operationId": "v1_projects_tasks_links_list",
+                "description": "Git/PM links on a task (ADR-0049 §3, #637).\n\nRoutes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):\n    GET    links/\n    POST   links/                  (body ``{url}``; provider auto-detected)\n    GET    links/{pk}/\n    DELETE links/{pk}/             (soft-delete)\n    POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)\n\nPermissions: create/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);\nlist/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The\nqueryset is the IDOR boundary — it scopes to the caller's project membership\nand the task in the URL, so a link id from another project is a 404.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/TaskLink"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_projects_tasks_links_create",
+                "description": "Git/PM links on a task (ADR-0049 §3, #637).\n\nRoutes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):\n    GET    links/\n    POST   links/                  (body ``{url}``; provider auto-detected)\n    GET    links/{pk}/\n    DELETE links/{pk}/             (soft-delete)\n    POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)\n\nPermissions: create/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);\nlist/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The\nqueryset is the IDOR boundary — it scopes to the caller's project membership\nand the task in the URL, so a link id from another project is a 404.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskLinkRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskLinkRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskLinkRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskLink"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/links/{id}/": {
+            "get": {
+                "operationId": "v1_projects_tasks_links_retrieve",
+                "description": "Git/PM links on a task (ADR-0049 §3, #637).\n\nRoutes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):\n    GET    links/\n    POST   links/                  (body ``{url}``; provider auto-detected)\n    GET    links/{pk}/\n    DELETE links/{pk}/             (soft-delete)\n    POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)\n\nPermissions: create/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);\nlist/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The\nqueryset is the IDOR boundary — it scopes to the caller's project membership\nand the task in the URL, so a link id from another project is a 404.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this Task link.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskLink"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_projects_tasks_links_destroy",
+                "description": "Git/PM links on a task (ADR-0049 §3, #637).\n\nRoutes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):\n    GET    links/\n    POST   links/                  (body ``{url}``; provider auto-detected)\n    GET    links/{pk}/\n    DELETE links/{pk}/             (soft-delete)\n    POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)\n\nPermissions: create/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);\nlist/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The\nqueryset is the IDOR boundary — it scopes to the caller's project membership\nand the task in the URL, so a link id from another project is a 404.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this Task link.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/tasks/{task_pk}/links/{id}/refresh/": {
+            "post": {
+                "operationId": "v1_projects_tasks_links_refresh_create",
+                "description": "Refresh the cached status/title from the provider (synchronous, 5s).\n\nRead-permission action (a Viewer can refresh). If the provider needs a\nPAT and the caller has not connected one, returns 422 ``credential_required``\nso the UI can prompt a connect rather than silently leaving the link\n``unknown``. Transport/parse failures degrade the status to ``unknown``\n— ``fetch_metadata`` does not raise for an unreachable provider.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this Task link.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "task_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "tasks"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskLink"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "422": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskLinkCredentialRequired"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/webhooks/": {
             "get": {
                 "operationId": "v1_projects_webhooks_list",
@@ -21055,6 +21365,117 @@
                 "required": [
                     "body"
                 ]
+            },
+            "TaskLink": {
+                "type": "object",
+                "description": "A git/PM link on a task (ADR-0049 §3, #637).\n\nOnly ``url`` (and optional ``display_order``) is client-writable. ``provider``\nis resolved server-side from the URL + the user's connected hosts, and\n``status``/``title``/``fetched_at`` are populated by the refresh endpoint —\nnever trusted from the client. ``server_version`` is exposed so offline\nclients can reconcile against the sync delta.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "maxLength": 2048
+                    },
+                    "provider": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "title": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TaskLinkStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "fetched_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "display_order": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "fetched_at",
+                    "id",
+                    "provider",
+                    "server_version",
+                    "status",
+                    "title",
+                    "url"
+                ]
+            },
+            "TaskLinkCredentialRequired": {
+                "type": "object",
+                "description": "422 body when refresh needs a PAT the caller hasn't connected (#637).\n\nLets the task-detail UI swap the status badge for a \"Connect {provider}\"\naffordance pointing at ``/me/settings/connected-accounts`` instead of\nleaving the link stuck at ``unknown``.",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    },
+                    "requires_credential": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "code",
+                    "detail",
+                    "provider",
+                    "requires_credential"
+                ]
+            },
+            "TaskLinkRequest": {
+                "type": "object",
+                "description": "A git/PM link on a task (ADR-0049 §3, #637).\n\nOnly ``url`` (and optional ``display_order``) is client-writable. ``provider``\nis resolved server-side from the URL + the user's connected hosts, and\n``status``/``title``/``fetched_at`` are populated by the refresh endpoint —\nnever trusted from the client. ``server_version`` is exposed so offline\nclients can reconcile against the sync delta.",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "minLength": 1,
+                        "maxLength": 2048
+                    },
+                    "display_order": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    }
+                },
+                "required": [
+                    "url"
+                ]
+            },
+            "TaskLinkStatusEnum": {
+                "enum": [
+                    "open",
+                    "draft",
+                    "merged",
+                    "closed",
+                    "unknown"
+                ],
+                "type": "string",
+                "description": "* `open` - open\n* `draft` - draft\n* `merged` - merged\n* `closed` - closed\n* `unknown` - unknown"
             },
             "TaskRequest": {
                 "type": "object",
