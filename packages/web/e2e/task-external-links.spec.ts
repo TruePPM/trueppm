@@ -9,7 +9,7 @@
  * The schedule + drawer are rendered via the shared fixtures; the /links/
  * endpoints are stubbed with a small stateful mock per-spec.
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type Locator } from '@playwright/test';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-links-00000000-0000-0000-0000-000000000637';
@@ -105,12 +105,20 @@ async function stubLinks(
   });
 }
 
-async function openDrawerLinksSection(page: Page): Promise<void> {
-  await page.goto(`/projects/${PROJECT_ID}/schedule?task=${TASK_ID}`);
-  // Expand the External links section (sections render as collapsible headers).
-  const header = page.getByRole('button', { name: 'External links' });
+async function openDrawerLinksSection(page: Page): Promise<Locator> {
+  // The schedule view does not consume the `?task=` query param (no
+  // useSearchParams hook); the drawer opens by clicking the task name in the
+  // grid — same pattern as task-collaboration.spec.ts.
+  await page.goto(`/projects/${PROJECT_ID}/schedule`);
+  const grid = page.getByRole('grid', { name: 'Task list' });
+  await grid.getByText('Foundation', { exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: /Foundation/ }).first();
+  await expect(drawer).toBeVisible({ timeout: 5_000 });
+  // Expand the External links section (sections render collapsed by default).
+  const header = drawer.getByRole('button', { name: 'External links' });
   await expect(header).toBeVisible();
-  await header.click();
+  if ((await header.getAttribute('aria-expanded')) !== 'true') await header.click();
+  return drawer;
 }
 
 test.describe('Task external links (#637)', () => {
@@ -122,19 +130,19 @@ test.describe('Task external links (#637)', () => {
 
   test('golden path: detect, add, then refresh to a live status', async ({ page }) => {
     await stubLinks(page);
-    await openDrawerLinksSection(page);
+    const drawer = await openDrawerLinksSection(page);
 
     // Empty state.
-    await expect(page.getByRole('note')).toContainText(/Paste a GitLab or GitHub URL/i);
+    await expect(drawer.getByRole('note')).toContainText(/Paste a GitLab or GitHub URL/i);
 
     // Paste a GitHub URL → provider-detect hint appears.
-    const input = page.getByLabel('Add a link URL');
+    const input = drawer.getByLabel('Add a link URL');
     await input.fill('https://github.com/acme/api/pull/5');
-    await expect(page.getByText(/GitHub detected/i)).toBeVisible();
+    await expect(drawer.getByText(/GitHub detected/i)).toBeVisible();
 
     // Add → row appears with the UNKNOWN badge (no fetch on add).
-    await page.getByRole('button', { name: 'Add' }).click();
-    const row = page.getByRole('listitem', { name: /Link:/ });
+    await drawer.getByRole('button', { name: 'Add' }).click();
+    const row = drawer.getByRole('listitem', { name: /Link:/ });
     await expect(row).toBeVisible();
     await expect(row.getByText('UNKNOWN')).toBeVisible();
 
@@ -153,13 +161,13 @@ test.describe('Task external links (#637)', () => {
       ],
       refreshStatus: 422,
     });
-    await openDrawerLinksSection(page);
+    const drawer = await openDrawerLinksSection(page);
 
-    const row = page.getByRole('listitem', { name: /Link:/ });
+    const row = drawer.getByRole('listitem', { name: /Link:/ });
     await row.getByRole('button', { name: /Refresh status/i }).click();
 
     // The 422 credential_required response surfaces a Connect link, not an error.
-    const connect = page.getByRole('link', { name: /Connect github to see status/i });
+    const connect = drawer.getByRole('link', { name: /Connect github to see status/i });
     await expect(connect).toBeVisible();
     await expect(connect).toHaveAttribute('href', '/me/settings/connected-accounts#github');
   });
