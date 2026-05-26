@@ -72,6 +72,25 @@ rolls up to the **schedule** (dates). The Release reuses the ADR-0074 pattern �
 epics (Task `type=EPIC`). Stories inherit their release via their epic. Dragging an epic on the
 roadmap sets `target_release` + `roadmap_horizon`.
 
+### 1a. Release lifecycle and roadmap semantics
+
+**State machine** (mirrors the Sprint convention in ADR-0037; transitions are API-enforced):
+`PLANNED → COMMITTED → RELEASED`; `PLANNED → CANCELLED`; `COMMITTED → CANCELLED` (Admin/PO only).
+`COMMITTED` stamps `committed_at`; `RELEASED` stamps `released_at`. Moving to `RELEASED` while stories
+still fail their acceptance criteria surfaces the advisory readiness warning — **overridable, never a
+hard block** (Morgan: a hard gate tips toward control).
+
+**`roadmap_horizon` and `target_date` are independent PO-set fields.** Horizon
+(`NOW/NEXT/LATER/UNSCHEDULED`) is the kanban-style grouping the PO drags between; `target_date` is the
+optional date commitment. Neither derives from the other — a `NOW` release may carry no date, a `LATER`
+release may carry one — and **neither is ever computed by the schedule** (G1).
+
+**Lifecycle / cascade:** `Task.target_release` is `SET_NULL` — deleting a Release detaches its epics,
+never deletes work. A Release soft-deletes via the `VersionedModel` tombstone; archiving a Project hides
+its releases with it (releases are project-scoped and never orphaned across projects). Release membership
+is **always derived through the epic** — a story leaving its epic leaves the release automatically; release
+membership is never stored on the story.
+
 ### 2. The four guardrails (encoded structurally)
 
 **G1 — Epic→schedule rollup is CPM-authoritative and one-way.** An epic's dates are a **query-time
@@ -155,6 +174,24 @@ identical to the 0.3 velocity-privacy gate).
   assignment via `Task` PATCH. No `sprint` write-path on any of these (G2).
 - **OSS or Enterprise:** **OSS.** Boundary verified — cross-program roadmap, portfolio OKR rollup,
   bidirectional connectors, and audited traceability are Enterprise.
+- **RBAC:** Release create/update/delete and epic→release assignment require the Product Owner role
+  (#496) or Admin (`ADMIN=300`)+; Members and Viewers read only. Forecast and readiness reads require
+  project membership (any role) and are exposed **only** within it — no program/PMO/cross-project
+  endpoint (G3). All mutations fire `broadcast_board_event()` via `transaction.on_commit()`.
+- **Sync:** `Release` extends `VersionedModel` (UUID PK, `server_version`, soft-delete tombstone) so it
+  is sync-ready; like `BacklogItem` (ADR-0069), wiring it into the WatermelonDB project-delta endpoint is
+  **deferred** (the 0.7 surface is web-first). No `HistoricalRecords` — consistent with `BacklogItem`;
+  audit history is an Enterprise concern.
+- **Security & privacy (threat-model follow-up):** G3 and G4 each cross a privacy boundary — velocity must
+  not become a PMO gauge, and the derived traceability read must not leak cross-project. Both warrant a
+  `/threat-model` pass at implementation: confirm forecast/readiness endpoints have **no cross-project
+  fan-in**, and that the derived objective→PR view is scoped to the requesting project's `TaskLink` rows
+  with **no export path** (an export path is the line into Enterprise RM).
+- **Testing (three-layer, same MR as code):** pytest — Release CRUD + state-machine transitions + RBAC;
+  an explicit assertion that **no endpoint accepts a `sprint` field** (G2) and that the rollup is a read
+  annotation the scheduler never ingests (G1); the forecast/readiness team-pull-only scope (G3). vitest —
+  roadmap drag/horizon hooks, forecast/readiness selectors, the velocity-trend chart. Playwright — the PO
+  golden path (create release → assign epics → forecast → readiness) plus the empty-roadmap state.
 
 ### Durable Execution
 1. **Broker-down behaviour:** Release CRUD is a synchronous DB write (`server_version` bump,
