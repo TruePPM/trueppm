@@ -105,9 +105,13 @@ derive_branch_name() {
 
 # Count active worktrees (excludes the main checkout).
 wt_count() {
+  # grep -v exits 1 when it filters out every line — i.e. when the main checkout
+  # is the only worktree. Under `set -o pipefail` that 1 propagates and `set -e`
+  # would abort the whole script (silently, before the cap/warn checks run). The
+  # `|| true` guard keeps the count at 0 in that case. Same fix as cmd_remove below.
   git -C "$REPO_ROOT" worktree list --porcelain \
     | awk '/^worktree /{print $2}' \
-    | grep -v "^${REPO_ROOT}$" \
+    | { grep -v "^${REPO_ROOT}$" || true; } \
     | wc -l \
     | tr -d ' '
 }
@@ -115,10 +119,12 @@ wt_count() {
 # Find a worktree path by issue number or name fragment.
 find_worktree() {
   local needle="$1"
+  # Both greps exit 1 on no match (no other worktrees, or none matching needle).
+  # Guard the chain with `|| true` so pipefail+`set -e` don't abort when the lookup
+  # simply finds nothing — callers expect an empty string, not a crash.
   git -C "$REPO_ROOT" worktree list --porcelain \
     | awk '/^worktree /{print $2}' \
-    | grep -v "^${REPO_ROOT}$" \
-    | grep -E "/${needle}(-|$)" \
+    | { grep -v "^${REPO_ROOT}$" | grep -E "/${needle}(-|$)" || true; } \
     | head -n1
 }
 
