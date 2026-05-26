@@ -12,8 +12,8 @@
 
 import type { Task, TaskLink } from '@/types';
 import type { GanttEngine, GanttEngineEventMap } from './GanttEngine';
-import type { GanttScaleData, ZoomLevel } from './GanttScaleData';
-import { buildScaleData, dateToLeft, leftToDate } from './GanttScaleData';
+import type { FiscalConfig, GanttScaleData, ZoomLevel } from './GanttScaleData';
+import { CALENDAR_QUARTERS, buildScaleData, dateToLeft, leftToDate } from './GanttScaleData';
 import { buildHitIndex } from './GanttHitIndex';
 import type { HitIndex, HitZone } from './GanttHitIndex';
 import { GanttDragFSM } from './GanttDragFSM';
@@ -144,6 +144,10 @@ export class GanttEngineImpl implements GanttEngine {
 
   // Color mode
   private _isDark = false;
+
+  // Quarter/year header tier config (#755) — calendar quarters until the host
+  // (ScheduleView) pushes the workspace fiscal config + the user's view pref.
+  private _fiscal: FiscalConfig = CALENDAR_QUARTERS;
 
   // ---------------------------------------------------------------------------
   // Constructor
@@ -347,6 +351,17 @@ export class GanttEngineImpl implements GanttEngine {
     setRendererColorMode(dark);
     this._fullRepaintPending = true;
     // The rAF loop is always running; _fullRepaintPending causes a full repaint on the next tick.
+  }
+
+  // ---------------------------------------------------------------------------
+  // GanttEngine — Fiscal quarters (#755)
+  // ---------------------------------------------------------------------------
+
+  setFiscalConfig(config: FiscalConfig): void {
+    this._fiscal = config;
+    // Only the header tiers change, but a full repaint is the cheapest correct
+    // path (header is redrawn on every full paint) and the call is rare.
+    this._fullRepaintPending = true;
   }
 
   // ---------------------------------------------------------------------------
@@ -615,7 +630,7 @@ export class GanttEngineImpl implements GanttEngine {
     );
     drawTodayLine(ctx, this._scales, this._scrollLeft, h);
     // Timeline header drawn last so it paints over any content in the header band
-    drawTimelineHeader(ctx, this._scales, this._scrollLeft, w);
+    drawTimelineHeader(ctx, this._scales, this._scrollLeft, w, this._fiscal);
   }
 
   // ---------------------------------------------------------------------------

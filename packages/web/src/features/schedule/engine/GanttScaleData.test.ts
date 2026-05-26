@@ -2,6 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   buildScaleData,
   dateToLeft,
+  fiscalQuarter,
+  fiscalQuarterKey,
+  fiscalQuarterLabel,
+  fiscalYearKey,
+  fiscalYearLabel,
   leftToDate,
   parseUTCDate,
   ZOOM_CONFIGS,
@@ -183,5 +188,58 @@ describe('ZOOM_CONFIGS label formatters', () => {
 
   it('year: minorFormat produces year string', () => {
     expect(ZOOM_CONFIGS.year.minorFormat(sampleDate)).toBe('2026');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fiscal quarters (#755)
+// ---------------------------------------------------------------------------
+
+const utc = (iso: string) => parseUTCDate(iso);
+
+describe('fiscalQuarter — April-start fiscal year (startMonth = 4)', () => {
+  it('maps the four quarters of FY27 (Apr 2026 – Mar 2027)', () => {
+    // Q1 Apr–Jun 2026, Q2 Jul–Sep, Q3 Oct–Dec, Q4 Jan–Mar 2027 — all FY27.
+    expect(fiscalQuarter(utc('2026-04-15'), 4)).toEqual({ quarter: 1, fiscalYear: 2027 });
+    expect(fiscalQuarter(utc('2026-07-01'), 4)).toEqual({ quarter: 2, fiscalYear: 2027 });
+    expect(fiscalQuarter(utc('2026-10-31'), 4)).toEqual({ quarter: 3, fiscalYear: 2027 });
+    expect(fiscalQuarter(utc('2026-12-31'), 4)).toEqual({ quarter: 3, fiscalYear: 2027 });
+    expect(fiscalQuarter(utc('2027-01-01'), 4)).toEqual({ quarter: 4, fiscalYear: 2027 });
+    expect(fiscalQuarter(utc('2027-03-31'), 4)).toEqual({ quarter: 4, fiscalYear: 2027 });
+    // The next fiscal year rolls over on April 1.
+    expect(fiscalQuarter(utc('2027-04-01'), 4)).toEqual({ quarter: 1, fiscalYear: 2028 });
+  });
+
+  it('labels quarters and years by the ending calendar year (FY27)', () => {
+    expect(fiscalQuarterLabel(utc('2026-04-15'), 4)).toBe('Q1 FY27');
+    expect(fiscalQuarterLabel(utc('2027-01-10'), 4)).toBe('Q4 FY27');
+    expect(fiscalYearLabel(utc('2026-04-15'), 4)).toBe('FY27');
+    expect(fiscalYearLabel(utc('2027-04-01'), 4)).toBe('FY28');
+  });
+
+  it('breaks grouping keys on fiscal boundaries, not calendar ones', () => {
+    // Dec 2026 and Jan 2027 are the same calendar-quarter boundary but the SAME
+    // fiscal quarter (Q3 spans Oct–Dec; Q4 starts Jan) → keys differ as expected.
+    expect(fiscalQuarterKey(utc('2026-12-31'), 4)).toBe('FY2027-Q3');
+    expect(fiscalQuarterKey(utc('2027-01-01'), 4)).toBe('FY2027-Q4');
+    // Mar→Apr is a fiscal-year rollover: different year keys.
+    expect(fiscalYearKey(utc('2027-03-31'), 4)).toBe('FY2027');
+    expect(fiscalYearKey(utc('2027-04-01'), 4)).toBe('FY2028');
+  });
+});
+
+describe('fiscalQuarter — January start equals the calendar year', () => {
+  it('Q1 = Jan–Mar and the fiscal year is the calendar year', () => {
+    expect(fiscalQuarter(utc('2026-01-15'), 1)).toEqual({ quarter: 1, fiscalYear: 2026 });
+    expect(fiscalQuarter(utc('2026-12-31'), 1)).toEqual({ quarter: 4, fiscalYear: 2026 });
+    expect(fiscalYearLabel(utc('2026-06-01'), 1)).toBe('FY26');
+  });
+});
+
+describe('fiscalQuarter — October start (US federal, startMonth = 10)', () => {
+  it('Oct 2025 is Q1 of FY26', () => {
+    expect(fiscalQuarter(utc('2025-10-01'), 10)).toEqual({ quarter: 1, fiscalYear: 2026 });
+    expect(fiscalQuarterLabel(utc('2025-10-01'), 10)).toBe('Q1 FY26');
+    expect(fiscalQuarter(utc('2025-09-30'), 10)).toEqual({ quarter: 4, fiscalYear: 2025 });
   });
 });

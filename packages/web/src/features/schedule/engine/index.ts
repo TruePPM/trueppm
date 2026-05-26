@@ -6,8 +6,15 @@
  */
 
 export type { GanttEngine, GanttEngineEventMap } from './GanttEngine';
-export type { GanttScaleData, ZoomLevel, ZoomConfig } from './GanttScaleData';
-export { ZOOM_CONFIGS, buildScaleData, dateToLeft, leftToDate, parseUTCDate } from './GanttScaleData';
+export type { GanttScaleData, ZoomLevel, ZoomConfig, QuarterMode, FiscalConfig } from './GanttScaleData';
+export {
+  ZOOM_CONFIGS,
+  CALENDAR_QUARTERS,
+  buildScaleData,
+  dateToLeft,
+  leftToDate,
+  parseUTCDate,
+} from './GanttScaleData';
 export { GanttEngineStub } from './GanttEngineStub';
 export { GanttEngineImpl } from './GanttEngineImpl';
 export type { GanttEngineImplOptions } from './GanttEngineImpl';

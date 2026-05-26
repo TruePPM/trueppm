@@ -16,7 +16,7 @@
 
 import type { Task, TaskLink } from '@/types';
 import type { GanttEngine, GanttEngineEventMap, HoverChain } from './GanttEngine';
-import type { GanttScaleData, ZoomLevel } from './GanttScaleData';
+import type { FiscalConfig, GanttScaleData, ZoomLevel } from './GanttScaleData';
 
 export class GanttEngineStub implements GanttEngine {
   // ── Data ──────────────────────────────────────────────────────────────────
@@ -64,6 +64,10 @@ export class GanttEngineStub implements GanttEngine {
   // ── Color mode ────────────────────────────────────────────────────────────
 
   setDark(_dark: boolean): void {}
+
+  // ── Fiscal quarters ───────────────────────────────────────────────────────
+
+  setFiscalConfig(_config: FiscalConfig): void {}
 
   // ── Imperative drag control ───────────────────────────────────────────────
 

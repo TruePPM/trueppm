@@ -17,8 +17,17 @@
  */
 
 import type { Task, TaskLink } from '@/types';
-import type { GanttScaleData } from './GanttScaleData';
-import { ZOOM_CONFIGS, dateToLeft, parseUTCDate } from './GanttScaleData';
+import type { FiscalConfig, GanttScaleData } from './GanttScaleData';
+import {
+  CALENDAR_QUARTERS,
+  ZOOM_CONFIGS,
+  dateToLeft,
+  fiscalQuarterKey,
+  fiscalQuarterLabel,
+  fiscalYearKey,
+  fiscalYearLabel,
+  parseUTCDate,
+} from './GanttScaleData';
 import { todayISO } from '@/features/resource/resourceUtils';
 import { HEADER_HEIGHT } from '../scheduleConstants';
 
@@ -243,10 +252,14 @@ export function drawTodayLine(
 /**
  * Return a stable string key for the major or minor unit that contains `date`.
  * Used to detect unit-boundary transitions when walking the date range.
+ *
+ * In fiscal mode the quarter and year keys follow the workspace fiscal-year
+ * start, so cells break on fiscal — not calendar — boundaries (#755).
  */
 function getUnitKey(
   date: Date,
   unit: 'day' | 'week' | 'month' | 'quarter' | 'year',
+  fiscal: FiscalConfig,
 ): string {
   switch (unit) {
     case 'day':
@@ -261,10 +274,31 @@ function getUnitKey(
     case 'month':
       return `${date.getUTCFullYear()}-${date.getUTCMonth()}`;
     case 'quarter':
-      return `${date.getUTCFullYear()}-Q${Math.floor(date.getUTCMonth() / 3)}`;
+      return fiscal.mode === 'fiscal'
+        ? fiscalQuarterKey(date, fiscal.startMonth)
+        : `${date.getUTCFullYear()}-Q${Math.floor(date.getUTCMonth() / 3)}`;
     case 'year':
-      return `${date.getUTCFullYear()}`;
+      return fiscal.mode === 'fiscal'
+        ? fiscalYearKey(date, fiscal.startMonth)
+        : `${date.getUTCFullYear()}`;
   }
+}
+
+/**
+ * Label for a header cell, applying fiscal quarter/year labels in fiscal mode
+ * and falling back to the zoom config's calendar formatter otherwise (#755).
+ */
+function unitLabel(
+  date: Date,
+  unit: 'day' | 'week' | 'month' | 'quarter' | 'year',
+  calendarFormat: (d: Date) => string,
+  fiscal: FiscalConfig,
+): string {
+  if (fiscal.mode === 'fiscal') {
+    if (unit === 'quarter') return fiscalQuarterLabel(date, fiscal.startMonth);
+    if (unit === 'year') return fiscalYearLabel(date, fiscal.startMonth);
+  }
+  return calendarFormat(date);
 }
 
 /** Draw a single header cell (label + left border) clipped to its bounds. */
@@ -315,6 +349,7 @@ export function drawTimelineHeader(
   scales: GanttScaleData,
   scrollLeft: number,
   canvasWidth: number,
+  fiscal: FiscalConfig = CALENDAR_QUARTERS,
 ): void {
   const cfg = ZOOM_CONFIGS[scales.zoomLevel];
   const dayMs = 86_400_000;
@@ -342,14 +377,15 @@ export function drawTimelineHeader(
     let ms = startMs;
     while (ms <= endMs + dayMs) {
       const date = new Date(ms);
-      const key = getUnitKey(date, cfg.majorUnit);
+      const key = getUnitKey(date, cfg.majorUnit, fiscal);
 
       if (key !== prevKey) {
         if (cellStartDate !== null) {
           const canvasX = (ms - startMs) * scales.pxPerMs;
           const cellX = cellStartCanvasX - scrollLeft;
           const cellWidth = canvasX - scrollLeft - cellX;
-          drawHeaderCell(ctx, cfg.majorFormat(cellStartDate), cellX, 0, cellWidth, HEADER_MAJOR_HEIGHT);
+          const label = unitLabel(cellStartDate, cfg.majorUnit, cfg.majorFormat, fiscal);
+          drawHeaderCell(ctx, label, cellX, 0, cellWidth, HEADER_MAJOR_HEIGHT);
         }
         cellStartCanvasX = (ms - startMs) * scales.pxPerMs;
         cellStartDate = date;
@@ -361,7 +397,8 @@ export function drawTimelineHeader(
     if (cellStartDate !== null) {
       const cellX = cellStartCanvasX - scrollLeft;
       const cellWidth = canvasWidth - cellX;
-      drawHeaderCell(ctx, cfg.majorFormat(cellStartDate), cellX, 0, cellWidth, HEADER_MAJOR_HEIGHT);
+      const label = unitLabel(cellStartDate, cfg.majorUnit, cfg.majorFormat, fiscal);
+      drawHeaderCell(ctx, label, cellX, 0, cellWidth, HEADER_MAJOR_HEIGHT);
     }
   }
 
@@ -374,14 +411,15 @@ export function drawTimelineHeader(
     let ms = startMs;
     while (ms <= endMs + dayMs) {
       const date = new Date(ms);
-      const key = getUnitKey(date, cfg.minorUnit);
+      const key = getUnitKey(date, cfg.minorUnit, fiscal);
 
       if (key !== prevKey) {
         if (cellStartDate !== null) {
           const canvasX = (ms - startMs) * scales.pxPerMs;
           const cellX = cellStartCanvasX - scrollLeft;
           const cellWidth = canvasX - scrollLeft - cellX;
-          drawHeaderCell(ctx, cfg.minorFormat(cellStartDate), cellX, HEADER_MAJOR_HEIGHT, cellWidth, HEADER_MINOR_HEIGHT);
+          const label = unitLabel(cellStartDate, cfg.minorUnit, cfg.minorFormat, fiscal);
+          drawHeaderCell(ctx, label, cellX, HEADER_MAJOR_HEIGHT, cellWidth, HEADER_MINOR_HEIGHT);
         }
         cellStartCanvasX = (ms - startMs) * scales.pxPerMs;
         cellStartDate = date;
@@ -393,7 +431,8 @@ export function drawTimelineHeader(
     if (cellStartDate !== null) {
       const cellX = cellStartCanvasX - scrollLeft;
       const cellWidth = canvasWidth - cellX;
-      drawHeaderCell(ctx, cfg.minorFormat(cellStartDate), cellX, HEADER_MAJOR_HEIGHT, cellWidth, HEADER_MINOR_HEIGHT);
+      const label = unitLabel(cellStartDate, cfg.minorUnit, cfg.minorFormat, fiscal);
+      drawHeaderCell(ctx, label, cellX, HEADER_MAJOR_HEIGHT, cellWidth, HEADER_MINOR_HEIGHT);
     }
   }
 }
