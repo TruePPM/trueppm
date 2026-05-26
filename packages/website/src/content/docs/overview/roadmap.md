@@ -3,7 +3,7 @@ title: Roadmap
 description: What's shipped, what's underway, and what's planned through 1.0.
 ---
 
-TruePPM is pre-GA. While the product is pre-1.0 we aim for **roughly monthly point releases** so adopters can plan against a predictable cadence. Dates below are targets, not commitments.
+TruePPM is pre-GA. While the product is pre-1.0 we ship a new point release **every 3–4 weeks** so adopters can plan against a predictable cadence. Dates below are targets, not commitments.
 
 ## Shipped
 
@@ -26,7 +26,7 @@ Foundation for self-hosted, scheduling-first PPM. Everything below is in `main` 
 
 ## In progress
 
-### 0.2 — settings, administration & consolidation (target: June 2026)
+### 0.2 — settings, administration & consolidation (target: Jun 1–8, 2026)
 
 A broad consolidation release: the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration paths.
 
@@ -41,9 +41,9 @@ A broad consolidation release: the settings/administration platform, program fou
 
 ## Planned
 
-From 0.3 onward each release **lands one primary persona** — it ships the feature that turns that persona from interested into advocate — while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope: an agile team first, then the field PM, the people who staff the work, the product owner, and finally the program that ties projects together. Everything here is OSS; portfolio governance stays in the enterprise edition (below) and is intentionally absent until after 1.0. We aim for roughly monthly releases — the cadence is part of the commitment, so adopters can plan against it.
+From 0.3 onward each release **lands one primary persona** — it ships the feature that turns that persona from interested into advocate — while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope: an agile team first, then the field PM, the people who staff the work, the product owner, and finally the program that ties projects together. Everything here is OSS; portfolio governance stays in the enterprise edition (below) and is intentionally absent until after 1.0. We ship a new release every 3–4 weeks — the cadence is part of the commitment, so adopters can plan against it.
 
-### 0.3 — the agile team (target: July 2026)
+### 0.3 — the agile team (target: Jun 29 – Jul 6, 2026)
 
 **For the Scrum Master and the self-managing developer.** Close a sprint and the master schedule reforecasts itself; merge a PR and the card moves and the dates shift — an agile board as good as the one you have now, with a CPM schedule quietly underneath.
 
@@ -55,7 +55,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Git-aware tasks** — PR opened → Review, PR merged → Complete
 - **Sample projects + universal JSON import/export** (epic #613) — agile / waterfall / hybrid demo data with the bridge wow preloaded
 
-### 0.4 — mobile & the field PM (target: August 2026)
+### 0.4 — mobile & the field PM (target: Jul 27 – Aug 3, 2026)
 
 **For the project manager on a job site with no signal.** A real native editor in your pocket — not a read-only viewer — so the schedule updates from the truck and the client PDF goes out before you drive back.
 
@@ -65,7 +65,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Ongoing inbound sync** — continuous one-way Jira → TruePPM card sync (distinct from the one-time migration import at 0.6) so contributors never double-enter
 - **Offline hardening** — WebSocket event replay/resync, sync conflict detection, calm offline states
 
-### 0.5 — plan & people (target: September 2026)
+### 0.5 — plan & people (target: Aug 24–31, 2026)
 
 **For the resource manager — and anyone who has to staff the plan.** The tool warns you'd put someone at 130% *before* you save the assignment, not six weeks later from a burned-out engineer.
 
@@ -76,7 +76,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Deep CPM-aware bridge** (#372) — live finish-date forecast and incremental CPM recompute, reconciling sprint capacity with the schedule
 - **Durable execution (ADR-0080)** — default workflow backend, Idempotency-Key support, webhook sequence numbers, workflow versioning, transactional mobile sync upload
 
-### 0.6 — open & portable (target: October 2026)
+### 0.6 — open & portable (target: Sep 21–28, 2026)
 
 **For the team switching off another tool — and the builder who wants to drive TruePPM from code or an AI agent.** Get your data in, get it out, and automate it from anywhere.
 
@@ -86,7 +86,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Read-only shareable roadmap** — a now/next/later + timeline view a PO can hand to a stakeholder
 - **OSS integration connectors** — calendar export, Drive/Box/Dropbox preview, meeting links
 
-### 0.7 — the product owner (target: November 2026)
+### 0.7 — the product owner (target: Oct 19–26, 2026)
 
 **For the PO running a whole small product or company.** Strategy to delivery on one surface: roadmap → backlog → sprint → ship.
 
@@ -94,7 +94,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Release planning** across sprints, with velocity-based delivery ranges
 - **Backlog ↔ schedule reconciliation** matured, so the PO and PM never maintain two representations of the same work
 
-### 0.8 — present & relate (target: December 2026)
+### 0.8 — present & relate (target: Nov 16–23, 2026)
 
 **For the traditional PM who reports upward and the program manager who runs related projects.** The exports stakeholders live on, and one view of how a program's projects inter-relate.
 
@@ -103,7 +103,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Single-program health digest** — an opt-in read-only RAG email at the program level (cross-*program* portfolio rollups stay enterprise)
 - **Resource costs & cost reports**, custom 5/7-day work weeks, configurable fiscal year
 
-### 0.9 — GA candidate (target: January 2027)
+### 0.9 — GA candidate (target: Dec 14–21, 2026)
 
 **For the first-time evaluator.** Productive in five minutes, and hardened enough to bet a program on.
 
@@ -112,7 +112,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **GA hardening** — public API v1 freeze and rate limiting, WCAG 2.1 AA audit, performance/scale validation, i18n/l10n scope decision
 - **Extension SDK** — custom fields, views, widgets, workflow actions, webhook events
 
-### 1.0 — first stable release
+### 1.0 — first stable release (target: Jan 18 – Feb 1, 2027)
 
 The marquee differentiator: **Team Cohesion** — a Brooks'-Law friction coefficient that feeds Monte Carlo, making TruePPM the first PPM tool to model team friction as a first-class scheduling input (epic #582). Mobile completes here: **iPhone and iPad parity** — App Store submission, TestFlight, and iOS-side Detox parity on top of the Android codebase shipped in 0.4. Plus **workflow-engine maturity** (ADR-0080: dead-letter, history API, idempotency hardening, observability, a second DBOS backend) and a pre-1.0 sample-project refresh.
 

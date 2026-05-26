@@ -43,7 +43,7 @@ If you haven't already, see [Admin password setup](/administration/admin-passwor
 ### 2. Authenticate
 
 ```bash
-curl -s -X POST http://localhost:8000/api/token/ \
+curl -s -X POST http://localhost:8000/api/v1/auth/token/ \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "<your password>"}' \
   | jq .access
@@ -126,10 +126,10 @@ Both tasks are critical because there is only one path through the network.
 curl -s -X POST "http://localhost:8000/api/v1/projects/$PROJECT_ID/members/" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"user": "<user-id>", "role": 1}'
+  -d '{"user": "<user-id>", "role": 100}'
 ```
 
-Role values: Owner=4, Admin=3, Scheduler=2, Member=1, Viewer=0.
+Role values: Owner=400, Admin=300, Scheduler=200, Member=100, Viewer=0.
 
 ### 9. Open the web UI
 

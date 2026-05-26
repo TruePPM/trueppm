@@ -20,7 +20,7 @@ Step 2 ([Schedule the skeleton — CPM, milestones, baseline](/the-story/#2-sche
 
 ## Layout
 
-Split-pane: a virtualised task list on the left (Task / Dur / Start / Finish / % columns; resizable; persisted via `localStorage`), and the canvas timeline on the right. Scroll is synchronised in both directions.
+Split-pane: a virtualised task list on the left (seven columns — WBS, Task, Dur, Start, Finish, %, Owner — all but Task hideable and resizable, persisted via `localStorage`), and the canvas timeline on the right. Scroll is synchronised in both directions.
 
 ## Canvas renderer
 
@@ -41,7 +41,7 @@ Bar labels use `COLOR.text` (`#1A1917` light / palette swap in dark mode). The c
 
 ## Dependency types
 
-All four standard dependency types render as cubic-Bézier arrows on the timeline:
+Finish-to-Start dependencies render as collision-avoiding Manhattan-routed arrows; the other three (SS, FF, SF) render as cubic-Bézier curves:
 
 | Type | Name | Meaning |
 |------|------|---------|
@@ -50,7 +50,7 @@ All four standard dependency types render as cubic-Bézier arrows on the timelin
 | FF | Finish-to-Finish | Successor finishes after predecessor finishes |
 | SF | Start-to-Finish | Successor finishes after predecessor starts |
 
-Critical-path arrows use `COLOR.arrowCritical` (semantic-critical); non-critical use `COLOR.arrowNormal`.
+All dependency arrows are drawn in charcoal (`COLOR.arrowNormal`) — critical-path state is conveyed by the bar color, not the arrow.
 
 ## Zoom
 

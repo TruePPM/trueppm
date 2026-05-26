@@ -96,13 +96,14 @@ Pass the new password via stdin/env from a secret manager — never inline.
 
 ## End-user password reset
 
-End users reset their password via the standard Django auth flow:
+Self-service password reset is **not yet available** in the community edition —
+there is no public reset endpoint or reset-email flow today. Until it ships, an
+administrator resets a user's password directly with the same `changepassword`
+command used for the admin account below:
 
-- `POST /api/v1/auth/password/reset/` with `{"email": "user@example.com"}` triggers a reset email
-- The email contains a link with a one-time token
-- `POST /api/v1/auth/password/reset/confirm/` with `{"uid", "token", "new_password1", "new_password2"}` completes the reset
-
-The reset email template lives at `packages/api/src/trueppm_api/templates/registration/password_reset_email.html`. SMTP is configured via standard Django `EMAIL_*` environment variables.
+```bash
+docker compose exec api python manage.py changepassword <username>
+```
 
 ## Forgot the admin password (no email configured)
 

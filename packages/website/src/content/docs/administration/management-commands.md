@@ -39,7 +39,7 @@ planned/active/closed sprints with burndown, board state, and a retrospective.
 
 | Flag | Effect |
 |------|--------|
-| `--with-personas` | Also creates demo user logins (Maya, Raj, Diana, Sarah, Carlos) bound to the project with role-appropriate membership |
+| `--with-personas` | Also creates six demo user logins (Maya, Raj, Diana, Sarah, Carlos, Tom) bound to the project with role-appropriate membership |
 
 The command is **idempotent** — re-running clears any prior "Platform Migration"
 project and re-seeds it from scratch, so it is safe to run repeatedly while exploring.

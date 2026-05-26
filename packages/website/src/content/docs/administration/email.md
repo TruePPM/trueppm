@@ -1,6 +1,6 @@
 ---
 title: Outbound Email (SMTP)
-description: How TruePPM sends outbound notification email, the EMAIL_* environment variables that configure transport, and the read-only Email & SMTP status page.
+description: How TruePPM sends outbound notification email, the Django EMAIL_* settings that configure transport, and the read-only Email & SMTP status page.
 ---
 
 TruePPM sends outbound email — @mention notifications and the own-task
@@ -11,36 +11,43 @@ turned the Email channel on for that event under **User → Settings →
 Notifications**. Email is **off by default**.
 
 There is no in-app SMTP credential editor in the community edition. Transport is
-configured through environment variables / Helm values, and the read-only
+configured through Django's standard `EMAIL_*` settings, and the read-only
 **Workspace → Settings → Email & SMTP** page reflects whatever the deployment is
 configured with.
 
 ## Configuration
 
-Standard Django email settings, read from the environment (or your Helm
-`values.yaml`). Set them on the `api`, `celery`, and `celery-beat` workloads —
-the Beat-driven drain is what sends the mail.
+TruePPM uses Django's standard `EMAIL_*` settings. The Beat-driven drain runs on
+the `api`, `celery`, and `celery-beat` workloads, so all three need the same
+transport configuration.
 
-| Variable | Purpose |
+:::caution[Set these via a Django settings override]
+Dedicated environment-variable and Helm bindings for these settings are **not yet
+wired**. Setting bare `EMAIL_HOST` and friends as container environment variables
+has no effect today — configure SMTP with a Django settings override on your image
+(a `local_settings`/override module that the settings package imports).
+:::
+
+| Setting | Purpose |
 |---|---|
-| `EMAIL_HOST` | SMTP relay hostname. Unset ⇒ "Not configured" on the status page. |
+| `EMAIL_HOST` | SMTP relay hostname. Unconfigured ⇒ "Not configured" on the status page. |
 | `EMAIL_PORT` | SMTP port (e.g. `587`). |
 | `EMAIL_USE_TLS` | Use STARTTLS. |
 | `EMAIL_USE_SSL` | Use implicit SSL/TLS (mutually exclusive with TLS). |
 | `EMAIL_HOST_USER` | SMTP username. **Never exposed by the API.** |
 | `EMAIL_HOST_PASSWORD` | SMTP password. **Never exposed by the API**, never logged. |
 | `DEFAULT_FROM_EMAIL` | From address on every message (e.g. `notify@example.com`). |
-| `EMAIL_BACKEND` | Django backend; defaults to SMTP in production. |
+| `EMAIL_BACKEND` | Django backend; use the SMTP backend in production. |
 
-Store `EMAIL_HOST_PASSWORD` as a Kubernetes Secret referenced by the chart, not
-in plain `values.yaml`.
+Source `EMAIL_HOST_PASSWORD` from a secret manager that your settings override
+reads — never commit it in plain text.
 
 ## Read-only status page
 
 **Workspace → Settings → Email & SMTP** (workspace Admins and Owners only) shows
 the resolved transport mode, host, port, TLS/SSL, and From address. It never displays the
-username or password and cannot change configuration — update the environment /
-Helm values and redeploy to change transport. A writable in-app SMTP
+username or password and cannot change configuration — update the Django settings
+and redeploy to change transport. A writable in-app SMTP
 configuration surface is a planned follow-up, not part of the community edition
 today.
 
@@ -56,5 +63,5 @@ today.
 
 ## Disabling email
 
-Leave `EMAIL_HOST` unset to run without outbound email — in-app notifications
+Leave SMTP unconfigured to run without outbound email — in-app notifications
 keep working and the status page reports the transport as not configured.

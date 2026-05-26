@@ -133,9 +133,9 @@ Run with:
 uvicorn main:app --reload
 ```
 
-## 2. Incremental scheduling
+## 2. Schedule request model
 
-Pass `changed_task_ids` when only a subset of tasks changed:
+Map your request payload to a scheduler `Project` and call `schedule()`:
 
 ```python
 class ScheduleRequest(BaseModel):
@@ -143,14 +143,10 @@ class ScheduleRequest(BaseModel):
     start_date: date
     tasks: list[TaskIn]
     dependencies: list[DependencyIn] = []
-    changed_task_ids: list[str] | None = None  # None → full recompute
 
 
 def _run_schedule(req: ScheduleRequest) -> ScheduleResponse:
-    result = schedule(
-        _to_scheduler_project(req),
-        changed_task_ids=req.changed_task_ids,
-    )
+    result = schedule(_to_scheduler_project(req))
     # ... rest unchanged
 ```
 
@@ -170,8 +166,9 @@ class MCResponse(BaseModel):
 @app.post("/monte-carlo", response_model=MCResponse)
 async def run_monte_carlo(req: ScheduleRequest) -> MCResponse:
     def _run() -> MCResponse:
+        # The OSS default run cap is 1000; pass max_runs=None to exceed it.
         mc: MonteCarloResult = monte_carlo(
-            _to_scheduler_project(req), runs=10_000, seed=42
+            _to_scheduler_project(req), runs=10_000, max_runs=None, seed=42
         )
         return MCResponse(p50=mc.p50, p80=mc.p80, p95=mc.p95, runs=mc.runs)
 

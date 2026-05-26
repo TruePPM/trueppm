@@ -16,12 +16,15 @@ variable itself must be a positive integer or left unset (it falls back to the d
 
 ## Retention settings
 
-| Setting | Default | What it bounds | Nightly purge (UTC) |
+| Setting | Default | What it bounds | Purge (UTC) |
 |---|---|---|---|
 | `HISTORY_RETENTION_DAYS` | `90` | django-simple-history object-change records | 02:00 |
 | `TASK_RUN_RETENTION_DAYS` | `30` | Completed/failed/cancelled `TaskRun` records | 02:30 |
 | `TRUEPPM_IMPORT_RETENTION_DAYS` | `7` | Terminal (`DONE`/`DEAD`) `ImportRequest` rows, including their multi-MB `file_content_b64` blobs | 02:45 |
 | `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | Terminal (`SUCCESS`/`FAILED`) `WebhookDelivery` rows | 03:30 |
+| `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` (hours) | Drained mobile-sync upload batches | 03:45 |
+| `WORKFLOW_HISTORY_RETENTION_DAYS` | `30` | Terminal durable-workflow history records | 04:00 |
+| `IDEMPOTENCY_RETENTION_HOURS` | `24` (hours) | Expired idempotency keys | hourly |
 
 Each value is read from the matching environment variable at startup. To change a
 window, set the env var (or the corresponding Helm value) and restart the API/worker

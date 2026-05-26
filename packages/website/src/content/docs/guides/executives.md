@@ -21,14 +21,14 @@ This is available today, per project, via the scheduling engine and API. Your pr
 
 ### Per-project RBAC
 
-TruePPM enforces a 5-role model per project. As an executive, you can be added as a **Viewer** (role 0) to any project for read-only access, or as a **Member** (role 1) for slightly more access. This is enforced at the API level — no backdoors.
+TruePPM enforces a 5-role model per project. As an executive, you can be added as a **Viewer** (role 0) to any project for read-only access, or as a **Member** (role 100) for slightly more access. This is enforced at the API level — no backdoors.
 
 ### Self-hosted, compliant by design
 
 TruePPM runs on your infrastructure. No data leaves your network. The community edition supports:
 
 - PostgreSQL for data storage (standard backup/recovery)
-- Redis for real-time messaging (stateless, no persistent data)
+- Valkey (Redis-compatible) for real-time messaging (stateless, no persistent data)
 - JWT authentication with configurable token lifetimes
 - Helm chart for Kubernetes deployment
 
