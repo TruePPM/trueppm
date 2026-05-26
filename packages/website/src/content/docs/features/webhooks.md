@@ -72,18 +72,27 @@ The last four task events were added in 0.2. A single PATCH that both reassigns 
 
 ## Payload shape
 
-Every delivery sends a JSON body:
+A `generic`-format delivery sends the flat event payload — for task events, the changed task's fields at the top level — plus a reserved `_meta` object:
 
 ```json
 {
-  "event": "task.updated",
-  "project_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-  "timestamp": "2026-05-11T14:30:00Z",
-  "data": { ... }
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "project": "9c8b...",
+  "name": "Draft proposal",
+  "status": "in_progress",
+  "duration": 5,
+  "assignee": "7a1f...",
+  "planned_start": "2026-05-11",
+  "actual_start": null,
+  "actual_finish": null,
+  "source": "schedule",
+  "_meta": { "sequence": 42 }
 }
 ```
 
-`data` contains the serialized resource that changed. For task events this is the full task object as returned by `GET /api/v1/tasks/{id}/`.
+The domain fields are the task as serialized for the event; the event type itself is carried in the `X-TruePPM-Event` header, not the body. (`slack`-format deliveries instead send a Slack message — `{ "text", "attachments" }` — with the same `_meta` object added.)
+
+`_meta` is a **reserved top-level namespace for delivery metadata**, kept separate from the domain fields so it can never collide with a payload field of the same name. Today it holds one key: `_meta.sequence`, the per-subscription delivery sequence number (see [Delivery ordering and gap detection](#delivery-ordering-and-gap-detection)). It is added to **every** format, so a consumer can detect gaps from the body alone without reading the `X-TruePPM-Webhook-Sequence` header — the two always carry the same value.
 
 ## Signature verification
 
@@ -111,7 +120,7 @@ Always use a constant-time comparison to prevent timing attacks.
 
 ## Request headers
 
-Every delivery carries these headers. All delivery metadata lives in headers; the body is the event payload only.
+Every delivery carries these headers. Delivery metadata lives in headers; the only metadata also mirrored into the body is `_meta.sequence`, so that in-body gap detection does not require reading headers.
 
 | Header | Value |
 |--------|-------|
@@ -122,7 +131,7 @@ Every delivery carries these headers. All delivery metadata lives in headers; th
 
 ## Delivery ordering and gap detection
 
-Deliveries are **at-least-once** and their arrival order at your endpoint is **not guaranteed** — two events that race (e.g. `task.updated` then `task.deleted`) can arrive in either order. To let you cope with this, every delivery carries a sequence number in the `X-TruePPM-Webhook-Sequence` header:
+Deliveries are **at-least-once** and their arrival order at your endpoint is **not guaranteed** — two events that race (e.g. `task.updated` then `task.deleted`) can arrive in either order. To let you cope with this, every delivery carries a sequence number — both in the `X-TruePPM-Webhook-Sequence` header and as `_meta.sequence` in the body (see [Payload shape](#payload-shape)):
 
 - The number is **monotonic and contiguous per subscription**: the first delivery to a given webhook is `1`, the next `2`, and so on. It is **not** shared across webhooks — each registration has its own counter.
 - It is **stable across retries**: a redelivered event keeps the same number.
@@ -135,7 +144,7 @@ Consumers MAY use the sequence to:
 
 The sequence is a **hint, not a contract**: TruePPM still guarantees only eventual, at-least-once delivery — not strict ordering or exactly-once. Use the sequence alongside idempotent handling keyed on `X-TruePPM-Delivery`.
 
-The same value is also returned as `sequence_number` on each record from the [delivery history](#delivery-history) endpoint.
+The same value is carried in three places, always identical: the `X-TruePPM-Webhook-Sequence` header, `_meta.sequence` in the delivered body, and `sequence_number` on each record from the [delivery history](#delivery-history) endpoint.
 
 ## Delivery retries
 

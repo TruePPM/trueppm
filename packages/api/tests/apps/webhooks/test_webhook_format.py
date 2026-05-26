@@ -184,7 +184,11 @@ def test_dispatch_renders_per_webhook_format(project: Project, user: object) -> 
 
     assert "attachments" in slack_delivery.payload
     assert slack_delivery.payload["text"].startswith("*Task created*")
-    assert generic_delivery.payload == payload
+    # dispatch injects the per-subscription sequence under a reserved _meta key
+    # (#715, ADR-0089); the rendered domain content is otherwise unchanged.
+    assert {k: v for k, v in generic_delivery.payload.items() if k != "_meta"} == payload
+    assert generic_delivery.payload["_meta"]["sequence"] == generic_delivery.sequence_number
+    assert slack_delivery.payload["_meta"]["sequence"] == slack_delivery.sequence_number
 
 
 @pytest.mark.django_db
@@ -207,7 +211,10 @@ def test_dispatch_unknown_format_degrades_to_raw(project: Project, user: object)
 
         dispatch_webhooks(str(project.pk), "task.created", payload)
 
-    assert WebhookDelivery.objects.get(webhook=hook).payload == payload
+    # Degrades to the raw payload (no 500), with the additive _meta key (#715).
+    delivery = WebhookDelivery.objects.get(webhook=hook)
+    assert {k: v for k, v in delivery.payload.items() if k != "_meta"} == payload
+    assert delivery.payload["_meta"]["sequence"] == delivery.sequence_number
 
 
 # ---------------------------------------------------------------------------

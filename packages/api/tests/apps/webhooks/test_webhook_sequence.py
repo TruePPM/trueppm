@@ -8,6 +8,7 @@ the retention purge deletes delivery rows.
 from __future__ import annotations
 
 import importlib
+import json
 import urllib.request
 from datetime import date, timedelta
 from types import ModuleType
@@ -197,6 +198,115 @@ def test_deliver_webhook_sends_sequence_header(webhook: Webhook) -> None:
     assert len(captured) == 1
     # urllib normalizes header names to Title-case-first only.
     assert captured[0].get_header("X-trueppm-webhook-sequence") == "2"
+
+
+# ---------------------------------------------------------------------------
+# Delivery transport: body carries the sequence under _meta (#715, ADR-0089)
+# ---------------------------------------------------------------------------
+
+# A realistic generic body is the flat task dict from _task_webhook_payload —
+# domain fields at the top level. The sequence must live under a reserved _meta
+# namespace so it cannot collide with a domain field of the same name.
+_FLAT_TASK_PAYLOAD = {"id": "t1", "project": "p1", "name": "Design review", "status": "todo"}
+
+
+@pytest.mark.django_db
+def test_dispatch_injects_sequence_into_generic_body(project: Project, webhook: Webhook) -> None:
+    """The stored/delivered generic body carries ``_meta.sequence``, monotonic per
+    subscription, leaving the flat domain fields untouched."""
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+    from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
+
+    with patch.object(wh_tasks.deliver_webhook, "delay", MagicMock()):
+        dispatch_webhooks(str(project.pk), "task.created", dict(_FLAT_TASK_PAYLOAD))
+        dispatch_webhooks(str(project.pk), "task.updated", dict(_FLAT_TASK_PAYLOAD))
+
+    deliveries = list(WebhookDelivery.objects.order_by("sequence_number"))
+    assert [d.payload["_meta"]["sequence"] for d in deliveries] == [1, 2]
+    # The flat domain fields are preserved untouched alongside the _meta key.
+    assert deliveries[0].payload["id"] == "t1"
+    assert deliveries[0].payload["status"] == "todo"
+    # _meta.sequence mirrors the column exactly (same value in body and header).
+    assert deliveries[0].payload["_meta"]["sequence"] == deliveries[0].sequence_number
+
+
+@pytest.mark.django_db
+def test_dispatch_injects_sequence_into_slack_body(project: Project, user: object) -> None:
+    """The slack renderer's ``{text, attachments}`` body also carries ``_meta`` as
+    an additive top-level key (Slack ignores unknown fields)."""
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+    from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
+
+    slack_hook = Webhook.objects.create(
+        project=project,
+        url="https://hooks.slack.com/services/T/B/x",
+        secret="s",
+        events=["task.created"],
+        format="slack",
+        created_by=user,
+    )
+
+    with patch.object(wh_tasks.deliver_webhook, "delay", MagicMock()):
+        dispatch_webhooks(str(project.pk), "task.created", dict(_FLAT_TASK_PAYLOAD))
+
+    delivery = WebhookDelivery.objects.get(webhook=slack_hook)
+    assert delivery.payload["_meta"]["sequence"] == 1
+    assert "text" in delivery.payload  # slack shape intact
+    assert "attachments" in delivery.payload
+
+
+@pytest.mark.django_db
+def test_body_sequence_does_not_leak_across_subscriptions(project: Project, user: object) -> None:
+    """A single fan-out renders the shared event payload per subscription; the
+    generic provider returns that dict by reference, so each row must still get
+    its own number without one subscription's sequence bleeding into another."""
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+    from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
+
+    hook_a = Webhook.objects.create(
+        project=project, url="https://a.example/h", secret="s", events=["task.created"]
+    )
+    hook_b = Webhook.objects.create(
+        project=project, url="https://b.example/h", secret="s", events=["task.created"]
+    )
+
+    with patch.object(wh_tasks.deliver_webhook, "delay", MagicMock()):
+        dispatch_webhooks(str(project.pk), "task.created", dict(_FLAT_TASK_PAYLOAD))
+
+    # First delivery to each independent subscription is 1 — no cross-contamination.
+    assert WebhookDelivery.objects.get(webhook=hook_a).payload["_meta"]["sequence"] == 1
+    assert WebhookDelivery.objects.get(webhook=hook_b).payload["_meta"]["sequence"] == 1
+
+
+@pytest.mark.django_db
+def test_delivered_body_carries_sequence_stable_across_retries(webhook: Webhook) -> None:
+    """The POSTed body carries ``_meta.sequence`` matching the header, and re-running
+    the same delivery (a retry) posts the same number — the frozen body is never
+    renumbered."""
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+    from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
+
+    with patch.object(wh_tasks.deliver_webhook, "delay", MagicMock()):
+        dispatch_webhooks(str(webhook.project_id), "task.created", dict(_FLAT_TASK_PAYLOAD))
+    delivery = WebhookDelivery.objects.get()
+
+    captured: list[bytes] = []
+
+    def capture_urlopen(req: urllib.request.Request, **kwargs: object) -> MagicMock:
+        captured.append(req.data)
+        resp = MagicMock()
+        resp.status = 200
+        resp.__enter__ = lambda s: s
+        resp.__exit__ = MagicMock(return_value=False)
+        return resp
+
+    with patch.object(urllib.request, "urlopen", side_effect=capture_urlopen):
+        wh_tasks.deliver_webhook.run(str(delivery.pk))  # first attempt
+        wh_tasks.deliver_webhook.run(str(delivery.pk))  # simulated retry
+
+    bodies = [json.loads(b) for b in captured]
+    assert [b["_meta"]["sequence"] for b in bodies] == [1, 1]
+    assert bodies[0]["_meta"]["sequence"] == delivery.sequence_number
 
 
 # ---------------------------------------------------------------------------
