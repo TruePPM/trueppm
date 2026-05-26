@@ -41,36 +41,80 @@ A broad consolidation release: the settings/administration platform, program fou
 
 ## Planned
 
-### 0.3 — hybrid depth + the launch demo (target: July 2026)
+From 0.3 onward each release **lands one primary persona** — it ships the feature that turns that persona from interested into advocate — while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope: an agile team first, then the field PM, the people who staff the work, the product owner, and finally the program that ties projects together. Everything here is OSS; portfolio governance stays in the enterprise edition (below) and is intentionally absent until after 1.0. We aim for roughly monthly releases — the cadence is part of the commitment, so adopters can plan against it.
 
-Rebalanced toward TruePPM's core thesis: prove the agile/waterfall bridge with real sample projects.
+### 0.3 — the agile team (target: July 2026)
 
-- **Hybrid bridge** — governance-class / delivery-mode model, parent rollup engine, agile-aware Monte Carlo, Kanban delivery mode, role-context switcher, percent-complete on duration change
-- **Agile depth** — task-type taxonomy, epic/initiative hierarchy, dual backlog, Product Owner role, acceptance criteria, sprint planning / forecast / grooming views, mid-sprint scope protection, board sprint view
-- **Sample projects + universal JSON import/export** (epic #613) — agile / waterfall / hybrid demo data sets with resources, risks, and walkthrough docs
+**For the Scrum Master and the self-managing developer.** Close a sprint and the master schedule reforecasts itself; merge a PR and the card moves and the dates shift — an agile board as good as the one you have now, with a CPM schedule quietly underneath.
 
-### 0.4 — mobile, durability & baselines (target: August 2026)
+- **First-class sprint model** — a real sprint *container* (goal, capacity, start/end, burndown), not a board with date columns; auto-computed velocity with a forecast *range*; WIP-overload signal
+- **Sprint sovereignty** — mid-sprint scope changes require a deliberate, audited decision; velocity stays a team metric and is never auto-exposed as a management gauge; retro action items flow into the next sprint's backlog
+- **The bridge demo** — promote a sprint commitment to a schedule milestone, and sprint velocity reforecasts the CPM finish with no copy-paste between tools
+- **Agile depth** — task-type taxonomy, epic/initiative hierarchy, dual backlog, Product Owner role, acceptance criteria, sprint planning / forecast / grooming views
+- **Hybrid foundation** — governance-class / delivery-mode model, parent rollup engine, agile-aware Monte Carlo, Kanban delivery mode
+- **Git-aware tasks** — PR opened → Review, PR merged → Complete
+- **Sample projects + universal JSON import/export** (epic #613) — agile / waterfall / hybrid demo data with the bridge wow preloaded
 
-- **Mobile** — React Native / Expo + WatermelonDB app, **Android phones first, Android tablets second** (iPhone deferred to 1.0 GA); My Tasks, 15-second time-entry capture, on-device WASM CPM, offline sync banners, store submission
-- **Durable execution (ADR-0080)** — default workflow backend, backend-neutrality enforcement, Idempotency-Key support, webhook sequence numbers, workflow versioning, transactional mobile sync upload
-- **Baselines** (#101) with structured rebaseline reasons, and a **timesheet system** (#100)
-- **Offline hardening** — WebSocket event replay/resync, sync conflict detection, calm offline state, board offline
-- **CPM-aware sprint bridge** (#372) — live finish-date forecast, incremental CPM recompute
-- **MCP server** (LLM-facing read/write surface) and the notifications platform
+### 0.4 — mobile & the field PM (target: August 2026)
 
-### 0.5 — migration & data portability (target: September 2026)
+**For the project manager on a job site with no signal.** A real native editor in your pocket — not a read-only viewer — so the schedule updates from the truck and the client PDF goes out before you drive back.
 
-- **Multi-format importers** (epics #624, #613) — top-10 PM tools (Jira, Asana, Monday, Wrike, ClickUp, Planview, Trello, Notion, Linear, Basecamp) plus Primavera P6 (XER/PMXML), OmniPlan, GanttProject, MPX/ProjectLibre — with an import-preview UX
-- **Resource costs & cost reports**, custom 5/7-day work weeks, configurable fiscal year
-- **Extension SDK** — custom fields, views, widgets, workflow actions, webhook events
-- **Output** — Gantt PDF/image export, print/share view, multi-project roadmap, auto-narrative status report
+- **Mobile** — React Native / Expo + WatermelonDB, **Android phones first, tablets second** (iPhone at 1.0); My Tasks, 15-second time capture, on-device WASM CPM, offline sync, store submission
+- **iOS PWA fallback** — a scoped mobile-web time-entry and read surface so iPhone users aren't blocked until 1.0 native
+- **Client-ready PDF** — a basic Gantt-with-critical-path schedule export from day one (the rich reporting suite lands at 0.8)
+- **Ongoing inbound sync** — continuous one-way Jira → TruePPM card sync (distinct from the one-time migration import at 0.6) so contributors never double-enter
+- **Offline hardening** — WebSocket event replay/resync, sync conflict detection, calm offline states
+
+### 0.5 — plan & people (target: September 2026)
+
+**For the resource manager — and anyone who has to staff the plan.** The tool warns you'd put someone at 130% *before* you save the assignment, not six weeks later from a burned-out engineer.
+
+- **Resource allocation** — partial (e.g. 60/40) assignments per person per project, against a committed-capacity ceiling
+- **Pre-commit conflict warning** — over-allocation surfaced before the booking is confirmed, plus a 90-day "what if we hire one more" capacity model
+- **Timesheets** (#100) — actuals captured alongside the allocation they belong to
+- **Baselines** (#101) — with structured rebaseline reasons
+- **Deep CPM-aware bridge** (#372) — live finish-date forecast and incremental CPM recompute, reconciling sprint capacity with the schedule
+- **Durable execution (ADR-0080)** — default workflow backend, Idempotency-Key support, webhook sequence numbers, workflow versioning, transactional mobile sync upload
+
+### 0.6 — open & portable (target: October 2026)
+
+**For the team switching off another tool — and the builder who wants to drive TruePPM from code or an AI agent.** Get your data in, get it out, and automate it from anywhere.
+
+- **Multi-format import with preview** (epics #624, #613) — top-10 PM tools (Jira, Asana, Monday, Wrike, ClickUp, Planview, Trello, Notion, Linear, Basecamp) plus Primavera P6 (XER/PMXML), OmniPlan, GanttProject, MPX/ProjectLibre
+- **MCP server** — an LLM-facing read/write surface with team-scoped tokens and read restrictions on sprint-internal fields, so automation never becomes surveillance
+- **Public REST API depth** and JSON import/export
+- **Read-only shareable roadmap** — a now/next/later + timeline view a PO can hand to a stakeholder
 - **OSS integration connectors** — calendar export, Drive/Box/Dropbox preview, meeting links
+
+### 0.7 — the product owner (target: November 2026)
+
+**For the PO running a whole small product or company.** Strategy to delivery on one surface: roadmap → backlog → sprint → ship.
+
+- **Product roadmap surface** — editable now/next/later with release-target lanes per epic
+- **Release planning** across sprints, with velocity-based delivery ranges
+- **Backlog ↔ schedule reconciliation** matured, so the PO and PM never maintain two representations of the same work
+
+### 0.8 — present & relate (target: December 2026)
+
+**For the traditional PM who reports upward and the program manager who runs related projects.** The exports stakeholders live on, and one view of how a program's projects inter-relate.
+
+- **Reporting & analytics** — Gantt PDF, print/share, what-if scenarios, baseline variance, auto-narrative ("why did the date move")
+- **Program web view** — one timeline across a program's projects, cross-project dependency lines, program rollup, single-program resource leveling, risk-slip propagation
+- **Single-program health digest** — an opt-in read-only RAG email at the program level (cross-*program* portfolio rollups stay enterprise)
+- **Resource costs & cost reports**, custom 5/7-day work weeks, configurable fiscal year
+
+### 0.9 — GA candidate (target: January 2027)
+
+**For the first-time evaluator.** Productive in five minutes, and hardened enough to bet a program on.
+
+- **First-run onboarding** — guided setup, first project, team invite
+- **Intuitiveness pass** — the "easier than MS Project / Planview / Smartsheet" promise, audited end to end
+- **GA hardening** — public API v1 freeze and rate limiting, WCAG 2.1 AA audit, performance/scale validation, i18n/l10n scope decision
+- **Extension SDK** — custom fields, views, widgets, workflow actions, webhook events
 
 ### 1.0 — first stable release
 
-The marquee differentiator: **Team Cohesion** — a Brooks'-Law friction coefficient that feeds Monte Carlo, making TruePPM the first PPM tool to model team friction as a first-class scheduling input (epic #582). Plus **workflow-engine maturity** (ADR-0080: dead-letter, history API, idempotency hardening, observability, a second DBOS backend) and a pre-1.0 sample-project refresh.
-
-Mobile completes here: **iPhone (and iPad) parity** — App Store submission, TestFlight, and iOS-side Detox parity on top of the Android codebase shipped in 0.4.
+The marquee differentiator: **Team Cohesion** — a Brooks'-Law friction coefficient that feeds Monte Carlo, making TruePPM the first PPM tool to model team friction as a first-class scheduling input (epic #582). Mobile completes here: **iPhone and iPad parity** — App Store submission, TestFlight, and iOS-side Detox parity on top of the Android codebase shipped in 0.4. Plus **workflow-engine maturity** (ADR-0080: dead-letter, history API, idempotency hardening, observability, a second DBOS backend) and a pre-1.0 sample-project refresh.
 
 ### 1.5 — Methodology Packs
 
