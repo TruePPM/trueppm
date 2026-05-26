@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { formatAge, formatUpdatedAgo } from './formatAge';
+import { formatAge, formatUpdatedAgo, formatBytes, formatTimeAgo } from './formatAge';
 
 describe('formatAge', () => {
   it('formats 0 seconds as "0s"', () => {
@@ -77,5 +77,52 @@ describe('formatUpdatedAgo', () => {
     const now = 1_716_600_000_000;
     vi.spyOn(Date, 'now').mockReturnValue(now + 7_200_000);
     expect(formatUpdatedAgo(now)).toBe('2h ago');
+  });
+});
+
+describe('formatBytes', () => {
+  it('returns "—" for null (estimate unavailable)', () => {
+    expect(formatBytes(null)).toBe('—');
+  });
+
+  it('formats sub-KB as bytes', () => {
+    expect(formatBytes(0)).toBe('0 B');
+    expect(formatBytes(512)).toBe('512 B');
+  });
+
+  it('keeps one decimal below 10 of a unit', () => {
+    expect(formatBytes(1536)).toBe('1.5 KB');
+  });
+
+  it('rounds to a whole number at or above 10 of a unit', () => {
+    expect(formatBytes(480_000_000)).toBe('458 MB');
+  });
+
+  it('scales into GB', () => {
+    expect(formatBytes(1024 ** 3 * 2)).toBe('2.0 GB');
+  });
+});
+
+describe('formatTimeAgo', () => {
+  const now = 1_716_600_000_000;
+
+  it('returns "—" for null', () => {
+    expect(formatTimeAgo(null, now)).toBe('—');
+  });
+
+  it('formats recent seconds', () => {
+    expect(formatTimeAgo(new Date(now - 10_000).toISOString(), now)).toBe('10s ago');
+  });
+
+  it('formats minutes via formatAge', () => {
+    expect(formatTimeAgo(new Date(now - 125_000).toISOString(), now)).toBe('2m ago');
+  });
+
+  it('formats hours via formatAge', () => {
+    expect(formatTimeAgo(new Date(now - 7_200_000).toISOString(), now)).toBe('2h ago');
+  });
+
+  it('clamps a future timestamp to 0s', () => {
+    expect(formatTimeAgo(new Date(now + 5_000).toISOString(), now)).toBe('0s ago');
   });
 });

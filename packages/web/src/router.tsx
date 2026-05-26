@@ -202,6 +202,11 @@ const DeadLetterInspectorPage = lazy(() =>
     default: m.DeadLetterInspectorPage,
   })),
 );
+const RetentionPurgePage = lazy(() =>
+  import('@/features/settings/workspace/systemHealth/RetentionPurgePage').then((m) => ({
+    default: m.RetentionPurgePage,
+  })),
+);
 const InviteAcceptPage = lazy(() =>
   import('@/features/settings/workspace/InviteAcceptPage').then((m) => ({
     default: m.InviteAcceptPage,
@@ -765,6 +770,14 @@ export const router = createBrowserRouter([
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
                     <DeadLetterInspectorPage />
+                  </Suspense>
+                ),
+              },
+              {
+                path: 'health/retention',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <RetentionPurgePage />
                   </Suspense>
                 ),
               },

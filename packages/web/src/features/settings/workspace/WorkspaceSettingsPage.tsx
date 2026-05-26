@@ -21,6 +21,17 @@ function ActivityNavIcon() {
   );
 }
 
+/** Inline trash icon for the Retention & purge nav item. */
+function RetentionNavIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <polyline points="3 6 5 6 21 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function NavIcon({ children }: { children: ReactNode }) {
   return <span className="w-4 h-4 inline-flex items-center justify-center shrink-0">{children}</span>;
 }
@@ -52,6 +63,7 @@ const NAV_GROUPS: SettingsNavGroup[] = [
     label: 'System',
     items: [
       { id: 'health', label: 'System health', to: '/settings/health', icon: <NavIcon><ActivityNavIcon /></NavIcon> },
+      { id: 'retention', label: 'Retention & purge', to: '/settings/health/retention', icon: <NavIcon><RetentionNavIcon /></NavIcon> },
     ],
   },
   {

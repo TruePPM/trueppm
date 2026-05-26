@@ -213,28 +213,41 @@ def drain_webhook_queue(self: object) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _do_webhook_purge() -> None:
+def _do_webhook_purge(*, dry_run: bool = False, override_value: int | None = None) -> int:
     """Business logic for purge_old_deliveries — extracted for testability.
 
     Deletes only terminal (SUCCESS/FAILED) deliveries: PENDING rows may still be
-    re-dispatched by the drain, so they are never purged regardless of age. A
-    retention of None disables the purge entirely (unbounded retention).
+    re-dispatched by the drain, so they are never purged regardless of age. The
+    window comes from ``resolve_retention`` (operator override → settings default,
+    ADR-0090); ``None`` disables the purge entirely (unbounded retention).
+
+    Returns the number of rows deleted, or — when ``dry_run`` — the number that
+    *would* be deleted. ``override_value`` forces a hypothetical window (used by the
+    impact estimate) regardless of the saved policy.
     """
-    from django.conf import settings
     from django.utils import timezone
 
+    from trueppm_api.apps.observability.retention import resolve_retention
     from trueppm_api.apps.webhooks.models import DeliveryStatus, WebhookDelivery
 
-    retention_days = settings.TRUEPPM_WEBHOOK_RETENTION_DAYS
+    retention_days = (
+        override_value
+        if override_value is not None
+        else resolve_retention("TRUEPPM_WEBHOOK_RETENTION_DAYS")
+    )
     if retention_days is None:
-        return
+        return 0
 
     cutoff = timezone.now() - timedelta(days=retention_days)
-    deleted, _ = WebhookDelivery.objects.filter(
+    qs = WebhookDelivery.objects.filter(
         status__in=[DeliveryStatus.SUCCESS, DeliveryStatus.FAILED],
         created_at__lt=cutoff,
-    ).delete()
+    )
+    if dry_run:
+        return qs.count()
+    deleted, _ = qs.delete()
     logger.info("purge_old_deliveries: deleted %d row(s)", deleted)
+    return deleted
 
 
 @idempotent_task(

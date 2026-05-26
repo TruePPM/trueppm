@@ -632,9 +632,12 @@ export function SystemHealthOverviewPage() {
                   )}
                 </FieldRow>
               ))}
-              <p className="mt-3 text-[11px] text-neutral-text-secondary">
-                Set via env/settings · ADR-0081
-              </p>
+              <Link
+                to="/settings/health/retention"
+                className="mt-3 inline-flex items-center gap-1 text-[12px] font-semibold text-brand-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track rounded"
+              >
+                Manage retention →
+              </Link>
             </div>
           </SettingsCard>
         </div>

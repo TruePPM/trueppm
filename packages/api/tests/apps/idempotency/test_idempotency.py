@@ -218,10 +218,16 @@ def _iter_view_classes() -> list[tuple[str, str | None, type, set[str]]]:
 
 # Function-based (@api_view) endpoints cannot carry the mixin via inheritance, so they are
 # allowlisted by URL name (their @api_view wrapper class is always "WrappedAPIView", which
-# is not distinguishable). Both are intentionally not idempotency-protected (ADR-0083):
-# project-schedule (trigger_schedule) is already deduped by the ScheduleRequest outbox, and
-# project-monte-carlo (run_monte_carlo) is a read-only simulation that writes no state.
-EXEMPT_URL_NAMES = frozenset({"project-schedule", "project-monte-carlo"})
+# is not distinguishable). All are intentionally not idempotency-protected (ADR-0083):
+# - project-schedule (trigger_schedule) is already deduped by the ScheduleRequest outbox;
+# - project-monte-carlo (run_monte_carlo) is a read-only simulation that writes no state;
+# - retention-settings (retention_settings PATCH) updates a singleton config, so replaying it
+#   converges to the same state (naturally idempotent);
+# - retention-runs (retention_runs POST) carries its own end-to-end single-flight 409 guard
+#   (RETENTION_PURGE_INFLIGHT_SECONDS), so a rapid double-click can't mint duplicate runs.
+EXEMPT_URL_NAMES = frozenset(
+    {"project-schedule", "project-monte-carlo", "retention-settings", "retention-runs"}
+)
 
 
 def test_every_unsafe_view_has_idempotency_mixin() -> None:

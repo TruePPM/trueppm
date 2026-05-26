@@ -33,15 +33,31 @@ def purge_sync_batches(self: object) -> None:
     _do_purge()
 
 
-def _do_purge() -> None:
-    """Business logic for purge_sync_batches — extracted for testability."""
-    from django.conf import settings
+def _do_purge(*, dry_run: bool = False, override_value: int | None = None) -> int:
+    """Business logic for purge_sync_batches — extracted for testability.
+
+    The window (in hours) comes from ``resolve_retention`` (operator override →
+    the TRUEPPM_SYNC_BATCH_RETENTION_HOURS default, ADR-0090). This window is
+    non-nullable, so it is never disabled. Returns rows deleted, or the eligible
+    count when ``dry_run``; ``override_value`` forces a hypothetical window.
+    """
     from django.utils import timezone
 
+    from trueppm_api.apps.observability.retention import resolve_retention
     from trueppm_api.apps.sync.models import SyncBatch
 
-    ttl_hours = getattr(settings, "TRUEPPM_SYNC_BATCH_RETENTION_HOURS", 24)
+    ttl_hours = (
+        override_value
+        if override_value is not None
+        else resolve_retention("TRUEPPM_SYNC_BATCH_RETENTION_HOURS")
+    )
+    if ttl_hours is None:
+        return 0
     cutoff = timezone.now() - timedelta(hours=ttl_hours)
-    deleted, _ = SyncBatch.objects.filter(created_at__lt=cutoff).delete()
+    qs = SyncBatch.objects.filter(created_at__lt=cutoff)
+    if dry_run:
+        return qs.count()
+    deleted, _ = qs.delete()
     if deleted:
         logger.info("purge_sync_batches: deleted %d expired batch row(s)", deleted)
+    return deleted

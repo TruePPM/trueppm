@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.conf import settings
 from django.db.models import Count
 from django.http import HttpResponse
@@ -13,8 +15,22 @@ from rest_framework.permissions import IsAdminUser
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from trueppm_api.apps.observability.models import BeatHeartbeat
+from trueppm_api.apps.observability.models import BeatHeartbeat, PurgeRun
 from trueppm_api.apps.observability.selectors import get_system_health
+from trueppm_api.apps.observability.serializers import (
+    PurgeRunQueuedSerializer,
+    PurgeRunRequestSerializer,
+    RetentionImpactQuerySerializer,
+    RetentionImpactSerializer,
+    RetentionStateSerializer,
+    RetentionUpdateSerializer,
+)
+from trueppm_api.apps.observability.services import (
+    apply_retention_update,
+    compute_impact,
+    get_retention_state,
+    start_purge_run,
+)
 from trueppm_api.apps.scheduling.models import FailedTask, FailedTaskStatus
 
 # Matches trueppm_api.apps.observability.tasks._SINGLETON_KEY — the single row.
@@ -162,3 +178,112 @@ def system_health(_request: Request) -> Response:
     ``observability.selectors.get_system_health`` for the query budget.
     """
     return Response(get_system_health())
+
+
+@extend_schema(
+    methods=["GET"],
+    summary="Retention policy editor state",
+    description=(
+        "Returns the editable retention policy for the five operational tables "
+        "(event history, task runs, webhook deliveries, import requests, sync "
+        "batches) with estimated row counts and sizes, the purge schedule, and the "
+        "seven most recent purge runs. Row counts and sizes are PostgreSQL "
+        "estimates. Workspace operators tune these from Settings → System health → "
+        "Retention & purge (ADR-0090). Requires a staff (admin) account."
+    ),
+    responses={200: RetentionStateSerializer},
+    tags=["meta"],
+)
+@extend_schema(
+    methods=["PATCH"],
+    summary="Update retention policy and schedule",
+    description=(
+        "Persist retention-window overrides and/or the purge schedule, then return "
+        "the refreshed editor state. Lowering a window makes more data purge-eligible "
+        "on the next run — irreversible. Requires a staff (admin) account."
+    ),
+    request=RetentionUpdateSerializer,
+    responses={200: RetentionStateSerializer},
+    tags=["meta"],
+)
+@api_view(["GET", "PATCH"])
+@permission_classes([IsAdminUser])
+def retention_settings(request: Request) -> Response:
+    """Read or update the retention policy + schedule (ADR-0090 §G).
+
+    Overrides layer over the ADR-0081 settings defaults — an absent override means
+    the deployment's configured default is used, so behaviour is unchanged until an
+    operator saves a value here.
+    """
+    if request.method == "PATCH":
+        serializer = RetentionUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        apply_retention_update(serializer.validated_data)
+
+    return Response(RetentionStateSerializer(get_retention_state()).data)
+
+
+@extend_schema(
+    summary="Estimate purge impact at a proposed retention window",
+    description=(
+        "Returns how many rows (and best-effort bytes) would become purge-eligible "
+        "for `key` at the proposed `value` (its native unit — days, or hours for sync "
+        "batches). A pure count: nothing is deleted. Backs the dirty-state "
+        "irreversibility warning when an operator lowers a window. Requires a staff "
+        "(admin) account."
+    ),
+    parameters=[RetentionImpactQuerySerializer],
+    responses={200: RetentionImpactSerializer},
+    tags=["meta"],
+)
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def retention_impact(request: Request) -> Response:
+    """Count rows that would become purge-eligible at a proposed window."""
+    query = RetentionImpactQuerySerializer(data=request.query_params)
+    query.is_valid(raise_exception=True)
+    rows, eligible_bytes = compute_impact(
+        query.validated_data["key"], query.validated_data["value"]
+    )
+    return Response({"eligible_rows": rows, "eligible_bytes": eligible_bytes})
+
+
+@extend_schema(
+    summary="Run a purge now (or dry-run)",
+    description=(
+        "Dispatch the retention purge coordinator across all five operational tables. "
+        "`dry_run=true` counts eligible rows without deleting. Best-effort dispatch: "
+        "returns 202 with the new run's id; the run completes asynchronously and "
+        "appears in the recent-runs log. Requires a staff (admin) account."
+    ),
+    request=PurgeRunRequestSerializer,
+    responses={202: PurgeRunQueuedSerializer},
+    tags=["meta"],
+)
+@api_view(["POST"])
+@permission_classes([IsAdminUser])
+def retention_runs(request: Request) -> Response:
+    """Queue a manual purge or dry-run; returns 202 with the run id (ADR-0090 §G).
+
+    Rejects with 409 when a run started within the coordinator's lock window is
+    still in progress — an end-to-end single-flight guard on top of the worker-side
+    Redis lock, so a rapid double-click can't mint duplicate runs. The window bound
+    (not "any RUNNING row") prevents a worker that died mid-run from blocking all
+    future runs with a permanently-RUNNING orphan.
+    """
+    in_flight_cutoff = timezone.now() - timedelta(seconds=settings.RETENTION_PURGE_INFLIGHT_SECONDS)
+    if PurgeRun.objects.filter(
+        state=PurgeRun.State.RUNNING, started_at__gte=in_flight_cutoff
+    ).exists():
+        return Response(
+            {"detail": "A purge run is already in progress."},
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    serializer = PurgeRunRequestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    run = start_purge_run(dry_run=serializer.validated_data["dry_run"])
+    return Response(
+        {"queued": True, "run_id": str(run.id)},
+        status=status.HTTP_202_ACCEPTED,
+    )

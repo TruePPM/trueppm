@@ -25,7 +25,8 @@ from django.db.models import Count, Q
 from django.utils import timezone
 
 from trueppm_api.apps.notifications.models import Notification
-from trueppm_api.apps.observability.models import BeatHeartbeat
+from trueppm_api.apps.observability.models import BeatHeartbeat, PurgeRun
+from trueppm_api.apps.observability.retention import resolve_retention_map
 from trueppm_api.apps.scheduling.models import (
     FailedTask,
     FailedTaskStatus,
@@ -296,13 +297,15 @@ def _notification_card() -> dict[str, str]:
 def _retention() -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Return (retention config rows, Retention-purge component card).
 
-    The card is always ``unknown``: no purge-run history model exists in OSS, so
-    we cannot report whether the last purge succeeded — only the configured
-    windows. This is intentional and resolved by #693 (ADR-0087 §3).
+    Values reflect operator overrides (ADR-0090) layered over the ADR-0081
+    settings defaults. The card is derived from the latest non-dry-run ``PurgeRun``:
+    ``unknown`` until the first run is recorded, then ``ok``/``warn``/``crit`` from
+    its outcome — this is what resolves ADR-0087 §3's perpetually-unknown card.
     """
+    resolved = resolve_retention_map()
     rows: list[dict[str, Any]] = []
     for key, label, unit in _RETENTION_KEYS:
-        value = getattr(settings, key, None)
+        value = resolved.get(key)
         rows.append(
             {
                 "key": key,
@@ -312,12 +315,35 @@ def _retention() -> tuple[list[dict[str, Any]], dict[str, str]]:
                 "disabled": value is None,
             }
         )
+
+    last = (
+        PurgeRun.objects.exclude(trigger=PurgeRun.Trigger.DRY_RUN).order_by("-started_at").first()
+    )
+    if last is None:
+        card = _component(
+            "retention_purge",
+            "Retention purge",
+            STATUS_UNKNOWN,
+            "No telemetry",
+            "no purge run recorded yet",
+        )
+        return rows, card
+
+    age = _format_age(int((timezone.now() - last.started_at).total_seconds()))
+    if last.state == PurgeRun.State.FAILED:
+        status, state_label = STATUS_CRIT, "Last run failed"
+    elif last.state == PurgeRun.State.PARTIAL:
+        status, state_label = STATUS_WARN, "Last run partial"
+    elif last.state == PurgeRun.State.RUNNING:
+        status, state_label = STATUS_OK, "Running"
+    else:
+        status, state_label = STATUS_OK, "Healthy"
     card = _component(
         "retention_purge",
         "Retention purge",
-        STATUS_UNKNOWN,
-        "No telemetry",
-        "purge-run history not recorded",
+        status,
+        state_label,
+        f"last purge {age} ago · {last.rows_deleted:,} rows",
     )
     return rows, card
 
