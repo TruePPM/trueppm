@@ -58,12 +58,26 @@ if [[ "${CHECK}" -eq 1 ]]; then
     # Regression guard: fail if the committed schema drops paths or schemas
     # that exist on main. Catches branches that are behind main and would
     # silently remove endpoints when merged.
-    MAIN_SCHEMA="$(git show origin/main:docs/api/openapi.json 2>/dev/null || true)"
-    if [[ -n "${MAIN_SCHEMA}" ]]; then
-        MAIN_TMP="$(mktemp)"
-        trap 'rm -f "${TMP}" "${MAIN_TMP}"' EXIT
-        echo "${MAIN_SCHEMA}" > "${MAIN_TMP}"
-        "${PYTHON_BIN}" "${REPO_ROOT}/scripts/check-schema-regression.py" "${OUT}" "${MAIN_TMP}"
+    #
+    # This guard must NOT run on the default branch itself. It compares against
+    # the *live* origin/main tip, which is only meaningful for a branch that
+    # diverged from main. On main, when several MRs merge in quick succession
+    # each older main commit's pipeline runs after origin/main has already
+    # advanced; any schema *added* by an interim merge is then reported as
+    # "removed" from the older commit — a false positive that fails main even
+    # though every MR was individually green. A main commit is authoritative
+    # and the self-consistency check above already guards genuine drift, so we
+    # skip the vs-main comparison on the default branch.
+    if [[ -n "${CI_COMMIT_BRANCH:-}" && "${CI_COMMIT_BRANCH}" == "${CI_DEFAULT_BRANCH:-main}" ]]; then
+        echo "On the default branch (${CI_COMMIT_BRANCH}); skipping the regression-vs-main guard."
+    else
+        MAIN_SCHEMA="$(git show origin/main:docs/api/openapi.json 2>/dev/null || true)"
+        if [[ -n "${MAIN_SCHEMA}" ]]; then
+            MAIN_TMP="$(mktemp)"
+            trap 'rm -f "${TMP}" "${MAIN_TMP}"' EXIT
+            echo "${MAIN_SCHEMA}" > "${MAIN_TMP}"
+            "${PYTHON_BIN}" "${REPO_ROOT}/scripts/check-schema-regression.py" "${OUT}" "${MAIN_TMP}"
+        fi
     fi
 else
     mkdir -p "$(dirname "${OUT}")"
