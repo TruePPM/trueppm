@@ -62,4 +62,26 @@ describe('QuarterModeControl (#755)', () => {
     expect(useScheduleStore.getState().quarterMode).toBe('calendar');
     expect(screen.getByRole('button', { name: /quarters: calendar/i })).toBeInTheDocument();
   });
+
+  it('opens with focus on the checked option', () => {
+    renderControl();
+    fireEvent.click(screen.getByRole('button', { name: /quarters: fiscal/i }));
+    expect(screen.getByRole('menuitemradio', { name: /fiscal/i })).toHaveFocus();
+  });
+
+  it('ArrowDown moves focus to the next menu item (roving focus)', () => {
+    renderControl();
+    fireEvent.click(screen.getByRole('button', { name: /quarters: fiscal/i }));
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'ArrowDown' });
+    expect(screen.getByRole('menuitemradio', { name: /calendar/i })).toHaveFocus();
+  });
+
+  it('Escape closes the menu and returns focus to the trigger', () => {
+    renderControl();
+    const trigger = screen.getByRole('button', { name: /quarters: fiscal/i });
+    fireEvent.click(trigger);
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
 });
