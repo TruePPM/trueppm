@@ -237,15 +237,16 @@ test.describe('TaskDetailDrawer redesign — section list', () => {
     // here; Subtasks (300) renders for non-milestone tasks, which Discovery &
     // Design is.
     const sectionNames = [
-      'Overview',     // 100
-      'Dependencies', // 200
-      'Subtasks',     // 300 (Discovery & Design is non-milestone)
-      'Attachments',  // 400 (#310)
-      'Comments',     // 500 (#311)
-      'Activity',     // 600
-      'Estimates',    // 800
-      'History',      // 900
-      'Baseline',     // 1000
+      'Overview',       // 100
+      'Dependencies',   // 200
+      'Subtasks',       // 300 (Discovery & Design is non-milestone)
+      'Attachments',    // 400 (#310)
+      'External links', // 450 (#637)
+      'Comments',       // 500 (#311)
+      'Activity',       // 600
+      'Estimates',      // 800
+      'History',        // 900
+      'Baseline',       // 1000
     ];
     const headers = drawer.getByRole('button', {
       name: new RegExp(`^(${sectionNames.join('|')})$`),
@@ -281,6 +282,7 @@ test.describe('TaskDetailDrawer redesign — section list', () => {
       'Dependencies',
       'Subtasks',
       'Attachments',
+      'External links',
       'Comments',
       'Activity',
       'Estimates',

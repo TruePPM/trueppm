@@ -280,6 +280,35 @@ def test_link_from_another_task_is_404(
     assert r.status_code == 404
 
 
+def test_link_from_another_project_is_404(member: object, memberships: None) -> None:
+    """A link in a project the caller is not a member of is a 404 — the
+    membership-scoped queryset is the boundary, not just same-project task scoping."""
+    other_cal = Calendar.objects.create(name="Other cal")
+    other_project = Project.objects.create(
+        name="Beta", start_date=date(2026, 1, 1), calendar=other_cal
+    )
+    other_task = Task.objects.create(project=other_project, name="B-task", duration=1)
+    link = TaskLink.objects.create(
+        task=other_task, url="https://github.com/a/b/pull/1", provider="github"
+    )
+    r = _client(member).get(_detail_url(other_project, other_task, link.pk))
+    # Non-member: denied at the permission layer (403) or by the empty queryset
+    # (404) — either way the link is never disclosed.
+    assert r.status_code in (403, 404)
+
+
+def test_archived_project_blocks_link_write(
+    member: object, project: Project, task: Task, memberships: None
+) -> None:
+    """Archived projects are hard read-only — create is blocked (IsProjectNotArchived)."""
+    project.is_archived = True
+    project.save(update_fields=["is_archived"])
+    r = _client(member).post(
+        _list_url(project, task), {"url": "https://github.com/a/b/pull/1"}, format="json"
+    )
+    assert r.status_code == 403
+
+
 # ---------------------------------------------------------------------------
 # sync delta
 # ---------------------------------------------------------------------------
