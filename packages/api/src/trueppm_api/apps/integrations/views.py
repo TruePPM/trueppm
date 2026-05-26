@@ -1,43 +1,61 @@
-"""ViewSet for the per-user integration credentials API (ADR-0049 §3).
+"""ViewSets for the integrations API (ADR-0049 §3).
 
-The viewset exposes only three operations — list, upsert (connect or
-rotate), and delete (revoke). Read-of-the-secret is intentionally absent:
-the encrypted ciphertext stays server-side; the only client-visible signal
-about the secret is whether a row exists.
+Two surfaces live here:
 
-URL contract:
+- ``IntegrationCredentialViewSet`` — the per-user credentials store. Exposes
+  list, upsert (connect/rotate), and delete (revoke); read-of-the-secret is
+  intentionally absent and every action auto-scopes to ``request.user``.
+- ``TaskLinkViewSet`` (#637) — git/PM links on a task, nested under
+  ``/projects/{project_pk}/tasks/{task_pk}/links/`` with a synchronous refresh
+  action. Scoped to project membership; write follows task-edit, read follows
+  task-read.
+
+Credentials URL contract:
     GET    /api/v1/me/credentials/
     POST   /api/v1/me/credentials/<provider>/
     DELETE /api/v1/me/credentials/<provider>/
-
-All actions auto-scope to ``request.user`` via the queryset — there is no
-``user_id`` URL kwarg to forge.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+from django.db import transaction
 from django.http import Http404
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema
-from rest_framework import status, viewsets
+from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
+from trueppm_api.apps.access.models import ProjectMembership
+from trueppm_api.apps.access.permissions import (
+    IsProjectMember,
+    IsProjectMemberWrite,
+    IsProjectNotArchived,
+    ProjectScopedViewSet,
+)
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
+from trueppm_api.apps.projects.models import Task
 
-from .models import IntegrationCredential
+from . import providers
+from .models import IntegrationCredential, TaskLink
 from .registry import TASK_LINK_PROVIDERS, TaskLinkProvider
 from .serializers import (
     CredentialSummarySerializer,
     CredentialUpsertSerializer,
     CredentialVerificationErrorSerializer,
+    TaskLinkCredentialRequiredSerializer,
+    TaskLinkSerializer,
     serialize_credential_summaries,
 )
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
     from rest_framework.request import Request
+    from rest_framework.serializers import BaseSerializer
 
 
 # Human-readable detail per ``VerifyResult.reason`` for the 422 body. The
@@ -196,3 +214,178 @@ class IntegrationCredentialViewSet(
         if match is None:  # pragma: no cover — provider validated above
             raise Http404
         return Response(CredentialSummarySerializer(match).data)
+
+
+@extend_schema(tags=["tasks"])
+class TaskLinkViewSet(
+    ProjectScopedViewSet,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet[TaskLink],
+):
+    """Git/PM links on a task (ADR-0049 §3, #637).
+
+    Routes (relative to ``/projects/{project_pk}/tasks/{task_pk}/``):
+        GET    links/
+        POST   links/                  (body ``{url}``; provider auto-detected)
+        GET    links/{pk}/
+        DELETE links/{pk}/             (soft-delete)
+        POST   links/{pk}/refresh/     (synchronous, 5s; refresh cached status)
+
+    Permissions: create/destroy follow task-edit (Member+, ``IsProjectMemberWrite``);
+    list/retrieve/refresh follow task-read (Viewer+, ``IsProjectMember``). The
+    queryset is the IDOR boundary — it scopes to the caller's project membership
+    and the task in the URL, so a link id from another project is a 404.
+    """
+
+    serializer_class = TaskLinkSerializer
+    # A task carries a handful of links — return the bare array (matching the
+    # client contract and the credentials viewset) rather than a paged envelope.
+    pagination_class = None
+
+    def get_queryset(self) -> QuerySet[TaskLink]:
+        """Scope to the caller's project membership + the task in the URL.
+
+        Explicit membership check (rather than ``ProjectScopedViewSet``'s
+        ``project``/``predecessor`` auto-filter) because ``TaskLink`` reaches
+        the project via ``task__project`` — the same pattern as
+        ``TaskAttachmentViewSet``.
+        """
+        user = self.request.user
+        if not user.is_authenticated:  # pragma: no cover — IsAuthenticated guards
+            return TaskLink.objects.none()
+        project_pk = self.kwargs["project_pk"]
+        task_pk = self.kwargs["task_pk"]
+        if not ProjectMembership.objects.filter(
+            user=user, project_id=project_pk, is_deleted=False
+        ).exists():
+            return TaskLink.objects.none()
+        return TaskLink.objects.filter(
+            task__project_id=project_pk,
+            task_id=task_pk,
+            is_deleted=False,
+        ).select_related("task")
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action in ("create", "destroy"):
+            return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+
+    def _get_task(self) -> Task:
+        return get_object_or_404(
+            Task,
+            pk=self.kwargs["task_pk"],
+            project_id=self.kwargs["project_pk"],
+            is_deleted=False,
+        )
+
+    def perform_create(self, serializer: BaseSerializer[TaskLink]) -> None:
+        """Create a link, resolving its provider server-side from the URL.
+
+        ``provider`` is never trusted from the client — it is resolved against
+        the SaaS hosts and the caller's connected self-hosted ``base_url`` hosts.
+        Status starts ``unknown`` (no fetch on add, per ADR-0049 §3).
+        """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        task = self._get_task()
+        self.check_object_permissions(self.request, task)
+        url = serializer.validated_data["url"]
+        provider = providers.resolve_provider_key(url, user=self.request.user)
+        instance = serializer.save(task=task, provider=provider)
+        link_id = str(instance.pk)
+        task_id = str(task.pk)
+        project_id = str(task.project_id)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id, "task_link_created", {"id": link_id, "task_id": task_id}
+            )
+        )
+
+    def perform_destroy(self, instance: TaskLink) -> None:
+        """Soft-delete so the removal reaches mobile as a sync tombstone."""
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        instance.soft_delete()
+        link_id = str(instance.pk)
+        # instance.task is select_related-loaded by get_queryset, so .pk is free
+        # and avoids the django-stubs task_id descriptor gap.
+        task_id = str(instance.task.pk)
+        project_id = str(instance.task.project_id)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id, "task_link_deleted", {"id": link_id, "task_id": task_id}
+            )
+        )
+
+    @extend_schema(
+        request=None,
+        responses={200: TaskLinkSerializer, 422: TaskLinkCredentialRequiredSerializer},
+    )
+    @action(detail=True, methods=["post"])
+    def refresh(
+        self,
+        request: Request,
+        project_pk: str | None = None,
+        task_pk: str | None = None,
+        pk: str | None = None,
+    ) -> Response:
+        """Refresh the cached status/title from the provider (synchronous, 5s).
+
+        Read-permission action (a Viewer can refresh). If the provider needs a
+        PAT and the caller has not connected one, returns 422 ``credential_required``
+        so the UI can prompt a connect rather than silently leaving the link
+        ``unknown``. Transport/parse failures degrade the status to ``unknown``
+        — ``fetch_metadata`` does not raise for an unreachable provider.
+        """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        user = request.user
+        if not user.is_authenticated:  # pragma: no cover — IsProjectMember guards
+            return Response(status=status.HTTP_403_FORBIDDEN)
+
+        link = self.get_object()
+        handler_cls = TASK_LINK_PROVIDERS.get(link.provider)
+        if handler_cls is None:
+            # Provider un-registered (Enterprise downgraded / plugin removed) —
+            # nothing to fetch; return the row unchanged rather than 500ing.
+            return Response(TaskLinkSerializer(link).data)
+
+        requires_credential = getattr(handler_cls, "requires_credential", True)
+        credential = IntegrationCredential.objects.filter(user=user, provider=link.provider).first()
+        if requires_credential and credential is None:
+            return Response(
+                {
+                    "detail": f"Connect your {link.provider} account to refresh this link.",
+                    "code": "credential_required",
+                    "provider": link.provider,
+                    "requires_credential": True,
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        handler = cast("type[TaskLinkProvider]", handler_cls)()
+        metadata = handler.fetch_metadata(link.url, credential)
+        link.status = metadata.status
+        if metadata.title:
+            link.title = metadata.title
+        link.fetched_at = timezone.now()
+        # VersionedModel.save() bumps server_version atomically; we pass the
+        # changed fields only and let it handle the version bump + sync delta.
+        link.save(update_fields=["status", "title", "fetched_at"])
+
+        if credential is not None:
+            credential.last_used_at = timezone.now()
+            credential.save(update_fields=["last_used_at"])
+
+        link_id = str(link.pk)
+        task_id = str(link.task_id)
+        project_id = str(link.task.project_id)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id, "task_link_updated", {"id": link_id, "task_id": task_id}
+            )
+        )
+        return Response(TaskLinkSerializer(link).data)

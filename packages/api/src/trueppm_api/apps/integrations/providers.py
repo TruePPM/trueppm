@@ -20,10 +20,35 @@ provider inherits the base class's no-op verifier (accepted, unverified).
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+import re
+from typing import Any, ClassVar, cast
+from urllib.parse import quote, urlparse
 
 from . import http
-from .registry import TaskLinkProvider, VerifyResult
+from .encryption import decrypt_secret
+from .registry import (
+    LINK_STATUS_CLOSED,
+    LINK_STATUS_DRAFT,
+    LINK_STATUS_MERGED,
+    LINK_STATUS_OPEN,
+    LINK_STATUS_UNKNOWN,
+    TASK_LINK_PROVIDERS,
+    LinkMetadata,
+    TaskLinkProvider,
+    VerifyResult,
+)
+
+# GitLab resource segments that carry a fetchable open/closed/merged state.
+# commit / tree (branch) URLs are valid links but have no such lifecycle, so
+# they resolve to "unknown" without a fetch.
+_GITLAB_KINDS = {"merge_requests", "issues"}
+
+
+def _credential_secret(credential: Any) -> str | None:
+    """Decrypt a credential's PAT, or return ``None`` if there is no credential."""
+    if credential is None:
+        return None
+    return decrypt_secret(credential.secret_ciphertext)
 
 
 def _verify_via_user_endpoint(
@@ -78,12 +103,41 @@ class GitLabTaskLinkProvider(TaskLinkProvider):
 
     @classmethod
     def matches(cls, url: str) -> bool:
-        # URL-shape detection lands with #637 — the registry stub is enough
-        # for #587's credentials viewset to validate the provider key.
-        raise NotImplementedError("GitLab matches() lands with #637")
+        """Auto-detect gitlab.com links. Self-hosted hosts are matched by the
+        viewset against the user's stored ``base_url`` (see ``resolve_provider_key``)."""
+        host = (urlparse(url).hostname or "").lower()
+        return host in ("gitlab.com", "www.gitlab.com")
 
-    def fetch_metadata(self, url: str, credential: Any) -> Any:
-        raise NotImplementedError("GitLab fetch_metadata() lands with #637")
+    def fetch_metadata(self, url: str, credential: Any) -> LinkMetadata:
+        secret = _credential_secret(credential)
+        if secret is None:
+            return LinkMetadata(status=LINK_STATUS_UNKNOWN)
+        parsed = _parse_gitlab_url(url)
+        if parsed is None:
+            return LinkMetadata(status=LINK_STATUS_UNKNOWN)
+        project_path, kind, ref = parsed
+        base_url = getattr(credential, "base_url", "") or ""
+        api_root = base_url.rstrip("/") if base_url else "https://gitlab.com"
+        enc_path = quote(project_path, safe="")
+        api_url = f"{api_root}/api/v4/projects/{enc_path}/{kind}/{ref}"
+        payload = _fetch_json(api_url, {"PRIVATE-TOKEN": secret, "Accept": "application/json"})
+        if payload is None:
+            return LinkMetadata(status=LINK_STATUS_UNKNOWN)
+        title = payload.get("title")
+        if kind == "issues":
+            status = LINK_STATUS_OPEN if payload.get("state") == "opened" else LINK_STATUS_CLOSED
+            return LinkMetadata(status=status, title=title)
+        # merge request
+        state = payload.get("state")
+        if state == "merged":
+            status = LINK_STATUS_MERGED
+        elif state in ("closed", "locked"):
+            status = LINK_STATUS_CLOSED
+        elif payload.get("draft") or payload.get("work_in_progress"):
+            status = LINK_STATUS_DRAFT
+        else:
+            status = LINK_STATUS_OPEN
+        return LinkMetadata(status=status, title=title)
 
     @classmethod
     def verify_token(cls, plaintext: str, *, base_url: str | None = None) -> VerifyResult:
@@ -110,10 +164,48 @@ class GitHubTaskLinkProvider(TaskLinkProvider):
 
     @classmethod
     def matches(cls, url: str) -> bool:
-        raise NotImplementedError("GitHub matches() lands with #637")
+        """Auto-detect github.com links. GitHub Enterprise Server hosts are
+        matched by the viewset against the user's stored ``base_url``."""
+        host = (urlparse(url).hostname or "").lower()
+        return host in ("github.com", "www.github.com")
 
-    def fetch_metadata(self, url: str, credential: Any) -> Any:
-        raise NotImplementedError("GitHub fetch_metadata() lands with #637")
+    def fetch_metadata(self, url: str, credential: Any) -> LinkMetadata:
+        secret = _credential_secret(credential)
+        if secret is None:
+            return LinkMetadata(status=LINK_STATUS_UNKNOWN)
+        parsed = _parse_github_url(url)
+        if parsed is None:
+            return LinkMetadata(status=LINK_STATUS_UNKNOWN)
+        owner, repo, kind, ref = parsed
+        base_url = getattr(credential, "base_url", "") or ""
+        api_root = f"{base_url.rstrip('/')}/api/v3" if base_url else "https://api.github.com"
+        # GitHub's PR endpoint is /pulls/{n}; issues is /issues/{n}.
+        api_kind = "pulls" if kind == "pull" else "issues"
+        api_url = f"{api_root}/repos/{owner}/{repo}/{api_kind}/{ref}"
+        payload = _fetch_json(
+            api_url,
+            {
+                "Authorization": f"Bearer {secret}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        if payload is None:
+            return LinkMetadata(status=LINK_STATUS_UNKNOWN)
+        title = payload.get("title")
+        if kind == "issues":
+            status = LINK_STATUS_OPEN if payload.get("state") == "open" else LINK_STATUS_CLOSED
+            return LinkMetadata(status=status, title=title)
+        # pull request
+        if payload.get("merged"):
+            status = LINK_STATUS_MERGED
+        elif payload.get("state") == "closed":
+            status = LINK_STATUS_CLOSED
+        elif payload.get("draft"):
+            status = LINK_STATUS_DRAFT
+        else:
+            status = LINK_STATUS_OPEN
+        return LinkMetadata(status=status, title=title)
 
     @classmethod
     def verify_token(cls, plaintext: str, *, base_url: str | None = None) -> VerifyResult:
@@ -150,10 +242,14 @@ class GenericTaskLinkProvider(TaskLinkProvider):
 
     @classmethod
     def matches(cls, url: str) -> bool:
-        raise NotImplementedError("Generic matches() lands with #637")
+        # Generic is the explicit fallback chosen by ``resolve_provider_key``
+        # when nothing else matches — it never auto-matches a URL itself.
+        return False
 
-    def fetch_metadata(self, url: str, credential: Any) -> Any:
-        raise NotImplementedError("Generic fetch_metadata() lands with #637")
+    def fetch_metadata(self, url: str, credential: Any) -> LinkMetadata:
+        # No known API shape for an arbitrary host — the link is still useful
+        # to humans, it just has no fetchable lifecycle status.
+        return LinkMetadata(status=LINK_STATUS_UNKNOWN)
 
 
 # Ordered list — apps.py iterates these in declaration order so the OSS
@@ -163,3 +259,84 @@ OSS_TASK_LINK_PROVIDERS: tuple[type[TaskLinkProvider], ...] = (
     GitHubTaskLinkProvider,
     GenericTaskLinkProvider,
 )
+
+
+# ---------------------------------------------------------------------------
+# URL parsing + provider resolution
+# ---------------------------------------------------------------------------
+
+# GitHub: https://host/{owner}/{repo}/(pull|issues)/{number}
+_GITHUB_RE = re.compile(r"^/(?P<owner>[^/]+)/(?P<repo>[^/]+)/(?P<kind>pull|issues)/(?P<ref>\d+)")
+
+
+def _parse_github_url(url: str) -> tuple[str, str, str, str] | None:
+    """Parse a GitHub PR/issue URL into ``(owner, repo, kind, ref)``.
+
+    ``kind`` is ``"pull"`` or ``"issues"``; commit/tree/other shapes return
+    ``None`` (no fetchable status).
+    """
+    match = _GITHUB_RE.match(urlparse(url).path)
+    if match is None:
+        return None
+    return (match["owner"], match["repo"], match["kind"], match["ref"])
+
+
+def _parse_gitlab_url(url: str) -> tuple[str, str, str] | None:
+    """Parse a GitLab MR/issue URL into ``(project_path, kind, ref)``.
+
+    GitLab paths put the (possibly nested) project before a ``/-/`` separator,
+    then ``merge_requests``/``issues`` and the IID, e.g.
+    ``/group/sub/proj/-/merge_requests/42``. commit/tree/other return ``None``.
+    """
+    path = urlparse(url).path
+    if "/-/" not in path:
+        return None
+    project_part, _, rest = path.partition("/-/")
+    project_path = project_part.strip("/")
+    segments = rest.strip("/").split("/")
+    if len(segments) < 2 or not project_path:
+        return None
+    kind, ref = segments[0], segments[1]
+    if kind not in _GITLAB_KINDS or not ref:
+        return None
+    return (project_path, kind, ref)
+
+
+def _fetch_json(url: str, headers: dict[str, str]) -> dict[str, Any] | None:
+    """SSRF-guarded GET that returns a parsed JSON object, or ``None`` on any
+    failure (blocked host, timeout, transport error, non-200, non-object body).
+
+    fetch_metadata never raises for an unreachable provider — a failed fetch
+    leaves the link's cached status as "unknown" so the UI can prompt a retry.
+    """
+    try:
+        response = http.get(url, headers=headers)
+    except (http.EgressBlocked, http.EgressTimeout, http.EgressError):
+        return None
+    if response.status != 200:
+        return None
+    payload = response.json()
+    return payload if isinstance(payload, dict) else None
+
+
+def resolve_provider_key(url: str, *, user: Any) -> str:
+    """Pick the provider key for ``url`` for the given user.
+
+    Order: a SaaS host match from ``matches()`` (gitlab.com / github.com), then
+    the user's connected self-hosted credentials (a link whose host equals a
+    stored ``base_url`` host routes to that provider), then ``"generic"``. The
+    self-hosted step is what lets a CE/EE or GHES URL fetch real status.
+    """
+    for key in TASK_LINK_PROVIDERS:
+        handler = TASK_LINK_PROVIDERS.get(key)
+        if handler is not None and cast("type[TaskLinkProvider]", handler).matches(url):
+            return key
+    host = (urlparse(url).hostname or "").lower()
+    if host:
+        # Lazy import to avoid a models import at app-load / registry time.
+        from .models import IntegrationCredential
+
+        for cred in IntegrationCredential.objects.filter(user=user).exclude(base_url=""):
+            if (urlparse(cred.base_url).hostname or "").lower() == host:
+                return cred.provider
+    return "generic"

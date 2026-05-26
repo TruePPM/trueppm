@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from trueppm_api.apps.integrations.views import TaskLinkViewSet
 from trueppm_api.apps.projects.backlog_views import BacklogItemViewSet
 from trueppm_api.apps.projects.ceremony_views import (
     CeremonyTemplateViewSet,
@@ -375,6 +376,22 @@ urlpatterns = [
         "projects/<project_pk>/tasks/<task_pk>/attachments/<pk>/signed-url/",
         TaskAttachmentViewSet.as_view({"get": "signed_url"}),
         name="project-task-attachments-signed-url",
+    ),
+    # Git-aware task links (ADR-0049 §3, #637)
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/links/",
+        TaskLinkViewSet.as_view({"get": "list", "post": "create"}),
+        name="project-task-links-list",
+    ),
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/links/<pk>/",
+        TaskLinkViewSet.as_view({"get": "retrieve", "delete": "destroy"}),
+        name="project-task-links-detail",
+    ),
+    path(
+        "projects/<project_pk>/tasks/<task_pk>/links/<pk>/refresh/",
+        TaskLinkViewSet.as_view({"post": "refresh"}),
+        name="project-task-links-refresh",
     ),
     path(
         "projects/<project_pk>/tasks/<task_pk>/comments/",
