@@ -18,7 +18,9 @@ one workspace per deployment.
 | `name` | string | `"TruePPM Workspace"` | Display name shown in the nav header and email footers. |
 | `subdomain` | string | `""` | **Read-only via the API.** Reserved for a future hosted edition; self-hosted installs leave this blank. |
 | `timezone` | string (IANA) | `"UTC"` | Default timezone used for display and for interpreting dates without explicit timezone info. |
-| `fiscal_year_start` | string | `"January 1"` | Free-text fiscal-year anchor (e.g. `"April 1"`). Used by reporting features that calculate fiscal periods. |
+| `fiscal_year_start_month` | integer (1–12) | `1` | Fiscal-year start month. Drives quarter labels across the workspace, including the [Schedule timeline](../features/schedule-toolbar.md#fiscal-quarters). |
+| `fiscal_year_start_day` | integer (1–31) | `1` | Fiscal-year start day, validated against the month (year-agnostic: February caps at 28; 30-day months reject 31). |
+| `fiscal_year_start_display` | string | `"January 1"` | **Read-only.** Human label derived from month + day, e.g. `"April 6"`. |
 | `work_week` | array of 7 booleans | Mon–Fri `true`, Sat–Sun `false` | Working-day flags, Monday through Sunday. Controls which days the CPM engine treats as working days when no project calendar overrides. |
 | `default_project_view` | string | `"board"` | The view tab that opens by default when a user opens a project (`"board"`, `"schedule"`, etc.). |
 | `allow_guests` | boolean | `true` | Whether users with `guest` status may be added to projects. |
@@ -31,6 +33,25 @@ one workspace per deployment.
 
 The workspace row is created lazily on first access — no seed migration is needed
 on a fresh installation.
+
+### Fiscal year start
+
+The **Fiscal year starts** control offers four quick presets (Jan 1, Apr 1,
+Jul 1, Oct 1) plus a **Custom…** option that opens a month + day picker for
+arbitrary starts such as the UK tax year (April 6). The value is year-agnostic —
+it stores only month and day — so the day is validated against the month
+(February is capped at 28; 30-day months reject 31), enforced server-side on
+`PATCH`.
+
+This anchor controls how quarters are labeled across the workspace. On the
+Schedule timeline a fiscal year that starts in April shows Q1 = Apr–Jun, labeled
+`Q1 FY27` (fiscal years are named by the calendar year in which they end). See
+[Fiscal quarters](../features/schedule-toolbar.md#fiscal-quarters).
+
+> **Upgrade note.** This setting replaced the earlier free-text
+> `fiscal_year_start` string. The upgrade migration parses existing values
+> (`"January 1"`, `"April"`, `"4/1"`, …) into the structured month/day pair;
+> anything unrecognized falls back to January 1 and is logged.
 
 ---
 
