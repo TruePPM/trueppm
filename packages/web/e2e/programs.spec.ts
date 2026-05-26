@@ -7,7 +7,8 @@ import { test, expect } from '@playwright/test';
  *  - /programs empty state + "Create your first program" CTA opens the modal
  *  - Modal creates a program and navigates to /programs/{id}/projects
  *  - Members tab renders the auto-OWNER membership row
- *  - Backlog tab renders the stub copy ("coming next" + ADR link)
+ *  - Backlog tab renders the backlog workspace (#742; detailed coverage lives
+ *    in program-backlog.spec.ts)
  *  - Sidebar PROGRAMS section lists the user's programs after creation
  */
 
@@ -50,10 +51,7 @@ const FIXTURE_MEMBERSHIP = {
 
 type Page = import('@playwright/test').Page;
 
-async function setup(
-  page: Page,
-  { existingPrograms = [] as typeof FIXTURE_PROGRAM[] } = {},
-) {
+async function setup(page: Page, { existingPrograms = [] as (typeof FIXTURE_PROGRAM)[] } = {}) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -110,6 +108,9 @@ async function setup(
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
   );
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/**`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+  );
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/**`, (r) =>
     r.fulfill({
       status: 200,
@@ -124,9 +125,7 @@ test.describe('Programs — empty state and creation', () => {
     await setup(page);
     await page.goto('/programs');
     await expect(page.getByText(/Programs group related projects/i)).toBeVisible();
-    await expect(
-      page.getByRole('button', { name: /Create your first program/i }),
-    ).toBeVisible();
+    await expect(page.getByRole('button', { name: /Create your first program/i })).toBeVisible();
   });
 
   test('create modal includes the cascading-access onboarding hint', async ({ page }) => {
@@ -142,31 +141,29 @@ test.describe('Programs — empty state and creation', () => {
     await setup(page);
     await page.goto('/programs');
     await page.getByRole('button', { name: /Create your first program/i }).click();
-    await page
-      .getByLabel(/^name/i)
-      .fill('Phase 2 Modernization');
+    await page.getByLabel(/^name/i).fill('Phase 2 Modernization');
     await page.getByRole('button', { name: /Create program/i }).click();
     await expect(page).toHaveURL(`/programs/${PROGRAM_ID}/projects`);
   });
 });
 
 test.describe('Programs — shell tabs', () => {
-  test('Backlog tab shows the "coming next" stub', async ({ page }) => {
+  test('Backlog tab renders the backlog workspace (empty)', async ({ page }) => {
+    // backlog-items is mocked to [] in setup(), so the workspace shows its
+    // empty state. Populated behavior is covered in program-backlog.spec.ts.
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.goto(`/programs/${PROGRAM_ID}/backlog`);
-    await expect(
-      page.getByRole('heading', { name: /The program backlog is coming next/i }),
-    ).toBeVisible();
-    await expect(page.getByRole('link', { name: /Read the design \(ADR-0069\)/i })).toBeVisible();
+    // exact: the empty-state h2 ("The program backlog is empty") also contains
+    // "backlog", so a substring name match would resolve to two headings.
+    await expect(page.getByRole('heading', { name: 'Backlog', exact: true })).toBeVisible();
+    await expect(page.getByText('The program backlog is empty')).toBeVisible();
   });
 
   test('Projects tab shows empty state for an empty program', async ({ page }) => {
     await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
     await expect(page.getByText(/No projects in this program yet/i)).toBeVisible();
-    await expect(
-      page.getByText(/These projects belong to the program/i),
-    ).toBeVisible();
+    await expect(page.getByText(/These projects belong to the program/i)).toBeVisible();
   });
 
   test('Projects tab shows both New project and Add existing buttons (admin)', async ({ page }) => {
@@ -232,7 +229,8 @@ test.describe('Programs — shell tabs', () => {
 
     await page.goto(`/programs/${PROGRAM_ID}/projects`);
     // Scope to the toolbar so the sidebar's "New project" button (no programId) is not picked.
-    await page.getByRole('toolbar', { name: /program projects actions/i })
+    await page
+      .getByRole('toolbar', { name: /program projects actions/i })
       .getByRole('button', { name: /^New project$/i })
       .click();
     await page.getByLabel(/^name/i).fill('Tower A Buildout');
@@ -277,7 +275,12 @@ test.describe('Programs — ungrouped projects (#697, ADR-0083)', () => {
       r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ results: [FIXTURE_UNGROUPED], count: 1, next: null, previous: null }),
+        body: JSON.stringify({
+          results: [FIXTURE_UNGROUPED],
+          count: 1,
+          next: null,
+          previous: null,
+        }),
       }),
     );
 
@@ -320,7 +323,11 @@ test.describe('Programs — ungrouped projects (#697, ADR-0083)', () => {
           body: JSON.stringify({ id: STANDALONE_ID, server_version: 2, program: PROGRAM_ID }),
         });
       }
-      return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: STANDALONE_ID }) });
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: STANDALONE_ID }),
+      });
     });
 
     await page.goto('/programs');

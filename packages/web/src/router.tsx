@@ -9,46 +9,48 @@ import { RequireAuth } from '@/features/auth/RequireAuth';
 // Route-level code splitting — each chunk is loaded only when the route is
 // first visited, keeping the initial bundle (login + shell) minimal.
 const ProjectOverviewPage = lazy(() =>
-  import('@/features/project/ProjectOverviewPage').then((m) => ({ default: m.ProjectOverviewPage }))
+  import('@/features/project/ProjectOverviewPage').then((m) => ({
+    default: m.ProjectOverviewPage,
+  })),
 );
 const ScheduleView = lazy(() =>
-  import('@/features/schedule/ScheduleView').then((m) => ({ default: m.ScheduleView }))
+  import('@/features/schedule/ScheduleView').then((m) => ({ default: m.ScheduleView })),
 );
 const GridView = lazy(() =>
-  import('@/features/grid/GridView').then((m) => ({ default: m.GridView }))
+  import('@/features/grid/GridView').then((m) => ({ default: m.GridView })),
 );
 const BoardView = lazy(() =>
-  import('@/features/board/BoardView').then((m) => ({ default: m.BoardView }))
+  import('@/features/board/BoardView').then((m) => ({ default: m.BoardView })),
 );
 const SprintsView = lazy(() =>
-  import('@/features/sprints/SprintsView').then((m) => ({ default: m.SprintsView }))
+  import('@/features/sprints/SprintsView').then((m) => ({ default: m.SprintsView })),
 );
 const CalendarView = lazy(() =>
-  import('@/features/calendar/CalendarView').then((m) => ({ default: m.CalendarView }))
+  import('@/features/calendar/CalendarView').then((m) => ({ default: m.CalendarView })),
 );
 const ResourceView = lazy(() =>
-  import('@/features/resource/ResourceView').then((m) => ({ default: m.ResourceView }))
+  import('@/features/resource/ResourceView').then((m) => ({ default: m.ResourceView })),
 );
 const HeatmapPage = lazy(() =>
-  import('@/features/resource/HeatmapPage').then((m) => ({ default: m.HeatmapPage }))
+  import('@/features/resource/HeatmapPage').then((m) => ({ default: m.HeatmapPage })),
 );
 const TeamView = lazy(() =>
-  import('@/features/roster/TeamView').then((m) => ({ default: m.TeamView }))
+  import('@/features/roster/TeamView').then((m) => ({ default: m.TeamView })),
 );
 const RosterPage = lazy(() =>
-  import('@/features/roster/RosterPage').then((m) => ({ default: m.RosterPage }))
+  import('@/features/roster/RosterPage').then((m) => ({ default: m.RosterPage })),
 );
 const RiskRegisterView = lazy(() =>
-  import('@/features/risk/RiskRegisterView').then((m) => ({ default: m.RiskRegisterView }))
+  import('@/features/risk/RiskRegisterView').then((m) => ({ default: m.RiskRegisterView })),
 );
 const ReportsView = lazy(() =>
-  import('@/features/reports/ReportsView').then((m) => ({ default: m.ReportsView }))
+  import('@/features/reports/ReportsView').then((m) => ({ default: m.ReportsView })),
 );
 const ResourcesPage = lazy(() =>
-  import('@/features/resources/ResourcesPage').then((m) => ({ default: m.ResourcesPage }))
+  import('@/features/resources/ResourcesPage').then((m) => ({ default: m.ResourcesPage })),
 );
 const MyWorkPage = lazy(() =>
-  import('@/features/me/MyWorkPage').then((m) => ({ default: m.MyWorkPage }))
+  import('@/features/me/MyWorkPage').then((m) => ({ default: m.MyWorkPage })),
 );
 
 const NotificationListPage = lazy(() =>
@@ -67,190 +69,190 @@ const ConnectedAccountsPage = lazy(() =>
   })),
 );
 const ProgramListPage = lazy(() =>
-  import('@/features/programs/ProgramListPage').then((m) => ({ default: m.ProgramListPage }))
+  import('@/features/programs/ProgramListPage').then((m) => ({ default: m.ProgramListPage })),
 );
 const ProgramShell = lazy(() =>
-  import('@/features/programs/ProgramShell').then((m) => ({ default: m.ProgramShell }))
+  import('@/features/programs/ProgramShell').then((m) => ({ default: m.ProgramShell })),
 );
-const ProgramBacklogStubPage = lazy(() =>
-  import('@/features/programs/ProgramBacklogStubPage').then((m) => ({
-    default: m.ProgramBacklogStubPage,
-  }))
+const ProgramBacklogPage = lazy(() =>
+  import('@/features/programs/backlog/ProgramBacklogPage').then((m) => ({
+    default: m.ProgramBacklogPage,
+  })),
 );
 const ProgramViewProjectsPage = lazy(() =>
   import('@/features/programs/ProgramProjectsPage').then((m) => ({
     default: m.ProgramProjectsPage,
-  }))
+  })),
 );
 const ProgramMembersTab = lazy(() =>
   import('@/features/programs/members/ProgramMembersTab').then((m) => ({
     default: m.ProgramMembersTab,
-  }))
+  })),
 );
 
 // ── Project settings ──────────────────────────────────────────────────────────
 const ProjectSettingsPage = lazy(() =>
   import('@/features/settings/ProjectSettingsPage').then((m) => ({
     default: m.ProjectSettingsPage,
-  }))
+  })),
 );
 const ProjectSettingsIndex = lazy(() =>
   import('@/features/settings/ProjectSettingsPage').then((m) => ({
     default: m.ProjectSettingsIndex,
-  }))
+  })),
 );
 const ProjectGeneralPage = lazy(() =>
   import('@/features/settings/project/ProjectGeneralPage').then((m) => ({
     default: m.ProjectGeneralPage,
-  }))
+  })),
 );
 const ProjectAccessPage = lazy(() =>
   import('@/features/settings/project/ProjectAccessPage').then((m) => ({
     default: m.ProjectAccessPage,
-  }))
+  })),
 );
 const ProjectMethodologyPage = lazy(() =>
   import('@/features/settings/project/ProjectMethodologyPage').then((m) => ({
     default: m.ProjectMethodologyPage,
-  }))
+  })),
 );
 const ProjectWorkflowPage = lazy(() =>
   import('@/features/settings/project/ProjectWorkflowPage').then((m) => ({
     default: m.ProjectWorkflowPage,
-  }))
+  })),
 );
 const ProjectIntegrationsPage = lazy(() =>
   import('@/features/settings/project/ProjectIntegrationsPage').then((m) => ({
     default: m.ProjectIntegrationsPage,
-  }))
+  })),
 );
 const ProjectNotificationsPage = lazy(() =>
   import('@/features/settings/project/ProjectNotificationsPage').then((m) => ({
     default: m.ProjectNotificationsPage,
-  }))
+  })),
 );
 const ProjectArchivePage = lazy(() =>
   import('@/features/settings/project/ProjectArchivePage').then((m) => ({
     default: m.ProjectArchivePage,
-  }))
+  })),
 );
 // ── Workspace settings ────────────────────────────────────────────────────────
 const WorkspaceSettingsPage = lazy(() =>
   import('@/features/settings/workspace/WorkspaceSettingsPage').then((m) => ({
     default: m.WorkspaceSettingsPage,
-  }))
+  })),
 );
 const WorkspaceSettingsIndex = lazy(() =>
   import('@/features/settings/workspace/WorkspaceSettingsPage').then((m) => ({
     default: m.WorkspaceSettingsIndex,
-  }))
+  })),
 );
 const WorkspaceGeneralPage = lazy(() =>
   import('@/features/settings/workspace/WorkspaceGeneralPage').then((m) => ({
     default: m.WorkspaceGeneralPage,
-  }))
+  })),
 );
 const WorkspaceMembersPage = lazy(() =>
   import('@/features/settings/workspace/WorkspaceMembersPage').then((m) => ({
     default: m.WorkspaceMembersPage,
-  }))
+  })),
 );
 const WorkspaceGroupsPage = lazy(() =>
   import('@/features/settings/workspace/WorkspaceGroupsPage').then((m) => ({
     default: m.WorkspaceGroupsPage,
-  }))
+  })),
 );
 const WorkspaceRolesPage = lazy(() =>
   import('@/features/settings/workspace/WorkspaceRolesPage').then((m) => ({
     default: m.WorkspaceRolesPage,
-  }))
+  })),
 );
 const WorkspaceMethodologyPage = lazy(() =>
   import('@/features/settings/workspace/WorkspaceMethodologyPage').then((m) => ({
     default: m.WorkspaceMethodologyPage,
-  }))
+  })),
 );
 const WorkspaceEmailPage = lazy(() =>
   import('@/features/settings/workspace/WorkspaceEmailPage').then((m) => ({
     default: m.WorkspaceEmailPage,
-  }))
+  })),
 );
 const IntegrationsRedirect = lazy(() =>
   import('@/features/settings/workspace/IntegrationsRedirect').then((m) => ({
     default: m.IntegrationsRedirect,
-  }))
+  })),
 );
 const WorkspaceDangerPage = lazy(() =>
   import('@/features/settings/workspace/WorkspaceDangerPage').then((m) => ({
     default: m.WorkspaceDangerPage,
-  }))
+  })),
 );
 const SystemHealthOverviewPage = lazy(() =>
-  import(
-    '@/features/settings/workspace/systemHealth/SystemHealthOverviewPage'
-  ).then((m) => ({ default: m.SystemHealthOverviewPage }))
+  import('@/features/settings/workspace/systemHealth/SystemHealthOverviewPage').then((m) => ({
+    default: m.SystemHealthOverviewPage,
+  })),
 );
 const DeadLetterInspectorPage = lazy(() =>
-  import(
-    '@/features/settings/workspace/systemHealth/DeadLetterInspectorPage'
-  ).then((m) => ({ default: m.DeadLetterInspectorPage }))
+  import('@/features/settings/workspace/systemHealth/DeadLetterInspectorPage').then((m) => ({
+    default: m.DeadLetterInspectorPage,
+  })),
 );
 const InviteAcceptPage = lazy(() =>
   import('@/features/settings/workspace/InviteAcceptPage').then((m) => ({
     default: m.InviteAcceptPage,
-  }))
+  })),
 );
 
 // ── Program settings ──────────────────────────────────────────────────────────
 const ProgramSettingsPage = lazy(() =>
   import('@/features/settings/ProgramSettingsPage').then((m) => ({
     default: m.ProgramSettingsPage,
-  }))
+  })),
 );
 const ProgramSettingsIndex = lazy(() =>
   import('@/features/settings/ProgramSettingsPage').then((m) => ({
     default: m.ProgramSettingsIndex,
-  }))
+  })),
 );
 const ProgramSettingsGeneralPage = lazy(() =>
   import('@/features/settings/program/ProgramGeneralPage').then((m) => ({
     default: m.ProgramGeneralPage,
-  }))
+  })),
 );
 const ProgramSettingsProjectsPage = lazy(() =>
   import('@/features/settings/program/ProgramProjectsPage').then((m) => ({
     default: m.ProgramProjectsPage,
-  }))
+  })),
 );
 const ProgramSettingsAccessPage = lazy(() =>
   import('@/features/settings/program/ProgramAccessPage').then((m) => ({
     default: m.ProgramAccessPage,
-  }))
+  })),
 );
 const ProgramRollupPage = lazy(() =>
   import('@/features/settings/program/ProgramRollupPage').then((m) => ({
     default: m.ProgramRollupPage,
-  }))
+  })),
 );
 const ProgramCadencePage = lazy(() =>
   import('@/features/settings/program/ProgramCadencePage').then((m) => ({
     default: m.ProgramCadencePage,
-  }))
+  })),
 );
 const ProgramRiskPolicyPage = lazy(() =>
   import('@/features/settings/program/ProgramRiskPolicyPage').then((m) => ({
     default: m.ProgramRiskPolicyPage,
-  }))
+  })),
 );
 const ProgramIntegrationsPage = lazy(() =>
   import('@/features/settings/program/ProgramIntegrationsPage').then((m) => ({
     default: m.ProgramIntegrationsPage,
-  }))
+  })),
 );
 const ProgramArchivePage = lazy(() =>
   import('@/features/settings/program/ProgramArchivePage').then((m) => ({
     default: m.ProgramArchivePage,
-  }))
+  })),
 );
 
 /** Fallback rendered inside Suspense while a lazy chunk is loading. */
@@ -544,7 +546,7 @@ export const router = createBrowserRouter([
                 path: 'backlog',
                 element: (
                   <Suspense fallback={<RouteLoadingFallback />}>
-                    <ProgramBacklogStubPage />
+                    <ProgramBacklogPage />
                   </Suspense>
                 ),
               },
