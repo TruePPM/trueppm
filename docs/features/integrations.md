@@ -167,7 +167,7 @@ OSS one.
 
 | Event | When it fires |
 |---|---|
-| `task.created` | A task is created. |
+| `task.created` | A task is created — including when a program backlog item is pulled into a project (payload `source: "backlog_pull"`). |
 | `task.updated` | A task field changes. |
 | `task.deleted` | A task is deleted. |
 | `task.assigned` ✨ | A task's assignee transitions from nobody to a user. |

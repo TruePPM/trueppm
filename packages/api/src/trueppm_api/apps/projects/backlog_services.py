@@ -59,9 +59,11 @@ def pull_to_project_backlog(
     ``server_version`` via their ``save()``.
 
     On commit it enqueues a CPM recalculation (existing scheduling outbox — no
-    new outbox category) and broadcasts a ``task_created`` board event, matching
-    every other Task-create path. Both are deferred with ``transaction.on_commit``
-    so a rolled-back pull never leaks a recalc request or a phantom WS event.
+    new outbox category), broadcasts a ``task_created`` board event, and fires the
+    ``task.created`` outbound webhook (#752) — matching every other Task-create
+    path so external subscribers see backlog pulls like any other create. All
+    three are deferred with ``transaction.on_commit`` so a rolled-back pull never
+    leaks a recalc request, a phantom WS event, or a webhook delivery.
 
     Args:
         item_id: PK of the ``BacklogItem`` to pull.
@@ -76,8 +78,14 @@ def pull_to_project_backlog(
         CrossProgramPullError: if ``project`` is not in the item's program.
         BacklogItemNotPullable: if the item is not in PROPOSED status.
     """
+    # Call-time import (not module-level) to avoid a views→services→views cycle.
+    # By the time this service runs, the app is fully loaded, so reusing the
+    # canonical task payload builder keeps the pull's task.created shape identical
+    # to the REST create path with zero drift risk.
+    from trueppm_api.apps.projects.views import _task_webhook_payload
     from trueppm_api.apps.scheduling.services import enqueue_recalculate
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
+    from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
 
     with transaction.atomic():
         item = BacklogItem.objects.select_for_update().get(pk=item_id, is_deleted=False)
@@ -111,6 +119,10 @@ def pull_to_project_backlog(
 
     project_id = str(project.pk)
     task_id = str(task.pk)
+    # source="backlog_pull" tells external consumers which surface originated the
+    # create (ADR-0065 X-Source semantics) so a pull is distinguishable from a
+    # board/schedule/sync create on the same task.created event.
+    webhook_payload = _task_webhook_payload(task, source="backlog_pull")
     # CPM recalc via the existing scheduling outbox (ADR-0027). A BACKLOG task is
     # excluded from the CPM graph, so this coalesces to a no-op run today, but we
     # keep it on the standard Task-create path for consistency and forward-safety.
@@ -118,6 +130,13 @@ def pull_to_project_backlog(
     transaction.on_commit(
         lambda: broadcast_board_event(project_id, "task_created", {"id": task_id})
     )
+
+    # Bind the payload via a default arg so closure late-binding can never swap it
+    # if this function grows more branches later (matches inbound_sync.py).
+    def _dispatch(pid: str = project_id, wp: dict[str, Any] = webhook_payload) -> None:
+        dispatch_webhooks(pid, "task.created", wp)
+
+    transaction.on_commit(_dispatch)
     return task
 
 
