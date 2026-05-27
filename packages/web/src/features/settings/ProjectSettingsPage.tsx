@@ -42,7 +42,11 @@ export function ProjectSettingsPage() {
 
   if (!projectId) return null;
 
-  const firstProgramId = programs?.[0]?.id;
+  // Program scope lands on THIS project's parent program (#776) — not an arbitrary
+  // first program. Standalone projects fall through to the first program; only
+  // when the workspace has no programs at all is the Program scope disabled.
+  const parentProgramId = projects?.find((p) => p.id === projectId)?.programId ?? null;
+  const programTarget = parentProgramId ?? programs?.[0]?.id ?? null;
 
   // Sibling-project switcher options (#776) — preserve the current sub-page.
   const subPage = pathname.split('/settings/')[1]?.split('/')[0] || 'general';
@@ -84,7 +88,7 @@ export function ProjectSettingsPage() {
       scope="project"
       scopeLinks={[
         { scope: 'workspace', label: 'Workspace', to: '/settings/general' },
-        { scope: 'program',   label: 'Program',   to: firstProgramId ? `/programs/${firstProgramId}/settings/general` : '/programs' },
+        { scope: 'program',   label: 'Program',   to: programTarget ? `/programs/${programTarget}/settings/general` : null, disabledReason: 'No programs yet' },
         { scope: 'project',   label: 'Project',   to: `/projects/${projectId}/settings/general` },
       ]}
       contextName={project?.name ?? 'Project settings'}

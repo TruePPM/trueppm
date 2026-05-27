@@ -279,6 +279,38 @@ describe('<SettingsShell>', () => {
       expect(screen.getByText('test')).toBeInTheDocument();
     });
 
+    it('disables a scope segment whose target is unavailable, instead of navigating to a blank page (#776)', () => {
+      render(
+        <MemoryRouter initialEntries={['/projects/p1/settings/general']}>
+          <Routes>
+            <Route
+              path="/projects/p1/settings/*"
+              element={
+                <SettingsShell
+                  scope="project"
+                  scopeLinks={[
+                    { scope: 'workspace', label: 'Workspace', to: '/settings/general' },
+                    { scope: 'program', label: 'Program', to: null, disabledReason: 'No programs yet' },
+                    { scope: 'project', label: 'Project', to: '/projects/p1/settings/general' },
+                  ]}
+                  contextName="P1"
+                  navGroups={NAV_GROUPS}
+                />
+              }
+            >
+              <Route path="general" element={<div>GENERAL_PAGE</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>,
+      );
+      const program = screen.getByRole('button', { name: 'Program' });
+      expect(program).toBeDisabled();
+      expect(program).toHaveAttribute('title', 'No programs yet');
+      fireEvent.click(program);
+      // No navigation occurred — still on the project general page.
+      expect(screen.getByText('GENERAL_PAGE')).toBeInTheDocument();
+    });
+
     it('switching context while dirty routes through the confirm-discard guard', () => {
       renderWithOptions();
       act(() => {

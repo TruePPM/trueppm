@@ -22,7 +22,12 @@ export interface SettingsNavGroup {
 export interface SettingsScopeLink {
   scope: 'workspace' | 'project' | 'program';
   label: string;
-  to: string;
+  /** Target settings route, or null when unavailable (still loading, or no such
+      entity exists) — the segment renders disabled rather than navigating to a
+      blank/irrelevant page (#776). */
+  to: string | null;
+  /** Tooltip shown on the disabled segment when `to` is null, e.g. "No programs yet". */
+  disabledReason?: string;
 }
 
 interface SettingsShellProps {
@@ -175,25 +180,40 @@ export function SettingsShell({
             Scope
           </p>
           <div className="grid grid-cols-3 bg-neutral-surface-sunken rounded p-0.5 gap-0">
-            {scopeLinks.map((sl) => (
-              <button
-                key={sl.scope}
-                type="button"
-                onClick={() => {
-                  if (guardedNavigate(sl.to)) return;
-                  void navigate(sl.to);
-                }}
-                className={[
-                  'py-1.5 px-1 rounded text-xs font-medium text-center transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                  scope === sl.scope
-                    ? 'bg-neutral-surface text-neutral-text-primary'
-                    : 'text-neutral-text-secondary hover:text-neutral-text-primary',
-                ].join(' ')}
-              >
-                {sl.label}
-              </button>
-            ))}
+            {scopeLinks.map((sl) => {
+              const isActive = scope === sl.scope;
+              // A non-active scope with no resolved target (no such entity, or
+              // still loading) renders disabled — never navigate to a blank page.
+              const isDisabled = !isActive && sl.to == null;
+              return (
+                <button
+                  key={sl.scope}
+                  type="button"
+                  disabled={isDisabled}
+                  aria-disabled={isDisabled || undefined}
+                  title={isDisabled ? sl.disabledReason : undefined}
+                  onClick={() => {
+                    if (sl.to == null) return;
+                    if (guardedNavigate(sl.to)) return;
+                    void navigate(sl.to);
+                  }}
+                  className={[
+                    'py-1.5 px-1 rounded text-xs font-medium text-center transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                    isActive
+                      ? 'bg-neutral-surface text-neutral-text-primary'
+                      : isDisabled
+                        // text-neutral-text-disabled here is exempt from rule 87 /
+                        // WCAG 1.4.3 — it's an inactive (disabled) UI component, and
+                        // it must read dimmer than the text-secondary enabled segments.
+                        ? 'text-neutral-text-disabled cursor-not-allowed'
+                        : 'text-neutral-text-secondary hover:text-neutral-text-primary',
+                  ].join(' ')}
+                >
+                  {sl.label}
+                </button>
+              );
+            })}
           </div>
 
           {/* Context selector. When >= 2 sibling entities exist it becomes a

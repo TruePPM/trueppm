@@ -49,7 +49,9 @@ export function ProgramSettingsPage() {
 
   if (!programId) return null;
 
-  const firstProjectId = projects?.[0]?.id;
+  // Project scope prefers a project belonging to THIS program, else any project;
+  // disabled when no projects exist (#776).
+  const projectTarget = projects?.find((p) => p.programId === programId)?.id ?? projects?.[0]?.id ?? null;
 
   // Sibling-program switcher options (#776) — preserve the current sub-page so
   // switching from test → test2 lands on the same settings tab.
@@ -93,7 +95,7 @@ export function ProgramSettingsPage() {
       scopeLinks={[
         { scope: 'workspace', label: 'Workspace', to: '/settings/general' },
         { scope: 'program',   label: 'Program',   to: `/programs/${programId}/settings/general` },
-        { scope: 'project',   label: 'Project',   to: firstProjectId ? `/projects/${firstProjectId}/settings/general` : '/' },
+        { scope: 'project',   label: 'Project',   to: projectTarget ? `/projects/${projectTarget}/settings/general` : null, disabledReason: 'No projects yet' },
       ]}
       contextName={program?.name ?? 'Program settings'}
       contextHealth={programHealthDot(program?.health)}
