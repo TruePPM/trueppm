@@ -13,10 +13,6 @@ export interface SettingsContextOption {
   to: string;
 }
 
-/** At/above this many options, the menu gains a type-to-filter search box (#776).
-    Below it, a plain menu is fast to scan and an input is just clutter. */
-const SEARCH_THRESHOLD = 8;
-
 const HEALTH_COLOR: Record<ContextHealth, string> = {
   onTrack: 'bg-semantic-on-track',
   atRisk: 'bg-semantic-at-risk',
@@ -71,16 +67,12 @@ interface Props {
 /**
  * Context-entity switcher for the settings shell pill (#776).
  *
- * Renders the entity-identity row (health dot + name + chevron) as a trigger.
- * Opening lists the sibling entities; choosing a different one calls
- * `onSelect(to)`, which the shell routes through its dirty-form guard. Mounted
- * only when there are >= 2 options.
- *
- * Two popover modes by option count:
- *  - < SEARCH_THRESHOLD → `role="menu"` of `menuitemradio` rows (item focus).
- *  - >= SEARCH_THRESHOLD → a `combobox` search input + `role="listbox"` of
- *    `option` rows; focus stays in the input, highlight via aria-activedescendant.
- * The two modes are selected by count and never coexist.
+ * The entity-identity row (health dot + name + chevron) is a trigger; opening
+ * reveals a `combobox` search input + `role="listbox"` of sibling entities.
+ * Type to filter by name; focus stays in the input with the highlight tracked
+ * via `aria-activedescendant`. Choosing a different entity calls `onSelect(to)`,
+ * which the shell routes through its dirty-form guard. Mounted only when there
+ * are >= 2 options. The search box is always present (no scan-then-search gap).
  */
 export function SettingsContextSwitcher({
   contextName,
@@ -90,7 +82,6 @@ export function SettingsContextSwitcher({
   entityLabel,
   onSelect,
 }: Props) {
-  const searchable = options.length >= SEARCH_THRESHOLD;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -98,7 +89,6 @@ export function SettingsContextSwitcher({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const baseId = useId();
@@ -107,9 +97,9 @@ export function SettingsContextSwitcher({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!searchable || !q) return options;
+    if (!q) return options;
     return options.filter((o) => o.name.toLowerCase().includes(q));
-  }, [options, query, searchable]);
+  }, [options, query]);
 
   const close = useCallback((returnFocus: boolean) => {
     setOpen(false);
@@ -130,31 +120,26 @@ export function SettingsContextSwitcher({
     return () => document.removeEventListener('pointerdown', onDocPointerDown);
   }, [open]);
 
-  // On open: focus the input (search mode) or the active row (menu mode), and
-  // seed the highlight to the active entity (else the first option).
+  // On open: focus the search input and seed the highlight to the active entity
+  // (else the first option).
   useEffect(() => {
     if (!open) return;
+    inputRef.current?.focus();
     const activeIdx = options.findIndex((o) => o.id === activeId);
-    const idx = activeIdx >= 0 ? activeIdx : 0;
-    if (searchable) {
-      inputRef.current?.focus();
-      setActiveIndex(idx);
-    } else {
-      itemRefs.current[idx]?.focus();
-    }
-  }, [open, searchable, options, activeId]);
+    setActiveIndex(activeIdx >= 0 ? activeIdx : 0);
+  }, [open, options, activeId]);
 
-  // Keep the search highlight in range as the filtered set shrinks, and scroll
-  // the highlighted option into view during keyboard navigation.
+  // Keep the highlight in range as the filtered set shrinks, and scroll the
+  // highlighted option into view during keyboard navigation.
   useEffect(() => {
-    if (!open || !searchable) return;
+    if (!open) return;
     if (activeIndex > filtered.length - 1) {
       setActiveIndex(filtered.length > 0 ? filtered.length - 1 : 0);
     } else {
       // Optional-call: scrollIntoView is unimplemented in jsdom (tests).
       optionRefs.current[activeIndex]?.scrollIntoView?.({ block: 'nearest' });
     }
-  }, [open, searchable, activeIndex, filtered.length]);
+  }, [open, activeIndex, filtered.length]);
 
   const handleSelect = (opt: SettingsContextOption) => {
     // Choosing the current entity is a no-op beyond closing the menu.
@@ -162,21 +147,6 @@ export function SettingsContextSwitcher({
     close(true);
   };
 
-  // ── Menu mode (no search) keyboard ──
-  const focusItem = (idx: number) => {
-    const n = options.length;
-    itemRefs.current[((idx % n) + n) % n]?.focus();
-  };
-  const handleMenuKeyDown = (e: KeyboardEvent) => {
-    const current = itemRefs.current.findIndex((el) => el === document.activeElement);
-    if (e.key === 'ArrowDown') { e.preventDefault(); focusItem(current + 1); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); focusItem(current - 1); }
-    else if (e.key === 'Home') { e.preventDefault(); focusItem(0); }
-    else if (e.key === 'End') { e.preventDefault(); focusItem(options.length - 1); }
-    else if (e.key === 'Escape') { e.preventDefault(); close(true); }
-  };
-
-  // ── Search mode keyboard (focus stays in the input) ──
   const handleInputKeyDown = (e: KeyboardEvent) => {
     const n = filtered.length;
     if (e.key === 'ArrowDown') { e.preventDefault(); if (n) setActiveIndex((i) => (i + 1) % n); }
@@ -201,7 +171,7 @@ export function SettingsContextSwitcher({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        aria-haspopup={searchable ? 'listbox' : 'menu'}
+        aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={`Current ${entityLabel}: ${withHealth(contextName, contextHealth)}. Switch ${entityLabel}.`}
         className="w-full min-w-0 flex items-center gap-1.5 rounded text-left
@@ -220,13 +190,14 @@ export function SettingsContextSwitcher({
         </svg>
       </button>
 
-      {open && searchable && (
+      {open && (
         <div
           ref={popoverRef}
           className="absolute left-0 right-0 top-full mt-1 z-20 rounded border border-neutral-border bg-neutral-surface"
         >
-          {/* Search box — pinned above the scrolling list. focus-within (not
-              focus-visible) so the programmatic open-focus shows a ring too. */}
+          {/* Search box — always present, pinned above the scrolling list.
+              focus-within (not focus-visible) so the programmatic open-focus
+              shows a ring too. */}
           <div className="flex items-center gap-1.5 px-2 h-7 border-b border-neutral-border
             focus-within:ring-2 focus-within:ring-inset focus-within:ring-brand-primary">
             <svg width="12" height="12" viewBox="0 0 16 16" className="shrink-0 text-neutral-text-disabled" aria-hidden="true">
@@ -286,43 +257,6 @@ export function SettingsContextSwitcher({
               })
             )}
           </div>
-        </div>
-      )}
-
-      {open && !searchable && (
-        <div
-          ref={popoverRef}
-          role="menu"
-          tabIndex={-1}
-          aria-label={`Switch ${entityLabel}`}
-          onKeyDown={handleMenuKeyDown}
-          className="absolute left-0 right-0 top-full mt-1 z-20 max-h-64 overflow-y-auto
-            rounded border border-neutral-border bg-neutral-surface py-1"
-        >
-          {options.map((opt, i) => {
-            const isActive = opt.id === activeId;
-            return (
-              <button
-                key={opt.id}
-                ref={(el) => {
-                  itemRefs.current[i] = el;
-                }}
-                type="button"
-                role="menuitemradio"
-                aria-checked={isActive}
-                aria-label={withHealth(opt.name, opt.health)}
-                tabIndex={-1}
-                onClick={() => handleSelect(opt)}
-                className="w-full flex items-center gap-1.5 px-2 h-7 text-[11px] text-left
-                  text-neutral-text-primary hover:bg-neutral-surface-sunken
-                  focus-visible:outline-none focus-visible:bg-neutral-surface-sunken focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary"
-              >
-                <HealthDot health={opt.health} />
-                <span className="flex-1 truncate">{opt.name}</span>
-                {isActive && <CheckIcon />}
-              </button>
-            );
-          })}
         </div>
       )}
     </div>

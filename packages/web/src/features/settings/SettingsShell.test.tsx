@@ -322,7 +322,7 @@ describe('<SettingsShell>', () => {
         });
       });
       fireEvent.click(screen.getByRole('button', { name: /Switch project/ }));
-      fireEvent.click(screen.getByRole('menuitemradio', { name: /test2/ }));
+      fireEvent.click(screen.getByRole('option', { name: /test2/ }));
       // The dirty guard intercepts the entity switch.
       expect(screen.getByRole('alertdialog')).toBeInTheDocument();
     });

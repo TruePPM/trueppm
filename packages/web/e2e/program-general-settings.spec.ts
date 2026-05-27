@@ -186,8 +186,8 @@ test.describe('Program Settings → General', () => {
 
     // Open the switcher and pick the other program.
     await page.getByRole('button', { name: /Switch program/ }).click();
-    await expect(page.getByRole('menu', { name: 'Switch program' })).toBeVisible();
-    await page.getByRole('menuitemradio', { name: /Phase 3 Rollout/ }).click();
+    await expect(page.getByRole('listbox', { name: 'Switch program' })).toBeVisible();
+    await page.getByRole('option', { name: /Phase 3 Rollout/ }).click();
 
     // Navigated to program 2's settings, same sub-page (general).
     await page.waitForURL(`**/programs/${PROGRAM_2}/settings/general`);
