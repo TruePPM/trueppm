@@ -48,6 +48,18 @@ describe('<SettingsShell>', () => {
     useSettingsSaveStore.getState().reset();
   });
 
+  it('reserves the scrollbar gutter on the content panel to prevent layout shift (#776)', () => {
+    renderShell();
+    // The shared shell swaps only the <Outlet> content between sub-pages; the
+    // scroll container persists. scrollbar-gutter:stable keeps the scrollbar
+    // track reserved so a tall page (General) and a short page (Projects) render
+    // at the same width — no horizontal jump on navigation. jsdom applies no CSS,
+    // so we assert the utility is present rather than the computed style (the
+    // computed-style check lives in the Playwright e2e spec).
+    const scroll = screen.getByTestId('settings-content-scroll');
+    expect(scroll.className).toContain('[scrollbar-gutter:stable]');
+  });
+
   it('hides the save bar when not dirty', () => {
     renderShell();
     expect(screen.queryByText('You have unsaved changes')).not.toBeInTheDocument();

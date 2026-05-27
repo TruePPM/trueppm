@@ -119,6 +119,21 @@ test.describe('Settings shell — copy-link affordance (#595)', () => {
   });
 });
 
+test.describe('Settings shell — scrollbar-gutter layout shift (#776)', () => {
+  test('content scroll container reserves a stable scrollbar gutter', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    const scroll = page.getByTestId('settings-content-scroll');
+    await expect(scroll).toBeVisible();
+    // scrollbar-gutter:stable holds the scrollbar track on every sub-page, so a
+    // tall page (General) and a short page (Projects/Integrations) render at the
+    // same content width — the panel no longer jumps horizontally on navigation.
+    const gutter = await scroll.evaluate((el) => getComputedStyle(el).scrollbarGutter);
+    expect(gutter).toBe('stable');
+  });
+});
+
 test.describe('Settings shell — saved-time footer (#596)', () => {
   test('footer is hidden on initial render with no save', async ({ page }) => {
     await setup(page);

@@ -244,8 +244,13 @@ export function SettingsShell({
           </div>
         </div>
 
-        {/* Nav groups */}
-        <nav className="flex-1 overflow-y-auto px-2 py-1" aria-label="Settings sections">
+        {/* Nav groups. scrollbar-gutter:stable reserves the scrollbar track so a
+            longer scope (e.g. Workspace) gaining a scrollbar can't shift the nav
+            labels sideways — same rationale as the content panel below (#776). */}
+        <nav
+          className="flex-1 overflow-y-auto [scrollbar-gutter:stable] px-2 py-1"
+          aria-label="Settings sections"
+        >
           {navGroups.map((group) => (
             <div key={group.label} className="mb-2">
               <h2 className="px-2 py-1.5 text-xs font-semibold tracking-[.08em] uppercase text-neutral-text-secondary">
@@ -291,8 +296,14 @@ export function SettingsShell({
 
       {/* ── Right content area ── */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
-        {/* Page content */}
-        <div className="flex-1 overflow-y-auto bg-neutral-surface">
+        {/* Page content. scrollbar-gutter:stable keeps the scrollbar track
+            reserved on every sub-page, so navigating between a tall page (General,
+            Risk policy) and a short one (Projects, Integrations) no longer toggles
+            the scrollbar and shifts the panel ~15px horizontally (#776). */}
+        <div
+          className="flex-1 overflow-y-auto [scrollbar-gutter:stable] bg-neutral-surface"
+          data-testid="settings-content-scroll"
+        >
           <Outlet />
         </div>
 
