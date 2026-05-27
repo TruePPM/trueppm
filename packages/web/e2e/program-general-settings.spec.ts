@@ -195,6 +195,48 @@ test.describe('Program Settings → General', () => {
     await expect(page.getByRole('button', { name: /Current program: Phase 3 Rollout/ })).toBeVisible();
   });
 
+  // #776 follow-on: with many programs the switcher gains a type-to-filter search
+  // box so you don't have to scan the whole list.
+  test('context switcher filters by search when there are many programs', async ({ page }) => {
+    const captures: { patch?: Record<string, unknown> } = {};
+    await setup(page, captures);
+
+    const pj = (d: unknown) => JSON.stringify(d);
+    // 8 programs → search box appears (threshold). Include a uniquely-named target.
+    const many = Array.from({ length: 7 }, (_, i) => ({
+      ...FIXTURE_PROGRAM,
+      id: `e2e-prog-many-${i}`,
+      name: `Program ${i}`,
+      code: `PG${i}`,
+    }));
+    const ZENITH = 'e2e-prog-zenith-0000-0000-0000-000000000999';
+    const FIXTURE_ZENITH = { ...FIXTURE_PROGRAM, id: ZENITH, name: 'Zenith Initiative', code: 'ZEN' };
+    await page.route('**/api/v1/programs/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ results: [FIXTURE_PROGRAM, ...many, FIXTURE_ZENITH], count: 9, next: null, previous: null }),
+      }),
+    );
+    await page.route(`**/api/v1/programs/${ZENITH}/`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_ZENITH) }),
+    );
+
+    await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
+    await page.getByRole('button', { name: /Switch program/ }).click();
+
+    // Search box present; typing narrows to the matching program.
+    const search = page.getByRole('combobox', { name: 'Find a program' });
+    await expect(search).toBeVisible();
+    await search.fill('zenith');
+    await expect(page.getByRole('option')).toHaveCount(1);
+
+    // Enter selects the single match and navigates to its settings.
+    await search.press('Enter');
+    await page.waitForURL(`**/programs/${ZENITH}/settings/general`);
+    await expect(page.getByLabel('Program name')).toHaveValue('Zenith Initiative');
+  });
+
   test('discard reverts edited fields to the seeded snapshot', async ({ page }) => {
     const captures: { patch?: Record<string, unknown> } = {};
     await setup(page, captures);
