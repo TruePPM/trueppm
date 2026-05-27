@@ -88,6 +88,12 @@ def test_fixture_conformance(fixture_name: str) -> None:
             assert at["early_finish"] == et["early_finish"], f"{at['id']}: early_finish"
             assert at["late_start"] == et["late_start"], f"{at['id']}: late_start"
             assert at["late_finish"] == et["late_finish"], f"{at['id']}: late_finish"
+            # Assert float math too, so the hand-ported Rust float computation
+            # (packages/wasm-scheduler/src/floats.rs) cannot drift from Python
+            # undetected. Without these, ES/EF/LS/LF could match while total/free
+            # float diverged across the two engines.
+            assert at["total_float"] == et["total_float"], f"{at['id']}: total_float"
+            assert at["free_float"] == et["free_float"], f"{at['id']}: free_float"
             assert at["is_critical"] == et["is_critical"], f"{at['id']}: is_critical"
     else:
         # Generate expected output for new fixtures
