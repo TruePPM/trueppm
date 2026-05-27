@@ -136,7 +136,7 @@ def close_sprint(self: object, request_id: str) -> None:
                 ]
             )
 
-            apply_carry_over(sprint, req.carry_over_to)
+            carried_task_ids = apply_carry_over(sprint, req.carry_over_to)
 
             # ADR-0074: recompute the milestone rollup with the final
             # completed_* snapshot. Runs here (inside the drain transaction,
@@ -185,6 +185,19 @@ def close_sprint(self: object, request_id: str) -> None:
                     {"id": sprint_id_str},
                 )
             )
+            # The carried-over tasks changed sprint (and possibly status). Without
+            # a broadcast, connected clients keep rendering them under the closed
+            # sprint until a manual refetch. Emit one bulk event for the batch.
+            # Bind the ids via a default arg (matches the backlog_services pattern)
+            # so closure late-binding can't swap them if this grows more branches.
+            if carried_task_ids:
+
+                def _broadcast_carry_over(
+                    pid: str = project_id_str, ids: list[str] = carried_task_ids
+                ) -> None:
+                    broadcast_board_event(pid, "tasks_bulk_mutated", {"task_ids": ids})
+
+                transaction.on_commit(_broadcast_carry_over)
 
     except Exception as exc:
         logger.exception("close_sprint: failed for request %s", request_id)

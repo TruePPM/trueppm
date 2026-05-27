@@ -665,24 +665,29 @@ def burn_series(
 _CARRY_OVER_INCOMPLETE_STATUSES = ("BACKLOG", "NOT_STARTED", "IN_PROGRESS", "REVIEW")
 
 
-def apply_carry_over(sprint: Any, carry_over_to: str) -> None:
+def apply_carry_over(sprint: Any, carry_over_to: str) -> list[str]:
     """Reassign incomplete tasks per the carry-over policy.
 
     Called from inside ``close_sprint`` after ``completed_*`` is snapshotted
     and the sprint state has been advanced. ``completed_*`` reflects only
     tasks that completed within the sprint window — the carry-over move is
     pure FK reassignment.
+
+    Returns the IDs of the tasks that were moved, so the caller can broadcast a
+    single ``tasks_bulk_mutated`` event — without it, connected clients keep
+    showing the carried-over tasks under the just-closed sprint until a refetch.
     """
     from trueppm_api.apps.projects.models import Task, TaskStatus
 
     if carry_over_to == "none":
-        return
+        return []
 
     incomplete = Task.objects.filter(
         sprint_id=sprint.pk,
         status__in=_CARRY_OVER_INCOMPLETE_STATUSES,
         is_deleted=False,
     )
+    moved_ids: list[str] = []
     if carry_over_to == "backlog":
         # Iterate to call .save() so VersionedModel bumps server_version on each
         # task — queryset.update() bypasses the model and mobile sync misses it.
@@ -690,13 +695,16 @@ def apply_carry_over(sprint: Any, carry_over_to: str) -> None:
             task.sprint = None
             task.status = TaskStatus.BACKLOG
             task.save(update_fields=["sprint", "status"])
-        return
+            moved_ids.append(str(task.pk))
+        return moved_ids
 
     # Otherwise treat as a UUID string referencing another sprint in the same
     # project. Caller is expected to have validated this upstream.
     for task in incomplete:
         task.sprint_id = carry_over_to
         task.save(update_fields=["sprint"])
+        moved_ids.append(str(task.pk))
+    return moved_ids
 
 
 def snapshot_completed_metrics(sprint: Any) -> None:

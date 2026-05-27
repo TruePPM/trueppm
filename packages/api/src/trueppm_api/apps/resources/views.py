@@ -169,7 +169,23 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
                 raise PermissionDenied(
                     "You need at least Resource Manager role to manage the roster."
                 )
-        serializer.save()
+        instance = serializer.save()
+
+        # Mirror the destroy() path: a roster add is invisible to connected
+        # clients until a refetch without this broadcast.
+        project_id = str(instance.project_id)
+        resource_id = str(instance.resource_id)
+
+        def _on_commit() -> None:
+            from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+            broadcast_board_event(
+                project_id,
+                "roster_changed",
+                {"resource_id": resource_id},
+            )
+
+        transaction.on_commit(_on_commit)
 
     def destroy(self, request: Request, *args: object, **kwargs: object) -> Response:
         """Remove a resource from the roster.
