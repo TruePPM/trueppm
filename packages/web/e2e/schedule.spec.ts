@@ -204,3 +204,45 @@ test.describe('Accessibility basics', () => {
     await expect(footer.getByText(/build /)).toBeVisible();
   });
 });
+
+test.describe('Schedule zoom & pan (#351 / #491)', () => {
+  test.beforeEach(async ({ page }) => {
+    await gotoSchedule(page);
+  });
+
+  test('zoom stepper steps the derived tier; Fit button is present (#351)', async ({ page }) => {
+    const group = page.getByRole('group', { name: 'Timeline zoom' }).first();
+    await expect(group.getByRole('status')).toHaveText('Week'); // default tier
+
+    // Two geometric zoom-ins from week (12 px/day) cross into the day band.
+    await group.getByRole('button', { name: 'Zoom in' }).click();
+    await group.getByRole('button', { name: 'Zoom in' }).click();
+    await expect(group.getByRole('status')).toHaveText('Day');
+
+    // Fit-to-project control exists (⌘0).
+    await expect(page.getByRole('button', { name: 'Fit schedule to window' }).first()).toBeVisible();
+  });
+
+  test('Space + drag pans the timeline horizontally (#491)', async ({ page }) => {
+    const scroll = page.getByTestId('schedule-canvas-scroll');
+    await expect(scroll).toBeVisible();
+
+    const box = await scroll.boundingBox();
+    if (!box) throw new Error('canvas scroll container has no bounding box');
+    const y = box.y + box.height / 2;
+    const startX = box.x + box.width * 0.7;
+
+    // Hover the canvas so the Space-arm gesture is scoped here, then Space-drag left.
+    await page.mouse.move(startX, y);
+    await page.keyboard.down('Space');
+    await page.mouse.down();
+    await page.mouse.move(startX - 200, y, { steps: 8 });
+    await page.mouse.up();
+    await page.keyboard.up('Space');
+
+    // Dragging left reveals later dates → scrollLeft increases.
+    await expect
+      .poll(async () => scroll.evaluate((el) => (el as HTMLElement).scrollLeft))
+      .toBeGreaterThan(0);
+  });
+});

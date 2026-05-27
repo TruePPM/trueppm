@@ -161,10 +161,42 @@ export interface GanttEngine {
   readonly scrollLeft: number;
 
   /**
-   * Programmatically change the zoom level.
-   * Triggers a 'scales-change' event followed by a full repaint.
+   * Programmatically change the zoom level (discrete tier).
+   * Routes through `setPxPerDay` with the tier's canonical `pxPerDay` and a
+   * viewport-center anchor. Triggers a 'scales-change' event + full repaint.
    */
   setZoom(level: ZoomLevel): void;
+
+  /**
+   * Set the continuous zoom (#351). `pxPerDay` is clamped to the
+   * [MIN_PX_PER_DAY, MAX_PX_PER_DAY] band; the discrete `ZoomLevel` is derived
+   * from it for header formatting and consumer gating.
+   *
+   * Anchoring:
+   * - With `anchor.clientX`: CURSOR-ANCHORED — the date under the cursor stays
+   *   fixed (wheel / pinch). The clientX is viewport-relative; the engine
+   *   converts it to a canvas X internally.
+   * - Without `anchor`: VIEWPORT-CENTER — preserves the viewport-midpoint date
+   *   (rule 80; used by the toolbar +/- buttons and keyboard zoom).
+   *
+   * Triggers a 'scales-change' event + full repaint.
+   */
+  setPxPerDay(px: number, anchor?: { clientX: number }): void;
+
+  /**
+   * Current continuous zoom in logical px/day. Mirrors `scales.pxPerMs`
+   * (× 86,400,000); null until the engine fires 'ready'. The toolbar reads this
+   * to disable +/- at the band edges and to render the derived tier label.
+   */
+  readonly pxPerDay: number | null;
+
+  /**
+   * Fit the whole project into the viewport width (#351, ⌘0). Computes the
+   * `pxPerDay` so `[project.start, max(task finish)]` fits with a small margin,
+   * then scrolls so the project start lands near the left edge.
+   * Triggers a 'scales-change' event + full repaint.
+   */
+  fitToProject(): void;
 
   /**
    * Scroll the timeline so that the given date is centered in the viewport.

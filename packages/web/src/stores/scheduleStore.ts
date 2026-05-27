@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import type { ZoomLevel } from '@/types';
-import type { QuarterMode } from '@/features/schedule/engine';
+import {
+  ZOOM_CONFIGS,
+  clampPxPerDay,
+  deriveTier,
+  type QuarterMode,
+} from '@/features/schedule/engine';
 
 const QUARTER_MODE_KEY = 'schedule.quarterMode';
 
@@ -35,6 +40,17 @@ export interface ScheduleActionToast {
 }
 
 interface GanttState {
+  /**
+   * Continuous timeline zoom in logical px/day (#351) — the source of truth.
+   * Clamped to [MIN_PX_PER_DAY, MAX_PX_PER_DAY]. `zoomLevel` is derived from it.
+   */
+  pxPerDay: number;
+  /**
+   * Discrete zoom tier DERIVED from `pxPerDay` (#351). Kept as a stored field so
+   * existing consumers (CanvasScheduleTimeline header formatting, ScheduleView's
+   * QuarterModeControl gate) can read it without recomputing. Always equals
+   * `deriveTier(pxPerDay)`.
+   */
   zoomLevel: ZoomLevel;
   selectedTaskId: string | null;
   /**
@@ -50,6 +66,12 @@ interface GanttState {
   /** Quarter/year header tier mode (#755) — `fiscal` follows the workspace
    *  fiscal-year start; `calendar` uses Jan–Mar = Q1. Persisted to localStorage. */
   quarterMode: QuarterMode;
+  /** Set the continuous zoom; clamps and re-derives `zoomLevel` (#351). */
+  setPxPerDay: (px: number) => void;
+  /**
+   * Select a discrete tier (#351). Snaps `pxPerDay` to the tier's canonical
+   * value so the readout and the engine stay consistent.
+   */
   setZoomLevel: (zoom: ZoomLevel) => void;
   setSelectedTaskId: (id: string | null) => void;
   scrollToTask: (id: string | null) => void;
@@ -59,13 +81,21 @@ interface GanttState {
 }
 
 export const useScheduleStore = create<GanttState>()((set) => ({
+  // Default to the 'week' tier's px/day so the initial derived tier is 'week'
+  // (matches the pre-#351 default zoomLevel). pxPerDay is the source of truth.
+  pxPerDay: ZOOM_CONFIGS.week.pxPerDay,
   zoomLevel: 'week',
   selectedTaskId: null,
   scrollToTaskId: null,
   scheduleError: null,
   scheduleActionToast: null,
   quarterMode: readQuarterMode(),
-  setZoomLevel: (zoomLevel) => set({ zoomLevel }),
+  setPxPerDay: (px) => {
+    const pxPerDay = clampPxPerDay(px);
+    set({ pxPerDay, zoomLevel: deriveTier(pxPerDay) });
+  },
+  setZoomLevel: (zoomLevel) =>
+    set({ zoomLevel, pxPerDay: ZOOM_CONFIGS[zoomLevel].pxPerDay }),
   setSelectedTaskId: (selectedTaskId) => set({ selectedTaskId }),
   scrollToTask: (scrollToTaskId) => set({ scrollToTaskId }),
   setScheduleError: (scheduleError) => set({ scheduleError }),

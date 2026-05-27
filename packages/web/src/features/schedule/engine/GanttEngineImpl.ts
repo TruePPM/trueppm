@@ -13,10 +13,19 @@
 import type { Task, TaskLink } from '@/types';
 import type { GanttEngine, GanttEngineEventMap } from './GanttEngine';
 import type { FiscalConfig, GanttScaleData, ZoomLevel } from './GanttScaleData';
-import { CALENDAR_QUARTERS, buildScaleData, dateToLeft, leftToDate } from './GanttScaleData';
+import {
+  CALENDAR_QUARTERS,
+  ZOOM_CONFIGS,
+  ZOOM_WHEEL_FACTOR,
+  buildScaleDataFromPxPerDay,
+  clampPxPerDay,
+  dateToLeft,
+  leftToDate,
+} from './GanttScaleData';
 import { buildHitIndex } from './GanttHitIndex';
 import type { HitIndex, HitZone } from './GanttHitIndex';
 import { GanttDragFSM } from './GanttDragFSM';
+import { GanttPanFSM } from './GanttPanFSM';
 import {
   ROW_HEIGHT,
   BAR_TOP_OFFSET,
@@ -90,7 +99,11 @@ export class GanttEngineImpl implements GanttEngine {
   private _scales: GanttScaleData | null = null;
   private _projectStart = '2024-01-01';
   private _projectEnd = '2025-01-01';
-  private _zoomLevel: ZoomLevel;
+  // Continuous zoom (#351). `pxPerDay` is the source of truth; the discrete
+  // `ZoomLevel` is derived from it (via deriveTier in the scale builder) and
+  // exposed only through `scales.zoomLevel` for header formatting + the
+  // QuarterModeControl gate.
+  private _pxPerDay: number;
   private _scrollLeft = 0;
   private _scrollTop = 0;
   private _viewportWidth = 0;
@@ -106,6 +119,21 @@ export class GanttEngineImpl implements GanttEngine {
   private _lastHoveredTaskId: string | null = null;
   private _hitIndex: HitIndex | null = null;
   private _dragFSM: GanttDragFSM = new GanttDragFSM();
+
+  // Drag-to-pan (#491). A separate FSM coexisting with the drag FSM, arbitrated
+  // on pointerdown: if Space is held OR the middle button is pressed, the pan
+  // FSM claims the gesture and the drag FSM is bypassed. The two flags below
+  // feed _updateCursor's precedence (rule 130): _panning → grabbing,
+  // _panArmed → grab, else hit-zone cursors.
+  private _panFSM: GanttPanFSM = new GanttPanFSM();
+  /** True while Space is held with the canvas hovered/focused — pan is armed. */
+  private _panArmed = false;
+  /** True while a pan gesture is actively dragging the viewport. */
+  private _panning = false;
+  /** Set when a pan just ended so the synthetic contextmenu is suppressed once. */
+  private _suppressNextContextMenu = false;
+  /** True while the pointer is over / the canvas has focus — scopes Space-arm. */
+  private _canvasHovered = false;
 
   // Dirty-rect tracking
   private _dirtyRows: Set<number> = new Set();
@@ -161,7 +189,8 @@ export class GanttEngineImpl implements GanttEngine {
     this._bgCanvas = bgCanvas;
     this._barsCanvas = barsCanvas;
     this._ixCanvas = ixCanvas;
-    this._zoomLevel = initialZoom;
+    // Seed the continuous scale from the initial discrete tier (#351).
+    this._pxPerDay = ZOOM_CONFIGS[initialZoom].pxPerDay;
 
     // Obtain contexts — callers must ensure canvas.getContext('2d') is non-null
     const bgCtx = bgCanvas.getContext('2d');
@@ -204,8 +233,32 @@ export class GanttEngineImpl implements GanttEngine {
     // cursor out of the canvas while still hovering a bar leaves the chain
     // stuck on screen until the next pointermove.
     this._ixCanvas.addEventListener('pointerleave', this._onPointerLeave);
+    // Pointer enter/leave scope the Space-to-arm-pan gesture to the canvas
+    // (#491, rule 130) — Space anywhere else (search boxes, the task list) must
+    // never arm a pan. pointerenter is distinct from pointermove so the flag is
+    // set even before the first move.
+    this._ixCanvas.addEventListener('pointerenter', this._onPointerEnter);
     // Keyboard listeners
     this._ixCanvas.addEventListener('dblclick', this._onDblClick);
+
+    // Ctrl/Cmd + wheel over the timeline → cursor-anchored zoom (#351). Plain
+    // wheel keeps the browser's native scroll. Trackpad pinch is delivered by
+    // the browser AS a ctrl+wheel event, so e.ctrlKey covers both pinch and the
+    // explicit Ctrl/Cmd-wheel modifier. Non-passive so we can preventDefault the
+    // browser's page-zoom on Ctrl+wheel.
+    this._ixCanvas.addEventListener('wheel', this._onWheel, { passive: false });
+
+    // Suppress the contextmenu that a middle/right pan release would otherwise
+    // fire (#491, rule 130).
+    this._ixCanvas.addEventListener('contextmenu', this._onContextMenu);
+
+    // Space-to-arm pan is scoped to the canvas: the window keydown/keyup only
+    // act when the canvas is hovered or focused (#491). A global Space capture
+    // would break Space elsewhere (buttons, checkboxes, the page scroll).
+    if (typeof window !== 'undefined') {
+      window.addEventListener('keydown', this._onKeyDown);
+      window.addEventListener('keyup', this._onKeyUp);
+    }
 
     // Seed viewport size from container
     this._viewportWidth = container.clientWidth;
@@ -258,19 +311,50 @@ export class GanttEngineImpl implements GanttEngine {
     return this._scrollLeft;
   }
 
-  setZoom(level: ZoomLevel): void {
-    // Preserve center date before zoom
-    const centerX = this._scrollLeft + this._viewportWidth / 2;
-    const centerDate = this._scales ? leftToDate(centerX, this._scales) : null;
+  get pxPerDay(): number | null {
+    return this._scales ? this._pxPerDay : null;
+  }
 
-    this._zoomLevel = level;
+  setZoom(level: ZoomLevel): void {
+    // Discrete tier selection routes through the continuous path with a
+    // viewport-center anchor (rule 80) — keeps a single zoom code path (#351).
+    this.setPxPerDay(ZOOM_CONFIGS[level].pxPerDay);
+  }
+
+  setPxPerDay(px: number, anchor?: { clientX: number }): void {
+    const next = clampPxPerDay(px);
+    // No-op when already at the clamped target (e.g. repeated zoom-in at MAX) —
+    // avoids a wasted full repaint and a redundant scales-change emit.
+    if (next === this._pxPerDay && this._scales) return;
+
+    // Compute the anchor's canvas X and the date currently under it BEFORE the
+    // scale changes. Cursor-anchored (rule 128) when a clientX is given; else
+    // viewport-center (rule 80).
+    let anchorCanvasX: number | null = null;
+    let anchorDate: Date | null = null;
+    if (this._scales) {
+      if (anchor) {
+        const rect = this._ixCanvas.getBoundingClientRect();
+        const cursorX = anchor.clientX - rect.left; // viewport-relative
+        anchorCanvasX = this._scrollLeft + cursorX;
+      } else {
+        anchorCanvasX = this._scrollLeft + this._viewportWidth / 2;
+      }
+      anchorDate = leftToDate(anchorCanvasX, this._scales);
+    }
+
+    this._pxPerDay = next;
     this._rebuildScales();
     this._rebuildHitIndex();
 
-    // Restore center date after zoom
-    if (centerDate && this._scales) {
-      const newCenterX = dateToLeft(centerDate.toISOString().slice(0, 10), this._scales);
-      const newScrollLeft = Math.max(0, newCenterX - this._viewportWidth / 2);
+    // Restore the anchor: keep the same date pinned under the same on-screen x.
+    // viewportX = anchorCanvasX - oldScrollLeft (unchanged by zoom); new
+    // scrollLeft = newCanvasX(anchorDate) - viewportX. For viewport-center the
+    // viewportX is simply viewportWidth/2.
+    if (anchorDate && anchorCanvasX !== null && this._scales) {
+      const viewportX = anchor ? anchorCanvasX - this._scrollLeft : this._viewportWidth / 2;
+      const newAnchorCanvasX = dateToLeft(anchorDate.toISOString().slice(0, 10), this._scales);
+      const newScrollLeft = Math.max(0, newAnchorCanvasX - viewportX);
       this._container.scrollLeft = newScrollLeft;
     }
 
@@ -278,6 +362,30 @@ export class GanttEngineImpl implements GanttEngine {
       this._emit('scales-change', { scales: this._scales });
     }
     this._fullRepaintPending = true;
+  }
+
+  fitToProject(): void {
+    if (!this._scales) return;
+    // Fit [project.start, project.end] into the viewport width with a small
+    // margin, then scroll the start near the left edge (#351, ⌘0). The project
+    // range here is the padded extent the engine already tracks; using the raw
+    // task span without padding would clip the leading/trailing buffer.
+    const startMs = new Date(this._projectStart + 'T00:00:00Z').getTime();
+    const endMs = new Date(this._projectEnd + 'T00:00:00Z').getTime();
+    const spanDays = Math.max(1, (endMs - startMs) / 86_400_000);
+    const MARGIN = 0.92; // leave ~8% breathing room so end bars aren't flush
+    const targetPxPerDay = (this._viewportWidth * MARGIN) / spanDays;
+
+    this.setPxPerDay(targetPxPerDay);
+    // setPxPerDay rebuilt the scale; scroll the project start near the left edge
+    // (a small inset so the leading pad doesn't sit exactly at x=0). scrollToDate
+    // centers, which would push half the project off-screen left, so set
+    // scrollLeft directly here.
+    if (this._scales) {
+      const startX = dateToLeft(this._projectStart, this._scales);
+      const INSET_PX = this._viewportWidth * ((1 - MARGIN) / 2);
+      this._container.scrollLeft = Math.max(0, startX - INSET_PX);
+    }
   }
 
   scrollToDate(isoDate: string, behavior: ScrollBehavior = 'instant'): void {
@@ -402,7 +510,15 @@ export class GanttEngineImpl implements GanttEngine {
     this._ixCanvas.removeEventListener('pointerup', this._onPointerUp);
     this._ixCanvas.removeEventListener('pointercancel', this._onPointerCancel);
     this._ixCanvas.removeEventListener('pointerleave', this._onPointerLeave);
+    this._ixCanvas.removeEventListener('pointerenter', this._onPointerEnter);
     this._ixCanvas.removeEventListener('dblclick', this._onDblClick);
+    this._ixCanvas.removeEventListener('wheel', this._onWheel);
+    this._ixCanvas.removeEventListener('contextmenu', this._onContextMenu);
+
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('keydown', this._onKeyDown);
+      window.removeEventListener('keyup', this._onKeyUp);
+    }
 
     this._resizeObserver.disconnect();
 
@@ -449,7 +565,12 @@ export class GanttEngineImpl implements GanttEngine {
     // a canvas only slightly wider than the viewport, making the timeline appear
     // to terminate at the last bar (issue #96).
     const minWidthPx = this._viewportWidth * 3;
-    this._scales = buildScaleData(this._zoomLevel, this._projectStart, this._projectEnd, minWidthPx);
+    this._scales = buildScaleDataFromPxPerDay(
+      this._pxPerDay,
+      this._projectStart,
+      this._projectEnd,
+      minWidthPx,
+    );
   }
 
   private _rebuildHitIndex(): void {
@@ -813,6 +934,23 @@ export class GanttEngineImpl implements GanttEngine {
   private readonly _onPointerDown = (e: PointerEvent): void => {
     if (!this._hitIndex || !this._scales) return;
 
+    // ── Pan arbitration (#491, rule 129) ──────────────────────────────────
+    // Space-held OR middle button claims the gesture; the drag FSM is bypassed.
+    // Middle-click pans immediately (no arm step); preventDefault suppresses the
+    // browser's middle-click auto-scroll puck. Pan is allowed to start anywhere
+    // on the canvas including the header band — only task drag is header-gated.
+    const isMiddle = e.button === 1;
+    if (this._panArmed || isMiddle) {
+      const claimed = this._panFSM.start(e.clientX, e.clientY, e.pointerId, isMiddle);
+      if (claimed) {
+        e.preventDefault();
+        this._panning = true;
+        this._ixCanvas.setPointerCapture(e.pointerId);
+        this._updateCursor(null);
+        return;
+      }
+    }
+
     // Ignore pointer events in the fixed header band (viewport y < HEADER_HEIGHT)
     const rect = this._ixCanvas.getBoundingClientRect();
     if (e.clientY - rect.top < HEADER_HEIGHT) return;
@@ -840,6 +978,22 @@ export class GanttEngineImpl implements GanttEngine {
   };
 
   private readonly _onPointerMove = (e: PointerEvent): void => {
+    // ── Pan move (#491) ───────────────────────────────────────────────────
+    // Direct 1:1 manipulation on both axes. Dragging content right (positive
+    // dx) reveals earlier dates, so scrollLeft decreases by dx; same for dy.
+    // Clamp to [0, max] on each axis (rule 129). The vertical scroll change
+    // flows back to the task-list via the container's scroll event → the
+    // ScheduleView scroll-sync handler (taskListScrollRef), so no extra wiring
+    // is needed here.
+    const panDelta = this._panFSM.move(e.clientX, e.clientY);
+    if (panDelta) {
+      const maxLeft = Math.max(0, (this._scales?.totalWidth ?? 0) - this._viewportWidth);
+      const maxTop = Math.max(0, this._container.scrollHeight - this._container.clientHeight);
+      this._container.scrollLeft = Math.min(maxLeft, Math.max(0, this._scrollLeft - panDelta.dx));
+      this._container.scrollTop = Math.min(maxTop, Math.max(0, this._scrollTop - panDelta.dy));
+      return;
+    }
+
     const { x, y } = this._pointerToCanvas(e);
     const result = this._dragFSM.onPointerMove(x, y);
 
@@ -879,6 +1033,23 @@ export class GanttEngineImpl implements GanttEngine {
   };
 
   private readonly _onPointerUp = (e: PointerEvent): void => {
+    // ── Pan end (#491) ────────────────────────────────────────────────────
+    if (this._panning) {
+      this._panFSM.end(this._panArmed);
+      this._panning = false;
+      // A right/middle-button release fires a synthetic contextmenu next tick;
+      // suppress it once so a pan release never opens the context menu (rule 130).
+      this._suppressNextContextMenu = true;
+      try {
+        this._ixCanvas.releasePointerCapture(e.pointerId);
+      } catch {
+        // Ignore if already released.
+      }
+      // Cursor returns to grab (still armed) or default (disarmed).
+      this._updateCursor(this._hoverZone);
+      return;
+    }
+
     const prevState = this._dragFSM.state;
     this._dragFSM.onPointerUp();
 
@@ -906,12 +1077,21 @@ export class GanttEngineImpl implements GanttEngine {
   };
 
   private readonly _onPointerCancel = (e: PointerEvent): void => {
+    if (this._panning) {
+      this._panFSM.reset();
+      this._panning = false;
+    }
     this.cancelDrag();
     try {
       this._ixCanvas.releasePointerCapture(e.pointerId);
     } catch {
       // Ignore if already released
     }
+  };
+
+  private readonly _onPointerEnter = (): void => {
+    // Scope Space-to-arm-pan to the canvas (#491, rule 130).
+    this._canvasHovered = true;
   };
 
   private readonly _onPointerLeave = (): void => {
@@ -921,7 +1101,77 @@ export class GanttEngineImpl implements GanttEngine {
       this._emit('task-hover', { taskId: null });
     }
     this._hoverZone = null;
+    // Leaving the canvas un-scopes the Space-arm gesture. A pan in progress is
+    // unaffected — pointer capture keeps the gesture alive past the edge.
+    this._canvasHovered = false;
     this._updateCursor(null);
+  };
+
+  // ---------------------------------------------------------------------------
+  // Private — Wheel zoom (#351)
+  // ---------------------------------------------------------------------------
+
+  private readonly _onWheel = (e: WheelEvent): void => {
+    // Only zoom when Ctrl/Cmd is held (the issue: plain wheel keeps scrolling).
+    // The browser delivers trackpad pinch AS a ctrl+wheel event, so e.ctrlKey
+    // covers both pinch and the explicit modifier (rule 128). e.metaKey is
+    // accepted too for the Cmd-wheel convention on macOS browsers that set it.
+    if (!e.ctrlKey && !e.metaKey) return;
+    // Prevent the browser's native page zoom on Ctrl/Cmd+wheel.
+    e.preventDefault();
+    if (!this._scales) return;
+    // deltaY < 0 (scroll up / pinch out) → zoom in → multiply px/day.
+    const factor = e.deltaY < 0 ? ZOOM_WHEEL_FACTOR : 1 / ZOOM_WHEEL_FACTOR;
+    this.setPxPerDay(this._pxPerDay * factor, { clientX: e.clientX });
+  };
+
+  // ---------------------------------------------------------------------------
+  // Private — Space-to-arm pan (#491)
+  // ---------------------------------------------------------------------------
+
+  private readonly _onKeyDown = (e: KeyboardEvent): void => {
+    // Arm pan on Space only when the canvas is hovered/focused — never a global
+    // capture (rule 130). Ignore auto-repeat. Don't hijack Space typed into an
+    // input that happens to overlap; the canvas-hover scope already excludes
+    // most of those, but bail if the target is an editable element.
+    if (e.code !== 'Space' && e.key !== ' ') return;
+    if (!this._canvasHovered) return;
+    if (this._isEditableTarget(e.target)) return;
+    if (e.repeat) return;
+    // Suppress the page scroll Space would otherwise trigger while panning.
+    e.preventDefault();
+    this._panArmed = true;
+    this._panFSM.arm();
+    if (!this._panning) this._updateCursor(this._hoverZone);
+  };
+
+  private readonly _onKeyUp = (e: KeyboardEvent): void => {
+    if (e.code !== 'Space' && e.key !== ' ') return;
+    this._panArmed = false;
+    this._panFSM.disarm();
+    if (!this._panning) this._updateCursor(this._hoverZone);
+  };
+
+  private _isEditableTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) return false;
+    const tag = target.tagName;
+    return (
+      tag === 'INPUT' ||
+      tag === 'TEXTAREA' ||
+      tag === 'SELECT' ||
+      target.isContentEditable
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private — Context menu suppression after pan (#491, rule 130)
+  // ---------------------------------------------------------------------------
+
+  private readonly _onContextMenu = (e: MouseEvent): void => {
+    if (this._panning || this._suppressNextContextMenu) {
+      e.preventDefault();
+      this._suppressNextContextMenu = false;
+    }
   };
 
   private readonly _onDblClick = (e: MouseEvent): void => {
@@ -940,6 +1190,18 @@ export class GanttEngineImpl implements GanttEngine {
   // ---------------------------------------------------------------------------
 
   private _updateCursor(zone: Pick<HitZone, 'type'> | null): void {
+    // Pan precedence (rule 130, extends rule 84): an active pan forces
+    // 'grabbing' over the whole canvas; an armed (Space-held) pan forces 'grab'
+    // and overrides any hit-zone cursor; otherwise the existing drag/hit-zone
+    // logic applies.
+    if (this._panning) {
+      this._ixCanvas.style.cursor = 'grabbing';
+      return;
+    }
+    if (this._panArmed) {
+      this._ixCanvas.style.cursor = 'grab';
+      return;
+    }
     const state = this._dragFSM.state;
     if (state === 'DRAGGING' || state === 'DRAG_STARTED') {
       this._ixCanvas.style.cursor = 'grabbing';

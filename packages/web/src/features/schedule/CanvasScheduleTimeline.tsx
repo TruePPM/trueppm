@@ -45,6 +45,12 @@ export function CanvasScheduleTimeline({
   const isDark = useIsDark();
   const fiscalStartMonth = useFiscalYearStartMonth();
   const quarterMode = useScheduleStore((s) => s.quarterMode);
+  // Continuous zoom (#351). pxPerDay is the source of truth; the engine derives
+  // the tier. setPxPerDay closes the loop for imperative zoom (wheel / pinch /
+  // toolbar): the engine's scales-change pushes the resulting pxPerDay back into
+  // the store so the toolbar readout and +/- disabled states stay in sync.
+  const pxPerDay = useScheduleStore((s) => s.pxPerDay);
+  const setPxPerDay = useScheduleStore((s) => s.setPxPerDay);
   // Memoized so the engine's setFiscalConfig effect only fires on real changes.
   const fiscalConfig = useMemo(
     () => ({ startMonth: fiscalStartMonth, mode: quarterMode }),
@@ -59,7 +65,21 @@ export function CanvasScheduleTimeline({
     zoomLevel,
     isDark,
     fiscalConfig,
+    pxPerDay,
   );
+
+  // Push the engine's continuous zoom back into the store after imperative
+  // zoom (Ctrl+wheel, pinch, ⌘0 fit). The engine fires scales-change with the
+  // new scale; read its pxPerDay and sync the store so the controlled effect in
+  // useGanttEngine stays a no-op (setPxPerDay there early-returns on a match)
+  // and the toolbar reflects the live tier (#351).
+  useEffect(() => {
+    if (!engine) return;
+    return engine.on('scales-change', () => {
+      const next = engine.pxPerDay;
+      if (next !== null) setPxPerDay(next);
+    });
+  }, [engine, setPxPerDay]);
 
   // Feed tasks to engine (rule 55: setTasks/setLinks are not subscriptions)
   useEffect(() => {

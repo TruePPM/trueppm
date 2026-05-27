@@ -108,6 +108,12 @@ export function ScheduleLegend({ taskListWidth }: ScheduleLegendProps) {
             <MergedTrunkSwatch />
           </LegendRow>
         </ul>
+        {/* Pan discoverability (#491, rule 131). One quiet line — the legend is
+            the established "what do these affordances mean" surface, so the pan
+            hint lives here rather than as a transient toast/coachmark. */}
+        <p className="mt-2 pt-2 border-t border-neutral-border text-xs text-neutral-text-secondary">
+          Hold Space + drag, or middle-drag, to pan
+        </p>
       </div>
     </div>
   );

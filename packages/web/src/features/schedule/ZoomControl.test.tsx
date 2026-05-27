@@ -1,32 +1,61 @@
 import { screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { useScheduleStore } from '@/stores/scheduleStore';
+import { ZOOM_CONFIGS, MAX_PX_PER_DAY, MIN_PX_PER_DAY } from './engine';
 import { ZoomControl } from './ZoomControl';
 
-describe('ZoomControl', () => {
+describe('ZoomControl (continuous-zoom stepper, #351)', () => {
   beforeEach(() => {
-    useScheduleStore.setState({ zoomLevel: 'week' });
+    useScheduleStore.setState({ pxPerDay: ZOOM_CONFIGS.week.pxPerDay, zoomLevel: 'week' });
   });
 
-  it('renders all four zoom levels', () => {
+  it('renders a Timeline zoom group with −/+ buttons and a tier readout', () => {
     renderWithProviders(<ZoomControl />);
-    expect(screen.getByRole('button', { name: 'Day' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Week' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Month' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Quarter' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Timeline zoom' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Zoom out' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Zoom in' })).toBeInTheDocument();
+    // The derived tier is shown in a non-interactive live region, not a button.
+    expect(screen.getByRole('status')).toHaveTextContent('Week');
   });
 
-  it('Week button is pressed by default', () => {
+  it('Zoom in increases pxPerDay geometrically and updates the derived tier', async () => {
     renderWithProviders(<ZoomControl />);
-    expect(screen.getByRole('button', { name: 'Week' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Day' })).toHaveAttribute('aria-pressed', 'false');
+    const before = useScheduleStore.getState().pxPerDay;
+    await userEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    expect(useScheduleStore.getState().pxPerDay).toBeGreaterThan(before);
+    // week (12) ×1.5 ×1.5 = 27 → crosses into the 'day' band.
+    await userEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    expect(useScheduleStore.getState().zoomLevel).toBe('day');
+    expect(screen.getByRole('status')).toHaveTextContent('Day');
   });
 
-  it('clicking Month updates the store', async () => {
+  it('Zoom out decreases pxPerDay', async () => {
     renderWithProviders(<ZoomControl />);
-    await userEvent.click(screen.getByRole('button', { name: 'Month' }));
-    expect(useScheduleStore.getState().zoomLevel).toBe('month');
+    const before = useScheduleStore.getState().pxPerDay;
+    await userEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
+    expect(useScheduleStore.getState().pxPerDay).toBeLessThan(before);
+  });
+
+  it('disables Zoom in at the max band edge', () => {
+    useScheduleStore.setState({ pxPerDay: MAX_PX_PER_DAY, zoomLevel: 'day' });
+    renderWithProviders(<ZoomControl />);
+    expect(screen.getByRole('button', { name: 'Zoom in' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Zoom out' })).toBeEnabled();
+  });
+
+  it('disables Zoom out at the min band edge', () => {
+    useScheduleStore.setState({ pxPerDay: MIN_PX_PER_DAY, zoomLevel: 'year' });
+    renderWithProviders(<ZoomControl />);
+    expect(screen.getByRole('button', { name: 'Zoom out' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Zoom in' })).toBeEnabled();
+  });
+
+  it('renders a Fit-to-project button that calls onFit', async () => {
+    const onFit = vi.fn();
+    renderWithProviders(<ZoomControl onFit={onFit} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Fit schedule to window' }));
+    expect(onFit).toHaveBeenCalledTimes(1);
   });
 });

@@ -197,6 +197,132 @@ export const ZOOM_CONFIGS: Record<ZoomLevel, ZoomConfig> = {
 };
 
 // ---------------------------------------------------------------------------
+// Continuous zoom (#351)
+// ---------------------------------------------------------------------------
+
+const _ALL_TIER_PX = Object.values(ZOOM_CONFIGS).map((c) => c.pxPerDay);
+
+/**
+ * Minimum px/day the continuous zoom clamps to — the coarsest named tier
+ * (year ≈ 0.2). Read from ZOOM_CONFIGS so it tracks any config change (#351).
+ */
+export const MIN_PX_PER_DAY = Math.min(..._ALL_TIER_PX);
+
+/**
+ * Maximum px/day the continuous zoom clamps to — the finest named tier
+ * (day = 40). Read from ZOOM_CONFIGS so it tracks any config change (#351).
+ */
+export const MAX_PX_PER_DAY = Math.max(..._ALL_TIER_PX);
+
+/** Geometric step factor for +/- buttons and keyboard zoom (rule 126). */
+export const ZOOM_STEP_FACTOR = 1.5;
+
+/** Fine factor per wheel notch for cursor-anchored zoom (rule 126). */
+export const ZOOM_WHEEL_FACTOR = 1.1;
+
+/** Clamp a px/day value to the [MIN, MAX] continuous-zoom band (rule 126). */
+export function clampPxPerDay(pxPerDay: number): number {
+  return Math.min(MAX_PX_PER_DAY, Math.max(MIN_PX_PER_DAY, pxPerDay));
+}
+
+/**
+ * Derive the discrete `ZoomLevel` tier label for a continuous px/day value.
+ *
+ * `pxPerDay` is the source of truth for the continuous zoom (#351); the discrete
+ * `ZoomLevel` survives as a *derived* label that existing consumers read
+ * (header formatting via the scale builder, QuarterModeControl gating). A px/day
+ * value lands in the named tier whose band contains it. Band boundaries are the
+ * geometric midpoints `sqrt(a·b)` between adjacent named-tier `pxPerDay` values,
+ * so the mapping is symmetric in log space (matching the geometric step the
+ * controls use) and each named config maps back to its own tier exactly.
+ */
+export function deriveTier(pxPerDay: number): ZoomLevel {
+  // Named tiers ordered finest → coarsest by pxPerDay.
+  const order: ZoomLevel[] = ['day', 'week', 'month', 'quarter', 'year'];
+  // Walk coarse → fine; a value below the geometric midpoint between a tier and
+  // the next-finer one belongs to the coarser tier.
+  for (let i = order.length - 1; i > 0; i--) {
+    const coarse = ZOOM_CONFIGS[order[i]].pxPerDay;
+    const finer = ZOOM_CONFIGS[order[i - 1]].pxPerDay;
+    const midpoint = Math.sqrt(coarse * finer);
+    if (pxPerDay < midpoint) return order[i];
+  }
+  return 'day';
+}
+
+/**
+ * Emphasized/de-emphasized header tier pair for a continuous `pxPerDay` value.
+ *
+ * The two-row date header reads the continuous scale, not the discrete
+ * `ZoomLevel`, so emphasis swaps smoothly as the user pinch / Ctrl-wheel zooms
+ * between named tiers (#351, rule 127). Each band is `[minPxPerDay, …)` —
+ * inclusive lower bound, open upper bound — scanned high → low.
+ */
+export interface HeaderTier {
+  /** Inclusive lower bound in logical px/day. */
+  readonly minPxPerDay: number;
+  /** Emphasized (top-row) unit. */
+  readonly primary: 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year';
+  /** De-emphasized (bottom-row) unit. `null` = no secondary row (year cap). */
+  readonly secondary: 'day' | 'week' | 'month' | 'quarter' | 'year' | null;
+}
+
+/**
+ * Auto-tier thresholds (#351, rule 127). The first tier whose `minPxPerDay` is
+ * ≤ the current scale wins:
+ *
+ *   ≥80     Hour / Day
+ *   24–80   Day / Week
+ *   8–24    Week / Month
+ *   2.5–8   Month / Quarter
+ *   0.7–2.5 Quarter / Year
+ *   <0.7    Year / (none)
+ *
+ * 🟡 DEFERRED: the 'hour' minor tick unit is not implemented in the scale
+ * builder / header renderer. Above 80 px/day the header therefore renders the
+ * Day/Week pair (`headerUnitsForPxPerDay` caps the top tier at Day) until an
+ * hour unit is added. The Day↔Year continuum is fully implemented.
+ */
+export const HEADER_TIERS: readonly HeaderTier[] = [
+  { minPxPerDay: 80, primary: 'hour', secondary: 'day' },
+  { minPxPerDay: 24, primary: 'day', secondary: 'week' },
+  { minPxPerDay: 8, primary: 'week', secondary: 'month' },
+  { minPxPerDay: 2.5, primary: 'month', secondary: 'quarter' },
+  { minPxPerDay: 0.7, primary: 'quarter', secondary: 'year' },
+  { minPxPerDay: 0, primary: 'year', secondary: null },
+];
+
+/** Resolve the raw auto-tier for a continuous px/day value (rule 127). */
+export function headerTierForPxPerDay(pxPerDay: number): HeaderTier {
+  for (const tier of HEADER_TIERS) {
+    if (pxPerDay >= tier.minPxPerDay) return tier;
+  }
+  // HEADER_TIERS' last band has minPxPerDay 0, so this is unreachable for any
+  // finite positive scale; TS needs a guaranteed return.
+  return HEADER_TIERS[HEADER_TIERS.length - 1];
+}
+
+/**
+ * Concrete (major, minor) header units the renderer can draw for a px/day value.
+ *
+ * Differs from {@link headerTierForPxPerDay} only by capping the unimplemented
+ * 'hour' top tier at 'day' (see HEADER_TIERS deferred note). Returns units the
+ * `drawTimelineHeader` walker actually supports.
+ */
+export function headerUnitsForPxPerDay(pxPerDay: number): {
+  major: 'day' | 'week' | 'month' | 'quarter' | 'year';
+  minor: 'day' | 'week' | 'month' | 'quarter' | 'year';
+} {
+  const tier = headerTierForPxPerDay(pxPerDay);
+  // 'hour' deferred → cap major at 'day' and keep its secondary as the minor.
+  const major = tier.primary === 'hour' ? 'day' : tier.primary;
+  // When the primary is 'year' there is no secondary; reuse 'year' so both rows
+  // show the year (matching the discrete year config's behaviour).
+  const minor = tier.secondary ?? major;
+  return { major, minor };
+}
+
+// ---------------------------------------------------------------------------
 // GanttScaleData
 // ---------------------------------------------------------------------------
 
@@ -314,8 +440,43 @@ export function buildScaleData(
   endIso: string,
   minTotalWidthPx = 0,
 ): GanttScaleData {
-  const cfg = ZOOM_CONFIGS[zoomLevel];
-  const pxPerMs = cfg.pxPerDay / 86_400_000;
+  // The discrete builder is now a thin wrapper over the continuous one: it pins
+  // the exact named-tier `pxPerDay` and overrides the derived `zoomLevel` field
+  // back to the requested level (so a caller asking for 'week' gets a scale
+  // labelled 'week' even if 12 px/day happens to derive identically). #351.
+  const scales = buildScaleDataFromPxPerDay(
+    ZOOM_CONFIGS[zoomLevel].pxPerDay,
+    startIso,
+    endIso,
+    minTotalWidthPx,
+  );
+  return { ...scales, zoomLevel };
+}
+
+/**
+ * Build a GanttScaleData from a continuous `pxPerDay` and a project date range
+ * (#351). The source of truth for the continuous zoom: the engine rebuilds the
+ * scale on every pinch / Ctrl-wheel / stepper change.
+ *
+ * The `zoomLevel` field is set to `deriveTier(pxPerDay)` so existing consumers
+ * (header formatting, QuarterModeControl gating) keep working off a discrete
+ * label; padding follows the derived tier so coarse scales pad generously and
+ * fine scales pad tightly.
+ *
+ * @param pxPerDay        Logical px per calendar day (clamped to [MIN,MAX]).
+ * @param startIso        Project start (earliest task start), "YYYY-MM-DD".
+ * @param endIso          Project end (latest task finish), "YYYY-MM-DD".
+ * @param minTotalWidthPx Minimum canvas width in logical px (rule 56, #96).
+ */
+export function buildScaleDataFromPxPerDay(
+  pxPerDay: number,
+  startIso: string,
+  endIso: string,
+  minTotalWidthPx = 0,
+): GanttScaleData {
+  const clamped = clampPxPerDay(pxPerDay);
+  const zoomLevel = deriveTier(clamped);
+  const pxPerMs = clamped / 86_400_000;
 
   // Pad one zoom unit on the leading side and one zoom unit + 28 days on the
   // trailing side. The extra 28 days ("endless scroll" buffer) ensures header
