@@ -46,7 +46,7 @@ test.describe('Wave 8 — Login screen', () => {
   test('Forgot? link is present below the password input', async ({ page }) => {
     await page.goto('/login');
 
-    await expect(page.getByRole('link', { name: 'Forgot?' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Forgot password?' })).toBeVisible();
   });
 
   test('Tab order goes Email → Password → Forgot? → Keep me signed in → Sign in (Forgot? does not interrupt the credentials)', async ({ page }) => {
@@ -67,7 +67,7 @@ test.describe('Wave 8 — Login screen', () => {
     // The link sits below the password input — Forgot? comes AFTER the
     // password in the tab order, not between Email and Password.
     await page.keyboard.press('Tab');
-    await expect(page.getByRole('link', { name: 'Forgot?' })).toBeFocused();
+    await expect(page.getByRole('link', { name: 'Forgot password?' })).toBeFocused();
 
     await page.keyboard.press('Tab');
     await expect(page.getByLabel(/Keep me signed in/)).toBeFocused();

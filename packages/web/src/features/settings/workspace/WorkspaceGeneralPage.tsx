@@ -306,11 +306,11 @@ export function WorkspaceGeneralPage() {
           label="Allow guests"
           hint="Guests are external collaborators (vendors, auditors). Limited to projects they're invited to."
         >
-          <Toggle on={allowGuests} onChange={setAllowGuests} label="Enabled" hint="3 guests currently in the workspace" />
+          <Toggle on={allowGuests} onChange={setAllowGuests} ariaLabel="Allow guest access" label="Enabled" hint="3 guests currently in the workspace" />
         </FieldRow>
 
         <FieldRow label="Public sharing" hint="Anyone with the link can view selected reports — no sign-in required.">
-          <Toggle on={publicSharing} onChange={setPublicSharing} label="Disabled" />
+          <Toggle on={publicSharing} onChange={setPublicSharing} ariaLabel="Allow public link sharing" label="Disabled" />
         </FieldRow>
       </div>
 
@@ -352,14 +352,18 @@ interface ToggleProps {
   onChange: (on: boolean) => void;
   label?: string;
   hint?: string;
+  /** Accessible name for the control. Without it the switch announces only its
+   *  visible label ("Enabled"/"Disabled"), which does not say what it controls. */
+  ariaLabel?: string;
 }
 
-function Toggle({ on, onChange, label, hint }: ToggleProps) {
+function Toggle({ on, onChange, label, hint, ariaLabel }: ToggleProps) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
+      aria-label={ariaLabel}
       onClick={() => onChange(!on)}
       className="inline-flex items-center gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
     >
