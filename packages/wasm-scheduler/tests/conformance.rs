@@ -78,6 +78,17 @@ fn load_and_check(fixture_name: &str) {
                 rt["late_finish"], et["late_finish"],
                 "{fixture_name}/{task_id}: late_finish mismatch"
             );
+            // Assert the float math too (#774). Without these, the hand-ported
+            // Rust float computation in src/floats.rs could diverge from Python
+            // while ES/EF/LS/LF still matched, going undetected.
+            assert_eq!(
+                rt["total_float"], et["total_float"],
+                "{fixture_name}/{task_id}: total_float mismatch"
+            );
+            assert_eq!(
+                rt["free_float"], et["free_float"],
+                "{fixture_name}/{task_id}: free_float mismatch"
+            );
             assert_eq!(
                 rt["is_critical"], et["is_critical"],
                 "{fixture_name}/{task_id}: is_critical mismatch"

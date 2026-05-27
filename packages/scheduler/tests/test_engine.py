@@ -527,6 +527,80 @@ class TestMonteCarlo:
         assert r1.p50 == r2.p50
         assert r1.p80 == r2.p80
 
+    def _parallel_pert_tasks(self) -> list[Task]:
+        """Build several independent (parallel-root) PERT tasks.
+
+        With no dependencies between them, the topological-sort tie-break — i.e.
+        the order the seeded RNG is consumed in — is the only thing that decides
+        which sampled duration lands on which task. Distinct estimate shapes make
+        any reordering visible in P50/P80/P95.
+        """
+        return [
+            task(
+                "A",
+                "A",
+                5,
+                optimistic_duration=timedelta(days=3),
+                most_likely_duration=timedelta(days=5),
+                pessimistic_duration=timedelta(days=12),
+            ),
+            task(
+                "B",
+                "B",
+                4,
+                optimistic_duration=timedelta(days=2),
+                most_likely_duration=timedelta(days=4),
+                pessimistic_duration=timedelta(days=20),
+            ),
+            task(
+                "C",
+                "C",
+                6,
+                optimistic_duration=timedelta(days=4),
+                most_likely_duration=timedelta(days=6),
+                pessimistic_duration=timedelta(days=9),
+            ),
+            task(
+                "D",
+                "D",
+                3,
+                optimistic_duration=timedelta(days=1),
+                most_likely_duration=timedelta(days=3),
+                pessimistic_duration=timedelta(days=15),
+            ),
+        ]
+
+    def test_seeded_percentiles_identical_across_runs(self) -> None:
+        """Two seeded runs of the same project yield identical P50/P80/P95 (#774).
+
+        Guards the seeded-reproducibility contract on all three percentiles, not
+        just P50/P80 (the pre-existing test_reproducible_with_seed checked two).
+        """
+        p = make_project(self._parallel_pert_tasks())
+        r1 = monte_carlo(p, runs=800, seed=7)
+        r2 = monte_carlo(p, runs=800, seed=7)
+        assert (r1.p50, r1.p80, r1.p95) == (r2.p50, r2.p80, r2.p95)
+
+    def test_seeded_percentiles_independent_of_task_order(self) -> None:
+        """Seeded P50/P80/P95 must not depend on task insertion order (#774).
+
+        The RNG is consumed in lexicographical_topological_sort order keyed on the
+        stable task id, so durations are bound to task ids — not to column
+        position. Shuffling the task (and dependency) insertion order must leave
+        the seeded percentiles unchanged. With a plain nx.topological_sort the
+        tie-break could follow insertion order and silently shift the result.
+        """
+        tasks = self._parallel_pert_tasks()
+        forward = make_project(list(tasks))
+        reversed_order = make_project(list(reversed(tasks)))
+        r_forward = monte_carlo(forward, runs=800, seed=7)
+        r_reversed = monte_carlo(reversed_order, runs=800, seed=7)
+        assert (r_forward.p50, r_forward.p80, r_forward.p95) == (
+            r_reversed.p50,
+            r_reversed.p80,
+            r_reversed.p95,
+        )
+
     def test_distribution_length_matches_runs(self) -> None:
         r = monte_carlo(self._simple_mc_project(), runs=200, seed=1)
         assert len(r.distribution) == 200
@@ -565,31 +639,35 @@ class TestMonteCarlo:
 
     def test_cap_exceeded_by_runs(self) -> None:
         """Requesting more runs than max_runs raises SimulationCapExceeded."""
-        with pytest.raises(SimulationCapExceeded, match="1000 simulations"):
+        with pytest.raises(SimulationCapExceeded, match="max_runs=1000"):
             monte_carlo(self._simple_mc_project(), runs=1_001, max_runs=1_000)
 
     def test_cap_exceeded_by_task_count(self) -> None:
         """Projects with more tasks than max_tasks raises SimulationCapExceeded."""
         tasks = [task(str(i), f"Task {i}", 1) for i in range(3)]
         p = make_project(tasks, [])
-        with pytest.raises(SimulationCapExceeded, match="3 tasks"):
+        with pytest.raises(SimulationCapExceeded, match="max_tasks=2"):
             monte_carlo(p, runs=10, max_tasks=2)
 
     def test_cap_disabled_when_none(self) -> None:
-        """max_runs=None and max_tasks=None disables all caps (Team tier)."""
+        """max_runs=None and max_tasks=None disables all caps."""
         tasks = [task(str(i), f"Task {i}", 1) for i in range(3)]
         p = make_project(tasks, [])
         # Should not raise even though runs > default cap and tasks > default cap.
         result = monte_carlo(p, runs=2_000, seed=0, max_runs=None, max_tasks=None)
         assert result.runs == 2_000
 
-    def test_cap_exceeded_message_is_user_facing(self) -> None:
-        """Error message is suitable for direct display in a UI or API response."""
+    def test_cap_exceeded_message_is_tier_neutral(self) -> None:
+        """As a standalone Apache-2.0 library, the cap message must not reference
+        any TruePPM tier — only the configurable ``max_runs`` knob."""
         with pytest.raises(SimulationCapExceeded) as exc_info:
             monte_carlo(self._simple_mc_project(), runs=1_001, max_runs=1_000)
         msg = str(exc_info.value)
-        assert "OSS tier" in msg
-        assert "Team tier" in msg
+        # Actionable: names the parameter the caller can raise.
+        assert "max_runs" in msg
+        # No tier/commercial wording leaks into the public package surface.
+        for forbidden in ("tier", "OSS", "Team", "Enterprise", "Upgrade"):
+            assert forbidden not in msg, f"tier wording leaked: {forbidden!r}"
 
     def test_no_tasks_raises(self) -> None:
         with pytest.raises(ValueError, match="at least one task"):

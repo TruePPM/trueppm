@@ -87,7 +87,15 @@ MAX_PROJECT_SPAN_DAYS = 366 * 1000
 
 @dataclass
 class ScheduleResult:
-    """Output of a CPM schedule calculation."""
+    """Output of a CPM schedule calculation.
+
+    Each task in ``tasks`` carries early/late start and finish, total float, free
+    float, and an ``is_critical`` flag. ``free_float`` is computed only across
+    finish-to-start (FS) successors — SS/FF/SF links do not constrain it — so it is
+    not a complete free-float measure across all four dependency types. A task
+    whose only successors are non-FS reports ``free_float == total_float``.
+    ``total_float`` and ``is_critical`` account for all dependency types.
+    """
 
     project_id: str
     project_start: date
@@ -464,7 +472,17 @@ def _compute_floats(
     g: nx.DiGraph[str],
     calendar: Calendar,
 ) -> None:
-    """Compute total_float, free_float, and is_critical for every task (in-place)."""
+    """Compute total_float, free_float, and is_critical for every task (in-place).
+
+    ``free_float`` is computed **only across finish-to-start (FS) successors**:
+    it is the smallest gap between this task's early finish and the early start of
+    each FS successor, capped at the total float. Successor links of type SS, FF,
+    or SF do not constrain free float here and are intentionally ignored. Consumers
+    should not read ``free_float`` as covering all four dependency types — on a task
+    whose only successors are non-FS, ``free_float`` falls back to ``total_float``.
+    ``total_float`` and ``is_critical`` are dependency-type complete; only free
+    float carries this FS-only caveat.
+    """
     for node_id in topo_order:
         task = task_map[node_id]
 
@@ -478,6 +496,8 @@ def _compute_floats(
         task.is_critical = tf_days == 0
 
         # Free float: how much a task can slip before delaying any immediate successor.
+        # NOTE: only FS successors are considered (see function docstring). SS/FF/SF
+        # links do not tighten free float; such tasks fall back to total_float.
         # For FS successors: gap between this task's EF and the successor's ES.
         ff_days = tf_days  # upper bound; for tasks with no successors this is tf
         for succ_id in g.successors(node_id):
@@ -683,6 +703,11 @@ def schedule(project: Project) -> ScheduleResult:
         ScheduleResult with ES/EF/LS/LF/float computed for every task
         and the critical path identified.
 
+        Note: each task's ``free_float`` is computed only across finish-to-start
+        (FS) successors. SS/FF/SF successor links do not constrain free float, so
+        free float is *not* a complete measure across all four dependency types.
+        ``total_float`` and ``is_critical`` are dependency-type complete.
+
     Raises:
         CyclicDependencyError: If the dependency graph contains a cycle.
         InvalidScheduleInput: If the calendar has no working day, or a duration
@@ -802,12 +827,14 @@ def monte_carlo(
     Args:
         project:   The project to simulate. Must have at least one task and
                    no cyclic dependencies.
-        runs:      Number of Monte Carlo iterations. Default 1 000 (OSS cap).
-        seed:      Optional RNG seed for reproducibility.
+        runs:      Number of Monte Carlo iterations. Default 1 000.
+        seed:      Optional RNG seed for reproducibility. With a fixed seed the
+                   sampled durations — and therefore P50/P80/P95 — are
+                   deterministic and independent of task insertion order.
         max_runs:  Maximum allowed value for ``runs``. Pass ``None`` to disable
-                   the cap (Team tier). Default 1 000.
+                   the cap. Default 1 000.
         max_tasks: Maximum number of tasks allowed. Pass ``None`` to disable
-                   the cap (Team tier). Default 500.
+                   the cap. Default 500.
 
     Returns:
         MonteCarloResult with P50, P80, P95 completion dates and the full
@@ -825,14 +852,15 @@ def monte_carlo(
         raise ValueError(f"runs must be a positive integer (got {runs}).")
     if max_tasks is not None and len(project.tasks) > max_tasks:
         raise SimulationCapExceeded(
-            f"This project has {len(project.tasks)} tasks. "
-            f"OSS tier supports up to {max_tasks} tasks for Monte Carlo simulation. "
-            "Upgrade to Team tier for unlimited simulations."
+            f"Project task count ({len(project.tasks)}) exceeds the configured "
+            f"maximum (max_tasks={max_tasks}); raise max_tasks (or pass None to "
+            "disable the cap) to simulate larger projects."
         )
     if max_runs is not None and runs > max_runs:
         raise SimulationCapExceeded(
-            f"OSS tier supports up to {max_runs} simulations per run. "
-            "Upgrade to Team tier for unlimited simulations."
+            f"Requested runs ({runs}) exceeds the configured maximum "
+            f"(max_runs={max_runs}); raise max_runs (or pass None to disable the "
+            "cap) to allow more iterations."
         )
     if not project.tasks:
         raise ValueError("Project must have at least one task.")
@@ -840,7 +868,14 @@ def monte_carlo(
 
     g = _build_graph(project)
     _check_cycles(g)
-    topo_order: list[str] = list(nx.topological_sort(g))
+    # Use a lexicographically-keyed topological sort so the RNG is consumed in a
+    # deterministic, version-independent order. Plain ``nx.topological_sort`` only
+    # guarantees *a* valid topological order; its tie-breaking is an implementation
+    # detail that can shift between networkx versions (dep cap is wide:
+    # networkx>=3.0,<4) and with task insertion order. Because durations are sampled
+    # column-by-column in this order from a single seeded RNG, any reordering would
+    # silently change seeded P50/P80/P95. Keying on the stable task id pins the order.
+    topo_order: list[str] = list(nx.lexicographical_topological_sort(g, key=str))
     n_tasks = len(topo_order)
     task_idx = {tid: i for i, tid in enumerate(topo_order)}
 

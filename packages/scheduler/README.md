@@ -42,7 +42,7 @@ project = Project(
 
 result = schedule(project)
 build = next(t for t in result.tasks if t.id == "t-2")
-print(build.early_finish)  # 2026-01-21 (5 + 10 working days from 2026-01-05)
+print(build.early_finish)  # 2026-01-23 (15 working days from 2026-01-05, across two weekends)
 ```
 
 See [the full documentation](https://docs.trueppm.com/features/scheduler) for CPM output fields, Monte Carlo usage, and CLI reference.
