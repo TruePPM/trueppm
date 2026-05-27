@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -828,6 +829,24 @@ class TestImportAPI:
         )
         assert resp.status_code == 400
         assert "Unsupported" in resp.data["detail"]
+
+    @override_settings(MSPROJECT_MAX_UPLOAD_MB=1)
+    def test_import_file_too_large(self, admin_client: APIClient, project: Project) -> None:
+        """A file over the configured cap is rejected before any outbox row is written."""
+        from trueppm_api.apps.msproject.models import ImportRequest
+
+        oversized = b"x" * (1 * 1024 * 1024 + 1)  # 1 byte over the overridden 1 MB cap
+        buf = BytesIO(oversized)
+        buf.name = "schedule.xml"
+        resp = admin_client.post(
+            f"/api/v1/projects/{project.pk}/import/msproject/",
+            {"file": buf},
+            format="multipart",
+        )
+        assert resp.status_code == 400
+        # Error message must reflect the configured (not a hardcoded) limit.
+        assert "Maximum: 1 MB" in resp.data["detail"]
+        assert not ImportRequest.objects.filter(project=project).exists()
 
     def test_import_creates_outbox_row(
         self,

@@ -166,6 +166,7 @@ export default defineConfig({
                 { slug: "features/offline-sync" },
                 { slug: "features/webhooks" },
                 { slug: "features/inbound-task-sync" },
+                { slug: "features/msproject-import-export" },
               ],
             },
             {

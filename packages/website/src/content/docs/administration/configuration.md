@@ -36,11 +36,45 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_EDITION` | `community` | Edition discriminator read by `/api/v1/edition/`. Set to `enterprise` in the enterprise Helm chart so the React shell can make the post-login redirect decision without importing enterprise code (ADR-0029). Never set this in an OSS deployment. |
 | `HISTORY_RETENTION_DAYS` | `90` | How many days of object-change history to keep. Records older than this are purged nightly by Celery beat. Set to `0` to disable automatic purging entirely (enterprise unlimited-retention tier does this). |
 | `TASK_RUN_RETENTION_DAYS` | `30` | How many days of completed/failed/cancelled Celery task-run records to keep before the nightly purge. Set to `0` to disable. |
+| `MSPROJECT_MAX_UPLOAD_MB` | `50` | Per-file size cap for MS Project (`.mpp` / `.xml`) imports, in megabytes. See [MS Project import limit](#ms-project-import-limit) below. |
 | `VITE_FEATURE_FLAGS` | `{}` | Build-time JSON blob of feature flag overrides for the React frontend, e.g. `'{"schedule_build_mode_v1":true}'`. Set in `packages/web/.env` or `.env.production` before `npm run build`. Per-user `localStorage` overrides win over this default at runtime. |
 | `INTEGRATION_ENCRYPTION_KEY` | _(empty)_ | Fernet key used to encrypt stored integration credentials (connected-account PATs). **Required once any user connects an account** — the app raises `ImproperlyConfigured` on first integration use if unset. Generate with `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. |
 | `TRUEPPM_DEFAULT_FILE_STORAGE` | `django.core.files.storage.FileSystemStorage` | Backend for task-attachment storage. The local default is **ephemeral in a container** — uploads are lost on every pod restart. Point this at a persistent object-storage backend for production, e.g. `storages.backends.s3.S3Storage`. |
 | `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` | `false` | Operator opt-in to run production on the local `FileSystemStorage` default (e.g. when local disk is backed by a persistent volume). `prod` refuses to boot on local storage unless this is `true` or `TRUEPPM_DEFAULT_FILE_STORAGE` is set to a remote backend. |
 | `CSRF_TRUSTED_ORIGINS` | _(empty)_ | Comma-separated origins (scheme included) trusted for cross-origin POST/CSRF. Required only for split-origin deploys where the web app and API are served from different hostnames, e.g. `https://app.example.com,https://api.example.com`. |
+
+## MS Project import limit
+
+[MS Project import](/features/msproject-import-export/) accepts `.mpp` and
+`.xml` files. The per-file size cap is configurable:
+
+| Variable | Default | Unit | What it bounds |
+|----------|---------|------|----------------|
+| `MSPROJECT_MAX_UPLOAD_MB` | `50` | MB | Maximum size of a single MS Project import upload |
+
+This cap was raised from a previously hardcoded 10 MB. An import is read fully
+into memory and stored base64-encoded in a single database row (about +33%), so
+a 50 MB upload already costs roughly 67 MB of memory and row size — keep the
+limit close to the practical MS Project file ceiling rather than maximizing it.
+
+:::caution[Do not configure above the hard ceiling]
+`MSPROJECT_MAX_UPLOAD_MB` must stay **at or below 100 MB**. The global Django
+`DATA_UPLOAD_MAX_MEMORY_SIZE` (100 MB) and the operator-configured nginx
+`client_max_body_size` (recommend `100m`) are the hard edge cap — set both, and
+keep `MSPROJECT_MAX_UPLOAD_MB` under them. Setting it higher has no effect: the
+larger request is rejected at the edge before the importer ever sees it.
+:::
+
+```bash
+# Allow MS Project imports up to 80 MB. Must stay <= 100 MB
+# (DATA_UPLOAD_MAX_MEMORY_SIZE / nginx client_max_body_size).
+MSPROJECT_MAX_UPLOAD_MB=80
+```
+
+Imported files are stored base64-encoded in an `ImportRequest` row only until
+the import is processed, then purged on the schedule set by
+`TRUEPPM_IMPORT_RETENTION_DAYS` (default 7 days). See
+[Outbox & Record Retention](/administration/retention/) to tune that window.
 
 ## First user setup
 

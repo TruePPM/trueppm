@@ -25,7 +25,7 @@ import { ScheduleLegend } from './ScheduleLegend';
 import { useScheduleKeyboard } from './useScheduleKeyboard';
 import { inferNearestSummaryParent } from './inferMilestoneParent';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { ROLE_MEMBER } from '@/lib/roles';
+import { ROLE_ADMIN, ROLE_MEMBER } from '@/lib/roles';
 import { MonteCarloRow } from './MonteCarloRow';
 import { MonteCarloGanttMarkers } from './MonteCarloGanttMarkers';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
@@ -39,6 +39,8 @@ import { UnscheduledGutter } from './UnscheduledGutter';
 import { useUnscheduledTasks } from '@/hooks/useUnscheduledTasks';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { ToolbarOverflowMenu, type ToolbarOverflowItem } from '@/components/toolbar/ToolbarOverflowMenu';
+import { ImportModal } from '@/components/import/ImportModal';
+import { useExportMsProject } from '@/hooks/useMsProjectImportExport';
 import type { Task } from '@/types';
 import { useFeatureFlag } from '@/lib/featureFlags';
 import { useDependencyHover } from './useDependencyHover';
@@ -696,6 +698,19 @@ export function ScheduleView() {
   const createTaskMut = useCreateTask(projectId ?? null);
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
 
+  // MS Project import/export (#68). Import is gated on Project Admin to match
+  // the server; export is allowed for any member. Admin is a high bar, so we
+  // hide Import pessimistically while the role loads (currentRole === null) to
+  // avoid flashing a forbidden action to the non-admin majority — per the
+  // useCurrentUserRole pessimistic-gating contract. The server is authoritative.
+  const [importOpen, setImportOpen] = useState(false);
+  const canImport = currentRole !== null && currentRole >= ROLE_ADMIN;
+  const {
+    exportProject,
+    isExporting,
+    error: exportError,
+  } = useExportMsProject(projectId);
+
   const buildModeApi = useMemo<BuildModeApi>(() => ({
     focus,
     indent: (taskId) => indentTask.mutate(taskId),
@@ -1049,50 +1064,80 @@ export function ScheduleView() {
             folded into the overflow menu at sm. Self-hides off quarter/year
             zoom and when the workspace fiscal year starts in January. */}
         {toolbarShowSecondaryInline && <QuarterModeControl />}
-        {breakpoint === 'sm' && (
+        {/* Project actions (···) — always present so Import/Export are
+            discoverable at every width. The secondary analysis toggles fold in
+            here only at the narrowest breakpoint; at md+ they render inline. */}
+        {(projectId || breakpoint === 'sm') && (
           <ToolbarOverflowMenu
-            triggerAriaLabel="Schedule overflow menu"
+            triggerAriaLabel="Project actions"
             items={[
-              ...((zoomLevel === 'quarter' || zoomLevel === 'year') && fiscalStartMonth !== 1
+              ...(projectId && canImport
                 ? [
                     {
-                      kind: 'checkbox' as const,
-                      id: 'fiscal-quarters',
-                      label: 'Fiscal quarters',
-                      checked: quarterMode === 'fiscal',
-                      onChange: (next: boolean) =>
-                        setQuarterMode(next ? 'fiscal' : 'calendar'),
+                      kind: 'action' as const,
+                      id: 'import-msproject',
+                      label: 'Import from MS Project…',
+                      onSelect: () => setImportOpen(true),
                     },
                   ]
                 : []),
-              {
-                kind: 'checkbox',
-                id: 'cp-only',
-                label: 'CP only',
-                checked: showCpOnly,
-                onChange: setShowCpOnly,
-              },
-              {
-                kind: 'checkbox',
-                id: 'focus-chain',
-                label: 'Focus chain',
-                checked: focusModeEnabled,
-                onChange: setFocusModeEnabled,
-              },
-              {
-                kind: 'checkbox',
-                id: 'critical-path',
-                label: 'Critical path only',
-                checked: showCriticalOnly,
-                onChange: setShowCriticalOnly,
-              },
-              {
-                kind: 'checkbox',
-                id: 'milestones',
-                label: 'Milestones only',
-                checked: showMilestonesOnly,
-                onChange: setShowMilestonesOnly,
-              },
+              ...(projectId
+                ? [
+                    {
+                      kind: 'action' as const,
+                      id: 'export-msproject',
+                      label: isExporting ? 'Exporting…' : 'Export to MS Project (.xml)',
+                      disabled: isExporting,
+                      onSelect: () => {
+                        void exportProject();
+                      },
+                    },
+                  ]
+                : []),
+              ...(breakpoint === 'sm'
+                ? [
+                    ...((zoomLevel === 'quarter' || zoomLevel === 'year') && fiscalStartMonth !== 1
+                      ? [
+                          {
+                            kind: 'checkbox' as const,
+                            id: 'fiscal-quarters',
+                            label: 'Fiscal quarters',
+                            checked: quarterMode === 'fiscal',
+                            onChange: (next: boolean) =>
+                              setQuarterMode(next ? 'fiscal' : 'calendar'),
+                          },
+                        ]
+                      : []),
+                    {
+                      kind: 'checkbox' as const,
+                      id: 'cp-only',
+                      label: 'CP only',
+                      checked: showCpOnly,
+                      onChange: setShowCpOnly,
+                    },
+                    {
+                      kind: 'checkbox' as const,
+                      id: 'focus-chain',
+                      label: 'Focus chain',
+                      checked: focusModeEnabled,
+                      onChange: setFocusModeEnabled,
+                    },
+                    {
+                      kind: 'checkbox' as const,
+                      id: 'critical-path',
+                      label: 'Critical path only',
+                      checked: showCriticalOnly,
+                      onChange: setShowCriticalOnly,
+                    },
+                    {
+                      kind: 'checkbox' as const,
+                      id: 'milestones',
+                      label: 'Milestones only',
+                      checked: showMilestonesOnly,
+                      onChange: setShowMilestonesOnly,
+                    },
+                  ]
+                : []),
             ] as ToolbarOverflowItem[]}
           />
         )}
@@ -1310,6 +1355,21 @@ export function ScheduleView() {
       {/* Sprint Undo toast (#477 / ADR-0066 Q2) — fires after Duplicate inherits
           an ACTIVE sprint, gives the PM a one-click escape hatch. */}
       <ScheduleActionToastRenderer />
+
+      {/* MS Project import modal (#68) — opened from the Project actions menu. */}
+      {importOpen && projectId && (
+        <ImportModal projectId={projectId} onClose={() => setImportOpen(false)} />
+      )}
+
+      {/* Export status toast (#68) — "Preparing…" while in flight, error after. */}
+      {(isExporting || exportError) && (
+        <div
+          role={exportError ? 'alert' : 'status'}
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded border border-neutral-border bg-neutral-surface text-sm text-neutral-text-primary"
+        >
+          {exportError ?? 'Preparing your export…'}
+        </div>
+      )}
 
       {/* Dependency picker modal (#477) — opened from the right-click menu. */}
       {depPickerState && projectId && (

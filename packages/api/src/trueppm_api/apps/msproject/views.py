@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import logging
 
+from django.conf import settings
 from django.db import transaction
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
@@ -19,9 +20,6 @@ from trueppm_api.apps.access.permissions import IsProjectNotArchived
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 
 logger = logging.getLogger(__name__)
-
-# Maximum upload size: 10 MB.
-_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 # Allowed file extensions.
 _ALLOWED_EXTENSIONS = {"mpp", "xml"}
@@ -88,10 +86,12 @@ class MsProjectImportView(IdempotencyMixin, APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if uploaded_file.size and uploaded_file.size > _MAX_UPLOAD_BYTES:
+        max_bytes = settings.MSPROJECT_MAX_UPLOAD_MB * 1024 * 1024
+        if uploaded_file.size and uploaded_file.size > max_bytes:
             size = uploaded_file.size
+            limit_mb = settings.MSPROJECT_MAX_UPLOAD_MB
             return Response(
-                {"detail": (f"File too large ({size} bytes). Maximum: 10 MB.")},
+                {"detail": (f"File too large ({size} bytes). Maximum: {limit_mb} MB.")},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

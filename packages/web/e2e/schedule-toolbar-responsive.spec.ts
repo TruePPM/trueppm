@@ -84,10 +84,12 @@ test.describe('Schedule toolbar — responsive collapse (#568)', () => {
     await expect(milestonesOnly).toBeVisible();
     await expect(milestonesOnly).not.toHaveText(/Milestones/);
 
-    // The shared overflow menu is NOT rendered at md (rule 112 — only below md).
+    // The "Project actions" menu (Import/Export, #68) is always present, but the
+    // secondary analysis toggles stay INLINE at md (rule 112, asserted above) —
+    // they do not collapse into this menu above the sm tier.
     await expect(
-      toolbar.getByRole('button', { name: 'Schedule overflow menu' }),
-    ).toHaveCount(0);
+      toolbar.getByRole('button', { name: 'Project actions' }),
+    ).toBeVisible();
 
     // The toolbar must not wrap (rule 113) — a stacked row would push the
     // measured height past the single-row h-10 (40px) target.
@@ -104,9 +106,11 @@ test.describe('Schedule toolbar — responsive collapse (#568)', () => {
     await expect(toolbar.getByRole('button', { name: 'Focus chain on selected task' })).toHaveText(/Focus chain/);
     await expect(toolbar.getByRole('button', { name: 'Show only critical-path tasks' })).toHaveText(/Critical path/);
     await expect(toolbar.getByRole('button', { name: 'Show only milestones' })).toHaveText(/Milestones/);
+    // The "Project actions" menu (Import/Export, #68) is always present; the
+    // secondary toggles remain inline at lg, not collapsed into it.
     await expect(
-      toolbar.getByRole('button', { name: 'Schedule overflow menu' }),
-    ).toHaveCount(0);
+      toolbar.getByRole('button', { name: 'Project actions' }),
+    ).toBeVisible();
   });
 
   test('at 600px viewport (sm tier) secondary toggles disappear and surface inside the overflow menu', async ({ page }) => {
@@ -118,10 +122,10 @@ test.describe('Schedule toolbar — responsive collapse (#568)', () => {
     await expect(toolbar.getByRole('button', { name: 'Show critical path only' })).toHaveCount(0);
     await expect(toolbar.getByRole('button', { name: 'Focus chain on selected task' })).toHaveCount(0);
 
-    const overflowTrigger = toolbar.getByRole('button', { name: 'Schedule overflow menu' });
+    const overflowTrigger = toolbar.getByRole('button', { name: 'Project actions' });
     await expect(overflowTrigger).toBeVisible();
     await overflowTrigger.click();
-    const menu = page.getByRole('menu', { name: 'Schedule overflow menu' });
+    const menu = page.getByRole('menu', { name: 'Project actions' });
     await expect(menu).toBeVisible();
     await expect(menu.getByRole('menuitemcheckbox', { name: /CP only/ })).toBeVisible();
     await expect(menu.getByRole('menuitemcheckbox', { name: /Focus chain/ })).toBeVisible();
