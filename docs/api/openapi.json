@@ -251,7 +251,7 @@
         "/api/v1/auth/token/": {
             "post": {
                 "operationId": "v1_auth_token_create",
-                "description": "Takes a set of user credentials and returns an access and refresh JSON web\ntoken pair to prove the authentication of those credentials.",
+                "description": "JWT login endpoint with per-client brute-force throttling (#770).\n\nsimplejwt's stock ``TokenObtainPairView`` ships no throttle, leaving\n``POST /api/v1/auth/token/`` open to unbounded password guessing. A\n*scoped* throttle (the ``login`` rate in\n``REST_FRAMEWORK['DEFAULT_THROTTLE_RATES']``) caps attempts per client IP\nfor anonymous callers. Scoped rather than a global ``AnonRateThrottle`` so\nthe unauthenticated ``/health/`` and ``/edition/`` probe endpoints — hit by\nKubernetes on a tight loop — are left unthrottled.",
                 "tags": [
                     "v1"
                 ],
@@ -4834,7 +4834,7 @@
         "/api/v1/projects/": {
             "get": {
                 "operationId": "v1_projects_list",
-                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11):\n  list/retrieve/create/update — any member (IsProjectMember)\n  destroy                     — Project Admin (Owner) only (IsProjectOwner)",
+                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve/create        — any member (IsProjectMember)\n  update/partial_update       — Project Manager+ (IsProjectAdmin)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
                 "parameters": [
                     {
                         "name": "ordering",
@@ -4890,7 +4890,7 @@
             },
             "post": {
                 "operationId": "v1_projects_create",
-                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11):\n  list/retrieve/create/update — any member (IsProjectMember)\n  destroy                     — Project Admin (Owner) only (IsProjectOwner)",
+                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve/create        — any member (IsProjectMember)\n  update/partial_update       — Project Manager+ (IsProjectAdmin)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
                 "tags": [
                     "v1"
                 ],
@@ -4939,7 +4939,7 @@
         "/api/v1/projects/{id}/": {
             "get": {
                 "operationId": "v1_projects_retrieve",
-                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11):\n  list/retrieve/create/update — any member (IsProjectMember)\n  destroy                     — Project Admin (Owner) only (IsProjectOwner)",
+                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve/create        — any member (IsProjectMember)\n  update/partial_update       — Project Manager+ (IsProjectAdmin)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
                 "parameters": [
                     {
                         "in": "path",
@@ -4978,7 +4978,7 @@
             },
             "put": {
                 "operationId": "v1_projects_update",
-                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11):\n  list/retrieve/create/update — any member (IsProjectMember)\n  destroy                     — Project Admin (Owner) only (IsProjectOwner)",
+                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve/create        — any member (IsProjectMember)\n  update/partial_update       — Project Manager+ (IsProjectAdmin)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
                 "parameters": [
                     {
                         "in": "path",
@@ -5037,7 +5037,7 @@
             },
             "patch": {
                 "operationId": "v1_projects_partial_update",
-                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11):\n  list/retrieve/create/update — any member (IsProjectMember)\n  destroy                     — Project Admin (Owner) only (IsProjectOwner)",
+                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve/create        — any member (IsProjectMember)\n  update/partial_update       — Project Manager+ (IsProjectAdmin)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
                 "parameters": [
                     {
                         "in": "path",
@@ -5095,7 +5095,7 @@
             },
             "delete": {
                 "operationId": "v1_projects_destroy",
-                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11):\n  list/retrieve/create/update — any member (IsProjectMember)\n  destroy                     — Project Admin (Owner) only (IsProjectOwner)",
+                "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve/create        — any member (IsProjectMember)\n  update/partial_update       — Project Manager+ (IsProjectAdmin)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
                 "parameters": [
                     {
                         "in": "path",

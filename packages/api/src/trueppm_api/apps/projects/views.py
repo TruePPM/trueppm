@@ -166,9 +166,10 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
     Any authenticated user can create a project; on creation the creator is
     automatically assigned the Owner role via perform_create().
 
-    Permission matrix (issue #11):
-      list/retrieve/create/update — any member (IsProjectMember)
-      destroy                     — Project Admin (Owner) only (IsProjectOwner)
+    Permission matrix (issue #11; update tightened in #769):
+      list/retrieve/create        — any member (IsProjectMember)
+      update/partial_update       — Project Manager+ (IsProjectAdmin)
+      destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)
     """
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
@@ -179,6 +180,12 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         # otherwise an Owner could never unarchive or delete an archived row.
         if self.action in ("destroy", "archive", "unarchive", "transfer"):
             return [IsAuthenticated(), IsProjectOwner(), IsProjectNotArchived()]
+        # Editing project-level settings (name, description, color, dates,
+        # calendar) is a Project Manager concern — not a team-member task.
+        # Without this branch, update/partial_update fell through to
+        # IsProjectMember, which passes for Viewer (role 0) and Member (#769).
+        if self.action in ("update", "partial_update"):
+            return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
         if self.action in ("utilization", "resource_allocation", "heatmap", "resources_summary"):
             return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
