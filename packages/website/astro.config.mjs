@@ -124,6 +124,7 @@ export default defineConfig({
                 { slug: "features/schedule-build-mode" },
                 { slug: "features/summary-tasks" },
                 { slug: "features/subtasks" },
+                { slug: "features/recurring-tasks" },
                 { slug: "features/baselines" },
               ],
             },

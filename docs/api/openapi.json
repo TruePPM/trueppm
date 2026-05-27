@@ -7617,7 +7617,7 @@
         },
         "/api/v1/projects/{project_pk}/import/msproject/": {
             "post": {
-                "operationId": "v1_projects_import_msproject_create",
+                "operationId": "v1_projects_import_msproject_create_2",
                 "description": "Upload and import an MS Project file (.mpp or .xml).\n\nRequires project Admin role. The import runs asynchronously via Celery;\nthe response includes the celery_task_id for progress tracking.",
                 "parameters": [
                     {
@@ -10886,6 +10886,28 @@
                             }
                         },
                         "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/import/msproject/": {
+            "post": {
+                "operationId": "v1_projects_import_msproject_create",
+                "description": "Create a NEW project by importing an MS Project file (ADR-0092, #797).\n\nDistinct from ``MsProjectImportView``, which imports into an existing project.\nThe project shell is created synchronously (named from the filename, dated\ntoday, optionally assigned to a program); tasks import asynchronously via the\n``ImportRequest`` outbox, and the worker overwrites the name/start_date from\nthe file header once it parses.\n\nRBAC: any authenticated user may create a standalone project (becomes Owner) —\nidentical to ``POST /projects/``. Assigning a ``program`` requires program\nAdmin, enforced by ``ProjectSerializer.validate_program`` (ADR-0070).",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
                     }
                 }
             }

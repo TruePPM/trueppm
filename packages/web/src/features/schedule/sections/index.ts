@@ -27,6 +27,7 @@ import { AttachmentSection } from './AttachmentSection';
 import { ExternalLinksSection } from './ExternalLinksSection';
 import { CommentSection } from './CommentSection';
 import { ActivitySection } from './ActivitySection';
+import { RecurrenceSection } from './RecurrenceSection';
 import { EstimatesSection } from './EstimatesSection';
 import { HistorySection } from './HistorySection';
 import { BaselineSection } from './BaselineSection';
@@ -103,6 +104,19 @@ export function registerOssDrawerSections(): void {
     title: 'Activity',
     component: ActivitySection,
     priority: 600,
+  });
+
+  registry.register('task_detail.section', {
+    id: 'recurring',
+    title: 'Recurrence',
+    component: RecurrenceSection,
+    priority: 700,
+    // Recurrence is meaningless for summary tasks (WBS rollups) and milestones
+    // (zero-duration markers) — both mirror SprintSection's gate (ADR-0090).
+    canRender: (ctx) => {
+      const t = (ctx as { task: Task }).task;
+      return !t.isSummary && !t.isMilestone;
+    },
   });
 
   registry.register('task_detail.section', {
