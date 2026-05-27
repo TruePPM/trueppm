@@ -19,6 +19,8 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -26,7 +28,9 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
     Project,
+    RetroActionItem,
     Sprint,
+    SprintRetro,
     SprintState,
     Task,
     TaskStatus,
@@ -668,3 +672,133 @@ def test_x_source_invalid_value_falls_back_to_unknown(calendar: Calendar, alice:
             assert update_calls[0].args[2]["source"] == "unknown", (
                 f"X-Source={raw!r} should have been coerced to 'unknown'"
             )
+
+
+# ---------------------------------------------------------------------------
+# Query-count regression test — _me_work_retro_action_items scoping (#772)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_me_work_retro_items_scoped_to_member_projects(
+    calendar: Calendar, alice: object, bob: object
+) -> None:
+    """Retro action items on /me/work/ must be scoped to the user's member projects.
+
+    Before the fix, _me_work_retro_action_items fetched ALL RetroActionItems
+    across the entire DB regardless of the requesting user's membership.
+    This test verifies that items from projects the user does not belong to
+    are not included in the response payload.
+    """
+    # Alice's project + sprint + retro + action item.
+    alice_proj = _project(calendar, "Alice Project")
+    _member(alice_proj, alice, role=Role.MEMBER)
+    alice_sprint = Sprint.objects.create(
+        project=alice_proj,
+        name="S1",
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+        state=SprintState.COMPLETED,
+    )
+    alice_retro = SprintRetro.objects.create(sprint=alice_sprint)
+    alice_promoted_task = Task.objects.create(
+        project=alice_proj,
+        name="Alice promoted task",
+        duration=1,
+        assignee=alice,
+    )
+    alice_item = RetroActionItem.objects.create(
+        retro=alice_retro,
+        text="Alice action item",
+        promoted_task_id=alice_promoted_task.pk,
+    )
+
+    # Bob's project (alice is NOT a member) + retro action item pointing at alice's task.
+    bob_proj = _project(calendar, "Bob Project")
+    _member(bob_proj, bob, role=Role.MEMBER)
+    bob_sprint = Sprint.objects.create(
+        project=bob_proj,
+        name="S1",
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+        state=SprintState.COMPLETED,
+    )
+    bob_retro = SprintRetro.objects.create(sprint=bob_sprint)
+    # Point bob's retro item at the same promoted task assigned to alice —
+    # the old unscoped query would include this item in alice's /me/work/ response.
+    RetroActionItem.objects.create(
+        retro=bob_retro,
+        text="Bob action item pointing at alice task",
+        promoted_task_id=alice_promoted_task.pk,
+    )
+
+    resp = _client(alice).get("/api/v1/me/work/")
+    assert resp.status_code == 200
+
+    retro_items = resp.data.get("retro_action_items", [])
+    # Only alice_item (from her project) should appear.
+    # The bob retro item must NOT appear because alice is not a member of bob_proj.
+    retro_item_ids = [str(item.get("task_id")) for item in retro_items]
+    # alice_promoted_task should appear at most once (from alice's project).
+    assert retro_item_ids.count(str(alice_promoted_task.pk)) <= 1
+
+    # Verify the text in any returned item belongs to alice's retro, not bob's.
+    for item in retro_items:
+        if str(item.get("task_id")) == str(alice_promoted_task.pk):
+            assert item.get("text") == alice_item.text, (
+                "Retro action item text should come from alice's project retro, "
+                "not bob's unrelated retro."
+            )
+
+
+@pytest.mark.django_db
+def test_me_work_retro_items_query_count_bounded_by_membership(
+    calendar: Calendar, alice: object
+) -> None:
+    """The retro action items query must be bounded by membership rows, not all DB rows.
+
+    Create action items in N projects alice does NOT belong to. The query count
+    for /me/work/ must remain roughly constant regardless of how many
+    non-member retro rows exist in the database.
+    """
+    # Baseline: alice has no projects.
+    with CaptureQueriesContext(connection) as ctx_baseline:
+        resp = _client(alice).get("/api/v1/me/work/")
+    assert resp.status_code == 200
+    baseline_q = len(ctx_baseline.captured_queries)
+
+    # Create 10 projects alice is NOT a member of, each with a retro + 5 action items.
+    for i in range(10):
+        other_user = User.objects.create_user(username=f"other{i}", password="pw")
+        other_proj = _project(calendar, f"Other{i}")
+        _member(other_proj, other_user, role=Role.MEMBER)
+        sprint = Sprint.objects.create(
+            project=other_proj,
+            name="S1",
+            start_date=date(2026, 4, 1),
+            finish_date=date(2026, 4, 14),
+            state=SprintState.COMPLETED,
+        )
+        retro = SprintRetro.objects.create(sprint=sprint)
+        for j in range(5):
+            task = Task.objects.create(
+                project=other_proj, name=f"T{i}{j}", duration=1, assignee=other_user
+            )
+            RetroActionItem.objects.create(
+                retro=retro,
+                text=f"item {i}-{j}",
+                promoted_task_id=task.pk,
+            )
+
+    with CaptureQueriesContext(connection) as ctx_after:
+        resp = _client(alice).get("/api/v1/me/work/")
+    assert resp.status_code == 200
+
+    # Query count must not grow significantly because the membership-scoped
+    # filter returns zero rows for alice — the 50 non-member action items
+    # must not cause extra per-row queries.
+    assert len(ctx_after.captured_queries) <= baseline_q + 5, (
+        f"Query count grew from {baseline_q} to {len(ctx_after.captured_queries)} "
+        "after adding 50 non-member retro action items. "
+        "_me_work_retro_action_items is not properly scoped to member projects."
+    )

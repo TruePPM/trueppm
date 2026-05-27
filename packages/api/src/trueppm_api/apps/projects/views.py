@@ -424,14 +424,27 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         Requires Resource Manager role (SCHEDULER ≥ 2).
 
         Query parameters:
-          start (YYYY-MM-DD) — window start, inclusive; defaults to earliest
-                               early_start across all project tasks.
-          end   (YYYY-MM-DD) — window end, inclusive; defaults to latest
-                               early_finish across all project tasks.
+          start (YYYY-MM-DD) — window start, inclusive; defaults to the near-term
+                               window start (see below).
+          end   (YYYY-MM-DD) — window end, inclusive; defaults to the near-term
+                               window end (see below).
+
+        When the caller omits ``start``/``end`` the default is a *near-term heat
+        map*: anchored on today, capped at ±8 weeks, and clamped into the project
+        CPM span ``[first early_start, last early_finish]``.  Clamping the anchor
+        into the span means a project scheduled entirely in the past or future
+        still returns its nearest real working days instead of an empty window
+        (an unclamped today ± 8 weeks produced exactly that — #772).  The ±8-week
+        cap keeps the per-day expansion at O(assignments × ~16 weeks) instead of
+        O(assignments × full multi-year span).  Pass explicit bounds to request a
+        wider range (up to the full project span).
 
         Returns 409 when no CPM dates exist on any task (scheduler not run yet).
         """
         from trueppm_api.apps.projects.utilization import compute_utilization
+
+        # Half-width of the default near-term window (today ± this many weeks).
+        _DEFAULT_WINDOW_WEEKS = 8
 
         project = self.get_object()  # handles 404 + object-level permission check
 
@@ -446,9 +459,16 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
                 raise ValueError(f"'{param}' must be a valid ISO 8601 date (YYYY-MM-DD).") from None
 
         try:
-            if start_str:
+            if start_str and end_str:
+                # Caller fully specifies the window — no CPM-span lookup needed.
                 window_start = _parse_date(start_str, "start")
+                window_end = _parse_date(end_str, "end")
             else:
+                # At least one bound is defaulted: derive the near-term window
+                # from the CPM span. The min/max aggregates are cheap, indexed
+                # single-row lookups — the expensive part the perf fix targets is
+                # the per-day expansion in compute_utilization, which the ±8-week
+                # cap below bounds regardless of project length.
                 first = (
                     project.tasks.filter(is_deleted=False, early_start__isnull=False)
                     .order_by("early_start")
@@ -460,18 +480,21 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
                         {"detail": "Schedule has not been computed. Run the scheduler first."},
                         status=status.HTTP_409_CONFLICT,
                     )
-                window_start = first
-
-            if end_str:
-                window_end = _parse_date(end_str, "end")
-            else:
                 last = (
                     project.tasks.filter(is_deleted=False, early_finish__isnull=False)
                     .order_by("-early_finish")
                     .values_list("early_finish", flat=True)
                     .first()
+                ) or first
+                # Anchor on today, but clamp the anchor into [first, last] so a
+                # schedule entirely in the past or future still yields its nearest
+                # real days rather than an empty window.
+                anchor = min(max(datetime.date.today(), first), last)
+                window = datetime.timedelta(weeks=_DEFAULT_WINDOW_WEEKS)
+                window_start = (
+                    _parse_date(start_str, "start") if start_str else max(anchor - window, first)
                 )
-                window_end = last if last is not None else window_start
+                window_end = _parse_date(end_str, "end") if end_str else min(anchor + window, last)
 
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -4178,7 +4201,9 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
       destroy (PLANNED only)          — Project Manager+ (IsProjectAdmin)
     """
 
-    queryset = Sprint.objects.select_related("project", "created_by").filter(is_deleted=False)
+    queryset = Sprint.objects.select_related("project", "created_by", "target_milestone").filter(
+        is_deleted=False
+    )
     serializer_class = SprintSerializer
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["start_date", "finish_date", "name", "state"]
@@ -4545,7 +4570,14 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
             return SprintRetroSerializer
 
         if request.method == "GET":
-            retro = SprintRetro.objects.filter(sprint=sprint, is_deleted=False).first()
+            # Prefetch action_items so SprintRetroSummarySerializer.get_action_items_count /
+            # get_promoted_count can read the cache instead of issuing per-object COUNT
+            # queries (N+1 risk on list-like surfaces that embed retro summaries).
+            retro = (
+                SprintRetro.objects.filter(sprint=sprint, is_deleted=False)
+                .prefetch_related("action_items")
+                .first()
+            )
             if retro is None:
                 return Response(
                     {"detail": "No retro recorded for this sprint."},
@@ -4878,9 +4910,21 @@ class MeActiveSprintsView(APIView):
         if not sprint_ids:
             return Response([], status=status.HTTP_200_OK)
 
+        from trueppm_api.apps.projects.models import SprintBurnSnapshot
+
         sprints = list(
             Sprint.objects.filter(pk__in=sprint_ids, is_deleted=False)
             .select_related("project", "target_milestone")
+            # Prefetch the most-recent burn snapshot per sprint so the loop
+            # below can read `sprint._latest_snapshot` without one extra query
+            # per sprint.  to_attr names the list; we take [0] when non-empty.
+            .prefetch_related(
+                db_models.Prefetch(
+                    "burn_snapshots",
+                    queryset=SprintBurnSnapshot.objects.order_by("-snapshot_date"),
+                    to_attr="_latest_snapshot_list",
+                )
+            )
             .order_by("project__name")
         )
 
@@ -4893,10 +4937,8 @@ class MeActiveSprintsView(APIView):
             day = max(1, min(elapsed, window))
 
             committed = sprint.committed_points or 0
-            latest = (
-                sprint.burn_snapshots.order_by("-snapshot_date").values("remaining_points").first()
-            )
-            remaining = latest["remaining_points"] if latest else committed
+            snapshot_list: list[Any] = getattr(sprint, "_latest_snapshot_list", [])
+            remaining = snapshot_list[0].remaining_points if snapshot_list else committed
             ideal_now = committed * (1 - day / window) if window > 0 else 0
             trend_pts = round(ideal_now - remaining)  # positive = ahead
 
@@ -5215,9 +5257,21 @@ def _me_work_retro_action_items(user: Any) -> list[dict[str, Any]]:
     # and not in any sprint (sprint-tracked owned items already show in the
     # sprint groups of My Work — surface only the orphan-backlog retro items
     # here to avoid double-counting).
+    #
+    # Scope to the requesting user's member projects so this query is bounded
+    # by the user's membership set rather than the entire org.  Without this
+    # scope the filter scans every non-deleted RetroActionItem in the DB
+    # regardless of project, which is O(all retros × all action items) and
+    # dominates GET /me/work/ latency on multi-tenant deployments.
+    member_project_ids = list(
+        ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
+            "project_id", flat=True
+        )
+    )
     owned_items = RetroActionItem.objects.filter(
         promoted_task_id__isnull=False,
         is_deleted=False,
+        retro__sprint__project_id__in=member_project_ids,
     ).select_related("retro__sprint")
     owned_task_ids = [it.promoted_task_id for it in owned_items if it.promoted_task_id]
     owned_tasks: dict[uuid.UUID, Task] = {}
