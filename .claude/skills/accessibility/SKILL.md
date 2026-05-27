@@ -29,6 +29,7 @@ description: >
 - Error messages: announced via aria-live="polite"
 - Modal dialogs: focus trapped inside, Escape to close
 - Contrast: ≥4.5:1 normal text, ≥3:1 large text
+- Settings-surface density exception: under `features/settings/`, `packages/web/CLAUDE.md` rule 118 permits `text-[11px]`/`text-[10px]` secondary and label text (and rule 121 *requires* `text-[10px]` on `EnterpriseBadge`) — do not report these as a legibility/WCAG failure. The hard floor is `text-[10px]`; `text-[9px]` and below are a failure everywhere. Contrast minimums (≥4.5:1 / ≥3:1) still apply at every text size.
 
 ### Mobile
 - Touch targets: ≥44×44 points

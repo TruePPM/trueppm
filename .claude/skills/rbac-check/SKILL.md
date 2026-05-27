@@ -37,6 +37,7 @@ You are auditing TruePPM's role-based access control for a new or modified endpo
 - [ ] Nested resources (e.g., `/api/v1/tasks/{id}/dependencies/`) inherit parent project membership check
 
 ### Role Enforcement
+- [ ] **Per-action role mapping — one viewset-level permission class rarely fits every method.** Enumerate every mutating entry point on the viewset — `create`, `update`, **`partial_update` (PATCH)**, `destroy`, and each custom `@action` with an unsafe method — and map each to its minimum role. Verify the permission layer enforces that mapping *per action* (`get_permissions()` keyed on `self.action`, or an object-level `has_object_permission` that reads the action), not a single blanket class that grants any project member the same access for reads and writes. PATCH is the classic miss: `partial_update` routes through the same permission as `retrieve`, so a read-level "is a project member" class silently lets a Viewer or Member edit fields (e.g. project settings) the UI only exposes to Admin+.
 - [ ] Write operations (create/update/delete) check the user's role in the project
 - [ ] Scheduler-only actions (schedule trigger, baseline create) are gated to `Scheduler`+
 - [ ] Admin-only actions (member management, project settings) are gated to `Admin`+
