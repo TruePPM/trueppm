@@ -4,6 +4,7 @@ import { apiClient } from '@/api/client';
 import type { Task, TaskAssignee, TaskLink, TaskStatus, LinkType, TaskReadiness } from '@/types';
 import type { PaginatedResponse } from '@/api/types';
 import { computeWbsCodes } from '@/utils/computeWbsCodes';
+import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 
 export interface UseScheduleTasksResult {
   tasks: Task[] | undefined;
@@ -211,6 +212,16 @@ export function useScheduleTasks(projectId?: string): UseScheduleTasksResult {
   const paramId = useProjectId();
   const resolvedId = projectId ?? paramId;
 
+  // Fallback polling is only needed when the live-update WebSocket is NOT
+  // delivering events. When the socket is `live`, useProjectWebSocket
+  // invalidates the tasks/dependencies caches on every mutation, so a 30 s
+  // poll is pure waste (a full multi-page refetch at 0.5 Hz). Gate the
+  // interval on the connection state: poll only while the socket is down
+  // (`reconnecting`/`stale`/`failed`) or before it has opened (`connecting`).
+  const wsState = useWsConnectionStore((s) => s.state);
+  const wsHealthy = wsState === 'live';
+  const fallbackInterval = wsHealthy ? (false as const) : 30_000;
+
   const tasksQuery = useQuery({
     queryKey: ['tasks', resolvedId],
     queryFn: async () => {
@@ -244,18 +255,37 @@ export function useScheduleTasks(projectId?: string): UseScheduleTasksResult {
       return rawTasks.map((t) => ({ ...t, wbs: wbsCodes.get(t.id) ?? t.wbs }));
     },
     enabled: !!resolvedId,
-    // WebSocket invalidations (useProjectWebSocket) handle live updates.
-    // 30 s fallback catches missed events without hammering the API at 0.5 Hz.
-    refetchInterval: 30_000,
+    // WebSocket invalidations (useProjectWebSocket) handle live updates while
+    // the socket is healthy. The 30 s fallback only runs when the socket is
+    // down, so it catches missed events without hammering the API when the
+    // live channel is already doing the job.
+    refetchInterval: fallbackInterval,
   });
 
   const linksQuery = useQuery({
     queryKey: ['dependencies', resolvedId],
     queryFn: async () => {
-      const res = await apiClient.get<PaginatedResponse<ApiDependency>>('/dependencies/', {
-        params: { project: resolvedId },
-      });
-      return res.data.results.map(mapDependency);
+      // Fetch all pages — a single GET would cap at PAGE_SIZE=50 dependencies,
+      // silently dropping arrows and CPM edges on projects with >50 deps. Mirror
+      // the tasks-query loop above: follow the DRF `next` cursor until exhausted.
+      const allDeps: ApiDependency[] = [];
+      let nextUrl: string | null = '/dependencies/';
+      let isFirstPage = true;
+      while (nextUrl) {
+        const params = isFirstPage ? { project: resolvedId } : undefined;
+        const currentUrl: string = nextUrl;
+        isFirstPage = false;
+        const { data: pageData } = await apiClient.get<PaginatedResponse<ApiDependency>>(
+          currentUrl,
+          { params },
+        );
+        allDeps.push(...pageData.results);
+        // Strip the origin from the next URL so apiClient uses its baseURL.
+        nextUrl = pageData.next
+          ? pageData.next.replace(/^https?:\/\/[^/]+/, '')
+          : null;
+      }
+      return allDeps.map(mapDependency);
     },
     enabled: !!resolvedId,
   });

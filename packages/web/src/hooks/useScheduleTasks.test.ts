@@ -1,12 +1,13 @@
 /**
  * Tests for the useScheduleTasks API mapper (mapTask) and pagination loop.
  */
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import { mapTask, useScheduleTasks, type ApiTask } from './useScheduleTasks';
+import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 
 // ---------------------------------------------------------------------------
 // Mocks for hook tests
@@ -345,5 +346,134 @@ describe('useScheduleTasks pagination', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     // Both calls should have been made via apiClient (origin stripped).
     expect(getMock).toHaveBeenCalledWith('/tasks/?cursor=xyz', expect.anything());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hook: dependency-links pagination (#773)
+// ---------------------------------------------------------------------------
+
+function makeApiDep(id: string) {
+  return {
+    id,
+    predecessor: 'p-' + id,
+    successor: 's-' + id,
+    dep_type: 'FS' as const,
+    lag: 0,
+    is_critical: false,
+  };
+}
+
+function depPage(results: ReturnType<typeof makeApiDep>[], next: string | null = null) {
+  return { data: { results, next, previous: null, count: results.length } };
+}
+
+describe('useScheduleTasks dependency pagination (#773)', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    getMock.mockReset();
+  });
+
+  it('follows the next cursor and accumulates all dependency pages', async () => {
+    const depPage1 = [makeApiDep('d-1'), makeApiDep('d-2')];
+    const depPage2 = [makeApiDep('d-3')];
+
+    getMock.mockImplementation((url: string) => {
+      if (url === '/tasks/') return Promise.resolve(paginatedResponse([]));
+      if (url === '/dependencies/')
+        return Promise.resolve(depPage(depPage1, 'http://api/dependencies/?cursor=abc'));
+      if (url === '/dependencies/?cursor=abc') return Promise.resolve(depPage(depPage2, null));
+      return Promise.resolve(paginatedResponse([]));
+    });
+
+    const { result } = renderHook(() => useScheduleTasks('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.links).toHaveLength(3);
+    expect(result.current.links!.map((l) => l.id)).toEqual(['d-1', 'd-2', 'd-3']);
+  });
+
+  it('strips the origin from the next dependencies URL', async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url === '/tasks/') return Promise.resolve(paginatedResponse([]));
+      if (url === '/dependencies/')
+        return Promise.resolve(
+          depPage([makeApiDep('d-1')], 'https://api.trueppm.com/dependencies/?cursor=xyz'),
+        );
+      if (url === '/dependencies/?cursor=xyz') return Promise.resolve(depPage([], null));
+      return Promise.resolve(paginatedResponse([]));
+    });
+
+    const { result } = renderHook(() => useScheduleTasks('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(getMock).toHaveBeenCalledWith('/dependencies/?cursor=xyz', expect.anything());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hook: fallback polling gated on WS connection state (#773)
+// ---------------------------------------------------------------------------
+
+describe('useScheduleTasks fallback polling gate (#773)', () => {
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    getMock.mockReset();
+    getMock.mockImplementation(() => Promise.resolve(paginatedResponse([])));
+    // Reset the connection store to a known state between tests.
+    useWsConnectionStore.getState().markConnecting();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Count GET calls to the tasks endpoint (first page of the tasks query). */
+  function tasksFetchCount() {
+    return getMock.mock.calls.filter(([url]) => url === '/tasks/').length;
+  }
+
+  it('does NOT poll the tasks query while the WebSocket is live', async () => {
+    useWsConnectionStore.getState().markLive();
+
+    renderHook(() => useScheduleTasks('proj-1'), { wrapper: makeWrapper(qc) });
+
+    await vi.waitFor(() => expect(tasksFetchCount()).toBe(1));
+    const initial = tasksFetchCount();
+
+    // Advance well past two 30 s windows — no extra fetch should occur.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(70_000);
+    });
+    expect(tasksFetchCount()).toBe(initial);
+  });
+
+  it('polls the tasks query as a fallback when the WebSocket is disconnected', async () => {
+    // Three retryable drops → `stale` (not `live`), so polling is armed.
+    const store = useWsConnectionStore.getState();
+    store.markDisconnected();
+    store.markDisconnected();
+    store.markDisconnected();
+    expect(useWsConnectionStore.getState().state).toBe('stale');
+
+    renderHook(() => useScheduleTasks('proj-1'), { wrapper: makeWrapper(qc) });
+
+    await vi.waitFor(() => expect(tasksFetchCount()).toBe(1));
+    const initial = tasksFetchCount();
+
+    // One 30 s window should trigger at least one fallback refetch.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    await vi.waitFor(() => expect(tasksFetchCount()).toBeGreaterThan(initial));
   });
 });
