@@ -188,12 +188,12 @@ export function WorkspaceGeneralPage() {
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-[420px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary"
+            className="w-full max-w-[420px] h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary"
           />
         </FieldRow>
 
         <FieldRow label="Subdomain" hint="Members sign in here.">
-          <div className="flex items-center h-8 rounded border border-neutral-border bg-neutral-surface-raised px-2.5 w-[420px] gap-1 text-[13px]">
+          <div className="flex items-center h-8 rounded border border-neutral-border bg-neutral-surface-raised px-2.5 w-full max-w-[420px] gap-1 text-[13px]">
             <span className="text-neutral-text-secondary shrink-0">https://</span>
             <span className="font-mono text-neutral-text-primary">{ws.subdomain}</span>
             <span className="text-neutral-text-secondary shrink-0">.trueppm.app</span>

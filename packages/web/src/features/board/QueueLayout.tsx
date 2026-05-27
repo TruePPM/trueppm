@@ -268,7 +268,7 @@ function Avatar({ initials }: { initials: string | null }) {
       <span
         aria-hidden="true"
         className="inline-flex items-center justify-center rounded-full border border-dashed border-neutral-border text-neutral-text-disabled"
-        style={{ width: 18, height: 18, fontSize: 9, flexShrink: 0 }}
+        style={{ width: 18, height: 18, fontSize: 10, flexShrink: 0 }}
       >
         ?
       </span>
@@ -282,7 +282,7 @@ function Avatar({ initials }: { initials: string | null }) {
         width: 18,
         height: 18,
         backgroundColor: colorForInitials(initials),
-        fontSize: 9,
+        fontSize: 10,
         letterSpacing: '0.02em',
         flexShrink: 0,
       }}

@@ -821,7 +821,7 @@ function CustomFieldModal({
     >
       <form
         onSubmit={submit}
-        className="bg-neutral-surface-raised rounded-lg border border-neutral-border w-[480px] max-w-[92vw] shadow-lg"
+        className="bg-neutral-surface-raised rounded-lg border border-neutral-border w-[480px] max-w-[92vw]"
       >
         <div className="px-4 py-3 border-b border-neutral-border">
           <h3 id="custom-field-modal-heading" className="text-[13px] font-semibold text-neutral-text-primary">

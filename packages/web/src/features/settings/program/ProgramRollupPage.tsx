@@ -168,7 +168,7 @@ function Toggle({
     >
       <span
         className={[
-          'inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform',
+          'inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform',
           on ? 'translate-x-3.5' : 'translate-x-0.5',
         ].join(' ')}
       />
@@ -602,7 +602,7 @@ export function ProgramRollupPage() {
             role={toast.variant === 'error' ? 'alert' : 'status'}
             aria-live={toast.variant === 'error' ? 'assertive' : 'polite'}
             className={[
-              'fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded shadow-lg text-[13px] font-medium',
+              'fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded border border-neutral-border text-[13px] font-medium',
               toast.variant === 'error'
                 ? 'bg-semantic-critical text-white'
                 : 'bg-neutral-text-primary text-white',

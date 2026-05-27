@@ -29,7 +29,7 @@ export function BacklogToasts({ controller }: BacklogToastsProps) {
       <div className="pointer-events-none fixed inset-x-0 bottom-5 z-50 flex justify-center px-4">
         <div
           role="alert"
-          className="pointer-events-auto w-full max-w-[520px] rounded-md border border-l-[3px] border-semantic-critical bg-neutral-surface p-3 shadow-lg"
+          className="pointer-events-auto w-full max-w-[520px] rounded-md border border-l-[3px] border-semantic-critical bg-neutral-surface p-3"
         >
           <div className="flex items-start gap-2.5">
             <WarningIcon
@@ -87,7 +87,7 @@ export function BacklogToasts({ controller }: BacklogToastsProps) {
     <div className="pointer-events-none fixed inset-x-0 bottom-5 z-50 flex justify-center px-4">
       <div
         role="status"
-        className="pointer-events-auto flex items-center gap-3 rounded-md bg-neutral-text-primary px-4 py-2.5 text-sm text-neutral-text-inverse shadow-lg"
+        className="pointer-events-auto flex items-center gap-3 rounded-md bg-neutral-text-primary px-4 py-2.5 text-sm text-neutral-text-inverse border border-neutral-border"
       >
         <span>{toast.message}</span>
       </div>

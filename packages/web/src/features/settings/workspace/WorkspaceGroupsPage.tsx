@@ -84,7 +84,7 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
                 width: 22, height: 22,
                 marginLeft: i === 0 ? 0 : -6,
                 background: MEMBER_COLORS[i % MEMBER_COLORS.length],
-                fontSize: 9,
+                fontSize: 10,
               }}
               aria-hidden="true"
             />
@@ -92,7 +92,7 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
           {group.memberCount > 6 && (
             <span
               className="rounded-full border-2 border-neutral-surface-raised bg-neutral-surface-sunken inline-flex items-center justify-center text-neutral-text-secondary font-bold"
-              style={{ width: 22, height: 22, marginLeft: -6, fontSize: 9 }}
+              style={{ width: 22, height: 22, marginLeft: -6, fontSize: 10 }}
               aria-hidden="true"
             >
               +{group.memberCount - 6}
@@ -107,7 +107,7 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
             Lead:{' '}
             <span
               className="w-[18px] h-[18px] rounded-full bg-brand-primary inline-flex items-center justify-center text-white font-bold"
-              style={{ fontSize: 9 }}
+              style={{ fontSize: 10 }}
               aria-hidden="true"
             >
               {group.lead}

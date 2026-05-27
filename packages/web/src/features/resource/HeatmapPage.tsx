@@ -155,7 +155,7 @@ export function HeatmapPage() {
                 type="button"
                 disabled
                 aria-disabled="true"
-                title="Available in Team tier — cross-project resource leveling and what-if simulation"
+                title="Available in TruePPM Enterprise — cross-project resource leveling and what-if simulation"
                 className="h-7 px-3 text-xs font-medium rounded border border-neutral-border text-neutral-text-disabled cursor-not-allowed"
               >
                 ⚡ Level loads
