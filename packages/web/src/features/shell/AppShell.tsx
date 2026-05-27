@@ -47,6 +47,14 @@ export function AppShell() {
   return (
     <QueryClientProvider client={queryClient}>
       <div className="flex flex-col h-screen overflow-hidden">
+        {/* Skip link (WCAG 2.4.1 Bypass Blocks) — first focusable element; lets
+            keyboard users jump past the sidebar/topbar straight to content. */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[100] focus:rounded focus:bg-brand-primary focus:px-3 focus:py-2 focus:text-sm focus:text-white focus-visible:ring-2 focus-visible:ring-white"
+        >
+          Skip to main content
+        </a>
         {/* Top bar — full width */}
         <TopBar onHamburgerClick={openDrawer} />
 
@@ -60,7 +68,7 @@ export function AppShell() {
           {/* Main content area — neutral-surface, not chrome-surface.
               Chrome surface is reserved for navigation shell (sidebar, topbar).
               Content views render on the lighter neutral-surface background. */}
-          <main className="flex-1 min-w-0 overflow-auto bg-neutral-surface">
+          <main id="main-content" className="flex-1 min-w-0 overflow-auto bg-neutral-surface">
             <Outlet />
           </main>
         </div>
@@ -81,7 +89,7 @@ export function AppShell() {
             onClick={closeDrawer}
           />
           {/* Drawer */}
-          <div className="fixed left-0 top-0 h-full z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Projects">
+          <div className="fixed left-0 top-0 h-full z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Project navigation">
             <Sidebar isDrawer onClose={closeDrawer} />
           </div>
         </>

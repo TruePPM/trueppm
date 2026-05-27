@@ -26,7 +26,7 @@ test.describe('Login flow', () => {
   test('login page renders email and password fields', async ({ page }) => {
     await page.goto('/login');
     await expect(page.getByLabel('Email')).toBeVisible();
-    await expect(page.getByLabel('Password')).toBeVisible();
+    await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   });
 
@@ -74,7 +74,7 @@ test.describe('Login flow', () => {
 
     await page.goto('/login');
     await page.getByLabel('Email').fill('sarah@example.com');
-    await page.getByLabel('Password').fill('correct-password');
+    await page.getByLabel('Password', { exact: true }).fill('correct-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     // Should land on the app shell (not /login).
@@ -89,7 +89,7 @@ test.describe('Login flow', () => {
 
     await page.goto('/login');
     await page.getByLabel('Email').fill('sarah@example.com');
-    await page.getByLabel('Password').fill('wrong-password');
+    await page.getByLabel('Password', { exact: true }).fill('wrong-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect(page.getByRole('alert')).toContainText('Invalid email or password');
@@ -102,7 +102,7 @@ test.describe('Login flow', () => {
 
     await page.goto('/login');
     await page.getByLabel('Email').fill('sarah@example.com');
-    await page.getByLabel('Password').fill('any-password');
+    await page.getByLabel('Password', { exact: true }).fill('any-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect(page.getByRole('alert')).toContainText('unexpected error');

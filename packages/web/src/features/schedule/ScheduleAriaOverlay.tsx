@@ -155,7 +155,11 @@ export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAri
       {tasks.slice(firstRow, lastRow + 1).map((task, sliceIdx) => {
         const rowIndex = firstRow + sliceIdx;
         const rowTop = rowIndex * ROW_HEIGHT + HEADER_HEIGHT - scrollTop;
-        const isFocused = task.id === focusedTaskId;
+        // Roving tabindex: until the user has focused a row, the first task is the
+        // tab stop so the grid is reachable by Tab on initial load. Without the
+        // `?? tasks[0]?.id` fallback every cell was tabIndex=-1 and keyboard/AT
+        // users could not enter the grid at all (#779).
+        const isFocused = task.id === (focusedTaskId ?? tasks[0]?.id);
 
         // Bar geometry for focus ring positioning (rule 68)
         let barLeft = 0;

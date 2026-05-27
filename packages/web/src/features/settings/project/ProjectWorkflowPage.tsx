@@ -51,6 +51,19 @@ const COLOR_SWATCHES = [
   '#94A3B8',
 ] as const;
 
+// Human-readable names so the swatch buttons announce "Set phase color to
+// Forest green" rather than "Set phase color to #1C6B3A" (WCAG 2.4.6 / 4.1.2).
+const COLOR_SWATCH_NAMES: Record<(typeof COLOR_SWATCHES)[number], string> = {
+  '#1C6B3A': 'Forest green',
+  '#C17A10': 'Amber',
+  '#7C3AED': 'Violet',
+  '#0EA5E9': 'Sky blue',
+  '#DC2626': 'Red',
+  '#16A34A': 'Green',
+  '#6B6965': 'Slate gray',
+  '#94A3B8': 'Cool gray',
+};
+
 const CUSTOM_FIELD_TYPE_OPTIONS: Array<{ value: CustomFieldType; label: string }> = [
   { value: 'TEXT', label: 'Text' },
   { value: 'NUMBER', label: 'Number' },
@@ -329,7 +342,7 @@ function PhaseRow({
             <button
               key={c}
               type="button"
-              aria-label={`Set phase color to ${c}`}
+              aria-label={`Set phase color to ${COLOR_SWATCH_NAMES[c]}`}
               onClick={() => {
                 onRecolor(c);
                 setShowColorPicker(false);
@@ -565,7 +578,7 @@ function StatusRow({
             <button
               key={c}
               type="button"
-              aria-label={`Set status color to ${c}`}
+              aria-label={`Set status color to ${COLOR_SWATCH_NAMES[c]}`}
               onClick={() => {
                 onRecolor(c);
                 setShowColorPicker(false);

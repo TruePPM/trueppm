@@ -26,7 +26,7 @@ test.describe('Wave 8 — Login screen', () => {
     await page.goto('/login');
 
     const emailInput = page.getByLabel('Email');
-    const passwordInput = page.getByLabel('Password');
+    const passwordInput = page.getByLabel('Password', { exact: true });
 
     await expect(emailInput).toHaveAttribute('type', 'email');
     await expect(passwordInput).toHaveAttribute('type', 'password');
@@ -46,7 +46,7 @@ test.describe('Wave 8 — Login screen', () => {
   test('Forgot? link is present below the password input', async ({ page }) => {
     await page.goto('/login');
 
-    await expect(page.getByRole('link', { name: 'Forgot?' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Forgot password?' })).toBeVisible();
   });
 
   test('Tab order goes Email → Password → Forgot? → Keep me signed in → Sign in (Forgot? does not interrupt the credentials)', async ({ page }) => {
@@ -56,18 +56,18 @@ test.describe('Wave 8 — Login screen', () => {
     // aren't focusable, which would mask whether tab actually reached them).
     const email = page.getByLabel('Email');
     await email.fill('user@example.com');
-    await page.getByLabel('Password').fill('password123');
+    await page.getByLabel('Password', { exact: true }).fill('password123');
 
     await email.focus();
     await expect(email).toBeFocused();
 
     await page.keyboard.press('Tab');
-    await expect(page.getByLabel('Password')).toBeFocused();
+    await expect(page.getByLabel('Password', { exact: true })).toBeFocused();
 
     // The link sits below the password input — Forgot? comes AFTER the
     // password in the tab order, not between Email and Password.
     await page.keyboard.press('Tab');
-    await expect(page.getByRole('link', { name: 'Forgot?' })).toBeFocused();
+    await expect(page.getByRole('link', { name: 'Forgot password?' })).toBeFocused();
 
     await page.keyboard.press('Tab');
     await expect(page.getByLabel(/Keep me signed in/)).toBeFocused();
@@ -144,7 +144,7 @@ test.describe('Wave 8 — Login screen', () => {
     await page.goto('/login');
     await page.getByLabel('Keep me signed in for 30 days').check();
     await page.getByLabel('Email').fill('anna@example.com');
-    await page.getByLabel('Password').fill('secret');
+    await page.getByLabel('Password', { exact: true }).fill('secret');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect(page).not.toHaveURL(/\/login/, { timeout: 5_000 });

@@ -1028,6 +1028,7 @@ export function ScheduleView() {
           </button>
           {showColMenu && (
             <div
+              role="menu"
               className="absolute right-0 top-8 z-30 bg-neutral-surface border border-neutral-border
                 rounded py-1 min-w-[120px]"
               aria-label="Toggle column visibility"
