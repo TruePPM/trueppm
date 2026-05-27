@@ -259,23 +259,75 @@ export interface PromoteTaskPayload {
   id: string;
   projectId: string;
   planned_start: string;
+  /**
+   * Optional explicit status. The To Do gutter path omits it (sends only
+   * `planned_start`) so the server applies its date-gated NOT_STARTED →
+   * IN_PROGRESS rule. The BACKLOG-promote path (#318) sends an explicit
+   * `status: 'NOT_STARTED'` so the promotion lands deterministically in
+   * To Do regardless of the drop date — sending `status` in the body skips
+   * the server's auto-bump (decision A2). Mirrors the optimistic cache logic.
+   */
+  status?: string;
 }
 
 /**
  * PATCH /api/v1/tasks/{id}/ to promote an unscheduled task onto the timeline.
  *
- * Sends only `planned_start`; the server (`TaskSerializer.update`) applies the
- * date-gated NOT_STARTED → IN_PROGRESS rule consistently across every
- * planned_start mutation path (#336). Keeping the rule server-side means
- * Gantt drag, drawer date edits, and integration sync all behave identically —
- * and the rule is auditable in one place rather than replicated per hook.
+ * The To Do gutter path sends only `planned_start`; the server
+ * (`TaskSerializer.update`) applies the date-gated NOT_STARTED → IN_PROGRESS
+ * rule consistently across every planned_start-only mutation path (#336), so
+ * Gantt drag, drawer date edits, and integration sync behave identically.
+ *
+ * The BACKLOG-promote path (#318) additionally sends an explicit
+ * `status: 'NOT_STARTED'`. An explicit status in the request body skips the
+ * server's date-gated auto-bump, giving a deterministic To Do landing for a
+ * backlog idea regardless of the chosen date (decision A2).
+ *
+ * Optimistic: applies the move to the React Query cache in `onMutate` so the
+ * chip leaves the gutter immediately, and rolls back on error — mirroring
+ * {@link useUpdateTask}/{@link useToggleComplete}.
  */
 export function usePromoteTask() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, planned_start }: PromoteTaskPayload) => {
-      await apiClient.patch(`/tasks/${id}/`, { planned_start });
+    mutationFn: async ({ id, planned_start, status }: PromoteTaskPayload) => {
+      await apiClient.patch(`/tasks/${id}/`, {
+        planned_start,
+        ...(status !== undefined ? { status } : {}),
+      });
+    },
+    onMutate: async ({ id, projectId, planned_start, status }) => {
+      // Cancel in-flight fetches so they don't clobber the optimistic patch.
+      await queryClient.cancelQueries({ queryKey: ['tasks', projectId] });
+      const snapshot = queryClient.getQueryData<Task[]>(['tasks', projectId]);
+      const todayIso = new Date().toISOString().slice(0, 10);
+      queryClient.setQueryData<Task[]>(['tasks', projectId], (old) =>
+        old?.map((t) => {
+          if (t.id !== id) return t;
+          // When the caller sends no explicit status (To Do path), mirror the
+          // server's date-gated NOT_STARTED → IN_PROGRESS rule so the row
+          // doesn't flicker after the round-trip. When the caller IS explicit
+          // (#318 backlog promote → NOT_STARTED), honor it and skip the bump.
+          const willPromote =
+            status === undefined &&
+            t.status === 'NOT_STARTED' &&
+            planned_start <= todayIso;
+          return {
+            ...t,
+            plannedStart: planned_start,
+            ...(status !== undefined ? { status: status as Task['status'] } : {}),
+            ...(willPromote ? { status: 'IN_PROGRESS' as const } : {}),
+          };
+        }) ?? [],
+      );
+      return { snapshot };
+    },
+    onError: (_err, { projectId }, context) => {
+      // Roll back to the pre-mutation snapshot — the chip returns to its section.
+      if (context?.snapshot) {
+        queryClient.setQueryData(['tasks', projectId], context.snapshot);
+      }
     },
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', variables.projectId] });

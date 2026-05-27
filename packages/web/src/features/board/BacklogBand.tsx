@@ -196,6 +196,10 @@ export interface BacklogCardProps {
   isFocused: boolean;
   onFocus: () => void;
   onClick: (anchor: HTMLElement) => void;
+  /** Keyboard alternative for promotion (#318, rule 135) — opens the shared
+   *  ScheduleTaskDialog. The card passes its own `···` button as the trigger so
+   *  focus can be returned on close. When omitted, the action is not rendered. */
+  onSchedule?: (task: Task, trigger: HTMLElement) => void;
 }
 
 function ownerInitialsFromTask(task: Task): string | null {
@@ -206,6 +210,41 @@ function ownerInitialsFromTask(task: Task): string | null {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+/**
+ * The `···` "Schedule…" overflow action for a backlog card (#318, rule 135).
+ *
+ * Rendered as a sibling of the card's drag-source `<button>` (never nested —
+ * an interactive control inside a button is invalid HTML and breaks the drag
+ * activation). Positioned in the card's top-right; the trigger element is
+ * handed to `onSchedule` so the dialog can return focus on close.
+ */
+function ScheduleAction({
+  task,
+  onSchedule,
+}: {
+  task: Task;
+  onSchedule: (task: Task, trigger: HTMLElement) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      aria-label={`Actions for ${task.name}`}
+      title="Schedule…"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onSchedule(task, e.currentTarget);
+      }}
+      className="absolute top-1 right-1 w-6 h-6 flex items-center justify-center rounded
+        text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+    >
+      <span aria-hidden="true" className="leading-none">···</span>
+    </button>
+  );
+}
+
 export function BacklogCard({
   task,
   density,
@@ -214,6 +253,7 @@ export function BacklogCard({
   isFocused,
   onFocus,
   onClick,
+  onSchedule,
 }: BacklogCardProps) {
   const initials = ownerInitialsFromTask(task);
   const readiness: TaskReadiness = task.readiness ?? 'idea';
@@ -231,6 +271,35 @@ export function BacklogCard({
 
   if (density === 'compact') {
     return (
+      <div className="relative">
+        <button
+          ref={setNodeRef}
+          type="button"
+          aria-label={`${task.name}, backlog idea`}
+          onFocus={onFocus}
+          onClick={(e) => onClick(e.currentTarget)}
+          {...attributes}
+          {...listeners}
+          className={`flex w-full items-center gap-2 rounded-sm border border-neutral-border bg-neutral-surface px-2.5 py-1.5 text-left cursor-grab focus-visible:outline-none ${onSchedule ? 'pr-7' : ''} ${focusRing} ${dragOpacity}`}
+        >
+          <PriorityDot rank={task.priorityRank} />
+          <span
+            className={`flex-1 min-w-0 truncate text-xs font-medium ${
+              isIdeaTone ? 'italic text-neutral-text-secondary' : 'text-neutral-text-primary'
+            }`}
+          >
+            {task.name}
+          </span>
+          <PhaseDot color={phaseColor} />
+          <Avatar initials={initials} size={16} />
+        </button>
+        {onSchedule && <ScheduleAction task={task} onSchedule={onSchedule} />}
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
       <button
         ref={setNodeRef}
         type="button"
@@ -239,83 +308,64 @@ export function BacklogCard({
         onClick={(e) => onClick(e.currentTarget)}
         {...attributes}
         {...listeners}
-        className={`flex items-center gap-2 rounded-sm border border-neutral-border bg-neutral-surface px-2.5 py-1.5 text-left cursor-grab focus-visible:outline-none ${focusRing} ${dragOpacity}`}
+        className={`flex w-full flex-col gap-1.5 rounded-md border border-neutral-border bg-neutral-surface px-3 py-2.5 text-left cursor-grab focus-visible:outline-none ${focusRing} ${dragOpacity}`}
+        style={{ borderLeft: `3px solid ${phaseColor}` }}
       >
-        <PriorityDot rank={task.priorityRank} />
-        <span
-          className={`flex-1 min-w-0 truncate text-xs font-medium ${
+        <div className="flex items-center gap-1.5">
+          <PriorityDot rank={task.priorityRank} />
+          <ReadinessChip readiness={readiness} />
+          {(task.predecessorCount ?? 0) > 0 && (
+            <span
+              aria-label="Linked dependency"
+              title="Linked dependency"
+              className="text-neutral-text-disabled leading-none"
+              style={{ fontSize: 12 }}
+            >
+              ⛓
+            </span>
+          )}
+          <span className="flex-1" />
+          {/* Reserve room for the absolutely-positioned ··· so the avatar
+              doesn't sit under it. */}
+          <span className={onSchedule ? 'pr-6' : ''}>
+            <Avatar initials={initials} />
+          </span>
+        </div>
+
+        <div
+          className={`text-[13px] font-medium leading-snug ${
             isIdeaTone ? 'italic text-neutral-text-secondary' : 'text-neutral-text-primary'
           }`}
         >
           {task.name}
-        </span>
-        <PhaseDot color={phaseColor} />
-        <Avatar initials={initials} size={16} />
-      </button>
-    );
-  }
-
-  return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      aria-label={`${task.name}, backlog idea`}
-      onFocus={onFocus}
-      onClick={(e) => onClick(e.currentTarget)}
-      {...attributes}
-      {...listeners}
-      className={`flex flex-col gap-1.5 rounded-md border border-neutral-border bg-neutral-surface px-3 py-2.5 text-left cursor-grab focus-visible:outline-none ${focusRing} ${dragOpacity}`}
-      style={{ borderLeft: `3px solid ${phaseColor}` }}
-    >
-      <div className="flex items-center gap-1.5">
-        <PriorityDot rank={task.priorityRank} />
-        <ReadinessChip readiness={readiness} />
-        {(task.predecessorCount ?? 0) > 0 && (
-          <span
-            aria-label="Linked dependency"
-            title="Linked dependency"
-            className="text-neutral-text-disabled leading-none"
-            style={{ fontSize: 12 }}
-          >
-            ⛓
-          </span>
-        )}
-        <span className="flex-1" />
-        <Avatar initials={initials} />
-      </div>
-
-      <div
-        className={`text-[13px] font-medium leading-snug ${
-          isIdeaTone ? 'italic text-neutral-text-secondary' : 'text-neutral-text-primary'
-        }`}
-      >
-        {task.name}
-      </div>
-
-      {density === 'full' && (
-        <div className="flex items-center gap-2 text-xs text-neutral-text-secondary">
-          <span style={{ color: phaseColor }} className="font-semibold">
-            {/* Phase name is sourced via prop in future; for now show the WBS
-                root label since the rail is project-scoped. */}
-            {task.parentId ? 'Phase' : 'Project'}
-          </span>
-          <span aria-hidden="true">·</span>
-          <span className="tppm-mono">P{task.priorityRank ?? '—'}</span>
-          {task.duration > 0 && (
-            <>
-              <span aria-hidden="true">·</span>
-              <span className="tppm-mono">{task.duration}d</span>
-            </>
-          )}
-          <span className="flex-1" />
-          {ageDays !== null && (
-            <span className="tppm-mono text-neutral-text-disabled">
-              {ageDays}d ago
-            </span>
-          )}
         </div>
-      )}
-    </button>
+
+        {density === 'full' && (
+          <div className="flex items-center gap-2 text-xs text-neutral-text-secondary">
+            <span style={{ color: phaseColor }} className="font-semibold">
+              {/* Phase name is sourced via prop in future; for now show the WBS
+                  root label since the rail is project-scoped. */}
+              {task.parentId ? 'Phase' : 'Project'}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span className="tppm-mono">P{task.priorityRank ?? '—'}</span>
+            {task.duration > 0 && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="tppm-mono">{task.duration}d</span>
+              </>
+            )}
+            <span className="flex-1" />
+            {ageDays !== null && (
+              <span className="tppm-mono text-neutral-text-disabled">
+                {ageDays}d ago
+              </span>
+            )}
+          </div>
+        )}
+      </button>
+      {onSchedule && <ScheduleAction task={task} onSchedule={onSchedule} />}
+    </div>
   );
 }
 
@@ -339,6 +389,10 @@ export interface BacklogBandProps {
   focusedCardId: string | null;
   onCardFocus: (taskId: string, status: TaskStatus, phaseId: string) => void;
   onCardClick: (task: Task, anchor: HTMLElement) => void;
+  /** Keyboard alternative for promotion (#318, rule 135) — opens the shared
+   *  ScheduleTaskDialog (mounted once in BoardView). Passed straight to each
+   *  BacklogCard's `···` "Schedule…" action. */
+  onSchedule?: (task: Task, trigger: HTMLElement) => void;
   /** Called when the user clicks "+ Capture idea". Creates a new BACKLOG task. */
   onCaptureIdea?: () => void;
   /** True while the create mutation is in flight — disables the button. */
@@ -361,6 +415,7 @@ export function BacklogBand({
   focusedCardId,
   onCardFocus,
   onCardClick,
+  onSchedule,
   onCaptureIdea,
   isCaptureIdeaPending = false,
 }: BacklogBandProps) {
@@ -515,6 +570,7 @@ export function BacklogBand({
                     onCardFocus(task.id, task.status, task.parentId ?? 'root')
                   }
                   onClick={(anchor) => onCardClick(task, anchor)}
+                  onSchedule={onSchedule}
                 />
               </div>
             );

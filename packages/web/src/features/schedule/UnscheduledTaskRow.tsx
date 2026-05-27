@@ -1,20 +1,68 @@
 import React, { useState, useRef, useCallback, useId, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
-import type { Task } from '@/types';
+import type { Task, TaskReadiness } from '@/types';
+
+export type UnscheduledRowVariant = 'todo' | 'backlog';
 
 interface UnscheduledTaskRowProps {
   task: Task;
+  /** `todo` (NOT_STARTED, default) or `backlog` (status === 'BACKLOG'). The
+   *  backlog variant carries a dashed left edge + readiness label and routes
+   *  its `···` menu to the shared ScheduleTaskDialog instead of an inline form
+   *  (#318). */
+  variant?: UnscheduledRowVariant;
   onDragStart: (task: Task, pointerId: number, x: number, y: number) => void;
+  /** To Do path — inline "set planned start" form (existing behavior). */
   onSetDate: (task: Task, date: string) => void;
+  /** Backlog path — open the shared ScheduleTaskDialog. The row passes its own
+   *  `···` button as the trigger so focus can be returned on close. */
+  onScheduleRequest?: (task: Task, trigger: HTMLElement) => void;
 }
 
 /**
- * A single row in the unscheduled gutter.
+ * Inline readiness label for a backlog chip (#318, rule 133). The text label is
+ * the non-color signal that a drop PROMOTES (BACKLOG → To Do); the dashed left
+ * edge on the row is the at-a-glance cue. Mirrors the BacklogBand ReadinessChip
+ * semantics (idea / estimated / ready / baselined).
+ */
+function ReadinessLabel({ readiness }: { readiness: TaskReadiness }) {
+  const tone: Record<TaskReadiness, string> = {
+    idea: 'border border-dashed border-neutral-border text-neutral-text-disabled',
+    estimated: 'bg-neutral-surface-sunken text-neutral-text-secondary',
+    ready: 'text-brand-primary-dark dark:text-brand-primary',
+    baselined: 'bg-neutral-surface-sunken text-neutral-text-secondary',
+  };
+  return (
+    <span
+      className={`inline-flex items-center rounded-sm uppercase tracking-wider font-semibold shrink-0 px-1.5 ${tone[readiness]}`}
+      style={{ height: 16, fontSize: '9.5px', letterSpacing: '0.06em' }}
+    >
+      {readiness}
+    </span>
+  );
+}
+
+/**
+ * A single row in the unscheduled gutter (#213, extended for #318).
  *
  * Supports drag-to-promote via Pointer Events API (4px threshold, rule 64/66)
- * and a keyboard alternative via the ··· overflow menu (rule 105 pattern).
+ * and a keyboard alternative via the ··· overflow menu (rule 105 pattern):
+ *   - `todo` variant: inline "set planned start" form (existing path).
+ *   - `backlog` variant: a "Schedule…" item that opens the shared
+ *     ScheduleTaskDialog (rule 135) — the keyboard parallel to dragging the
+ *     dashed chip onto the timeline.
  */
-export function UnscheduledTaskRow({ task, onDragStart, onSetDate }: UnscheduledTaskRowProps) {
+export function UnscheduledTaskRow({
+  task,
+  variant = 'todo',
+  onDragStart,
+  onSetDate,
+  onScheduleRequest,
+}: UnscheduledTaskRowProps) {
+  const isBacklog = variant === 'backlog';
+  const readiness: TaskReadiness = task.readiness ?? 'idea';
+  const isIdeaTone = isBacklog && readiness === 'idea';
+
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [dateInput, setDateInput] = useState('');
@@ -65,6 +113,13 @@ export function UnscheduledTaskRow({ task, onDragStart, onSetDate }: Unscheduled
 
   const handleMenuOpen = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
+    // Backlog rows open the shared ScheduleTaskDialog directly (no inline form);
+    // the dialog owns focus-first + focus-return, so pass our ··· button as the
+    // trigger and don't toggle the inline menu.
+    if (isBacklog) {
+      if (buttonRef.current) onScheduleRequest?.(task, buttonRef.current);
+      return;
+    }
     setMenuOpen((v) => {
       const next = !v;
       if (next) {
@@ -73,7 +128,7 @@ export function UnscheduledTaskRow({ task, onDragStart, onSetDate }: Unscheduled
       }
       return next;
     });
-  }, []);
+  }, [isBacklog, onScheduleRequest, task]);
 
   // Position the portaled menu above the overflow button (escapes scroll-container clipping).
   useLayoutEffect(() => {
@@ -115,9 +170,10 @@ export function UnscheduledTaskRow({ task, onDragStart, onSetDate }: Unscheduled
   return (
     <div
       ref={rowRef}
-      className="relative flex items-center gap-3 px-4 h-9 border-b border-neutral-border/40
+      className={`relative flex items-center gap-3 px-4 h-9 border-b border-neutral-border/40
         cursor-grab hover:bg-neutral-surface-raised select-none
-        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset"
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-inset
+        ${isBacklog ? 'border-l-2 border-dashed border-neutral-border' : ''}`}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       style={{ touchAction: 'none' }}
@@ -130,8 +186,15 @@ export function UnscheduledTaskRow({ task, onDragStart, onSetDate }: Unscheduled
         {task.wbs || '—'}
       </span>
 
-      {/* Task name */}
-      <span className="text-sm text-neutral-text-primary flex-1 truncate min-w-0">
+      {/* Backlog readiness label — the non-color promote cue (rule 133) */}
+      {isBacklog && <ReadinessLabel readiness={readiness} />}
+
+      {/* Task name — idea-readiness backlog rows render italic + secondary */}
+      <span
+        className={`text-sm flex-1 truncate min-w-0 ${
+          isIdeaTone ? 'italic text-neutral-text-secondary' : 'text-neutral-text-primary'
+        }`}
+      >
         {task.name}
       </span>
 
@@ -140,17 +203,16 @@ export function UnscheduledTaskRow({ task, onDragStart, onSetDate }: Unscheduled
         {task.duration}d
       </span>
 
-      {/* Overflow menu — keyboard path to set planned start (rule 105 pattern).
-          Menu is portaled to body to escape the scroll container's overflow clip
-          and stacking context, otherwise the gutter header would intercept clicks
-          on the menu's submit button. */}
+      {/* Overflow menu — keyboard path (rule 105 pattern).
+          To Do: inline "set planned start" form, portaled to body to escape the
+          scroll container's overflow clip. Backlog: opens ScheduleTaskDialog. */}
       <div className="shrink-0">
         <button
           ref={buttonRef}
           type="button"
           aria-label={`Actions for ${task.name}`}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
+          aria-haspopup={isBacklog ? 'dialog' : 'menu'}
+          aria-expanded={isBacklog ? undefined : menuOpen}
           className="w-6 h-6 flex items-center justify-center rounded text-neutral-text-secondary
             hover:text-neutral-text-primary hover:bg-neutral-surface-raised
             focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
@@ -160,7 +222,7 @@ export function UnscheduledTaskRow({ task, onDragStart, onSetDate }: Unscheduled
         </button>
       </div>
 
-      {menuOpen && menuPos && createPortal(
+      {!isBacklog && menuOpen && menuPos && createPortal(
         <div
           ref={menuRef}
           role="menu"
