@@ -49,6 +49,16 @@ const WS_BASE = (() => {
 
 const MAX_BACKOFF_MS = 30_000;
 
+/**
+ * Trailing-debounce window for coalescing a burst of Gantt-data invalidations
+ * (`tasks`, `dependencies`). A sync batch broadcasts one mutation event per
+ * row, and each event would otherwise trigger an independent multi-page refetch
+ * of the tasks/dependencies queries. Collapsing a burst into a single trailing
+ * invalidation turns N refetches into 1 while keeping live latency imperceptible
+ * (the trailing call still fires ~300 ms after the last event in the burst).
+ */
+const TASKS_INVALIDATE_DEBOUNCE_MS = 300;
+
 export function useProjectWebSocket(projectId: string | null | undefined): void {
   const queryClient = useQueryClient();
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -72,10 +82,20 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
   // Track whether the component is still mounted so we don't reconnect after unmount.
   const mountedRef = useRef(true);
 
+  // Trailing-debounce state for coalescing Gantt-data invalidations. The set
+  // accumulates which query keys a burst touched; the timer flushes them as a
+  // single invalidation per key once the burst goes quiet (#773).
+  const pendingInvalidationsRef = useRef<Set<'tasks' | 'dependencies'>>(new Set());
+  const invalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      if (invalidateTimerRef.current !== null) {
+        clearTimeout(invalidateTimerRef.current);
+        invalidateTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -89,6 +109,26 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
     let ws: WebSocket | null = null;
     let backoffMs = 1_000;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Coalesce a burst of Gantt-data invalidations into a single trailing
+    // refetch per query key. High-frequency mutation events (task_*,
+    // dependency_*, cpm_complete, bulk/reorder, assignment_*, sprint/rollup)
+    // route through here instead of invalidating immediately, so a sync batch
+    // of N row events produces 1 refetch rather than N. Low-frequency,
+    // narrowly-scoped invalidations (per-task comments, members, board config,
+    // project-level) stay immediate — they are not part of a burst.
+    function scheduleInvalidate(...keys: Array<'tasks' | 'dependencies'>) {
+      for (const key of keys) pendingInvalidationsRef.current.add(key);
+      if (invalidateTimerRef.current !== null) return;
+      invalidateTimerRef.current = setTimeout(() => {
+        invalidateTimerRef.current = null;
+        const pending = pendingInvalidationsRef.current;
+        pendingInvalidationsRef.current = new Set();
+        for (const key of pending) {
+          void queryClient.invalidateQueries({ queryKey: [key, projectIdRef.current] });
+        }
+      }, TASKS_INVALIDATE_DEBOUNCE_MS);
+    }
 
     function handleMessage(event: MessageEvent<string>) {
       let envelope: WsEnvelope;
@@ -123,7 +163,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         // cpm_complete is still also broadcast for compatibility; this handles the task_run path.
         if (resultSummary && typeof resultSummary.project_finish === 'string') {
           setCpmComplete(resultSummary.project_finish);
-          void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+          scheduleInvalidate('tasks');
           void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
         }
       } else if (event_type === 'task_run_failed') {
@@ -165,7 +205,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
             ? payload.project_finish
             : new Date().toISOString();
         setCpmComplete(projectFinish);
-        void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+        scheduleInvalidate('tasks');
         void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
       }
 
@@ -175,17 +215,17 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         event_type === 'task_updated' ||
         event_type === 'task_deleted'
       ) {
-        void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+        scheduleInvalidate('tasks');
       } else if (
         event_type === 'dependency_created' ||
         event_type === 'dependency_updated' ||
         event_type === 'dependency_deleted'
       ) {
-        // Collaborators see new/edited dependency edges immediately rather than
-        // waiting for the next 2 s poll. The follow-up cpm_complete event
-        // refreshes computed dates, but the edge itself becomes visible now.
-        void queryClient.invalidateQueries({ queryKey: ['dependencies', projectIdRef.current] });
-        void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+        // Collaborators see new/edited dependency edges shortly after the event
+        // rather than waiting for the next fallback poll. The follow-up
+        // cpm_complete event refreshes computed dates; the edge itself becomes
+        // visible on the next coalesced flush.
+        scheduleInvalidate('dependencies', 'tasks');
       } else if (
         event_type === 'baseline_created' ||
         event_type === 'baseline_activated' ||
@@ -194,7 +234,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         void queryClient.invalidateQueries({ queryKey: ['baselines', projectIdRef.current] });
         // Active baseline change affects the task overlay annotation.
         if (event_type === 'baseline_activated' || event_type === 'baseline_deleted') {
-          void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+          scheduleInvalidate('tasks');
         }
       }
 
@@ -205,7 +245,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         event_type === 'tasks_bulk_mutated' ||
         event_type === 'phases_reordered'
       ) {
-        void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+        scheduleInvalidate('tasks');
       }
 
       // --- Risk events ---
@@ -257,7 +297,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         // Sprint state changes drive milestone rollup recompute (ADR-0074);
         // refresh task data so the Gantt milestone reflects the new value
         // even if the milestone_rollup_updated event lands first.
-        void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+        scheduleInvalidate('tasks');
       }
 
       // --- Milestone rollup events (ADR-0074) ---
@@ -265,7 +305,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         // Aggregated rollup payload arrives independent of the task feed.
         // Invalidate both tasks (Gantt + drawer) and sprints (the rollup
         // mirrors onto SprintTargetMilestone.rollup).
-        void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+        scheduleInvalidate('tasks');
         void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
       }
 
@@ -277,7 +317,7 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         event_type === 'roster_changed'
       ) {
         // Assignments are surfaced on task rows (assignee chips, overalloc flag).
-        void queryClient.invalidateQueries({ queryKey: ['tasks', projectIdRef.current] });
+        scheduleInvalidate('tasks');
       }
 
       // --- Membership events ---
@@ -359,6 +399,13 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
     return () => {
       mountedRef.current = false;
       if (retryTimer !== null) clearTimeout(retryTimer);
+      // Drop any pending coalesced invalidation — the project/token changed, so
+      // the new effect run will refetch the correct project's caches on its own.
+      if (invalidateTimerRef.current !== null) {
+        clearTimeout(invalidateTimerRef.current);
+        invalidateTimerRef.current = null;
+        pendingInvalidationsRef.current = new Set();
+      }
       if (ws) {
         ws.removeEventListener('message', handleMessage);
         ws.close();
