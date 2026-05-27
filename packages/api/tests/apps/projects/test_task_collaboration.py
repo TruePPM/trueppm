@@ -12,6 +12,8 @@ from unittest.mock import patch
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -929,3 +931,61 @@ class TestModelSoftDeleteHelpers:
         )
         assert "url" in str(url_att)
         assert "file" in str(file_att)
+
+
+# ---------------------------------------------------------------------------
+# Query-count regression tests (issue #772)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_comment_list_query_count_does_not_scale_with_acknowledgements(
+    project: Project,
+    task: Task,
+    owner: object,
+    member: object,
+    member2: object,
+    viewer: object,
+    memberships: None,
+) -> None:
+    """GET comments should not issue extra queries per comment for ack/reaction counts.
+
+    TaskCommentViewSet.get_queryset() prefetch_related("acknowledgements", "reactions")
+    so the serializer fields must read that cache (len / any) rather than calling
+    .count() or .filter().exists() per comment row (the original N+1 pattern).
+    """
+    url = _comment_list_url(project, task)
+    client = _client_for(member)
+
+    # Create 2 comments with varying ack and reaction counts.
+    c1 = TaskComment.objects.create(task=task, author=owner, body="first")
+    c2 = TaskComment.objects.create(task=task, author=owner, body="second")
+    CommentAcknowledgement.objects.create(comment=c1, user=member)
+    CommentAcknowledgement.objects.create(comment=c1, user=member2)
+    CommentReaction.objects.create(comment=c2, user=member, emoji="👍")
+
+    # Baseline: 2 comments
+    with CaptureQueriesContext(connection) as ctx_2:
+        resp = client.get(url)
+    assert resp.status_code == 200
+    assert len(resp.data) == 2
+    baseline_count = len(ctx_2.captured_queries)
+
+    # Add 8 more comments with acks — total 10 comments.
+    for i in range(8):
+        cx = TaskComment.objects.create(task=task, author=owner, body=f"c{i}")
+        CommentAcknowledgement.objects.create(comment=cx, user=member)
+
+    with CaptureQueriesContext(connection) as ctx_10:
+        resp = client.get(url)
+    assert resp.status_code == 200
+    assert len(resp.data) == 10
+
+    # Query count must not grow proportionally with the number of comments.
+    # Allow a small fixed slack (e.g. pagination) but not 8 extra queries.
+    assert len(ctx_10.captured_queries) <= baseline_count + 3, (
+        f"N+1 regression: {baseline_count} queries for 2 comments, "
+        f"{len(ctx_10.captured_queries)} for 10. "
+        "Check that get_acknowledged_count/get_reaction_count/get_has_my_acknowledgement "
+        "read the prefetch cache instead of issuing new queries."
+    )

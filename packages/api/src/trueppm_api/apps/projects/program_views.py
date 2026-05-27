@@ -339,8 +339,10 @@ class ProgramViewSet(IdempotencyMixin, viewsets.ModelViewSet[Program]):
         — that gate is enforced by the project's own viewset on click-through).
         """
         program = self.get_object()
-        qs = Project.objects.filter(program=program, is_deleted=False).order_by(
-            "start_date", "name"
+        qs = (
+            Project.objects.filter(program=program, is_deleted=False)
+            .select_related("calendar")
+            .order_by("start_date", "name")
         )
         return Response(ProjectSerializer(qs, many=True).data)
 

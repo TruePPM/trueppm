@@ -2175,13 +2175,17 @@ class SprintRetroSummarySerializer(serializers.ModelSerializer[SprintRetro]):
         return "summary"
 
     def get_action_items_count(self, obj: SprintRetro) -> int:
-        return obj.action_items.filter(is_deleted=False).count()
+        # Read the prefetch cache populated by the retro action's .prefetch_related(
+        # "action_items") so this does not issue a per-retro COUNT query.
+        return sum(1 for item in obj.action_items.all() if not item.is_deleted)
 
     def get_promoted_count(self, obj: SprintRetro) -> int:
-        return obj.action_items.filter(
-            is_deleted=False,
-            promoted_task_id__isnull=False,
-        ).count()
+        # Same: iterate the prefetch cache rather than issuing a filtered COUNT.
+        return sum(
+            1
+            for item in obj.action_items.all()
+            if not item.is_deleted and item.promoted_task_id is not None
+        )
 
     class Meta:
         model = SprintRetro
@@ -2723,16 +2727,23 @@ class TaskCommentSerializer(serializers.ModelSerializer[TaskComment]):
         ]
 
     def get_acknowledged_count(self, obj: TaskComment) -> int:
-        return obj.acknowledgements.count()
+        # Read the prefetch cache populated by TaskCommentViewSet.get_queryset()
+        # (.prefetch_related("acknowledgements")) instead of issuing a new COUNT
+        # query per comment row.
+        return len(obj.acknowledgements.all())
 
     def get_reaction_count(self, obj: TaskComment) -> int:
-        return obj.reactions.count()
+        # Same: read the prefetch cache for "reactions".
+        return len(obj.reactions.all())
 
     def get_has_my_acknowledgement(self, obj: TaskComment) -> bool:
         request = self.context.get("request")
         if request is None or not getattr(request.user, "is_authenticated", False):
             return False
-        return obj.acknowledgements.filter(user=request.user).exists()
+        # Iterate the prefetch cache instead of issuing a per-comment
+        # filter(user=…).exists() query.
+        user_pk = request.user.pk
+        return any(a.user_id == user_pk for a in obj.acknowledgements.all())
 
     def validate_body(self, value: str) -> str:
         if not value or not value.strip():

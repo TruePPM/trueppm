@@ -6423,7 +6423,7 @@
         "/api/v1/projects/{id}/utilization/": {
             "get": {
                 "operationId": "v1_projects_utilization_retrieve",
-                "description": "Per-resource daily utilization for a project.\n\nReturns a sparse map of resource → working day → {hours, task_ids}.\nRequires Resource Manager role (SCHEDULER ≥ 2).\n\nQuery parameters:\n  start (YYYY-MM-DD) — window start, inclusive; defaults to earliest\n                       early_start across all project tasks.\n  end   (YYYY-MM-DD) — window end, inclusive; defaults to latest\n                       early_finish across all project tasks.\n\nReturns 409 when no CPM dates exist on any task (scheduler not run yet).",
+                "description": "Per-resource daily utilization for a project.\n\nReturns a sparse map of resource → working day → {hours, task_ids}.\nRequires Resource Manager role (SCHEDULER ≥ 2).\n\nQuery parameters:\n  start (YYYY-MM-DD) — window start, inclusive; defaults to 8 weeks\n                       before today to prevent unbounded full-span scans.\n  end   (YYYY-MM-DD) — window end, inclusive; defaults to 8 weeks after\n                       today.\n\nWhen the caller omits ``start``/``end`` the window is capped at ±8 weeks\nfrom today.  Pass explicit bounds to request a wider range (up to the\nfull project span).  This prevents O(assignments × days) expansion on\nmulti-year projects for the common landing-page request that only needs\nthe near-term view.\n\nReturns 409 when no CPM dates exist on any task (scheduler not run yet).",
                 "parameters": [
                     {
                         "in": "path",
