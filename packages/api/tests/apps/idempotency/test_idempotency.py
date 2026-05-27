@@ -224,9 +224,19 @@ def _iter_view_classes() -> list[tuple[str, str | None, type, set[str]]]:
 # - retention-settings (retention_settings PATCH) updates a singleton config, so replaying it
 #   converges to the same state (naturally idempotent);
 # - retention-runs (retention_runs POST) carries its own end-to-end single-flight 409 guard
-#   (RETENTION_PURGE_INFLIGHT_SECONDS), so a rapid double-click can't mint duplicate runs.
+#   (RETENTION_PURGE_INFLIGHT_SECONDS), so a rapid double-click can't mint duplicate runs;
+# - token_obtain_pair (ThrottledTokenObtainPairView POST, #770) is the login endpoint: it
+#   mints fresh JWTs and persists no replayable resource, so idempotency keys don't apply —
+#   abuse is bounded by the scoped login throttle instead. (The stock TokenRefreshView is
+#   not TruePPM-owned and so is skipped by the walker; this subclass lives in trueppm_api.)
 EXEMPT_URL_NAMES = frozenset(
-    {"project-schedule", "project-monte-carlo", "retention-settings", "retention-runs"}
+    {
+        "project-schedule",
+        "project-monte-carlo",
+        "retention-settings",
+        "retention-runs",
+        "token_obtain_pair",
+    }
 )
 
 
