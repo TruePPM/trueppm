@@ -116,7 +116,7 @@ function ReadinessChip({ readiness }: ReadinessChipProps) {
       style={{
         height: 16,
         padding: '0 6px',
-        fontSize: '9.5px',
+        fontSize: '10px',
         letterSpacing: '0.06em',
         backgroundColor: inlineBg,
       }}

@@ -156,8 +156,10 @@ async function gotoSchedule(
 test.describe('Unscheduled gutter — header (#213)', () => {
   test('shows correct unscheduled count', async ({ page }) => {
     await gotoSchedule(page);
-    // 2 unscheduled tasks (t2, t3)
-    await expect(page.getByText('(2)')).toBeVisible();
+    // 2 unscheduled tasks (t2, t3). exact:true targets the header-strip count
+    // span, not the "To Do · Unscheduled (2)" section sub-header (#318 two-section
+    // tray now renders the count in both places).
+    await expect(page.getByText('(2)', { exact: true })).toBeVisible();
   });
 
   test('shows "All To Do and Backlog tasks have planned dates" when no unscheduled tasks', async ({ page }) => {
@@ -169,7 +171,8 @@ test.describe('Unscheduled gutter — header (#213)', () => {
 
   test('shows "Unscheduled" section heading', async ({ page }) => {
     await gotoSchedule(page);
-    await expect(page.getByText('Unscheduled')).toBeVisible();
+    // exact:true targets the header-strip label, not "To Do · Unscheduled (N)".
+    await expect(page.getByText('Unscheduled', { exact: true })).toBeVisible();
   });
 });
 

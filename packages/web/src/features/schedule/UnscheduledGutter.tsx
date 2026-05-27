@@ -238,11 +238,11 @@ export function UnscheduledGutter({
           <span className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary px-4">
             Unscheduled
           </span>
-          <span className="tppm-mono text-xs text-neutral-text-disabled ml-1">
+          <span className="tppm-mono text-xs text-neutral-text-secondary ml-1">
             ({totalCount})
           </span>
           {totalCount === 0 && (
-            <span className="text-xs italic text-neutral-text-disabled ml-3">
+            <span className="text-xs italic text-neutral-text-secondary ml-3">
               All To Do and Backlog tasks have planned dates
             </span>
           )}
@@ -289,7 +289,7 @@ export function UnscheduledGutter({
               {todoTasks.length === 0 ? (
                 <div
                   role="status"
-                  className="px-4 py-2 text-xs italic text-neutral-text-disabled"
+                  className="px-4 py-2 text-xs italic text-neutral-text-secondary"
                 >
                   No unscheduled To Do tasks
                 </div>
@@ -317,7 +317,7 @@ export function UnscheduledGutter({
                   Backlog ({backlogTasks.length})
                 </h3>
                 {backlogTasks.length > 0 && (
-                  <span className="hidden lg:inline ml-auto text-xs italic text-neutral-text-disabled">
+                  <span className="hidden lg:inline ml-auto text-xs italic text-neutral-text-secondary">
                     drag onto the timeline to promote &amp; schedule
                   </span>
                 )}
@@ -325,7 +325,7 @@ export function UnscheduledGutter({
               {backlogTasks.length === 0 ? (
                 <div
                   role="status"
-                  className="px-4 py-2 text-xs italic text-neutral-text-disabled"
+                  className="px-4 py-2 text-xs italic text-neutral-text-secondary"
                 >
                   No backlog items
                 </div>
