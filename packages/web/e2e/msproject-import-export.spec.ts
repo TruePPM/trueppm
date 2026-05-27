@@ -75,7 +75,7 @@ test.describe('MS Project import', () => {
       mimeType: 'application/xml',
       buffer: SAMPLE_XML,
     });
-    await expect(page.getByText('plan.xml')).toBeVisible();
+    await expect(page.getByText('plan.xml', { exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: 'Import' }).click();
 
