@@ -21,7 +21,7 @@ test.describe('Integration — Auth flow', () => {
   test('valid credentials log in and redirect to app shell', async ({ page }) => {
     await page.goto('/login');
     await page.getByLabel('Email').fill(EMAIL);
-    await page.getByLabel('Password').fill(PASSWORD);
+    await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
@@ -34,7 +34,7 @@ test.describe('Integration — Auth flow', () => {
   test('tokens persist across page reload', async ({ page }) => {
     await page.goto('/login');
     await page.getByLabel('Email').fill(EMAIL);
-    await page.getByLabel('Password').fill(PASSWORD);
+    await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 
@@ -46,7 +46,7 @@ test.describe('Integration — Auth flow', () => {
   test('invalid credentials show an error and stay on /login', async ({ page }) => {
     await page.goto('/login');
     await page.getByLabel('Email').fill(EMAIL);
-    await page.getByLabel('Password').fill('definitely-wrong-password');
+    await page.getByLabel('Password', { exact: true }).fill('definitely-wrong-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect(page).toHaveURL(/\/login/, { timeout: 10_000 });

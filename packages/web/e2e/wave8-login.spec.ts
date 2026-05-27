@@ -26,7 +26,7 @@ test.describe('Wave 8 — Login screen', () => {
     await page.goto('/login');
 
     const emailInput = page.getByLabel('Email');
-    const passwordInput = page.getByLabel('Password');
+    const passwordInput = page.getByLabel('Password', { exact: true });
 
     await expect(emailInput).toHaveAttribute('type', 'email');
     await expect(passwordInput).toHaveAttribute('type', 'password');
@@ -56,13 +56,13 @@ test.describe('Wave 8 — Login screen', () => {
     // aren't focusable, which would mask whether tab actually reached them).
     const email = page.getByLabel('Email');
     await email.fill('user@example.com');
-    await page.getByLabel('Password').fill('password123');
+    await page.getByLabel('Password', { exact: true }).fill('password123');
 
     await email.focus();
     await expect(email).toBeFocused();
 
     await page.keyboard.press('Tab');
-    await expect(page.getByLabel('Password')).toBeFocused();
+    await expect(page.getByLabel('Password', { exact: true })).toBeFocused();
 
     // The link sits below the password input — Forgot? comes AFTER the
     // password in the tab order, not between Email and Password.
@@ -144,7 +144,7 @@ test.describe('Wave 8 — Login screen', () => {
     await page.goto('/login');
     await page.getByLabel('Keep me signed in for 30 days').check();
     await page.getByLabel('Email').fill('anna@example.com');
-    await page.getByLabel('Password').fill('secret');
+    await page.getByLabel('Password', { exact: true }).fill('secret');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect(page).not.toHaveURL(/\/login/, { timeout: 5_000 });

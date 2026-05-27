@@ -20,7 +20,7 @@ const UPDATED_TASK_NAME = `${TASK_NAME}-updated`;
 async function loginAndGetToken(page: import('@playwright/test').Page): Promise<string> {
   await page.goto('/login');
   await page.getByLabel('Email').fill(EMAIL);
-  await page.getByLabel('Password').fill(PASSWORD);
+  await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 
