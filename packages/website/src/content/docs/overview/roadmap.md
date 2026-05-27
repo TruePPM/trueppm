@@ -24,19 +24,17 @@ Foundation for self-hosted, scheduling-first PPM. Everything below is in `main` 
 | Platform | REST API, 5-role RBAC, real-time WebSocket, offline sync (WatermelonDB-compatible), application shell, project settings RBAC UI (#144) |
 | Operations | Helm 3 chart, Docker images, PyPI publish path for `trueppm-scheduler` (#301) |
 
-## In progress
-
-### 0.2 — settings, administration & consolidation (target: Jun 1–8, 2026)
+### 0.2 — settings, administration & consolidation (May 2026)
 
 A broad consolidation release: the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration paths.
 
 - **Settings shell** — Workspace / Program / Project scope switcher with General, Members, Groups & teams, Roles, Methodology, Workflow, Notifications, Access, Integrations, and lifecycle pages on real APIs
-- **Program entity (OSS)** (#502) — container for related projects with rollup KPIs, cadence, and cross-project risk policy; dual-level backlog (#501)
+- **Program entity (OSS)** (#502) — container for related projects with rollup KPIs, cadence, and cross-project risk policy; program backlog with epic/feature/story/task item types and proposed→pulled→archived lifecycle (#733 #737 #739)
 - **Import / export** — MS Project import/export UI (#68) plus `.mpp` parsing via MPXJ (#128), CSV/Excel spreadsheet import (#111), risk-register CSV import (#223)
 - **Board depth** — card weight, bulk actions, full-text search, swimlane grouping, activity feed, PDF export, board zoom, real-time per-card sync
 - **Schedule UX** — continuous zoom, drag-to-pan, drag a backlog card onto the timeline, per-task WebSocket date deltas
 - **Sprint workspace**, recurring tasks, custom/fractional work hours, overallocation warnings
-- **Durable execution** — outbox dispatch hardening, Beat heartbeat, dead-letter alerting, retention purge
+- **Durable execution** — outbox dispatch hardening, Beat heartbeat, dead-letter alerting, retention purge with UI editor and purge log, Idempotency-Key support, webhook sequence numbers
 - **Integrations & notifications** — Git-aware tasks (#637), Slack webhook (#638), email notifications (#639), notification dispatcher + preference matrix
 
 ## Planned
@@ -74,7 +72,7 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Timesheets** (#100) — actuals captured alongside the allocation they belong to
 - **Baselines** (#101) — with structured rebaseline reasons
 - **Deep CPM-aware bridge** (#372) — live finish-date forecast and incremental CPM recompute, reconciling sprint capacity with the schedule
-- **Durable execution (ADR-0080)** — default workflow backend, Idempotency-Key support, webhook sequence numbers, workflow versioning, transactional mobile sync upload
+- **Durable execution (ADR-0080)** — default workflow backend, workflow versioning, transactional mobile sync upload
 
 ### 0.6 — open & portable (target: Sep 21–28, 2026)
 

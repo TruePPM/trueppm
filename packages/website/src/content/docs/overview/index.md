@@ -7,8 +7,8 @@ TruePPM is an open-core Project, Program, and Portfolio Management (P3M) platfor
 
 Most P3M tools force a choice: Jira speaks Agile and translates poorly to a schedule; MS Project speaks Waterfall and ignores the team's actual cadence. TruePPM is built so a Scrum Master and a Project Manager look at the same underlying data, and each sees the view they need. The translation happens inside the tool, not in a spreadsheet.
 
-:::caution[0.1 shipped · pre-GA]
-TruePPM 0.1 shipped in May 2026 — the engine, API, real-time layer, and web UI (Schedule, Board, Sprints, Risk, My Work) are all functional. The product is pre-GA: expect API contract changes across 0.x point releases and a stable contract from 1.0 onward. Suitable for evaluation and early-adopter deployments.
+:::caution[0.2 shipped · pre-GA]
+TruePPM 0.2 shipped in May 2026 — the engine, API, real-time layer, and web UI (Schedule, Board, Sprints, Risk, My Work, Programs) are all functional. The product is pre-GA: expect API contract changes across 0.x point releases and a stable contract from 1.0 onward. Suitable for evaluation and early-adopter deployments.
 :::
 
 ## Core capabilities

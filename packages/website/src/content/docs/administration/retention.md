@@ -1,34 +1,66 @@
 ---
 title: Outbox & Record Retention
-description: How TruePPM bounds its transactional outbox and audit tables with nightly purges, and how to tune or disable each retention window.
+description: How TruePPM bounds its transactional outbox and audit tables with purges, and how to tune, run on demand, or disable each retention window.
 ---
 
 TruePPM runs several **transactional outbox** tables (schedule requests, MS Project
 imports, webhook deliveries, sprint-close requests) plus historical records (object
-history, task runs). Each is kept bounded by a nightly Celery Beat purge so the tables
-stay small, index scans on the drain paths stay fast, and backups don't bloat.
+history, task runs). Each is kept bounded by a Celery Beat purge so the tables stay
+small, index scans on the drain paths stay fast, and backups don't bloat.
 
-Every retention window is an operator-tunable Django setting. Setting a window to
-**`None`** disables that purge entirely (unbounded retention) — useful where an external
-archival policy owns the data, at the cost of unbounded table growth. `None` is set via a
-settings override (see [Disabling a purge](#disabling-a-purge-safely)); the environment
-variable itself must be a positive integer or left unset (it falls back to the default).
+You can tune retention two ways: from the **System health → Retention & purge** editor in
+the UI (workspace admins), or via Django settings / environment variables (the default,
+applied when no UI override exists). The UI is the fast path for a running deployment; the
+settings remain the source of the defaults.
+
+## Editing retention from the UI
+
+Workspace admins (Django `is_staff`) manage retention at **Settings → Workspace → System
+health → Retention & purge**. From there you can, without editing env/settings or
+restarting pods:
+
+- **Edit each retention window** and **enable/disable** a purge per table.
+- **Configure the purge schedule** (frequency, time of day, on-failure behavior).
+- **Run a purge now** or **dry-run** it.
+- **Review the last several purge runs**.
+
+A UI change writes a **`RetentionPolicy` override** that takes precedence over the
+matching Django setting. The settings below remain the **defaults** — a deployment that
+never opens the editor behaves exactly as it did before (ADR-0090).
+
+:::caution[Lowering a window is irreversible]
+Lowering a retention window makes more data **immediately purge-eligible** on the next
+run. The editor shows how many rows (and roughly how much space) become eligible *before*
+you save, but the deletion itself **cannot be undone**. Saving a lower value only changes
+the window — the next scheduled or manual run enforces it.
+:::
 
 ## Retention settings
 
-| Setting | Default | What it bounds | Purge (UTC) |
+| Setting | Default | Unit | What it bounds |
 |---|---|---|---|
-| `HISTORY_RETENTION_DAYS` | `90` | django-simple-history object-change records | 02:00 |
-| `TASK_RUN_RETENTION_DAYS` | `30` | Completed/failed/cancelled `TaskRun` records | 02:30 |
-| `TRUEPPM_IMPORT_RETENTION_DAYS` | `7` | Terminal (`DONE`/`DEAD`) `ImportRequest` rows, including their multi-MB `file_content_b64` blobs | 02:45 |
-| `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | Terminal (`SUCCESS`/`FAILED`) `WebhookDelivery` rows | 03:30 |
-| `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` (hours) | Drained mobile-sync upload batches | 03:45 |
-| `WORKFLOW_HISTORY_RETENTION_DAYS` | `30` | Terminal durable-workflow history records | 04:00 |
-| `IDEMPOTENCY_RETENTION_HOURS` | `24` (hours) | Expired idempotency keys | hourly |
+| `HISTORY_RETENTION_DAYS` | `90` | days | django-simple-history object-change records |
+| `TASK_RUN_RETENTION_DAYS` | `30` | days | Completed/failed/cancelled `TaskRun` records |
+| `TRUEPPM_IMPORT_RETENTION_DAYS` | `7` | days | Terminal (`DONE`/`DEAD`) `ImportRequest` rows, including their multi-MB `file_content_b64` blobs |
+| `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | days | Terminal (`SUCCESS`/`FAILED`) `WebhookDelivery` rows |
+| `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | hours | `SyncBatch` mobile-upload idempotency rows past the dedup window (ADR-0082) |
 
-Each value is read from the matching environment variable at startup. To change a
-window, set the env var (or the corresponding Helm value) and restart the API/worker
-pods. Example:
+**One purge coordinator, not five nightly jobs.** These five tables were previously purged
+by five separate nightly Beat jobs at staggered UTC times. As of ADR-0090 they are purged
+by a **single retention purge coordinator** that runs all five as one unified run on the
+schedule below (default **02:00 UTC daily**). The per-table tasks still exist and remain
+dispatchable, but they are no longer independently scheduled.
+
+**`TRUEPPM_SYNC_BATCH_RETENTION_HOURS` is in hours, not days.** Unlike the other knobs,
+this window is measured in **hours** because it doubles as the mobile sync upload **dedup
+window**: a re-uploaded batch carrying the same `client_batch_id` replays its stored
+response only while its `SyncBatch` row is within this window. The default of 24h
+comfortably covers a device that was offline overnight. This window **cannot be
+disabled** — it is always active.
+
+Each value is read from the matching environment variable at startup. To change a default
+deployment-wide (rather than per-UI-override), set the env var (or the corresponding Helm
+value) and restart the API/worker pods. Example:
 
 ```bash
 # Keep webhook deliveries for 30 days. The env var takes a positive integer;
@@ -36,13 +68,60 @@ pods. Example:
 TRUEPPM_WEBHOOK_RETENTION_DAYS=30
 ```
 
+## Purge schedule
+
+The coordinator's schedule is operator-configurable (Settings → Retention & purge):
+
+- **Frequency** — `Daily`, `Weekly`, or `Off`. `Off` disables *scheduled* purging
+  entirely; you can still run a purge on demand.
+- **Time of day** — a UTC time. It is **UTC with no DST shift** — `02:00` is always
+  02:00 UTC year-round, so the purge window doesn't drift with daylight saving.
+- **Day of week** — shown only when frequency is `Weekly`.
+- **On failure** — `Continue and flag the failed table` (purge the remaining tables and
+  mark the failed one in the run) or `Stop the run on first error` (abort immediately).
+
+Internally, Beat fires the coordinator on a fixed sub-hourly cadence and the coordinator
+self-gates: it does nothing outside the configured window and never double-runs the same
+window.
+
+## Running a purge on demand
+
+- **Run purge now** — deletes eligible rows immediately across all five tables. It is
+  **irreversible** and is protected by a confirmation dialog.
+- **Dry run** — counts what *would* be purged and **deletes nothing**. Use it to preview
+  impact before committing to a real run.
+
+Both are asynchronous: the request returns immediately and the run appears in the log once
+the worker finishes. If a run is already in progress the endpoint responds **409** (a
+single-flight guard, so a double-click can't launch overlapping purges). The setting
+`RETENTION_PURGE_INFLIGHT_SECONDS` (default `600`) bounds that guard, so a worker that
+dies mid-run can't block future runs indefinitely.
+
+## Purge log
+
+The editor shows the most recent purge runs — each with its start time, duration, state
+(`ok` / `partial` / `failed` / `running` / `dry run`), how many of the five tables
+completed, rows deleted, and bytes freed.
+
+**Counts and sizes are estimates.** The row counts and table sizes shown in the editor
+(and the bytes-freed figure in the log) are PostgreSQL **estimates**
+(`pg_class.reltuples` / `pg_total_relation_size`). They are fast to compute on large
+tables but approximate — treat them as guidance, not an exact ledger.
+
+Once at least one run has been recorded, the **System health overview**'s "Retention
+purge" component card reports real state (`ok` / `partial` / `failed`) instead of the
+`unknown` it shows before any run exists.
+
 ## What is never purged
 
 - **Non-terminal rows.** `PENDING` webhook deliveries and `PENDING`/`DISPATCHED`
   import requests are still in flight — the drain may re-dispatch them — so they are
   excluded from the purge regardless of age. Only terminal rows are eligible.
-- **Active business data.** Retention purges target *outbox and audit* tables only.
+- **Active business data.** Retention purges target *outbox and history* tables only.
   Projects, tasks, schedules, and baselines are never touched by these jobs.
+- **API-token audit log.** `ApiTokenAuditEntry` rows (project- and
+  program-scoped token mint/revoke events) are **never** purged — they are kept
+  indefinitely as compliance evidence and have no retention window.
 
 ## Why two prefixes?
 
@@ -54,18 +133,30 @@ as-is — renaming them would break existing deployments.
 
 ## Disabling a purge safely
 
-To disable a purge, set its Django setting to `None` in a settings override (the same
-mechanism as the older `HISTORY_RETENTION_DAYS` / `TASK_RUN_RETENTION_DAYS` knobs) — for
-example in a custom settings module layered on `trueppm_api.settings.prod`:
+You can disable a purge two ways:
+
+- **From the UI** — toggle the table off in the Retention & purge editor. (Sync batches is
+  the exception: it doubles as the sync dedup window and cannot be disabled.)
+- **From settings** — set the Django setting to `None` in a settings override, for example
+  in a custom settings module layered on `trueppm_api.settings.prod`:
 
 ```python
 TRUEPPM_IMPORT_RETENTION_DAYS = None  # never purge MS Project imports
 ```
 
 The corresponding environment variable cannot express `None` — it must be a valid
-integer or left unset — so disabling is a settings-level decision, not an env toggle.
+integer or left unset — so the settings-level disable is a deliberate override, not an env
+toggle.
 
 Disabling a purge means the table grows without bound. For `ImportRequest` in particular,
 each retained row can hold a multi-megabyte base64 blob; a team running monthly imports
 with the purge disabled will accumulate gigabytes of dead rows. If you disable a purge,
 pair it with an external archival or `VACUUM`/retention policy at the PostgreSQL layer.
+
+:::note[Enterprise]
+**Compliance-grade retention is an Enterprise feature.** This page covers basic operational
+purge. Compliance-grade retention governance — locked SOC 2/HIPAA floors ("cannot lower
+below N days"), a policy-change audit trail, GDPR / legal-hold workflows, and an
+immutable **Audit log** retention row — is part of **TruePPM Enterprise** and is
+intentionally not in the open-source core.
+:::
