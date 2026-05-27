@@ -360,7 +360,6 @@ function makeApiDep(id: string) {
     successor: 's-' + id,
     dep_type: 'FS' as const,
     lag: 0,
-    is_critical: false,
   };
 }
 
@@ -414,6 +413,32 @@ describe('useScheduleTasks dependency pagination (#773)', () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(getMock).toHaveBeenCalledWith('/dependencies/?cursor=xyz', expect.anything());
+  });
+
+  it('derives link isCritical from endpoint task criticality (the API has no is_critical on deps)', async () => {
+    const a = { ...base, id: 'a', is_critical: true };
+    const b = { ...base, id: 'b', is_critical: true };
+    const c = { ...base, id: 'c', is_critical: false };
+    // dc: both endpoints critical → critical edge. dm: one endpoint non-critical → not.
+    const dc = { id: 'dc', predecessor: 'a', successor: 'b', dep_type: 'FS' as const, lag: 0 };
+    const dm = { id: 'dm', predecessor: 'a', successor: 'c', dep_type: 'FS' as const, lag: 0 };
+
+    getMock.mockImplementation((url: string) => {
+      if (url === '/tasks/') return Promise.resolve(paginatedResponse([a, b, c]));
+      if (url === '/dependencies/') return Promise.resolve(depPage([dc, dm]));
+      return Promise.resolve(paginatedResponse([]));
+    });
+
+    const { result } = renderHook(() => useScheduleTasks('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    const byId = Object.fromEntries(
+      result.current.links!.map((l) => [l.id, l.isCritical]),
+    );
+    expect(byId['dc']).toBe(true);
+    expect(byId['dm']).toBe(false);
   });
 });
 

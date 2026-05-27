@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useProjectId } from '@/hooks/useProjectId';
 import { apiClient } from '@/api/client';
@@ -84,7 +85,9 @@ interface ApiDependency {
   successor: string;
   dep_type: 'FS' | 'SS' | 'FF' | 'SF';
   lag: number;
-  is_critical: boolean;
+  // NOTE: there is no `is_critical` on the dependency model/serializer —
+  // criticality is a property of the two endpoint tasks. Link criticality is
+  // derived in useScheduleTasks (both endpoints on the critical path).
 }
 
 export function mapTask(t: ApiTask): Task {
@@ -197,7 +200,9 @@ function mapDependency(d: ApiDependency): TaskLink {
     targetId: d.successor,
     type: d.dep_type as LinkType,
     lag: d.lag,
-    isCritical: d.is_critical,
+    // Placeholder — the real value is derived from endpoint-task criticality in
+    // useScheduleTasks once both the tasks and dependencies queries resolve.
+    isCritical: false,
   };
 }
 
@@ -290,9 +295,28 @@ export function useScheduleTasks(projectId?: string): UseScheduleTasksResult {
     enabled: !!resolvedId,
   });
 
+  // Derive link criticality from the endpoint tasks: a dependency edge is on the
+  // critical path when both its predecessor and successor are critical tasks.
+  // (The API has no per-dependency is_critical field — criticality lives on the
+  // task. Without this the Gantt rendered every critical-path arrow as
+  // non-critical, since the old code read a field that never existed.)
+  const tasks = tasksQuery.data;
+  const links = useMemo(() => {
+    const rawLinks = linksQuery.data;
+    if (!rawLinks) return undefined;
+    if (!tasks) return rawLinks;
+    const criticalTaskIds = new Set(
+      tasks.filter((t) => t.isCritical).map((t) => t.id),
+    );
+    return rawLinks.map((l) => ({
+      ...l,
+      isCritical: criticalTaskIds.has(l.sourceId) && criticalTaskIds.has(l.targetId),
+    }));
+  }, [linksQuery.data, tasks]);
+
   return {
-    tasks: tasksQuery.data,
-    links: linksQuery.data,
+    tasks,
+    links,
     isLoading: tasksQuery.isLoading || linksQuery.isLoading,
     error: tasksQuery.error ?? linksQuery.error,
   };

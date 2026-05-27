@@ -21,26 +21,31 @@ const FIXTURE_API_TASKS = [
     id: 't1', wbs_path: '1', name: 'Alpha Platform Upgrade',
     early_start: '2026-10-05', early_finish: '2026-11-14',
     duration: 30, percent_complete: 40, is_critical: false, is_milestone: false,
+    status: 'IN_PROGRESS', is_summary: false, parent_id: null,
   },
   {
     id: 't2', wbs_path: '1.1', name: 'Discovery & Design',
     early_start: '2026-10-05', early_finish: '2026-10-16',
     duration: 10, percent_complete: 100, is_critical: true, is_milestone: false,
+    status: 'COMPLETE', is_summary: false, parent_id: null,
   },
   {
     id: 't3', wbs_path: '1.2', name: 'Backend Implementation',
     early_start: '2026-10-19', early_finish: '2026-10-30',
     duration: 10, percent_complete: 60, is_critical: true, is_milestone: false,
+    status: 'IN_PROGRESS', is_summary: false, parent_id: null,
   },
   {
     id: 't4', wbs_path: '1.3', name: 'Frontend Implementation',
     early_start: '2026-10-19', early_finish: '2026-11-06',
     duration: 15, percent_complete: 30, is_critical: false, is_milestone: false,
+    status: 'IN_PROGRESS', is_summary: false, parent_id: null,
   },
   {
     id: 't5', wbs_path: '1.4', name: 'Go-Live Milestone',
     early_start: '2026-11-14', early_finish: '2026-11-14',
     duration: 0, percent_complete: 0, is_critical: true, is_milestone: true,
+    status: 'NOT_STARTED', is_summary: false, parent_id: null,
   },
 ];
 
