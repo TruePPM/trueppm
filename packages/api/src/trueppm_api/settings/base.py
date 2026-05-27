@@ -115,6 +115,36 @@ DATABASES["default"]["CONN_MAX_AGE"] = 60
 DATABASES["default"]["ATOMIC_REQUESTS"] = True
 
 # ---------------------------------------------------------------------------
+# File / object storage (#775)
+# ---------------------------------------------------------------------------
+
+# Default file-storage backend. TaskAttachment.file is stored here. The
+# FileSystemStorage default is fine for local dev, but a containerized prod
+# deploy must point this at a remote object-storage backend (S3/MinIO via
+# django-storages) or attachment uploads are lost on every pod restart. prod.py
+# refuses to boot on the local default unless the operator explicitly opts in.
+STORAGES = {
+    "default": {
+        "BACKEND": env(
+            "TRUEPPM_DEFAULT_FILE_STORAGE",
+            default="django.core.files.storage.FileSystemStorage",
+        ),
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
+
+# Operator opt-in to run prod on local-disk attachment storage (e.g. when it is
+# backed by a persistent volume). Consumed by validate_attachment_storage.
+ALLOW_LOCAL_ATTACHMENT_STORAGE = env.bool("TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE", default=False)
+
+# Origins trusted for cross-origin POST / CSRF — required when the web app is
+# served from a different origin than the API (split dev setup or subdomain
+# split). Empty by default (same-origin reverse-proxy deploy).
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+
+# ---------------------------------------------------------------------------
 # Cache / Channels / Celery  (all backed by Redis)
 # ---------------------------------------------------------------------------
 

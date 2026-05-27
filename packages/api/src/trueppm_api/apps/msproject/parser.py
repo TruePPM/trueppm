@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
 
+from defusedxml.ElementTree import fromstring as _safe_fromstring
 from django.conf import settings
 
 from trueppm_api.apps.msproject.dataclasses import (
@@ -94,11 +95,11 @@ def parse_xml(xml_content: bytes) -> ProjectData:
 
     Handles both namespaced (Project 2003+) and non-namespaced XML.
     """
-    # nosec B314 — XML content is already bounded by the 10 MB upload limit
-    # enforced in MsProjectImportView before the file reaches this parser.
-    # defusedxml is not a current project dependency; the size cap mitigates
-    # billion-laughs / quadratic-blowup attacks sufficiently for this use case.
-    root = ET.fromstring(xml_content)  # nosec B314
+    # Parse with defusedxml (#771): it forbids entity expansion and external-
+    # entity resolution by default, defending against billion-laughs / XXE on the
+    # user-uploaded file. The 10 MB upload cap in MsProjectImportView bounds size
+    # but does NOT stop entity expansion — that was the prior, incorrect rationale.
+    root = _safe_fromstring(xml_content)
 
     # Detect namespace
     ns = ""

@@ -25,6 +25,7 @@ dependencies = [
     "djangorestframework>=3.15,<4.0",
     "djangorestframework-simplejwt>=5.3,<6.0",
     "django-allauth>=65.0,<66.0",
+    "defusedxml>=0.7,<0.8",
     "channels>=4.0,<5.0",
     "channels-redis>=4.0,<5.0",
     "celery>=5.4,<6.0",
@@ -79,6 +80,7 @@ mypy_path = "src"
 [[tool.mypy.overrides]]
 module = [
     "celery.*",
+    "defusedxml.*",
     "environ",
     "channels.*",
     "simple_history.*",
