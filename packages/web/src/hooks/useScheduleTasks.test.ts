@@ -6,7 +6,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
-import { mapTask, useScheduleTasks, type ApiTask } from './useScheduleTasks';
+import {
+  mapTask,
+  deriveBarGeometry,
+  applyTaskDatesDelta,
+  useScheduleTasks,
+  type ApiTask,
+  type TaskDatesDelta,
+} from './useScheduleTasks';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 
 // ---------------------------------------------------------------------------
@@ -500,5 +507,128 @@ describe('useScheduleTasks fallback polling gate (#773)', () => {
       await vi.advanceTimersByTimeAsync(31_000);
     });
     await vi.waitFor(() => expect(tasksFetchCount()).toBeGreaterThan(initial));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deriveBarGeometry — shared bar-positioning rules (ADR-0091)
+// ---------------------------------------------------------------------------
+
+describe('deriveBarGeometry', () => {
+  it('uses the later of planned_start (SNET) and early_start', () => {
+    // planned_start later than early_start → planned_start wins (pre-CPM drag).
+    expect(
+      deriveBarGeometry({
+        plannedStart: '2026-10-10',
+        earlyStart: '2026-10-05',
+        earlyFinish: '2026-10-15',
+        duration: 10,
+        isSummary: false,
+      }).start,
+    ).toBe('2026-10-10');
+    // early_start later (CPM pushed it) → early_start wins.
+    expect(
+      deriveBarGeometry({
+        plannedStart: '2026-10-01',
+        earlyStart: '2026-10-05',
+        earlyFinish: '2026-10-15',
+        duration: 10,
+        isSummary: false,
+      }).start,
+    ).toBe('2026-10-05');
+  });
+
+  it('falls back to start + duration for a leaf with no early_finish yet', () => {
+    const g = deriveBarGeometry({
+      plannedStart: '2026-10-05',
+      earlyStart: null,
+      earlyFinish: null,
+      duration: 4,
+      isSummary: false,
+    });
+    expect(g.start).toBe('2026-10-05');
+    expect(g.finish).toBe('2026-10-09');
+  });
+
+  it('computes a summary display duration as the calendar-day span', () => {
+    const g = deriveBarGeometry({
+      plannedStart: null,
+      earlyStart: '2026-10-05',
+      earlyFinish: '2026-10-15',
+      duration: 99, // stored value ignored for summaries with CPM dates
+      isSummary: true,
+    });
+    expect(g.displayDuration).toBe(10);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyTaskDatesDelta — WebSocket CPM delta splice (ADR-0091)
+// ---------------------------------------------------------------------------
+
+describe('applyTaskDatesDelta', () => {
+  const delta: TaskDatesDelta = {
+    id: 'abc',
+    early_start: '2026-11-02',
+    early_finish: '2026-11-12',
+    late_start: '2026-11-05',
+    late_finish: '2026-11-15',
+    total_float: 3,
+    free_float: 1,
+    is_critical: false,
+    planned_start: null,
+    duration: 10,
+  };
+
+  it('produces the same bar fields a full re-fetch would (parity with mapTask)', () => {
+    const existing = mapTask(base);
+    const spliced = applyTaskDatesDelta(existing, delta);
+
+    const refetched = mapTask({
+      ...base,
+      early_start: delta.early_start,
+      early_finish: delta.early_finish,
+      total_float: delta.total_float,
+      is_critical: delta.is_critical,
+      planned_start: delta.planned_start,
+      duration: delta.duration,
+    });
+
+    expect(spliced.start).toBe(refetched.start);
+    expect(spliced.finish).toBe(refetched.finish);
+    expect(spliced.duration).toBe(refetched.duration);
+    expect(spliced.isCritical).toBe(refetched.isCritical);
+    expect(spliced.totalFloat).toBe(refetched.totalFloat);
+    expect(spliced.plannedStart).toBe(refetched.plannedStart);
+  });
+
+  it('preserves every non-CPM field of the existing task', () => {
+    const existing = mapTask(base);
+    const spliced = applyTaskDatesDelta(existing, delta);
+
+    expect(spliced.id).toBe(existing.id);
+    expect(spliced.name).toBe(existing.name);
+    expect(spliced.progress).toBe(existing.progress);
+    expect(spliced.status).toBe(existing.status);
+    expect(spliced.wbs).toBe(existing.wbs);
+    expect(spliced.assignees).toEqual(existing.assignees);
+  });
+
+  it('flips the bar to the new dates and criticality', () => {
+    const existing = mapTask(base); // base.is_critical = true, early_start 2026-10-05
+    const spliced = applyTaskDatesDelta(existing, delta);
+
+    expect(existing.isCritical).toBe(true);
+    expect(spliced.isCritical).toBe(false); // delta cleared criticality
+    expect(spliced.start).toBe('2026-11-02');
+    expect(spliced.finish).toBe('2026-11-12');
+    expect(spliced.totalFloat).toBe(3);
+  });
+
+  it('does not mutate the input task', () => {
+    const existing = mapTask(base);
+    const snapshot = { ...existing };
+    applyTaskDatesDelta(existing, delta);
+    expect(existing).toEqual(snapshot);
   });
 });

@@ -90,7 +90,21 @@ interface ApiDependency {
   // derived in useScheduleTasks (both endpoints on the critical path).
 }
 
-export function mapTask(t: ApiTask): Task {
+/**
+ * Derive the Gantt bar geometry (start, finish, display duration) from a task's
+ * raw date fields. Shared by {@link mapTask} (full API task) and
+ * {@link applyTaskDatesDelta} (per-task WebSocket CPM delta, ADR-0091) so the
+ * bar-positioning rules stay single-sourced and the two paths can never drift.
+ */
+export function deriveBarGeometry(opts: {
+  plannedStart: string | null;
+  earlyStart: string | null;
+  earlyFinish: string | null;
+  duration: number;
+  isSummary: boolean;
+}): { start: string; finish: string; displayDuration: number } {
+  const { plannedStart: p, earlyStart: e, earlyFinish: ef, duration, isSummary } = opts;
+
   // Use the later of planned_start (SNET constraint) and early_start (CPM result).
   //
   // CPM guarantees early_start = max(forward-pass result, planned_start), so after
@@ -98,9 +112,7 @@ export function mapTask(t: ApiTask): Task {
   //   • Right after a drag (planned_start updated, CPM pending): planned_start wins ✓
   //   • After CPM with a new dependency pushing the task later: early_start wins ✓
   //   • No SNET constraint (planned_start = null): early_start is used directly ✓
-  const p = t.planned_start;
-  const e = t.early_start;
-  const start = (p && e) ? (p >= e ? p : e) : (p ?? e ?? '');
+  const start = p && e ? (p >= e ? p : e) : (p ?? e ?? '');
 
   // Summary tasks: start/finish always come from the CPM rollup (early_start /
   // early_finish). Without CPM there's no meaningful finish — the stored
@@ -114,12 +126,12 @@ export function mapTask(t: ApiTask): Task {
   // summary used the working-day span, so every weekend inside a leaf widened
   // the summary visibly past its widest child (#314: rollup looked 4 days
   // "longer" than its longest child).
-  const finish = t.is_summary
-    ? (t.early_finish ?? '')
-    : t.early_finish
-      ?? ((start && t.duration > 0)
+  const finish = isSummary
+    ? (ef ?? '')
+    : ef
+      ?? ((start && duration > 0)
         ? new Date(
-            new Date(start + 'T00:00:00Z').getTime() + t.duration * 86_400_000,
+            new Date(start + 'T00:00:00Z').getTime() + duration * 86_400_000,
           ).toISOString().slice(0, 10)
         : '');
 
@@ -127,15 +139,24 @@ export function mapTask(t: ApiTask): Task {
   // calendar-day span. This matches what the backend writes back during CPM so
   // both representations stay consistent.
   const displayDuration =
-    t.is_summary && t.early_start && t.early_finish
+    isSummary && e && ef
       ? Math.max(
           1,
-          Math.round(
-            (new Date(t.early_finish).getTime() - new Date(t.early_start).getTime()) /
-              86_400_000,
-          ),
+          Math.round((new Date(ef).getTime() - new Date(e).getTime()) / 86_400_000),
         )
-      : t.duration;
+      : duration;
+
+  return { start, finish, displayDuration };
+}
+
+export function mapTask(t: ApiTask): Task {
+  const { start, finish, displayDuration } = deriveBarGeometry({
+    plannedStart: t.planned_start,
+    earlyStart: t.early_start,
+    earlyFinish: t.early_finish,
+    duration: t.duration,
+    isSummary: t.is_summary,
+  });
 
   return {
     id: t.id,
@@ -190,6 +211,57 @@ export function mapTask(t: ApiTask): Task {
     })),
     milestoneRollup: t.milestone_rollup ?? null,
     shortId: t.short_id,
+  };
+}
+
+/**
+ * One task's CPM date delta, as carried in the batched `task_dates_updated`
+ * WebSocket event (ADR-0091). Field names mirror the API serializer so the
+ * payload can be spliced straight into the tasks cache. `late_start`,
+ * `late_finish`, and `free_float` are part of the wire contract (and used by
+ * mobile) but are not surfaced on the web {@link Task}, so the web splice
+ * ignores them.
+ */
+export interface TaskDatesDelta {
+  id: string;
+  early_start: string | null;
+  early_finish: string | null;
+  late_start: string | null;
+  late_finish: string | null;
+  total_float: number | null;
+  free_float: number | null;
+  is_critical: boolean;
+  planned_start: string | null;
+  duration: number;
+}
+
+/**
+ * Splice a CPM date delta into an existing cached {@link Task} (ADR-0091),
+ * returning a new Task with only the CPM-derived fields updated (bar geometry,
+ * criticality, total float, planned_start) and every other field preserved.
+ *
+ * The `task_dates_updated` WebSocket handler uses this so a collaborator's bar
+ * slides the instant the originator's CPM run completes, with no re-fetch. Bar
+ * geometry comes from {@link deriveBarGeometry} — the same rules as
+ * {@link mapTask} — so a spliced task is byte-for-byte what a full re-fetch
+ * would have produced.
+ */
+export function applyTaskDatesDelta(existing: Task, delta: TaskDatesDelta): Task {
+  const { start, finish, displayDuration } = deriveBarGeometry({
+    plannedStart: delta.planned_start,
+    earlyStart: delta.early_start,
+    earlyFinish: delta.early_finish,
+    duration: delta.duration,
+    isSummary: existing.isSummary,
+  });
+  return {
+    ...existing,
+    start,
+    finish,
+    duration: displayDuration,
+    isCritical: delta.is_critical,
+    totalFloat: delta.total_float,
+    plannedStart: delta.planned_start,
   };
 }
 

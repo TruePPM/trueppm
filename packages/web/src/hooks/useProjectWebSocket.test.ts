@@ -13,6 +13,7 @@ import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import { useProjectWebSocket } from './useProjectWebSocket';
 import { useAuthStore } from '@/stores/authStore';
+import type { Task } from '@/types';
 
 class MockWebSocket {
   static OPEN = 1;
@@ -310,5 +311,119 @@ describe('useProjectWebSocket — auth close-code handling (#352)', () => {
       MockWebSocket.instances[0].dispatch('close', { code: 1006 });
     });
     expect(useAuthStore.getState().sessionExpired).toBe(false);
+  });
+});
+
+describe('useProjectWebSocket — task_dates_updated splice (ADR-0091)', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  // Minimal cached Task[] shape — only the fields the splice touches matter here.
+  function seedTasks() {
+    const tasks = [
+      {
+        id: 't1',
+        name: 'Alpha',
+        start: '2026-10-05',
+        finish: '2026-10-15',
+        duration: 10,
+        isCritical: false,
+        totalFloat: 5,
+        plannedStart: null,
+        isSummary: false,
+        progress: 0,
+        status: 'NOT_STARTED',
+      },
+      {
+        id: 't2',
+        name: 'Beta',
+        start: '2026-10-16',
+        finish: '2026-10-20',
+        duration: 4,
+        isCritical: false,
+        totalFloat: 2,
+        plannedStart: null,
+        isSummary: false,
+        progress: 0,
+        status: 'NOT_STARTED',
+      },
+    ] as unknown as Task[];
+    qc.setQueryData(['tasks', 'proj-1'], tasks);
+  }
+
+  function dispatch(payload: Record<string, unknown>) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: 'task_dates_updated', payload }),
+      });
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: 'tok', refreshToken: 'r', isAuthenticated: true });
+    });
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({ accessToken: null, refreshToken: null, isAuthenticated: false });
+    });
+  });
+
+  it('splices per-task deltas into the tasks cache without invalidating', () => {
+    seedTasks();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch({
+      count: 1,
+      tasks: [
+        {
+          id: 't1',
+          early_start: '2026-11-02',
+          early_finish: '2026-11-12',
+          late_start: '2026-11-05',
+          late_finish: '2026-11-15',
+          total_float: 0,
+          free_float: 0,
+          is_critical: true,
+          planned_start: null,
+          duration: 10,
+        },
+      ],
+    });
+
+    const cached = qc.getQueryData(['tasks', 'proj-1']) as Array<Record<string, unknown>>;
+    const t1 = cached.find((t) => t.id === 't1')!;
+    expect(t1.start).toBe('2026-11-02');
+    expect(t1.finish).toBe('2026-11-12');
+    expect(t1.isCritical).toBe(true);
+    expect(t1.totalFloat).toBe(0);
+    // Untouched task is left intact (same reference identity is not required, value is).
+    const t2 = cached.find((t) => t.id === 't2')!;
+    expect(t2.start).toBe('2026-10-16');
+    // No re-fetch of the tasks query — the whole point of the delta event.
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it('invalidates the tasks query on a truncated payload', () => {
+    seedTasks();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch({ count: 1287, truncated: true });
+    act(() => {
+      vi.advanceTimersByTime(400); // flush the trailing-debounce window
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 });

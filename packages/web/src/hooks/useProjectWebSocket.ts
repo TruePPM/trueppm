@@ -7,7 +7,8 @@
  *   task_run_completed → taskRunStore.completeRun(); for scheduling tasks also setCpmComplete()
  *   task_run_failed   → taskRunStore.failRun(); for scheduling tasks also setCpmError()
  *   task_run_cancelled → taskRunStore.cancelRun()
- *   cpm_complete      → invalidate tasks query, schedulerStore.setCpmComplete() (compat broadcast)
+ *   cpm_complete      → schedulerStore.setCpmComplete() + shellStats (compat broadcast; tasks cache owned by task_dates_updated)
+ *   task_dates_updated → splice per-task CPM date deltas into the tasks cache; truncated payload → invalidate (ADR-0091)
  *   cpm_error         → schedulerStore.setCpmError(), setRecalculating(false)
  *   task_created / task_updated / task_deleted → invalidate tasks
  *   tasks_reordered / tasks_restructured / tasks_bulk_mutated → invalidate tasks
@@ -35,6 +36,8 @@ import { usePresenceStore } from '@/stores/presenceStore';
 import { useSchedulerStore } from '@/stores/schedulerStore';
 import { useTaskRunStore } from '@/stores/taskRunStore';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
+import { applyTaskDatesDelta, type TaskDatesDelta } from '@/hooks/useScheduleTasks';
+import type { Task } from '@/types';
 import type { CpmError } from '@/stores/schedulerStore';
 
 interface WsEnvelope {
@@ -163,7 +166,9 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         // cpm_complete is still also broadcast for compatibility; this handles the task_run path.
         if (resultSummary && typeof resultSummary.project_finish === 'string') {
           setCpmComplete(resultSummary.project_finish);
-          scheduleInvalidate('tasks');
+          // Task-date freshness is owned by the task_dates_updated delta event
+          // (ADR-0091) — we no longer invalidate the tasks query here. We still
+          // refresh the project-finish pill and the shell health stats.
           void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
         }
       } else if (event_type === 'task_run_failed') {
@@ -205,8 +210,33 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
             ? payload.project_finish
             : new Date().toISOString();
         setCpmComplete(projectFinish);
-        scheduleInvalidate('tasks');
+        // The tasks cache is maintained by task_dates_updated (ADR-0091); the
+        // coarse compat event no longer invalidates it. Pill + stats only.
         void queryClient.invalidateQueries({ queryKey: ['shellStats', projectIdRef.current] });
+      }
+
+      // --- Per-task CPM date deltas (ADR-0091) ---
+      else if (event_type === 'task_dates_updated') {
+        // Batched per-task CPM deltas, broadcast at the end of recalculate_schedule.
+        // This handler is the sole maintainer of CPM freshness in the tasks cache:
+        // it splices the moved tasks in place so a collaborator's bars slide
+        // instantly, with no full re-fetch. The coarse task_run_completed /
+        // cpm_complete events above intentionally no longer invalidate tasks.
+        if (payload.truncated === true) {
+          // Too many tasks moved to ship economically — fall back to a re-fetch.
+          scheduleInvalidate('tasks');
+        } else if (Array.isArray(payload.tasks)) {
+          const deltas = payload.tasks as unknown as TaskDatesDelta[];
+          if (deltas.length > 0) {
+            const byId = new Map(deltas.map((d) => [d.id, d]));
+            queryClient.setQueryData<Task[]>(['tasks', projectIdRef.current], (old) =>
+              old?.map((t) => {
+                const delta = byId.get(t.id);
+                return delta ? applyTaskDatesDelta(t, delta) : t;
+              }),
+            );
+          }
+        }
       }
 
       // --- Mutation events ---

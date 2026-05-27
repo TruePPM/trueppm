@@ -203,6 +203,16 @@ def _dead_letter_current(task: object, project_id: str, exc: BaseException) -> N
 _INCREMENTAL_THRESHOLD = 0.25
 """Fall back to full-write if the affected subgraph exceeds this fraction of all tasks."""
 
+CPM_DELTA_BROADCAST_CAP = 500
+"""Max moved-task count to ship as per-task ``task_dates_updated`` deltas (ADR-0091).
+
+Above this the WS frame grows large enough that a client-side full re-fetch is cheaper
+than splicing, so we emit a ``truncated`` signal instead and let the client invalidate.
+A 500-task payload is ≈60 KB; the incremental-CPM path (ADR-0027) already keeps most
+recomputes well under the cap, so the truncated branch is reached only on genuine
+large/full recomputes — the same case that re-fetched everything before this ADR.
+"""
+
 
 def _downstream_task_ids(project_id: str, seed_ids: list[str]) -> frozenset[str]:
     """Return seed_ids plus all task IDs reachable from them via dependency edges.
@@ -525,6 +535,41 @@ def _run_schedule(
         project_id=project_id,
         event_type="cpm_complete",
         payload=cpm_payload,
+    )
+
+    # Per-task CPM date deltas (ADR-0091). Broadcast the tasks whose dates just moved so
+    # collaborators' Gantt bars slide in real time, with no full re-fetch. Built from
+    # tasks_to_update (already in scope, fields mutated in-memory) so it costs no query.
+    # Best-effort, same tier as cpm_complete. Field names mirror SyncTaskSerializer so the
+    # web client can splice the payload straight into its task cache (and a future mobile
+    # client could too); the server_version carve-out above is preserved — this is an
+    # optimization layer over the sync protocol, not a replacement for it.
+    if len(tasks_to_update) <= CPM_DELTA_BROADCAST_CAP:
+        delta_payload: dict[str, object] = {
+            "count": len(tasks_to_update),
+            "tasks": [
+                {
+                    "id": str(t.id),
+                    "early_start": t.early_start.isoformat() if t.early_start else None,
+                    "early_finish": t.early_finish.isoformat() if t.early_finish else None,
+                    "late_start": t.late_start.isoformat() if t.late_start else None,
+                    "late_finish": t.late_finish.isoformat() if t.late_finish else None,
+                    "total_float": t.total_float,
+                    "free_float": t.free_float,
+                    "is_critical": t.is_critical,
+                    "planned_start": t.planned_start.isoformat() if t.planned_start else None,
+                    "duration": t.duration,
+                }
+                for t in tasks_to_update
+            ],
+        }
+    else:
+        # Too many moved tasks to ship economically — tell the client to re-fetch.
+        delta_payload = {"count": len(tasks_to_update), "truncated": True}
+    broadcast_board_event(
+        project_id=project_id,
+        event_type="task_dates_updated",
+        payload=delta_payload,
     )
 
     # Dispatch schedule.recalculated webhook to external subscribers.

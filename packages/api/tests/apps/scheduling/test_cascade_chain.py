@@ -191,3 +191,77 @@ def test_enqueue_recalculate_writes_outbox_row(
 
     rows = ScheduleRequest.objects.filter(project=project).order_by("-requested_at")
     assert rows.exists(), "enqueue_recalculate did not create an outbox row"
+
+
+# ---------------------------------------------------------------------------
+# Per-task WebSocket date deltas (ADR-0091).
+# ---------------------------------------------------------------------------
+
+
+def _delta_call(mock_broadcast: object) -> dict[str, object]:
+    """Return the payload of the single task_dates_updated broadcast call."""
+    deltas = [
+        c.kwargs["payload"]
+        for c in mock_broadcast.call_args_list  # type: ignore[attr-defined]
+        if c.kwargs.get("event_type") == "task_dates_updated"
+    ]
+    assert len(deltas) == 1, f"expected exactly one task_dates_updated broadcast, got {len(deltas)}"
+    return deltas[0]
+
+
+@pytest.mark.django_db
+def test_run_schedule_broadcasts_per_task_date_deltas(
+    project: Project, chain: tuple[Task, Task, Task, Task]
+) -> None:
+    """_run_schedule must emit a batched task_dates_updated event carrying the
+    moved tasks' CPM fields, so collaborators' bars slide without a re-fetch."""
+    a, b, c, d = chain
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        _run_schedule(str(project.pk))
+
+    payload = _delta_call(mock_broadcast)
+
+    assert payload["count"] == 4
+    assert "truncated" not in payload
+    by_id = {t["id"]: t for t in payload["tasks"]}  # type: ignore[union-attr]
+    assert by_id.keys() == {str(a.pk), str(b.pk), str(c.pk), str(d.pk)}
+
+    # Field-name + value contract (must mirror SyncTaskSerializer per ADR-0082).
+    head = by_id[str(a.pk)]
+    for field in (
+        "early_start",
+        "early_finish",
+        "late_start",
+        "late_finish",
+        "total_float",
+        "free_float",
+        "is_critical",
+        "planned_start",
+        "duration",
+    ):
+        assert field in head, f"delta missing {field}"
+    # Dates are ISO strings (JSON-serializable), not date objects.
+    assert isinstance(head["early_start"], str)
+    assert isinstance(head["is_critical"], bool)
+
+
+@pytest.mark.django_db
+def test_run_schedule_truncates_delta_above_cap(
+    project: Project, chain: tuple[Task, Task, Task, Task]
+) -> None:
+    """Above CPM_DELTA_BROADCAST_CAP the event carries a truncated flag and no
+    task array, so the WS frame stays bounded and the client re-fetches."""
+    with (
+        patch("trueppm_api.apps.scheduling.tasks.CPM_DELTA_BROADCAST_CAP", 2),
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_broadcast,
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
+    ):
+        _run_schedule(str(project.pk))  # 4 tasks > cap of 2
+
+    payload = _delta_call(mock_broadcast)
+    assert payload["truncated"] is True
+    assert payload["count"] == 4
+    assert "tasks" not in payload
