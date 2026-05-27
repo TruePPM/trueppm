@@ -12,6 +12,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 
@@ -44,6 +45,25 @@ def edition(request: Request) -> Response:
     return Response({"edition": settings.TRUEPPM_EDITION})
 
 
+class ThrottledTokenObtainPairView(TokenObtainPairView):
+    """JWT login endpoint with per-client brute-force throttling (#770).
+
+    simplejwt's stock ``TokenObtainPairView`` ships no throttle, leaving
+    ``POST /api/v1/auth/token/`` open to unbounded password guessing. A
+    *scoped* throttle (the ``login`` rate in
+    ``REST_FRAMEWORK['DEFAULT_THROTTLE_RATES']``) caps attempts per client IP
+    for anonymous callers. Scoped rather than a global ``AnonRateThrottle`` so
+    the unauthenticated ``/health/`` and ``/edition/`` probe endpoints — hit by
+    Kubernetes on a tight loop — are left unthrottled.
+    """
+
+    # RUF012 false positive: ruff can't resolve that throttle_classes is inherited
+    # from the third-party simplejwt base, so it reads this as a fresh mutable
+    # default (cf. TaskSyncView / InviteAcceptView, whose APIView base ruff resolves).
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
+    throttle_scope = "login"
+
+
 urlpatterns = [
     path("api/v1/health/", health, name="health"),
     path("api/v1/edition/", edition, name="edition"),
@@ -57,7 +77,7 @@ urlpatterns = [
         name="swagger-ui-compat",
     ),
     # JWT auth endpoints
-    path("api/v1/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("api/v1/auth/token/", ThrottledTokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/v1/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     # Versioned API
     path("api/v1/", include("trueppm_api.apps.access.urls")),

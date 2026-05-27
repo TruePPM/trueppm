@@ -366,6 +366,15 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Scoped throttles only. The "login" scope is consumed by the JWT
+    # TokenObtainPairView (#770) to bound password-guessing on the auth
+    # endpoint. Deliberately NOT a global DEFAULT_THROTTLE_CLASSES /
+    # AnonRateThrottle — that would also throttle the unauthenticated
+    # /health/ and /edition/ probe endpoints that Kubernetes hits on a
+    # tight liveness/readiness loop.
+    "DEFAULT_THROTTLE_RATES": {
+        "login": "10/min",
+    },
 }
 
 # ---------------------------------------------------------------------------

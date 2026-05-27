@@ -240,7 +240,10 @@ def test_deliver_webhook_success(webhook: Webhook) -> None:
 
     from trueppm_api.apps.webhooks import tasks as wh_tasks
 
-    with patch.object(urllib.request, "urlopen", return_value=mock_resp):
+    with (
+        patch.object(wh_tasks, "assert_url_allowed"),  # see test_webhook_ssrf.py
+        patch.object(urllib.request, "urlopen", return_value=mock_resp),
+    ):
         wh_tasks.deliver_webhook.run(str(delivery.pk))
 
     delivery.refresh_from_db()
@@ -271,7 +274,10 @@ def test_deliver_webhook_hmac_signature(webhook: Webhook) -> None:
 
     from trueppm_api.apps.webhooks import tasks as wh_tasks
 
-    with patch.object(urllib.request, "urlopen", side_effect=capture_urlopen):
+    with (
+        patch.object(wh_tasks, "assert_url_allowed"),  # see test_webhook_ssrf.py
+        patch.object(urllib.request, "urlopen", side_effect=capture_urlopen),
+    ):
         wh_tasks.deliver_webhook.run(str(delivery.pk))
 
     assert len(captured_req) == 1
@@ -308,6 +314,7 @@ def test_deliver_webhook_non_2xx_retries(webhook: Webhook) -> None:
 
     retry_exc = Exception("Retry!")
     with (
+        patch.object(wh_tasks, "assert_url_allowed"),  # see test_webhook_ssrf.py
         patch.object(urllib.request, "urlopen", side_effect=error),
         patch.object(wh_tasks.deliver_webhook, "retry", side_effect=retry_exc) as mock_retry,
         pytest.raises(Exception, match="Retry"),

@@ -141,7 +141,10 @@ def test_deliver_webhook_does_not_renumber(webhook: Webhook) -> None:
 
     from trueppm_api.apps.webhooks import tasks as wh_tasks
 
-    with patch.object(urllib.request, "urlopen", return_value=mock_resp):
+    with (
+        patch.object(wh_tasks, "assert_url_allowed"),  # see test_webhook_ssrf.py
+        patch.object(urllib.request, "urlopen", return_value=mock_resp),
+    ):
         wh_tasks.deliver_webhook.run(str(delivery.pk))
 
     delivery.refresh_from_db()
@@ -192,7 +195,10 @@ def test_deliver_webhook_sends_sequence_header(webhook: Webhook) -> None:
 
     from trueppm_api.apps.webhooks import tasks as wh_tasks
 
-    with patch.object(urllib.request, "urlopen", side_effect=capture_urlopen):
+    with (
+        patch.object(wh_tasks, "assert_url_allowed"),  # see test_webhook_ssrf.py
+        patch.object(urllib.request, "urlopen", side_effect=capture_urlopen),
+    ):
         wh_tasks.deliver_webhook.run(str(delivery.pk))
 
     assert len(captured) == 1
@@ -300,7 +306,10 @@ def test_delivered_body_carries_sequence_stable_across_retries(webhook: Webhook)
         resp.__exit__ = MagicMock(return_value=False)
         return resp
 
-    with patch.object(urllib.request, "urlopen", side_effect=capture_urlopen):
+    with (
+        patch.object(wh_tasks, "assert_url_allowed"),  # see test_webhook_ssrf.py
+        patch.object(urllib.request, "urlopen", side_effect=capture_urlopen),
+    ):
         wh_tasks.deliver_webhook.run(str(delivery.pk))  # first attempt
         wh_tasks.deliver_webhook.run(str(delivery.pk))  # simulated retry
 

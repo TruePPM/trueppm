@@ -42,6 +42,32 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
             "secret": {"write_only": True},
         }
 
+    def validate_url(self, value: str) -> str:
+        """Reject webhook URLs that resolve to a private / loopback / link-local host.
+
+        Webhook delivery is server-side egress to an admin-supplied URL, so it
+        is an SSRF vector (cloud metadata, cluster-internal services). We reject
+        obviously unsafe targets at registration for fast feedback; the
+        ``deliver_webhook`` task re-checks at delivery time as the authoritative
+        guard (closing the DNS-rebinding window). A host that cannot be resolved
+        *now* is allowed through — it may resolve later and delivery re-validates.
+        Shares the integrations egress chokepoint (ADR-0049 §3).
+        """
+        from trueppm_api.apps.integrations.http import (
+            EgressBlocked,
+            EgressError,
+            assert_url_allowed,
+        )
+
+        try:
+            assert_url_allowed(value)
+        except EgressBlocked as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        except EgressError:
+            # DNS resolution failed at registration; allow save — delivery re-checks.
+            pass
+        return value
+
     def validate_format(self, value: str) -> str:
         """Validate ``format`` against the registered outgoing providers.
 

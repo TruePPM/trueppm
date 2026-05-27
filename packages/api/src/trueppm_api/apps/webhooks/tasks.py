@@ -13,6 +13,11 @@ from datetime import timedelta
 from celery import shared_task
 from django.utils import timezone
 
+from trueppm_api.apps.integrations.http import (
+    EgressBlocked,
+    EgressError,
+    assert_url_allowed,
+)
 from trueppm_api.core.idempotent import idempotent_task
 
 logger = logging.getLogger(__name__)
@@ -70,6 +75,46 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
 
     delivery.attempt_count += 1
 
+    # SSRF guard (ADR-0049 §3): Webhook.url is configured by a project admin —
+    # an RBAC role, not an infra operator — so outbound delivery is untrusted
+    # egress. Re-resolve and reject private / loopback / link-local targets at
+    # delivery time (not only at registration) to close the DNS-rebinding
+    # window, reusing the same chokepoint as the integrations PAT / git-link
+    # calls. Without this, an admin could point a webhook at 169.254.169.254
+    # (cloud metadata) or an RFC1918 cluster service.
+    try:
+        assert_url_allowed(webhook.url)
+    except EgressBlocked as exc:
+        # Permanent: a private/loopback/bad-scheme URL will never be deliverable.
+        logger.warning(
+            "deliver_webhook: delivery %s blocked by SSRF guard: %s",
+            delivery.pk,
+            exc,
+        )
+        delivery.status = DeliveryStatus.FAILED
+        delivery.completed_at = timezone.now()
+        delivery.save(update_fields=["attempt_count", "status", "completed_at"])
+        return
+    except EgressError as exc:
+        # Host did not resolve — transient, treated like any network error: retry.
+        logger.warning(
+            "deliver_webhook: delivery %s SSRF pre-check could not resolve host: %s "
+            "(attempt %d/%d)",
+            delivery.pk,
+            exc,
+            delivery.attempt_count,
+            _MAX_RETRIES,
+        )
+        delivery.save(update_fields=["attempt_count"])
+        if delivery.attempt_count >= _MAX_RETRIES:
+            delivery.status = DeliveryStatus.FAILED
+            delivery.completed_at = timezone.now()
+            delivery.save(update_fields=["status", "completed_at"])
+            return
+        raise self.retry(  # type: ignore[attr-defined]
+            countdown=_BACKOFF_BASE * (2 ** (delivery.attempt_count - 1)),
+        ) from None
+
     req = urllib.request.Request(
         webhook.url,
         data=body,
@@ -89,7 +134,7 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310 — URL originates from admin-configured Webhook.url (URLField), not user-supplied input
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310 — URL passed the assert_url_allowed() SSRF guard above (ADR-0049 §3)
             status_code = resp.status
     except urllib.error.HTTPError as exc:
         status_code = exc.code
