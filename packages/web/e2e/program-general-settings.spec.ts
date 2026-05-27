@@ -136,6 +136,23 @@ test.describe('Program Settings → General', () => {
     });
   });
 
+  // #776: settings is a focused mode — ProgramShell suppresses its program header
+  // and the Overview/Backlog/Projects/Members tab strip on settings routes, so the
+  // shared SettingsShell (and its SCOPE switcher) mounts top-aligned, identical to
+  // the workspace and project scopes. Without this the SCOPE switcher jumped ~100px
+  // when switching scope, forcing the user to re-find the controls.
+  test('suppresses the program tab strip so the settings shell is top-aligned', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
+
+    await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
+    // The program working chrome is gone on the settings route.
+    await expect(page.getByRole('navigation', { name: 'Program sections' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Backlog' })).toHaveCount(0);
+    // The settings shell still rendered its nav (a program-settings-only item).
+    await expect(page.getByRole('link', { name: 'Risk policy' })).toBeVisible();
+  });
+
   test('discard reverts edited fields to the seeded snapshot', async ({ page }) => {
     const captures: { patch?: Record<string, unknown> } = {};
     await setup(page, captures);

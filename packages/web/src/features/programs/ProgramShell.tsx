@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, Outlet, useNavigate, useParams } from 'react-router';
+import { NavLink, Outlet, useMatch, useNavigate, useParams } from 'react-router';
 import { useProgram } from '@/hooks/useProgram';
 import { DeleteProgramDialog } from './DeleteProgramDialog';
 
@@ -30,10 +30,31 @@ export function ProgramShell() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
 
+  // Settings is a focused mode (#776). On /programs/:id/settings/* the program
+  // working chrome (header + Overview/Backlog/Projects/Members tabs) is suppressed
+  // so the shared SettingsShell mounts directly under the constant-height TopBar —
+  // identical to the Workspace and Project scopes. Without this, the program chrome
+  // shoved the SettingsShell (and its SCOPE switcher) ~100px down, so switching
+  // scope relocated the very control used to switch it. Program identity is carried
+  // by the SettingsShell context-selector; exit is the always-present left sidebar.
+  const isSettingsRoute = useMatch('/programs/:programId/settings/*') != null;
+
   if (!programId) return null;
 
   const canManage = program ? (program.my_role ?? -1) >= 3 : false; // ADMIN+
   const canDelete = program ? program.my_role === 4 : false; // OWNER only
+
+  if (isSettingsRoute) {
+    // Minimal full-height wrapper, mirroring ProjectShell, so SettingsShell's
+    // internal scroll containers behave the same across all three scopes.
+    return (
+      <div className="flex h-full flex-col bg-neutral-surface">
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <Outlet />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col bg-neutral-surface">
