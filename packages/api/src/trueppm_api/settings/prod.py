@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import environ
 
-from trueppm_api.core.security_checks import validate_secret_key
+from trueppm_api.core.security_checks import (
+    validate_attachment_storage,
+    validate_secret_key,
+)
 
 from .base import *  # noqa: F403
-from .base import DATABASES
+from .base import ALLOW_LOCAL_ATTACHMENT_STORAGE, DATABASES, STORAGES
 
 env = environ.Env()
 
@@ -34,3 +37,23 @@ SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+# HTTP→HTTPS redirect is opt-in: many deploys terminate TLS at the ingress and
+# speak plain HTTP to the app (incl. the k8s liveness/readiness probes that hit
+# /health/ and /edition/), where an unconditional redirect would break them.
+# Operators that expose the app directly over TLS opt in via env; the probe
+# paths stay exempt so they keep working over plain HTTP either way.
+SECURE_SSL_REDIRECT = env.bool("TRUEPPM_SECURE_SSL_REDIRECT", default=False)
+SECURE_REDIRECT_EXEMPT = [r"^api/v1/health/$", r"^api/v1/edition/$"]
+
+# Refuse to boot when task attachments would land on ephemeral local disk in a
+# containerized deploy (#775) — same import-time enforcement as the SECRET_KEY
+# guard, since gunicorn/asgi workers never run `manage.py check`.
+_storage_errors = validate_attachment_storage(
+    STORAGES["default"]["BACKEND"],
+    debug=DEBUG,
+    allow_local=ALLOW_LOCAL_ATTACHMENT_STORAGE,
+)
+if _storage_errors:
+    raise RuntimeError("Refusing to start: " + "; ".join(str(e.msg) for e in _storage_errors))

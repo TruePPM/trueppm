@@ -94,3 +94,69 @@ def check_secret_key(
         getattr(settings, "SECRET_KEY", None),
         debug=bool(getattr(settings, "DEBUG", False)),
     )
+
+
+# ---------------------------------------------------------------------------
+# Attachment storage hardening — refuse to boot in prod when uploads would land
+# on ephemeral local disk (#775).
+# ---------------------------------------------------------------------------
+
+_LOCAL_STORAGE_BACKENDS = frozenset(
+    {
+        "django.core.files.storage.FileSystemStorage",
+        "django.core.files.storage.filesystem.FileSystemStorage",
+    }
+)
+
+
+def validate_attachment_storage(
+    default_storage_backend: str | None,
+    *,
+    debug: bool,
+    allow_local: bool,
+) -> list[CheckMessage]:
+    """Return a deploy error when attachments would land on ephemeral local disk.
+
+    ``TaskAttachment.file`` uses the default file-storage backend. In a
+    containerized prod deploy a ``FileSystemStorage`` backend loses every upload
+    on pod restart and the signed-url action returns a non-signed static path.
+    Operators that back local storage with a persistent volume can opt in via
+    ``TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true``. Returns an empty list under
+    DEBUG so developer workstations keep using local storage.
+    """
+    if debug or allow_local:
+        return []
+    if default_storage_backend in _LOCAL_STORAGE_BACKENDS:
+        return [
+            Error(
+                "Task attachments use local filesystem storage "
+                f"({default_storage_backend}) in a non-DEBUG environment; uploads "
+                "are lost on container/pod restart.",
+                hint=(
+                    "Point STORAGES['default']['BACKEND'] at a remote object-storage "
+                    "backend (e.g. S3/MinIO via django-storages) using the "
+                    "TRUEPPM_DEFAULT_FILE_STORAGE env var, or set "
+                    "TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true if local storage is "
+                    "backed by a persistent volume."
+                ),
+                id="trueppm.E004",
+            )
+        ]
+    return []
+
+
+@register(Tags.security, deploy=True)
+def check_attachment_storage(
+    app_configs: Sequence[object] | None = None,
+    **kwargs: object,
+) -> list[CheckMessage]:
+    """Django system check entry point — reads live STORAGES + override flag."""
+    from django.conf import settings
+
+    storages = getattr(settings, "STORAGES", {}) or {}
+    backend = storages.get("default", {}).get("BACKEND")
+    return validate_attachment_storage(
+        backend,
+        debug=bool(getattr(settings, "DEBUG", False)),
+        allow_local=bool(getattr(settings, "ALLOW_LOCAL_ATTACHMENT_STORAGE", False)),
+    )
