@@ -253,3 +253,38 @@ describe('WorkspaceMembersPage — invite error alert', () => {
     expect(alert).toHaveTextContent(/Could not send the invite/i);
   });
 });
+
+describe('WorkspaceMembersPage — unwired buttons disabled (#791)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('disables Export CSV until the export endpoint ships', async () => {
+    setupMocks();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    const exportBtn = await screen.findByRole('button', { name: 'Export CSV' });
+    expect(exportBtn).toBeDisabled();
+    expect(exportBtn).toHaveAttribute('title', expect.stringContaining('#791'));
+  });
+
+  it('disables Resend on pending invites until the resend endpoint ships', async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url.includes('/workspace/members/')) return Promise.resolve({ data: MEMBERS });
+      if (url.includes('/workspace/invites/'))
+        return Promise.resolve({
+          data: [
+            { id: 'inv1', email: 'pending@truescope.io', role: 'Member', created_at: '2026-05-20', invited_by: 'Anika Krishnan' },
+          ],
+        });
+      return Promise.resolve({ data: [] });
+    });
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    const resendBtn = await screen.findByRole('button', { name: 'Resend' });
+    expect(resendBtn).toBeDisabled();
+    expect(resendBtn).toHaveAttribute('title', expect.stringContaining('#791'));
+    // The bulk "Resend all" affordance is disabled too (was a dead <span>).
+    expect(screen.getByRole('button', { name: /Resend all/i })).toBeDisabled();
+    // The adjacent Revoke action stays live — only Resend is unwired.
+    expect(screen.getByRole('button', { name: /Revoke invite for pending@truescope.io/i })).toBeEnabled();
+  });
+});

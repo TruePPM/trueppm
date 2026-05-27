@@ -22,6 +22,12 @@ vi.mock('@/api/client', () => ({
   },
 }));
 
+// EnterpriseBadge (rendered next to the disabled "Sync from directory" button)
+// reads the edition. Mock it to community so the upsell badge renders.
+vi.mock('@/hooks/useEdition', () => ({
+  useEdition: vi.fn(() => ({ edition: 'community', isLoading: false })),
+}));
+
 const GROUPS = [
   {
     id: 'g1',
@@ -179,5 +185,25 @@ describe('WorkspaceGroupsPage — create error alert', () => {
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent(/Could not create the group\. Try again\./i);
+  });
+});
+
+describe('WorkspaceGroupsPage — directory sync is an Enterprise affordance (#791)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupMocks();
+  });
+
+  it('disables "Sync from directory" and surfaces an Enterprise upsell badge', async () => {
+    render(<WorkspaceGroupsPage />, { wrapper: makeWrapper() });
+    await waitFor(() => expect(screen.getByText('Avionics')).toBeInTheDocument());
+
+    expect(screen.getByRole('button', { name: 'Sync from directory' })).toBeDisabled();
+    // The EnterpriseBadge is the reachable upsell link (rule 121 / #541).
+    const ee = screen.getByRole('link', { name: /Available in TruePPM Enterprise/i });
+    expect(ee).toHaveAttribute('href', 'https://trueppm.com/enterprise');
+
+    // Manual group creation stays OSS — the adjacent action is still live.
+    expect(screen.getByRole('button', { name: '+ Create group' })).toBeEnabled();
   });
 });
