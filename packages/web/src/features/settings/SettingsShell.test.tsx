@@ -48,6 +48,18 @@ describe('<SettingsShell>', () => {
     useSettingsSaveStore.getState().reset();
   });
 
+  it('reserves the scrollbar gutter on the content panel to prevent layout shift (#776)', () => {
+    renderShell();
+    // The shared shell swaps only the <Outlet> content between sub-pages; the
+    // scroll container persists. scrollbar-gutter:stable keeps the scrollbar
+    // track reserved so a tall page (General) and a short page (Projects) render
+    // at the same width — no horizontal jump on navigation. jsdom applies no CSS,
+    // so we assert the utility is present rather than the computed style (the
+    // computed-style check lives in the Playwright e2e spec).
+    const scroll = screen.getByTestId('settings-content-scroll');
+    expect(scroll.className).toContain('[scrollbar-gutter:stable]');
+  });
+
   it('hides the save bar when not dirty', () => {
     renderShell();
     expect(screen.queryByText('You have unsaved changes')).not.toBeInTheDocument();
@@ -222,6 +234,98 @@ describe('<SettingsShell>', () => {
     });
     fireEvent.keyDown(window, { key: 's', ctrlKey: true });
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  describe('context switcher (#776)', () => {
+    const CONTEXT_OPTIONS = [
+      { id: 'p1', name: 'test',  health: 'onTrack' as const, to: '/projects/p1/settings/general' },
+      { id: 'p2', name: 'test2', health: 'critical' as const, to: '/projects/p2/settings/general' },
+    ];
+
+    function renderWithOptions(options = CONTEXT_OPTIONS) {
+      return render(
+        <MemoryRouter initialEntries={['/projects/p1/settings/general']}>
+          <Routes>
+            <Route
+              path="/projects/p1/settings/*"
+              element={
+                <SettingsShell
+                  scope="project"
+                  scopeLinks={SCOPE_LINKS}
+                  contextName="test"
+                  contextHealth="onTrack"
+                  contextOptions={options}
+                  contextActiveId="p1"
+                  navGroups={NAV_GROUPS}
+                />
+              }
+            >
+              <Route path="general" element={<div>GENERAL_PAGE</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>,
+      );
+    }
+
+    it('renders the switcher trigger when 2+ options are provided', () => {
+      renderWithOptions();
+      expect(screen.getByRole('button', { name: /Switch project/ })).toBeInTheDocument();
+    });
+
+    it('renders a static context name (no switcher) with fewer than 2 options', () => {
+      renderWithOptions([CONTEXT_OPTIONS[0]]);
+      expect(screen.queryByRole('button', { name: /Switch project/ })).not.toBeInTheDocument();
+      // The name is still shown, just not as a switch trigger.
+      expect(screen.getByText('test')).toBeInTheDocument();
+    });
+
+    it('disables a scope segment whose target is unavailable, instead of navigating to a blank page (#776)', () => {
+      render(
+        <MemoryRouter initialEntries={['/projects/p1/settings/general']}>
+          <Routes>
+            <Route
+              path="/projects/p1/settings/*"
+              element={
+                <SettingsShell
+                  scope="project"
+                  scopeLinks={[
+                    { scope: 'workspace', label: 'Workspace', to: '/settings/general' },
+                    { scope: 'program', label: 'Program', to: null, disabledReason: 'No programs yet' },
+                    { scope: 'project', label: 'Project', to: '/projects/p1/settings/general' },
+                  ]}
+                  contextName="P1"
+                  navGroups={NAV_GROUPS}
+                />
+              }
+            >
+              <Route path="general" element={<div>GENERAL_PAGE</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>,
+      );
+      const program = screen.getByRole('button', { name: 'Program' });
+      expect(program).toBeDisabled();
+      expect(program).toHaveAttribute('title', 'No programs yet');
+      fireEvent.click(program);
+      // No navigation occurred — still on the project general page.
+      expect(screen.getByText('GENERAL_PAGE')).toBeInTheDocument();
+    });
+
+    it('switching context while dirty routes through the confirm-discard guard', () => {
+      renderWithOptions();
+      act(() => {
+        useSettingsSaveStore.getState().register({
+          dirty: true,
+          apiReady: true,
+          onSave: vi.fn().mockResolvedValue(undefined),
+          onReset: vi.fn(),
+        });
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Switch project/ }));
+      fireEvent.click(screen.getByRole('option', { name: /test2/ }));
+      // The dirty guard intercepts the entity switch.
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    });
   });
 
   describe('copy-link affordance (#595)', () => {

@@ -119,6 +119,59 @@ test.describe('Settings shell — copy-link affordance (#595)', () => {
   });
 });
 
+test.describe('Settings shell — scrollbar-gutter layout shift (#776)', () => {
+  test('content scroll container reserves a stable scrollbar gutter', async ({ page }) => {
+    await setup(page);
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    const scroll = page.getByTestId('settings-content-scroll');
+    await expect(scroll).toBeVisible();
+    // scrollbar-gutter:stable holds the scrollbar track on every sub-page, so a
+    // tall page (General) and a short page (Projects/Integrations) render at the
+    // same content width — the panel no longer jumps horizontally on navigation.
+    const gutter = await scroll.evaluate((el) => getComputedStyle(el).scrollbarGutter);
+    expect(gutter).toBe('stable');
+  });
+
+  // #776: the SCOPE switcher must not navigate to a blank page. With no programs
+  // in the workspace, the Program scope segment is disabled rather than falling
+  // back to a non-settings landing.
+  test('Program scope segment is disabled when the workspace has no programs', async ({ page }) => {
+    await setup(page); // no programs mocked → usePrograms() resolves empty
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+
+    // exact: true so we hit the scope segment, not the sidebar's "New program" button.
+    const program = page.getByRole('button', { name: 'Program', exact: true });
+    await expect(program).toBeDisabled();
+    await expect(program).toHaveAttribute('title', 'No programs yet');
+    // Workspace and the active Project scope remain usable.
+    await expect(page.getByRole('button', { name: 'Workspace', exact: true })).toBeEnabled();
+  });
+
+  // #776: from a project, the Program scope lands on the project's OWN parent
+  // program — not an arbitrary first program, and never a blank page.
+  test('Program scope navigates to the project\'s parent program settings', async ({ page }) => {
+    await setup(page);
+    const PARENT = 'e2e-parent-prog-0000-0000-0000-000000000776';
+    const pj = (d: unknown) => JSON.stringify(d);
+    // This project belongs to PARENT (program FK set on the list payload).
+    await page.route('**/api/v1/projects/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj([{ ...FIXTURE_PROJECT, program: PARENT }]) }),
+    );
+    const FIXTURE_PARENT = { id: PARENT, server_version: 1, name: 'Parent Program', health: 'AUTO' };
+    await page.route('**/api/v1/programs/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj({ results: [FIXTURE_PARENT], count: 1, next: null, previous: null }) }),
+    );
+    await page.route(`**/api/v1/programs/${PARENT}/`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PARENT) }),
+    );
+
+    await page.goto(`/projects/${PROJECT_ID}/settings/general`);
+    await page.getByRole('button', { name: 'Program', exact: true }).click();
+    await page.waitForURL(`**/programs/${PARENT}/settings/general`);
+  });
+});
+
 test.describe('Settings shell — saved-time footer (#596)', () => {
   test('footer is hidden on initial render with no save', async ({ page }) => {
     await setup(page);

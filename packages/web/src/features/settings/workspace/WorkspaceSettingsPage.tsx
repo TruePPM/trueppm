@@ -90,8 +90,8 @@ export function WorkspaceSettingsPage() {
       scope="workspace"
       scopeLinks={[
         { scope: 'workspace', label: 'Workspace', to: '/settings/general' },
-        { scope: 'program',   label: 'Program',   to: firstProgramId ? `/programs/${firstProgramId}/settings/general` : '/programs' },
-        { scope: 'project',   label: 'Project',   to: firstProjectId ? `/projects/${firstProjectId}/settings/general` : '/' },
+        { scope: 'program',   label: 'Program',   to: firstProgramId ? `/programs/${firstProgramId}/settings/general` : null, disabledReason: 'No programs yet' },
+        { scope: 'project',   label: 'Project',   to: firstProjectId ? `/projects/${firstProjectId}/settings/general` : null, disabledReason: 'No projects yet' },
       ]}
       contextName="TrueScope Aerospace"
       navGroups={NAV_GROUPS}

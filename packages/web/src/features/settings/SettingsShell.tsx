@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useSettingsSaveStore } from './hooks/useSettingsSaveStore';
 import { ConfirmDiscardDialog } from './components/ConfirmDiscardDialog';
+import { SettingsContextSwitcher, type SettingsContextOption } from './SettingsContextSwitcher';
 import { formatRelative } from '../../lib/formatRelative';
+
+export type { SettingsContextOption } from './SettingsContextSwitcher';
 
 export interface SettingsNavItem {
   id: string;
@@ -19,7 +22,12 @@ export interface SettingsNavGroup {
 export interface SettingsScopeLink {
   scope: 'workspace' | 'project' | 'program';
   label: string;
-  to: string;
+  /** Target settings route, or null when unavailable (still loading, or no such
+      entity exists) — the segment renders disabled rather than navigating to a
+      blank/irrelevant page (#776). */
+  to: string | null;
+  /** Tooltip shown on the disabled segment when `to` is null, e.g. "No programs yet". */
+  disabledReason?: string;
 }
 
 interface SettingsShellProps {
@@ -31,6 +39,10 @@ interface SettingsShellProps {
   contextName: string;
   /** Health dot for project/program context — omit for workspace */
   contextHealth?: 'onTrack' | 'atRisk' | 'critical' | null;
+  /** Sibling entities in the current scope; renders the context-switcher when >= 2 (#776). */
+  contextOptions?: SettingsContextOption[];
+  /** The current entity's id within `contextOptions` (gets the checkmark). */
+  contextActiveId?: string;
   /** Nav groups for the left rail */
   navGroups: SettingsNavGroup[];
 }
@@ -55,6 +67,8 @@ export function SettingsShell({
   scopeLinks,
   contextName,
   contextHealth,
+  contextOptions,
+  contextActiveId,
   navGroups,
 }: SettingsShellProps) {
   const navigate = useNavigate();
@@ -166,43 +180,77 @@ export function SettingsShell({
             Scope
           </p>
           <div className="grid grid-cols-3 bg-neutral-surface-sunken rounded p-0.5 gap-0">
-            {scopeLinks.map((sl) => (
-              <button
-                key={sl.scope}
-                type="button"
-                onClick={() => {
-                  if (guardedNavigate(sl.to)) return;
-                  void navigate(sl.to);
-                }}
-                className={[
-                  'py-1.5 px-1 rounded text-xs font-medium text-center transition-colors',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-                  scope === sl.scope
-                    ? 'bg-neutral-surface text-neutral-text-primary'
-                    : 'text-neutral-text-secondary hover:text-neutral-text-primary',
-                ].join(' ')}
-              >
-                {sl.label}
-              </button>
-            ))}
+            {scopeLinks.map((sl) => {
+              const isActive = scope === sl.scope;
+              // A non-active scope with no resolved target (no such entity, or
+              // still loading) renders disabled — never navigate to a blank page.
+              const isDisabled = !isActive && sl.to == null;
+              return (
+                <button
+                  key={sl.scope}
+                  type="button"
+                  disabled={isDisabled}
+                  aria-disabled={isDisabled || undefined}
+                  title={isDisabled ? sl.disabledReason : undefined}
+                  onClick={() => {
+                    if (sl.to == null) return;
+                    if (guardedNavigate(sl.to)) return;
+                    void navigate(sl.to);
+                  }}
+                  className={[
+                    'py-1.5 px-1 rounded text-xs font-medium text-center transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+                    isActive
+                      ? 'bg-neutral-surface text-neutral-text-primary'
+                      : isDisabled
+                        // text-neutral-text-disabled here is exempt from rule 87 /
+                        // WCAG 1.4.3 — it's an inactive (disabled) UI component, and
+                        // it must read dimmer than the text-secondary enabled segments.
+                        ? 'text-neutral-text-disabled cursor-not-allowed'
+                        : 'text-neutral-text-secondary hover:text-neutral-text-primary',
+                  ].join(' ')}
+                >
+                  {sl.label}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Context selector */}
+          {/* Context selector. When >= 2 sibling entities exist it becomes a
+              switcher (#776) so you can jump straight to another program's /
+              project's settings; otherwise it's a static identity row (no
+              chevron — never advertise a switch that can't happen). */}
           <div className="mt-2 px-2 py-1.5 rounded flex items-center gap-1.5 bg-neutral-surface-sunken border border-neutral-border/55 text-xs min-w-0">
-            {contextHealth ? (
-              <span
-                className={`w-2 h-2 rounded-full shrink-0 ${HEALTH_COLOR[contextHealth] ?? 'bg-neutral-text-disabled'}`}
-                aria-hidden="true"
+            {contextOptions && contextOptions.length >= 2 ? (
+              <SettingsContextSwitcher
+                contextName={contextName}
+                contextHealth={contextHealth}
+                options={contextOptions}
+                activeId={contextActiveId}
+                entityLabel={scope}
+                onSelect={(to) => {
+                  if (guardedNavigate(to)) return;
+                  void navigate(to);
+                }}
               />
             ) : (
-              <span
-                className="w-3.5 h-3.5 rounded bg-brand-primary shrink-0 inline-flex items-center justify-center text-white text-[10px] font-bold"
-                aria-hidden="true"
-              >
-                tP
-              </span>
+              <>
+                {contextHealth ? (
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${HEALTH_COLOR[contextHealth] ?? 'bg-neutral-text-disabled'}`}
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <span
+                    className="w-3.5 h-3.5 rounded bg-brand-primary shrink-0 inline-flex items-center justify-center text-white text-[9px] font-bold"
+                    aria-hidden="true"
+                  >
+                    tP
+                  </span>
+                )}
+                <span className="flex-1 truncate text-neutral-text-primary font-medium">{contextName}</span>
+              </>
             )}
-            <span className="flex-1 truncate text-neutral-text-primary font-medium">{contextName}</span>
             <button
               type="button"
               onClick={handleCopyLink}
@@ -231,21 +279,16 @@ export function SettingsShell({
                 Link copied to clipboard
               </span>
             )}
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 16 16"
-              fill="currentColor"
-              className="shrink-0 text-neutral-text-disabled"
-              aria-hidden="true"
-            >
-              <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            </svg>
           </div>
         </div>
 
-        {/* Nav groups */}
-        <nav className="flex-1 overflow-y-auto px-2 py-1" aria-label="Settings sections">
+        {/* Nav groups. scrollbar-gutter:stable reserves the scrollbar track so a
+            longer scope (e.g. Workspace) gaining a scrollbar can't shift the nav
+            labels sideways — same rationale as the content panel below (#776). */}
+        <nav
+          className="flex-1 overflow-y-auto [scrollbar-gutter:stable] px-2 py-1"
+          aria-label="Settings sections"
+        >
           {navGroups.map((group) => (
             <div key={group.label} className="mb-2">
               <h2 className="px-2 py-1.5 text-xs font-semibold tracking-[.08em] uppercase text-neutral-text-secondary">
@@ -291,8 +334,14 @@ export function SettingsShell({
 
       {/* ── Right content area ── */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
-        {/* Page content */}
-        <div className="flex-1 overflow-y-auto bg-neutral-surface">
+        {/* Page content. scrollbar-gutter:stable keeps the scrollbar track
+            reserved on every sub-page, so navigating between a tall page (General,
+            Risk policy) and a short one (Projects, Integrations) no longer toggles
+            the scrollbar and shifts the panel ~15px horizontally (#776). */}
+        <div
+          className="flex-1 overflow-y-auto [scrollbar-gutter:stable] bg-neutral-surface"
+          data-testid="settings-content-scroll"
+        >
           <Outlet />
         </div>
 
