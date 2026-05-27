@@ -11,7 +11,7 @@ The Schedule view's toolbar gives you the at-a-glance project status (rightmost 
 [ + Task ] [ + Milestone ] [ Build mode pill ]
 [ CP only · Focus chain ]   [ Critical path · Milestones ]
                                  ...
-[ {N} tasks · {C} critical · CPM ✓ ]   [ Today ]   [ Day · Week · Month · Quarter ]
+[ {N} tasks · {C} critical · CPM ✓ ]   [ Today ]   [ − {level} + ] [ Fit ]
 ```
 
 ## Filter groups
@@ -64,9 +64,9 @@ The task list shows seven columns by default. All except Task can be hidden via 
 
 Column widths are persisted per-browser under `trueppm.schedule.columnWidths.v5`.
 
-## Zoom levels
+## Zoom
 
-The zoom control (rightmost, above the summary chip) cycles through: **Day · Week · Month · Quarter · Year**. Zoom preserves the center date — the visible range shifts symmetrically around your current viewport midpoint.
+The zoom control (rightmost, above the summary chip) is a stepper — **−**, the current level, and **+** — plus a **Fit to project** button that frames the whole project in the viewport. Zoom is continuous from hour-level detail out to a multi-year overview; the date header automatically re-emphasizes its unit (day → week → month → quarter → year) as you scale. You can also zoom with **Ctrl/Cmd** + mouse wheel or a trackpad pinch over the timeline (which zooms toward the cursor), or with `⌘/Ctrl` + `=` / `-` / `0`. See [Zoom on the Schedule view](./schedule#zoom) for the full reference.
 
 The **Today** button scrolls the timeline so today's date lands at 25% from the left edge.
 

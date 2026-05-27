@@ -54,14 +54,33 @@ All dependency arrows are drawn in charcoal (`COLOR.arrowNormal`) — critical-p
 
 ## Zoom
 
-Toolbar zoom levels: Day · Week · Month (default) · Quarter. Zoom preserves the viewport-centre date — the visible range shifts symmetrically around the user's current view midpoint.
+You can zoom smoothly from hour-level detail all the way out to a multi-year overview — there are no fixed steps to click through. As you zoom, the two-row date header automatically changes the unit it emphasizes (day → week → month → quarter → year) so the timeline always stays readable.
+
+Three ways to zoom:
+
+- **Toolbar stepper** — the **−**, current-level, and **+** controls, plus a **Fit to project** button that frames the whole project in the viewport.
+- **Wheel / pinch** — hold **Ctrl/Cmd** and scroll the mouse wheel, or pinch on a trackpad, while pointing at the timeline. The zoom centers on the cursor: the date under your pointer stays put while everything else scales around it.
+- **Keyboard** — `⌘/Ctrl` + `=` zooms in, `-` zooms out, and `0` fits the project to the viewport.
 
 ## Interaction
 
 - **Drag-to-reschedule** with a 4-pixel hover threshold and FSM (`IDLE → HOVER_WAIT → DRAG_STARTED → DRAGGING → DROP/CANCELLED`)
+- **Drag-to-pan** — hold **Space** and drag, or drag with the **middle mouse button**, to pan the timeline in any direction. The cursor shows a grab/grabbing hand while you pan, and task-bar dragging is paused so a pan never moves a task by accident. The hint is documented in the schedule legend.
 - **Snap-to-day** is applied inside the renderer before emitting `drag-task-move`; hold Shift to suspend snap
 - **Pointer events** throughout (no mouse/touch branching); pinch-to-zoom via two simultaneous active pointers
 - **Keyboard reschedule** as a WCAG 2.1.1 alternative (left/right arrows nudge dates; Enter confirms; Esc cancels) — see issue #34
+
+## Promote a backlog idea onto the schedule
+
+The **Unscheduled gutter** beneath the timeline now includes a **Backlog** section listing tasks that have been captured but not yet scheduled. Backlog cards are visually distinct — a dashed edge and a readiness label — so it's clear that placing one on the timeline does more than move it.
+
+To schedule a backlog item, **drag its card from the gutter up onto the timeline**. Dropping it promotes the task to **To Do** and schedules it at the drop date; CPM then cascades the rest of the plan automatically, so any successors re-forecast in the same motion.
+
+If you'd rather not drag — or you're working from the keyboard — every backlog card has a **Schedule…** action (both in the gutter and on the [Board](/features/board/)). It opens a date picker and does exactly the same thing: promote to To Do and schedule at the chosen date.
+
+## Live re-forecast
+
+When a teammate edits a dependency or reschedules a task, the recalculation propagates to everyone over WebSocket — the Gantt bars slide into their new positions in real time as CPM finishes, with no manual refresh. See [Real-time collaboration](/features/real-time/) for the underlying broadcast model.
 
 ## Accessibility
 
