@@ -3,8 +3,8 @@ title: Installation
 description: Four ways to run TruePPM — Docker Compose, Helm/Kubernetes, single-server, or the scheduler library standalone.
 ---
 
-:::caution[0.1 shipped · pre-GA]
-TruePPM 0.1 has shipped — the engine, API, real-time backend, and web UI are functional. The product is pre-GA: expect API contract changes across 0.x point releases. Install for evaluation and early-adopter deployments; a stable contract arrives at 1.0.
+:::caution[0.2 shipped · pre-GA]
+TruePPM 0.2 has shipped — the engine, API, real-time backend, and web UI are functional. The product is pre-GA: expect API contract changes across 0.x point releases. Install for evaluation and early-adopter deployments; a stable contract arrives at 1.0.
 :::
 
 TruePPM ships as pre-built Docker images on GHCR and a Python package on PyPI. Pick the path that fits your environment:
@@ -135,7 +135,7 @@ externalValkey:
 
 ```bash
 helm install trueppm oci://ghcr.io/trueppm/charts/trueppm \
-  --version 0.1.0 \
+  --version 0.2.0 \
   --namespace trueppm \
   --create-namespace \
   -f my-values.yaml
@@ -188,7 +188,7 @@ CERTBOT_EMAIL=ops@example.com
 SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
 DB_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
 REDIS_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(24))")
-APP_VERSION=0.1.0
+APP_VERSION=0.2.0
 ```
 
 Run the one-time setup (obtains a TLS certificate and starts the stack):

@@ -1,13 +1,13 @@
 ---
 title: Programs
-description: Lightweight OSS coordination unit for one PM managing several related projects — shared membership, soon a shared backlog and combined burndown.
+description: Lightweight OSS coordination unit for one PM managing several related projects — shared membership, shared backlog, and combined rollup KPIs.
 ---
 
 A **program** is a named grouping of related projects owned by one PM or program
 team. It is the OSS coordination unit that sits between standalone projects and
 the Enterprise portfolio: programs let one PM manage several related projects as
-a single working set, with shared membership, a shared backlog (#501,
-forthcoming), and a future combined burndown.
+a single working set, with shared membership, a shared backlog, and a rollup KPI
+view across the program's projects.
 
 :::note[Edition]
 Programs are part of the **Community (OSS)** edition. Portfolio governance —
@@ -69,8 +69,12 @@ multiple programs at once.
 
 `/programs/:id` is a three-tab shell:
 
-- **Backlog** — *coming next* (#501). Will be a shared pool of cross-project
-  features / stories / tasks that any project in the program can pull from.
+- **Backlog** — a shared pool of cross-project work items that any project in
+  the program can pull from. Supports four item types: epic, feature, story,
+  and task. Each item moves through a lifecycle: **proposed → pulled →
+  archived**. Pulling an item creates a linked project task in the chosen
+  project and marks the backlog item as pulled. Requires at least Team Member
+  role on both the program and the target project.
 - **Projects** — the projects currently in this program. Click a project name
   to navigate to it. The `Remove` action detaches the project (it becomes
   standalone, untouched).
@@ -119,16 +123,16 @@ intermediate state where some memberships are removed but not others.
 
 ## Roles and permissions
 
-| Action                                  | Minimum program role     |
-|-----------------------------------------|--------------------------|
-| View program shell and tabs             | Viewer                   |
-| View program backlog (#501)             | Viewer                   |
-| Edit BacklogItems (#501)                | Team Member              |
-| Pull BacklogItem to project (#501)      | Resource Manager         |
-| Add or remove projects                  | Project Manager          |
-| Manage program membership               | Project Manager          |
-| Update program name / methodology       | Project Manager          |
-| Delete program                          | Project Admin (Owner)    |
+| Action                              | Minimum program role  |
+|-------------------------------------|-----------------------|
+| View program shell and tabs         | Viewer                |
+| View program backlog                | Viewer                |
+| Create / edit backlog items         | Team Member           |
+| Pull backlog item to project        | Team Member (on both program and target project) |
+| Add or remove projects              | Project Manager       |
+| Manage program membership           | Project Manager       |
+| Update program name / methodology   | Project Manager       |
+| Delete program                      | Project Admin (Owner) |
 
 For details on the OSS / Enterprise boundary around programs and portfolios,
 see [ADR-0070](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0070-program-entity-oss.md).
