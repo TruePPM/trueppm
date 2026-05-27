@@ -2,6 +2,7 @@ import { type FormEvent, useId, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useWorkspaceGroups, type WorkspaceGroup } from '../hooks/useWorkspaceGroups';
 import { useCreateGroup, useDeleteGroup } from '../hooks/useWorkspaceGroupMutations';
+import { EnterpriseBadge } from '../components/EnterpriseBadge';
 
 const MEMBER_COLORS = ['#1C6B3A', '#C17A10', '#7C3AED', '#0EA5E9', '#DC2626', '#0F766E'];
 
@@ -186,13 +187,22 @@ export function WorkspaceGroupsPage() {
         count={`${groups.length} groups`}
         subtitle="Groups bundle members. Use them to grant project access in bulk and to roll up resource capacity."
         action={
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-            >
-              Sync from directory
-            </button>
+          <div className="flex items-center gap-2">
+            {/* Directory (LDAP/AD) sync is an Enterprise capability
+                (enterprise-check 2026-05-27). Manual group creation stays OSS;
+                this button is disabled with the EnterpriseBadge (community-only)
+                as the reachable upsell link. */}
+            <span className="inline-flex items-center">
+              <button
+                type="button"
+                disabled
+                title="Directory sync is available in TruePPM Enterprise"
+                className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+              >
+                Sync from directory
+              </button>
+              <EnterpriseBadge />
+            </span>
             <button
               type="button"
               onClick={() => setShowCreateForm((v) => !v)}

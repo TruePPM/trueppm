@@ -4,6 +4,8 @@ import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { FiscalYearStartField } from '../components/FiscalYearStartField';
+import { EnterpriseBadge } from '../components/EnterpriseBadge';
+import { StubFieldset } from '../components/StubFieldset';
 
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
@@ -173,12 +175,21 @@ export function WorkspaceGeneralPage() {
         title="General"
         subtitle="Workspace identity, defaults, and conventions that every project inherits."
         action={
-          <button
-            type="button"
-            className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-          >
-            View change history
-          </button>
+          // Workspace-settings change history is an audit trail — an Enterprise
+          // capability (enterprise-check 2026-05-27). The button is disabled on
+          // the OSS surface; the EnterpriseBadge (community-only) is the reachable
+          // upsell link. The enterprise build wires the real action via its slot.
+          <span className="inline-flex items-center">
+            <button
+              type="button"
+              disabled
+              title="Workspace change history is available in TruePPM Enterprise"
+              className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+            >
+              View change history
+            </button>
+            <EnterpriseBadge />
+          </span>
         }
       />
 
@@ -205,9 +216,12 @@ export function WorkspaceGeneralPage() {
             <span className="w-14 h-14 rounded-lg bg-brand-primary inline-flex items-center justify-center text-white text-xl font-bold shrink-0">
               tS
             </span>
+            {/* Logo upload not wired yet — disabled until the endpoint ships (#791). */}
             <button
               type="button"
-              className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              disabled
+              title="Logo upload isn't available yet — tracked in #791"
+              className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               Replace
             </button>
@@ -293,9 +307,12 @@ export function WorkspaceGeneralPage() {
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-brand-primary-light text-brand-primary text-[12px] font-medium">
               US federal · 2026
             </span>
+            {/* Holiday-calendar management not wired yet — disabled until it ships (#791). */}
             <button
               type="button"
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              disabled
+              title="Adding a holiday calendar isn't available yet — tracked in #791"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-neutral-border text-[12px] text-neutral-text-secondary hover:text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               + Add calendar
             </button>
@@ -321,26 +338,50 @@ export function WorkspaceGeneralPage() {
           <p className="text-[12px] text-neutral-text-secondary mb-3">
             Workspace-wide destructive actions. Require typed confirmation and admin role.
           </p>
-          <div className="flex gap-2.5 flex-wrap">
-            <button
-              type="button"
-              className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+          {/* These actions aren't wired yet — the workspace lifecycle endpoints
+              are tracked in #641 (same as WorkspaceDangerPage). Disable them
+              rather than leaving dead-but-clickable destructive buttons (#669);
+              the note stays outside the fieldset so its link is clickable. */}
+          <p id="ws-general-danger-note" className="text-[12px] text-neutral-text-secondary mb-3">
+            Not available yet — workspace lifecycle endpoints are in progress (
+            <a
+              href="https://gitlab.com/trueppm/trueppm/-/issues/641"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
             >
-              Export all data
-            </button>
-            <button
-              type="button"
-              className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-            >
-              Transfer ownership
-            </button>
-            <button
-              type="button"
-              className="px-3 py-1.5 rounded border border-semantic-critical text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical"
-            >
-              Delete workspace…
-            </button>
-          </div>
+              #641
+            </a>
+            ).
+          </p>
+          <StubFieldset disabled>
+            <div className="flex gap-2.5 flex-wrap">
+              <button
+                type="button"
+                aria-describedby="ws-general-danger-note"
+                title="Not available yet — tracked in #641"
+                className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              >
+                Export all data
+              </button>
+              <button
+                type="button"
+                aria-describedby="ws-general-danger-note"
+                title="Not available yet — tracked in #641"
+                className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              >
+                Transfer ownership
+              </button>
+              <button
+                type="button"
+                aria-describedby="ws-general-danger-note"
+                title="Not available yet — tracked in #641"
+                className="px-3 py-1.5 rounded border border-semantic-critical text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical"
+              >
+                Delete workspace…
+              </button>
+            </div>
+          </StubFieldset>
         </div>
       </div>
     </div>
