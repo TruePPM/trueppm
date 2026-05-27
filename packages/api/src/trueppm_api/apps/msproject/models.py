@@ -30,8 +30,9 @@ class ImportRequest(models.Model):
     revised file while the previous import is still in flight).
 
     The file content is stored as base64-encoded text so it survives
-    broker outages without relying on Redis.  Maximum stored size is
-    approximately 13 MB for a 10 MB upload.
+    broker outages without relying on Redis.  Base64 inflates the payload
+    by ~33%, so the stored row scales with the upload cap
+    (settings.MSPROJECT_MAX_UPLOAD_MB, default 50 MB → ~67 MB stored).
 
     Does NOT inherit VersionedModel — not synced to mobile clients.
     """

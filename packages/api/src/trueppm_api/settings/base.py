@@ -377,6 +377,16 @@ MC_TASK_CAP: int | None = 500
 DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100 MB
 FILE_UPLOAD_MAX_MEMORY_SIZE = 2_621_440  # 2.5 MB (Django default; explicit)
 
+# Per-file cap for MS Project (.mpp/.xml) imports. Lower than the 100 MB
+# attachment ceiling on purpose: unlike attachments (FileField → disk), an
+# import is read fully into memory and stored base64-encoded in a single
+# ImportRequest DB row (~+33%), so a 50 MB upload already costs ~67 MB of
+# memory and row size. 50 MB is the practical MS Project file ceiling
+# (larger schedules degrade in Project itself). The global
+# DATA_UPLOAD_MAX_MEMORY_SIZE and nginx client_max_body_size (both 100 MB)
+# remain the hard edge cap — do not configure this above them.
+MSPROJECT_MAX_UPLOAD_MB: int = env.int("MSPROJECT_MAX_UPLOAD_MB", default=50)
+
 # ---------------------------------------------------------------------------
 # Django REST Framework
 # ---------------------------------------------------------------------------

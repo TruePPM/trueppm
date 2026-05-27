@@ -1,19 +1,49 @@
 ---
-title: MS Project Import / Export
-description: Import and export Microsoft Project .xml and .mpp files from TruePPM.
+title: MS Project import & export
+description: Import and export Microsoft Project .xml and .mpp files from the TruePPM Schedule view.
 ---
 
-:::note[0.1]
-MS Project import/export shipped in 0.1. Additional importers — Primavera P6, GanttProject, OmniPlan, ProjectLibre, and the top-10 PM tools (Jira, Asana, Trello, Notion, Linear, and more) — are planned for 0.5.
+:::note[0.1 · UI added in 0.2]
+The import/export REST endpoints shipped in 0.1. The in-app import and export
+controls in the Schedule view shipped in **0.2**. Additional importers —
+Primavera P6, GanttProject, OmniPlan, ProjectLibre, and the top-10 PM tools
+(Jira, Asana, Trello, Notion, Linear, and more) — are planned for 0.5.
 :::
 
-:::caution[API only — no UI yet]
-Import and export are currently **REST API endpoints only** — there is no in-app
-import/export button. Use the endpoints documented under [Using the API](#using-the-api).
-An import/export UI is planned alongside the broader importer work in 0.5.
+TruePPM imports project schedules from Microsoft Project XML (`.xml`) and binary (`.mpp`) files, and exports any project back to MS Project XML. You can do both directly from the Schedule view, or call the REST endpoints. This page covers the in-app flow first, then the API, then which MS Project fields are mapped, ignored, and what warnings to expect for edge-case inputs.
+
+## From the Schedule view
+
+Both actions live in the Schedule view toolbar, under the **Project actions** (`···`) overflow menu:
+
+- **Import from MS Project…** — opens the import modal.
+- **Export to MS Project (.xml)** — downloads the project as MS Project XML.
+
+### Import a file
+
+1. Open the project's **Schedule** view.
+2. Click the **Project actions** (`···`) overflow menu in the toolbar and choose **Import from MS Project…**.
+3. Drag a file onto the dropzone (or click it to browse). Accepted formats are **`.mpp`** and **`.xml`**.
+4. Confirm the import. The modal shows **"Import started"** and closes.
+
+The import runs **asynchronously** — the worker parses the file in the background and the **schedule refreshes once it finishes**, so newly imported tasks appear shortly after the confirmation. There is no live progress bar yet; per-import progress display is tracked separately ([#61](https://gitlab.com/trueppm/trueppm/-/issues/61)).
+
+:::note[Importing requires Project Admin]
+The import action is enforced server-side: you must have the **Project Admin**
+role on the project to import. Members below Admin do not see a usable import
+control. Export is available to any project member (see below).
 :::
 
-TruePPM can import project schedules from Microsoft Project XML (`.xml`) and binary (`.mpp`) files, and export any project back to MS Project XML. This page documents how to call the import and export endpoints, which MS Project fields are mapped, which are silently ignored, and what warnings to expect for edge-case inputs.
+:::caution[`.mpp` files need the server-side toolchain]
+Importing a binary **`.mpp`** file requires the server to have the MS Project
+(MPXJ / Java) toolchain installed. **`.xml`** imports always work. The import
+modal shows a non-blocking note advising that, if a `.mpp` import fails, you can
+open the file in MS Project, **Save As → XML**, and upload the `.xml` instead.
+:::
+
+### Export a project
+
+Open the **Project actions** (`···`) overflow menu and choose **Export to MS Project (.xml)**. The browser downloads the current schedule as MS Project XML. Export is allowed for **any project member** — Viewer role and above.
 
 ## Using the API
 
@@ -23,7 +53,8 @@ Both operations are project-scoped and authenticated with a bearer token (`$JWT`
 
 ```bash
 # POST a .mpp or .xml file as multipart form-data (field name: "file").
-# Requires project Admin. Maximum file size 10 MB.
+# Requires project Admin. Default maximum file size 50 MB
+# (configurable via MSPROJECT_MAX_UPLOAD_MB — see Configuration below).
 curl -X POST \
   -H "Authorization: Bearer $JWT" \
   -F "file=@plan.mpp" \
@@ -165,6 +196,13 @@ Assignments: `UID`, `TaskUID`, `ResourceUID`, `Units`.
 
 ## Configuration
 
+### Upload size limit
+
+The per-file import cap defaults to **50 MB** and is set by the
+`MSPROJECT_MAX_UPLOAD_MB` environment variable. See
+[Configuration → MS Project import limit](/administration/configuration/#ms-project-import-limit)
+for the full description and the hard ceiling.
+
 ### MPP import (MPXJ)
 
 Binary `.mpp` import requires Java 11+ and the MPXJ CLI JAR:
@@ -176,4 +214,8 @@ MPXJ_JAR_PATH=/opt/mpxj/mpxj-cli.jar
 # Override via Django settings or environment variable
 ```
 
-See [Configuration](/administration/configuration) for full environment-variable reference.
+If the toolchain is missing, `.mpp` imports fail and the in-app modal advises
+saving the file as `.xml` and uploading that instead; `.xml` imports never
+require MPXJ.
+
+See [Configuration](/administration/configuration) for the full environment-variable reference.
