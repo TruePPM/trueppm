@@ -11,11 +11,13 @@ from collections import defaultdict
 from typing import Any
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Count, Q, QuerySet
+from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -27,23 +29,32 @@ from rest_framework.views import APIView
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.workspace import services
 from trueppm_api.apps.workspace.models import (
+    ExportJobStatus,
     Group,
     GroupMembership,
     GroupProject,
     InviteStatus,
     MemberStatus,
     Workspace,
+    WorkspaceExportJob,
     WorkspaceInvite,
     WorkspaceMembership,
     WorkspaceRole,
 )
-from trueppm_api.apps.workspace.permissions import IsWorkspaceAdmin, _workspace_membership_role
+from trueppm_api.apps.workspace.permissions import (
+    IsWorkspaceAdmin,
+    IsWorkspaceOwner,
+    _workspace_membership_role,
+    request_is_workspace_owner,
+)
 from trueppm_api.apps.workspace.serializers import (
     GroupMemberAddSerializer,
     GroupProjectWriteSerializer,
     GroupSerializer,
     GroupWriteSerializer,
     InviteAcceptSerializer,
+    TransferOwnershipSerializer,
+    WorkspaceExportJobSerializer,
     WorkspaceInviteCreateSerializer,
     WorkspaceInviteSerializer,
     WorkspaceMemberSerializer,
@@ -53,6 +64,10 @@ from trueppm_api.apps.workspace.serializers import (
     display_name_for,
     initials_for,
 )
+
+# Typed-confirmation header for the destructive workspace delete (ADR-0092). Its
+# value must equal the workspace name exactly — the web danger page sends it.
+CONFIRM_WORKSPACE_HEADER = "X-Confirm-Workspace"
 
 User = get_user_model()
 
@@ -213,6 +228,42 @@ class WorkspaceSettingsView(IdempotencyMixin, APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        responses={204: OpenApiResponse(description="Workspace purged and reset.")},
+        description=(
+            "Permanently delete the workspace and all its data (factory reset). "
+            f"Owner only. Requires the {CONFIRM_WORKSPACE_HEADER} header set to the "
+            "exact workspace name."
+        ),
+    )
+    def delete(self, request: Request) -> Response:
+        """Hard-delete the workspace and all its data (ADR-0092, #641).
+
+        Owner-only (PATCH is ADMIN+, so the owner gate is enforced here rather than
+        via the class-level permission). A typed-confirmation header must match the
+        workspace name exactly, mirroring the inline typed-confirmation on the web
+        danger page. ``purge_workspace`` deletes every workspace-scoped row and the
+        singleton; ``Workspace.load()`` recreates a fresh default on next access.
+        """
+        if not request_is_workspace_owner(request):
+            raise PermissionDenied("Only the workspace Owner can delete the workspace.")
+
+        workspace = Workspace.load()
+        confirmation = request.headers.get(CONFIRM_WORKSPACE_HEADER, "")
+        if confirmation != workspace.name:
+            raise ValidationError(
+                {
+                    "detail": (
+                        f"Confirmation failed — set the {CONFIRM_WORKSPACE_HEADER} header to the "
+                        "exact workspace name to delete it."
+                    )
+                }
+            )
+
+        services.purge_workspace()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------
@@ -563,3 +614,103 @@ class GroupProjectView(IdempotencyMixin, APIView):
             GroupProject.objects.filter(group=group, project_id=project_id).delete()
             services.reconcile_group_access(group.pk)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# #641 — Workspace lifecycle: transfer ownership / export (ADR-0092)
+# (Workspace hard-delete is ``WorkspaceSettingsView.delete`` above.)
+# ---------------------------------------------------------------------------
+
+
+class TransferOwnershipView(IdempotencyMixin, APIView):
+    """POST /api/v1/workspace/transfer-ownership/ — hand the workspace to a member.
+
+    Owner only. The target must already be an active member; the current owner is
+    demoted to Admin (#641). Mirrors the project transfer action.
+    """
+
+    permission_classes = [IsAuthenticated, IsWorkspaceOwner]
+
+    @extend_schema(
+        request=TransferOwnershipSerializer,
+        responses={200: OpenApiResponse(description="Ownership transferred.")},
+    )
+    def post(self, request: Request) -> Response:
+        serializer = TransferOwnershipSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        new_owner_id = serializer.validated_data["new_owner_user_id"]
+
+        try:
+            new_owner = User.objects.get(pk=new_owner_id)
+        except User.DoesNotExist:
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            services.transfer_workspace_ownership(new_owner=new_owner, actor=request.user)
+        except DjangoValidationError as exc:
+            detail = exc.messages[0] if exc.messages else str(exc)
+            return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(
+            {"detail": "Workspace ownership transferred.", "new_owner_user_id": new_owner_id}
+        )
+
+
+class WorkspaceExportView(IdempotencyMixin, APIView):
+    """GET lists recent export jobs; POST queues a new full export (#641). Owner only."""
+
+    permission_classes = [IsAuthenticated, IsWorkspaceOwner]
+
+    @extend_schema(responses={200: WorkspaceExportJobSerializer(many=True)})
+    def get(self, request: Request) -> Response:
+        jobs = WorkspaceExportJob.objects.all()[:20]
+        return Response(WorkspaceExportJobSerializer(jobs, many=True).data)
+
+    @extend_schema(request=None, responses={202: WorkspaceExportJobSerializer})
+    def post(self, request: Request) -> Response:
+        job = services.enqueue_workspace_export(requested_by=request.user)
+        return Response(WorkspaceExportJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
+
+
+class WorkspaceExportDetailView(APIView):
+    """GET /api/v1/workspace/export/{job_id}/ — poll an export's status (#641). Owner only."""
+
+    permission_classes = [IsAuthenticated, IsWorkspaceOwner]
+
+    @extend_schema(responses={200: WorkspaceExportJobSerializer})
+    def get(self, request: Request, job_id: str) -> Response:
+        job = get_object_or_404(WorkspaceExportJob, pk=job_id)
+        return Response(WorkspaceExportJobSerializer(job).data)
+
+
+class WorkspaceExportDownloadView(APIView):
+    """GET /api/v1/workspace/export/{job_id}/download/ — stream the archive (#641).
+
+    Owner only and authenticated — the archive contains every project's data, so it
+    is never served from a raw, unauthenticated storage URL. ``409`` if not ready,
+    ``410 Gone`` once the link has expired.
+    """
+
+    permission_classes = [IsAuthenticated, IsWorkspaceOwner]
+
+    def get(self, request: Request, job_id: str) -> Any:
+        from django.core.files.storage import default_storage
+
+        job = get_object_or_404(WorkspaceExportJob, pk=job_id)
+        if job.status != ExportJobStatus.SUCCESS or not job.file_path:
+            return Response({"detail": "Export is not ready yet."}, status=status.HTTP_409_CONFLICT)
+        if job.expires_at is not None and job.expires_at < timezone.now():
+            return Response(
+                {"detail": "This export has expired. Request a new one."},
+                status=status.HTTP_410_GONE,
+            )
+        try:
+            handle = default_storage.open(job.file_path, "rb")
+        except (FileNotFoundError, OSError) as exc:
+            raise Http404("Export archive is no longer available.") from exc
+        return FileResponse(
+            handle,
+            as_attachment=True,
+            filename=f"workspace-export-{job.id}.tar.gz",
+            content_type="application/gzip",
+        )

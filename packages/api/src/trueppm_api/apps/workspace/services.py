@@ -27,16 +27,19 @@ import uuid
 from typing import Any
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from trueppm_api.apps.access.models import ProjectMembership
 from trueppm_api.apps.workspace.models import (
+    ExportJobStatus,
     GroupMembership,
     GroupProject,
     InviteStatus,
     MemberStatus,
     Workspace,
+    WorkspaceExportJob,
     WorkspaceInvite,
     WorkspaceMembership,
     WorkspaceRole,
@@ -91,6 +94,152 @@ def workspace_owner_user_ids(exclude_user_id: _PK | None = None) -> set[Any]:
 def would_strand_workspace(user_id: _PK) -> bool:
     """True if removing/demoting ``user_id`` would leave the workspace ownerless."""
     return len(workspace_owner_user_ids(exclude_user_id=user_id)) == 0
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle: transfer ownership / export / delete (ADR-0092, #641)
+# ---------------------------------------------------------------------------
+
+
+def transfer_workspace_ownership(*, new_owner: Any, actor: Any) -> WorkspaceMembership:
+    """Atomically promote a workspace member to OWNER, demote the actor to ADMIN.
+
+    Mirrors :func:`access.services.transfer_project_ownership`. The target must
+    already be an **active** workspace member — requiring an explicit membership
+    forces an invite step and keeps a clean "joined → promoted" audit sequence.
+
+    The actor's explicit OWNER row (if any) is demoted to ADMIN. If the actor is
+    an *implicit* owner (an active superuser with no explicit row), nothing is
+    demoted — there is no row to change and the superuser bootstrap is intentional.
+    Promoting the target always leaves at least one owner, so this never strands
+    the workspace.
+
+    Args:
+        new_owner: The user who will become OWNER.
+        actor: The current owner initiating the transfer.
+
+    Returns:
+        The new owner's ``WorkspaceMembership`` row.
+
+    Raises:
+        ValidationError: if ``new_owner`` is the actor, or has no active membership.
+    """
+    if new_owner.pk == actor.pk:
+        raise ValidationError("You already own this workspace.")
+
+    # Defense in depth — the view gates with ``IsWorkspaceOwner``, but the service
+    # is reusable (management commands, signals, future endpoints). Without this an
+    # actor who is not actually an owner would promote the target while no one is
+    # demoted, minting an extra owner. Assert authority before any state change.
+    if actor.pk not in workspace_owner_user_ids():
+        raise ValidationError("Only an existing workspace Owner can transfer ownership.")
+
+    with transaction.atomic():
+        try:
+            target = WorkspaceMembership.objects.select_for_update().get(
+                user=new_owner,
+                is_deleted=False,
+            )
+        except WorkspaceMembership.DoesNotExist as exc:
+            raise ValidationError(
+                "The new owner must already be an active workspace member."
+            ) from exc
+        if target.status == MemberStatus.DEACTIVATED:
+            raise ValidationError("The new owner must be an active workspace member.")
+
+        # Promote the target first so the workspace is never momentarily ownerless.
+        if target.role != WorkspaceRole.OWNER:
+            target.role = WorkspaceRole.OWNER
+            target.role_changed_at = timezone.now()
+            target.save(update_fields=["role", "role_changed_at"])
+
+        # Demote the actor's explicit OWNER row, if they have one.
+        actor_row = (
+            WorkspaceMembership.objects.select_for_update()
+            .filter(user=actor, is_deleted=False)
+            .first()
+        )
+        if actor_row is not None and actor_row.role == WorkspaceRole.OWNER:
+            actor_row.role = WorkspaceRole.ADMIN
+            actor_row.role_changed_at = timezone.now()
+            actor_row.save(update_fields=["role", "role_changed_at"])
+
+    return target
+
+
+def enqueue_workspace_export(*, requested_by: Any) -> WorkspaceExportJob:
+    """Create an export job row and best-effort dispatch the Celery task (ADR-0092).
+
+    Follows the transactional-outbox convention (ADR-0080): the row commits with
+    the request; ``.delay()`` is attempted in ``transaction.on_commit`` and broker
+    errors are swallowed because ``drain_workspace_exports`` re-dispatches stuck
+    ``pending`` rows. ``.delay()`` is only ever called from here and the drain.
+
+    De-dupes in-flight work: a full-workspace archive is expensive, so if an export
+    is already ``pending``/``running`` the existing job is returned rather than
+    queuing a second build (also bounds an owner triggering repeated exports).
+    """
+    existing = WorkspaceExportJob.objects.filter(
+        status__in=[ExportJobStatus.PENDING, ExportJobStatus.RUNNING]
+    ).first()
+    if existing is not None:
+        return existing
+
+    job = WorkspaceExportJob.objects.create(requested_by=requested_by)
+
+    def _dispatch() -> None:
+        from trueppm_api.apps.workspace.tasks import run_workspace_export
+
+        try:
+            run_workspace_export.delay(str(job.id))
+        except Exception:  # pragma: no cover - broker-down path, drain recovers
+            logger.warning(
+                "broker unavailable; drain_workspace_exports will pick up export %s", job.id
+            )
+
+    transaction.on_commit(_dispatch)
+    return job
+
+
+def purge_workspace() -> None:
+    """Hard-delete every workspace-scoped row and the singleton itself (ADR-0092).
+
+    Because ``Workspace.load()`` re-materializes the singleton on next access,
+    deleting the row is a factory reset: the next request gets a fresh default
+    workspace. Deletes run in FK-safe order in one transaction — ``PROTECT``
+    membership rows (project/program) and ``Project``-referenced ``Calendar`` rows
+    must be removed before their referents, so a naive ``Workspace.delete()``
+    cascade is not enough.
+    """
+    # Imported lazily: this is the only place the workspace service reaches across
+    # into the projects/access/resources models, and doing it at module load would
+    # widen the import graph for every workspace request.
+    from trueppm_api.apps.access.models import ProgramMembership
+    from trueppm_api.apps.projects.models import Calendar, Program, Project
+    from trueppm_api.apps.resources.models import Resource, Skill
+
+    with transaction.atomic():
+        # Group access cascade first (GroupProject/GroupMembership → Group).
+        GroupProject.objects.all().delete()
+        GroupMembership.objects.all().delete()
+        from trueppm_api.apps.workspace.models import Group
+
+        Group.objects.all().delete()
+        WorkspaceInvite.objects.all().delete()
+        WorkspaceMembership.objects.all().delete()
+        # PROTECT memberships must precede their parents.
+        ProjectMembership.objects.all().delete()
+        ProgramMembership.objects.all().delete()
+        # Projects cascade tasks/deps/baselines/sprints/risks/attachments/etc.
+        Project.objects.all().delete()
+        Program.objects.all().delete()
+        # Workspace-global flat tables (no project/workspace FK).
+        Resource.objects.all().delete()
+        Skill.objects.all().delete()
+        # Calendars are PROTECT-referenced by Project; safe now projects are gone.
+        Calendar.objects.all().delete()
+        WorkspaceExportJob.objects.all().delete()
+        Workspace.objects.all().delete()
 
 
 # ---------------------------------------------------------------------------

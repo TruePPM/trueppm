@@ -10,6 +10,10 @@ from trueppm_api.apps.workspace.views import (
     GroupMemberView,
     GroupProjectView,
     InviteAcceptView,
+    TransferOwnershipView,
+    WorkspaceExportDetailView,
+    WorkspaceExportDownloadView,
+    WorkspaceExportView,
     WorkspaceInviteDetailView,
     WorkspaceInviteListView,
     WorkspaceMemberDetailView,
@@ -18,8 +22,25 @@ from trueppm_api.apps.workspace.views import (
 )
 
 urlpatterns = [
-    # #517 — General settings (singleton)
+    # #517 — General settings (singleton); DELETE = hard delete (#641, ADR-0092)
     path("workspace/", WorkspaceSettingsView.as_view(), name="workspace-settings"),
+    # #641 — Lifecycle (ADR-0092)
+    path(
+        "workspace/transfer-ownership/",
+        TransferOwnershipView.as_view(),
+        name="workspace-transfer-ownership",
+    ),
+    path("workspace/export/", WorkspaceExportView.as_view(), name="workspace-export"),
+    path(
+        "workspace/export/<uuid:job_id>/",
+        WorkspaceExportDetailView.as_view(),
+        name="workspace-export-detail",
+    ),
+    path(
+        "workspace/export/<uuid:job_id>/download/",
+        WorkspaceExportDownloadView.as_view(),
+        name="workspace-export-download",
+    ),
     # #518 — Members
     path("workspace/members/", WorkspaceMemberListView.as_view(), name="workspace-members"),
     path(

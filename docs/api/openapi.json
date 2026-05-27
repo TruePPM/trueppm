@@ -14356,12 +14356,164 @@
                         "description": ""
                     }
                 }
+            },
+            "delete": {
+                "operationId": "v1_workspace_destroy",
+                "description": "Permanently delete the workspace and all its data (factory reset). Owner only. Requires the X-Confirm-Workspace header set to the exact workspace name.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Workspace purged and reset."
+                    }
+                }
             }
         },
         "/api/v1/workspace/email-settings/": {
             "get": {
                 "operationId": "v1_workspace_email_settings_retrieve",
                 "description": "``GET /api/v1/workspace/email-settings/`` — read-only Email & SMTP status.\n\nSurfaces how TruePPM sends outbound mail (#639, ADR-0085 §5). The transport is\nconfigured via Django settings / Helm env (``EMAIL_BACKEND``, ``EMAIL_HOST``,\n``DEFAULT_FROM_EMAIL`` …), so this endpoint exposes only the **safe** subset —\nnever the SMTP password or username — for the workspace admin to confirm the\nFrom identity and that a host is configured. Org-admin gated. The writable SMTP\nconfig (transport switch, BYO credentials) is #712.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/export/": {
+            "get": {
+                "operationId": "v1_workspace_export_list",
+                "description": "GET lists recent export jobs; POST queues a new full export (#641). Owner only.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/WorkspaceExportJob"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_workspace_export_create",
+                "description": "GET lists recent export jobs; POST queues a new full export (#641). Owner only.",
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkspaceExportJob"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/export/{job_id}/": {
+            "get": {
+                "operationId": "v1_workspace_export_retrieve",
+                "description": "GET /api/v1/workspace/export/{job_id}/ — poll an export's status (#641). Owner only.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "job_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkspaceExportJob"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/export/{job_id}/download/": {
+            "get": {
+                "operationId": "v1_workspace_export_download_retrieve",
+                "description": "GET /api/v1/workspace/export/{job_id}/download/ — stream the archive (#641).\n\nOwner only and authenticated — the archive contains every project's data, so it\nis never served from a raw, unauthenticated storage URL. ``409`` if not ready,\n``410 Gone`` once the link has expired.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "job_id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
                 "tags": [
                     "v1"
                 ],
@@ -15250,6 +15402,48 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/workspace/transfer-ownership/": {
+            "post": {
+                "operationId": "v1_workspace_transfer_ownership_create",
+                "description": "POST /api/v1/workspace/transfer-ownership/ — hand the workspace to a member.\n\nOwner only. The target must already be an active member; the current owner is\ndemoted to Admin (#641). Mirrors the project transfer action.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TransferOwnershipRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TransferOwnershipRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TransferOwnershipRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Ownership transferred."
                     }
                 }
             }
@@ -21887,6 +22081,18 @@
                     "refresh"
                 ]
             },
+            "TransferOwnershipRequest": {
+                "type": "object",
+                "description": "POST body for transfer-ownership.\n\n``new_owner_user_id`` is the stock ``auth.User`` integer PK (TruePPM has no\ncustom user model), not a UUID.",
+                "properties": {
+                    "new_owner_user_id": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "new_owner_user_id"
+                ]
+            },
             "UnitEnum": {
                 "enum": [
                     "days",
@@ -22209,6 +22415,84 @@
                     "started_at",
                     "started_by_id"
                 ]
+            },
+            "WorkspaceExportJob": {
+                "type": "object",
+                "description": "Read serializer for an export job's status and download affordance (#641).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/WorkspaceExportJobStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "file_size": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "error_detail": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "download_url": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Authenticated download path, present only once the archive is ready.\n\nReturns a relative API path (not a raw storage URL) so the archive is\nalways fetched through the owner-gated download endpoint (ADR-0092).",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "completed_at",
+                    "created_at",
+                    "download_url",
+                    "error_detail",
+                    "expires_at",
+                    "file_size",
+                    "id",
+                    "started_at",
+                    "status"
+                ]
+            },
+            "WorkspaceExportJobStatusEnum": {
+                "enum": [
+                    "pending",
+                    "running",
+                    "success",
+                    "failed"
+                ],
+                "type": "string",
+                "description": "* `pending` - Pending\n* `running` - Running\n* `success` - Success\n* `failed` - Failed"
             },
             "WorkspaceInvite": {
                 "type": "object",

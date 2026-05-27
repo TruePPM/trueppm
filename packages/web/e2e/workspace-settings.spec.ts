@@ -88,7 +88,13 @@ async function setup(page: Page) {
     r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj({ id: 'u1', username: 'alice', display_name: 'Alice', initials: 'AL', email: 'alice@truescope.io' }),
+      body: pj({
+        id: 'u1',
+        username: 'alice',
+        display_name: 'Alice',
+        initials: 'AL',
+        email: 'alice@truescope.io',
+      }),
     }),
   );
 
@@ -129,11 +135,19 @@ test.describe('Workspace General page', () => {
     await page.goto('/settings/general');
 
     // Monday should be pressed (true), Saturday should not
-    await expect(page.getByRole('button', { name: 'Monday' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByRole('button', { name: 'Saturday' })).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByRole('button', { name: 'Monday' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(page.getByRole('button', { name: 'Saturday' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
   });
 
-  test('golden path — PATCH dispatched when Save is triggered via name change', async ({ page }) => {
+  test('golden path — PATCH dispatched when Save is triggered via name change', async ({
+    page,
+  }) => {
     await setup(page);
     await page.route('**/api/v1/workspace/', (r) => {
       if (r.request().method() === 'PATCH') {
@@ -158,7 +172,9 @@ test.describe('Workspace General page', () => {
     }
   });
 
-  test('fiscal year — picking a preset chip dispatches the structured month/day', async ({ page }) => {
+  test('fiscal year — picking a preset chip dispatches the structured month/day', async ({
+    page,
+  }) => {
     await setup(page);
     let patchBody: Record<string, unknown> | undefined;
     await page.route('**/api/v1/workspace/', (r) => {
@@ -167,7 +183,11 @@ test.describe('Workspace General page', () => {
         return r.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: pj({ ...WORKSPACE, fiscal_year_start_month: 4, fiscal_year_start_display: 'April 1' }),
+          body: pj({
+            ...WORKSPACE,
+            fiscal_year_start_month: 4,
+            fiscal_year_start_display: 'April 1',
+          }),
         });
       }
       return r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) });
@@ -176,17 +196,25 @@ test.describe('Workspace General page', () => {
     await page.goto('/settings/general');
 
     // Loaded value is January 1 — that chip is pressed.
-    await expect(page.getByRole('button', { name: 'Jan 1' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: 'Jan 1' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
 
     // Switch to the April-1 preset, then save via the shell save bar.
     await page.getByRole('button', { name: 'Apr 1' }).click();
-    await expect(page.getByRole('button', { name: 'Apr 1' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: 'Apr 1' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     await page.getByRole('button', { name: /save/i }).click();
 
-    await expect.poll(() => patchBody).toMatchObject({
-      fiscal_year_start_month: 4,
-      fiscal_year_start_day: 1,
-    });
+    await expect
+      .poll(() => patchBody)
+      .toMatchObject({
+        fiscal_year_start_month: 4,
+        fiscal_year_start_day: 1,
+      });
   });
 
   test('fiscal year — Custom picker sends an oddball month/day (April 6)', async ({ page }) => {
@@ -198,7 +226,12 @@ test.describe('Workspace General page', () => {
         return r.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: pj({ ...WORKSPACE, fiscal_year_start_month: 4, fiscal_year_start_day: 6, fiscal_year_start_display: 'April 6' }),
+          body: pj({
+            ...WORKSPACE,
+            fiscal_year_start_month: 4,
+            fiscal_year_start_day: 6,
+            fiscal_year_start_display: 'April 6',
+          }),
         });
       }
       return r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) });
@@ -210,13 +243,18 @@ test.describe('Workspace General page', () => {
     await page.getByLabel('Fiscal year start month').selectOption('4');
     await page.getByLabel('Fiscal year start day').selectOption('6');
     // No preset matches April 6, so the Custom chip stays pressed.
-    await expect(page.getByRole('button', { name: 'Custom…' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('button', { name: 'Custom…' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     await page.getByRole('button', { name: /save/i }).click();
 
-    await expect.poll(() => patchBody).toMatchObject({
-      fiscal_year_start_month: 4,
-      fiscal_year_start_day: 6,
-    });
+    await expect
+      .poll(() => patchBody)
+      .toMatchObject({
+        fiscal_year_start_month: 4,
+        fiscal_year_start_day: 6,
+      });
   });
 
   test('error state — shows loading skeleton when workspace fetch is slow', async ({ page }) => {
@@ -224,7 +262,9 @@ test.describe('Workspace General page', () => {
     // Override catch-all: make /workspace/ return empty object to trigger loading state
     // by never resolving during test startup (checking skeleton visibility window).
     let resolve!: (value: unknown) => void;
-    const pending = new Promise((r) => { resolve = r; });
+    const pending = new Promise((r) => {
+      resolve = r;
+    });
 
     await page.route('**/api/v1/workspace/', async (r) => {
       await pending;
@@ -304,7 +344,9 @@ test.describe('Workspace Members page', () => {
     // Both member endpoints are covered by catch-all returning [] which triggers
     // a resolved-empty state. Test the loading state instead with a slow route.
     let resolve!: (value: unknown) => void;
-    const pending = new Promise((r) => { resolve = r; });
+    const pending = new Promise((r) => {
+      resolve = r;
+    });
 
     await page.route('**/api/v1/workspace/members/', async (r) => {
       await pending;
@@ -345,7 +387,11 @@ test.describe('Workspace Groups page', () => {
     await page.route('**/api/v1/workspace/groups/', (r) => {
       if (r.request().method() === 'POST') {
         postBody = r.request().postDataJSON();
-        return r.fulfill({ status: 201, contentType: 'application/json', body: pj({ ...GROUP, id: 'grp-new', name: 'Propulsion' }) });
+        return r.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: pj({ ...GROUP, id: 'grp-new', name: 'Propulsion' }),
+        });
       }
       return r.fulfill({ status: 200, contentType: 'application/json', body: pj([GROUP]) });
     });
@@ -373,7 +419,9 @@ test.describe('Workspace Groups page', () => {
   test('error-adjacent — shows skeleton when loading', async ({ page }) => {
     await setup(page);
     let resolve!: (value: unknown) => void;
-    const pending = new Promise((r) => { resolve = r; });
+    const pending = new Promise((r) => {
+      resolve = r;
+    });
 
     await page.route('**/api/v1/workspace/groups/', async (r) => {
       await pending;
@@ -384,5 +432,124 @@ test.describe('Workspace Groups page', () => {
 
     await expect(page.locator('.animate-pulse').first()).toBeVisible();
     resolve(undefined);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Workspace Danger page — transfer / export / delete (#641)
+// ---------------------------------------------------------------------------
+
+const DANGER_MEMBER = {
+  // Numeric id — real workspace member ids are the integer auth.User PK as a
+  // string, which the transfer select coerces with Number().
+  id: '2',
+  name: 'Bob Stone',
+  initials: 'BS',
+  color: '#C17A10',
+  email: 'bob@truescope.io',
+  role: 'Member',
+  role_value: 100,
+  groups: [],
+  project_count: 1,
+  last_active: '1d ago',
+  status: 'active',
+  sso: false,
+  two_fa: false,
+};
+
+async function setupDanger(page: Page) {
+  await setup(page);
+  await page.route('**/api/v1/workspace/members/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj([MEMBER, DANGER_MEMBER]) }),
+  );
+}
+
+test.describe('Workspace Danger page', () => {
+  test('golden path — delete is gated by typed confirmation and sends the confirm header', async ({
+    page,
+  }) => {
+    await setupDanger(page);
+    let confirmHeader: string | null = null;
+    await page.route('**/api/v1/workspace/', async (r) => {
+      if (r.request().method() === 'DELETE') {
+        confirmHeader = r.request().headers()['x-confirm-workspace'] ?? null;
+        return r.fulfill({ status: 204, body: '' });
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) });
+    });
+
+    await page.goto('/settings/danger');
+
+    const deleteBtn = page.getByRole('button', { name: 'Delete workspace permanently' });
+    await expect(deleteBtn).toBeDisabled();
+
+    const confirmInput = page.getByLabel(/Confirm delete by typing the workspace name/i);
+    await confirmInput.fill('wrong name');
+    await expect(deleteBtn).toBeDisabled();
+
+    await confirmInput.fill('TrueScope Aerospace');
+    await expect(deleteBtn).toBeEnabled();
+    await deleteBtn.click();
+
+    await page.waitForURL('**/login');
+    expect(confirmHeader).toBe('TrueScope Aerospace');
+  });
+
+  test('golden path — Export all data queues a job and shows the queued state', async ({
+    page,
+  }) => {
+    await setupDanger(page);
+    await page.route('**/api/v1/workspace/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) }),
+    );
+    let exportPosted = false;
+    await page.route('**/api/v1/workspace/export/', (r) => {
+      exportPosted = true;
+      return r.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: pj({ id: 'exp-1', status: 'pending', download_url: null }),
+      });
+    });
+    await page.route('**/api/v1/workspace/export/exp-1/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ id: 'exp-1', status: 'pending', download_url: null }),
+      }),
+    );
+
+    await page.goto('/settings/danger');
+    await page.getByRole('button', { name: 'Export all data' }).click();
+
+    expect(exportPosted).toBe(true);
+    await expect(page.getByText(/Export queued/i)).toBeVisible();
+  });
+
+  test('transfer — lists eligible members and dispatches the chosen owner', async ({ page }) => {
+    await setupDanger(page);
+    await page.route('**/api/v1/workspace/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(WORKSPACE) }),
+    );
+    let transferBody: Record<string, unknown> | undefined;
+    await page.route('**/api/v1/workspace/transfer-ownership/', (r) => {
+      transferBody = r.request().postDataJSON();
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ detail: 'Workspace ownership transferred.', new_owner_user_id: 2 }),
+      });
+    });
+
+    await page.goto('/settings/danger');
+
+    const transferBtn = page.getByRole('button', { name: /Transfer ownership/i });
+    await expect(transferBtn).toBeDisabled();
+    await page.getByLabel('New owner').selectOption('2');
+    await expect(transferBtn).toBeEnabled();
+    await transferBtn.click();
+
+    await expect(page.getByText(/ownership transferred/i)).toBeVisible();
+    expect(transferBody?.new_owner_user_id).toBe(2);
   });
 });

@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi } from 'vitest';
 import { WorkspaceGeneralPage } from './WorkspaceGeneralPage';
 import type { WorkspaceSettings } from '../hooks/useWorkspaceSettings';
@@ -33,16 +34,25 @@ vi.mock('@/hooks/useEdition', () => ({
   useEdition: vi.fn(() => ({ edition: 'community', isLoading: false })),
 }));
 
+// A <Link> to the danger page needs a Router context.
+function renderPage() {
+  return render(
+    <MemoryRouter>
+      <WorkspaceGeneralPage />
+    </MemoryRouter>,
+  );
+}
+
 describe('WorkspaceGeneralPage — unwired buttons (#791, #641, Enterprise)', () => {
   it('treats "View change history" as an Enterprise affordance (disabled + EE badge)', () => {
-    render(<WorkspaceGeneralPage />);
+    renderPage();
     expect(screen.getByRole('button', { name: 'View change history' })).toBeDisabled();
     const ee = screen.getByRole('link', { name: /Available in TruePPM Enterprise/i });
     expect(ee).toHaveAttribute('href', 'https://trueppm.com/enterprise');
   });
 
   it('disables the unwired OSS buttons (logo replace + add calendar) with the #791 reference', () => {
-    render(<WorkspaceGeneralPage />);
+    renderPage();
     const replace = screen.getByRole('button', { name: 'Replace' });
     const addCalendar = screen.getByRole('button', { name: '+ Add calendar' });
     expect(replace).toBeDisabled();
@@ -51,20 +61,17 @@ describe('WorkspaceGeneralPage — unwired buttons (#791, #641, Enterprise)', ()
     expect(addCalendar).toHaveAttribute('title', expect.stringContaining('#791'));
   });
 
-  it('disables the danger-zone actions until the lifecycle endpoints (#641) ship', () => {
-    render(<WorkspaceGeneralPage />);
-    // Disabled via the StubFieldset wrapper; jest-dom resolves the disabled
-    // ancestor fieldset for each descendant button.
-    expect(screen.getByRole('button', { name: 'Export all data' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Transfer ownership' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Delete workspace…' })).toBeDisabled();
-    // The #641 tracking link is reachable (outside the disabled fieldset).
-    const link = screen.getByRole('link', { name: '#641' });
-    expect(link).toHaveAttribute('href', expect.stringContaining('/issues/641'));
+  it('points the danger zone at the dedicated Archive / Delete page (#641 wired)', () => {
+    renderPage();
+    const link = screen.getByRole('link', { name: /Go to Archive \/ Delete/i });
+    expect(link).toHaveAttribute('href', '/settings/danger');
+    // The old "in progress (#641)" stub and its disabled buttons are gone.
+    expect(screen.queryByRole('button', { name: 'Export all data' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete workspace…' })).not.toBeInTheDocument();
   });
 
   it('keeps the wired controls (workspace name input) interactive', () => {
-    render(<WorkspaceGeneralPage />);
+    renderPage();
     expect(screen.getByDisplayValue('TrueScope')).toBeEnabled();
   });
 });

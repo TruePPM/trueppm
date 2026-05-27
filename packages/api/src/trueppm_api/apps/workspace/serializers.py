@@ -16,9 +16,11 @@ from rest_framework import serializers
 from trueppm_api.apps.access.models import Role
 from trueppm_api.apps.workspace.models import (
     _MONTH_NAMES,
+    ExportJobStatus,
     Group,
     MemberStatus,
     Workspace,
+    WorkspaceExportJob,
     WorkspaceRole,
 )
 
@@ -276,3 +278,49 @@ class GroupProjectWriteSerializer(serializers.Serializer[Any]):
         if value >= Role.OWNER:
             raise serializers.ValidationError("A group cannot confer the Owner role.")
         return value
+
+
+# ---------------------------------------------------------------------------
+# #641 — Workspace lifecycle (ADR-0092)
+# ---------------------------------------------------------------------------
+
+
+class TransferOwnershipSerializer(serializers.Serializer[Any]):
+    """POST body for transfer-ownership.
+
+    ``new_owner_user_id`` is the stock ``auth.User`` integer PK (TruePPM has no
+    custom user model), not a UUID.
+    """
+
+    new_owner_user_id = serializers.IntegerField()
+
+
+class WorkspaceExportJobSerializer(serializers.ModelSerializer[WorkspaceExportJob]):
+    """Read serializer for an export job's status and download affordance (#641)."""
+
+    download_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = WorkspaceExportJob
+        fields = [
+            "id",
+            "status",
+            "file_size",
+            "error_detail",
+            "expires_at",
+            "created_at",
+            "started_at",
+            "completed_at",
+            "download_url",
+        ]
+        read_only_fields = fields
+
+    def get_download_url(self, obj: WorkspaceExportJob) -> str | None:
+        """Authenticated download path, present only once the archive is ready.
+
+        Returns a relative API path (not a raw storage URL) so the archive is
+        always fetched through the owner-gated download endpoint (ADR-0092).
+        """
+        if obj.status != ExportJobStatus.SUCCESS:
+            return None
+        return f"/api/v1/workspace/export/{obj.id}/download/"

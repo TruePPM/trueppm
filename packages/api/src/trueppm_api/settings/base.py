@@ -290,6 +290,19 @@ CELERY_BEAT_SCHEDULE = {
         # 04:15 UTC — after the other nightly purge jobs.
         "schedule": crontab(hour=4, minute=15),
     },
+    # Re-dispatch workspace export jobs orphaned by a broker outage at on_commit
+    # (ADR-0092 §Durable Execution item 2; 5-min orphan window inside the task).
+    "drain-workspace-exports": {
+        "task": "workspace.drain_workspace_exports",
+        "schedule": 30.0,
+    },
+    # Nightly: delete export jobs past their download-link expiry and their files
+    # (ADR-0092 §Durable Execution item 6).
+    "purge-expired-exports": {
+        "task": "workspace.purge_expired_exports",
+        # 04:20 UTC — after purge-stale-invites.
+        "schedule": crontab(hour=4, minute=20),
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -457,6 +470,12 @@ TRUEPPM_WEBHOOK_RETENTION_DAYS: int | None = env.int("TRUEPPM_WEBHOOK_RETENTION_
 # Retention window in days for terminal (DONE/DEAD) ImportRequest rows. These
 # carry multi-MB file_content_b64 blobs. Set to None to disable the nightly purge.
 TRUEPPM_IMPORT_RETENTION_DAYS: int | None = env.int("TRUEPPM_IMPORT_RETENTION_DAYS", default=7)
+
+# Download-link validity (days) for a completed WorkspaceExportJob; past this the
+# nightly purge deletes the job row and its stored archive (ADR-0092). The full
+# archive can be large and contains every project's data, so it is not kept
+# indefinitely. Set to None to disable expiry/purge (links never lapse).
+TRUEPPM_EXPORT_RETENTION_DAYS: int | None = env.int("TRUEPPM_EXPORT_RETENTION_DAYS", default=7)
 
 # Age in seconds past which the Beat heartbeat is considered stale. Drives both
 # the GET /api/v1/health/beat/ stale flag and the beat.check_stale_heartbeat
