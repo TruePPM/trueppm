@@ -502,6 +502,21 @@ helm:lint:
   <<: *rules-helm
   script:
     - helm lint packages/helm/
+    # Guard the bug class from #777: a `DJANGO_SETTINGS_MODULE` typo in the chart
+    # (e.g. `settings.production` vs the real `settings.prod`) crash-loops every
+    # fresh deploy yet passes `helm lint` silently. Verify every settings module
+    # the chart names actually exists in packages/api. Dependency-free (no
+    # `helm template`, which would require the subcharts to be built first).
+    - |
+      fail=0
+      for mod in $(grep -rhoE 'trueppm_api\.settings\.[a-z_]+' packages/helm/ | sort -u); do
+        f="packages/api/src/$(echo "$mod" | tr '.' '/').py"
+        if [ ! -f "$f" ]; then
+          echo "ERROR: chart references settings module '$mod' but $f does not exist"
+          fail=1
+        fi
+      done
+      [ "$fail" -eq 0 ] || exit 1
 
 # ---------------------------------------------------------------------------
 # ANALYZE — type-check, static analysis, migration/schema validation.

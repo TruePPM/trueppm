@@ -357,7 +357,7 @@ INTEGRATION_ENCRYPTION_KEY: str = env(
 
 # ---------------------------------------------------------------------------
 # Monte Carlo simulation caps (OSS tier)
-# Set to None for unlimited (Team tier overrides these in enterprise settings).
+# Set to None for unlimited (Enterprise overrides these in enterprise settings).
 # ---------------------------------------------------------------------------
 
 MC_SIMULATION_CAP: int | None = 1_000
@@ -517,7 +517,7 @@ IDEMPOTENCY_MAX_BODY_BYTES: int = env.int("IDEMPOTENCY_MAX_BODY_BYTES", default=
 SPECTACULAR_SETTINGS = {
     "TITLE": "TruePPM API",
     "DESCRIPTION": "REST API for the TruePPM project scheduling platform.",
-    "VERSION": "0.1.0",
+    "VERSION": "0.2.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "COMPONENT_SPLIT_REQUEST": True,
     # Pin state-enum names (ADR-0090). PurgeRun.state shares the field name "state"
