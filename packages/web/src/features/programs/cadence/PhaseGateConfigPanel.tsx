@@ -85,7 +85,7 @@ export function PhaseGateConfigPanel({
         role="dialog"
         aria-modal="true"
         aria-labelledby="phase-gate-panel-title"
-        className="w-full max-w-[440px] h-full bg-neutral-surface-raised border-l border-neutral-border shadow-xl flex flex-col"
+        className="w-full max-w-[440px] h-full bg-neutral-surface-raised border-l border-neutral-border flex flex-col"
       >
         <header className="px-5 py-3 border-b border-neutral-border/55">
           <div className="flex items-start justify-between gap-2">

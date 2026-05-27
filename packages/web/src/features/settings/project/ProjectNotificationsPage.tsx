@@ -62,7 +62,7 @@ export function ProjectNotificationsPage() {
           title="Notifications"
           subtitle="Per-project routing rules. Members can override these in their personal preferences."
         />
-        <div className="px-6 pb-8 text-[13px] text-status-danger" role="alert">
+        <div className="px-6 pb-8 text-[13px] text-semantic-critical" role="alert">
           Failed to load preferences. Try refreshing the page.
         </div>
       </div>
@@ -224,7 +224,7 @@ function Toggle({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void
     >
       <span
         className={[
-          'inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform',
+          'inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform',
           on ? 'translate-x-3.5' : 'translate-x-0.5',
         ].join(' ')}
       />

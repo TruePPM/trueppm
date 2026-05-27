@@ -47,7 +47,7 @@ function Toggle({
     >
       <span
         className={[
-          'inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform',
+          'inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform',
           on ? 'translate-x-3.5' : 'translate-x-0.5',
         ].join(' ')}
       />
@@ -119,7 +119,7 @@ function CeremonyRow({
           <div
             role="menu"
             tabIndex={-1}
-            className="absolute right-0 top-full mt-1 z-10 min-w-[140px] rounded-md border border-neutral-border bg-neutral-surface-raised shadow-md py-1 text-[13px]"
+            className="absolute right-0 top-full mt-1 z-10 min-w-[140px] rounded-md border border-neutral-border bg-neutral-surface-raised py-1 text-[13px]"
             onMouseLeave={() => setMenuOpen(false)}
           >
             <button

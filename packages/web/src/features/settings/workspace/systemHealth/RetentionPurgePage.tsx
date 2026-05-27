@@ -328,7 +328,7 @@ function ConfirmRunDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={bodyId}
-        className="w-full max-w-md rounded-lg bg-neutral-surface-raised border border-neutral-border p-5 shadow-xl"
+        className="w-full max-w-md rounded-lg bg-neutral-surface-raised border border-neutral-border p-5"
       >
         <h2 id={titleId} className="text-[15px] font-semibold text-neutral-text-primary">
           Run purge now?

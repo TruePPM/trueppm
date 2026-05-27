@@ -70,7 +70,7 @@ function PreviewBar({ result, scales, scrollLeft, rowIndex, showCpBadge }: Previ
       {/* CP badge — non-color signal for critical-path flip (rule 26) */}
       {result.isCritical && showCpBadge && (
         <span
-          className="absolute -top-3 right-0 text-[9px] font-bold leading-none px-0.5 py-px rounded-sm bg-semantic-critical text-neutral-text-inverse"
+          className="absolute -top-3 right-0 text-[10px] font-bold leading-none px-0.5 py-px rounded-sm bg-semantic-critical text-neutral-text-inverse"
           aria-hidden="true"
         >
           CP

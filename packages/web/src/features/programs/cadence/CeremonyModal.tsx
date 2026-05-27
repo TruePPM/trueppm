@@ -189,7 +189,7 @@ export function CeremonyModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="ceremony-modal-title"
-        className="w-full max-w-[520px] rounded-lg bg-neutral-surface-raised border border-neutral-border shadow-xl"
+        className="w-full max-w-[520px] rounded-lg bg-neutral-surface-raised border border-neutral-border"
       >
         <header className="px-5 py-3 border-b border-neutral-border/55">
           <h2

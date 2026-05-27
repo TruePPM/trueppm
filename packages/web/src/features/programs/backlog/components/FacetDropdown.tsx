@@ -88,7 +88,7 @@ export function FacetDropdown({
           id={menuId}
           role="menu"
           aria-label={`Filter by ${label.toLowerCase()}`}
-          className="absolute left-0 top-[calc(100%+4px)] z-20 min-w-[200px] rounded-md border border-neutral-border bg-neutral-surface py-1 shadow-lg"
+          className="absolute left-0 top-[calc(100%+4px)] z-20 min-w-[200px] rounded-md border border-neutral-border bg-neutral-surface py-1"
         >
           {searchable && (
             <div className="px-2 pb-1">
@@ -119,7 +119,7 @@ export function FacetDropdown({
                   >
                     <span
                       aria-hidden="true"
-                      className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border text-[9px] ${
+                      className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border text-[10px] ${
                         checked
                           ? 'border-brand-primary bg-brand-primary text-white'
                           : 'border-neutral-border bg-neutral-surface'
