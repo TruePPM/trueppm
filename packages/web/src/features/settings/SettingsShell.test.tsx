@@ -236,6 +236,66 @@ describe('<SettingsShell>', () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
+  describe('context switcher (#776)', () => {
+    const CONTEXT_OPTIONS = [
+      { id: 'p1', name: 'test',  health: 'onTrack' as const, to: '/projects/p1/settings/general' },
+      { id: 'p2', name: 'test2', health: 'critical' as const, to: '/projects/p2/settings/general' },
+    ];
+
+    function renderWithOptions(options = CONTEXT_OPTIONS) {
+      return render(
+        <MemoryRouter initialEntries={['/projects/p1/settings/general']}>
+          <Routes>
+            <Route
+              path="/projects/p1/settings/*"
+              element={
+                <SettingsShell
+                  scope="project"
+                  scopeLinks={SCOPE_LINKS}
+                  contextName="test"
+                  contextHealth="onTrack"
+                  contextOptions={options}
+                  contextActiveId="p1"
+                  navGroups={NAV_GROUPS}
+                />
+              }
+            >
+              <Route path="general" element={<div>GENERAL_PAGE</div>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>,
+      );
+    }
+
+    it('renders the switcher trigger when 2+ options are provided', () => {
+      renderWithOptions();
+      expect(screen.getByRole('button', { name: /Switch project/ })).toBeInTheDocument();
+    });
+
+    it('renders a static context name (no switcher) with fewer than 2 options', () => {
+      renderWithOptions([CONTEXT_OPTIONS[0]]);
+      expect(screen.queryByRole('button', { name: /Switch project/ })).not.toBeInTheDocument();
+      // The name is still shown, just not as a switch trigger.
+      expect(screen.getByText('test')).toBeInTheDocument();
+    });
+
+    it('switching context while dirty routes through the confirm-discard guard', () => {
+      renderWithOptions();
+      act(() => {
+        useSettingsSaveStore.getState().register({
+          dirty: true,
+          apiReady: true,
+          onSave: vi.fn().mockResolvedValue(undefined),
+          onReset: vi.fn(),
+        });
+      });
+      fireEvent.click(screen.getByRole('button', { name: /Switch project/ }));
+      fireEvent.click(screen.getByRole('menuitemradio', { name: /test2/ }));
+      // The dirty guard intercepts the entity switch.
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+    });
+  });
+
   describe('copy-link affordance (#595)', () => {
     function withClipboard(write: ReturnType<typeof vi.fn>) {
       const original = navigator.clipboard;

@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useSettingsSaveStore } from './hooks/useSettingsSaveStore';
 import { ConfirmDiscardDialog } from './components/ConfirmDiscardDialog';
+import { SettingsContextSwitcher, type SettingsContextOption } from './SettingsContextSwitcher';
 import { formatRelative } from '../../lib/formatRelative';
+
+export type { SettingsContextOption } from './SettingsContextSwitcher';
 
 export interface SettingsNavItem {
   id: string;
@@ -31,6 +34,10 @@ interface SettingsShellProps {
   contextName: string;
   /** Health dot for project/program context — omit for workspace */
   contextHealth?: 'onTrack' | 'atRisk' | 'critical' | null;
+  /** Sibling entities in the current scope; renders the context-switcher when >= 2 (#776). */
+  contextOptions?: SettingsContextOption[];
+  /** The current entity's id within `contextOptions` (gets the checkmark). */
+  contextActiveId?: string;
   /** Nav groups for the left rail */
   navGroups: SettingsNavGroup[];
 }
@@ -55,6 +62,8 @@ export function SettingsShell({
   scopeLinks,
   contextName,
   contextHealth,
+  contextOptions,
+  contextActiveId,
   navGroups,
 }: SettingsShellProps) {
   const navigate = useNavigate();
@@ -187,22 +196,41 @@ export function SettingsShell({
             ))}
           </div>
 
-          {/* Context selector */}
+          {/* Context selector. When >= 2 sibling entities exist it becomes a
+              switcher (#776) so you can jump straight to another program's /
+              project's settings; otherwise it's a static identity row (no
+              chevron — never advertise a switch that can't happen). */}
           <div className="mt-2 px-2 py-1.5 rounded flex items-center gap-1.5 bg-neutral-surface-sunken border border-neutral-border/55 text-xs min-w-0">
-            {contextHealth ? (
-              <span
-                className={`w-2 h-2 rounded-full shrink-0 ${HEALTH_COLOR[contextHealth] ?? 'bg-neutral-text-disabled'}`}
-                aria-hidden="true"
+            {contextOptions && contextOptions.length >= 2 ? (
+              <SettingsContextSwitcher
+                contextName={contextName}
+                contextHealth={contextHealth}
+                options={contextOptions}
+                activeId={contextActiveId}
+                entityLabel={scope}
+                onSelect={(to) => {
+                  if (guardedNavigate(to)) return;
+                  void navigate(to);
+                }}
               />
             ) : (
-              <span
-                className="w-3.5 h-3.5 rounded bg-brand-primary shrink-0 inline-flex items-center justify-center text-white text-[10px] font-bold"
-                aria-hidden="true"
-              >
-                tP
-              </span>
+              <>
+                {contextHealth ? (
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${HEALTH_COLOR[contextHealth] ?? 'bg-neutral-text-disabled'}`}
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <span
+                    className="w-3.5 h-3.5 rounded bg-brand-primary shrink-0 inline-flex items-center justify-center text-white text-[9px] font-bold"
+                    aria-hidden="true"
+                  >
+                    tP
+                  </span>
+                )}
+                <span className="flex-1 truncate text-neutral-text-primary font-medium">{contextName}</span>
+              </>
             )}
-            <span className="flex-1 truncate text-neutral-text-primary font-medium">{contextName}</span>
             <button
               type="button"
               onClick={handleCopyLink}
@@ -231,16 +259,6 @@ export function SettingsShell({
                 Link copied to clipboard
               </span>
             )}
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 16 16"
-              fill="currentColor"
-              className="shrink-0 text-neutral-text-disabled"
-              aria-hidden="true"
-            >
-              <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-            </svg>
           </div>
         </div>
 

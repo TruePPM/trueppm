@@ -153,6 +153,48 @@ test.describe('Program Settings → General', () => {
     await expect(page.getByRole('link', { name: 'Risk policy' })).toBeVisible();
   });
 
+  // #776: the context pill is a switcher — from one program's settings you can
+  // jump straight to another program's settings (preserving the sub-page),
+  // instead of having no path to it.
+  test('context pill switches to another program\'s settings', async ({ page }) => {
+    const captures: { patch?: Record<string, unknown> } = {};
+    await setup(page, captures);
+
+    const PROGRAM_2 = 'e2e-program-00000000-0000-0000-0000-000000000524';
+    const pj = (d: unknown) => JSON.stringify(d);
+    const FIXTURE_PROGRAM_2 = {
+      ...FIXTURE_PROGRAM,
+      id: PROGRAM_2,
+      name: 'Phase 3 Rollout',
+      code: 'PH3',
+      health: 'ON_TRACK',
+    };
+    // Two programs → the switcher renders (registered after setup so it wins).
+    await page.route('**/api/v1/programs/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ results: [FIXTURE_PROGRAM, FIXTURE_PROGRAM_2], count: 2, next: null, previous: null }),
+      }),
+    );
+    await page.route(`**/api/v1/programs/${PROGRAM_2}/`, (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROGRAM_2) }),
+    );
+
+    await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
+    await expect(page.getByLabel('Program name')).toHaveValue('Phase 2 Modernization');
+
+    // Open the switcher and pick the other program.
+    await page.getByRole('button', { name: /Switch program/ }).click();
+    await expect(page.getByRole('menu', { name: 'Switch program' })).toBeVisible();
+    await page.getByRole('menuitemradio', { name: /Phase 3 Rollout/ }).click();
+
+    // Navigated to program 2's settings, same sub-page (general).
+    await page.waitForURL(`**/programs/${PROGRAM_2}/settings/general`);
+    await expect(page.getByLabel('Program name')).toHaveValue('Phase 3 Rollout');
+    await expect(page.getByRole('button', { name: /Current program: Phase 3 Rollout/ })).toBeVisible();
+  });
+
   test('discard reverts edited fields to the seeded snapshot', async ({ page }) => {
     const captures: { patch?: Record<string, unknown> } = {};
     await setup(page, captures);

@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react';
-import { Navigate, useParams } from 'react-router';
+import { Navigate, useLocation, useParams } from 'react-router';
+import type { ProgramHealth } from '@/api/types';
 import { useProgram } from '@/hooks/useProgram';
+import { usePrograms } from '@/hooks/usePrograms';
 import { useProjects } from '@/hooks/useProjects';
-import { SettingsShell, type SettingsNavGroup } from './SettingsShell';
+import { SettingsShell, type SettingsContextOption, type SettingsNavGroup } from './SettingsShell';
 import {
   OverviewIcon,
   WbsIcon,
@@ -18,6 +20,22 @@ function NavIcon({ children }: { children: ReactNode }) {
   return <span className="w-4 h-4 inline-flex items-center justify-center shrink-0">{children}</span>;
 }
 
+/** Map a program's health override to the settings pill dot; AUTO → neutral. */
+function programHealthDot(health?: ProgramHealth): 'onTrack' | 'atRisk' | 'critical' | null {
+  switch (health) {
+    case 'ON_TRACK': return 'onTrack';
+    case 'AT_RISK':  return 'atRisk';
+    case 'CRITICAL': return 'critical';
+    default:         return null; // AUTO / undefined
+  }
+}
+
+/** Sub-page segment after /settings/, defaulting to general — preserved when
+    switching to another program's settings so the user stays on the same tab. */
+function settingsSubPage(pathname: string): string {
+  return pathname.split('/settings/')[1]?.split('/')[0] || 'general';
+}
+
 /**
  * Program settings layout — renders the shared SettingsShell with program-scoped
  * nav groups and the page Outlet. Lives at /programs/:programId/settings/*.
@@ -25,11 +43,23 @@ function NavIcon({ children }: { children: ReactNode }) {
 export function ProgramSettingsPage() {
   const { programId } = useParams<{ programId: string }>();
   const { data: program } = useProgram(programId);
+  const { data: programs } = usePrograms();
   const { data: projects } = useProjects();
+  const { pathname } = useLocation();
 
   if (!programId) return null;
 
   const firstProjectId = projects?.[0]?.id;
+
+  // Sibling-program switcher options (#776) — preserve the current sub-page so
+  // switching from test → test2 lands on the same settings tab.
+  const subPage = settingsSubPage(pathname);
+  const contextOptions: SettingsContextOption[] = (programs ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    health: programHealthDot(p.health),
+    to: `/programs/${p.id}/settings/${subPage}`,
+  }));
 
   const navGroups: SettingsNavGroup[] = [
     {
@@ -66,7 +96,9 @@ export function ProgramSettingsPage() {
         { scope: 'project',   label: 'Project',   to: firstProjectId ? `/projects/${firstProjectId}/settings/general` : '/' },
       ]}
       contextName={program?.name ?? 'Program settings'}
-      contextHealth="onTrack"
+      contextHealth={programHealthDot(program?.health)}
+      contextOptions={contextOptions}
+      contextActiveId={programId}
       navGroups={navGroups}
     />
   );
