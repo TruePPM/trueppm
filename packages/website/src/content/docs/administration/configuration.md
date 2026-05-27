@@ -37,6 +37,10 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `HISTORY_RETENTION_DAYS` | `90` | How many days of object-change history to keep. Records older than this are purged nightly by Celery beat. Set to `0` to disable automatic purging entirely (enterprise unlimited-retention tier does this). |
 | `TASK_RUN_RETENTION_DAYS` | `30` | How many days of completed/failed/cancelled Celery task-run records to keep before the nightly purge. Set to `0` to disable. |
 | `VITE_FEATURE_FLAGS` | `{}` | Build-time JSON blob of feature flag overrides for the React frontend, e.g. `'{"schedule_build_mode_v1":true}'`. Set in `packages/web/.env` or `.env.production` before `npm run build`. Per-user `localStorage` overrides win over this default at runtime. |
+| `INTEGRATION_ENCRYPTION_KEY` | _(empty)_ | Fernet key used to encrypt stored integration credentials (connected-account PATs). **Required once any user connects an account** — the app raises `ImproperlyConfigured` on first integration use if unset. Generate with `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. |
+| `TRUEPPM_DEFAULT_FILE_STORAGE` | `django.core.files.storage.FileSystemStorage` | Backend for task-attachment storage. The local default is **ephemeral in a container** — uploads are lost on every pod restart. Point this at a persistent object-storage backend for production, e.g. `storages.backends.s3.S3Storage`. |
+| `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` | `false` | Operator opt-in to run production on the local `FileSystemStorage` default (e.g. when local disk is backed by a persistent volume). `prod` refuses to boot on local storage unless this is `true` or `TRUEPPM_DEFAULT_FILE_STORAGE` is set to a remote backend. |
+| `CSRF_TRUSTED_ORIGINS` | _(empty)_ | Comma-separated origins (scheme included) trusted for cross-origin POST/CSRF. Required only for split-origin deploys where the web app and API are served from different hostnames, e.g. `https://app.example.com,https://api.example.com`. |
 
 ## First user setup
 

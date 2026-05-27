@@ -25,7 +25,7 @@ valkey:
     enabled: false
 
 env:
-  DJANGO_SETTINGS_MODULE: trueppm_api.settings.production
+  DJANGO_SETTINGS_MODULE: trueppm_api.settings.prod
   DATABASE_URL: postgres://trueppm:trueppm@trueppm-postgresql:5432/trueppm
   # Valkey is wire-compatible with Redis 7.2; the `redis://` URL scheme works
   # against the Valkey service. The env var name is intentionally kept as

@@ -204,7 +204,7 @@ class TestMonteCarloEndpoint:
         pert_task: Task,
         settings: object,
     ) -> None:
-        """MC_SIMULATION_CAP=None allows any n_simulations (Team tier)."""
+        """MC_SIMULATION_CAP=None allows any n_simulations (Enterprise)."""
         settings.MC_SIMULATION_CAP = None  # type: ignore[attr-defined]
         r = member_client.post(
             f"/api/v1/projects/{project.pk}/monte-carlo/",
