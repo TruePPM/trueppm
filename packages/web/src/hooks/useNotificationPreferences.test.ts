@@ -51,14 +51,22 @@ describe('useNotificationPreferences', () => {
     vi.clearAllMocks();
   });
 
-  it('fetches the preference matrix', async () => {
-    getMock.mockResolvedValue({ data: rows });
+  it('unwraps the paginated envelope into a flat preference array (#792)', async () => {
+    // The real list endpoint returns the DRF PageNumberPagination envelope,
+    // not a bare array. The previous mock returned `{ data: rows }`, which let
+    // the hook ship returning the envelope object — `for...of preferences` then
+    // threw "preferences is not iterable" and crashed the page.
+    getMock.mockResolvedValue({
+      data: { count: rows.length, next: null, previous: null, results: rows },
+    });
     const { result } = renderHook(() => useNotificationPreferences(), {
       wrapper: makeWrapper(newQc()),
     });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(getMock).toHaveBeenCalledWith('/me/notification-preferences/');
     expect(result.current.preferences).toEqual(rows);
+    // Guard the crash directly: the result must be iterable.
+    expect(Array.isArray(result.current.preferences)).toBe(true);
   });
 });
 
