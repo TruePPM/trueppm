@@ -424,24 +424,26 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         Requires Resource Manager role (SCHEDULER ≥ 2).
 
         Query parameters:
-          start (YYYY-MM-DD) — window start, inclusive; defaults to 8 weeks
-                               before today to prevent unbounded full-span scans.
-          end   (YYYY-MM-DD) — window end, inclusive; defaults to 8 weeks after
-                               today.
+          start (YYYY-MM-DD) — window start, inclusive; defaults to the near-term
+                               window start (see below).
+          end   (YYYY-MM-DD) — window end, inclusive; defaults to the near-term
+                               window end (see below).
 
-        When the caller omits ``start``/``end`` the window is capped at ±8 weeks
-        from today.  Pass explicit bounds to request a wider range (up to the
-        full project span).  This prevents O(assignments × days) expansion on
-        multi-year projects for the common landing-page request that only needs
-        the near-term view.
+        When the caller omits ``start``/``end`` the default is a *near-term heat
+        map*: anchored on today, capped at ±8 weeks, and clamped into the project
+        CPM span ``[first early_start, last early_finish]``.  Clamping the anchor
+        into the span means a project scheduled entirely in the past or future
+        still returns its nearest real working days instead of an empty window
+        (an unclamped today ± 8 weeks produced exactly that — #772).  The ±8-week
+        cap keeps the per-day expansion at O(assignments × ~16 weeks) instead of
+        O(assignments × full multi-year span).  Pass explicit bounds to request a
+        wider range (up to the full project span).
 
         Returns 409 when no CPM dates exist on any task (scheduler not run yet).
         """
         from trueppm_api.apps.projects.utilization import compute_utilization
 
-        # Default rolling window: ±8 weeks from today.  Explicit params can
-        # widen or narrow this freely — the cap only applies when the caller
-        # omits the parameter entirely.
+        # Half-width of the default near-term window (today ± this many weeks).
         _DEFAULT_WINDOW_WEEKS = 8
 
         project = self.get_object()  # handles 404 + object-level permission check
@@ -457,16 +459,16 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
                 raise ValueError(f"'{param}' must be a valid ISO 8601 date (YYYY-MM-DD).") from None
 
         try:
-            if start_str:
+            if start_str and end_str:
+                # Caller fully specifies the window — no CPM-span lookup needed.
                 window_start = _parse_date(start_str, "start")
+                window_end = _parse_date(end_str, "end")
             else:
-                # Default: 8 weeks before today rather than the full project span
-                # to prevent O(assignments × days) Python expansion on multi-year
-                # projects when the UI only needs the near-term heat map.
-                today = datetime.date.today()
-                window_start = today - datetime.timedelta(weeks=_DEFAULT_WINDOW_WEEKS)
-                # Clamp to the earliest CPM date so we don't return empty spans
-                # before the schedule starts.
+                # At least one bound is defaulted: derive the near-term window
+                # from the CPM span. The min/max aggregates are cheap, indexed
+                # single-row lookups — the expensive part the perf fix targets is
+                # the per-day expansion in compute_utilization, which the ±8-week
+                # cap below bounds regardless of project length.
                 first = (
                     project.tasks.filter(is_deleted=False, early_start__isnull=False)
                     .order_by("early_start")
@@ -478,14 +480,21 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
                         {"detail": "Schedule has not been computed. Run the scheduler first."},
                         status=status.HTTP_409_CONFLICT,
                     )
-                window_start = max(window_start, first)
-
-            if end_str:
-                window_end = _parse_date(end_str, "end")
-            else:
-                # Default: 8 weeks after today.
-                today = datetime.date.today()
-                window_end = today + datetime.timedelta(weeks=_DEFAULT_WINDOW_WEEKS)
+                last = (
+                    project.tasks.filter(is_deleted=False, early_finish__isnull=False)
+                    .order_by("-early_finish")
+                    .values_list("early_finish", flat=True)
+                    .first()
+                ) or first
+                # Anchor on today, but clamp the anchor into [first, last] so a
+                # schedule entirely in the past or future still yields its nearest
+                # real days rather than an empty window.
+                anchor = min(max(datetime.date.today(), first), last)
+                window = datetime.timedelta(weeks=_DEFAULT_WINDOW_WEEKS)
+                window_start = (
+                    _parse_date(start_str, "start") if start_str else max(anchor - window, first)
+                )
+                window_end = _parse_date(end_str, "end") if end_str else min(anchor + window, last)
 
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)

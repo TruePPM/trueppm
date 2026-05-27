@@ -964,11 +964,12 @@ def test_comment_list_query_count_does_not_scale_with_acknowledgements(
     CommentAcknowledgement.objects.create(comment=c1, user=member2)
     CommentReaction.objects.create(comment=c2, user=member, emoji="👍")
 
-    # Baseline: 2 comments
+    # Baseline: 2 comments. The list endpoint is paginated, so the comments are
+    # under the "results" key of the page envelope, not the top level.
     with CaptureQueriesContext(connection) as ctx_2:
         resp = client.get(url)
     assert resp.status_code == 200
-    assert len(resp.data) == 2
+    assert len(resp.data["results"]) == 2
     baseline_count = len(ctx_2.captured_queries)
 
     # Add 8 more comments with acks — total 10 comments.
@@ -979,7 +980,7 @@ def test_comment_list_query_count_does_not_scale_with_acknowledgements(
     with CaptureQueriesContext(connection) as ctx_10:
         resp = client.get(url)
     assert resp.status_code == 200
-    assert len(resp.data) == 10
+    assert len(resp.data["results"]) == 10
 
     # Query count must not grow proportionally with the number of comments.
     # Allow a small fixed slack (e.g. pagination) but not 8 extra queries.
