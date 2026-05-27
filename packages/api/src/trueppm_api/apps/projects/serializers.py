@@ -258,6 +258,51 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
 
         return value
 
+    # Fields a sub-Admin (Scheduler) member may change on an existing project.
+    # Everything else under this serializer is a Project Manager concern, so this
+    # is an explicit allowlist — any new writable field is Admin-only by default
+    # until deliberately added here (#769; ADR-0041 estimation governance).
+    _SCHEDULER_WRITABLE_FIELDS = frozenset({"methodology", "estimation_mode"})
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Field-level governance for edits below Admin (#769).
+
+        The viewset gates update/partial_update at Scheduler+, so Viewer/Member
+        never reach here. A Scheduler may change only the scheduling-governance
+        fields (methodology, estimation_mode); attempting to change a general
+        project setting (name, dates, calendar, …) is rejected with 400 rather
+        than silently dropped. Admin+ bypasses the check. ``program`` carries its
+        own ADR-0070 gate in ``validate_program`` and is not re-checked here.
+        """
+        attrs = super().validate(attrs)
+        instance = self.instance
+        if instance is None:
+            return attrs
+        request = self.context.get("request")
+        if request is None or not request.user.is_authenticated:
+            return attrs
+
+        from trueppm_api.apps.access.permissions import _membership_role
+
+        role = _membership_role(request, instance.pk)
+        if role is not None and role >= Role.ADMIN:
+            return attrs
+
+        changed_admin_only = sorted(
+            field
+            for field, value in attrs.items()
+            if field not in self._SCHEDULER_WRITABLE_FIELDS
+            and field != "program"
+            and getattr(instance, field, None) != value
+        )
+        if changed_admin_only:
+            raise serializers.ValidationError(
+                "You need at least Project Manager role to change project settings "
+                f"({', '.join(changed_admin_only)}). A Scheduler may change only "
+                "methodology and estimation_mode."
+            )
+        return attrs
+
 
 class ProgramSerializer(serializers.ModelSerializer[Program]):
     """Read/write serializer for Program (ADR-0070).
