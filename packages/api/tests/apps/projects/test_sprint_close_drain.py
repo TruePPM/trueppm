@@ -223,6 +223,35 @@ def test_carry_over_to_next_sprint_bumps_server_version(
     assert task.server_version > version_before
 
 
+def test_apply_carry_over_returns_moved_task_ids(project: Project) -> None:
+    """close_sprint broadcasts these IDs in a tasks_bulk_mutated event so clients
+    update the carried-over rows without a manual refetch."""
+    from trueppm_api.apps.projects.services import apply_carry_over
+
+    s = _make_active_sprint(project)
+    t1 = Task.objects.create(
+        project=project, name="A", duration=1, sprint=s, status=TaskStatus.IN_PROGRESS
+    )
+    t2 = Task.objects.create(
+        project=project, name="B", duration=1, sprint=s, status=TaskStatus.IN_PROGRESS
+    )
+
+    moved = apply_carry_over(s, "backlog")
+
+    assert set(moved) == {str(t1.pk), str(t2.pk)}
+
+
+def test_apply_carry_over_none_returns_empty(project: Project) -> None:
+    from trueppm_api.apps.projects.services import apply_carry_over
+
+    s = _make_active_sprint(project)
+    Task.objects.create(
+        project=project, name="A", duration=1, sprint=s, status=TaskStatus.IN_PROGRESS
+    )
+
+    assert apply_carry_over(s, "none") == []
+
+
 @patch("trueppm_api.apps.projects.tasks.close_sprint.delay")
 def test_drain_dispatches_pending_rows(mock_delay: object, project: Project) -> None:
     s = _make_active_sprint(project)

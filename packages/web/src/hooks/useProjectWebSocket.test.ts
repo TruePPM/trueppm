@@ -152,6 +152,29 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     });
   });
 
+  // Project lifecycle events (#780) — archive/unarchive/transfer/hard-delete
+  // had no client handler, so a project changing under the user went unnoticed.
+
+  it('invalidates project and projects list on project_archived', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchEvent('project_archived');
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
+  });
+
+  it('invalidates project and projects list on project_transferred', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatchEvent('project_transferred');
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['project', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
+  });
+
   // ADR-0074 — sprint state and rollup events both refresh tasks ----------
 
   it('invalidates tasks AND sprints on sprint_closed (rollup may have changed)', () => {

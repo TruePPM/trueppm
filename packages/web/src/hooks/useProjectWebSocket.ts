@@ -341,10 +341,17 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       }
 
       // --- Project-level events ---
+      // The backend emits archive/unarchive/transfer/hard-delete lifecycle
+      // events, but the client had no handler — a user watching a project that
+      // was archived or transferred under them saw no update until a refetch.
       else if (
         event_type === 'project_created' ||
         event_type === 'project_updated' ||
-        event_type === 'project_deleted'
+        event_type === 'project_deleted' ||
+        event_type === 'project_hard_deleted' ||
+        event_type === 'project_archived' ||
+        event_type === 'project_unarchived' ||
+        event_type === 'project_transferred'
       ) {
         void queryClient.invalidateQueries({ queryKey: ['project', projectIdRef.current] });
         void queryClient.invalidateQueries({ queryKey: ['projects'] });
