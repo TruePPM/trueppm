@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { useParams } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useProgram } from '@/hooks/useProgram';
 import { useProgramProjects } from '@/hooks/useProgramProjects';
 import { AddProjectToProgramModal } from '@/features/programs/AddProjectToProgramModal';
+import { ImportProjectModal } from '@/components/import/ImportProjectModal';
 import { ROLE_ADMIN } from '@/lib/roles';
 
 /** Program > Projects settings page — lists projects assigned to this program. */
@@ -12,6 +13,8 @@ export function ProgramProjectsPage() {
   const { data: program } = useProgram(programId);
   const { data: projects, isLoading, error } = useProgramProjects(programId);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const navigate = useNavigate();
 
   if (!programId) return null;
 
@@ -27,13 +30,22 @@ export function ProgramProjectsPage() {
         subtitle="Projects assigned to this program. Each project inherits the program methodology unless overridden."
         action={
           isAdmin ? (
-            <button
-              type="button"
-              onClick={() => setShowAddModal(true)}
-              className="px-3 py-1.5 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-            >
-              + Add project
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowImport(true)}
+                className="px-3 py-1.5 rounded border border-neutral-border text-neutral-text-secondary text-[13px] font-medium hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                Import
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAddModal(true)}
+                className="px-3 py-1.5 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              >
+                + Add project
+              </button>
+            </div>
           ) : undefined
         }
       />
@@ -97,6 +109,20 @@ export function ProgramProjectsPage() {
           programId={programId}
           programName={program?.name ?? ''}
           onClose={() => setShowAddModal(false)}
+        />
+      )}
+
+      {/* Import-a-project entry (#797) — the new project lands already assigned
+          to this program, gated by program Admin both client- and server-side. */}
+      {showImport && (
+        <ImportProjectModal
+          programId={programId}
+          programName={program?.name}
+          onClose={() => setShowImport(false)}
+          onCreated={(projectId) => {
+            setShowImport(false);
+            void navigate(`/projects/${projectId}/overview`);
+          }}
         />
       )}
     </div>
