@@ -136,20 +136,26 @@ test.describe('Program Settings → General', () => {
     });
   });
 
-  // #776: settings is a focused mode — ProgramShell suppresses its program header
-  // and the Overview/Backlog/Projects/Members tab strip on settings routes, so the
-  // shared SettingsShell (and its SCOPE switcher) mounts top-aligned, identical to
-  // the workspace and project scopes. Without this the SCOPE switcher jumped ~100px
-  // when switching scope, forcing the user to re-find the controls.
-  test('suppresses the program tab strip so the settings shell is top-aligned', async ({ page }) => {
+  // #790 / ADR-0091: program navigation lives in the global TopBar (ProgramTabs),
+  // which persists across settings routes with the Settings tab active. There is no
+  // in-content program tab strip, so the shared SettingsShell (and its SCOPE
+  // switcher) mounts top-aligned, identical to the workspace and project scopes —
+  // the #776 top-alignment fix is preserved, just without any chrome to suppress.
+  test('keeps program nav in the top bar with Settings active, settings shell top-aligned', async ({
+    page,
+  }) => {
     await setup(page);
     await page.goto(`/programs/${PROGRAM_ID}/settings/general`);
 
     await expect(page.getByRole('heading', { name: 'General' })).toBeVisible();
-    // The program working chrome is gone on the settings route.
-    await expect(page.getByRole('navigation', { name: 'Program sections' })).toHaveCount(0);
-    await expect(page.getByRole('link', { name: 'Backlog' })).toHaveCount(0);
-    // The settings shell still rendered its nav (a program-settings-only item).
+    // The program nav now lives in the TopBar and persists here, Settings active.
+    const programNav = page.getByRole('navigation', { name: 'Program' });
+    await expect(programNav.getByRole('link', { name: /Backlog/i })).toBeVisible();
+    await expect(programNav.getByRole('link', { name: /Settings/i })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+    // The settings shell still rendered its own nav (a program-settings-only item).
     await expect(page.getByRole('link', { name: 'Risk policy' })).toBeVisible();
   });
 

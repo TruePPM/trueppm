@@ -165,6 +165,24 @@ test.describe('Programs — empty state and creation', () => {
 });
 
 test.describe('Programs — shell tabs', () => {
+  // #790 / ADR-0091: program navigation lives in the global TopBar (mirroring
+  // project ViewTabs) and now includes a discoverable Settings tab.
+  test('program nav is in the top bar and includes a Settings tab', async ({ page }) => {
+    await setup(page, { existingPrograms: [FIXTURE_PROGRAM] });
+    await page.goto(`/programs/${PROGRAM_ID}/overview`);
+
+    const nav = page.getByRole('navigation', { name: 'Program' });
+    await expect(nav).toBeVisible();
+    await expect(nav.getByRole('link', { name: /Backlog/i })).toBeVisible();
+    await nav.getByRole('link', { name: /Settings/i }).click();
+
+    // Lands on program settings, and the Settings tab stays active there.
+    await page.waitForURL(`**/programs/${PROGRAM_ID}/settings/general`);
+    await expect(
+      page.getByRole('navigation', { name: 'Program' }).getByRole('link', { name: /Settings/i }),
+    ).toHaveAttribute('aria-current', 'page');
+  });
+
   test('Backlog tab renders the backlog workspace (empty)', async ({ page }) => {
     // backlog-items is mocked to [] in setup(), so the workspace shows its
     // empty state. Populated behavior is covered in program-backlog.spec.ts.

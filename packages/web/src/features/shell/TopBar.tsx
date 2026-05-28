@@ -11,6 +11,7 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { WarningIcon, CriticalDotIcon } from '@/components/Icons';
 import { Logo } from './Logo';
 import { ViewTabs } from './ViewTabs';
+import { ProgramTabs } from './ProgramTabs';
 import { BadgePopover } from './BadgePopover';
 import { TaskRunIndicator } from './TaskRunIndicator';
 import { PresenceAvatarStack } from './PresenceAvatarStack';
@@ -162,6 +163,7 @@ export function TopBar({ onHamburgerClick }: Props) {
 
       <Logo />
       <ViewTabs />
+      <ProgramTabs />
 
       {/* Badges — pushed to the right */}
       <div className="ml-auto flex items-center gap-2">

@@ -1,25 +1,7 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import type { Program } from '@/api/types';
 import { ProgramShell } from './ProgramShell';
-
-const useProgram = vi.fn();
-
-vi.mock('@/hooks/useProgram', () => ({
-  useProgram: () => useProgram() as { data: Program | undefined; isLoading: boolean; error: unknown },
-}));
-
-function makeProgram(overrides: Partial<Program> = {}): Program {
-  return {
-    name: 'Apollo',
-    description: 'Lunar program',
-    methodology: 'HYBRID',
-    my_role: 4,
-    my_role_label: 'Program Owner',
-    ...overrides,
-  } as Program;
-}
 
 function renderShell(path: string) {
   return render(
@@ -35,28 +17,28 @@ function renderShell(path: string) {
 }
 
 describe('<ProgramShell>', () => {
-  beforeEach(() => {
-    useProgram.mockReset();
-    useProgram.mockReturnValue({ data: makeProgram(), isLoading: false, error: null });
-  });
-
-  it('renders the program header and tab strip on a working (non-settings) route', () => {
+  // #790 / ADR-0091: program navigation moved into the global TopBar (ProgramTabs),
+  // so the shell renders no in-content header or tab strip — only the routed outlet.
+  it('renders only the routed outlet, with no in-content program nav or header', () => {
     renderShell('/programs/p-1/overview');
-    expect(screen.getByRole('navigation', { name: 'Program sections' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Apollo' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Backlog' })).toBeInTheDocument();
     expect(screen.getByText('OVERVIEW_OUTLET')).toBeInTheDocument();
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Apollo' })).not.toBeInTheDocument();
   });
 
-  // #776: settings is a focused mode — the program header + tab strip are suppressed
-  // so the shared SettingsShell mounts top-aligned, identical to the workspace and
-  // project scopes. Without this the SCOPE switcher jumped ~100px when switching scope.
-  it('suppresses the program header and tab strip on a settings route', () => {
-    renderShell('/programs/p-1/settings/general');
-    expect(screen.queryByRole('navigation', { name: 'Program sections' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('heading', { name: 'Apollo' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Backlog' })).not.toBeInTheDocument();
-    // The settings outlet still renders — only the program chrome is gone.
+  it('uses a scrolling container on working routes', () => {
+    const { container } = renderShell('/programs/p-1/overview');
+    expect(container.querySelector('.overflow-y-auto')).not.toBeNull();
+    expect(container.querySelector('.overflow-hidden')).toBeNull();
+  });
+
+  // #776 (preserved): settings sub-pages run the shared SettingsShell, which owns
+  // its own scroll region, so the shell mounts them in a non-scrolling
+  // `min-h-0 overflow-hidden` box (mirroring ProjectShell) to keep them top-aligned.
+  it('uses a non-scrolling overflow-hidden container on settings routes', () => {
+    const { container } = renderShell('/programs/p-1/settings/general');
     expect(screen.getByText('SETTINGS_OUTLET')).toBeInTheDocument();
+    expect(container.querySelector('.overflow-hidden')).not.toBeNull();
+    expect(container.querySelector('.overflow-y-auto')).toBeNull();
   });
 });
