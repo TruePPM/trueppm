@@ -19,7 +19,10 @@ import type { BoardLayoutVariant, BacklogDensity } from '@/hooks/useBoardToolbar
 import { BoardViewDropdown } from './BoardViewDropdown';
 import type { BoardViewConfig } from '@/hooks/useBoardSavedViews';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
-import { ToolbarOverflowMenu, type ToolbarOverflowItem } from '@/components/toolbar/ToolbarOverflowMenu';
+import {
+  ToolbarOverflowMenu,
+  type ToolbarOverflowItem,
+} from '@/components/toolbar/ToolbarOverflowMenu';
 
 // ---------------------------------------------------------------------------
 // Reusable atoms
@@ -83,7 +86,9 @@ export function ToolbarChip({
       >
         <span className="text-neutral-text-secondary">{label}:</span>
         <span className="font-medium">{value}</span>
-        <span aria-hidden="true" className="text-neutral-text-disabled">▾</span>
+        <span aria-hidden="true" className="text-neutral-text-disabled">
+          ▾
+        </span>
       </button>
       {isOpen && (
         <div
@@ -281,8 +286,7 @@ const EVM_LABELS: Record<EvmMode, string> = {
 
 export function CalmToolbar(props: CalmToolbarProps) {
   const [openChip, setOpenChip] = useState<'group' | 'sort' | 'density' | 'more' | null>(null);
-  const toggle = (chip: typeof openChip) =>
-    setOpenChip((prev) => (prev === chip ? null : chip));
+  const toggle = (chip: typeof openChip) => setOpenChip((prev) => (prev === chip ? null : chip));
 
   // #568 rules 110–112: My tasks / At-risk / Cost are secondary. Icon-only at
   // md, collapse into ToolbarOverflowMenu at sm. Group / Sort / Density and
@@ -295,7 +299,7 @@ export function CalmToolbar(props: CalmToolbarProps) {
     <div
       role="toolbar"
       aria-label="Board toolbar"
-      className="flex-shrink-0 border-b border-neutral-border bg-neutral-surface px-4 py-2 flex flex-nowrap items-center gap-3 text-xs"
+      className="flex-shrink-0 border-b border-neutral-border bg-neutral-surface px-4 h-10 flex flex-nowrap items-center gap-3 text-xs"
     >
       {/* Identity block — project name truncates and activity stats hide
           below lg to keep the toolbar inside its h-10 row at md (#568 rule 113).
@@ -475,33 +479,35 @@ export function CalmToolbar(props: CalmToolbarProps) {
         <ToolbarOverflowMenu
           triggerAriaLabel="Board secondary controls"
           align="left"
-          items={[
-            {
-              kind: 'checkbox',
-              id: 'my-tasks',
-              label: 'My tasks',
-              checked: props.myTasksEnabled,
-              onChange: props.onMyTasksToggle,
-              disabled: props.myTasksLoading,
-              icon: '★',
-            },
-            {
-              kind: 'checkbox',
-              id: 'at-risk',
-              label: 'Risk-linked only',
-              checked: props.riskLinkedOnly,
-              onChange: props.onRiskLinkedToggle,
-              icon: '⚠',
-            },
-            {
-              kind: 'checkbox',
-              id: 'cost',
-              label: 'Show cost',
-              checked: props.showCost,
-              onChange: props.onShowCostToggle,
-              icon: '$',
-            },
-          ] as ToolbarOverflowItem[]}
+          items={
+            [
+              {
+                kind: 'checkbox',
+                id: 'my-tasks',
+                label: 'My tasks',
+                checked: props.myTasksEnabled,
+                onChange: props.onMyTasksToggle,
+                disabled: props.myTasksLoading,
+                icon: '★',
+              },
+              {
+                kind: 'checkbox',
+                id: 'at-risk',
+                label: 'Risk-linked only',
+                checked: props.riskLinkedOnly,
+                onChange: props.onRiskLinkedToggle,
+                icon: '⚠',
+              },
+              {
+                kind: 'checkbox',
+                id: 'cost',
+                label: 'Show cost',
+                checked: props.showCost,
+                onChange: props.onShowCostToggle,
+                icon: '$',
+              },
+            ] as ToolbarOverflowItem[]
+          }
         />
       )}
 
@@ -539,7 +545,9 @@ export function CalmToolbar(props: CalmToolbarProps) {
                 className="border border-neutral-border rounded px-1.5 py-0.5 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
               >
                 {(Object.keys(EVM_LABELS) as EvmMode[]).map((m) => (
-                  <option key={m} value={m}>{EVM_LABELS[m]}</option>
+                  <option key={m} value={m}>
+                    {EVM_LABELS[m]}
+                  </option>
                 ))}
               </select>
             </label>

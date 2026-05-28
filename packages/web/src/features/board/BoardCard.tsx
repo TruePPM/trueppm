@@ -74,8 +74,7 @@ function entryStamp(task: Task): { text: string; isStalled: boolean; daysAgo: nu
   // entry stamp matches the column it lives in.  Stalled is also a no-op on
   // DONE — a card sitting in DONE for weeks isn't "stalled," it's finished.
   const effectiveProgress = task.status === 'COMPLETE' ? 100 : task.progress;
-  const isStalled =
-    task.status !== 'COMPLETE' && daysAgo > 3 && effectiveProgress < 100;
+  const isStalled = task.status !== 'COMPLETE' && daysAgo > 3 && effectiveProgress < 100;
 
   return {
     text: `Entered at ${effectiveProgress}% · ${daysLabel}${isStalled ? ' — stalled' : ''}`,
@@ -148,9 +147,12 @@ function accentBarClass(task: Task, showCriticalState: boolean): string {
   if (showCriticalState) return 'bg-semantic-critical';
   const r = task.readiness ?? 'estimated';
   switch (r) {
-    case 'idea':      return 'bg-transparent';
-    case 'baselined': return 'bg-semantic-on-track';
-    default:          return 'bg-brand-primary';
+    case 'idea':
+      return 'bg-transparent';
+    case 'baselined':
+      return 'bg-semantic-on-track';
+    default:
+      return 'bg-brand-primary';
   }
 }
 
@@ -262,8 +264,10 @@ export function BoardCard({
   // EVM indicators (issue #185): SPI computed client-side from baseline; CPI from API field.
   const spi = computeTaskSpi(task);
   const cpi = task.cpi ?? null;
-  const showSpiChip = !isCompact && showEvm !== 'off' && (showEvm === 'spi' || showEvm === 'both') && spi !== null;
-  const showCpiChip = !isCompact && showEvm !== 'off' && (showEvm === 'cpi' || showEvm === 'both') && cpi !== null;
+  const showSpiChip =
+    !isCompact && showEvm !== 'off' && (showEvm === 'spi' || showEvm === 'both') && spi !== null;
+  const showCpiChip =
+    !isCompact && showEvm !== 'off' && (showEvm === 'cpi' || showEvm === 'both') && cpi !== null;
 
   // Cost chip (issue #189): shown when toggle is on and task has BAC data.
   const hasCostData = task.budgetAtCompletion != null;
@@ -276,72 +280,80 @@ export function BoardCard({
   const linkedRisksCount = task.linkedRisksCount ?? 0;
   const linkedRisksMaxSeverity = task.linkedRisksMaxSeverity ?? null;
   const showChain = predecessorCount > 0;
-  const showRisk = linkedRisksCount > 0 && linkedRisksMaxSeverity !== null && linkedRisksMaxSeverity > 0;
+  const showRisk =
+    linkedRisksCount > 0 && linkedRisksMaxSeverity !== null && linkedRisksMaxSeverity > 0;
 
-  const signalIcons = (showChain || showRisk) ? (
-    <div
-      className={[
-        'absolute top-2 right-9 flex items-center gap-1',
-        density === 'compact' ? 'top-[7px]' : '',
-      ].join(' ')}
-    >
-      {showChain && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onShowDeps?.(); }}
-          onPointerEnter={onChainHoverEnter}
-          onPointerLeave={onChainHoverLeave}
-          onFocus={onChainHoverEnter}
-          onBlur={onChainHoverLeave}
-          className={[
-            'relative w-5 h-5 inline-flex items-center justify-center rounded text-xs',
-            'before:absolute before:inset-[-12px]',
-            'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-            'focus-visible:outline-none',
-            isBlocked ? 'text-semantic-critical' : 'text-neutral-text-secondary',
-            'hover:bg-neutral-surface-raised',
-          ].join(' ')}
-          aria-label={
-            isBlocked
-              ? `Blocked by ${predecessorCount} ${predecessorCount === 1 ? 'dependency' : 'dependencies'}. Press D to view.`
-              : `${predecessorCount} ${predecessorCount === 1 ? 'dependency' : 'dependencies'}. Press D to view.`
-          }
-        >
-          <span aria-hidden="true">🔗</span>
-          {density === 'detailed' && predecessorCount > 1 && (
-            <span className="absolute -bottom-1 -right-1 text-xs tppm-mono leading-none px-0.5 rounded bg-neutral-surface border border-neutral-border">
-              {predecessorCount}
-            </span>
-          )}
-        </button>
-      )}
-      {showRisk && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onShowRisks?.(); }}
-          className={[
-            'relative w-5 h-5 inline-flex items-center justify-center rounded text-xs',
-            'before:absolute before:inset-[-12px]',
-            'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-            'focus-visible:outline-none',
-            riskIconClass(linkedRisksMaxSeverity),
-            'hover:bg-neutral-surface-raised',
-          ].join(' ')}
-          aria-label={
-            `${linkedRisksCount} linked risk${linkedRisksCount === 1 ? '' : 's'}, ` +
-            `severity ${severityRagBand(linkedRisksMaxSeverity) ?? 'low'}. Click to view.`
-          }
-        >
-          <span aria-hidden="true">⚠</span>
-          {linkedRisksCount > 1 && (
-            <span className="absolute -top-1 -right-1 text-xs tppm-mono leading-none px-0.5 rounded bg-neutral-surface border border-neutral-border">
-              {linkedRisksCount}
-            </span>
-          )}
-        </button>
-      )}
-    </div>
-  ) : null;
+  const signalIcons =
+    showChain || showRisk ? (
+      <div
+        className={[
+          'absolute top-2 right-9 flex items-center gap-1',
+          density === 'compact' ? 'top-[7px]' : '',
+        ].join(' ')}
+      >
+        {showChain && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onShowDeps?.();
+            }}
+            onPointerEnter={onChainHoverEnter}
+            onPointerLeave={onChainHoverLeave}
+            onFocus={onChainHoverEnter}
+            onBlur={onChainHoverLeave}
+            className={[
+              'relative w-5 h-5 inline-flex items-center justify-center rounded text-xs',
+              'before:absolute before:inset-[-12px]',
+              'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+              'focus-visible:outline-none',
+              isBlocked ? 'text-semantic-critical' : 'text-neutral-text-secondary',
+              'hover:bg-neutral-surface-raised',
+            ].join(' ')}
+            aria-label={
+              isBlocked
+                ? `Blocked by ${predecessorCount} ${predecessorCount === 1 ? 'dependency' : 'dependencies'}. Press D to view.`
+                : `${predecessorCount} ${predecessorCount === 1 ? 'dependency' : 'dependencies'}. Press D to view.`
+            }
+          >
+            <span aria-hidden="true">🔗</span>
+            {density === 'detailed' && predecessorCount > 1 && (
+              <span className="absolute -bottom-1 -right-1 text-xs tppm-mono leading-none px-0.5 rounded bg-neutral-surface border border-neutral-border">
+                {predecessorCount}
+              </span>
+            )}
+          </button>
+        )}
+        {showRisk && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onShowRisks?.();
+            }}
+            className={[
+              'relative w-5 h-5 inline-flex items-center justify-center rounded text-xs',
+              'before:absolute before:inset-[-12px]',
+              'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
+              'focus-visible:outline-none',
+              riskIconClass(linkedRisksMaxSeverity),
+              'hover:bg-neutral-surface-raised',
+            ].join(' ')}
+            aria-label={
+              `${linkedRisksCount} linked risk${linkedRisksCount === 1 ? '' : 's'}, ` +
+              `severity ${severityRagBand(linkedRisksMaxSeverity) ?? 'low'}. Click to view.`
+            }
+          >
+            <span aria-hidden="true">⚠</span>
+            {linkedRisksCount > 1 && (
+              <span className="absolute -top-1 -right-1 text-xs tppm-mono leading-none px-0.5 rounded bg-neutral-surface border border-neutral-border">
+                {linkedRisksCount}
+              </span>
+            )}
+          </button>
+        )}
+      </div>
+    ) : null;
 
   // Shared menu button rendered in all non-overlay/non-dragging states
   const menuButton = (
@@ -353,7 +365,7 @@ export function BoardCard({
           setMenuOpen(!menuOpen);
           setMoveOpen(false);
         }}
-        className="w-6 h-6 flex items-center justify-center rounded text-neutral-text-secondary
+        className="relative before:absolute before:inset-[-10px] before:content-[''] w-6 h-6 flex items-center justify-center rounded text-neutral-text-secondary
           hover:bg-neutral-surface-raised opacity-0 group-hover:opacity-100
           focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand-primary
           focus-visible:ring-offset-1"
@@ -438,10 +450,12 @@ export function BoardCard({
           w-[85vw] md:w-auto md:min-w-[200px]"
       >
         <div className="flex items-center gap-1.5">
-          <BoardProgressRing progress={effectiveProgress} isCritical={showCriticalState} isStalled={isStalled} />
-          <p className="text-sm font-medium text-neutral-text-primary truncate">
-            {task.name}
-          </p>
+          <BoardProgressRing
+            progress={effectiveProgress}
+            isCritical={showCriticalState}
+            isStalled={isStalled}
+          />
+          <p className="text-sm font-medium text-neutral-text-primary truncate">{task.name}</p>
         </div>
       </div>
     );
@@ -460,12 +474,11 @@ export function BoardCard({
 
   // Compact density — title + CP chip + progress strip, ~36px (issue #193)
   if (isCompact) {
-    const progressColor =
-      showCriticalState
-        ? 'bg-semantic-critical'
-        : effectiveProgress === 100
-          ? 'bg-semantic-on-track'
-          : 'bg-brand-primary';
+    const progressColor = showCriticalState
+      ? 'bg-semantic-critical'
+      : effectiveProgress === 100
+        ? 'bg-semantic-on-track'
+        : 'bg-brand-primary';
     return (
       <div
         ref={measureCardRef}
@@ -483,7 +496,10 @@ export function BoardCard({
         tabIndex={0}
         aria-label={`${task.name}, ${effectiveProgress}% complete${showCriticalState ? ', critical path' : ''}`}
       >
-        <div className={`absolute left-0 inset-y-0 w-1 rounded-l-md ${accentBarClass(task, showCriticalState)}`} aria-hidden="true" />
+        <div
+          className={`absolute left-0 inset-y-0 w-1 rounded-l-md ${accentBarClass(task, showCriticalState)}`}
+          aria-hidden="true"
+        />
         <div className="pl-2.5 pr-8 py-2 flex items-center gap-1 min-w-0">
           <span
             className={[
@@ -508,7 +524,10 @@ export function BoardCard({
           )}
         </div>
         {/* 3px progress strip at the bottom of each compact card */}
-        <div className="absolute bottom-0 left-1 right-1 h-[3px] rounded-full overflow-hidden bg-neutral-border" aria-hidden="true">
+        <div
+          className="absolute bottom-0 left-1 right-1 h-[3px] rounded-full overflow-hidden bg-neutral-border"
+          aria-hidden="true"
+        >
           <div className={`h-full ${progressColor}`} style={{ width: `${effectiveProgress}%` }} />
         </div>
         {signalIcons}
@@ -558,7 +577,10 @@ export function BoardCard({
     >
       {/* Left accent bar — rounded-l-md matches card's border-radius so the bar
           respects the card corners without needing overflow-hidden on the parent. */}
-      <div className={`absolute left-0 inset-y-0 w-1 rounded-l-md ${accentBarClass(task, showCriticalState)}`} aria-hidden="true" />
+      <div
+        className={`absolute left-0 inset-y-0 w-1 rounded-l-md ${accentBarClass(task, showCriticalState)}`}
+        aria-hidden="true"
+      />
 
       {/* Card content — left-padded to clear the accent bar */}
       <div className="pl-2.5 pr-2.5 pt-2.5 pb-2.5">
@@ -631,11 +653,7 @@ export function BoardCard({
                       `(calendar exceptions not applied)`
                     : `${a.name} (${Math.round(a.units * 100)}%)`;
                   return (
-                    <span
-                      key={a.resourceId}
-                      className="relative inline-block"
-                      title={overTooltip}
-                    >
+                    <span key={a.resourceId} className="relative inline-block" title={overTooltip}>
                       <span
                         className="inline-block px-1 py-px rounded text-xs text-white bg-brand-primary font-bold"
                         aria-label={overFactor ? `${a.name}, overallocated` : a.name}
@@ -794,7 +812,9 @@ export function BoardCard({
               <span className="text-neutral-text-disabled">
                 BL <span className="tppm-mono">{formatShortDate(task.baselineFinish!)}</span>
               </span>
-              <span className="text-neutral-text-disabled" aria-hidden="true">→</span>
+              <span className="text-neutral-text-disabled" aria-hidden="true">
+                →
+              </span>
               <span className="text-neutral-text-secondary">
                 FC <span className="tppm-mono">{formatShortDate(task.finish)}</span>
               </span>
@@ -808,7 +828,8 @@ export function BoardCard({
                       : 'text-semantic-on-track',
                 ].join(' ')}
               >
-                {baselineVarianceDays > 0 ? '+' : ''}{baselineVarianceDays}d
+                {baselineVarianceDays > 0 ? '+' : ''}
+                {baselineVarianceDays}d
               </span>
             </div>
           </div>
@@ -816,11 +837,10 @@ export function BoardCard({
 
         {/* 100%-complete nudge */}
         {showNudge && (
-          <div className="text-xs text-brand-primary mt-1 font-medium">
-            Move to Done?
-          </div>
+          <div className="text-xs text-brand-primary mt-1 font-medium">Move to Done?</div>
         )}
-      </div>{/* end padding wrapper */}
+      </div>
+      {/* end padding wrapper */}
 
       {signalIcons}
       {menuButton}

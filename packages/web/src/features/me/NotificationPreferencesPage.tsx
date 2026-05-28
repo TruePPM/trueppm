@@ -65,7 +65,7 @@ function PreferenceToggle({ pref, onChange }: ToggleProps) {
       aria-label={`${channelLabel} notifications for ${eventLabel}`}
       onClick={() => onChange(pref.id, !pref.enabled)}
       className="inline-flex items-center justify-center w-11 h-11
-        focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none rounded-full"
+        focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded-full"
     >
       <span
         aria-hidden="true"
@@ -162,20 +162,28 @@ export function NotificationPreferencesPage() {
     return (
       <main className="p-6" role="alert">
         <p className="text-sm text-semantic-critical">
-          Couldn&apos;t load preferences. <button
+          Couldn&apos;t load preferences.{' '}
+          <button
             type="button"
             onClick={() => window.location.reload()}
             className="text-brand-primary underline-offset-2 hover:underline"
-          >Reload</button>
+          >
+            Reload
+          </button>
         </p>
       </main>
     );
   }
 
   return (
-    <main aria-label="Notification preferences" className="flex flex-col gap-4 p-6 max-w-3xl mx-auto">
+    <main
+      aria-label="Notification preferences"
+      className="flex flex-col gap-4 p-6 max-w-3xl mx-auto"
+    >
       <header>
-        <h1 className="text-lg font-semibold text-neutral-text-primary">Notification preferences</h1>
+        <h1 className="text-lg font-semibold text-neutral-text-primary">
+          Notification preferences
+        </h1>
         <p className="text-sm text-neutral-text-secondary">
           Choose how you&apos;re notified when someone @-mentions you.
         </p>
@@ -186,7 +194,10 @@ export function NotificationPreferencesPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-neutral-border">
-              <th scope="col" className="text-left text-xs font-medium uppercase tracking-wide text-neutral-text-secondary px-4 py-2">
+              <th
+                scope="col"
+                className="text-left text-xs font-medium uppercase tracking-wide text-neutral-text-secondary px-4 py-2"
+              >
                 Event
               </th>
               {channels.map((ch) => (
@@ -210,14 +221,19 @@ export function NotificationPreferencesPage() {
                       {meta?.title ?? evt}
                     </div>
                     {meta?.example && (
-                      <div className="text-xs text-neutral-text-secondary mt-0.5">{meta.example}</div>
+                      <div className="text-xs text-neutral-text-secondary mt-0.5">
+                        {meta.example}
+                      </div>
                     )}
                   </th>
                   {channels.map((ch) => {
                     const pref = prefByKey.get(`${evt}:${ch}`);
                     if (!pref) {
                       return (
-                        <td key={ch} className="text-center px-4 py-3 text-xs text-neutral-text-disabled">
+                        <td
+                          key={ch}
+                          className="text-center px-4 py-3 text-xs text-neutral-text-disabled"
+                        >
                           —
                         </td>
                       );
@@ -245,7 +261,10 @@ export function NotificationPreferencesPage() {
               aria-labelledby={`pref-event-${evt}`}
               className="border border-neutral-border rounded p-3"
             >
-              <h2 id={`pref-event-${evt}`} className="text-sm font-medium text-neutral-text-primary">
+              <h2
+                id={`pref-event-${evt}`}
+                className="text-sm font-medium text-neutral-text-primary"
+              >
                 {meta?.title ?? evt}
               </h2>
               {meta?.example && (

@@ -2,7 +2,9 @@ replicaCount: 1
 
 image:
   repository: registry.gitlab.com/trueppm/trueppm/api
-  tag: latest
+  # Empty by default so the chart pins itself to its own appVersion
+  # (reproducible rollbacks). Override per-deploy with a concrete tag.
+  tag: ""
   pullPolicy: IfNotPresent
 
 service:

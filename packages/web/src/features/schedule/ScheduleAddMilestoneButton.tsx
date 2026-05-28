@@ -30,7 +30,7 @@ export function ScheduleAddMilestoneButton({
       data-testid="add-milestone-button"
       className={[
         'inline-flex h-7 px-3 items-center gap-1.5 rounded text-xs font-medium transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-accent focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface dark:focus-visible:ring-semantic-on-track',
         disabled
           ? 'bg-neutral-surface-sunken text-neutral-text-disabled border border-neutral-border cursor-not-allowed'
           : pending
@@ -38,13 +38,7 @@ export function ScheduleAddMilestoneButton({
             : 'bg-transparent border border-brand-accent/40 text-brand-accent hover:border-brand-accent hover:bg-brand-accent/10',
       ].join(' ')}
     >
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 14 14"
-        fill="currentColor"
-        aria-hidden="true"
-      >
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
         {/* 45°-rotated square = diamond, matches the canvas milestone glyph */}
         <polygon points="7,0 14,7 7,14 0,7" />
       </svg>

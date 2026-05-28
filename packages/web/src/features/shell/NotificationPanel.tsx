@@ -8,10 +8,7 @@
 
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import {
-  useMarkAllRead,
-  useNotifications,
-} from '@/hooks/useNotifications';
+import { useMarkAllRead, useNotifications } from '@/hooks/useNotifications';
 import { NotificationRow } from './NotificationRow';
 
 type Filter = 'all' | 'unread' | 'archived';
@@ -65,7 +62,7 @@ export function NotificationPanel({ onClose }: Props) {
             disabled={markAllRead.isPending}
             className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
               rounded px-2 h-7
-              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
               disabled:opacity-50"
           >
             Mark all read
@@ -76,7 +73,7 @@ export function NotificationPanel({ onClose }: Props) {
             aria-label="Close notifications"
             className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary
               rounded px-2 h-7
-              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none"
           >
             ✕
           </button>
@@ -84,7 +81,11 @@ export function NotificationPanel({ onClose }: Props) {
       </div>
 
       {/* Filter tabs */}
-      <div role="tablist" aria-label="Filter notifications" className="flex gap-1 px-3 py-2 border-b border-neutral-border">
+      <div
+        role="tablist"
+        aria-label="Filter notifications"
+        className="flex gap-1 px-3 py-2 border-b border-neutral-border"
+      >
         {FILTERS.map((f) => {
           const active = filter === f.value;
           return (
@@ -95,7 +96,7 @@ export function NotificationPanel({ onClose }: Props) {
               aria-selected={active}
               onClick={() => setFilter(f.value)}
               className={`text-xs px-2 h-7 rounded border
-                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
                 ${
                   active
                     ? 'border-brand-primary text-brand-primary bg-brand-primary/5'
@@ -153,7 +154,7 @@ export function NotificationPanel({ onClose }: Props) {
           to="/me/settings/notifications"
           onClick={onClose}
           className="text-xs text-brand-primary underline-offset-2 hover:underline
-            focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none rounded"
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded"
         >
           Notification preferences →
         </Link>
