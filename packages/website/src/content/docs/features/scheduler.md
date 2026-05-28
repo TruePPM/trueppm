@@ -48,7 +48,12 @@ Lag is in **calendar working days**. Negative lag (lead) is supported.
 | `late_start` | `date` | Latest start without delaying the project |
 | `late_finish` | `date` | Latest finish without delaying the project |
 | `total_float` | `timedelta` | Working days of slack before the task delays the project end |
+| `free_float` | `timedelta` | Working days a task can slip without delaying any immediate successor's early start (see note) |
 | `is_critical` | `bool` | `True` when `total_float == timedelta(0)` |
+
+:::note
+`free_float` is currently computed only across finish-to-start (FS) successors; start-to-start (SS), finish-to-finish (FF), and start-to-finish (SF) links do not yet tighten it, so a task whose only successors are non-FS reports `free_float == total_float`. `total_float` and `is_critical` account for all four dependency types.
+:::
 
 ### Calendar arithmetic
 

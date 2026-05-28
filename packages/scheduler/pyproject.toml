@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "trueppm-scheduler"
-version = "0.1.0a2"
-description = "Critical-path and resource-leveling scheduler for project management"
+version = "0.2.0a1"
+description = "Critical-path method (CPM) and Monte Carlo schedule-risk engine for project management"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"

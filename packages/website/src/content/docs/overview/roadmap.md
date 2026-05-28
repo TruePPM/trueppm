@@ -18,24 +18,27 @@ Foundation for self-hosted, scheduling-first PPM. Everything below is in `main` 
 | Agile | Board / Kanban (5-column, swimlanes, WIP-overload), Sprints workspace (header + goal + milestone link + cadence + backlog + burndown + capacity + velocity + retro), multi-team Sprints lens, sprint header buttons (#299) |
 | Hybrid bridge | Velocity feedback loop (`VelocitySuggestion` model, ADR-0065) — sprint velocity suggests revised CPM durations non-destructively |
 | Contributor surface | "My Work" page — flat task list across projects with planned/estimated date disambiguation |
-| Risk | Risk Register tab — probability × impact scoring, lifecycle states, task links, CSV import (#223) |
+| Risk | Risk Register tab — probability × impact scoring, lifecycle states, task links (#174), CSV export (#222) |
 | Methodology | Waterfall / Agile / Hybrid preset driving tab visibility |
-| Data exchange | MS Project & CSV/Excel import/export via REST API — no in-app UI yet (#68 #111), inbound task-sync webhook |
+| Data exchange | MS Project import/export via REST API — no in-app UI yet, inbound task-sync webhook |
 | Platform | REST API, 5-role RBAC, real-time WebSocket, offline sync (WatermelonDB-compatible), application shell, project settings RBAC UI (#144) |
 | Operations | Helm 3 chart, Docker images, PyPI publish path for `trueppm-scheduler` (#301) |
 
-### 0.2 — settings, administration & consolidation (May 2026)
+## Underway
 
-A broad consolidation release: the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration paths.
+### 0.2 — settings, administration & consolidation (target: Jun 8, 2026)
+
+A broad consolidation release — the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration path. In progress; every item below ships before the 0.2 tag.
 
 - **Settings shell** — Workspace / Program / Project scope switcher with General, Members, Groups & teams, Roles, Methodology, Workflow, Notifications, Access, Integrations, and lifecycle pages on real APIs
 - **Program entity (OSS)** (#502) — container for related projects with rollup KPIs, cadence, and cross-project risk policy; program backlog with epic/feature/story/task item types and proposed→pulled→archived lifecycle (#733 #737 #739)
-- **Import / export** — MS Project import/export UI (#68) plus `.mpp` parsing via MPXJ (#128), CSV/Excel spreadsheet import (#111), risk-register CSV import (#223)
+- **Import / export** — MS Project import/export UI (#68); multi-format import (CSV/Excel #111, MPXJ `.mpp` #128) is sequenced for 0.6 and risk-register CSV import (#223) for 0.3
 - **Board depth** — card weight, bulk actions, full-text search, swimlane grouping, activity feed, PDF export, board zoom, real-time per-card sync
 - **Schedule UX** — continuous zoom, drag-to-pan, drag a backlog card onto the timeline, per-task WebSocket date deltas
 - **Sprint workspace**, recurring tasks, custom/fractional work hours, overallocation warnings
 - **Durable execution** — outbox dispatch hardening, Beat heartbeat, dead-letter alerting, retention purge with UI editor and purge log, Idempotency-Key support, webhook sequence numbers
 - **Integrations & notifications** — Git-aware tasks (#637), Slack webhook (#638), email notifications (#639), notification dispatcher + preference matrix
+- **Packaging** — `trueppm-scheduler` republished to PyPI at 0.2.0a1 (Development Status remains Alpha)
 
 ## Planned
 
@@ -50,7 +53,6 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **The bridge demo** — promote a sprint commitment to a schedule milestone, and sprint velocity reforecasts the CPM finish with no copy-paste between tools
 - **Agile depth** — task-type taxonomy, epic/initiative hierarchy, dual backlog, Product Owner role, acceptance criteria, sprint planning / forecast / grooming views
 - **Hybrid foundation** — governance-class / delivery-mode model, parent rollup engine, agile-aware Monte Carlo, Kanban delivery mode
-- **Git-aware tasks** — PR opened → Review, PR merged → Complete
 - **Sample projects + universal JSON import/export** (epic #613) — agile / waterfall / hybrid demo data with the bridge wow preloaded
 
 ### 0.4 — mobile & the field PM (target: Jul 27 – Aug 3, 2026)
