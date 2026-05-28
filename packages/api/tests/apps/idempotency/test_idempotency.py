@@ -227,8 +227,10 @@ def _iter_view_classes() -> list[tuple[str, str | None, type, set[str]]]:
 #   (RETENTION_PURGE_INFLIGHT_SECONDS), so a rapid double-click can't mint duplicate runs;
 # - token_obtain_pair (ThrottledTokenObtainPairView POST, #770) is the login endpoint: it
 #   mints fresh JWTs and persists no replayable resource, so idempotency keys don't apply —
-#   abuse is bounded by the scoped login throttle instead. (The stock TokenRefreshView is
-#   not TruePPM-owned and so is skipped by the walker; this subclass lives in trueppm_api.)
+#   abuse is bounded by the scoped login throttle instead;
+# - token_refresh (ThrottledTokenRefreshView POST, #814) is the refresh endpoint and has the
+#   same shape as login — it mints a fresh access JWT and persists no replayable resource,
+#   so idempotency keys don't apply; abuse is bounded by the scoped `refresh` throttle.
 EXEMPT_URL_NAMES = frozenset(
     {
         "project-schedule",
@@ -236,6 +238,7 @@ EXEMPT_URL_NAMES = frozenset(
         "retention-settings",
         "retention-runs",
         "token_obtain_pair",
+        "token_refresh",
     }
 )
 

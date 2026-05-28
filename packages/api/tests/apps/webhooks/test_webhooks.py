@@ -242,7 +242,9 @@ def test_deliver_webhook_success(webhook: Webhook) -> None:
 
     with (
         patch.object(wh_tasks, "assert_url_allowed"),  # see test_webhook_ssrf.py
-        patch.object(urllib.request, "urlopen", return_value=mock_resp),
+        # Delivery uses the redirect-disabled opener (#808), not bare urlopen —
+        # patch that or the test hits the real example.com URL.
+        patch.object(wh_tasks._no_redirect_opener, "open", return_value=mock_resp),
     ):
         wh_tasks.deliver_webhook.run(str(delivery.pk))
 
@@ -264,7 +266,7 @@ def test_deliver_webhook_hmac_signature(webhook: Webhook) -> None:
 
     captured_req: list[urllib.request.Request] = []
 
-    def capture_urlopen(req: urllib.request.Request, **kwargs: object) -> MagicMock:
+    def capture_open(req: urllib.request.Request, **kwargs: object) -> MagicMock:
         captured_req.append(req)
         resp = MagicMock()
         resp.status = 200
@@ -276,7 +278,8 @@ def test_deliver_webhook_hmac_signature(webhook: Webhook) -> None:
 
     with (
         patch.object(wh_tasks, "assert_url_allowed"),  # see test_webhook_ssrf.py
-        patch.object(urllib.request, "urlopen", side_effect=capture_urlopen),
+        # Delivery uses the redirect-disabled opener (#808), not bare urlopen.
+        patch.object(wh_tasks._no_redirect_opener, "open", side_effect=capture_open),
     ):
         wh_tasks.deliver_webhook.run(str(delivery.pk))
 
@@ -315,7 +318,9 @@ def test_deliver_webhook_non_2xx_retries(webhook: Webhook) -> None:
     retry_exc = Exception("Retry!")
     with (
         patch.object(wh_tasks, "assert_url_allowed"),  # see test_webhook_ssrf.py
-        patch.object(urllib.request, "urlopen", side_effect=error),
+        # Delivery uses the redirect-disabled opener (#808), not bare urlopen —
+        # patch that or the test hits the real example.com URL.
+        patch.object(wh_tasks._no_redirect_opener, "open", side_effect=error),
         patch.object(wh_tasks.deliver_webhook, "retry", side_effect=retry_exc) as mock_retry,
         pytest.raises(Exception, match="Retry"),
     ):
