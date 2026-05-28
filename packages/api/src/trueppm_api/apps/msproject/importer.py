@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from trueppm_api.apps.msproject.dataclasses import ProjectData
+from trueppm_api.apps.msproject.dataclasses import ProjectData, TaskData
 
 logger = logging.getLogger(__name__)
 
@@ -92,8 +92,10 @@ def import_project(
     end_seq: int = Project.objects.values_list("object_sequence", flat=True).get(pk=project_id)
     start_seq = end_seq - task_count + 1
 
+    wbs_paths = _build_wbs_paths(data.tasks)
+
     for i, td in enumerate(data.tasks):
-        wbs_path = _outline_number_to_ltree(td.outline_number)
+        wbs_path = wbs_paths[i]
         task = Task(
             project_id=project_id,
             name=td.name,
@@ -191,6 +193,63 @@ def import_project(
 
     _update(90, "Import complete, triggering schedule recalculation...")
     return summary
+
+
+def _build_wbs_paths(tasks: list[TaskData]) -> list[str]:
+    """Compute an ltree ``wbs_path`` per task, preserving the WBS hierarchy.
+
+    MS Project encodes hierarchy two ways: the dotted ``OutlineNumber``
+    ("1", "1.1", "1.2") and the integer ``OutlineLevel`` (indent depth).
+    Genuine MS Project exports keep both consistent, but many third-party and
+    generated MSPDI files write a *flat* ``OutlineNumber`` (1, 2, 3, …) and
+    carry the hierarchy only in ``OutlineLevel`` (#794). Trusting the outline
+    number alone flattens those files — every phase imports as a sibling of its
+    own sub-tasks. So:
+
+      - if any task has a dotted ``OutlineNumber`` the file uses the
+        hierarchical form: map each number straight to an ltree path (the
+        original, well-formed-file behavior — unchanged);
+      - otherwise, when ``OutlineLevel`` indicates nesting, reconstruct the
+        hierarchy from the level sequence (tasks arrive in document order).
+    """
+    has_dotted = any("." in (t.outline_number or "") for t in tasks)
+    if has_dotted:
+        return [_outline_number_to_ltree(t.outline_number) for t in tasks]
+
+    levels = [t.outline_level for t in tasks]
+    if len(set(levels)) <= 1:
+        # Genuinely flat project (or no level info): keep the outline number,
+        # which is itself flat (1, 2, 3, …) for these files.
+        return [_outline_number_to_ltree(t.outline_number) for t in tasks]
+
+    return _wbs_paths_from_levels(levels)
+
+
+def _wbs_paths_from_levels(levels: list[int]) -> list[str]:
+    """Reconstruct dotted ltree paths from a document-ordered OutlineLevel list.
+
+    Walks tasks in document order maintaining a sibling counter per depth. A
+    deeper level opens a child ("1" -> "1.1"); the same or a shallower level
+    advances the sibling counter at that depth ("1.1" -> "1.2", "1.4" -> "2").
+    Levels are normalized so the shallowest observed level becomes depth 1, so
+    files whose top-level tasks start at OutlineLevel 1 (or any value) behave
+    identically.
+    """
+    base = min(levels)
+    counters: list[int] = []
+    paths: list[str] = []
+    for level in levels:
+        depth = max(level - base + 1, 1)
+        if depth <= len(counters):
+            # Same or shallower: drop deeper ancestors, bump this depth's sibling.
+            counters = counters[:depth]
+            counters[depth - 1] += 1
+        else:
+            # Deeper: open child levels (pads with 1s if a level is skipped).
+            while len(counters) < depth:
+                counters.append(1)
+        paths.append(".".join(str(c) for c in counters))
+    return paths
 
 
 def _outline_number_to_ltree(outline_number: str) -> str:
