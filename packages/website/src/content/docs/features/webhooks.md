@@ -64,7 +64,7 @@ OSS fires **11 event types** (a deliberate hard cap):
 | `schedule.recalculated` | The CPM scheduler completes a recalculation |
 | `project.created` | A new project is created in the organization |
 
-The last four task events were added in 0.2. A single PATCH that both reassigns a task and moves its date fires `task.updated` **plus** the specific events — subscribe to whichever you want.
+The last four task events land in 0.2 (target Jun 8, 2026). A single PATCH that both reassigns a task and moves its date fires `task.updated` **plus** the specific events — subscribe to whichever you want.
 
 :::caution[`task.due_date_changed` currently tracks `planned_start`]
 `Task` has no dedicated deadline field yet, so this event fires when a task's **planned start** (the PM-committed date) changes. A future release adds a `planned_finish` deadline field and re-binds the event to it; the event name and payload shape stay stable.

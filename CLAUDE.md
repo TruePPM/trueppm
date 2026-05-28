@@ -242,6 +242,16 @@ longer need to set `PYTHONPATH` by hand when running it from a worktree.
 
 ### Every MR that adds user-visible behavior must include a docs diff in the same MR — not a follow-up issue.
 
+### Version-status tense — past/present-tense version claims must reference shipped versions only
+
+When writing or editing any file under `packages/website/src/content/docs/` (and `README.md`), a phrase that anchors behavior to a TruePPM version — "shipped in 0.X", "added in 0.X", "In 0.X the Y", "0.X introduced Z" — may use past or present tense **only if 0.X is at or below the latest shipped tag**. For unshipped versions (anything still under "Underway" or "Planned" on the roadmap page), use **future tense**: "ships in 0.X", "lands in 0.X", "planned for 0.X", "coming in 0.X".
+
+- **Single source of truth**: `packages/website/src/content/docs/overview/roadmap.md`. Every other doc derives its tense from what that page says. If the roadmap says "Underway", every other reference must be future-tense.
+- **Exceptions**: ADRs under `docs/adr/` are design-decision artifacts — forward-tense statements like "0.X will ship Y" are correct, do not rewrite them. The roadmap page itself is exempt; it is the source.
+- **Before publishing**: when you touch a file that mentions a version, grep `packages/website/src/content/docs/` for the same version string and verify every occurrence aligns with the roadmap's Shipped / Underway / Planned classification. The bug class this prevents is the 2026-05-28 "0.2 shipped" regression (issue #807) — banners and feature pages drifted into past-tense for a version that hadn't tagged because no single source of truth bound them together.
+
+This rule applies to every doc edit — there is no "fast path" carve-out. A wrong tense on a version banner is a user-facing accuracy bug, not a stylistic preference.
+
 ### Mandatory agents for docs work
 - **`docs-writer`** for any change touching `docs/features/`, `docs/getting-started/`, `docs/architecture/`, or `docs/administration/`
 - **`api-docs`** for any endpoint, serializer field, or permission rule change

@@ -3,9 +3,10 @@ title: MS Project import & export
 description: Import and export Microsoft Project .xml and .mpp files from the TruePPM Schedule view.
 ---
 
-:::note[0.1 · UI added in 0.2]
+:::note[0.1 shipped · UI lands in 0.2]
 The import/export REST endpoints shipped in 0.1. The in-app import and export
-controls in the Schedule view shipped in **0.2**. Additional importers —
+controls in the Schedule view **land in 0.2** (target Jun 8, 2026) — until
+then, drive import/export through the REST API. Additional importers —
 Primavera P6, GanttProject, OmniPlan, ProjectLibre, and the top-10 PM tools
 (Jira, Asana, Trello, Notion, Linear, and more) — are planned for 0.5.
 :::
