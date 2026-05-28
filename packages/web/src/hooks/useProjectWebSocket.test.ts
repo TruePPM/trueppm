@@ -489,25 +489,27 @@ describe('useProjectWebSocket — wave-2 missing handlers (#835)', () => {
     },
   );
 
-  it('invalidates the tasks feed on suggestion_created', () => {
+  it('invalidates the tasks feed and My Work on suggestion_created', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
     dispatch('suggestion_created', { task_id: 'task-9', suggestion_id: 's-1' });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['me', 'work'] });
     flushDebounce();
-
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
   it.each(['api_token_minted', 'api_token_revoked'])(
-    'invalidates the apiTokens query on %s',
+    'invalidates the api-tokens query on %s',
     (eventType) => {
       const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
       renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
       dispatch(eventType, { id: 'tok-1' });
 
-      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['apiTokens', 'proj-1'] });
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['api-tokens', 'project', 'proj-1'],
+      });
     },
   );
 

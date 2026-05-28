@@ -333,14 +333,19 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
 
       // --- Retro action-item promotion ---
       // A promoted action item creates a TaskSuggestedAssignee; refresh the task
-      // feed so the suggestion surfaces for connected collaborators.
+      // feed and the suggested user's My Work queue (same keys as
+      // useSuggestionAction) so the suggestion surfaces for connected peers.
       else if (event_type === 'suggestion_created') {
         scheduleInvalidate('tasks');
+        void queryClient.invalidateQueries({ queryKey: ['me', 'work'] });
       }
 
       // --- Project API token events ---
+      // Key must match useApiTokens' tokensKey: ['api-tokens', scope.kind, id].
       else if (event_type === 'api_token_minted' || event_type === 'api_token_revoked') {
-        void queryClient.invalidateQueries({ queryKey: ['apiTokens', projectIdRef.current] });
+        void queryClient.invalidateQueries({
+          queryKey: ['api-tokens', 'project', projectIdRef.current],
+        });
       }
 
       // --- Project custom-field schema events ---
