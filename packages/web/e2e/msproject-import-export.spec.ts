@@ -77,7 +77,7 @@ test.describe('MS Project import', () => {
     });
     await expect(page.getByText('plan.xml', { exact: true })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Import' }).click();
+    await page.getByRole('dialog', { name: 'Import from MS Project' }).getByRole('button', { name: 'Import', exact: true }).click();
 
     await expect(page.getByText(/Import started\. Your tasks will appear/)).toBeVisible();
     await page.getByRole('button', { name: 'Done' }).click();
@@ -95,7 +95,7 @@ test.describe('MS Project import', () => {
       mimeType: 'application/xml',
       buffer: SAMPLE_XML,
     });
-    await page.getByRole('button', { name: 'Import' }).click();
+    await page.getByRole('dialog', { name: 'Import from MS Project' }).getByRole('button', { name: 'Import', exact: true }).click();
 
     await expect(page.getByRole('alert')).toContainText('Maximum: 50 MB');
     await expect(page.getByRole('button', { name: 'Try a different file' })).toBeVisible();
@@ -110,7 +110,7 @@ test.describe('MS Project import', () => {
     });
     await expect(page.getByRole('alert')).toContainText('.mpp, .xml only');
     // The Import button stays disabled because no valid file was selected.
-    await expect(page.getByRole('button', { name: 'Import' })).toBeDisabled();
+    await expect(page.getByRole('dialog', { name: 'Import from MS Project' }).getByRole('button', { name: 'Import', exact: true })).toBeDisabled();
   });
 });
 

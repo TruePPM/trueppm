@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pathlib
 import xml.etree.ElementTree as ET
+from collections.abc import Generator
+from contextlib import contextmanager
 from datetime import date, timedelta
 from io import BytesIO
 from unittest.mock import MagicMock, patch
@@ -1267,3 +1269,159 @@ class TestImportPurge:
         with patch("django.conf.settings.TRUEPPM_IMPORT_RETENTION_DAYS", None):
             self._purge()
         assert ImportRequest.objects.filter(pk=req.pk).exists()
+
+
+# ---------------------------------------------------------------------------
+# Create-from-import (ADR-0092, #797)
+# ---------------------------------------------------------------------------
+
+
+def _xml_upload(name: str = "cloud_migration.xml") -> SimpleUploadedFile:
+    """A valid minimal MSPDI upload for the create-from-import endpoint."""
+    content = _build_sample_xml(
+        tasks=[{"UID": 1, "Name": "Kickoff", "Duration": "PT8H0M0S", "OutlineNumber": "1"}]
+    )
+    return SimpleUploadedFile(name, content, content_type="application/xml")
+
+
+@contextmanager
+def _stub_tracker(*_args: object, **_kwargs: object) -> Generator[MagicMock, None, None]:
+    """Yield a no-op tracker so task tests don't need the channel layer."""
+    yield MagicMock()
+
+
+@pytest.mark.django_db
+class TestCreateProjectFromImport:
+    """The POST /projects/import/msproject/ create-from-import endpoint."""
+
+    URL = "/api/v1/projects/import/msproject/"
+
+    def _auth_client(self, username: str = "importer") -> tuple[object, APIClient]:
+        u = User.objects.create_user(username=username, password="pw")
+        c = APIClient()
+        c.force_authenticate(user=u)
+        return u, c
+
+    def test_creates_named_shell_and_queues(self) -> None:
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+        user, client = self._auth_client()
+        resp = client.post(self.URL, {"file": _xml_upload()}, format="multipart")
+
+        assert resp.status_code == 202, resp.content
+        body = resp.json()
+        assert body["queued"] is True
+        project = Project.objects.get(pk=body["project_id"])
+        # Name is derived from the filename until the worker reads the header.
+        assert project.name == "cloud migration"
+        assert ProjectMembership.objects.filter(
+            project=project, user=user, role=Role.OWNER
+        ).exists()
+        req = ImportRequest.objects.get(pk=body["import_request_id"])
+        assert req.creates_project is True
+        assert req.project_id == project.pk
+        # on_commit dispatch does not fire inside the test transaction; the row
+        # stays PENDING for the drain — exactly the broker-down contract.
+        assert req.status == ImportRequestStatus.PENDING
+
+    def test_requires_authentication(self) -> None:
+        resp = APIClient().post(self.URL, {"file": _xml_upload()}, format="multipart")
+        assert resp.status_code in (401, 403)
+
+    def test_rejects_unsupported_extension(self) -> None:
+        _user, client = self._auth_client()
+        bad = SimpleUploadedFile("notes.txt", b"hello", content_type="text/plain")
+        resp = client.post(self.URL, {"file": bad}, format="multipart")
+        assert resp.status_code == 400
+        assert "Unsupported file type" in resp.json()["detail"]
+        assert not Project.objects.filter(name="notes").exists()
+
+    def test_rejects_missing_file(self) -> None:
+        _user, client = self._auth_client()
+        resp = client.post(self.URL, {}, format="multipart")
+        assert resp.status_code == 400
+
+    @override_settings(MSPROJECT_MAX_UPLOAD_MB=0)
+    def test_rejects_oversize(self) -> None:
+        _user, client = self._auth_client()
+        resp = client.post(self.URL, {"file": _xml_upload()}, format="multipart")
+        assert resp.status_code == 400
+        assert "too large" in resp.json()["detail"].lower()
+
+    def test_program_assignment_requires_program_admin(self) -> None:
+        from trueppm_api.apps.projects.models import Program
+
+        _user, client = self._auth_client()
+        program = Program.objects.create(name="Cloud Program")
+        resp = client.post(
+            self.URL,
+            {"file": _xml_upload(), "program": str(program.id)},
+            format="multipart",
+        )
+        # The caller is not a program Admin → ADR-0070 gate rejects with 400.
+        assert resp.status_code == 400
+        assert not Project.objects.filter(program=program).exists()
+
+    def test_program_admin_assigns_project_to_program(self) -> None:
+        from trueppm_api.apps.access.models import ProgramMembership
+        from trueppm_api.apps.projects.models import Program
+
+        user, client = self._auth_client()
+        program = Program.objects.create(name="Cloud Program")
+        ProgramMembership.objects.create(program=program, user=user, role=Role.ADMIN)
+        resp = client.post(
+            self.URL,
+            {"file": _xml_upload(), "program": str(program.id)},
+            format="multipart",
+        )
+        assert resp.status_code == 202, resp.content
+        project = Project.objects.get(pk=resp.json()["project_id"])
+        assert project.program_id == program.id
+
+
+@pytest.mark.django_db
+class TestCreateFromImportTaskBehavior:
+    """Worker-side behavior new in ADR-0092: wipe-then-import + terminal DEAD."""
+
+    def test_wipe_existing_replaces_prior_attempt(self, project: Project) -> None:
+        first = ProjectData(
+            tasks=[TaskData(uid=1, name="Old", duration_days=1, outline_number="1")]
+        )
+        import_project(str(project.pk), first)
+        assert Task.objects.filter(project=project, name="Old").exists()
+
+        second = ProjectData(
+            tasks=[TaskData(uid=1, name="New", duration_days=1, outline_number="1")]
+        )
+        import_project(str(project.pk), second, wipe_existing=True)
+
+        names = set(Task.objects.filter(project=project).values_list("name", flat=True))
+        assert names == {"New"}
+
+    def test_parse_failure_marks_request_dead(self, project: Project) -> None:
+        import base64
+
+        from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+        from trueppm_api.apps.msproject.tasks import import_msproject
+
+        req = ImportRequest.objects.create(
+            project=project,
+            filename="corrupt.xml",
+            file_content_b64=base64.b64encode(b"<not-valid-xml").decode("ascii"),
+            creates_project=True,
+        )
+        with patch("trueppm_api.apps.msproject.tasks._get_tracker", _stub_tracker):
+            result = import_msproject.apply(
+                kwargs={
+                    "project_id": str(project.pk),
+                    "file_content_b64": req.file_content_b64,
+                    "filename": "corrupt.xml",
+                    "import_request_id": str(req.id),
+                    "creates_project": True,
+                }
+            )
+
+        assert result.failed()
+        req.refresh_from_db()
+        # DEAD is terminal — the orphan drain must not re-dispatch a bad file.
+        assert req.status == ImportRequestStatus.DEAD

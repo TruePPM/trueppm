@@ -42,6 +42,7 @@ def enqueue_import(import_request_id: str) -> None:
             filename=req.filename,
             initiated_by_id=req.initiated_by_id,
             import_request_id=str(req.id),
+            creates_project=req.creates_project,
         )
     except Exception:
         logger.warning(

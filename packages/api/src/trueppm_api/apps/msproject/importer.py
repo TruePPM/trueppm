@@ -14,20 +14,25 @@ def import_project(
     project_id: str,
     data: ProjectData,
     tracker: Any = None,
+    wipe_existing: bool = False,
 ) -> dict[str, Any]:
-    """Import parsed MS Project data into an existing TruePPM project.
+    """Import parsed MS Project data into a TruePPM project.
 
     Creates tasks, dependencies, resources, and assignments using bulk operations
-    to bypass django-simple-history (per ADR-0011). Existing tasks in the project
-    are NOT deleted -- the import is additive.
+    to bypass django-simple-history (per ADR-0011).
 
     Args:
         project_id: UUID string of the target Project.
         data: Parsed ProjectData from the MS Project file.
         tracker: Optional TaskRunTracker for progress reporting.
+        wipe_existing: When True (create-from-import, ADR-0092), delete the
+            project's existing tasks before bulk-create so an orphan-drain
+            re-dispatch converges instead of duplicating. The default (False)
+            keeps the import-into-existing-project path additive.
 
     Returns:
-        Summary dict for result_summary.
+        Summary dict for result_summary. ``task_count`` and ``project_start_date``
+        feed the post-import summary the UI shows on the project landing.
     """
     from django.db.models import F
 
@@ -42,12 +47,20 @@ def import_project(
 
     summary: dict[str, Any] = {
         "tasks_created": 0,
+        "task_count": 0,
         "dependencies_created": 0,
         "resources_matched": 0,
         "resources_created": 0,
         "assignments_created": 0,
+        "project_start_date": data.start_date,
         "warnings": list(data.warnings),
     }
+
+    if wipe_existing:
+        # Safe because the project was created empty for this import (ADR-0092);
+        # only a partial prior attempt could leave rows. Dependency/TaskResource
+        # cascade off Task, so deleting tasks clears the prior attempt.
+        Task.objects.filter(project_id=project_id).delete()
 
     if not data.tasks:
         summary["warnings"].append("No tasks found in file")
@@ -115,6 +128,7 @@ def import_project(
 
     Task.objects.bulk_create(task_objects)
     summary["tasks_created"] = len(task_objects)
+    summary["task_count"] = len(task_objects)
 
     for i, td in enumerate(data.tasks):
         task_uid_to_pk[td.uid] = str(task_objects[i].pk)

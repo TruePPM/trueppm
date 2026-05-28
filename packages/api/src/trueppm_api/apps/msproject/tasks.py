@@ -7,11 +7,14 @@ import logging
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from celery import shared_task
 
 from trueppm_api.core.idempotent import idempotent_task
+
+if TYPE_CHECKING:
+    from trueppm_api.apps.msproject.dataclasses import ProjectData
 
 logger = logging.getLogger(__name__)
 
@@ -69,14 +72,21 @@ def import_msproject(
     filename: str,
     initiated_by_id: int | None = None,
     import_request_id: str | None = None,
+    creates_project: bool = False,
 ) -> dict[str, Any]:
-    """Import an MS Project file (.mpp or .xml) into an existing project.
+    """Import an MS Project file (.mpp or .xml) into a project.
 
     The file content is passed as base64-encoded string to avoid binary
     issues with the Celery/Redis message broker.
 
     When dispatched via the ImportRequest outbox, import_request_id is set
-    so the row can be marked DONE on successful completion.
+    so the row can be marked DONE on success (or DEAD on a terminal parse
+    failure).
+
+    When ``creates_project`` is True (create-from-import, ADR-0092) the project
+    shell was created synchronously named from the filename; the file header
+    overwrites its name/start_date once parsing succeeds, and the import wipes
+    any prior partial attempt so an orphan-drain re-dispatch is idempotent.
 
     After import, triggers a CPM recalculation via the scheduling outbox.
     """
@@ -86,20 +96,36 @@ def import_msproject(
 
         tracker.update(5, f"Parsing {filename}...")
 
-        if ext == "mpp":
-            from trueppm_api.apps.msproject.parser import parse_mpp
+        try:
+            if ext == "mpp":
+                from trueppm_api.apps.msproject.parser import parse_mpp
 
-            project_data = parse_mpp(file_content)
-        elif ext == "xml":
-            from trueppm_api.apps.msproject.parser import parse_xml
+                project_data = parse_mpp(file_content)
+            elif ext == "xml":
+                from trueppm_api.apps.msproject.parser import parse_xml
 
-            project_data = parse_xml(file_content)
-        else:
-            raise ValueError(f"Unsupported file format: .{ext}. Expected .mpp or .xml")
+                project_data = parse_xml(file_content)
+            else:
+                raise ValueError(f"Unsupported file format: .{ext}. Expected .mpp or .xml")
+        except Exception:
+            # A parse/format error is deterministic: retrying the same bytes will
+            # always fail. Mark the outbox row DEAD (terminal) so the orphan drain
+            # stops re-dispatching it forever (ADR-0092). The TaskRunTracker records
+            # the run FAILED with this message so the UI can surface it. Infra errors
+            # (broker, timeout, transient DB) happen later and leave the row
+            # DISPATCHED for the normal drain/retry path.
+            if import_request_id:
+                _mark_import_dead(import_request_id)
+            raise
+
+        if creates_project:
+            _apply_header_to_project(project_id, project_data)
 
         from trueppm_api.apps.msproject.importer import import_project
 
-        summary = import_project(project_id, project_data, tracker=tracker)
+        summary = import_project(
+            project_id, project_data, tracker=tracker, wipe_existing=creates_project
+        )
         tracker.set_result(summary)
 
         if summary["tasks_created"] > 0:
@@ -124,6 +150,43 @@ def _mark_import_done(import_request_id: str) -> None:
     ImportRequest.objects.filter(
         id=import_request_id, status=ImportRequestStatus.DISPATCHED
     ).update(status=ImportRequestStatus.DONE)
+
+
+def _mark_import_dead(import_request_id: str) -> None:
+    """Flip the ImportRequest row to DEAD after a terminal (parse) failure.
+
+    DEAD is excluded from the orphan-drain recovery, so a deterministically bad
+    file is not re-dispatched forever (ADR-0092).
+    """
+    from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
+
+    ImportRequest.objects.filter(id=import_request_id).exclude(
+        status=ImportRequestStatus.DONE
+    ).update(status=ImportRequestStatus.DEAD)
+
+
+def _apply_header_to_project(project_id: str, data: ProjectData) -> None:
+    """Overwrite a create-from-import shell's name/start_date from the file header.
+
+    The shell is created synchronously with a filename-derived name and today's
+    date (ADR-0092); the parsed ``<Name>``/``<StartDate>`` are authoritative once
+    the file reads cleanly. Uses ``.update()`` to bypass django-simple-history on
+    this one-shot rename (ADR-0011).
+    """
+    from datetime import date
+
+    from trueppm_api.apps.projects.models import Project
+
+    fields: dict[str, Any] = {}
+    if data.name:
+        fields["name"] = data.name[:255]
+    if data.start_date:
+        try:
+            fields["start_date"] = date.fromisoformat(data.start_date)
+        except ValueError:
+            logger.warning("import.msproject: unparseable header start_date %r", data.start_date)
+    if fields:
+        Project.objects.filter(pk=project_id).update(**fields)
 
 
 @idempotent_task(
@@ -191,6 +254,7 @@ def _do_import_drain() -> None:
                 filename=req.filename,
                 initiated_by_id=req.initiated_by_id,
                 import_request_id=str(req.id),
+                creates_project=req.creates_project,
             )
         except Exception:
             logger.warning(
