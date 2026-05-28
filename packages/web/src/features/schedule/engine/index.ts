@@ -6,11 +6,28 @@
  */
 
 export type { GanttEngine, GanttEngineEventMap } from './GanttEngine';
-export type { GanttScaleData, ZoomLevel, ZoomConfig, QuarterMode, FiscalConfig } from './GanttScaleData';
+export type {
+  GanttScaleData,
+  ZoomLevel,
+  ZoomConfig,
+  QuarterMode,
+  FiscalConfig,
+  HeaderTier,
+} from './GanttScaleData';
 export {
   ZOOM_CONFIGS,
   CALENDAR_QUARTERS,
+  MIN_PX_PER_DAY,
+  MAX_PX_PER_DAY,
+  ZOOM_STEP_FACTOR,
+  ZOOM_WHEEL_FACTOR,
+  HEADER_TIERS,
   buildScaleData,
+  buildScaleDataFromPxPerDay,
+  clampPxPerDay,
+  deriveTier,
+  headerTierForPxPerDay,
+  headerUnitsForPxPerDay,
   dateToLeft,
   leftToDate,
   parseUTCDate,

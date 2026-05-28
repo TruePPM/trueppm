@@ -1,7 +1,7 @@
 import { useRef, useCallback, useState, useEffect, useMemo, type PointerEvent } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import type { GanttEngine, GanttScaleData } from './engine';
-import { dateToLeft } from './engine';
+import { dateToLeft, ZOOM_STEP_FACTOR } from './engine';
 import { HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useScheduleStore } from '@/stores/scheduleStore';
@@ -837,6 +837,25 @@ export function ScheduleView() {
         setCheatsheetOpen((open) => !open);
       };
     }
+    // Continuous zoom shortcuts (#351). ⌘=/⌘- step geometrically through the
+    // store (→ engine.setPxPerDay with viewport-center anchor, rule 80); ⌘0
+    // fits the project (rule 126). Read pxPerDay fresh via getState so the
+    // bindings don't churn on every wheel tick. preventDefault stops the
+    // browser's native page zoom.
+    out['mod+='] = (e) => {
+      e.preventDefault();
+      const { pxPerDay, setPxPerDay } = useScheduleStore.getState();
+      setPxPerDay(pxPerDay * ZOOM_STEP_FACTOR);
+    };
+    out['mod+-'] = (e) => {
+      e.preventDefault();
+      const { pxPerDay, setPxPerDay } = useScheduleStore.getState();
+      setPxPerDay(pxPerDay / ZOOM_STEP_FACTOR);
+    };
+    out['mod+0'] = (e) => {
+      e.preventDefault();
+      engine?.fitToProject();
+    };
     return out;
   }, [projectId, readOnly, handleAddMilestone, buildModeActive, engine, setSelectedTaskId]);
   useScheduleKeyboard(keyBindings);
@@ -893,7 +912,7 @@ export function ScheduleView() {
     return (
       <div className="flex flex-col h-full overflow-hidden">
         <div className="flex items-center justify-end px-4 h-10 border-b border-neutral-border bg-neutral-surface-raised flex-shrink-0">
-          <ZoomControl />
+          <ZoomControl onFit={() => engine?.fitToProject()} />
         </div>
 
         <div className="flex flex-1 overflow-hidden">
@@ -1060,7 +1079,7 @@ export function ScheduleView() {
         >
           Today
         </button>
-        <ZoomControl />
+        <ZoomControl onFit={() => engine?.fitToProject()} />
         {/* Fiscal/calendar quarter toggle (#755) — inline next to zoom at md+,
             folded into the overflow menu at sm. Self-hides off quarter/year
             zoom and when the workspace fiscal year starts in January. */}

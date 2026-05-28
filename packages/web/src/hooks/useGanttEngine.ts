@@ -22,6 +22,7 @@ export function useGanttEngine(
   zoomLevel: ZoomLevel,
   isDark = false,
   fiscalConfig: FiscalConfig = CALENDAR_QUARTERS,
+  pxPerDay: number | null = null,
 ): GanttEngine | null {
   const [engine, setEngine] = useState<GanttEngine | null>(null);
 
@@ -62,11 +63,21 @@ export function useGanttEngine(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Respond to zoom changes
+  // Respond to continuous zoom changes (#351). When the store provides a
+  // `pxPerDay`, it is the source of truth; the engine's `setPxPerDay` derives
+  // the tier internally. We fall back to the discrete `setZoom(zoomLevel)` only
+  // when no pxPerDay is supplied (e.g. tests that pass the legacy signature).
+  // Wheel/pinch zoom drive the engine imperatively, then push the resulting
+  // pxPerDay back into the store; this effect re-runs and is a no-op because
+  // the value already matches (setPxPerDay early-returns on an unchanged value).
   useEffect(() => {
     if (!engine) return;
-    engine.setZoom(zoomLevel);
-  }, [engine, zoomLevel]);
+    if (pxPerDay !== null) {
+      engine.setPxPerDay(pxPerDay);
+    } else {
+      engine.setZoom(zoomLevel);
+    }
+  }, [engine, zoomLevel, pxPerDay]);
 
   // Respond to dark mode changes
   useEffect(() => {

@@ -71,6 +71,7 @@ import { BacklogBand, BACKLOG_BAND_DROPPABLE_ID } from './BacklogBand';
 import { BacklogDrawer } from './BacklogDrawer';
 import { QueueLayout } from './QueueLayout';
 import { BacklogDemoteConfirmDialog } from './BacklogDemoteConfirmDialog';
+import { ScheduleTaskDialog } from '@/features/schedule/ScheduleTaskDialog';
 import { CalmToolbar } from './CalmToolbar';
 import { SprintPanel } from './SprintPanel';
 import { useBoardToolbarPrefs } from '@/hooks/useBoardToolbarPrefs';
@@ -941,6 +942,21 @@ export function BoardView() {
   // when a NOT_STARTED card is dropped on the band; cleared on confirm/cancel.
   const [backlogDemoteCandidate, setBacklogDemoteCandidate] = useState<Task | null>(null);
 
+  // Keyboard "Schedule…" dialog (#318, rule 135) — opened from a BacklogCard's
+  // ··· action. Single instance like BacklogDemoteConfirmDialog. The trigger
+  // ref returns focus to the originating ··· button on close.
+  const [scheduleDialogTask, setScheduleDialogTask] = useState<Task | null>(null);
+  const scheduleTriggerRef = useRef<HTMLElement | null>(null);
+  const handleScheduleRequest = useCallback((task: Task, trigger: HTMLElement) => {
+    scheduleTriggerRef.current = trigger;
+    setScheduleDialogTask(task);
+  }, []);
+  const handleScheduleDialogClose = useCallback(() => {
+    setScheduleDialogTask(null);
+    scheduleTriggerRef.current?.focus();
+    scheduleTriggerRef.current = null;
+  }, []);
+
   // Hoisted ahead of `handleDragEnd` / `handleMenuMove` so the WIP-limit
   // guard can read live counts before issuing the move mutation (#232).
   const totalByStatus = useMemo(() => {
@@ -1558,6 +1574,7 @@ export function BoardView() {
                 focusedCardId={focusedCardId}
                 onCardFocus={handleCardFocus}
                 onCardClick={handleCardClick}
+                onSchedule={projectId ? handleScheduleRequest : undefined}
                 onCaptureIdea={() => handleAddTask('root', 'backlog', true)}
                 isCaptureIdeaPending={false}
               />
@@ -1811,6 +1828,18 @@ export function BoardView() {
               ariaLiveRef.current.textContent = `${target.name} moved to Backlog`;
             }
           }}
+        />
+      )}
+
+      {/* Schedule "…" dialog (#318, rule 135) — keyboard alternative to dragging
+          a backlog idea onto the Schedule view's timeline. Opened from a
+          BacklogCard's ··· action; issues the same
+          { planned_start, status: 'NOT_STARTED' } promote PATCH (decision A2). */}
+      {scheduleDialogTask && projectId && (
+        <ScheduleTaskDialog
+          task={scheduleDialogTask}
+          projectId={projectId}
+          onClose={handleScheduleDialogClose}
         />
       )}
 

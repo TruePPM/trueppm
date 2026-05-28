@@ -15,6 +15,7 @@ export function UnscheduledDropIndicator({ x, canvasRect, dateLabel }: Unschedul
   return (
     <div
       aria-hidden="true"
+      data-testid="schedule-drop-indicator"
       style={{ position: 'fixed', left: lineX, top: canvasRect.top, height: canvasRect.height, pointerEvents: 'none', zIndex: 9998 }}
     >
       {/* Vertical guide line */}

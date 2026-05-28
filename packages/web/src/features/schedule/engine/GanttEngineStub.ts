@@ -37,6 +37,12 @@ export class GanttEngineStub implements GanttEngine {
 
   setZoom(_level: ZoomLevel): void {}
 
+  setPxPerDay(_px: number, _anchor?: { clientX: number }): void {}
+
+  readonly pxPerDay: number | null = null;
+
+  fitToProject(): void {}
+
   scrollToDate(_isoDate: string, _behavior?: ScrollBehavior): void {}
 
   // ── Selection ─────────────────────────────────────────────────────────────

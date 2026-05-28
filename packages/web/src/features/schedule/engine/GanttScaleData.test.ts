@@ -1,14 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildScaleData,
+  buildScaleDataFromPxPerDay,
+  clampPxPerDay,
   dateToLeft,
+  deriveTier,
   fiscalQuarter,
   fiscalQuarterKey,
   fiscalQuarterLabel,
   fiscalYearKey,
   fiscalYearLabel,
+  headerUnitsForPxPerDay,
   leftToDate,
   parseUTCDate,
+  MIN_PX_PER_DAY,
+  MAX_PX_PER_DAY,
   ZOOM_CONFIGS,
 } from './GanttScaleData';
 import type { ZoomLevel } from './GanttScaleData';
@@ -241,5 +247,72 @@ describe('fiscalQuarter — October start (US federal, startMonth = 10)', () => 
     expect(fiscalQuarter(utc('2025-10-01'), 10)).toEqual({ quarter: 1, fiscalYear: 2026 });
     expect(fiscalQuarterLabel(utc('2025-10-01'), 10)).toBe('Q1 FY26');
     expect(fiscalQuarter(utc('2025-09-30'), 10)).toEqual({ quarter: 4, fiscalYear: 2025 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Continuous zoom (#351)
+// ---------------------------------------------------------------------------
+
+describe('clampPxPerDay', () => {
+  it('clamps to the [MIN, MAX] band derived from ZOOM_CONFIGS', () => {
+    expect(MIN_PX_PER_DAY).toBe(ZOOM_CONFIGS.year.pxPerDay);
+    expect(MAX_PX_PER_DAY).toBe(ZOOM_CONFIGS.day.pxPerDay);
+    expect(clampPxPerDay(9999)).toBe(MAX_PX_PER_DAY);
+    expect(clampPxPerDay(0.0001)).toBe(MIN_PX_PER_DAY);
+    expect(clampPxPerDay(12)).toBe(12);
+  });
+});
+
+describe('deriveTier', () => {
+  it('maps each named config back to its own tier exactly', () => {
+    expect(deriveTier(ZOOM_CONFIGS.day.pxPerDay)).toBe('day');
+    expect(deriveTier(ZOOM_CONFIGS.week.pxPerDay)).toBe('week');
+    expect(deriveTier(ZOOM_CONFIGS.month.pxPerDay)).toBe('month');
+    expect(deriveTier(ZOOM_CONFIGS.quarter.pxPerDay)).toBe('quarter');
+    expect(deriveTier(ZOOM_CONFIGS.year.pxPerDay)).toBe('year');
+  });
+
+  it('uses geometric midpoints as band boundaries (symmetric in log space)', () => {
+    // week=12, month=3 → midpoint sqrt(36)=6. Just above → week, just below → month.
+    const mid = Math.sqrt(ZOOM_CONFIGS.week.pxPerDay * ZOOM_CONFIGS.month.pxPerDay);
+    expect(mid).toBeCloseTo(6, 5);
+    expect(deriveTier(mid + 0.1)).toBe('week');
+    expect(deriveTier(mid - 0.1)).toBe('month');
+  });
+
+  it('clamps the extremes to the finest/coarsest tier', () => {
+    expect(deriveTier(1000)).toBe('day');
+    expect(deriveTier(0.01)).toBe('year');
+  });
+});
+
+describe('headerUnitsForPxPerDay', () => {
+  it('swaps the emphasized tier across the documented thresholds', () => {
+    expect(headerUnitsForPxPerDay(100)).toEqual({ major: 'day', minor: 'day' }); // 'hour' deferred → capped at day
+    expect(headerUnitsForPxPerDay(40)).toEqual({ major: 'day', minor: 'week' });
+    expect(headerUnitsForPxPerDay(12)).toEqual({ major: 'week', minor: 'month' });
+    expect(headerUnitsForPxPerDay(4)).toEqual({ major: 'month', minor: 'quarter' });
+    expect(headerUnitsForPxPerDay(1)).toEqual({ major: 'quarter', minor: 'year' });
+    expect(headerUnitsForPxPerDay(0.3)).toEqual({ major: 'year', minor: 'year' }); // no secondary → minor reuses major
+  });
+});
+
+describe('buildScaleDataFromPxPerDay', () => {
+  it('derives the zoomLevel label from the continuous scale', () => {
+    const s = buildScaleDataFromPxPerDay(12, '2026-01-01', '2026-06-01');
+    expect(s.zoomLevel).toBe('week');
+    expect(s.pxPerMs).toBeCloseTo(12 / 86_400_000, 12);
+  });
+
+  it('clamps an out-of-band pxPerDay before building', () => {
+    const s = buildScaleDataFromPxPerDay(9999, '2026-01-01', '2026-06-01');
+    expect(s.pxPerMs).toBeCloseTo(MAX_PX_PER_DAY / 86_400_000, 12);
+  });
+
+  it('buildScaleData keeps the requested discrete label even if it derives differently', () => {
+    // The discrete builder pins the exact tier label regardless of deriveTier.
+    const s = buildScaleData('quarter', '2026-01-01', '2027-01-01');
+    expect(s.zoomLevel).toBe('quarter');
   });
 });

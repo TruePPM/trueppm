@@ -74,11 +74,17 @@ async function gotoSchedule(page: Page, fiscalMonth: number) {
   await expect(page.getByRole('grid', { name: 'Task list' })).toBeVisible({ timeout: 15_000 });
 }
 
-function zoomToQuarter(page: Page) {
-  return page
-    .getByRole('group', { name: 'Timeline zoom' })
-    .getByRole('button', { name: 'Quarter' })
-    .click();
+// Continuous zoom (#351) replaced the segmented tier buttons with a −/+ stepper
+// and a derived-tier readout. Step zoom-out until the readout reads "Quarter".
+async function zoomToQuarter(page: Page) {
+  const group = page.getByRole('group', { name: 'Timeline zoom' });
+  const zoomOut = group.getByRole('button', { name: 'Zoom out' });
+  const readout = group.getByRole('status');
+  for (let i = 0; i < 10; i++) {
+    if ((await readout.textContent())?.trim() === 'Quarter') break;
+    await zoomOut.click();
+  }
+  await expect(readout).toHaveText('Quarter');
 }
 
 test.describe('Schedule fiscal quarter toggle (#755)', () => {
