@@ -8,6 +8,7 @@ import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
 import { formatRelative } from '@/lib/formatRelative';
 import { BurnChart } from '@/features/reports/BurnChart';
+import { ImportProvenanceSection } from '@/features/project/ImportProvenanceSection';
 
 // ---------------------------------------------------------------------------
 // API response types
@@ -816,6 +817,11 @@ export function ProjectOverviewPage() {
           )}
         </section>
       )}
+
+      {/* Project history (import provenance, #799). Self-hides when the
+         project has no recorded imports — common case for TruePPM-authored
+         projects, so no empty placeholder. */}
+      {projectId && <ImportProvenanceSection projectId={projectId} />}
     </div>
   );
 }

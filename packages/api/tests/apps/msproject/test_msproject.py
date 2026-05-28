@@ -6,7 +6,7 @@ import pathlib
 import xml.etree.ElementTree as ET
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from unittest.mock import MagicMock, patch
 
@@ -1018,6 +1018,176 @@ class TestExportAPI:
         fake_pk = "00000000-0000-0000-0000-000000000000"
         resp = admin_client.get(f"/api/v1/projects/{fake_pk}/export/msproject.xml")
         assert resp.status_code in (403, 404)
+
+
+# ---------------------------------------------------------------------------
+# Import provenance list (#799) — GET /projects/{pk}/imports/
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestImportProvenanceList:
+    """`GET /api/v1/projects/{pk}/imports/` — read-only audit list, Member+."""
+
+    def _url(self, project: Project) -> str:
+        return f"/api/v1/projects/{project.pk}/imports/"
+
+    def test_lists_imports_newest_first(
+        self, admin_client: APIClient, project: Project, user: object
+    ) -> None:
+        from trueppm_api.apps.msproject.models import ImportRequest
+
+        # Two imports for the project, with explicit timestamps so the order
+        # assertion isn't racing the auto_now_add millisecond.
+        first = ImportRequest.objects.create(
+            project=project,
+            filename="old.xml",
+            file_content_b64="",
+            initiated_by=user,  # type: ignore[arg-type]
+        )
+        ImportRequest.objects.filter(pk=first.pk).update(
+            requested_at=datetime(2026, 5, 1, tzinfo=UTC)
+        )
+        second = ImportRequest.objects.create(
+            project=project,
+            filename="new.xml",
+            file_content_b64="",
+            initiated_by=user,  # type: ignore[arg-type]
+        )
+        ImportRequest.objects.filter(pk=second.pk).update(
+            requested_at=datetime(2026, 5, 20, tzinfo=UTC)
+        )
+
+        resp = admin_client.get(self._url(project))
+        assert resp.status_code == 200
+        rows = resp.json()["results"]
+        assert [r["filename"] for r in rows] == ["new.xml", "old.xml"]
+        assert rows[0]["initiated_by_username"] == "msp_user"
+        # Status defaults to PENDING; task_count is None until the run records its summary.
+        assert rows[0]["status"] == "pending"
+        assert rows[0]["task_count"] is None
+        assert rows[0]["creates_project"] is False
+
+    def test_task_count_comes_from_linked_taskrun_summary(
+        self, admin_client: APIClient, project: Project, user: object
+    ) -> None:
+        from trueppm_api.apps.msproject.models import ImportRequest
+        from trueppm_api.apps.taskruns.models import TaskRun
+
+        req = ImportRequest.objects.create(
+            project=project,
+            filename="big.xml",
+            file_content_b64="",
+            initiated_by=user,  # type: ignore[arg-type]
+            celery_task_id="abc-123",
+        )
+        TaskRun.objects.create(
+            task_name="import_msproject",
+            celery_task_id="abc-123",
+            project=project,
+            status="success",
+            result_summary={"task_count": 42},
+        )
+
+        resp = admin_client.get(self._url(project))
+        rows = resp.json()["results"]
+        assert rows[0]["id"] == str(req.pk)
+        assert rows[0]["task_count"] == 42
+
+    def test_task_count_is_none_when_no_taskrun_yet(
+        self, admin_client: APIClient, project: Project, user: object
+    ) -> None:
+        from trueppm_api.apps.msproject.models import ImportRequest
+
+        # Row exists but no celery_task_id => no TaskRun lookup possible.
+        ImportRequest.objects.create(
+            project=project,
+            filename="queued.xml",
+            file_content_b64="",
+            initiated_by=user,  # type: ignore[arg-type]
+        )
+
+        resp = admin_client.get(self._url(project))
+        rows = resp.json()["results"]
+        assert rows[0]["task_count"] is None
+
+    def test_excludes_imports_from_other_projects(
+        self, admin_client: APIClient, project: Project, calendar: Calendar, user: object
+    ) -> None:
+        from trueppm_api.apps.msproject.models import ImportRequest
+
+        other = Project.objects.create(
+            name="Other Project", start_date=date(2026, 1, 5), calendar=calendar
+        )
+        ImportRequest.objects.create(
+            project=project,
+            filename="mine.xml",
+            file_content_b64="",
+            initiated_by=user,  # type: ignore[arg-type]
+        )
+        ImportRequest.objects.create(
+            project=other,
+            filename="theirs.xml",
+            file_content_b64="",
+            initiated_by=user,  # type: ignore[arg-type]
+        )
+
+        resp = admin_client.get(self._url(project))
+        rows = resp.json()["results"]
+        assert [r["filename"] for r in rows] == ["mine.xml"]
+
+    def test_viewer_can_read(
+        self, viewer_client: APIClient, project: Project, user: object
+    ) -> None:
+        from trueppm_api.apps.msproject.models import ImportRequest
+
+        ImportRequest.objects.create(
+            project=project,
+            filename="viewer-can-see.xml",
+            file_content_b64="",
+            initiated_by=user,  # type: ignore[arg-type]
+        )
+        resp = viewer_client.get(self._url(project))
+        assert resp.status_code == 200
+        assert resp.json()["results"][0]["filename"] == "viewer-can-see.xml"
+
+    def test_non_member_is_403(self, project: Project) -> None:
+        from rest_framework.test import APIClient
+
+        outsider = User.objects.create_user(username="outsider", password="pw")
+        c = APIClient()
+        c.force_authenticate(user=outsider)
+        resp = c.get(self._url(project))
+        assert resp.status_code == 403
+
+    def test_unauthenticated_is_401_or_403(self, project: Project) -> None:
+        from rest_framework.test import APIClient
+
+        resp = APIClient().get(self._url(project))
+        assert resp.status_code in (401, 403)
+
+    def test_nonexistent_project_404(self, admin_client: APIClient) -> None:
+        fake_pk = "00000000-0000-0000-0000-000000000000"
+        resp = admin_client.get(f"/api/v1/projects/{fake_pk}/imports/")
+        assert resp.status_code in (403, 404)
+
+    def test_initiated_by_username_null_when_user_deleted(
+        self, admin_client: APIClient, project: Project
+    ) -> None:
+        from trueppm_api.apps.msproject.models import ImportRequest
+
+        # initiated_by uses on_delete=SET_NULL, so an orphaned import survives
+        # the user being purged; the surface must tolerate the null gracefully.
+        ImportRequest.objects.create(
+            project=project,
+            filename="orphan.xml",
+            file_content_b64="",
+            initiated_by=None,
+        )
+        resp = admin_client.get(self._url(project))
+        rows = resp.json()["results"]
+        assert rows[0]["initiated_by"] is None
+        assert rows[0]["initiated_by_username"] is None
 
 
 # ---------------------------------------------------------------------------
