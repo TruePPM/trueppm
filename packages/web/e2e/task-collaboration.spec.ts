@@ -436,10 +436,17 @@ async function bootProjectPage(page: Page, opts: BootOpts = {}): Promise<void> {
   await page.route('**/api/v1/me/notification-preferences/**', async (route: Route) => {
     const req = route.request();
     if (req.method() === 'GET') {
+      // DRF paginates every list endpoint — return the {count,...,results}
+      // envelope the real API sends, not a bare array (#792).
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(preferences),
+        body: JSON.stringify({
+          count: preferences.length,
+          next: null,
+          previous: null,
+          results: preferences,
+        }),
       });
     }
     if (req.method() === 'PATCH') {

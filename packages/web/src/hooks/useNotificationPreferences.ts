@@ -9,6 +9,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import type { PaginatedResponse } from '@/api/types';
 
 const PREFS_KEY = ['me-notification-preferences'];
 
@@ -25,10 +26,14 @@ export function useNotificationPreferences() {
   const query = useQuery({
     queryKey: PREFS_KEY,
     queryFn: async () => {
-      const res = await apiClient.get<NotificationPreferenceRow[]>(
+      // The list endpoint is paginated (DRF PageNumberPagination, PAGE_SIZE=50)
+      // so the body is the {count,next,previous,results} envelope, not a bare
+      // array — unwrap results. The matrix is four rows today, well under one
+      // page. (#792)
+      const res = await apiClient.get<PaginatedResponse<NotificationPreferenceRow>>(
         '/me/notification-preferences/',
       );
-      return res.data;
+      return res.data.results;
     },
   });
 
