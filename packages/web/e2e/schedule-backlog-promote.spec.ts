@@ -123,9 +123,13 @@ async function setupRoutes(page: import('@playwright/test').Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
   );
   // PATCH on a specific task is intercepted per-test where the body is asserted;
-  // the catch-all returns the task list for GETs.
+  // the catch-all returns the task list for GETs. This handler is registered
+  // *after* the per-test PATCH route (via gotoSchedule), and Playwright runs the
+  // most-recently-added handler first — so non-GET requests must `fallback()`
+  // (hand off to the earlier, more specific handler), not `continue()` (which
+  // would send the PATCH to the network and bypass the per-test mock).
   await page.route('**/api/v1/tasks/**', (route) => {
-    if (route.request().method() !== 'GET') return route.continue();
+    if (route.request().method() !== 'GET') return route.fallback();
     return route.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify({ count: FIXTURE_API_TASKS.length, next: null, previous: null, results: FIXTURE_API_TASKS }),
@@ -191,12 +195,19 @@ test.describe('Schedule backlog gutter section (#318)', () => {
     const canvasBox = await canvas.boundingBox();
     if (!chipBox || !canvasBox) throw new Error('missing bounding boxes');
 
-    // Pointer-events drag: down on the chip, move past the 4px threshold, then
-    // over the canvas, then release.
+    // Pointer-events drag. The gutter attaches its window pointermove/pointerup
+    // listeners in a useEffect keyed on drag state, so we must let that state
+    // render before moving over the canvas — otherwise the canvas move races the
+    // listener attach and the drop is silently lost (the CI-only failure mode).
+    // Two visible-overlay gates make the drag deterministic:
+    //   1) the floating preview proves the drag state rendered (listeners attached);
+    //   2) the drop indicator proves overCanvas + dropDate registered before release.
     await page.mouse.move(chipBox.x + chipBox.width / 2, chipBox.y + chipBox.height / 2);
     await page.mouse.down();
-    await page.mouse.move(chipBox.x + chipBox.width / 2 + 10, chipBox.y + chipBox.height / 2, { steps: 3 });
+    await page.mouse.move(chipBox.x + chipBox.width / 2 + 12, chipBox.y + chipBox.height / 2, { steps: 3 });
+    await expect(page.getByTestId('schedule-drag-preview')).toBeVisible();
     await page.mouse.move(canvasBox.x + canvasBox.width / 2, canvasBox.y + canvasBox.height / 2, { steps: 8 });
+    await expect(page.getByTestId('schedule-drop-indicator')).toBeVisible();
     await page.mouse.up();
 
     // Success toast uses the fixed verb ("to To Do").
@@ -234,7 +245,10 @@ test.describe('Schedule "…" dialog (#318, rule 135)', () => {
 
     await page.getByRole('button', { name: 'Actions for Spike Auth Provider' }).click();
 
-    const dialog = page.getByRole('dialog');
+    // Scope to the Schedule dialog by its accessible name — the schedule view
+    // always renders a closed TaskDetailDrawer (role="dialog", empty name) that
+    // an unscoped getByRole('dialog') collides with on desktop viewports.
+    const dialog = page.getByRole('dialog', { name: /^Schedule/ });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText('This moves the item from Backlog to your schedule.')).toBeVisible();
 
@@ -250,9 +264,10 @@ test.describe('Schedule "…" dialog (#318, rule 135)', () => {
   test('Esc cancels the dialog', async ({ page }) => {
     await gotoSchedule(page);
     await page.getByRole('button', { name: 'Actions for Spike Auth Provider' }).click();
-    await expect(page.getByRole('dialog')).toBeVisible();
+    const dialog = page.getByRole('dialog', { name: /^Schedule/ });
+    await expect(dialog).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('dialog')).not.toBeVisible();
+    await expect(dialog).not.toBeVisible();
   });
 });
 
@@ -267,7 +282,7 @@ test.describe('Schedule "…" dialog offline (#318, rule 29)', () => {
     await page.context().setOffline(true);
 
     await page.getByRole('button', { name: 'Actions for Spike Auth Provider' }).click();
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByRole('dialog', { name: /^Schedule/ });
     await expect(dialog).toBeVisible();
 
     const scheduleBtn = dialog.getByRole('button', { name: 'Schedule' });
