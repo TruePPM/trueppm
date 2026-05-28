@@ -143,7 +143,8 @@ def test_deliver_webhook_does_not_renumber(webhook: Webhook) -> None:
 
     with (
         patch.object(wh_tasks, "assert_url_allowed"),  # see test_webhook_ssrf.py
-        patch.object(urllib.request, "urlopen", return_value=mock_resp),
+        # Delivery uses the redirect-disabled opener (#808), not bare urlopen.
+        patch.object(wh_tasks._no_redirect_opener, "open", return_value=mock_resp),
     ):
         wh_tasks.deliver_webhook.run(str(delivery.pk))
 
@@ -185,7 +186,7 @@ def test_deliver_webhook_sends_sequence_header(webhook: Webhook) -> None:
 
     captured: list[urllib.request.Request] = []
 
-    def capture_urlopen(req: urllib.request.Request, **kwargs: object) -> MagicMock:
+    def capture_open(req: urllib.request.Request, **kwargs: object) -> MagicMock:
         captured.append(req)
         resp = MagicMock()
         resp.status = 200
@@ -197,7 +198,8 @@ def test_deliver_webhook_sends_sequence_header(webhook: Webhook) -> None:
 
     with (
         patch.object(wh_tasks, "assert_url_allowed"),  # see test_webhook_ssrf.py
-        patch.object(urllib.request, "urlopen", side_effect=capture_urlopen),
+        # Delivery uses the redirect-disabled opener (#808), not bare urlopen.
+        patch.object(wh_tasks._no_redirect_opener, "open", side_effect=capture_open),
     ):
         wh_tasks.deliver_webhook.run(str(delivery.pk))
 
@@ -298,7 +300,7 @@ def test_delivered_body_carries_sequence_stable_across_retries(webhook: Webhook)
 
     captured: list[bytes] = []
 
-    def capture_urlopen(req: urllib.request.Request, **kwargs: object) -> MagicMock:
+    def capture_open(req: urllib.request.Request, **kwargs: object) -> MagicMock:
         captured.append(req.data)
         resp = MagicMock()
         resp.status = 200
@@ -308,7 +310,8 @@ def test_delivered_body_carries_sequence_stable_across_retries(webhook: Webhook)
 
     with (
         patch.object(wh_tasks, "assert_url_allowed"),  # see test_webhook_ssrf.py
-        patch.object(urllib.request, "urlopen", side_effect=capture_urlopen),
+        # Delivery uses the redirect-disabled opener (#808), not bare urlopen.
+        patch.object(wh_tasks._no_redirect_opener, "open", side_effect=capture_open),
     ):
         wh_tasks.deliver_webhook.run(str(delivery.pk))  # first attempt
         wh_tasks.deliver_webhook.run(str(delivery.pk))  # simulated retry

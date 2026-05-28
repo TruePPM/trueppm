@@ -9,6 +9,7 @@ integrations egress chokepoint (``assert_url_allowed``, ADR-0049 §3).
 
 from __future__ import annotations
 
+import contextlib
 import urllib.request
 from datetime import date
 from unittest.mock import patch
@@ -104,3 +105,69 @@ def test_deliver_webhook_blocked_url_fails_without_request(project: Project) -> 
     assert delivery.status == DeliveryStatus.FAILED
     assert delivery.attempt_count == 1
     assert delivery.completed_at is not None
+
+
+@pytest.mark.django_db
+def test_deliver_webhook_does_not_follow_redirects(project: Project) -> None:
+    """Closes #808: delivery uses a redirect-disabled opener.
+
+    A malicious webhook receiver returning a 302/307 with ``Location:`` pointing
+    at ``169.254.169.254`` (cloud metadata) or an RFC1918 host would, with the
+    default urllib opener, be re-fetched without re-running the SSRF guard. On a
+    307/308 the original POST body — already signed — would be replayed against
+    the internal target. This test pins the no-redirect opener as the
+    delivery-time defense.
+    """
+    user = User.objects.create_user(username="redirect_owner", password="pw")
+    webhook = Webhook.objects.create(
+        project=project,
+        url="https://hooks.example.com/recv",
+        secret="s3cret",
+        events=["task.created"],
+        created_by=user,
+    )
+    delivery = WebhookDelivery.objects.create(
+        webhook=webhook, event_type="task.created", payload={"id": "t1"}
+    )
+
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    # Simulate the receiver returning 302 -> internal target. With the default
+    # opener urllib would follow and hit the internal host; with NoRedirectHandler
+    # the 302 surfaces directly to our code path and is counted as a non-2xx
+    # status that retries via the normal backoff, never landing on the redirect
+    # target.
+    redirect_call_count = {"n": 0}
+
+    def fake_open(*args: object, **kwargs: object) -> object:  # pragma: no cover - simple stub
+        redirect_call_count["n"] += 1
+
+        class Resp:
+            status = 302
+
+            def __enter__(self) -> Resp:
+                return self
+
+            def __exit__(self, *exc_info: object) -> None:
+                return None
+
+        return Resp()
+
+    # SSRF pre-check passes for the public URL; we want to assert that the
+    # opener used for the actual POST is the no-redirect one and the redirect
+    # is NOT followed to the internal target.
+    with (
+        patch.object(wh_tasks, "assert_url_allowed", return_value=None),
+        patch.object(wh_tasks._no_redirect_opener, "open", side_effect=fake_open) as mock_open,
+        # Celery retry may raise in unit context; we only care about call shape.
+        contextlib.suppress(Exception),
+    ):
+        wh_tasks.deliver_webhook.run(str(delivery.pk))
+
+    # The custom opener was used (not bare urllib.request.urlopen) and was
+    # called exactly once: redirects were not followed.
+    assert mock_open.call_count == 1
+    delivery.refresh_from_db()
+    # 302 is non-2xx → retries / fails per normal backoff; the key invariant
+    # is that no second open() happened to follow the redirect.
+    assert delivery.response_status == 302

@@ -16,6 +16,7 @@ from django.utils import timezone
 from trueppm_api.apps.integrations.http import (
     EgressBlocked,
     EgressError,
+    NoRedirectHandler,
     assert_url_allowed,
 )
 from trueppm_api.core.idempotent import idempotent_task
@@ -31,6 +32,14 @@ _DRAIN_ORPHAN_MINUTES = 5
 # Exponential backoff countdown sequence (seconds): 30, 60, 120, 240, 480
 _MAX_RETRIES = 5
 _BACKOFF_BASE = 30
+
+# Redirect-disabled opener (#808). The default urllib opener follows 3xx
+# responses to arbitrary destinations, which would let a malicious receiver
+# bounce a signed webhook payload at a private/loopback/cloud-metadata host
+# *after* assert_url_allowed has validated the original URL. We share the same
+# no-redirect handler used by the integrations SSRF chokepoint so the guard is
+# implemented once.
+_no_redirect_opener = urllib.request.build_opener(NoRedirectHandler)
 
 
 @shared_task(  # type: ignore[untyped-decorator]
@@ -134,7 +143,13 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310 — URL passed the assert_url_allowed() SSRF guard above (ADR-0049 §3)
+        # Redirect-disabled opener (#808): a webhook receiver returning
+        # 302/307 Location: http://169.254.169.254/... (cloud metadata) or an
+        # RFC1918 host would otherwise be re-fetched *without* re-running the
+        # SSRF guard, with the original signed payload preserved on a 307/308.
+        # NoRedirectHandler surfaces the 3xx as-is so callers see it and retry
+        # via the existing non-2xx path.
+        with _no_redirect_opener.open(req, timeout=10) as resp:  # nosec B310 — URL passed the assert_url_allowed() SSRF guard above (ADR-0049 §3); redirects disabled
             status_code = resp.status
     except urllib.error.HTTPError as exc:
         status_code = exc.code

@@ -433,9 +433,14 @@ class VelocitySuggestionViewSet(
         user = self.request.user
         if not isinstance(user, AbstractBaseUser):
             return qs.none()
-        member_project_ids = ProjectMembership.objects.filter(user=user).values_list(
-            "project_id", flat=True
-        )
+        # is_deleted=False (#819): without this, a user whose membership was
+        # soft-deleted still sees velocity suggestions for that project via the
+        # list endpoint. The accept/dismiss actions go through IsProjectAdmin
+        # which already filters soft-deleted, so the write path is safe — only
+        # the list path was leaking.
+        member_project_ids = ProjectMembership.objects.filter(
+            user=user, is_deleted=False
+        ).values_list("project_id", flat=True)
         qs = qs.filter(task__project_id__in=member_project_ids)
         return qs
 

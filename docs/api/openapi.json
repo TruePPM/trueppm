@@ -292,7 +292,7 @@
         "/api/v1/auth/token/refresh/": {
             "post": {
                 "operationId": "v1_auth_token_refresh_create",
-                "description": "Takes a refresh type JSON web token and returns an access type JSON web\ntoken if the refresh token is valid.",
+                "description": "JWT refresh endpoint with per-client throttling (#814).\n\nMirrors ``ThrottledTokenObtainPairView`` (#770) at the refresh endpoint.\nWithout this, a stolen or partially-scraped refresh token can be exchanged\nfor access tokens at unbounded rate. The ``refresh`` scope in\n``DEFAULT_THROTTLE_RATES`` caps attempts per client IP. The cap is looser\nthan the login rate (refresh is the legitimate path that web/mobile clients\nhit on access-token expiry every 5 minutes), but bounded.",
                 "tags": [
                     "v1"
                 ],

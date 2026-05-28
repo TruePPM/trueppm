@@ -434,6 +434,11 @@ REST_FRAMEWORK = {
     # tight liveness/readiness loop.
     "DEFAULT_THROTTLE_RATES": {
         "login": "10/min",
+        # JWT refresh (#814). 60/min is loose enough that any realistic
+        # web/mobile client (5-minute access-token TTL → ~12 refreshes/hour)
+        # never trips it, but tight enough that a stolen/leaked refresh token
+        # cannot be exchanged for access tokens at unbounded rate.
+        "refresh": "60/min",
     },
 }
 
