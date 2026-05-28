@@ -4,6 +4,17 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from datetime import date
+from typing import Any
+
+from trueppm_api.apps.msproject.extended_attributes import (
+    DURATION1_FIELD_ID,
+    DURATION2_FIELD_ID,
+    DURATION3_FIELD_ID,
+    DURATION4_FIELD_ID,
+    PERT_ALIAS_LABELS,
+    PERT_EXPECTED_FORMULA,
+    PERT_FIELD_NAMES,
+)
 
 # MS Project XML namespace.
 _NS = "http://schemas.microsoft.com/project"
@@ -63,12 +74,34 @@ def export_project_xml(project_id: str) -> bytes:
     _sub_text(root, "Name", project.name)
     _sub_text(root, "StartDate", _format_date(project.start_date))
 
+    # --- Project-level ExtendedAttribute definitions (#798, ADR-0093) ---
+    # Emit the four PERT slots only when at least one non-summary, non-milestone
+    # task carries all three values. MS Project tolerates the block being
+    # absent; emitting it unconditionally would clutter files that don't use
+    # three-point estimates. The summary set is precomputed once for O(N)
+    # filtering of per-task emission below.
+    summary_pks = _summary_pks_from_tasks(tasks)
+    pert_tasks = [
+        t
+        for t in tasks
+        if (
+            str(t.pk) not in summary_pks
+            and not t.is_milestone
+            and t.optimistic_duration is not None
+            and t.most_likely_duration is not None
+            and t.pessimistic_duration is not None
+        )
+    ]
+    if pert_tasks:
+        _add_pert_extended_attribute_defs(root)
+
     # --- Tasks ---
     tasks_el = ET.SubElement(root, f"{{{_NS}}}Tasks")
 
     # Task UID 0: project summary task
     _add_summary_task(tasks_el, project)
 
+    pert_task_pks = {str(t.pk) for t in pert_tasks}
     for task in tasks:
         uid = task_pk_to_uid[str(task.pk)]
         task_el = ET.SubElement(tasks_el, f"{{{_NS}}}Task")
@@ -95,6 +128,24 @@ def export_project_xml(project_id: str) -> bytes:
             _sub_text(task_el, "Start", _format_date(task.planned_start))
         if task.early_finish:
             _sub_text(task_el, "Finish", _format_date(task.early_finish))
+
+        # PERT three-point per-task values. Only emitted for the leaf,
+        # non-milestone tasks selected into pert_task_pks above (ADR-0093 Q5).
+        # Duration4 is the PERT-Expected formula slot; MS Project derives it
+        # on read from the project-level Formula definition, so we never emit
+        # a per-task Duration4 value.
+        if str(task.pk) in pert_task_pks:
+            # All three are non-None by the pert_tasks filter above, but mypy
+            # can't carry that proof across the comprehension.
+            assert task.optimistic_duration is not None
+            assert task.most_likely_duration is not None
+            assert task.pessimistic_duration is not None
+            _add_pert_task_values(
+                task_el,
+                task.optimistic_duration,
+                task.most_likely_duration,
+                task.pessimistic_duration,
+            )
 
         # Predecessor links
         preds = dep_by_successor.get(str(task.pk), [])
@@ -169,3 +220,71 @@ def _add_summary_task(tasks_el: ET.Element, project: object) -> None:
     _sub_text(task_el, "Name", project.name)  # type: ignore[attr-defined]
     _sub_text(task_el, "OutlineLevel", "0")
     _sub_text(task_el, "OutlineNumber", "0")
+
+
+def _summary_pks_from_tasks(tasks: list[Any]) -> set[str]:
+    """Return the set of task primary keys that are summary tasks.
+
+    A task is a summary when another task's ``wbs_path`` is strictly descended
+    from this one's (e.g. ``"1"`` is a summary if any task has path ``"1.1"``).
+    O(N) over the task list: build the set of strict ancestor paths from every
+    leaf path in one pass, then mark every task whose own path is in that set.
+    """
+    ancestor_paths: set[str] = set()
+    for t in tasks:
+        path = getattr(t, "wbs_path", None)
+        if not path:
+            continue
+        path = str(path)
+        parts = path.split(".")
+        for end in range(1, len(parts)):
+            ancestor_paths.add(".".join(parts[:end]))
+    return {
+        str(t.pk)
+        for t in tasks
+        if getattr(t, "wbs_path", None) and str(t.wbs_path) in ancestor_paths
+    }
+
+
+def _add_pert_extended_attribute_defs(root: ET.Element) -> None:
+    """Emit the four PERT ExtendedAttribute definitions at project level.
+
+    Duration1–3 carry the aliases Optimistic / Most Likely / Pessimistic.
+    Duration4 carries the formula MS Project uses to derive PERT Expected
+    on file open. The caller is responsible for invoking this **before** the
+    ``<Tasks>`` block is appended, so the resulting element order
+    (``<ExtendedAttributes>`` then ``<Tasks>``) matches MS Project's own
+    element order. ``ET.SubElement`` appends at call time, so call ordering
+    is the positional guarantee — don't move this call after ``<Tasks>``.
+    """
+    ea_block = ET.SubElement(root, f"{{{_NS}}}ExtendedAttributes")
+    for fid in (DURATION1_FIELD_ID, DURATION2_FIELD_ID, DURATION3_FIELD_ID, DURATION4_FIELD_ID):
+        ea = ET.SubElement(ea_block, f"{{{_NS}}}ExtendedAttribute")
+        _sub_text(ea, "FieldID", fid)
+        _sub_text(ea, "FieldName", PERT_FIELD_NAMES[fid])
+        _sub_text(ea, "Alias", PERT_ALIAS_LABELS[fid])
+        if fid == DURATION4_FIELD_ID:
+            _sub_text(ea, "Formula", PERT_EXPECTED_FORMULA)
+
+
+def _add_pert_task_values(
+    task_el: ET.Element,
+    optimistic_days: int,
+    most_likely_days: int,
+    pessimistic_days: int,
+) -> None:
+    """Emit per-task <ExtendedAttribute> values for Duration1/2/3.
+
+    Values are encoded as ISO-8601 ``PT{hours}H0M0S`` (8h working day) using
+    the same convention as the primary Duration field. ``DurationFormat=7``
+    marks the value as a duration in days for MS Project's UI.
+    """
+    for fid, days in (
+        (DURATION1_FIELD_ID, optimistic_days),
+        (DURATION2_FIELD_ID, most_likely_days),
+        (DURATION3_FIELD_ID, pessimistic_days),
+    ):
+        ea = ET.SubElement(task_el, f"{{{_NS}}}ExtendedAttribute")
+        _sub_text(ea, "FieldID", fid)
+        _sub_text(ea, "Value", _days_to_duration(days))
+        _sub_text(ea, "DurationFormat", "7")

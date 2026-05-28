@@ -19,6 +19,13 @@ from trueppm_api.apps.msproject.dataclasses import (
     ResourceData,
     TaskData,
 )
+from trueppm_api.apps.msproject.extended_attributes import (
+    DURATION1_FIELD_ID,
+    DURATION2_FIELD_ID,
+    DURATION3_FIELD_ID,
+    PERT_ALIAS_TOKENS,
+    PERT_ROLE_BY_FIELD_ID,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +44,23 @@ _LINK_TYPE_MAP = {
 # Subprocess timeout for MPXJ (seconds).
 _MPXJ_TIMEOUT = 120
 
+# Upper bound matches Task.duration's MaxValueValidator(36_525) (~100 years).
+# bulk_create() bypasses the model validators, so a crafted MSPDI file could
+# otherwise smuggle astronomical integer values into the database (e.g.
+# PT9999999999H gets us 1.25 billion days). Clamping in the helper is a single
+# choke point that covers every parser caller — primary Duration, PERT
+# Duration1/2/3, and any future Duration-typed ExtendedAttribute.
+_MAX_DURATION_DAYS = 36_525
+
 
 def _parse_duration_to_days(duration_str: str) -> int:
     """Parse MS Project ISO 8601 duration string to working days.
 
     MS Project uses PT<hours>H<minutes>M<seconds>S for task durations where
     hours represent calendar hours. We convert to working days using 8h/day.
-    Also handles P<n>D and P<n>DT<n>H formats.
+    Also handles P<n>D and P<n>DT<n>H formats. The result is clamped to
+    ``[0, _MAX_DURATION_DAYS]`` because ``bulk_create`` skips the model's
+    ``MaxValueValidator(36_525)`` — see the constant above for rationale.
     """
     if not duration_str:
         return 1
@@ -73,7 +90,7 @@ def _parse_duration_to_days(duration_str: str) -> int:
                 hours = int(time_part[:h_idx])
 
     total_days = days + (hours // 8)
-    return max(total_days, 0)
+    return max(0, min(total_days, _MAX_DURATION_DAYS))
 
 
 def _parse_lag_to_days(lag_tenths_of_minutes: str) -> int:
@@ -120,6 +137,17 @@ def parse_xml(xml_content: bytes) -> ProjectData:
         name=_ft(root, "Name"),
         start_date=_ft(root, "StartDate")[:10] if _ft(root, "StartDate") else None,
     )
+
+    # --- Parse project-level ExtendedAttribute definitions (#798, ADR-0093) ---
+    # Build a {role: field_id} map (e.g. {"optimistic": "188743783"}) for the
+    # three PERT roles. Per the architect decision (Q1), trust the FieldID:
+    # accept the binding when the canonical PERT FieldID is present and the
+    # alias text either confirms the role or is empty. If the alias text
+    # contradicts the role (e.g. Duration1 aliased "Risk Score") drop the
+    # binding and warn — we'd rather skip than import the wrong field as
+    # Optimistic. Files with no ExtendedAttributes block produce an empty map
+    # and three-point import is silently skipped.
+    pert_role_to_field_id = _parse_pert_extended_attribute_defs(root, ns, project_data.warnings)
 
     # --- Parse resources ---
     resources_el = _fe(root, "Resources")
@@ -197,22 +225,155 @@ def parse_xml(xml_content: bytes) -> ProjectData:
                     )
                 )
 
+            # PERT three-point values come in as per-task <ExtendedAttribute>
+            # children matching the FieldIDs detected at project level. Values
+            # are ISO-8601 durations parsed via the same _parse_duration_to_days
+            # helper used for the primary Duration field. Summary tasks and
+            # milestones are skipped (ADR-0093 Q5): MS Project leaves these
+            # empty on summaries/milestones in practice; if a file violates
+            # that we still skip to keep Monte Carlo input consistent with
+            # MS Project's own semantics. Summary detection happens later
+            # (importer rebuilds WBS), so we only filter milestones here and
+            # leave summary filtering to the importer.
+            pert_values = (
+                _extract_pert_task_values(task_el, ns, pert_role_to_field_id)
+                if pert_role_to_field_id
+                else (None, None, None)
+            )
+            opt_days, ml_days, pess_days = pert_values
+            is_milestone = milestone_str == "1"
+            if is_milestone and (opt_days, ml_days, pess_days) != (None, None, None):
+                # Drop silently rather than warn — milestones with three-point
+                # values are common file noise from PMs who blanket-applied
+                # estimates and there's nothing the user needs to do.
+                opt_days = ml_days = pess_days = None
+            # All-or-none (Q3): if fewer than all three are present, drop all
+            # three and warn. The scheduler engine requires all three for
+            # PERT-Beta sampling (engine.py:892), so a partial import would
+            # surface as a half-populated UI with no Monte Carlo effect.
+            present = sum(v is not None for v in (opt_days, ml_days, pess_days))
+            if 0 < present < 3:
+                missing = []
+                if opt_days is None:
+                    missing.append("Optimistic")
+                if ml_days is None:
+                    missing.append("Most Likely")
+                if pess_days is None:
+                    missing.append("Pessimistic")
+                project_data.warnings.append(
+                    f"Task '{name}': partial three-point estimate "
+                    f"(missing {', '.join(missing)}), all three values skipped"
+                )
+                opt_days = ml_days = pess_days = None
+
             td = TaskData(
                 uid=uid,
                 name=name,
                 duration_days=_parse_duration_to_days(duration_str),
                 outline_number=outline_number,
                 outline_level=int(outline_level_str) if outline_level_str else 0,
-                is_milestone=milestone_str == "1",
+                is_milestone=is_milestone,
                 percent_complete=float(pct_str) / 100.0 if pct_str else 0.0,
                 notes=notes,
                 start=start_str[:10] if start_str else None,
+                optimistic_duration_days=opt_days,
+                most_likely_duration_days=ml_days,
+                pessimistic_duration_days=pess_days,
                 predecessor_links=pred_links,
                 resource_assignments=task_assignments.get(uid, []),
             )
             project_data.tasks.append(td)
 
     return project_data
+
+
+def _parse_pert_extended_attribute_defs(
+    root: ET.Element, ns: str, warnings: list[str]
+) -> dict[str, str]:
+    """Detect which FieldIDs the file uses for the three PERT roles.
+
+    Walks ``<ExtendedAttributes>/<ExtendedAttribute>`` and returns
+    ``{role: field_id}`` for roles (optimistic / most_likely / pessimistic)
+    backed by the canonical Duration1/2/3 FieldIDs. Duration4 is informational
+    (formula slot) and ignored.
+
+    Refuses to bind a role when the FieldID matches but the alias text
+    contradicts (e.g. someone repurposed Duration1 with alias 'Risk Score') —
+    the FieldID is the interchange contract, but a contradicting alias is
+    strong evidence the slot has been reused.
+    """
+    ea_block = root.find(f"{ns}ExtendedAttributes")
+    if ea_block is None:
+        return {}
+    bound: dict[str, str] = {}
+    for ea in ea_block.findall(f"{ns}ExtendedAttribute"):
+        fid_el = ea.find(f"{ns}FieldID")
+        if fid_el is None:
+            continue
+        field_id = (fid_el.text or "").strip()
+        if not field_id:
+            continue
+        role = PERT_ROLE_BY_FIELD_ID.get(field_id)
+        if role is None or role == "expected":
+            # Either not a PERT slot, or the formula slot (Duration4) we never
+            # import. Skip silently.
+            continue
+        alias_el = ea.find(f"{ns}Alias")
+        alias_raw = alias_el.text if alias_el is not None else None
+        alias_text = (alias_raw or "").strip().lower()
+        if alias_text:
+            expected_tokens = PERT_ALIAS_TOKENS.get(field_id, ())
+            if not any(tok in alias_text for tok in expected_tokens):
+                # Truncate the reflected alias before surfacing it in the
+                # import summary — a multi-megabyte <Alias> would bloat the
+                # warnings list (and any frontend rendering it). 100 chars
+                # is enough to diagnose the mismatch.
+                alias_display = (alias_raw or "")[:100]
+                warnings.append(
+                    f"Project ExtendedAttribute FieldID {field_id} has "
+                    f"non-standard alias '{alias_display}'; three-point "
+                    f"estimate ({role}) skipped"
+                )
+                continue
+        bound[role] = field_id
+    return bound
+
+
+def _extract_pert_task_values(
+    task_el: ET.Element, ns: str, pert_role_to_field_id: dict[str, str]
+) -> tuple[int | None, int | None, int | None]:
+    """Pull a task's Duration1/2/3 ExtendedAttribute values, in working days.
+
+    Returns ``(optimistic, most_likely, pessimistic)`` with ``None`` for any
+    role whose FieldID was either not defined at project level or not present
+    on this task. Uses the same ``_parse_duration_to_days`` helper as the
+    primary Duration field so working-day semantics (8h/day floor) match.
+    """
+    opt_fid = pert_role_to_field_id.get("optimistic")
+    ml_fid = pert_role_to_field_id.get("most_likely")
+    pess_fid = pert_role_to_field_id.get("pessimistic")
+    values: dict[str, int | None] = {
+        DURATION1_FIELD_ID: None,
+        DURATION2_FIELD_ID: None,
+        DURATION3_FIELD_ID: None,
+    }
+    for ea in task_el.findall(f"{ns}ExtendedAttribute"):
+        fid_el = ea.find(f"{ns}FieldID")
+        val_el = ea.find(f"{ns}Value")
+        if fid_el is None or val_el is None:
+            continue
+        fid = (fid_el.text or "").strip()
+        if fid not in values:
+            continue
+        raw = (val_el.text or "").strip()
+        if not raw:
+            continue
+        values[fid] = _parse_duration_to_days(raw)
+    return (
+        values.get(opt_fid) if opt_fid else None,
+        values.get(ml_fid) if ml_fid else None,
+        values.get(pess_fid) if pess_fid else None,
+    )
 
 
 def parse_mpp(mpp_content: bytes) -> ProjectData:
