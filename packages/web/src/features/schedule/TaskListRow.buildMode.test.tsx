@@ -379,6 +379,100 @@ describe('TaskListRow — build-mode context menu', () => {
   });
 });
 
+// ───────────────────────────────────────────────────────────────────────────
+// #806 — right-click suppression while a structural mutation is in flight.
+// Deleting a row that has an open context menu (or that is right-clicked
+// during the delete window) orphans the BuildModeRowMenu portal when the row
+// unmounts on cache invalidation. The two guards below prevent that orphan.
+// ───────────────────────────────────────────────────────────────────────────
+describe('TaskListRow — pending-mutation guards (#806)', () => {
+  function renderWithPending(pendingIds: Set<string>) {
+    const capture: { current: { focus: UseScheduleFocusReturn } | null } = { current: null };
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function Wrapper({ ids }: { ids: Set<string> }) {
+      const focus = useScheduleFocus();
+      const api = useMemo<BuildModeApi>(
+        () => ({
+          focus,
+          indent: stableSpies.indent,
+          outdent: stableSpies.outdent,
+          insertBelow: stableSpies.insertBelow,
+          convertToMilestone: stableSpies.convertToMilestone,
+          deleteTask: stableSpies.deleteTask,
+          isMutationPending: (id: string) => ids.has(id),
+        }),
+        [focus, ids],
+      );
+      capture.current = { focus };
+      return (
+        <BuildModeProvider api={api}>
+          <TaskListRow task={baseTask} level={2} widths={widths} visible={visible} />
+        </BuildModeProvider>
+      );
+    }
+    const utils = render(
+      <MemoryRouter initialEntries={['/projects/p1/schedule']}>
+        <QueryClientProvider client={qc}>
+          <Wrapper ids={pendingIds} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    return { capture: capture as { current: { focus: UseScheduleFocusReturn } }, ...utils };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('right-click is suppressed while this row has a pending mutation', () => {
+    renderWithPending(new Set(['t-build-1']));
+    fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
+    expect(screen.queryByRole('menu', { name: 'Row actions' })).toBeNull();
+  });
+
+  it('open menu auto-closes when the row transitions into a pending state', () => {
+    // Render without pending → open menu → re-render with pending → menu closes.
+    const { rerender } = render(
+      <MemoryRouter initialEntries={['/projects/p1/schedule']}>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <PendingHarness pending={false} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    fireEvent.contextMenu(screen.getByRole('row'), { clientX: 50, clientY: 50 });
+    expect(screen.getByRole('menu', { name: 'Row actions' })).toBeInTheDocument();
+    rerender(
+      <MemoryRouter initialEntries={['/projects/p1/schedule']}>
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <PendingHarness pending={true} />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole('menu', { name: 'Row actions' })).toBeNull();
+  });
+});
+
+function PendingHarness({ pending }: { pending: boolean }) {
+  const focus = useScheduleFocus();
+  const api = useMemo<BuildModeApi>(
+    () => ({
+      focus,
+      indent: stableSpies.indent,
+      outdent: stableSpies.outdent,
+      insertBelow: stableSpies.insertBelow,
+      convertToMilestone: stableSpies.convertToMilestone,
+      deleteTask: stableSpies.deleteTask,
+      isMutationPending: (id: string) => pending && id === 't-build-1',
+    }),
+    [focus, pending],
+  );
+  return (
+    <BuildModeProvider api={api}>
+      <TaskListRow task={baseTask} level={2} widths={widths} visible={visible} />
+    </BuildModeProvider>
+  );
+}
+
 describe('TaskListRow — build-mode editable cells', () => {
   beforeEach(() => {
     vi.clearAllMocks();

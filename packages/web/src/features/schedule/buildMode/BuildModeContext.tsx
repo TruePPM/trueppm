@@ -13,7 +13,12 @@ export interface BuildModeApi {
   convertToMilestone: (taskId: string) => void;
   /** Delete a task. Used by the row menu and the Delete key. */
   deleteTask: (taskId: string) => void;
-  /** True when an indent/outdent mutation is in flight for the given task. */
+  /**
+   * True when an indent / outdent / delete mutation is in flight for the
+   * given task. Delete is included (#806) so the row gets the in-flight
+   * treatment and the context-menu guards in `TaskListRow` fire before the
+   * row unmounts on cache invalidation.
+   */
   isMutationPending: (taskId: string) => boolean;
 }
 

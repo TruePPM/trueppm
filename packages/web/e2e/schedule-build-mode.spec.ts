@@ -153,3 +153,66 @@ test.describe('Schedule build-mode — flag on', () => {
     await expect(menu).toHaveCount(0);
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// #806 — deleting a row must not block right-click on subsequent rows.
+//
+// Reported as "deleting a phase on the critical path grays out the row and
+// right-click stops working until manual refresh". Root cause was a race
+// between cache invalidation (which unmounts the deleted row) and the
+// BuildModeRowMenu portal that lived on its parent — the portal's global
+// Escape/click-outside listeners outlived the row and blocked new menu opens.
+// ───────────────────────────────────────────────────────────────────────────
+test.describe('Schedule build-mode — delete does not block subsequent right-clicks (#806)', () => {
+  // Module-scope mutable list so the post-delete handler can splice it out
+  // before the catch-all GET refetch reads it back — mirrors the live
+  // invalidation path that unmounts the deleted row.
+  let currentTasks: typeof FIXTURE_TASKS;
+
+  test.beforeEach(async ({ page }) => {
+    await enableBuildMode(page);
+    await setupAuth(page);
+    await setupCatchAll(page);
+    currentTasks = [...FIXTURE_TASKS];
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: FIXTURE_PROJECT_ID,
+      tasks: currentTasks,
+    });
+    // Register AFTER setupApiMocks: Playwright matches routes in LIFO order,
+    // so this DELETE-specific handler wins over the catch-all `tasks/**` GET
+    // registered inside setupApiMocks. The GET catch-all reads the same
+    // `currentTasks` array by reference, so the post-splice refetch returns
+    // the truncated list and the deleted row unmounts as it does in prod.
+    await page.route('**/api/v1/tasks/bm1/', (route) => {
+      if (route.request().method() === 'DELETE') {
+        const idx = currentTasks.findIndex((t) => t.id === 'bm1');
+        if (idx >= 0) currentTasks.splice(idx, 1);
+        return route.fulfill({ status: 204, body: '' });
+      }
+      return route.continue();
+    });
+  });
+
+  test('after deleting one row, right-click on a sibling row still opens its menu', async ({ page }) => {
+    await page.goto(BASE_URL);
+    const firstRow = page.getByText('Foundation');
+    await expect(firstRow).toBeVisible();
+
+    // Open the menu on Foundation, then activate Delete.
+    await firstRow.click({ button: 'right' });
+    const firstMenu = page.getByRole('menu', { name: 'Row actions' });
+    await expect(firstMenu).toBeVisible();
+    await firstMenu.getByRole('menuitem', { name: /Delete/ }).click();
+
+    // The deleted row eventually drops out of the list (cache invalidates,
+    // refetch returns the truncated set).
+    await expect(page.getByText('Foundation')).toHaveCount(0);
+
+    // The bug: right-click on the surviving sibling did nothing until a full
+    // page refresh. With the fix the menu opens normally.
+    const secondRow = page.getByText('Framing');
+    await secondRow.click({ button: 'right' });
+    await expect(page.getByRole('menu', { name: 'Row actions' })).toBeVisible();
+  });
+});

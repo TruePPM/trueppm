@@ -255,6 +255,19 @@ export function ScheduleView() {
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const hoverChain = useDependencyHover(hoveredTaskId, allLinks);
 
+  // #806: if the currently-hovered task is removed from the list (delete,
+  // server-side prune, etc.), React's `onMouseLeave` never fires on the
+  // unmounted row, so `hoveredTaskId` stays pinned to the dead id. That keeps
+  // `focusChainIds = {deletedId}` active and every other row renders with
+  // `dimmed` (opacity-0.22 + pointer-events-none) until the next mouse move.
+  // Result: right-click on the next row is silently swallowed. Clear the hover
+  // explicitly whenever its target task disappears.
+  useEffect(() => {
+    if (hoveredTaskId && !allTasks.some((t) => t.id === hoveredTaskId)) {
+      setHoveredTaskId(null);
+    }
+  }, [hoveredTaskId, allTasks]);
+
   // Focus mode and CP-only filter (issue #131)
   const [focusModeEnabled, setFocusModeEnabled] = useState(false);
   const [showCpOnly, setShowCpOnly] = useState(false);
@@ -728,9 +741,16 @@ export function ScheduleView() {
       updateTaskMut.mutate({ id: taskId, projectId, duration: 0 });
     },
     deleteTask: (taskId) => deleteTaskMut.mutate(taskId),
+    // #806: include deleteTask so the row gets the "in-flight" treatment during
+    // delete and downstream guards (context-menu suppression, auto-close of an
+    // already-open menu) fire. Without delete here, the row unmounts on cache
+    // invalidation while its BuildModeRowMenu portal still has a live menuAnchor,
+    // which orphans the menu's global Escape/click-outside listeners and blocks
+    // subsequent right-clicks until a full page refresh.
     isMutationPending: (taskId) =>
       (indentTask.isPending && indentTask.variables === taskId) ||
-      (outdentTask.isPending && outdentTask.variables === taskId),
+      (outdentTask.isPending && outdentTask.variables === taskId) ||
+      (deleteTaskMut.isPending && deleteTaskMut.variables === taskId),
   }), [focus, indentTask, outdentTask, updateTaskMut, deleteTaskMut, createTaskMut, projectId]);
 
   // Pulse trigger for the most recently inserted milestone (#340). Cleared
