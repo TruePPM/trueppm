@@ -59,18 +59,19 @@ class ImportRequestProvenanceSerializer(serializers.ModelSerializer[ImportReques
         """
         if not obj.celery_task_id:
             return None
-        # Use the serializer context to memoize the lookup map across rows
-        # in the same list response (avoids one extra query per row when the
-        # list has multiple imports for the same project).
+        # Memoize TaskRun lookups across rows in the same list response: the
+        # view pre-seeds a mutable `_taskrun_cache` dict in context so we only
+        # ever read from `self.context` here (the type is `Mapping[str, Any]`
+        # under stricter django-stubs builds in CI, so indexed assignment is
+        # not safe). When invoked outside the list view (e.g. single-instance
+        # detail use), no cache is present and each row issues its own query.
         cache: dict[str, TaskRun | None] | None = self.context.get("_taskrun_cache")
-        if cache is None:
-            cache = {}
-            self.context["_taskrun_cache"] = cache
-        if obj.celery_task_id in cache:
+        if cache is not None and obj.celery_task_id in cache:
             run = cache[obj.celery_task_id]
         else:
             run = TaskRun.objects.filter(celery_task_id=obj.celery_task_id).first()
-            cache[obj.celery_task_id] = run
+            if cache is not None:
+                cache[obj.celery_task_id] = run
         if run is None or not run.result_summary:
             return None
         value: Any = run.result_summary.get("task_count")

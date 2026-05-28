@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
+from typing import Any
 
 from django.conf import settings
 from django.db import transaction
@@ -263,7 +264,11 @@ class ImportRequestProvenanceListView(APIView):
             .select_related("initiated_by")
             .order_by("-requested_at")
         )
-        serializer = ImportRequestProvenanceSerializer(qs, many=True, context={})
+        # Pre-seed the TaskRun memoization cache so the serializer only reads
+        # from context (avoids touching the read-only `Mapping[str, Any]` type
+        # surfaced by stricter django-stubs builds in CI).
+        context: dict[str, Any] = {"_taskrun_cache": {}}
+        serializer = ImportRequestProvenanceSerializer(qs, many=True, context=context)
         return Response({"results": serializer.data})
 
 
