@@ -364,3 +364,62 @@ class GroupProject(models.Model):
 
     def __str__(self) -> str:
         return f"{self.group} → {self.project_id} ({Role(self.role).label})"
+
+
+class ExportJobStatus(models.TextChoices):
+    """Lifecycle of an async workspace export (ADR-0092)."""
+
+    PENDING = "pending", "Pending"
+    RUNNING = "running", "Running"
+    SUCCESS = "success", "Success"
+    FAILED = "failed", "Failed"
+
+
+class WorkspaceExportJob(models.Model):
+    """Tracks a full-workspace archive export (ADR-0092, #641).
+
+    Plain (non-synced) model — an export job is server-side bookkeeping, never a
+    mobile-offline entity. There is no FK to ``Workspace`` because it is a
+    singleton; a job always concerns the one workspace. Mirrors ``taskruns.TaskRun``
+    for the status/timestamp shape. The drain re-dispatches ``pending`` rows whose
+    ``celery_task_id`` never got set (broker down at ``on_commit``); the nightly
+    purge deletes rows past ``expires_at`` and their stored files.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="workspace_exports",
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=ExportJobStatus.choices,
+        default=ExportJobStatus.PENDING,
+        db_index=True,
+    )
+    celery_task_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    # Storage key (relative to the configured default storage), populated on success.
+    file_path = models.CharField(max_length=512, blank=True, default="")
+    file_size = models.BigIntegerField(null=True, blank=True)
+    error_detail = models.TextField(blank=True, default="")
+    # Download-link validity; past this the purge deletes the row + file (410 Gone).
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "workspace_export_job"
+        ordering = ["-created_at"]
+        indexes = [
+            # Drives the drain scan: pending rows awaiting (re-)dispatch.
+            models.Index(fields=["status", "created_at"], name="wsexport_status_created_idx"),
+            # Drives the nightly purge scan of expired download links.
+            models.Index(fields=["expires_at"], name="wsexport_expires_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"WorkspaceExportJob({self.id}, {self.status})"

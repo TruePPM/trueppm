@@ -51,6 +51,14 @@ by a **single retention purge coordinator** that runs all five as one unified ru
 schedule below (default **02:00 UTC daily**). The per-table tasks still exist and remain
 dispatchable, but they are no longer independently scheduled.
 
+**Workspace export archives are purged separately.** A completed workspace export
+(Settings → Archive / Delete → *Export all data*, ADR-0092) writes a full `.tar.gz` to
+object storage. `TRUEPPM_EXPORT_RETENTION_DAYS` (default `7`; `None` disables) bounds how
+long the download link stays valid; past it the standalone nightly `purge_expired_exports`
+Beat task (04:20 UTC) deletes both the `WorkspaceExportJob` row **and** its stored archive
+file. It is not folded into the retention coordinator above because it reaps a storage
+object, not just a database row.
+
 **`TRUEPPM_SYNC_BATCH_RETENTION_HOURS` is in hours, not days.** Unlike the other knobs,
 this window is measured in **hours** because it doubles as the mobile sync upload **dedup
 window**: a re-uploaded batch carrying the same `client_batch_id` replays its stored

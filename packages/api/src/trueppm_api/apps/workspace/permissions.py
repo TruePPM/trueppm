@@ -72,3 +72,35 @@ class IsWorkspaceAdmin(BasePermission):
 
     def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
         return self.has_permission(request, view)
+
+
+class IsWorkspaceOwner(BasePermission):
+    """OWNER required for **every** method, reads included.
+
+    Gates the workspace lifecycle endpoints (transfer ownership, export create /
+    status / download), which hand off or expose the entire workspace — so even a
+    read (polling export status, downloading the archive) must be owner-only; a
+    full-workspace archive must never be reachable by a non-owner member. A Django
+    superuser with no explicit row resolves to OWNER (bootstrap), matching
+    ``IsWorkspaceAdmin``.
+    """
+
+    message = "Only the workspace Owner can perform this action."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        role = _workspace_membership_role(request)
+        return role is not None and role >= WorkspaceRole.OWNER
+
+    def has_object_permission(self, request: Request, view: APIView, obj: Any) -> bool:
+        return self.has_permission(request, view)
+
+
+def request_is_workspace_owner(request: Request) -> bool:
+    """True when the requesting user holds the workspace OWNER role.
+
+    Used by views (e.g. ``WorkspaceSettingsView.delete``) that mix permission
+    tiers across methods and so cannot express "Owner-only" as a single
+    class-level permission.
+    """
+    role = _workspace_membership_role(request)
+    return role is not None and role >= WorkspaceRole.OWNER

@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useId, useState } from 'react';
+import { Link } from 'react-router';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
 import { useUpdateWorkspaceSettings } from '../hooks/useUpdateWorkspaceSettings';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { FiscalYearStartField } from '../components/FiscalYearStartField';
 import { EnterpriseBadge } from '../components/EnterpriseBadge';
-import { StubFieldset } from '../components/StubFieldset';
 
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
-const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
+const DAY_NAMES = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+] as const;
 
 const TIMEZONE_OPTIONS = [
   'America/New_York',
@@ -27,14 +35,7 @@ const TIMEZONE_OPTIONS = [
   'UTC',
 ];
 
-const DEFAULT_VIEW_OPTIONS = [
-  'Overview',
-  'Board',
-  'Schedule',
-  'WBS',
-  'Table',
-  'Calendar',
-];
+const DEFAULT_VIEW_OPTIONS = ['Overview', 'Board', 'Schedule', 'WBS', 'Table', 'Calendar'];
 
 const SELECT_CLASS =
   'h-8 pl-2.5 pr-7 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary appearance-none bg-no-repeat bg-[right_0.45rem_center] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary';
@@ -233,7 +234,9 @@ export function WorkspaceGeneralPage() {
           label="Default timezone"
           hint="Used for due dates and Gantt rendering when a project doesn't override."
         >
-          <label htmlFor={timezoneId} className="sr-only">Default timezone</label>
+          <label htmlFor={timezoneId} className="sr-only">
+            Default timezone
+          </label>
           <select
             id={timezoneId}
             value={timezone}
@@ -242,7 +245,9 @@ export function WorkspaceGeneralPage() {
             style={SELECT_STYLE}
           >
             {TIMEZONE_OPTIONS.map((tz) => (
-              <option key={tz} value={tz}>{tz}</option>
+              <option key={tz} value={tz}>
+                {tz}
+              </option>
             ))}
           </select>
         </FieldRow>
@@ -288,7 +293,9 @@ export function WorkspaceGeneralPage() {
           label="Default project view"
           hint="Where members land when they open a project for the first time."
         >
-          <label htmlFor={defaultViewId} className="sr-only">Default project view</label>
+          <label htmlFor={defaultViewId} className="sr-only">
+            Default project view
+          </label>
           <select
             id={defaultViewId}
             value={defaultProjectView}
@@ -297,7 +304,9 @@ export function WorkspaceGeneralPage() {
             style={SELECT_STYLE}
           >
             {DEFAULT_VIEW_OPTIONS.map((v) => (
-              <option key={v} value={v}>{v}</option>
+              <option key={v} value={v}>
+                {v}
+              </option>
             ))}
           </select>
         </FieldRow>
@@ -323,65 +332,44 @@ export function WorkspaceGeneralPage() {
           label="Allow guests"
           hint="Guests are external collaborators (vendors, auditors). Limited to projects they're invited to."
         >
-          <Toggle on={allowGuests} onChange={setAllowGuests} ariaLabel="Allow guest access" label="Enabled" hint="3 guests currently in the workspace" />
+          <Toggle
+            on={allowGuests}
+            onChange={setAllowGuests}
+            ariaLabel="Allow guest access"
+            label="Enabled"
+            hint="3 guests currently in the workspace"
+          />
         </FieldRow>
 
-        <FieldRow label="Public sharing" hint="Anyone with the link can view selected reports — no sign-in required.">
-          <Toggle on={publicSharing} onChange={setPublicSharing} ariaLabel="Allow public link sharing" label="Disabled" />
+        <FieldRow
+          label="Public sharing"
+          hint="Anyone with the link can view selected reports — no sign-in required."
+        >
+          <Toggle
+            on={publicSharing}
+            onChange={setPublicSharing}
+            ariaLabel="Allow public link sharing"
+            label="Disabled"
+          />
         </FieldRow>
       </div>
 
-      {/* Danger zone */}
+      {/* Danger zone — the destructive, typed-confirmation actions live on their
+          own Archive / Delete page (#641) so they are isolated from everyday
+          settings. This is just the signpost. */}
       <div className="px-6 pb-10 max-w-[920px]">
-        <div className="rounded-lg border border-semantic-critical p-4 bg-semantic-critical-bg mt-6">
-          <p className="text-[13px] font-semibold text-semantic-critical mb-1">Danger zone</p>
+        <div className="rounded-lg border border-neutral-border p-4 bg-neutral-surface-raised mt-6">
+          <p className="text-[13px] font-semibold text-neutral-text-primary mb-1">Danger zone</p>
           <p className="text-[12px] text-neutral-text-secondary mb-3">
-            Workspace-wide destructive actions. Require typed confirmation and admin role.
+            Export all data, transfer ownership, or permanently delete this workspace from the
+            dedicated Archive / Delete page.
           </p>
-          {/* These actions aren't wired yet — the workspace lifecycle endpoints
-              are tracked in #641 (same as WorkspaceDangerPage). Disable them
-              rather than leaving dead-but-clickable destructive buttons (#669);
-              the note stays outside the fieldset so its link is clickable. */}
-          <p id="ws-general-danger-note" className="text-[12px] text-neutral-text-secondary mb-3">
-            Not available yet — workspace lifecycle endpoints are in progress (
-            <a
-              href="https://gitlab.com/trueppm/trueppm/-/issues/641"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-brand-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
-            >
-              #641
-            </a>
-            ).
-          </p>
-          <StubFieldset disabled>
-            <div className="flex gap-2.5 flex-wrap">
-              <button
-                type="button"
-                aria-describedby="ws-general-danger-note"
-                title="Not available yet — tracked in #641"
-                className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-              >
-                Export all data
-              </button>
-              <button
-                type="button"
-                aria-describedby="ws-general-danger-note"
-                title="Not available yet — tracked in #641"
-                className="px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-              >
-                Transfer ownership
-              </button>
-              <button
-                type="button"
-                aria-describedby="ws-general-danger-note"
-                title="Not available yet — tracked in #641"
-                className="px-3 py-1.5 rounded border border-semantic-critical text-[13px] font-medium text-semantic-critical hover:bg-semantic-critical-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical"
-              >
-                Delete workspace…
-              </button>
-            </div>
-          </StubFieldset>
+          <Link
+            to="/settings/danger"
+            className="inline-flex px-3 py-1.5 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          >
+            Go to Archive / Delete
+          </Link>
         </div>
       </div>
     </div>
@@ -411,7 +399,9 @@ function Toggle({ on, onChange, label, hint, ariaLabel }: ToggleProps) {
       <span
         className={[
           'relative w-8 h-[18px] rounded-full border transition-colors shrink-0',
-          on ? 'bg-brand-primary border-brand-primary-dark' : 'bg-neutral-surface-sunken border-neutral-border',
+          on
+            ? 'bg-brand-primary border-brand-primary-dark'
+            : 'bg-neutral-surface-sunken border-neutral-border',
         ].join(' ')}
       >
         <span
