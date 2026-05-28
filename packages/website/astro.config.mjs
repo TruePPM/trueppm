@@ -97,6 +97,7 @@ export default defineConfig({
             { slug: "administration/system-health" },
             { slug: "administration/retention" },
             { slug: "administration/email" },
+            { slug: "administration/msproject-configuration" },
             { slug: "administration/workspace-settings" },
           ],
         },
