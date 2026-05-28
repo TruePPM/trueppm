@@ -325,6 +325,11 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
 
   const handleContextMenu = (e: React.MouseEvent) => {
     if (!buildMode) return;
+    // #806: suppress right-click while a structural mutation (indent/outdent/
+    // delete) is in flight for this row. Opening the menu mid-delete strands
+    // the BuildModeRowMenu portal when the row unmounts on cache invalidation,
+    // which then blocks subsequent right-clicks on other rows until refresh.
+    if (buildMode.isMutationPending(task.id)) return;
     e.preventDefault();
     buildMode.focus.focusRow(task.id);
     setMenuAnchor({ x: e.clientX, y: e.clientY });
@@ -507,9 +512,19 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
   // (paddingLeft = (level-1)*WBS_INDENT + 8; chevron = 18px; base = 8px)
   const taskNameWidth = Math.max(0, widths.task - (level - 1) * WBS_INDENT - 26);
 
-  // Pending state during indent/outdent — shows the row in an "in-flight" treatment
-  // (per ADR-0054 § Optimistic update strategy: no client prediction, server response is canonical).
+  // Pending state during indent/outdent/delete — shows the row in an "in-flight"
+  // treatment (per ADR-0054 § Optimistic update strategy: no client prediction,
+  // server response is canonical).
   const isStructuralPending = buildMode?.isMutationPending(task.id) ?? false;
+
+  // #806: if the row enters a pending mutation while its context menu is open,
+  // close the menu immediately. A delete mutation will unmount this component on
+  // cache invalidation; without this close the BuildModeRowMenu portal's
+  // menuAnchor lives on in unreachable state and its global Escape/click-outside
+  // listeners block subsequent right-clicks on every other row until refresh.
+  useEffect(() => {
+    if (isStructuralPending) setMenuAnchor(null);
+  }, [isStructuralPending]);
 
   return (
     <div

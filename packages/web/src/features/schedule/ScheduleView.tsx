@@ -728,9 +728,16 @@ export function ScheduleView() {
       updateTaskMut.mutate({ id: taskId, projectId, duration: 0 });
     },
     deleteTask: (taskId) => deleteTaskMut.mutate(taskId),
+    // #806: include deleteTask so the row gets the "in-flight" treatment during
+    // delete and downstream guards (context-menu suppression, auto-close of an
+    // already-open menu) fire. Without delete here, the row unmounts on cache
+    // invalidation while its BuildModeRowMenu portal still has a live menuAnchor,
+    // which orphans the menu's global Escape/click-outside listeners and blocks
+    // subsequent right-clicks until a full page refresh.
     isMutationPending: (taskId) =>
       (indentTask.isPending && indentTask.variables === taskId) ||
-      (outdentTask.isPending && outdentTask.variables === taskId),
+      (outdentTask.isPending && outdentTask.variables === taskId) ||
+      (deleteTaskMut.isPending && deleteTaskMut.variables === taskId),
   }), [focus, indentTask, outdentTask, updateTaskMut, deleteTaskMut, createTaskMut, projectId]);
 
   // Pulse trigger for the most recently inserted milestone (#340). Cleared
