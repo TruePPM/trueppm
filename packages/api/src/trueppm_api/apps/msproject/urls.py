@@ -6,6 +6,7 @@ from django.urls import path
 
 from trueppm_api.apps.msproject.views import (
     CreateProjectFromMsProjectView,
+    ImportRequestProvenanceListView,
     MsProjectExportView,
     MsProjectImportView,
 )
@@ -23,6 +24,12 @@ urlpatterns = [
         "projects/<project_pk>/import/msproject/",
         MsProjectImportView.as_view(),
         name="project-import-msproject",
+    ),
+    # Import provenance list — read-only audit / "Imported from ..." source (#799).
+    path(
+        "projects/<project_pk>/imports/",
+        ImportRequestProvenanceListView.as_view(),
+        name="project-imports-list",
     ),
     path(
         "projects/<project_pk>/export/msproject.xml",

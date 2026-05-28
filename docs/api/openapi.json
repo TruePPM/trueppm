@@ -7647,6 +7647,38 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/imports/": {
+            "get": {
+                "operationId": "v1_projects_imports_retrieve",
+                "description": "List ImportRequest rows for a project — the audit / provenance surface (#799).\n\nRead-only at Member+ (any role). Returns the recent imports newest first\nwith filename, who initiated it, when, status, and task count from the\nlinked TaskRun summary. Powers the \"Imported from … on … by …\" affordance\non the project Overview and gives Marcus's PMO audit trail a starting\npoint without spinning up the enterprise audit overlay.\n\nRows are purged after 7 days by `purge_old_import_requests`, so this is\na recent-activity view, not durable audit history.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/members/": {
             "get": {
                 "operationId": "v1_projects_members_list",

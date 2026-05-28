@@ -231,6 +231,42 @@ class CreateProjectFromMsProjectView(IdempotencyMixin, APIView):
         )
 
 
+class ImportRequestProvenanceListView(APIView):
+    """List ImportRequest rows for a project — the audit / provenance surface (#799).
+
+    Read-only at Member+ (any role). Returns the recent imports newest first
+    with filename, who initiated it, when, status, and task count from the
+    linked TaskRun summary. Powers the "Imported from … on … by …" affordance
+    on the project Overview and gives Marcus's PMO audit trail a starting
+    point without spinning up the enterprise audit overlay.
+
+    Rows are purged after 7 days by `purge_old_import_requests`, so this is
+    a recent-activity view, not durable audit history.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request, project_pk: str) -> Response:
+        from trueppm_api.apps.msproject.models import ImportRequest
+        from trueppm_api.apps.msproject.serializers import ImportRequestProvenanceSerializer
+        from trueppm_api.apps.projects.models import Project
+
+        if not Project.objects.filter(pk=project_pk).exists():
+            return Response({"detail": "Project not found."}, status=status.HTTP_404_NOT_FOUND)
+        _check_project_member(request.user, project_pk)
+
+        # Newest first — matches the project-history affordance UX. select_related
+        # the user FK so the serializer's username display doesn't trigger an
+        # N+1 across the (small but unbounded) row count.
+        qs = (
+            ImportRequest.objects.filter(project_id=project_pk)
+            .select_related("initiated_by")
+            .order_by("-requested_at")
+        )
+        serializer = ImportRequestProvenanceSerializer(qs, many=True, context={})
+        return Response({"results": serializer.data})
+
+
 class MsProjectExportView(APIView):
     """Export project schedule as MS Project XML.
 
