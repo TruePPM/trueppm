@@ -1,4 +1,4 @@
-"""TruePPM Scheduler — critical-path and resource-leveling engine."""
+"""TruePPM Scheduler — critical-path (CPM) and Monte Carlo scheduling engine."""
 
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
