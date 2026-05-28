@@ -52,9 +52,23 @@ def import_project(
         "resources_matched": 0,
         "resources_created": 0,
         "assignments_created": 0,
+        # Three-point / PERT counts (#798, ADR-0093). The UI uses these to
+        # confirm e.g. "3-point estimates imported for 17 of 23 work tasks".
+        # ``tasks_with_three_point_estimates`` includes only tasks that
+        # actually received all three values; ``tasks_skipped_partial_three_point``
+        # counts tasks the parser dropped to None because the file only
+        # supplied a subset.
+        "tasks_with_three_point_estimates": 0,
+        "tasks_skipped_partial_three_point": 0,
         "project_start_date": data.start_date,
         "warnings": list(data.warnings),
     }
+    # Count tasks the parser warned about for partial PERT data; the warning
+    # text is the canonical marker (the parser dropped values to None before
+    # we got here, so we can't tell from the dataclass alone).
+    summary["tasks_skipped_partial_three_point"] = sum(
+        1 for w in data.warnings if "partial three-point estimate" in w
+    )
 
     if wipe_existing:
         # Safe because the project was created empty for this import (ADR-0092);
@@ -106,9 +120,36 @@ def import_project(
     start_seq = end_seq - task_count + 1
 
     wbs_paths = _build_wbs_paths(data.tasks)
+    # Summary-task detection (ADR-0093 Q5): a task is a summary if any later
+    # task's wbs_path is strictly descended from this one's. Computed once in
+    # O(N) by sweeping the WBS paths and marking each strict ancestor present
+    # in the prefix set. Three-point fields are NOT written on summary rows
+    # because MS Project never populates them there; round-tripping them
+    # would drift on re-export.
+    summary_indices = _summary_indices(wbs_paths)
 
     for i, td in enumerate(data.tasks):
         wbs_path = wbs_paths[i]
+        # All-or-none gate (ADR-0093 Q3): the parser already enforces it, so
+        # if any one of the three fields is set we know the other two are too.
+        # Skip three-point write on summaries (Q5) and milestones (already
+        # nulled by the parser, but kept defensive here).
+        is_summary = i in summary_indices
+        if is_summary or td.is_milestone:
+            opt = ml = pess = None
+            est_status = None
+        else:
+            opt = td.optimistic_duration_days
+            ml = td.most_likely_duration_days
+            pess = td.pessimistic_duration_days
+            # estimate_status="accepted" on import (ADR-0093 Q4): the uploader
+            # holds project-admin permission and the values are PM-authored
+            # migration data, not contributor suggestions. Setting "pending"
+            # would force re-approval per task under SUGGEST_APPROVE for no
+            # governance benefit (the PM chose to import them).
+            est_status = "accepted" if ml is not None else None
+        if ml is not None:
+            summary["tasks_with_three_point_estimates"] += 1
         task = Task(
             project_id=project_id,
             name=td.name,
@@ -122,6 +163,10 @@ def import_project(
             percent_complete=td.percent_complete if td.start else 0,
             notes=td.notes,
             planned_start=td.start if td.start else None,
+            optimistic_duration=opt,
+            most_likely_duration=ml,
+            pessimistic_duration=pess,
+            estimate_status=est_status,
             short_id=f"{start_seq + i:08X}",
         )
         task_objects.append(task)
@@ -264,6 +309,28 @@ def _wbs_paths_from_levels(levels: list[int]) -> list[str]:
                 counters.append(1)
         paths.append(".".join(str(c) for c in counters))
     return paths
+
+
+def _summary_indices(wbs_paths: list[str]) -> set[int]:
+    """Return the indices of summary tasks (have at least one descendant).
+
+    A task is a summary when some other task's ``wbs_path`` is strictly
+    descended from this one's (e.g. ``"1"`` is a summary if any task has
+    path ``"1.1"`` or deeper). Implemented in O(N) by collecting all strict
+    ancestor paths in one pass, then marking every task whose own path is in
+    that set. Used by the importer to skip three-point field writes on
+    summary rows (ADR-0093 Q5).
+    """
+    ancestor_paths: set[str] = set()
+    for path in wbs_paths:
+        if not path:
+            continue
+        parts = path.split(".")
+        # Each strict prefix of a leaf is an ancestor (excluding the path
+        # itself, since a task with no descendants is a leaf).
+        for end in range(1, len(parts)):
+            ancestor_paths.add(".".join(parts[:end]))
+    return {i for i, p in enumerate(wbs_paths) if p and p in ancestor_paths}
 
 
 def _outline_number_to_ltree(outline_number: str) -> str:

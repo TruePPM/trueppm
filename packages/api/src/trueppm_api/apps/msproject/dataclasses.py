@@ -18,6 +18,14 @@ class TaskData:
     percent_complete: float = 0.0
     notes: str = ""
     start: str | None = None  # ISO date string (YYYY-MM-DD)
+    # Three-point / PERT estimate fields (#798, ADR-0093). Working days,
+    # nullable, all-or-none: the importer sets all three to None unless the
+    # source file supplied all three for a leaf (non-summary, non-milestone)
+    # task. The fields map to Task.optimistic_duration / most_likely_duration /
+    # pessimistic_duration (IntegerField, working days) on the model.
+    optimistic_duration_days: int | None = None
+    most_likely_duration_days: int | None = None
+    pessimistic_duration_days: int | None = None
     predecessor_links: list[PredecessorLinkData] = field(default_factory=list)
     resource_assignments: list[AssignmentData] = field(default_factory=list)
 
