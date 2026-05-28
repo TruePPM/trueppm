@@ -48,6 +48,12 @@ class ImportRequest(models.Model):
         choices=ImportRequestStatus.choices,
         default=ImportRequestStatus.PENDING,
     )
+    # True when this import created the project it targets (ADR-0092,
+    # create-from-import). It makes the import idempotent: the task wipes the
+    # project's tasks before bulk-create, so an orphan-drain re-dispatch
+    # converges instead of duplicating. Import-into-existing-project leaves
+    # this False and stays additive.
+    creates_project = models.BooleanField(default=False)
     filename = models.CharField(max_length=255)
     # Base64-encoded file content; avoids re-encoding on each drain attempt.
     file_content_b64 = models.TextField()
