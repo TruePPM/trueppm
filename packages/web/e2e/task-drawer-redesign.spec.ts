@@ -244,6 +244,7 @@ test.describe('TaskDetailDrawer redesign — section list', () => {
       'External links', // 450 (#637)
       'Comments',       // 500 (#311)
       'Activity',       // 600
+      'Recurrence',     // 700 (#312/#738 — renders for non-summary, non-milestone tasks)
       'Estimates',      // 800
       'History',        // 900
       'Baseline',       // 1000
@@ -285,6 +286,7 @@ test.describe('TaskDetailDrawer redesign — section list', () => {
       'External links',
       'Comments',
       'Activity',
+      'Recurrence',
       'Estimates',
       'History',
       'Baseline',

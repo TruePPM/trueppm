@@ -285,7 +285,13 @@ def _run_schedule(
         logger.warning("recalculate_schedule: project %s not found, skipping", project_id)
         return
 
-    db_tasks = list(db_project.tasks.all())
+    # Exclude recurrence templates and their generated occurrences from the CPM feed.
+    # Recurring tasks are parallel, calendar-driven activities — admitting them to the
+    # scheduling engine would corrupt float, the critical path, and Monte Carlo
+    # P50/P80/P95. is_recurring is the single load-bearing exclusion key (ADR-0090);
+    # CommittedTaskManager applies the same filter for Monte Carlo / capacity / PDF.
+    # Filtered in Python so the prefetch cache from the queryset above is reused.
+    db_tasks = [t for t in db_project.tasks.all() if not t.is_recurring]
     if not db_tasks:
         logger.info("recalculate_schedule: project %s has no tasks, skipping", project_id)
         return
@@ -326,7 +332,10 @@ def _run_schedule(
         for t in db_tasks
     ]
 
-    # Convert Django Dependency objects to scheduler dataclasses.
+    # Convert Django Dependency objects to scheduler dataclasses. Drop any edge that
+    # touches an excluded (recurring) task — its endpoint is absent from sched_tasks,
+    # so handing it to the engine would create a dangling dependency. See ADR-0090.
+    included_ids = {str(t.id) for t in db_tasks}
     db_deps = list(
         Dependency.objects.filter(predecessor__project_id=project_id).select_related(
             "predecessor", "successor"
@@ -340,6 +349,7 @@ def _run_schedule(
             lag=timedelta(days=d.lag),
         )
         for d in db_deps
+        if str(d.predecessor_id) in included_ids and str(d.successor_id) in included_ids
     ]
 
     # Build children_map from wbs_path hierarchy for summary expansion.

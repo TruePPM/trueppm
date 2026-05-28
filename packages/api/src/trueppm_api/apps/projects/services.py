@@ -11,6 +11,7 @@ See ADR-0037 for the full design.
 
 from __future__ import annotations
 
+import calendar
 import logging
 import uuid
 from collections.abc import Iterable
@@ -933,3 +934,164 @@ def recompute_milestone_rollup(
         transaction.on_commit(_broadcast)
 
     return payload
+
+
+# ---------------------------------------------------------------------------
+# Recurring-task occurrence generation (ADR-0090, #736)
+# ---------------------------------------------------------------------------
+
+
+def _occurrence_matches(rule: Any, anchor: date, d: date) -> bool:
+    """Return whether date ``d`` is an occurrence of ``rule`` given its ``anchor``.
+
+    The anchor (the template's planned_start, or the first generation date) is the
+    alignment basis for the ``interval`` ("every N") multiplier. For ``interval == 1``
+    the anchor is immaterial — every matching weekday/day-of-month qualifies.
+    """
+    from trueppm_api.apps.projects.models import TaskRecurrenceFrequency
+
+    if d < anchor:
+        return False
+    interval: int = max(rule.interval, 1)
+    freq = rule.frequency
+
+    if freq in (TaskRecurrenceFrequency.DAILY, TaskRecurrenceFrequency.CUSTOM):
+        # CUSTOM is a generic "every N days" cadence; DAILY with interval==1 is "every
+        # day". Both align to the anchor via the day delta.
+        return (d - anchor).days % interval == 0
+
+    if freq == TaskRecurrenceFrequency.WEEKLY:
+        if not (rule.weekdays & (1 << d.weekday())):  # Mon=bit0 … Sun=bit6
+            return False
+        # Align the week to the anchor's (Monday-based) week for interval > 1.
+        anchor_monday = anchor - timedelta(days=anchor.weekday())
+        d_monday = d - timedelta(days=d.weekday())
+        return ((d_monday - anchor_monday).days // 7) % interval == 0
+
+    if freq == TaskRecurrenceFrequency.MONTHLY:
+        dom = rule.day_of_month or anchor.day
+        # Clamp to the month length so day_of_month=31 still fires in February.
+        target = min(dom, calendar.monthrange(d.year, d.month)[1])
+        if d.day != target:
+            return False
+        months = (d.year - anchor.year) * 12 + (d.month - anchor.month)
+        return months >= 0 and months % interval == 0
+
+    return False
+
+
+def _spawn_occurrence(rule: Any, template: Any, d: date, template_attachments: list[Any]) -> Any:
+    """Create one task occurrence for date ``d``, honoring the inheritance toggles.
+
+    Occurrences carry ``is_recurring=True`` (the load-bearing CPM-exclusion key,
+    ADR-0090) and ``wbs_path=None`` — they are standalone calendar tasks, not WBS
+    nodes, so they never enter summary rollups or the scheduling engine.
+
+    ``template_attachments`` is the template's attachment rows, fetched once by the
+    caller (constant across a rule's sweep) and copied per occurrence when
+    ``inherit_attachments`` is set.
+    """
+    from trueppm_api.apps.projects.models import Task, TaskAttachment, TaskStatus
+
+    occurrence = Task.objects.create(
+        project_id=template.project_id,
+        name=template.name,
+        duration=template.duration,
+        is_milestone=template.is_milestone,
+        notes=template.notes,
+        color=template.color,
+        status=TaskStatus.NOT_STARTED,
+        assignee=template.assignee if rule.inherit_assignee else None,
+        is_recurring=True,
+        recurrence_rule=rule,
+        recurrence_occurrence_date=d,
+    )
+    # Copy attachment rows referencing the SAME stored file — no blob duplication.
+    # Each occurrence owns its row, so soft-deleting one occurrence never orphans
+    # another's attachment.
+    for att in template_attachments:
+        TaskAttachment.objects.create(
+            task=occurrence,
+            file=att.file,
+            file_name=att.file_name,
+            file_mime=att.file_mime,
+            file_size=att.file_size,
+            external_url=att.external_url,
+            external_title=att.external_title,
+            uploaded_by=att.uploaded_by,
+        )
+    # inherit_subtasks / inherit_morning_notification are persisted on the rule but
+    # not materialized here — see ADR-0090 (subtasks need the #738 WBS-placement UX;
+    # morning-notification delivery is net-new, trueppm-enterprise#112).
+    return occurrence
+
+
+def _generate_due_occurrences(
+    rule: Any,
+    *,
+    horizon_days: int,
+    now: datetime | None = None,
+) -> list[Any]:
+    """Materialize a recurrence rule's occurrences due within the look-ahead horizon.
+
+    Lazy and idempotent: creates only occurrences between the rule's cursor and
+    ``today + horizon_days`` that do not already exist, and never more than the rule's
+    end condition (ON_DATE / AFTER_N) permits. Advances ``rule.generated_through`` so
+    the next sweep resumes without rescanning. Returns the created tasks (may be
+    empty). Safe to call repeatedly — the ``(recurrence_rule, recurrence_occurrence_date)``
+    unique constraint plus an existence check prevent duplicates.
+    """
+    from trueppm_api.apps.projects.models import RecurrenceEndType, TaskAttachment
+
+    template = rule.task
+    if template is None or template.is_deleted or rule.is_deleted:
+        return []
+
+    # Fetch the template's attachments once — they are constant across this rule's
+    # sweep, so we avoid re-querying them per generated occurrence.
+    template_attachments = (
+        list(TaskAttachment.objects.filter(task=template, is_deleted=False))
+        if rule.inherit_attachments
+        else []
+    )
+
+    today = (now or timezone.now()).date()
+    horizon_end = today + timedelta(days=horizon_days)
+    anchor = template.planned_start or today
+
+    if rule.end_type == RecurrenceEndType.ON_DATE and rule.end_date:
+        horizon_end = min(horizon_end, rule.end_date)
+
+    remaining: int | None = None
+    if rule.end_type == RecurrenceEndType.AFTER_N and rule.end_count is not None:
+        already = rule.occurrences.filter(is_deleted=False).count()
+        remaining = max(rule.end_count - already, 0)
+        if remaining == 0:
+            return []
+
+    # Resume after the last generated date; never back-fill past occurrences.
+    if rule.generated_through:
+        cursor = max(rule.generated_through + timedelta(days=1), today)
+    else:
+        cursor = max(anchor, today)
+
+    created: list[Any] = []
+    d = cursor
+    while d <= horizon_end:
+        if _occurrence_matches(rule, anchor, d):
+            if remaining is not None and len(created) >= remaining:
+                break
+            if not rule.occurrences.filter(recurrence_occurrence_date=d).exists():
+                created.append(_spawn_occurrence(rule, template, d, template_attachments))
+        d += timedelta(days=1)
+
+    # Advance the cursor to the scanned horizon so the next sweep is incremental.
+    # Written via .update() (not .save()) deliberately: generated_through is an
+    # internal cursor, so advancing it must not bump server_version or write a history
+    # row — otherwise every hourly sweep would spam the sync delta and audit trail.
+    if rule.generated_through != horizon_end:
+        from trueppm_api.apps.projects.models import TaskRecurrenceRule
+
+        TaskRecurrenceRule.objects.filter(pk=rule.pk).update(generated_through=horizon_end)
+        rule.generated_through = horizon_end
+    return created

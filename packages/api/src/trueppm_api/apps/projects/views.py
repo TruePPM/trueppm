@@ -79,6 +79,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskAttachment,
     TaskComment,
+    TaskRecurrenceRule,
     TaskStatus,
 )
 from trueppm_api.apps.projects.serializers import (
@@ -113,6 +114,7 @@ from trueppm_api.apps.projects.serializers import (
     TaskAttachmentSerializer,
     TaskBulkSerializer,
     TaskCommentSerializer,
+    TaskRecurrenceRuleSerializer,
     TaskReorderSerializer,
     TaskSerializer,
 )
@@ -2177,6 +2179,94 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         )
         transaction.on_commit(
             lambda: _dispatch_webhooks(project_id, "dependency.deleted", {"id": dep_id})
+        )
+
+
+class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskRecurrenceRule]):
+    """CRUD for a task's recurrence rule (ADR-0090, #736).
+
+    Attaching a rule pulls its template task out of the CPM graph (recurring tasks
+    are parallel, calendar-driven activities, not nodes in the logical network);
+    detaching puts it back. Because this changes what the scheduler sees, writes
+    require Resource Manager+ (IsProjectScheduler — same gate as DependencyViewSet)
+    and re-trigger a CPM recompute on commit. Reads are open to any project member.
+    """
+
+    permission_classes = [IsAuthenticated, IsProjectScheduler, IsProjectNotArchived]
+
+    def get_permissions(self) -> list[BasePermission]:
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        return [IsAuthenticated(), IsProjectScheduler(), IsProjectNotArchived()]
+
+    serializer_class = TaskRecurrenceRuleSerializer
+    queryset = TaskRecurrenceRule.objects.select_related("task").filter(is_deleted=False)
+
+    def get_queryset(self) -> QuerySet[TaskRecurrenceRule]:
+        user = getattr(self.request, "user", None)
+        if not user or not user.is_authenticated:
+            return TaskRecurrenceRule.objects.none()
+        qs = super().get_queryset()
+        # Scope to projects the caller is a member of — prevents cross-project reads.
+        member_project_ids = ProjectMembership.objects.filter(
+            user=user, is_deleted=False
+        ).values_list("project_id", flat=True)
+        qs = qs.filter(task__project_id__in=member_project_ids)
+        project_id = self.request.query_params.get("project")
+        if project_id:
+            qs = qs.filter(task__project_id=project_id)
+        task_id = self.request.query_params.get("task")
+        if task_id:
+            qs = qs.filter(task_id=task_id)
+        # Annotate the occurrence count so the serializer avoids a COUNT-per-row N+1
+        # when listing rules for a project. Explicit order_by keeps list pagination
+        # deterministic (the Count annotation otherwise clears the queryset's ordering).
+        annotated: QuerySet[TaskRecurrenceRule] = qs.annotate(
+            _occurrence_count=Count("occurrences", filter=Q(occurrences__is_deleted=False))
+        ).order_by("task_id")
+        return annotated
+
+    def perform_create(self, serializer: BaseSerializer[TaskRecurrenceRule]) -> None:
+        # DRF does not call has_object_permission on create — verify the caller has
+        # Scheduler+ on the template task's project before saving (same guard as
+        # DependencyViewSet).
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        task = serializer.validated_data.get("task")
+        if task is not None:
+            self.check_object_permissions(self.request, task)
+        instance = serializer.save()
+        template = instance.task
+        project_id = str(template.project_id)
+        # The template just left the CPM graph — flag it and recompute the schedule
+        # without it (ADR-0090). is_recurring is the single load-bearing exclusion key.
+        if not template.is_recurring:
+            template.is_recurring = True
+            template.save(update_fields=["is_recurring"])
+        task_id = str(template.pk)
+        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+        # The template's is_recurring badge changed — notify live boards (ADR-0060
+        # parent-update pattern); the save() above already bumped its server_version.
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
+        )
+
+    def perform_destroy(self, instance: TaskRecurrenceRule) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+        # Soft-delete the rule (stops further generation; the hourly sweep skips
+        # is_deleted rules). Existing occurrences are real tasks and are retained.
+        template = instance.task
+        project_id = str(template.project_id)
+        instance.soft_delete()
+        # The template rejoins the CPM graph — clear the flag and recompute.
+        if template.is_recurring:
+            template.is_recurring = False
+            template.save(update_fields=["is_recurring"])
+        task_id = str(template.pk)
+        transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+        transaction.on_commit(
+            lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})
         )
 
 

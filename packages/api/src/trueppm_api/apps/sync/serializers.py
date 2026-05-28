@@ -21,6 +21,7 @@ from trueppm_api.apps.projects.models import (
     Sprint,
     SprintRetro,
     Task,
+    TaskRecurrenceRule,
     TaskSuggestedAssignee,
 )
 
@@ -209,6 +210,35 @@ class SyncTaskLinkSerializer(serializers.ModelSerializer[TaskLink]):
             "status",
             "fetched_at",
             "display_order",
+        ]
+
+
+class SyncTaskRecurrenceRuleSerializer(serializers.ModelSerializer[TaskRecurrenceRule]):
+    """Sync payload for TaskRecurrenceRule (ADR-0090).
+
+    Omits the internal ``generated_through`` cursor — mobile clients recompute the
+    occurrence preview from the rule fields and never need the server-side cursor.
+    """
+
+    class Meta:
+        model = TaskRecurrenceRule
+        fields = [
+            "id",
+            "server_version",
+            "task",
+            "frequency",
+            "interval",
+            "weekdays",
+            "day_of_month",
+            "time_of_day",
+            "timezone",
+            "end_type",
+            "end_date",
+            "end_count",
+            "inherit_assignee",
+            "inherit_subtasks",
+            "inherit_attachments",
+            "inherit_morning_notification",
         ]
 
 

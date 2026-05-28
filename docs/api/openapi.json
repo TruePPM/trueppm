@@ -10912,6 +10912,301 @@
                 }
             }
         },
+        "/api/v1/recurrence-rules/": {
+            "get": {
+                "operationId": "v1_recurrence_rules_list",
+                "description": "CRUD for a task's recurrence rule (ADR-0090, #736).\n\nAttaching a rule pulls its template task out of the CPM graph (recurring tasks\nare parallel, calendar-driven activities, not nodes in the logical network);\ndetaching puts it back. Because this changes what the scheduler sees, writes\nrequire Resource Manager+ (IsProjectScheduler — same gate as DependencyViewSet)\nand re-trigger a CPM recompute on commit. Reads are open to any project member.",
+                "parameters": [
+                    {
+                        "name": "ordering",
+                        "required": false,
+                        "in": "query",
+                        "description": "Which field to use when ordering the results.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "search",
+                        "required": false,
+                        "in": "query",
+                        "description": "A search term.",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedTaskRecurrenceRuleList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_recurrence_rules_create",
+                "description": "CRUD for a task's recurrence rule (ADR-0090, #736).\n\nAttaching a rule pulls its template task out of the CPM graph (recurring tasks\nare parallel, calendar-driven activities, not nodes in the logical network);\ndetaching puts it back. Because this changes what the scheduler sees, writes\nrequire Resource Manager+ (IsProjectScheduler — same gate as DependencyViewSet)\nand re-trigger a CPM recompute on commit. Reads are open to any project member.",
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRecurrenceRuleRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRecurrenceRuleRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRecurrenceRuleRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskRecurrenceRule"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/recurrence-rules/{id}/": {
+            "get": {
+                "operationId": "v1_recurrence_rules_retrieve",
+                "description": "CRUD for a task's recurrence rule (ADR-0090, #736).\n\nAttaching a rule pulls its template task out of the CPM graph (recurring tasks\nare parallel, calendar-driven activities, not nodes in the logical network);\ndetaching puts it back. Because this changes what the scheduler sees, writes\nrequire Resource Manager+ (IsProjectScheduler — same gate as DependencyViewSet)\nand re-trigger a CPM recompute on commit. Reads are open to any project member.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task recurrence rule.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskRecurrenceRule"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "v1_recurrence_rules_update",
+                "description": "CRUD for a task's recurrence rule (ADR-0090, #736).\n\nAttaching a rule pulls its template task out of the CPM graph (recurring tasks\nare parallel, calendar-driven activities, not nodes in the logical network);\ndetaching puts it back. Because this changes what the scheduler sees, writes\nrequire Resource Manager+ (IsProjectScheduler — same gate as DependencyViewSet)\nand re-trigger a CPM recompute on commit. Reads are open to any project member.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task recurrence rule.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRecurrenceRuleRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRecurrenceRuleRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TaskRecurrenceRuleRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskRecurrenceRule"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_recurrence_rules_partial_update",
+                "description": "CRUD for a task's recurrence rule (ADR-0090, #736).\n\nAttaching a rule pulls its template task out of the CPM graph (recurring tasks\nare parallel, calendar-driven activities, not nodes in the logical network);\ndetaching puts it back. Because this changes what the scheduler sees, writes\nrequire Resource Manager+ (IsProjectScheduler — same gate as DependencyViewSet)\nand re-trigger a CPM recompute on commit. Reads are open to any project member.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task recurrence rule.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskRecurrenceRuleRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskRecurrenceRuleRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedTaskRecurrenceRuleRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TaskRecurrenceRule"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "v1_recurrence_rules_destroy",
+                "description": "CRUD for a task's recurrence rule (ADR-0090, #736).\n\nAttaching a rule pulls its template task out of the CPM graph (recurring tasks\nare parallel, calendar-driven activities, not nodes in the logical network);\ndetaching puts it back. Because this changes what the scheduler sees, writes\nrequire Resource Manager+ (IsProjectScheduler — same gate as DependencyViewSet)\nand re-trigger a CPM recompute on commit. Reads are open to any project member.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this task recurrence rule.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "v1"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/resource-skills/": {
             "get": {
                 "operationId": "v1_resource_skills_list",
@@ -16368,6 +16663,15 @@
                     "successor"
                 ]
             },
+            "EndTypeEnum": {
+                "enum": [
+                    "NEVER",
+                    "ON_DATE",
+                    "AFTER_N"
+                ],
+                "type": "string",
+                "description": "* `NEVER` - Never\n* `ON_DATE` - On date\n* `AFTER_N` - After N occurrences"
+            },
             "EstimateStatusEnum": {
                 "enum": [
                     "pending",
@@ -17886,6 +18190,37 @@
                     }
                 }
             },
+            "PaginatedTaskRecurrenceRuleList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TaskRecurrenceRule"
+                        }
+                    }
+                }
+            },
             "PaginatedTaskResourceList": {
                 "type": "object",
                 "required": [
@@ -18620,6 +18955,72 @@
                     "body": {
                         "type": "string",
                         "minLength": 1
+                    }
+                }
+            },
+            "PatchedTaskRecurrenceRuleRequest": {
+                "type": "object",
+                "description": "Read/write serializer for a task's recurrence rule (ADR-0090).\n\nOne rule per task. The ``task`` FK is settable on create and immutable\nthereafter — a rule cannot be repointed to another task. ``occurrence_count``\nexposes how many occurrences have been materialized so the #738 setup panel can\nshow series progress; ``generated_through`` is the internal generation cursor and\nis read-only.",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "frequency": {
+                        "$ref": "#/components/schemas/RecurrenceFrequencyEnum"
+                    },
+                    "interval": {
+                        "type": "integer",
+                        "maximum": 365,
+                        "minimum": 1
+                    },
+                    "weekdays": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": -32768,
+                        "description": "Weekly only: bitmask Mon=1 … Sun=64."
+                    },
+                    "day_of_month": {
+                        "type": "integer",
+                        "maximum": 31,
+                        "minimum": 1,
+                        "nullable": true
+                    },
+                    "time_of_day": {
+                        "type": "string",
+                        "format": "time",
+                        "description": "Local time the occurrence is due (morning-notification slot)."
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                    },
+                    "end_type": {
+                        "$ref": "#/components/schemas/EndTypeEnum"
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "end_count": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "inherit_assignee": {
+                        "type": "boolean"
+                    },
+                    "inherit_subtasks": {
+                        "type": "boolean"
+                    },
+                    "inherit_attachments": {
+                        "type": "boolean"
+                    },
+                    "inherit_morning_notification": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -19972,6 +20373,16 @@
                 ],
                 "type": "string",
                 "description": "* `scheduled` - Scheduled\n* `manual` - Manual\n* `dry_run` - Dry run"
+            },
+            "RecurrenceFrequencyEnum": {
+                "enum": [
+                    "DAILY",
+                    "WEEKLY",
+                    "MONTHLY",
+                    "CUSTOM"
+                ],
+                "type": "string",
+                "description": "* `DAILY` - Daily\n* `WEEKLY` - Weekly\n* `MONTHLY` - Monthly\n* `CUSTOM` - Custom"
             },
             "Resource": {
                 "type": "object",
@@ -21692,6 +22103,167 @@
                 ],
                 "type": "string",
                 "description": "* `open` - open\n* `draft` - draft\n* `merged` - merged\n* `closed` - closed\n* `unknown` - unknown"
+            },
+            "TaskRecurrenceRule": {
+                "type": "object",
+                "description": "Read/write serializer for a task's recurrence rule (ADR-0090).\n\nOne rule per task. The ``task`` FK is settable on create and immutable\nthereafter — a rule cannot be repointed to another task. ``occurrence_count``\nexposes how many occurrences have been materialized so the #738 setup panel can\nshow series progress; ``generated_through`` is the internal generation cursor and\nis read-only.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "server_version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "frequency": {
+                        "$ref": "#/components/schemas/RecurrenceFrequencyEnum"
+                    },
+                    "interval": {
+                        "type": "integer",
+                        "maximum": 365,
+                        "minimum": 1
+                    },
+                    "weekdays": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": -32768,
+                        "description": "Weekly only: bitmask Mon=1 … Sun=64."
+                    },
+                    "day_of_month": {
+                        "type": "integer",
+                        "maximum": 31,
+                        "minimum": 1,
+                        "nullable": true
+                    },
+                    "time_of_day": {
+                        "type": "string",
+                        "format": "time",
+                        "description": "Local time the occurrence is due (morning-notification slot)."
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "end_type": {
+                        "$ref": "#/components/schemas/EndTypeEnum"
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "end_count": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "inherit_assignee": {
+                        "type": "boolean"
+                    },
+                    "inherit_subtasks": {
+                        "type": "boolean"
+                    },
+                    "inherit_attachments": {
+                        "type": "boolean"
+                    },
+                    "inherit_morning_notification": {
+                        "type": "boolean"
+                    },
+                    "generated_through": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "occurrence_count": {
+                        "type": "integer",
+                        "description": "Count of materialized (non-deleted) occurrences generated so far.\n\nPrefers the ``_occurrence_count`` annotation set by the viewset's get_queryset\n(avoids a COUNT-per-row N+1 on list); falls back to a live count so the\nserializer stays correct when used outside that queryset.",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "generated_through",
+                    "id",
+                    "occurrence_count",
+                    "server_version",
+                    "task"
+                ]
+            },
+            "TaskRecurrenceRuleRequest": {
+                "type": "object",
+                "description": "Read/write serializer for a task's recurrence rule (ADR-0090).\n\nOne rule per task. The ``task`` FK is settable on create and immutable\nthereafter — a rule cannot be repointed to another task. ``occurrence_count``\nexposes how many occurrences have been materialized so the #738 setup panel can\nshow series progress; ``generated_through`` is the internal generation cursor and\nis read-only.",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "frequency": {
+                        "$ref": "#/components/schemas/RecurrenceFrequencyEnum"
+                    },
+                    "interval": {
+                        "type": "integer",
+                        "maximum": 365,
+                        "minimum": 1
+                    },
+                    "weekdays": {
+                        "type": "integer",
+                        "maximum": 32767,
+                        "minimum": -32768,
+                        "description": "Weekly only: bitmask Mon=1 … Sun=64."
+                    },
+                    "day_of_month": {
+                        "type": "integer",
+                        "maximum": 31,
+                        "minimum": 1,
+                        "nullable": true
+                    },
+                    "time_of_day": {
+                        "type": "string",
+                        "format": "time",
+                        "description": "Local time the occurrence is due (morning-notification slot)."
+                    },
+                    "timezone": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 64
+                    },
+                    "end_type": {
+                        "$ref": "#/components/schemas/EndTypeEnum"
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "end_count": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "inherit_assignee": {
+                        "type": "boolean"
+                    },
+                    "inherit_subtasks": {
+                        "type": "boolean"
+                    },
+                    "inherit_attachments": {
+                        "type": "boolean"
+                    },
+                    "inherit_morning_notification": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "task"
+                ]
             },
             "TaskRequest": {
                 "type": "object",

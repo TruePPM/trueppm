@@ -31,6 +31,7 @@ from trueppm_api.apps.projects.models import (
     Sprint,
     SprintRetro,
     Task,
+    TaskRecurrenceRule,
     TaskSuggestedAssignee,
 )
 from trueppm_api.apps.sync.serializers import (
@@ -43,6 +44,7 @@ from trueppm_api.apps.sync.serializers import (
     SyncSprintRetroSerializer,
     SyncSprintSerializer,
     SyncTaskLinkSerializer,
+    SyncTaskRecurrenceRuleSerializer,
     SyncTaskSerializer,
     SyncTaskSuggestedAssigneeSerializer,
     SyncUploadRequestSerializer,
@@ -161,6 +163,12 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             "task_links": self._collect(
                 TaskLink.objects.filter(task__project=project, server_version__gt=since),
                 SyncTaskLinkSerializer,
+            ),
+            "task_recurrence_rules": self._collect(
+                TaskRecurrenceRule.objects.filter(
+                    task__project=project, server_version__gt=since
+                ).select_related("task"),
+                SyncTaskRecurrenceRuleSerializer,
             ),
         }
 
@@ -397,9 +405,15 @@ class ProjectSyncView(IdempotencyMixin, APIView):
                       FROM integrations_tasklink tl
                       JOIN projects_task t ON tl.task_id = t.id
                      WHERE t.project_id = %s
+                    UNION ALL
+                    SELECT MAX(rr.server_version)
+                      FROM projects_taskrecurrencerule rr
+                      JOIN projects_task t ON rr.task_id = t.id
+                     WHERE t.project_id = %s
                 ) sub
                 """,
                 [
+                    project_pk,
                     project_pk,
                     project_pk,
                     project_pk,

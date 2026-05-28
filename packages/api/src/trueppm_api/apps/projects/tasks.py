@@ -261,6 +261,46 @@ def update_sprint_burndown_snapshots(self: object) -> None:
 
 
 @idempotent_task(
+    lock_key_template="generate_recurring_occurrences",
+    lock_ttl=300,
+    on_contention="skip",
+    soft_time_limit=120,
+    time_limit=180,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    name="projects.generate_recurring_occurrences",
+)
+def generate_recurring_occurrences(self: object) -> None:
+    """Lazily materialize upcoming occurrences for every active recurrence rule.
+
+    Beat: hourly. Generates only occurrences due within
+    ``settings.TRUEPPM_RECURRENCE_HORIZON_DAYS`` (a bounded look-ahead — never the
+    full series) that do not already exist, honoring each rule's end condition.
+    Idempotent via the (rule, date) unique constraint and the skip-on-contention
+    lock; per-rule try/except so one malformed rule cannot starve the sweep (ADR-0090).
+    """
+    from django.conf import settings as dj_settings
+
+    from trueppm_api.apps.projects.models import TaskRecurrenceRule
+    from trueppm_api.apps.projects.services import _generate_due_occurrences
+
+    horizon = getattr(dj_settings, "TRUEPPM_RECURRENCE_HORIZON_DAYS", 14)
+    total = 0
+    rules = TaskRecurrenceRule.objects.filter(is_deleted=False).select_related(
+        "task", "task__assignee"
+    )
+    for rule in rules:
+        try:
+            created = _generate_due_occurrences(rule, horizon_days=horizon)
+        except Exception:
+            logger.exception("generate_recurring_occurrences: failed for rule %s", rule.pk)
+            continue
+        total += len(created)
+    if total:
+        logger.info("generate_recurring_occurrences: created %d occurrence(s)", total)
+
+
+@idempotent_task(
     lock_key_template="purge_sprint_close_requests",
     lock_ttl=120,
     on_contention="skip",
