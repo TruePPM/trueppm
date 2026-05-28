@@ -5,6 +5,7 @@ import { useProjects } from '@/hooks/useProjects';
 import { useMyWork } from '@/hooks/useMyWork';
 import { ProjectListItem } from './ProjectListItem';
 import { NewProjectModal } from './NewProjectModal';
+import { ImportProjectModal } from '@/components/import/ImportProjectModal';
 import { ProgramsSection } from './ProgramsSection';
 
 interface Props {
@@ -23,6 +24,7 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
   const { data: myWorkData } = useMyWork();
   const dueTodayCount = myWorkData?.pages[0]?.due_today_count ?? 0;
   const [showNewProject, setShowNewProject] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const navigate = useNavigate();
 
   // Auto-collapse at < lg (1024px) unless user has manually set state
@@ -187,20 +189,37 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
             >
               PROJECTS
             </h2>
-            {/* Touch target is 44×44px; icon stays 12×12px visually (Rule 5) */}
-            <button
-              type="button"
-              onClick={() => setShowNewProject(true)}
-              aria-label="New project"
-              className="flex items-center justify-center w-11 h-11 -mr-2 rounded
-                text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-                <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            </button>
+            {/* Touch targets are 44×44px; icons stay 12×12px visually (Rule 5) */}
+            <div className="flex items-center -mr-2">
+              <button
+                type="button"
+                onClick={() => setShowImport(true)}
+                aria-label="Import a project"
+                title="Import a project from a file"
+                className="flex items-center justify-center w-11 h-11 rounded
+                  text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                  focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <path d="M6 8V1m0 0L3.5 3.5M6 1l2.5 2.5M2 8.5v1A1.5 1.5 0 003.5 11h5A1.5 1.5 0 0010 9.5v-1"
+                    stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowNewProject(true)}
+                aria-label="New project"
+                className="flex items-center justify-center w-11 h-11 rounded
+                  text-chrome-text-secondary hover:text-chrome-text-primary hover:bg-neutral-text-primary/5
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+                  focus-visible:ring-offset-1 focus-visible:ring-offset-chrome-surface"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+                  <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+              </button>
+            </div>
           </div>
         )}
 
@@ -340,6 +359,18 @@ export function Sidebar({ isDrawer = false, onClose }: Props) {
           onClose={() => setShowNewProject(false)}
           onCreated={(projectId) => {
             setShowNewProject(false);
+            if (isDrawer) onClose?.();
+            void navigate(`/projects/${projectId}/overview`);
+          }}
+        />
+      )}
+
+      {/* Import-a-project modal — creates a project from an MS Project file (#797). */}
+      {showImport && (
+        <ImportProjectModal
+          onClose={() => setShowImport(false)}
+          onCreated={(projectId) => {
+            setShowImport(false);
             if (isDrawer) onClose?.();
             void navigate(`/projects/${projectId}/overview`);
           }}

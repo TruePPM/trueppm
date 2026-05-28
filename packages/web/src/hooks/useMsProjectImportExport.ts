@@ -55,6 +55,55 @@ export function useImportMsProject(projectId: string | null | undefined) {
   });
 }
 
+interface CreateFromImportVars {
+  file: File;
+  /** Optional program UUID — assigns the new project to a program on create. */
+  programId?: string;
+}
+
+interface CreateFromImportResponse {
+  queued: boolean;
+  /** UUID of the project shell created synchronously; navigate here at once. */
+  project_id: string;
+  /** ID of the ImportRequest outbox row tracking the async task import. */
+  import_request_id: string;
+}
+
+/**
+ * POST /api/v1/projects/import/msproject/ — create a NEW project from a file.
+ *
+ * Distinct from {@link useImportMsProject}, which imports into an existing
+ * project. The 202 returns the new `project_id` immediately (the shell is
+ * created synchronously, named from the filename); tasks populate async via the
+ * outbox, and the worker overwrites the name/dates from the file header
+ * (ADR-0092). Callers navigate to `project_id` and watch its import TaskRun for
+ * the terminal success/failure state. Invalidates the projects list so the new
+ * project appears without a manual refetch.
+ */
+export function useCreateProjectFromImport() {
+  const queryClient = useQueryClient();
+
+  return useMutation<CreateFromImportResponse, Error, CreateFromImportVars>({
+    mutationFn: async ({ file, programId }: CreateFromImportVars) => {
+      const form = new FormData();
+      form.append('file', file, file.name);
+      if (programId) form.append('program', programId);
+      const res = await apiClient.post<CreateFromImportResponse>(
+        '/projects/import/msproject/',
+        form,
+        { headers: { 'Content-Type': 'multipart/form-data' } },
+      );
+      return res.data;
+    },
+    onSuccess: (_data, { programId }) => {
+      void queryClient.invalidateQueries({ queryKey: ['projects'] });
+      if (programId) {
+        void queryClient.invalidateQueries({ queryKey: ['programs', programId, 'projects'] });
+      }
+    },
+  });
+}
+
 /** Parse `filename="…"` out of a Content-Disposition header, if present. */
 function filenameFromDisposition(disposition: unknown): string | null {
   if (typeof disposition !== 'string') return null;
