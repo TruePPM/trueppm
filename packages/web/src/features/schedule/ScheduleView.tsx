@@ -255,6 +255,19 @@ export function ScheduleView() {
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const hoverChain = useDependencyHover(hoveredTaskId, allLinks);
 
+  // #806: if the currently-hovered task is removed from the list (delete,
+  // server-side prune, etc.), React's `onMouseLeave` never fires on the
+  // unmounted row, so `hoveredTaskId` stays pinned to the dead id. That keeps
+  // `focusChainIds = {deletedId}` active and every other row renders with
+  // `dimmed` (opacity-0.22 + pointer-events-none) until the next mouse move.
+  // Result: right-click on the next row is silently swallowed. Clear the hover
+  // explicitly whenever its target task disappears.
+  useEffect(() => {
+    if (hoveredTaskId && !allTasks.some((t) => t.id === hoveredTaskId)) {
+      setHoveredTaskId(null);
+    }
+  }, [hoveredTaskId, allTasks]);
+
   // Focus mode and CP-only filter (issue #131)
   const [focusModeEnabled, setFocusModeEnabled] = useState(false);
   const [showCpOnly, setShowCpOnly] = useState(false);
