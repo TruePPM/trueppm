@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import base64
 import logging
+import os
+import re
 from typing import Any
 
 from django.conf import settings
@@ -27,6 +29,32 @@ logger = logging.getLogger(__name__)
 # MPXJ is installed, matching the existing import-into-existing-project endpoint.
 _ALLOWED_EXTENSIONS = {"mpp", "xml"}
 
+# Sanitize uploaded filenames (#816) before persistence. UploadedFile.name is
+# attacker-controlled via Content-Disposition: filenames may contain control
+# chars, path components ("../../etc/passwd"), HTML metacharacters, or
+# header-injection sequences. The provenance list endpoint surfaces this field
+# (#799 / MR !429) and any downstream consumer that interpolates it into HTML
+# or a Content-Disposition header becomes a stored-XSS / header-injection sink
+# without this filter. Reject everything but printable ASCII excluding the
+# small set of metacharacters; cap to 255 chars; fall back to "upload.xml" so
+# we never store an empty string after sanitization.
+_FILENAME_BANNED = re.compile(r"[^A-Za-z0-9._\- ()]")
+
+
+def _sanitize_filename(raw: str) -> str:
+    """Return a safe stored form of ``raw``.
+
+    Strips path components (``os.path.basename``), substitutes anything outside
+    the printable-ASCII allow-list with ``_``, collapses runs of whitespace,
+    caps length at 255 characters, and falls back to ``upload.xml`` if the
+    filtered result is empty.
+    """
+    name = os.path.basename(raw or "")
+    name = _FILENAME_BANNED.sub("_", name)
+    name = re.sub(r"\s+", " ", name).strip()
+    name = name[:255]
+    return name or "upload.xml"
+
 
 def _read_validated_upload(request: Request) -> tuple[str, str] | Response:
     """Read the multipart ``file`` field and validate extension + size.
@@ -34,7 +62,8 @@ def _read_validated_upload(request: Request) -> tuple[str, str] | Response:
     Returns ``(filename, file_content_b64)`` on success, or a 400 ``Response``
     describing the rejection (no file / unsupported type / too large). Shared by
     the import-into-existing-project and create-from-import views so both enforce
-    the same authoritative limits.
+    the same authoritative limits. The returned ``filename`` is sanitized via
+    :func:`_sanitize_filename` (#816).
     """
     uploaded_file = request.FILES.get("file")
     if not uploaded_file:
@@ -43,7 +72,7 @@ def _read_validated_upload(request: Request) -> tuple[str, str] | Response:
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    filename = uploaded_file.name or ""
+    filename = _sanitize_filename(uploaded_file.name or "")
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in _ALLOWED_EXTENSIONS:
         return Response(

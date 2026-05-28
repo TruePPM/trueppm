@@ -811,12 +811,35 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         front-end falls back to "P80: —" when the field is null.
         """
         project = self.get_object()
-        incomplete_tasks = project.tasks.filter(
-            is_deleted=False,
-        ).exclude(status=TaskStatus.COMPLETE)
 
-        task_count = project.tasks.filter(is_deleted=False).count()
+        # Single aggregate (#812): the three counts previously fired three
+        # separate COUNT queries against the same base queryset. status_summary
+        # is hit on every dashboard mount; collapsing to one aggregate() saves
+        # 2 DB round-trips per call without changing the response shape.
+        from django.db.models import Count, Q
 
+        live_tasks = project.tasks.filter(is_deleted=False)
+        counts = live_tasks.aggregate(
+            task_count=Count("id"),
+            at_risk_count=Count(
+                "id",
+                filter=~Q(status=TaskStatus.COMPLETE)
+                & Q(total_float__isnull=False)
+                & Q(total_float__lte=5),
+            ),
+            critical_count=Count(
+                "id",
+                filter=~Q(status=TaskStatus.COMPLETE) & Q(is_critical=True),
+            ),
+        )
+        task_count = counts["task_count"]
+        at_risk_count = counts["at_risk_count"]
+        critical_count = counts["critical_count"]
+
+        # Top-5 lists for the dropdown menus still need to fetch the WBS path
+        # and name fields; those are bounded LIMIT 5 queries and not collapsed
+        # into the aggregate.
+        incomplete_tasks = live_tasks.exclude(status=TaskStatus.COMPLETE)
         at_risk_qs = (
             incomplete_tasks.filter(
                 total_float__isnull=False,
@@ -828,10 +851,6 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         at_risk_tasks = [
             {"id": str(t["id"]), "name": t["name"], "wbs": t["wbs_path"]} for t in at_risk_qs
         ]
-        at_risk_count = incomplete_tasks.filter(
-            total_float__isnull=False,
-            total_float__lte=5,
-        ).count()
 
         critical_qs = (
             incomplete_tasks.filter(is_critical=True)
@@ -841,7 +860,6 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         critical_tasks = [
             {"id": str(t["id"]), "name": t["name"], "wbs": t["wbs_path"]} for t in critical_qs
         ]
-        critical_count = incomplete_tasks.filter(is_critical=True).count()
 
         # Task model uses server_version rather than auto_now timestamps, so
         # last_saved / recalculated_at are returned as null. The redesigned

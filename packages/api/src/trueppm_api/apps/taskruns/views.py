@@ -101,7 +101,11 @@ class GlobalTaskRunViewSet(ReadOnlyModelViewSet[TaskRun]):
         # by IsAuthenticated before this is called, but mypy needs the cast.
         if not isinstance(user, AbstractBaseUser):
             return TaskRun.objects.none()
-        project_ids = ProjectMembership.objects.filter(user=user).values_list(
+        # is_deleted=False (#819 sibling): without this, a user whose
+        # membership was soft-deleted still sees task-run history (including
+        # scheduler-run audit metadata) for projects they were removed from.
+        # Same pattern fixed in VelocitySuggestionViewSet.get_queryset.
+        project_ids = ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
             "project_id", flat=True
         )
         return TaskRun.objects.filter(project_id__in=project_ids)

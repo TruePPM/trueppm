@@ -64,6 +64,21 @@ class ThrottledTokenObtainPairView(TokenObtainPairView):
     throttle_scope = "login"
 
 
+class ThrottledTokenRefreshView(TokenRefreshView):
+    """JWT refresh endpoint with per-client throttling (#814).
+
+    Mirrors ``ThrottledTokenObtainPairView`` (#770) at the refresh endpoint.
+    Without this, a stolen or partially-scraped refresh token can be exchanged
+    for access tokens at unbounded rate. The ``refresh`` scope in
+    ``DEFAULT_THROTTLE_RATES`` caps attempts per client IP. The cap is looser
+    than the login rate (refresh is the legitimate path that web/mobile clients
+    hit on access-token expiry every 5 minutes), but bounded.
+    """
+
+    throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
+    throttle_scope = "refresh"
+
+
 urlpatterns = [
     path("api/v1/health/", health, name="health"),
     path("api/v1/edition/", edition, name="edition"),
@@ -78,7 +93,7 @@ urlpatterns = [
     ),
     # JWT auth endpoints
     path("api/v1/auth/token/", ThrottledTokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("api/v1/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    path("api/v1/auth/token/refresh/", ThrottledTokenRefreshView.as_view(), name="token_refresh"),
     # Versioned API
     path("api/v1/", include("trueppm_api.apps.access.urls")),
     path("api/v1/", include("trueppm_api.apps.projects.urls")),

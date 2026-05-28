@@ -52,3 +52,7 @@ Thumbs.db
 test-results/
 packages/web/test-results/
 packages/web/playwright-report/
+
+# Local dev attachment + media blobs (Closes #817)
+packages/api/attachments/
+packages/api/media/

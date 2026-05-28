@@ -8,6 +8,7 @@ version = "0.2.0a1"
 description = "Critical-path method (CPM) and Monte Carlo schedule-risk engine for project management"
 readme = "README.md"
 license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [
     { name = "Kelly Hair" },

@@ -96,19 +96,27 @@ def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return not ip.is_global
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Disable redirect following so a 3xx can't bounce the request to an
     internal host that the original (validated) URL did not resolve to.
 
     Returning ``None`` from ``redirect_request`` tells urllib not to follow the
     redirect; the 3xx response is surfaced to the caller as-is.
+
+    Public so sibling SSRF-guarded callers (webhook delivery, anywhere we POST
+    to a user-supplied URL) can compose their own opener without re-deriving
+    the handler. The original underscore name is kept as an alias for
+    backwards-compatibility inside this module.
     """
 
     def redirect_request(self, *args: Any, **kwargs: Any) -> None:
         return None
 
 
-_opener = urllib.request.build_opener(_NoRedirect)
+# Backwards-compatible alias.
+_NoRedirect = NoRedirectHandler
+
+_opener = urllib.request.build_opener(NoRedirectHandler)
 
 
 def assert_url_allowed(url: str) -> None:
