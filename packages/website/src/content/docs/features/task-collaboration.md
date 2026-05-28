@@ -112,8 +112,8 @@ Two structurally distinct signals sit on every comment:
   with project access. Neither reactions nor acknowledgements ever trigger a
   notification — they're soft signals, not pings.
 
-In 0.2 the reaction allow-list is `{"👍"}` only; the full emoji picker lands
-in 0.3.
+The 0.2 reaction allow-list (shipping Jun 8, 2026) is `{"👍"}` only; the full
+emoji picker lands in 0.3.
 
 ## Notifications
 
@@ -150,7 +150,7 @@ notification read on the way.
 `/me/settings/notifications/` exposes the per-`(event_type, channel)`
 preference matrix. On desktop it renders as a `<table>` — one row per event,
 one column per channel. On mobile each event becomes its own card with
-channel sub-rows. The two 0.2 mention events — each with an in-app and an email toggle — are:
+channel sub-rows. The two mention events landing in 0.2 — each with an in-app and an email toggle — are:
 
 | Event | In-app | Email |
 |---|---|---|
