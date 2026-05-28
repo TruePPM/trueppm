@@ -23,7 +23,11 @@ from trueppm_api.apps.msproject.dataclasses import (
     TaskData,
 )
 from trueppm_api.apps.msproject.exporter import export_project_xml
-from trueppm_api.apps.msproject.importer import import_project
+from trueppm_api.apps.msproject.importer import (
+    _build_wbs_paths,
+    _wbs_paths_from_levels,
+    import_project,
+)
 from trueppm_api.apps.msproject.parser import (
     _parse_duration_to_days,
     _parse_lag_to_days,
@@ -158,6 +162,53 @@ class TestLagParsing:
 
     def test_sub_day_lag(self) -> None:
         assert _parse_lag_to_days("2400") == 0
+
+
+class TestWbsPathBuilding:
+    """Unit tests for WBS reconstruction (#794)."""
+
+    def test_dotted_outline_numbers_used_verbatim(self) -> None:
+        tasks = [
+            TaskData(uid=1, name="A", outline_number="1", outline_level=1),
+            TaskData(uid=2, name="B", outline_number="1.1", outline_level=2),
+            TaskData(uid=3, name="C", outline_number="2", outline_level=1),
+        ]
+        assert _build_wbs_paths(tasks) == ["1", "1.1", "2"]
+
+    def test_flat_outline_reconstructed_from_levels(self) -> None:
+        tasks = [
+            TaskData(uid=1, name="P1", outline_number="1", outline_level=1),
+            TaskData(uid=2, name="a", outline_number="2", outline_level=2),
+            TaskData(uid=3, name="b", outline_number="3", outline_level=2),
+            TaskData(uid=4, name="P2", outline_number="4", outline_level=1),
+            TaskData(uid=5, name="c", outline_number="5", outline_level=2),
+        ]
+        assert _build_wbs_paths(tasks) == ["1", "1.1", "1.2", "2", "2.1"]
+
+    def test_truly_flat_project_stays_flat(self) -> None:
+        tasks = [
+            TaskData(uid=1, name="A", outline_number="1", outline_level=1),
+            TaskData(uid=2, name="B", outline_number="2", outline_level=1),
+        ]
+        assert _build_wbs_paths(tasks) == ["1", "2"]
+
+    def test_levels_normalized_when_top_level_is_not_one(self) -> None:
+        # Some exports start the visible tasks at OutlineLevel 0.
+        assert _wbs_paths_from_levels([0, 1, 1, 0, 1]) == ["1", "1.1", "1.2", "2", "2.1"]
+
+    def test_three_level_nesting(self) -> None:
+        assert _wbs_paths_from_levels([1, 2, 3, 3, 2, 1]) == [
+            "1",
+            "1.1",
+            "1.1.1",
+            "1.1.2",
+            "1.2",
+            "2",
+        ]
+
+    def test_skipped_level_pads_gracefully(self) -> None:
+        # A jump from depth 1 straight to depth 3 should not crash.
+        assert _wbs_paths_from_levels([1, 3, 1]) == ["1", "1.1.1", "2"]
 
 
 class TestXmlParser:
@@ -498,6 +549,41 @@ class TestImporter:
         t2 = Task.objects.get(project=project, name="Design")
         assert t1.wbs_path == "1"
         assert t2.wbs_path == "1.1"
+
+    def test_import_flat_outline_reconstructs_hierarchy(self, project: Project) -> None:
+        """Files with flat OutlineNumber but nested OutlineLevel keep their WBS.
+
+        Regression for #794: many third-party / generated MSPDI files number
+        tasks 1, 2, 3, … and express the phase hierarchy only via OutlineLevel.
+        The importer must rebuild the WBS from the level sequence instead of
+        flattening every task to a top-level row.
+        """
+        data = ProjectData(
+            tasks=[
+                TaskData(uid=1, name="Phase 1", outline_number="1", outline_level=1),
+                TaskData(uid=2, name="Task 1a", outline_number="2", outline_level=2),
+                TaskData(uid=3, name="Task 1b", outline_number="3", outline_level=2),
+                TaskData(uid=4, name="Phase 2", outline_number="4", outline_level=1),
+                TaskData(uid=5, name="Task 2a", outline_number="5", outline_level=2),
+            ]
+        )
+        import_project(str(project.pk), data)
+        wbs = {
+            t.name: str(t.wbs_path) for t in Task.objects.filter(project=project, is_deleted=False)
+        }
+        assert wbs == {
+            "Phase 1": "1",
+            "Task 1a": "1.1",
+            "Task 1b": "1.2",
+            "Phase 2": "2",
+            "Task 2a": "2.1",
+        }
+        # The phase rows now own their children (parent/summary relationship):
+        # two tasks sit under the "1." WBS subtree.
+        descendants = Task.objects.filter(
+            project=project, is_deleted=False, wbs_path__startswith="1."
+        )
+        assert descendants.count() == 2
 
     def test_import_dependencies(self, project: Project) -> None:
         data = ProjectData(
