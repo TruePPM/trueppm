@@ -80,8 +80,12 @@ same situation that triggers a full re-fetch today.
 The `task_dates_updated` handler in `useProjectWebSocket` becomes the **sole** maintainer
 of CPM freshness in the `['tasks', projectId]` cache:
 - **delta case** → `setQueryData<Task[]>` splices each delta into the matching cached task
-  (via the exported `mapTask` shape) and calls `engine.updateTask(id, patch)` for an
-  instant dirty-rect repaint. **No invalidation.**
+  (via the shared `deriveBarGeometry` rules, so the result is byte-for-byte a re-fetch).
+  **No invalidation** — the full re-fetch is eliminated, which is the acceptance criterion.
+  In v1 the canvas repaints through the existing tasks-query → `engine.setTasks` sync (a
+  full repaint, same as `main` paid on every `cpm_complete`); the dirty-rect optimization
+  via `engine.updateTask` envisioned here is tracked as a follow-up (#795) since it
+  requires the engine ref in the WS layer.
 - **truncated case** → `scheduleInvalidate('tasks')` (the existing 300 ms-debounced path).
 
 Correspondingly, the `task_run_completed` and `cpm_complete` handlers **stop** calling

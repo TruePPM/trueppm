@@ -543,7 +543,9 @@ def _run_schedule(
     # Best-effort, same tier as cpm_complete. Field names mirror SyncTaskSerializer so the
     # web client can splice the payload straight into its task cache (and a future mobile
     # client could too); the server_version carve-out above is preserved — this is an
-    # optimization layer over the sync protocol, not a replacement for it.
+    # optimization layer over the sync protocol, not a replacement for it. server_version
+    # is intentionally NOT in the payload: clients splice these as optimistic CPM updates,
+    # they are not a sync anchor (bulk_update bypasses VersionedModel.save(), ADR-0091).
     if len(tasks_to_update) <= CPM_DELTA_BROADCAST_CAP:
         delta_payload: dict[str, object] = {
             "count": len(tasks_to_update),
