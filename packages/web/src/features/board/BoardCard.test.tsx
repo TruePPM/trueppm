@@ -202,6 +202,34 @@ describe('BoardCard', () => {
     expect(onMenuMove).toHaveBeenCalledWith('COMPLETE');
   });
 
+  it('supports keyboard navigation in the overflow menu (#838)', () => {
+    renderCard({});
+    const trigger = screen.getByLabelText(`Actions for ${baseTask.name}`);
+    fireEvent.click(trigger);
+
+    // Menu opens with focus on the first menuitem.
+    const moveTo = screen.getByRole('menuitem', { name: 'Move to…' });
+    expect(document.activeElement).toBe(moveTo);
+
+    // Expand the submenu so there are multiple menuitems to navigate.
+    fireEvent.click(moveTo);
+    // ArrowDown advances to the first submenu item; focus is NOT stolen back.
+    fireEvent.keyDown(moveTo, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'BACKLOG' }));
+
+    // Home jumps to the first menuitem (Move to…), End to the last.
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Home' });
+    expect(document.activeElement).toBe(moveTo);
+    fireEvent.keyDown(moveTo, { key: 'End' });
+    const items = screen.getAllByRole('menuitem');
+    expect(document.activeElement).toBe(items[items.length - 1]);
+
+    // Escape closes the menu and restores focus to the trigger.
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' });
+    expect(screen.queryByRole('menuitem', { name: 'Move to…' })).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it('closes the overflow menu when a pointer-down lands outside it', () => {
     renderCard({});
 

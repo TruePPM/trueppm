@@ -142,8 +142,11 @@ export function AssigneesEditor({
           className="w-full h-7 px-2 text-[13px] text-neutral-text-primary bg-transparent border-none focus-visible:outline-none placeholder:text-neutral-text-disabled disabled:opacity-60"
         />
         {filteredPool.length > 0 && !disabled && (
+          // Plain <ul> (implicit role="list"), not role="listbox": the rows are
+          // Tab-focusable action buttons, not single-select options. A listbox
+          // with no role="option" / aria-activedescendant / arrow-nav
+          // mis-announces the control (#838).
           <ul
-            role="listbox"
             aria-label="People matching search"
             className="absolute left-0 right-0 top-full mt-1 z-10 bg-neutral-surface border border-neutral-border rounded shadow-none max-h-48 overflow-y-auto"
           >

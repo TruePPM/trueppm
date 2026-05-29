@@ -141,7 +141,7 @@ describe('AssigneesEditor', () => {
     const search = screen.getByPlaceholderText('Add another…');
     fireEvent.change(search, { target: { value: 'maya' } });
     // r3 is already assigned and must be excluded; r1 must remain.
-    const listbox = screen.getByRole('listbox', { name: 'People matching search' });
+    const listbox = screen.getByRole('list', { name: 'People matching search' });
     expect(listbox).toBeInTheDocument();
     expect(screen.getByText('Maya Patel')).toBeInTheDocument();
     expect(screen.getByText('PM')).toBeInTheDocument();
@@ -158,7 +158,7 @@ describe('AssigneesEditor', () => {
         onRemove={vi.fn()}
       />,
     );
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'People matching search' })).not.toBeInTheDocument();
   });
 
   it('clears the search and calls onAdd when a picker option is clicked', () => {
@@ -255,7 +255,7 @@ describe('AssigneesEditor', () => {
     fireEvent.change(screen.getByPlaceholderText('Add another…'), {
       target: { value: 'david' },
     });
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'People matching search' })).not.toBeInTheDocument();
   });
 
   it('caps the picker results at 8 matches', () => {

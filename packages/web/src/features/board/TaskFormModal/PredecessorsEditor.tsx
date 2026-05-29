@@ -126,8 +126,9 @@ export function PredecessorsEditor({
             className="w-full h-8 px-2 text-[13px] text-neutral-text-primary bg-transparent border-none focus-visible:outline-none placeholder:text-neutral-text-disabled"
           />
           {filteredTasks.length > 0 && (
+            // Plain <ul> (implicit role="list"), not role="listbox": Tab-focusable
+            // action buttons, not single-select options — see AssigneesEditor / #838.
             <ul
-              role="listbox"
               aria-label="Tasks matching search"
               className="max-h-48 overflow-y-auto border-t border-neutral-border"
             >
