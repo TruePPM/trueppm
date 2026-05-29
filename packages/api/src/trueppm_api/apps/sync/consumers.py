@@ -103,6 +103,18 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             }
         )
 
+    async def connection_evict(self, event: dict[str, Any]) -> None:
+        """Close this socket if its user's project access was just revoked (#813).
+
+        Handles channel-layer messages of type 'connection.evict'. Membership is
+        only checked at connect; this evicts a live socket when the user's
+        ProjectMembership is soft-deleted or demoted below Member, so revocation
+        takes effect immediately instead of lasting until the client disconnects.
+        Sockets for other users in the group ignore the message.
+        """
+        if hasattr(self, "_user") and event.get("user_id") == str(self._user.pk):
+            await self.close(code=4003)
+
     # ------------------------------------------------------------------
     # Presence helpers
     # ------------------------------------------------------------------

@@ -345,3 +345,44 @@ async def test_presence_leave_broadcast_on_disconnect(user: object, project: Pro
     assert leave_events[0]["payload"]["user_id"] == str(user.pk)  # type: ignore[attr-defined]
     # Presence entry must be removed from Redis.
     mock_redis.hdel.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Mid-session eviction on membership revocation (#813)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_connection_evict_closes_matching_user(user: object, project: Project) -> None:
+    """A connection.evict for this socket's user closes it with code 4003."""
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.scope = _make_scope(str(project.pk), token="valid.token")
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    consumer._user = user  # type: ignore[attr-defined]
+    consumer.close = AsyncMock()  # type: ignore[method-assign]
+
+    await consumer.connection_evict({"type": "connection.evict", "user_id": str(user.pk)})  # type: ignore[attr-defined]
+
+    consumer.close.assert_awaited_once_with(code=4003)
+
+
+@pytest.mark.django_db
+@pytest.mark.asyncio
+async def test_connection_evict_ignores_other_user(user: object, project: Project) -> None:
+    """A connection.evict for a different user leaves this socket open."""
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    consumer = ProjectConsumer()
+    consumer.channel_layer = AsyncMock()
+    consumer._user = user  # type: ignore[attr-defined]
+    consumer.close = AsyncMock()  # type: ignore[method-assign]
+
+    await consumer.connection_evict(
+        {"type": "connection.evict", "user_id": "00000000-0000-0000-0000-000000000000"}
+    )
+
+    consumer.close.assert_not_awaited()
