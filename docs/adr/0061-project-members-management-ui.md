@@ -208,3 +208,25 @@ without history tracking.
 7. **Idempotency**: N/A — duplicate member create returns 409 (already implemented in
    `ProjectMembershipViewSet.create`); role update and delete are naturally idempotent.
 8. **Dead-letter / failure handling**: N/A — no async tasks introduced by this feature.
+
+## Amendment (#815, 2026-05-29) — `UserSearchView` no longer returns email
+
+The original `UserSearchResultSerializer` echoed each matched user's `email`, and the
+endpoint required only `IsAuthenticated`. A pre-release security review found that this
+let any single authenticated account paginate the typeahead to harvest the entire
+workspace's email list (PII exfiltration from one low-privilege account).
+
+The trade-off this ADR originally accepted ("all accounts are org-internal, so exposing
+email to any member is acceptable") is too permissive for a public 0.2 release. Amended:
+
+1. **`email` is removed from the response.** The endpoint still *matches* on email
+   server-side (so invite-by-email works), but never returns the value. Identity in the
+   typeahead is carried by `username` + `display_name` + `initials`.
+2. **`IsWorkspaceMember` replaces `IsAuthenticated`.** In a single-workspace OSS deploy
+   every active account is an implicit member, so this is the semantically-correct gate
+   rather than an added restriction; it denies a deactivated membership (and any future
+   explicit-membership / multi-workspace non-member).
+3. **Per-user throttle** (`user_search` scope, 60/min) bounds bulk scraping.
+
+A separate workspace-admin endpoint that returns emails (behind `IsWorkspaceAdmin`) is
+deferred until a concrete need appears — no current surface requires bulk email read.

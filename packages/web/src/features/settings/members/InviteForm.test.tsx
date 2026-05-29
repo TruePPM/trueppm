@@ -21,7 +21,6 @@ vi.mock('../hooks/useUserSearch', () => ({
 const searchResult: UserSearchResult = {
   id: 'user-dave',
   username: 'dave',
-  email: 'dave@example.com',
   display_name: 'Dave',
   initials: 'DA',
 };

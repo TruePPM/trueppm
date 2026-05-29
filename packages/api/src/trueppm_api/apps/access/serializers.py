@@ -152,11 +152,16 @@ class ProgramMembershipWriteSerializer(serializers.ModelSerializer[ProgramMember
 
 
 class UserSearchResultSerializer(serializers.Serializer[Any]):
-    """Read-only serializer for GET /api/v1/users/search/ results (ADR-0061)."""
+    """Read-only serializer for GET /api/v1/users/search/ results (ADR-0061).
+
+    Deliberately omits ``email`` (#815): returning it let any authenticated caller
+    paginate the typeahead to harvest every user's email. Identity for the invite
+    typeahead is carried by username + display_name + initials; the endpoint still
+    *matches* on email so invite-by-email works, but never echoes the value back.
+    """
 
     id = serializers.CharField()
     username = serializers.CharField()
-    email = serializers.EmailField()
     display_name = serializers.SerializerMethodField()
     initials = serializers.SerializerMethodField()
 

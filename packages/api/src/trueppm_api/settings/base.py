@@ -445,6 +445,10 @@ REST_FRAMEWORK = {
         # never trips it, but tight enough that a stolen/leaked refresh token
         # cannot be exchanged for access tokens at unbounded rate.
         "refresh": "60/min",
+        # User typeahead for member invite (#815). Tight enough that a single
+        # account cannot bulk-scrape the workspace user list, loose enough that
+        # interactive typeahead (debounced, >=2 chars) never trips it.
+        "user_search": "60/min",
     },
 }
 

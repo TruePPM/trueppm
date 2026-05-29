@@ -16,6 +16,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
@@ -37,6 +38,7 @@ from trueppm_api.apps.access.serializers import (
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Program, Project
+from trueppm_api.apps.workspace.permissions import IsWorkspaceMember
 
 _PK = str | uuid.UUID
 
@@ -355,16 +357,27 @@ class ProjectMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[Project
 
 
 class UserSearchView(APIView):
-    """GET /api/v1/users/search/?q=<term> — org-wide user typeahead for member invite.
+    """GET /api/v1/users/search/?q=<term> — workspace user typeahead for member invite.
 
     Returns up to 10 active users matching username or email (case-insensitive).
-    Requires authentication only — no project-membership check. Acceptable for
-    self-hosted deployments where all accounts are org-internal (ADR-0061).
+    The email is matched but never returned (#815, ADR-0061 amended): the previous
+    serializer echoed every matched user's email, so a single authenticated account
+    could paginate the typeahead to harvest the whole workspace's email list. The
+    substantive fix is dropping ``email`` from the payload + a per-user throttle.
+    Defense in depth:
+
+    - ``IsWorkspaceMember`` — a deactivated membership (or, once explicit
+      memberships/multi-workspace land, a non-member) is denied. In a single-
+      workspace OSS deploy every active account is an implicit member, so this is
+      the semantically-correct gate rather than an added restriction today; and
+    - a per-user 60/min throttle (``user_search`` scope) bounds bulk scraping.
 
     Returns an empty list when q is fewer than 2 characters.
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsWorkspaceMember]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "user_search"
 
     @extend_schema(responses={200: UserSearchResultSerializer(many=True)})
     def get(self, request: Request) -> Response:

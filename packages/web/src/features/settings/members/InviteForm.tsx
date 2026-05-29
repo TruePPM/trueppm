@@ -170,7 +170,7 @@ export function InviteForm({ projectId }: InviteFormProps) {
                       {u.display_name}
                     </span>
                     <span className="block text-xs text-neutral-text-secondary truncate">
-                      {u.email}
+                      @{u.username}
                     </span>
                   </span>
                 </li>
