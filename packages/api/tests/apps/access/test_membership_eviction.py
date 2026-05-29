@@ -68,3 +68,18 @@ def test_creating_membership_does_not_evict(
     with patch(_EVICT) as evict, django_capture_on_commit_callbacks(execute=True):
         ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
     evict.assert_not_called()
+
+
+def test_pre_save_receiver_skips_unsaved_instance() -> None:
+    """An instance with no pk has no prior row to compare against — short-circuit.
+
+    UUID PKs are assigned at instantiation, so ORM creates never reach this guard;
+    exercise it directly with an explicitly pk-less instance to prove it returns
+    before issuing the prior-row SELECT.
+    """
+    from trueppm_api.apps.access.signals import _evict_on_revocation
+
+    with patch(_EVICT) as evict, patch.object(ProjectMembership.objects, "filter") as filt:
+        _evict_on_revocation(ProjectMembership, ProjectMembership(id=None))
+    filt.assert_not_called()
+    evict.assert_not_called()
