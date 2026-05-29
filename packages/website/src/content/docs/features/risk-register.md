@@ -4,7 +4,7 @@ description: PMBOK-aligned risk tracking with probability × impact scoring, tas
 ---
 
 :::note[0.1]
-The Risk Register shipped in 0.1 — UI, scoring, lifecycle states, task links, and CSV import.
+The Risk Register shipped in 0.1 — UI, scoring, lifecycle states, task links, and CSV export.
 :::
 
 The Risk Register surfaces project risks in a dedicated **Risks** tab within the project workspace. Each risk is scored by probability × impact, tracked through a lifecycle, and can be linked to the tasks it affects.

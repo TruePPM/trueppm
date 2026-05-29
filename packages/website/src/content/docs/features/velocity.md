@@ -39,8 +39,8 @@ The terminology is **forecast range**, not "velocity confidence band" — confid
 
 ## Related ADRs
 
-- [ADR-0036](/architecture/adr/) — Hybrid PM philosophy: how velocity feeds CPM duration estimates
-- [ADR-0037 §Q3](/architecture/adr/) — Velocity storage decision (snapshot on close, not computed from history)
+- [ADR-0036](/architecture/decisions/) — Hybrid PM philosophy: how velocity feeds CPM duration estimates
+- [ADR-0037 §Q3](/architecture/decisions/) — Velocity storage decision (snapshot on close, not computed from history)
 
 ## If you are…
 

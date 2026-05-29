@@ -35,9 +35,9 @@ Step 5 ([Sprint planning](/the-story/#5-sprint-planning--the-team-pulls-work)) a
 
 ## Related ADRs
 
-- [ADR-0036](/architecture/adr/) — Hybrid PM philosophy and sprint model
-- [ADR-0037](/architecture/adr/) — Sprint model: data, API, and board integration
-- [ADR-0041](/architecture/adr/) — Methodology preset (drives tab visibility)
+- [ADR-0036](/architecture/decisions/) — Hybrid PM philosophy and sprint model
+- [ADR-0037](/architecture/decisions/) — Sprint model: data, API, and board integration
+- [ADR-0041](/architecture/decisions/) — Methodology preset (drives tab visibility)
 
 ## If you are…
 

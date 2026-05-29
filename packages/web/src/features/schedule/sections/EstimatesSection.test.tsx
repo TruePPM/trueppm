@@ -15,7 +15,7 @@ vi.mock('@/hooks/useScheduleTasks', () => ({
 }));
 
 vi.mock('@/hooks/useCurrentUserRole', () => ({
-  useCurrentUserRole: () => ({ role: 100 }),
+  useCurrentUserRole: () => ({ role: 100, isLoading: false }),
 }));
 
 let mockActiveSprint: ApiSprint | null = null;
@@ -127,9 +127,7 @@ const mcResult = {
 describe('EstimatesSection', () => {
   it('returns null when task is not found', () => {
     mockTasks.splice(0, mockTasks.length);
-    const { container } = renderWithProviders(
-      <EstimatesSection taskId="missing" projectId="p1" />,
-    );
+    const { container } = renderWithProviders(<EstimatesSection taskId="missing" projectId="p1" />);
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -168,7 +166,9 @@ describe('EstimatesSection', () => {
       mockMcReturn = { data: undefined, isLoading: false, error: null };
       mockTasks.splice(0, mockTasks.length, summaryTask, childWithPert);
       renderWithProviders(<EstimatesSection taskId="phase-1" projectId="p1" />);
-      expect(screen.getByText(/Run Monte Carlo to see phase confidence dates/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Run Monte Carlo to see phase confidence dates/i),
+      ).toBeInTheDocument();
       expect(screen.queryByLabelText(/Optimistic/i)).not.toBeInTheDocument();
     });
 
@@ -183,7 +183,12 @@ describe('EstimatesSection', () => {
     });
 
     it('detects PERT on a grandchild (multi-level summary)', () => {
-      const grandchild: Task = { ...baseTask, id: 'gc-1', parentId: 'child-1', optimisticDuration: 2 };
+      const grandchild: Task = {
+        ...baseTask,
+        id: 'gc-1',
+        parentId: 'child-1',
+        optimisticDuration: 2,
+      };
       mockMcReturn = { data: mcResult, isLoading: false, error: null };
       mockTasks.splice(0, mockTasks.length, summaryTask, childNoPert, grandchild);
       renderWithProviders(<EstimatesSection taskId="phase-1" projectId="p1" />);

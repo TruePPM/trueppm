@@ -38,7 +38,7 @@ This is a single-team-lead use case (looking across their own assignments within
 
 ## Related ADRs
 
-- [ADR-0037](/architecture/adr/) — Sprint model: data, API, and board integration (defines the `me/active-sprints/` endpoint and summary payload shape)
+- [ADR-0037](/architecture/decisions/) — Sprint model: data, API, and board integration (defines the `me/active-sprints/` endpoint and summary payload shape)
 
 ## If you are…
 

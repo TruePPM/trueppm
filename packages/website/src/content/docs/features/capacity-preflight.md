@@ -45,7 +45,7 @@ PTO is a placeholder zero until a dedicated time-off model lands.
 
 ## Related ADRs
 
-- [ADR-0037 §Q2](/architecture/adr/) — Capacity check at activate time
+- [ADR-0037 §Q2](/architecture/decisions/) — Capacity check at activate time
 
 ## If you are…
 

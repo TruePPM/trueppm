@@ -36,7 +36,7 @@ The capacity preflight runs at *activate* time, not creation, so a planning-time
 
 ## Related ADRs
 
-- [ADR-0037](/architecture/adr/) — Sprint model: data, API, and board integration
+- [ADR-0037](/architecture/decisions/) — Sprint model: data, API, and board integration
 
 ## If you are…
 

@@ -43,7 +43,7 @@ The preset communicates *"this is not how we work here"*, not *"this is not allo
 
 ## Related ADRs
 
-- [ADR-0041](/architecture/adr/) — Project methodology preset
+- [ADR-0041](/architecture/decisions/) — Project methodology preset
 
 ## If you are…
 
