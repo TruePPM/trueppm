@@ -994,6 +994,11 @@ class Task(VersionedModel):
                 condition=models.Q(is_deleted=False),
                 name="task_assignee_status_idx",
             ),
+            # Sync delta pull filters WHERE project_id = X AND server_version > since
+            # (sync/views.py). Without server_version trailing the project column,
+            # Postgres visits every project row on a near-high-water-mark resync
+            # (#810). The composite turns it into a single index range seek.
+            models.Index(fields=["project", "server_version"], name="task_proj_serverver_idx"),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -1185,6 +1190,10 @@ class TaskRecurrenceRule(VersionedModel):
         db_table = "projects_taskrecurrencerule"
         # Deterministic default order so list pagination is stable (one rule per task).
         ordering = ["task_id"]
+        indexes = [
+            # Sync delta pull joins via task then filters server_version (#810).
+            models.Index(fields=["task", "server_version"], name="trr_task_serverver_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"Recurrence({self.frequency}) for task {self.task_id}"
@@ -1255,6 +1264,12 @@ class Dependency(VersionedModel):
                 fields=["predecessor", "successor", "dep_type"],
                 name="unique_dependency",
             )
+        ]
+        indexes = [
+            # Sync delta pull filters predecessor__project then server_version (#810).
+            # Dependency has no direct project FK; (predecessor, server_version) lets
+            # the per-predecessor join seek the changed rows without a full scan.
+            models.Index(fields=["predecessor", "server_version"], name="dep_pred_serverver_idx"),
         ]
 
     def __str__(self) -> str:
@@ -1469,6 +1484,8 @@ class Risk(VersionedModel):
         ordering = ["-impact", "-probability", "title"]
         indexes = [
             models.Index(fields=["project", "status"], name="risk_project_status_idx"),
+            # Sync delta pull: WHERE project_id = X AND server_version > since (#810).
+            models.Index(fields=["project", "server_version"], name="risk_proj_serverver_idx"),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -1747,6 +1764,8 @@ class Sprint(VersionedModel):
         indexes = [
             models.Index(fields=["project", "state"], name="sprint_project_state_idx"),
             models.Index(fields=["project", "start_date"], name="sprint_project_start_idx"),
+            # Sync delta pull: WHERE project_id = X AND server_version > since (#810).
+            models.Index(fields=["project", "server_version"], name="sprint_proj_serverver_idx"),
         ]
 
     def __str__(self) -> str:
@@ -1923,6 +1942,10 @@ class SprintRetro(VersionedModel):
 
     class Meta:
         db_table = "projects_sprintretro"
+        indexes = [
+            # Sync delta pull joins via sprint then filters server_version (#810).
+            models.Index(fields=["sprint", "server_version"], name="retro_sprint_serverver_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"Retro({self.sprint_id})"
@@ -1965,6 +1988,10 @@ class RetroActionItem(VersionedModel):
     class Meta:
         db_table = "projects_retroactionitem"
         ordering = ["created_at"]
+        indexes = [
+            # Sync delta pull joins via retro then filters server_version (#810).
+            models.Index(fields=["retro", "server_version"], name="rai_retro_serverver_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"RetroActionItem({self.id}, retro={self.retro_id})"
@@ -2056,6 +2083,8 @@ class TaskSuggestedAssignee(VersionedModel):
                 fields=["task", "state"],
                 name="suggestion_task_state_idx",
             ),
+            # Sync delta pull joins via task then filters server_version (#810).
+            models.Index(fields=["task", "server_version"], name="tsa_task_serverver_idx"),
         ]
 
     def __str__(self) -> str:

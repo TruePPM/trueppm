@@ -180,6 +180,8 @@ class TaskLink(VersionedModel):
             # The link list is always read per-task; index the FK + ordering so
             # the section query is a single index range scan.
             models.Index(fields=("task", "display_order"), name="integrations_link_task_order"),
+            # Sync delta pull joins via task then filters server_version (#810).
+            models.Index(fields=("task", "server_version"), name="tasklink_serverver_idx"),
         ]
         verbose_name = "Task link"
         verbose_name_plural = "Task links"

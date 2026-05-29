@@ -15,6 +15,8 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -460,6 +462,63 @@ def test_update_of_deleted_task_is_skipped(admin_client: APIClient, project: Pro
 # ---------------------------------------------------------------------------
 # Purge task
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Scaling: broadcast coalescing + bulk existing-row fetch (#809)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_bulk_upload_coalesces_into_single_broadcast(
+    admin_client: APIClient,
+    project: Project,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """A multi-row batch emits ONE tasks_bulk_mutated event, not one per row (#809).
+
+    The previous behavior issued a separate broadcast_board_event per applied row,
+    which under a reconnect storm overflowed the channel-layer inbox.
+    """
+    ids = [str(uuid.uuid4()) for _ in range(5)]
+    with (
+        patch("trueppm_api.apps.sync.views.broadcast_board_event") as mock_bcast,
+        patch("trueppm_api.apps.sync.views.enqueue_recalculate"),
+    ):
+        with django_capture_on_commit_callbacks(execute=True):  # type: ignore[operator]
+            resp = admin_client.post(
+                _url(project),
+                _payload(created=[{"id": tid, "name": f"T{n}"} for n, tid in enumerate(ids)]),
+                format="json",
+            )
+        assert resp.status_code == 200
+
+    assert mock_bcast.call_count == 1
+    _project_id, event_type, payload = mock_bcast.call_args.args
+    assert event_type == "tasks_bulk_mutated"
+    assert sorted(payload["task_ids"]) == sorted(ids)
+
+
+@pytest.mark.django_db
+def test_existing_row_lookup_is_a_single_bulk_fetch(
+    admin_client: APIClient, project: Project
+) -> None:
+    """The existing-row lookup is one IN query for the whole batch, not one per row.
+
+    Before #809, apply_task_changes issued Task.objects.filter(pk=row).first() per
+    row (N SELECT ... LIMIT 1). Now a single filter(pk__in=...) prefetch serves every
+    bucket. Asserting exactly one `id IN (...)` query proves the per-row SELECT is gone.
+    """
+    tasks = [Task.objects.create(project=project, name=f"T{i}") for i in range(10)]
+    payload = _payload(
+        updated=[{"id": str(t.pk), "notes": f"note {i}"} for i, t in enumerate(tasks)]
+    )
+    with CaptureQueriesContext(connection) as ctx:
+        resp = admin_client.post(_url(project), payload, format="json")
+    assert resp.status_code == 200
+
+    bulk_fetches = [q for q in ctx.captured_queries if '"projects_task"."id" IN (' in q["sql"]]
+    assert len(bulk_fetches) == 1
 
 
 @pytest.mark.django_db
