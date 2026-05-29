@@ -14422,7 +14422,7 @@
         "/api/v1/users/search/": {
             "get": {
                 "operationId": "v1_users_search_list",
-                "description": "GET /api/v1/users/search/?q=<term> — org-wide user typeahead for member invite.\n\nReturns up to 10 active users matching username or email (case-insensitive).\nRequires authentication only — no project-membership check. Acceptable for\nself-hosted deployments where all accounts are org-internal (ADR-0061).\n\nReturns an empty list when q is fewer than 2 characters.",
+                "description": "GET /api/v1/users/search/?q=<term> — workspace user typeahead for member invite.\n\nReturns up to 10 active users matching username or email (case-insensitive).\nThe email is matched but never returned (#815, ADR-0061 amended): the previous\nserializer echoed every matched user's email, so a single authenticated account\ncould paginate the typeahead to harvest the whole workspace's email list. The\nsubstantive fix is dropping ``email`` from the payload + a per-user throttle.\nDefense in depth:\n\n- ``IsWorkspaceMember`` — a deactivated membership (or, once explicit\n  memberships/multi-workspace land, a non-member) is denied. In a single-\n  workspace OSS deploy every active account is an implicit member, so this is\n  the semantically-correct gate rather than an added restriction today; and\n- a per-user 60/min throttle (``user_search`` scope) bounds bulk scraping.\n\nReturns an empty list when q is fewer than 2 characters.",
                 "tags": [
                     "v1"
                 ],
@@ -22729,17 +22729,13 @@
             },
             "UserSearchResult": {
                 "type": "object",
-                "description": "Read-only serializer for GET /api/v1/users/search/ results (ADR-0061).",
+                "description": "Read-only serializer for GET /api/v1/users/search/ results (ADR-0061).\n\nDeliberately omits ``email`` (#815): returning it let any authenticated caller\npaginate the typeahead to harvest every user's email. Identity for the invite\ntypeahead is carried by username + display_name + initials; the endpoint still\n*matches* on email so invite-by-email works, but never echoes the value back.",
                 "properties": {
                     "id": {
                         "type": "string"
                     },
                     "username": {
                         "type": "string"
-                    },
-                    "email": {
-                        "type": "string",
-                        "format": "email"
                     },
                     "display_name": {
                         "type": "string",
@@ -22752,7 +22748,6 @@
                 },
                 "required": [
                     "display_name",
-                    "email",
                     "id",
                     "initials",
                     "username"

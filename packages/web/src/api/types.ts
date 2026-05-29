@@ -52,7 +52,8 @@ export interface ProjectMembership {
 export interface UserSearchResult {
   id: string;
   username: string;
-  email: string;
+  // email is intentionally NOT exposed by /users/search/ (#815) — the typeahead
+  // matches on email server-side but never returns it, to prevent PII harvesting.
   display_name: string;
   initials: string;
 }

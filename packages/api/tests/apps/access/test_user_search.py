@@ -61,6 +61,34 @@ def test_requires_auth(db: object) -> None:
     assert res.status_code == 401
 
 
+def test_deactivated_workspace_member_forbidden(alice: object, bob: object) -> None:
+    """A deactivated workspace membership cannot enumerate users (#815).
+
+    In a single-workspace OSS deploy every active account is an implicit member,
+    so IsWorkspaceMember is the semantically-correct gate; the case it actually
+    blocks today is an explicitly deactivated membership.
+    """
+    from trueppm_api.apps.workspace.models import (
+        MemberStatus,
+        Workspace,
+        WorkspaceMembership,
+        WorkspaceRole,
+    )
+
+    # Workspace is a singleton (unique singleton_key); reuse any seeded row.
+    ws = Workspace.objects.first() or Workspace.objects.create()
+    WorkspaceMembership.objects.create(
+        workspace=ws,
+        user=alice,
+        role=WorkspaceRole.MEMBER,
+        status=MemberStatus.DEACTIVATED,
+    )
+    c = APIClient()
+    c.force_authenticate(user=alice)
+    res = c.get(_URL, {"q": "bob"})
+    assert res.status_code == 403
+
+
 # ---------------------------------------------------------------------------
 # Minimum query length guard
 # ---------------------------------------------------------------------------
@@ -103,11 +131,14 @@ def test_username_match_is_case_insensitive(authed_client: APIClient, bob: objec
 
 
 def test_matches_email(authed_client: APIClient, alice: object) -> None:
+    # The server still *matches* on email so invite-by-email works, but the
+    # email value is never returned (#815).
     res = authed_client.get(_URL, {"q": "alice@example"})
     assert res.status_code == 200
     data = res.json()
     assert len(data) == 1
-    assert data[0]["email"] == "alice@example.com"
+    assert data[0]["username"] == "alice"
+    assert "email" not in data[0]
 
 
 def test_email_match_is_case_insensitive(authed_client: APIClient, alice: object) -> None:
@@ -131,7 +162,8 @@ def test_response_includes_display_name_and_initials(
     assert row["initials"] == "AS"
     assert "id" in row
     assert "username" in row
-    assert "email" in row
+    # email is intentionally absent from the response (#815).
+    assert "email" not in row
 
 
 def test_display_name_falls_back_to_username_when_no_name(
