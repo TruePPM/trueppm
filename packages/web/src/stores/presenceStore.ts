@@ -1,6 +1,6 @@
 /**
  * Tracks which users are currently connected to a project's WebSocket.
- * State is populated by useProjectWebSocket on presence.join / presence.leave events
+ * State is populated by useProjectWebSocket on presence_join / presence_leave events
  * and by the initial REST fetch in useProjectPresence.
  */
 import { create } from 'zustand';
@@ -15,9 +15,9 @@ interface PresenceState {
   users: Record<string, PresenceUser>;
   /** Replace the entire presence set (called on initial REST fetch). */
   setUsers: (users: PresenceUser[]) => void;
-  /** Add or refresh a user (called on presence.join). */
+  /** Add or refresh a user (called on presence_join). */
   addUser: (user: PresenceUser) => void;
-  /** Remove a user (called on presence.leave). */
+  /** Remove a user (called on presence_leave). */
   removeUser: (userId: string) => void;
 }
 
