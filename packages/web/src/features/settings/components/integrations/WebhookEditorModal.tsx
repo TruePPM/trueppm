@@ -19,11 +19,7 @@ import {
   type ApiWebhook,
   type IntegrationScope,
 } from '@/hooks/useWebhooks';
-import {
-  WEBHOOK_EVENT_CATALOG,
-  WEBHOOK_FORMATS,
-  ALL_WEBHOOK_EVENT_IDS,
-} from './events';
+import { WEBHOOK_EVENT_CATALOG, WEBHOOK_FORMATS, ALL_WEBHOOK_EVENT_IDS } from './events';
 
 export interface WebhookEditorModalProps {
   scope: IntegrationScope;
@@ -133,7 +129,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
             onClick={onClose}
             disabled={saving}
             aria-label="Close"
-            className="text-neutral-text-secondary hover:text-neutral-text-primary text-lg leading-none px-1 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
+            className="text-neutral-text-secondary hover:text-neutral-text-primary text-lg leading-none px-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
           >
             ✕
           </button>
@@ -152,7 +148,10 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
               />
             </Field>
 
-            <Field label="Format" hint="Slack renders a Block-Kit message; Generic sends the raw JSON envelope.">
+            <Field
+              label="Format"
+              hint="Slack renders a Block-Kit message; Generic sends the raw JSON envelope."
+            >
               <div className="flex flex-wrap gap-1.5">
                 {WEBHOOK_FORMATS.map((f) => {
                   const active = format === f.value;
@@ -195,9 +194,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
             </Field>
 
             <div>
-              <div className="text-[13px] font-medium text-neutral-text-primary mb-1">
-                Events
-              </div>
+              <div className="text-[13px] font-medium text-neutral-text-primary mb-1">Events</div>
               <div className="text-[12px] text-neutral-text-secondary mb-2">
                 {events.size} selected
               </div>
@@ -258,7 +255,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="h-8 px-3 rounded border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            className="h-8 px-3 rounded border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             Cancel
           </button>
@@ -266,7 +263,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
             type="button"
             onClick={handleSubmit}
             disabled={saving}
-            className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create webhook'}
           </button>
@@ -276,15 +273,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
   );
 }
 
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: ReactNode;
-}) {
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="block">
       <span className="block text-[13px] font-medium text-neutral-text-primary mb-1">{label}</span>
@@ -331,13 +320,7 @@ function SlackPreview() {
   );
 }
 
-function RecentDeliveries({
-  scope,
-  webhookId,
-}: {
-  scope: IntegrationScope;
-  webhookId: string;
-}) {
+function RecentDeliveries({ scope, webhookId }: { scope: IntegrationScope; webhookId: string }) {
   const { data: deliveries, isLoading } = useWebhookDeliveries(scope, webhookId);
   return (
     <div>

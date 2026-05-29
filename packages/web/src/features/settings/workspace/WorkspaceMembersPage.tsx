@@ -1,21 +1,24 @@
 import { type FormEvent, useId, useMemo, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useWorkspaceMembers, type WorkspaceMember } from '../hooks/useWorkspaceMembers';
-import { useUpdateWorkspaceMember, useRemoveWorkspaceMember } from '../hooks/useUpdateWorkspaceMember';
+import {
+  useUpdateWorkspaceMember,
+  useRemoveWorkspaceMember,
+} from '../hooks/useUpdateWorkspaceMember';
 import { useCreateInvite, useRevokeInvite } from '../hooks/useWorkspaceInvites';
 import { filterMembers } from './filterMembers';
 
 const ROLE_PALETTE: Record<string, { bg: string; text: string }> = {
-  Admin:  { bg: 'bg-[#7C3AED]/10', text: 'text-[#7C3AED]' },
-  PM:     { bg: 'bg-brand-primary-light', text: 'text-brand-primary' },
-  Lead:   { bg: 'bg-brand-accent-light',  text: 'text-brand-accent-dark' },
+  Admin: { bg: 'bg-[#7C3AED]/10', text: 'text-[#7C3AED]' },
+  PM: { bg: 'bg-brand-primary-light', text: 'text-brand-primary' },
+  Lead: { bg: 'bg-brand-accent-light', text: 'text-brand-accent-dark' },
   Member: { bg: 'bg-neutral-surface-sunken', text: 'text-neutral-text-secondary' },
   Viewer: { bg: 'bg-neutral-surface-sunken', text: 'text-neutral-text-secondary' },
 };
 
 const STATUS_DOT: Record<string, string> = {
-  active:      'bg-semantic-on-track',
-  guest:       'bg-semantic-warning',
+  active: 'bg-semantic-on-track',
+  guest: 'bg-semantic-warning',
   deactivated: 'bg-neutral-text-disabled',
 };
 
@@ -29,13 +32,23 @@ const ROLE_INT_OPTIONS = [
 function RoleBadge({ role }: { role: string }) {
   const p = ROLE_PALETTE[role] ?? ROLE_PALETTE.Member;
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${p.bg} ${p.text}`}>
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${p.bg} ${p.text}`}
+    >
       {role}
     </span>
   );
 }
 
-function Avatar({ initials, color, size = 26 }: { initials: string; color: string; size?: number }) {
+function Avatar({
+  initials,
+  color,
+  size = 26,
+}: {
+  initials: string;
+  color: string;
+  size?: number;
+}) {
   return (
     <span
       className="rounded-full inline-flex items-center justify-center text-white font-semibold shrink-0"
@@ -98,14 +111,19 @@ function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTab
           className="h-7 pl-1.5 pr-5 rounded border border-neutral-border text-[11px] bg-neutral-surface-raised appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
         >
           {ROLE_INT_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
           ))}
         </select>
       </span>
       {/* Groups */}
       <span className="flex flex-wrap gap-1">
         {m.groups.slice(0, 2).map((g) => (
-          <span key={g} className="text-[10px] px-1.5 py-px rounded border border-neutral-border/55 bg-neutral-surface-sunken text-neutral-text-secondary font-medium">
+          <span
+            key={g}
+            className="text-[10px] px-1.5 py-px rounded border border-neutral-border/55 bg-neutral-surface-sunken text-neutral-text-secondary font-medium"
+          >
             {g}
           </span>
         ))}
@@ -128,18 +146,35 @@ function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTab
       {/* Actions + badges */}
       <span className="flex flex-col items-end gap-0.5">
         <span className="flex items-center gap-1 justify-end">
-          {m.sso  && <span className="text-[10px] px-1 py-px rounded bg-neutral-surface-sunken text-neutral-text-secondary font-bold">SSO</span>}
-          {m.twoFa && <span className="text-[10px] px-1 py-px rounded bg-semantic-on-track-bg text-semantic-on-track font-bold">2FA</span>}
+          {m.sso && (
+            <span className="text-[10px] px-1 py-px rounded bg-neutral-surface-sunken text-neutral-text-secondary font-bold">
+              SSO
+            </span>
+          )}
+          {m.twoFa && (
+            <span className="text-[10px] px-1 py-px rounded bg-semantic-on-track-bg text-semantic-on-track font-bold">
+              2FA
+            </span>
+          )}
           {confirming ? (
-            <span className="flex items-center gap-1.5 text-[11px]" role="group" aria-label={`Confirm remove ${m.name}`}>
+            <span
+              className="flex items-center gap-1.5 text-[11px]"
+              role="group"
+              aria-label={`Confirm remove ${m.name}`}
+            >
               <button
                 type="button"
-                onClick={() => { setConfirming(false); onRemove(m.id); }}
+                onClick={() => {
+                  setConfirming(false);
+                  onRemove(m.id);
+                }}
                 className="text-semantic-critical font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded"
               >
                 Confirm
               </button>
-              <span className="text-neutral-text-disabled" aria-hidden="true">·</span>
+              <span className="text-neutral-text-disabled" aria-hidden="true">
+                ·
+              </span>
               <button
                 type="button"
                 onClick={() => setConfirming(false)}
@@ -269,9 +304,15 @@ export function WorkspaceMembersPage() {
       />
 
       {/* Invite form */}
-      <form onSubmit={handleInvite} className="px-6 py-3 flex items-end gap-2 border-b border-neutral-border/55 flex-wrap">
+      <form
+        onSubmit={handleInvite}
+        className="px-6 py-3 flex items-end gap-2 border-b border-neutral-border/55 flex-wrap"
+      >
         <div className="flex flex-col gap-0.5">
-          <label htmlFor={inviteEmailId} className="text-[11px] font-medium text-neutral-text-secondary">
+          <label
+            htmlFor={inviteEmailId}
+            className="text-[11px] font-medium text-neutral-text-secondary"
+          >
             Email
           </label>
           <input
@@ -284,7 +325,10 @@ export function WorkspaceMembersPage() {
           />
         </div>
         <div className="flex flex-col gap-0.5">
-          <label htmlFor={inviteRoleId} className="text-[11px] font-medium text-neutral-text-secondary">
+          <label
+            htmlFor={inviteRoleId}
+            className="text-[11px] font-medium text-neutral-text-secondary"
+          >
             Role
           </label>
           <select
@@ -294,14 +338,16 @@ export function WorkspaceMembersPage() {
             className="h-8 pl-2.5 pr-7 rounded border border-neutral-border text-[13px] bg-neutral-surface-raised appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             {ROLE_INT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
             ))}
           </select>
         </div>
         <button
           type="submit"
           disabled={!inviteEmail.trim() || createInvite.isPending}
-          className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed"
         >
           {createInvite.isPending ? 'Sending…' : '+ Invite members'}
         </button>
@@ -318,9 +364,16 @@ export function WorkspaceMembersPage() {
           Search members by name or email
         </label>
         <div className="flex items-center gap-2 h-8 px-2.5 rounded border border-neutral-border bg-neutral-surface-raised text-[13px] w-[280px] focus-within:ring-2 focus-within:ring-brand-primary focus-within:border-brand-primary">
-          <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="text-neutral-text-disabled shrink-0">
-            <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
-            <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+            className="text-neutral-text-disabled shrink-0"
+          >
+            <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M10 10l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
           <input
             id={searchInputId}
@@ -346,7 +399,9 @@ export function WorkspaceMembersPage() {
         >
           <option value="">All roles</option>
           {ROLE_OPTIONS.map((r) => (
-            <option key={r} value={r}>{r}</option>
+            <option key={r} value={r}>
+              {r}
+            </option>
           ))}
         </select>
         <div className="flex-1" />
@@ -361,10 +416,25 @@ export function WorkspaceMembersPage() {
       {pendingInvites.length > 0 && (
         <div className="px-6 pt-3">
           <div className="flex items-center gap-3 px-3 py-2.5 rounded-md bg-brand-accent-light border border-brand-accent text-[13px]">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" className="text-brand-accent-dark shrink-0">
-              <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3.5a1 1 0 0 1 0 2 1 1 0 0 1 0-2zm0 3.5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="currentColor"
+              aria-hidden="true"
+              className="text-brand-accent-dark shrink-0"
+            >
+              <path
+                d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3.5a1 1 0 0 1 0 2 1 1 0 0 1 0-2zm0 3.5v4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                fill="none"
+              />
             </svg>
-            <span className="font-medium text-neutral-text-primary">{pendingInvites.length} pending invites</span>
+            <span className="font-medium text-neutral-text-primary">
+              {pendingInvites.length} pending invites
+            </span>
             <div className="flex-1" />
             {/* Bulk resend not wired yet — disabled until it ships (#791), same as per-row Resend. */}
             <button
@@ -442,34 +512,43 @@ export function WorkspaceMembersPage() {
                       aria-hidden="true"
                     >
                       <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3.5a1 1 0 0 1 0 2 1 1 0 0 1 0-2zm0 3.5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
+                        <path
+                          d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3.5a1 1 0 0 1 0 2 1 1 0 0 1 0-2zm0 3.5v4"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          fill="none"
+                        />
                       </svg>
                     </span>
                     <span className="truncate">{p.email}</span>
                   </span>
-                  <span><RoleBadge role={p.role} /></span>
-                  <span /><span />
+                  <span>
+                    <RoleBadge role={p.role} />
+                  </span>
+                  <span />
+                  <span />
                   <span className="text-[11px]">Sent {p.sentAt}</span>
                   <span className="text-[11px]">by {p.sentBy}</span>
                   <span className="flex flex-col items-end gap-0.5">
                     <span className="flex justify-end gap-1">
-                    {/* Resend-invite not wired yet — disabled until it ships (#791). */}
-                    <button
-                      type="button"
-                      disabled
-                      title="Resending invites isn't available yet — tracked in #791"
-                      className="text-[11px] text-brand-primary font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline disabled:hover:no-underline"
-                    >
-                      Resend
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleRevoke(p.id)}
-                      aria-label={`Revoke invite for ${p.email}`}
-                      className="text-[11px] text-neutral-text-disabled hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded"
-                    >
-                      Revoke
-                    </button>
+                      {/* Resend-invite not wired yet — disabled until it ships (#791). */}
+                      <button
+                        type="button"
+                        disabled
+                        title="Resending invites isn't available yet — tracked in #791"
+                        className="text-[11px] text-brand-primary font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:text-neutral-text-secondary disabled:cursor-not-allowed disabled:no-underline disabled:hover:no-underline"
+                      >
+                        Resend
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRevoke(p.id)}
+                        aria-label={`Revoke invite for ${p.email}`}
+                        className="text-[11px] text-neutral-text-disabled hover:text-semantic-critical focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded"
+                      >
+                        Revoke
+                      </button>
                     </span>
                     {errorInviteId === p.id && (
                       <span role="alert" className="text-semantic-critical text-[11px]">

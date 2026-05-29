@@ -108,10 +108,8 @@ export function BuildModeRowMenu({ anchor, items, onClose }: BuildModeRowMenuPro
   const menuHeight = items.length * ITEM_HEIGHT + 8;
   const viewportH = typeof window !== 'undefined' ? window.innerHeight : 800;
   const viewportW = typeof window !== 'undefined' ? window.innerWidth : 1200;
-  const top =
-    anchor.y + menuHeight > viewportH ? Math.max(0, anchor.y - menuHeight) : anchor.y;
-  const left =
-    anchor.x + MENU_WIDTH > viewportW ? Math.max(0, anchor.x - MENU_WIDTH) : anchor.x;
+  const top = anchor.y + menuHeight > viewportH ? Math.max(0, anchor.y - menuHeight) : anchor.y;
+  const left = anchor.x + MENU_WIDTH > viewportW ? Math.max(0, anchor.x - MENU_WIDTH) : anchor.x;
 
   return createPortal(
     <ul
@@ -150,7 +148,7 @@ export function BuildModeRowMenu({ anchor, items, onClose }: BuildModeRowMenuPro
                   : 'text-neutral-text-primary hover:bg-neutral-row-hover',
               !item.disabled && idx === activeIndex
                 ? item.destructive
-                  ? 'bg-semantic-critical/10'
+                  ? 'bg-semantic-critical-bg'
                   : 'bg-neutral-row-hover'
                 : '',
             ].join(' ')}
@@ -162,9 +160,7 @@ export function BuildModeRowMenu({ anchor, items, onClose }: BuildModeRowMenuPro
             )}
             <span className="flex-1 truncate">{item.label}</span>
             {item.hint && (
-              <span className="tppm-mono text-[11px] text-neutral-text-secondary">
-                {item.hint}
-              </span>
+              <span className="tppm-mono text-[11px] text-neutral-text-secondary">{item.hint}</span>
             )}
           </button>
         </li>

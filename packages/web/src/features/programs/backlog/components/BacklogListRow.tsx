@@ -112,13 +112,13 @@ export function BacklogListRow({
         {visibleTags.map((tag) => (
           <span
             key={tag}
-            className="hidden shrink-0 rounded bg-neutral-surface-sunken px-1.5 py-px text-[10px] text-neutral-text-secondary lg:inline"
+            className="hidden shrink-0 rounded bg-neutral-surface-sunken px-1.5 py-px text-xs text-neutral-text-secondary lg:inline"
           >
             {tag}
           </span>
         ))}
         {overflowTags > 0 && (
-          <span className="hidden shrink-0 text-[10px] text-neutral-text-disabled lg:inline">
+          <span className="hidden shrink-0 text-xs text-neutral-text-disabled lg:inline">
             +{overflowTags}
           </span>
         )}
@@ -159,7 +159,7 @@ export function BacklogListRow({
           </button>
         )}
         {item.status === 'PULLED' && item.pulledTo && (
-          <span className="tppm-mono text-[10px] text-neutral-text-secondary">
+          <span className="tppm-mono text-xs text-neutral-text-secondary">
             {formatRelative(new Date(item.pulledTo.at))}
           </span>
         )}

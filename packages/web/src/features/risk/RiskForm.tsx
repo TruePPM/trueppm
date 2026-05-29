@@ -28,25 +28,25 @@ export interface RiskFormProps {
 }
 
 const STATUS_OPTIONS: Array<{ value: Risk['status']; label: string }> = [
-  { value: 'OPEN',       label: 'Open' },
+  { value: 'OPEN', label: 'Open' },
   { value: 'MITIGATING', label: 'Mitigating' },
-  { value: 'RESOLVED',   label: 'Resolved' },
-  { value: 'ACCEPTED',   label: 'Accepted' },
-  { value: 'CLOSED',     label: 'Closed' },
+  { value: 'RESOLVED', label: 'Resolved' },
+  { value: 'ACCEPTED', label: 'Accepted' },
+  { value: 'CLOSED', label: 'Closed' },
 ];
 
 const CATEGORY_OPTIONS = [
-  { value: 'TECHNICAL',          label: 'Technical' },
-  { value: 'EXTERNAL',           label: 'External' },
-  { value: 'ORGANIZATIONAL',     label: 'Organizational' },
+  { value: 'TECHNICAL', label: 'Technical' },
+  { value: 'EXTERNAL', label: 'External' },
+  { value: 'ORGANIZATIONAL', label: 'Organizational' },
   { value: 'PROJECT_MANAGEMENT', label: 'Project Management' },
 ];
 
 const RESPONSE_OPTIONS = [
-  { value: 'AVOID',    label: 'Avoid' },
+  { value: 'AVOID', label: 'Avoid' },
   { value: 'MITIGATE', label: 'Mitigate' },
   { value: 'TRANSFER', label: 'Transfer' },
-  { value: 'ACCEPT',   label: 'Accept' },
+  { value: 'ACCEPT', label: 'Accept' },
 ];
 
 const PROBABILITY_IMPACT_OPTIONS = [1, 2, 3, 4, 5] as const;
@@ -59,22 +59,28 @@ const INPUT_BASE =
 export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps) {
   const isEdit = risk !== undefined;
 
-  const [title, setTitle]             = useState(risk?.title ?? '');
+  const [title, setTitle] = useState(risk?.title ?? '');
   const [description, setDescription] = useState(risk?.description ?? '');
-  const [status, setStatus]           = useState<Risk['status']>(risk?.status ?? 'OPEN');
+  const [status, setStatus] = useState<Risk['status']>(risk?.status ?? 'OPEN');
   const [probability, setProbability] = useState<number>(risk?.probability ?? 3);
-  const [impact, setImpact]           = useState<number>(risk?.impact ?? 3);
-  const [titleError, setTitleError]   = useState('');
+  const [impact, setImpact] = useState<number>(risk?.impact ?? 3);
+  const [titleError, setTitleError] = useState('');
 
   // PMI fields — Advanced section
-  const [category, setCategory]               = useState<string>(risk?.category ?? '');
-  const [response, setResponse]               = useState<string>(risk?.response ?? '');
+  const [category, setCategory] = useState<string>(risk?.category ?? '');
+  const [response, setResponse] = useState<string>(risk?.response ?? '');
   const [mitigationDueDate, setMitigationDueDate] = useState(risk?.mitigation_due_date ?? '');
-  const [trigger, setTrigger]                 = useState(risk?.trigger ?? '');
-  const [contingency, setContingency]         = useState(risk?.contingency ?? '');
+  const [trigger, setTrigger] = useState(risk?.trigger ?? '');
+  const [contingency, setContingency] = useState(risk?.contingency ?? '');
   // Auto-open if any PMI field is already set (edit mode with existing PMI data)
-  const [advancedOpen, setAdvancedOpen]       = useState(
-    !!(risk?.category || risk?.response || risk?.mitigation_due_date || risk?.trigger || risk?.contingency)
+  const [advancedOpen, setAdvancedOpen] = useState(
+    !!(
+      risk?.category ||
+      risk?.response ||
+      risk?.mitigation_due_date ||
+      risk?.trigger ||
+      risk?.contingency
+    ),
   );
 
   const createMutation = useCreateRisk();
@@ -82,7 +88,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
 
   const isPending = createMutation.isPending || updateMutation.isPending;
   const mutationError = createMutation.error ?? updateMutation.error;
-  const severity  = probability * impact;
+  const severity = probability * impact;
 
   function validate(): boolean {
     if (!title.trim()) {
@@ -115,15 +121,9 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
     };
 
     if (isEdit) {
-      updateMutation.mutate(
-        { projectId, id: risk.id, data: payload },
-        { onSuccess },
-      );
+      updateMutation.mutate({ projectId, id: risk.id, data: payload }, { onSuccess });
     } else {
-      createMutation.mutate(
-        { projectId, data: payload },
-        { onSuccess },
-      );
+      createMutation.mutate({ projectId, data: payload }, { onSuccess });
     }
   }
 
@@ -131,11 +131,11 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
     <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4 p-4">
       {/* Title */}
       <div className="flex flex-col gap-1">
-        <label
-          htmlFor="risk-title"
-          className="text-sm font-medium text-neutral-text-primary"
-        >
-          Title <span aria-hidden="true" className="text-semantic-critical">*</span>
+        <label htmlFor="risk-title" className="text-sm font-medium text-neutral-text-primary">
+          Title{' '}
+          <span aria-hidden="true" className="text-semantic-critical">
+            *
+          </span>
         </label>
         <input
           id="risk-title"
@@ -156,10 +156,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
 
       {/* Status */}
       <div className="flex flex-col gap-1">
-        <label
-          htmlFor="risk-status"
-          className="text-sm font-medium text-neutral-text-primary"
-        >
+        <label htmlFor="risk-status" className="text-sm font-medium text-neutral-text-primary">
           Status
         </label>
         <select
@@ -200,10 +197,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
         </div>
 
         <div className="flex flex-col gap-1 flex-1">
-          <label
-            htmlFor="risk-impact"
-            className="text-sm font-medium text-neutral-text-primary"
-          >
+          <label htmlFor="risk-impact" className="text-sm font-medium text-neutral-text-primary">
             Impact (1–5)
           </label>
           <select
@@ -232,10 +226,7 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
 
       {/* Description */}
       <div className="flex flex-col gap-1">
-        <label
-          htmlFor="risk-description"
-          className="text-sm font-medium text-neutral-text-primary"
-        >
+        <label htmlFor="risk-description" className="text-sm font-medium text-neutral-text-primary">
           Description
         </label>
         <textarea
@@ -274,7 +265,10 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
           <div className="px-3 py-3 flex flex-col gap-4 border-t border-neutral-border">
             {/* Category */}
             <div className="flex flex-col gap-1">
-              <label htmlFor="risk-category" className="text-sm font-medium text-neutral-text-primary">
+              <label
+                htmlFor="risk-category"
+                className="text-sm font-medium text-neutral-text-primary"
+              >
                 Category
               </label>
               <select
@@ -285,14 +279,19 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
               >
                 <option value="">— none —</option>
                 {CATEGORY_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
 
             {/* Response */}
             <div className="flex flex-col gap-1">
-              <label htmlFor="risk-response" className="text-sm font-medium text-neutral-text-primary">
+              <label
+                htmlFor="risk-response"
+                className="text-sm font-medium text-neutral-text-primary"
+              >
                 Response
               </label>
               <select
@@ -303,14 +302,19 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
               >
                 <option value="">— none —</option>
                 {RESPONSE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
 
             {/* Mitigation Due Date */}
             <div className="flex flex-col gap-1">
-              <label htmlFor="risk-due-date" className="text-sm font-medium text-neutral-text-primary">
+              <label
+                htmlFor="risk-due-date"
+                className="text-sm font-medium text-neutral-text-primary"
+              >
                 Mitigation Due Date
               </label>
               <input
@@ -324,10 +328,15 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
 
             {/* Trigger */}
             <div className="flex flex-col gap-1">
-              <label htmlFor="risk-trigger" className="text-sm font-medium text-neutral-text-primary">
+              <label
+                htmlFor="risk-trigger"
+                className="text-sm font-medium text-neutral-text-primary"
+              >
                 Trigger
               </label>
-              <p className="text-xs text-neutral-text-secondary">Condition that signals escalation</p>
+              <p className="text-xs text-neutral-text-secondary">
+                Condition that signals escalation
+              </p>
               <textarea
                 id="risk-trigger"
                 rows={2}
@@ -339,7 +348,10 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
 
             {/* Contingency */}
             <div className="flex flex-col gap-1">
-              <label htmlFor="risk-contingency" className="text-sm font-medium text-neutral-text-primary">
+              <label
+                htmlFor="risk-contingency"
+                className="text-sm font-medium text-neutral-text-primary"
+              >
                 Contingency
               </label>
               <textarea
@@ -356,9 +368,14 @@ export function RiskForm({ projectId, risk, onSuccess, onCancel }: RiskFormProps
 
       {/* Mutation error */}
       {mutationError && (
-        <div role="alert" className="rounded border border-semantic-critical/30 bg-semantic-critical/5 px-3 py-2">
+        <div
+          role="alert"
+          className="rounded border border-semantic-critical/30 bg-semantic-critical-bg px-3 py-2"
+        >
           <p className="text-sm text-semantic-critical">
-            {mutationError instanceof Error ? formatMutationError(mutationError) : 'Failed to save risk. Please try again.'}
+            {mutationError instanceof Error
+              ? formatMutationError(mutationError)
+              : 'Failed to save risk. Please try again.'}
           </p>
         </div>
       )}

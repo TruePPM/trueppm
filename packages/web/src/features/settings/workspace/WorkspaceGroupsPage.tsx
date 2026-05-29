@@ -33,21 +33,32 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
         </span>
         <div className="flex-1 min-w-0">
           <div className="text-[14px] font-semibold text-neutral-text-primary">{group.name}</div>
-          <div className="text-[12px] text-neutral-text-secondary mt-0.5 leading-snug">{group.description}</div>
+          <div className="text-[12px] text-neutral-text-secondary mt-0.5 leading-snug">
+            {group.description}
+          </div>
         </div>
         <span className="tppm-mono text-[11px] px-2 py-0.5 rounded bg-neutral-surface-sunken text-neutral-text-secondary font-semibold shrink-0">
           {group.memberCount} members
         </span>
         {confirming ? (
-          <span className="flex items-center gap-1.5 text-[11px] shrink-0" role="group" aria-label={`Confirm delete ${group.name}`}>
+          <span
+            className="flex items-center gap-1.5 text-[11px] shrink-0"
+            role="group"
+            aria-label={`Confirm delete ${group.name}`}
+          >
             <button
               type="button"
-              onClick={() => { setConfirming(false); onDelete(group.id); }}
+              onClick={() => {
+                setConfirming(false);
+                onDelete(group.id);
+              }}
               className="text-semantic-critical font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded"
             >
               Confirm
             </button>
-            <span className="text-neutral-text-disabled" aria-hidden="true">·</span>
+            <span className="text-neutral-text-disabled" aria-hidden="true">
+              ·
+            </span>
             <button
               type="button"
               onClick={() => setConfirming(false)}
@@ -82,7 +93,8 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
               key={i}
               className="rounded-full border-2 border-neutral-surface-raised inline-flex items-center justify-center text-white font-semibold"
               style={{
-                width: 22, height: 22,
+                width: 22,
+                height: 22,
                 marginLeft: i === 0 ? 0 : -6,
                 background: MEMBER_COLORS[i % MEMBER_COLORS.length],
                 fontSize: 10,
@@ -120,7 +132,9 @@ function GroupCard({ group, onDelete, hasError }: GroupCardProps) {
         <span className="text-[11px] text-neutral-text-secondary">
           Access to{' '}
           <strong className="text-neutral-text-primary font-semibold">
-            {group.projects[0] === 'all' ? 'all projects' : `${group.projects.length} project${group.projects.length !== 1 ? 's' : ''}`}
+            {group.projects[0] === 'all'
+              ? 'all projects'
+              : `${group.projects.length} project${group.projects.length !== 1 ? 's' : ''}`}
           </strong>
         </span>
       </div>
@@ -160,17 +174,19 @@ export function WorkspaceGroupsPage() {
     e.preventDefault();
     if (!newGroupName.trim()) return;
     setCreateError(false);
-    createGroup.mutateAsync({
-      name: newGroupName.trim(),
-      description: newGroupDesc.trim() || undefined,
-    }).then(
-      () => {
-        setNewGroupName('');
-        setNewGroupDesc('');
-        setShowCreateForm(false);
-      },
-      () => setCreateError(true),
-    );
+    createGroup
+      .mutateAsync({
+        name: newGroupName.trim(),
+        description: newGroupDesc.trim() || undefined,
+      })
+      .then(
+        () => {
+          setNewGroupName('');
+          setNewGroupDesc('');
+          setShowCreateForm(false);
+        },
+        () => setCreateError(true),
+      );
   }
 
   function handleDelete(id: string) {
@@ -223,7 +239,12 @@ export function WorkspaceGroupsPage() {
           <p className="text-[13px] font-semibold text-neutral-text-primary">New group</p>
           <div className="flex gap-2 flex-wrap items-end">
             <div className="flex flex-col gap-0.5">
-              <label htmlFor={nameId} className="text-[11px] font-medium text-neutral-text-secondary">Name</label>
+              <label
+                htmlFor={nameId}
+                className="text-[11px] font-medium text-neutral-text-secondary"
+              >
+                Name
+              </label>
               <input
                 id={nameId}
                 type="text"
@@ -235,7 +256,12 @@ export function WorkspaceGroupsPage() {
               />
             </div>
             <div className="flex flex-col gap-0.5">
-              <label htmlFor={descId} className="text-[11px] font-medium text-neutral-text-secondary">Description</label>
+              <label
+                htmlFor={descId}
+                className="text-[11px] font-medium text-neutral-text-secondary"
+              >
+                Description
+              </label>
               <input
                 id={descId}
                 type="text"
@@ -248,13 +274,18 @@ export function WorkspaceGroupsPage() {
             <button
               type="submit"
               disabled={!newGroupName.trim() || createGroup.isPending}
-              className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed"
             >
               {createGroup.isPending ? 'Creating…' : 'Create'}
             </button>
             <button
               type="button"
-              onClick={() => { setShowCreateForm(false); setNewGroupName(''); setNewGroupDesc(''); setCreateError(false); }}
+              onClick={() => {
+                setShowCreateForm(false);
+                setNewGroupName('');
+                setNewGroupDesc('');
+                setCreateError(false);
+              }}
               className="h-8 px-3 rounded border border-neutral-border text-[13px] text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             >
               Cancel
@@ -272,7 +303,10 @@ export function WorkspaceGroupsPage() {
         {isLoading ? (
           <div className="grid grid-cols-2 gap-3.5">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-32 rounded-lg bg-neutral-surface-raised border border-neutral-border animate-pulse" />
+              <div
+                key={i}
+                className="h-32 rounded-lg bg-neutral-surface-raised border border-neutral-border animate-pulse"
+              />
             ))}
           </div>
         ) : groups.length === 0 ? (
@@ -282,7 +316,12 @@ export function WorkspaceGroupsPage() {
         ) : (
           <div className="grid grid-cols-2 gap-3.5">
             {groups.map((g) => (
-              <GroupCard key={g.id} group={g} onDelete={handleDelete} hasError={errorGroupId === g.id} />
+              <GroupCard
+                key={g.id}
+                group={g}
+                onDelete={handleDelete}
+                hasError={errorGroupId === g.id}
+              />
             ))}
           </div>
         )}

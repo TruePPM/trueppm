@@ -117,9 +117,7 @@ function useMyTasks(projectId: string | undefined) {
   return useQuery<MyTask[]>({
     queryKey: ['project-my-tasks', projectId],
     queryFn: async () => {
-      const res = await apiClient.get<{ tasks: MyTask[] }>(
-        `/projects/${projectId}/my-tasks/`,
-      );
+      const res = await apiClient.get<{ tasks: MyTask[] }>(`/projects/${projectId}/my-tasks/`);
       return res.data.tasks;
     },
     enabled: !!projectId,
@@ -132,7 +130,12 @@ function useMyTasks(projectId: string | undefined) {
 
 function formatIsoDate(iso: string): string {
   const d = new Date(iso + 'T00:00:00Z');
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 function daysFromToday(iso: string): number {
@@ -253,7 +256,10 @@ function KpiSkeleton() {
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
       {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="h-24 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised" />
+        <div
+          key={i}
+          className="h-24 rounded border border-neutral-border animate-pulse bg-neutral-surface-raised"
+        />
       ))}
     </div>
   );
@@ -279,8 +285,8 @@ interface AttentionPanelProps {
 // when the severity color alone could fail WCAG 1.4.1.
 const SEVERITY_DOT_CLASS: Record<AttentionItem['severity'], string> = {
   critical: 'bg-semantic-critical',
-  warning:  'bg-semantic-at-risk',
-  info:     'bg-brand-primary',
+  warning: 'bg-semantic-at-risk',
+  info: 'bg-brand-primary',
 };
 
 function AttentionPanel({ items }: AttentionPanelProps) {
@@ -288,7 +294,7 @@ function AttentionPanel({ items }: AttentionPanelProps) {
     return (
       <div
         className="flex items-center gap-2 px-4 py-3 rounded border border-semantic-on-track/30
-          bg-semantic-on-track/5 text-sm text-semantic-on-track"
+          bg-semantic-on-track-bg text-sm text-semantic-on-track"
         role="status"
       >
         <span aria-hidden="true">✓</span>
@@ -313,7 +319,9 @@ function AttentionPanel({ items }: AttentionPanelProps) {
           />
           <span className="flex flex-col min-w-0">
             <span className="text-neutral-text-primary truncate flex items-center gap-1.5">
-              <span aria-hidden="true" className="text-xs">{ATTENTION_ICONS[item.type]}</span>
+              <span aria-hidden="true" className="text-xs">
+                {ATTENTION_ICONS[item.type]}
+              </span>
               {item.task_name}
             </span>
             <span className="text-xs text-neutral-text-secondary">{item.detail}</span>
@@ -349,13 +357,20 @@ function MyTasksPanel({ tasks }: MyTasksPanelProps) {
   // Map task status to a compact pill label + colour family.
   function statusPill(status: string): { label: string; cls: string } | null {
     switch (status) {
-      case 'COMPLETE':    return { label: 'Done',        cls: 'border-semantic-on-track/40 text-semantic-on-track' };
-      case 'IN_PROGRESS': return { label: 'In progress', cls: 'border-brand-primary/40 text-brand-primary' };
-      case 'REVIEW':      return { label: 'Review',      cls: 'border-brand-accent-dark/40 text-brand-accent-dark' };
-      case 'NOT_STARTED': return { label: 'Not started', cls: 'border-neutral-border text-neutral-text-secondary' };
-      case 'BACKLOG':     return { label: 'Backlog',     cls: 'border-neutral-border text-neutral-text-secondary' };
-      case 'ON_HOLD':     return { label: 'On hold',     cls: 'border-semantic-warning/40 text-semantic-warning' };
-      default:            return null;
+      case 'COMPLETE':
+        return { label: 'Done', cls: 'border-semantic-on-track/40 text-semantic-on-track' };
+      case 'IN_PROGRESS':
+        return { label: 'In progress', cls: 'border-brand-primary/40 text-brand-primary' };
+      case 'REVIEW':
+        return { label: 'Review', cls: 'border-brand-accent-dark/40 text-brand-accent-dark' };
+      case 'NOT_STARTED':
+        return { label: 'Not started', cls: 'border-neutral-border text-neutral-text-secondary' };
+      case 'BACKLOG':
+        return { label: 'Backlog', cls: 'border-neutral-border text-neutral-text-secondary' };
+      case 'ON_HOLD':
+        return { label: 'On hold', cls: 'border-semantic-warning/40 text-semantic-warning' };
+      default:
+        return null;
     }
   }
 
@@ -400,7 +415,9 @@ function MyTasksPanel({ tasks }: MyTasksPanelProps) {
               </span>
             )}
             {task.due && (
-              <span className="flex-shrink-0 text-xs text-neutral-text-secondary tppm-mono">{task.due}</span>
+              <span className="flex-shrink-0 text-xs text-neutral-text-secondary tppm-mono">
+                {task.due}
+              </span>
             )}
           </li>
         );
@@ -507,12 +524,7 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
     const barWidth = svgWidth / buckets.length;
 
     return (
-      <svg
-        width={svgWidth}
-        height={svgHeight}
-        aria-hidden="true"
-        className="flex-shrink-0"
-      >
+      <svg width={svgWidth} height={svgHeight} aria-hidden="true" className="flex-shrink-0">
         {buckets.map((bucket, i) => {
           const barH = (bucket.count / maxCount) * svgHeight;
           const y = svgHeight - barH;
@@ -737,7 +749,11 @@ export function ProjectOverviewPage() {
             />
             <KpiCard
               label="Team utilization"
-              value={overview?.team_utilization_pct != null ? `${Math.round(overview.team_utilization_pct)}%` : '—'}
+              value={
+                overview?.team_utilization_pct != null
+                  ? `${Math.round(overview.team_utilization_pct)}%`
+                  : '—'
+              }
               variant={utilizationVariant}
             />
             <KpiCard
@@ -746,8 +762,8 @@ export function ProjectOverviewPage() {
                 overview?.high_risk_count != null && overview.high_risk_count > 0
                   ? `${overview.high_risk_count} high`
                   : overview?.open_risk_count != null
-                  ? String(overview.open_risk_count)
-                  : '—'
+                    ? String(overview.open_risk_count)
+                    : '—'
               }
               sub={
                 overview?.open_risk_count != null

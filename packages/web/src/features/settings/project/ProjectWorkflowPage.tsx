@@ -1,9 +1,4 @@
-import {
-  useMemo,
-  useState,
-  type FormEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
-} from 'react';
+import { useMemo, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import {
   DndContext,
   KeyboardSensor,
@@ -25,10 +20,7 @@ import { BUILT_IN_FIELDS } from './builtInFields';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useBoardConfig, type BoardColumnDef } from '@/hooks/useBoardConfig';
-import {
-  useProjectPhases,
-  type ProjectPhase,
-} from '@/hooks/useProjectPhases';
+import { useProjectPhases, type ProjectPhase } from '@/hooks/useProjectPhases';
 import {
   useProjectCustomFields,
   type CustomFieldOption,
@@ -171,7 +163,7 @@ function PhasesSection({
             type="button"
             onClick={handleAddPhase}
             disabled={create.isPending}
-            className="px-2.5 py-1 rounded border border-neutral-border text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50"
+            className="px-2.5 py-1 rounded border border-neutral-border text-[12px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
           >
             + Add phase
           </button>
@@ -199,9 +191,7 @@ function PhasesSection({
                   index={i}
                   canEdit={canEdit}
                   onRename={(name) => update.mutate({ id: phase.id, payload: { name } })}
-                  onRecolor={(color) =>
-                    update.mutate({ id: phase.id, payload: { color } })
-                  }
+                  onRecolor={(color) => update.mutate({ id: phase.id, payload: { color } })}
                   onDelete={() => remove.mutate(phase.id)}
                   deleteError={
                     remove.error && remove.variables === phase.id
@@ -255,7 +245,10 @@ function PhaseRow({
     <li
       ref={setNodeRef}
       style={style}
-      className={['grid items-center gap-2.5 px-4 py-2.5 bg-neutral-surface-raised', isDragging ? 'opacity-70 z-10 shadow' : ''].join(' ')}
+      className={[
+        'grid items-center gap-2.5 px-4 py-2.5 bg-neutral-surface-raised',
+        isDragging ? 'opacity-70 z-10 shadow' : '',
+      ].join(' ')}
     >
       <div
         className="grid items-center gap-2.5"
@@ -272,7 +265,10 @@ function PhaseRow({
             ⠿
           </button>
         ) : (
-          <span aria-hidden="true" className="text-neutral-text-disabled select-none text-[16px] leading-none">
+          <span
+            aria-hidden="true"
+            className="text-neutral-text-disabled select-none text-[16px] leading-none"
+          >
             ⠿
           </span>
         )}
@@ -492,7 +488,10 @@ function StatusRow({
     <li
       ref={setNodeRef}
       style={style}
-      className={['px-4 py-2.5 bg-neutral-surface-raised', isDragging ? 'opacity-70 z-10 shadow' : ''].join(' ')}
+      className={[
+        'px-4 py-2.5 bg-neutral-surface-raised',
+        isDragging ? 'opacity-70 z-10 shadow' : '',
+      ].join(' ')}
     >
       <div
         className="grid items-center gap-2.5"
@@ -509,7 +508,10 @@ function StatusRow({
             ⠿
           </button>
         ) : (
-          <span aria-hidden="true" className="text-neutral-text-disabled select-none text-[16px] leading-none">
+          <span
+            aria-hidden="true"
+            className="text-neutral-text-disabled select-none text-[16px] leading-none"
+          >
             ⠿
           </span>
         )}
@@ -686,7 +688,9 @@ function FieldsSection({
         ))}
 
         {isLoading ? (
-          <li className="px-4 py-4 text-[12px] text-neutral-text-secondary">Loading custom fields…</li>
+          <li className="px-4 py-4 text-[12px] text-neutral-text-secondary">
+            Loading custom fields…
+          </li>
         ) : (
           fields.map((f) => (
             <li
@@ -837,7 +841,10 @@ function CustomFieldModal({
         className="bg-neutral-surface-raised rounded-lg border border-neutral-border w-[480px] max-w-[92vw]"
       >
         <div className="px-4 py-3 border-b border-neutral-border">
-          <h3 id="custom-field-modal-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+          <h3
+            id="custom-field-modal-heading"
+            className="text-[13px] font-semibold text-neutral-text-primary"
+          >
             {mode === 'create' ? 'New custom field' : `Edit field — ${initial?.name ?? ''}`}
           </h3>
         </div>
@@ -878,7 +885,8 @@ function CustomFieldModal({
             </select>
             {mode === 'edit' && (
               <p className="text-[11px] text-neutral-text-disabled mt-1">
-                Type cannot change after creation — delete this field and add a new one to switch type.
+                Type cannot change after creation — delete this field and add a new one to switch
+                type.
               </p>
             )}
           </label>
@@ -892,14 +900,10 @@ function CustomFieldModal({
             <span className="text-[13px] text-neutral-text-primary">Required on every task</span>
           </label>
 
-          {isSelectType(fieldType) && (
-            <OptionsEditor options={options} onChange={setOptions} />
-          )}
+          {isSelectType(fieldType) && <OptionsEditor options={options} onChange={setOptions} />}
         </div>
 
-        {error && (
-          <p className="px-4 pb-2 text-[12px] text-semantic-critical">{error}</p>
-        )}
+        {error && <p className="px-4 pb-2 text-[12px] text-semantic-critical">{error}</p>}
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-neutral-border">
           <button
@@ -912,7 +916,7 @@ function CustomFieldModal({
           <button
             type="submit"
             disabled={!canSubmit || submitting}
-            className="px-3 py-1 text-[12px] font-medium text-white bg-brand-primary rounded hover:bg-brand-primary-dark disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            className="px-3 py-1 text-[12px] font-medium text-white bg-brand-primary rounded hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
           >
             {submitting ? 'Saving…' : mode === 'create' ? 'Add field' : 'Save'}
           </button>

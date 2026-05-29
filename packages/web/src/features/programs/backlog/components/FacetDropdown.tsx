@@ -119,7 +119,7 @@ export function FacetDropdown({
                   >
                     <span
                       aria-hidden="true"
-                      className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border text-[10px] ${
+                      className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] border text-xs ${
                         checked
                           ? 'border-brand-primary bg-brand-primary text-white'
                           : 'border-neutral-border bg-neutral-surface'

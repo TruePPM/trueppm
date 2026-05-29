@@ -217,7 +217,7 @@ function CommentRow({
             disabled:opacity-50
             ${
               comment.has_my_acknowledgement
-                ? 'border-semantic-on-track/40 text-semantic-on-track bg-semantic-on-track/5'
+                ? 'border-semantic-on-track/40 text-semantic-on-track bg-semantic-on-track-bg'
                 : 'border-neutral-border text-neutral-text-secondary hover:bg-neutral-surface'
             }`}
         >

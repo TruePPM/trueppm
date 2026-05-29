@@ -22,7 +22,7 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
 function statusPillClass(status: TaskStatus): string {
   switch (status) {
     case 'COMPLETE':
-      return 'bg-semantic-on-track/10 border-semantic-on-track/30 text-semantic-on-track';
+      return 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track';
     case 'IN_PROGRESS':
       return 'bg-brand-primary/10 border-brand-primary/30 text-brand-primary';
     case 'REVIEW':
@@ -129,9 +129,7 @@ export function DepPopover({ task, taskIndex, onClose, onJumpTo }: DepPopoverPro
         {isLoading ? (
           <div className="p-3 text-xs text-neutral-text-secondary">Loading…</div>
         ) : predecessors.length === 0 && successors.length === 0 ? (
-          <div className="p-3 text-xs text-neutral-text-secondary">
-            No active dependencies.
-          </div>
+          <div className="p-3 text-xs text-neutral-text-secondary">No active dependencies.</div>
         ) : (
           <>
             {predecessors.length > 0 && (
@@ -177,7 +175,11 @@ export function DepPopover({ task, taskIndex, onClose, onJumpTo }: DepPopoverPro
         )}
 
         <div className="px-3 py-2 border-t border-neutral-border text-xs text-neutral-text-disabled">
-          Press <kbd className="bg-neutral-surface-raised border border-neutral-border rounded px-1 tppm-mono">Esc</kbd> to close
+          Press{' '}
+          <kbd className="bg-neutral-surface-raised border border-neutral-border rounded px-1 tppm-mono">
+            Esc
+          </kbd>{' '}
+          to close
         </div>
       </div>
     </div>

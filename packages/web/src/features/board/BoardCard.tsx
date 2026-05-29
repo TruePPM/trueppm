@@ -100,7 +100,7 @@ function ReadinessChip({ readiness }: { readiness: TaskReadiness }) {
       );
     case 'ready':
       return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded bg-brand-primary/10 dark:bg-semantic-on-track/10 border border-brand-primary/30 dark:border-semantic-on-track/30 text-xs text-brand-primary dark:text-semantic-on-track font-medium">
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded bg-brand-primary/10 dark:bg-semantic-on-track-bg border border-brand-primary/30 dark:border-semantic-on-track/30 text-xs text-brand-primary dark:text-semantic-on-track font-medium">
           <span aria-hidden="true">⛓</span> ready
         </span>
       );
@@ -667,7 +667,7 @@ export function BoardCard({
                             className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-semantic-critical border border-neutral-surface"
                           />
                           {isDetailed && (
-                            <span className="ml-1 inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border bg-semantic-critical/10 border-semantic-critical/30 text-semantic-critical tppm-mono">
+                            <span className="ml-1 inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical tppm-mono">
                               {overFactor.toFixed(1)}×
                             </span>
                           )}
@@ -707,7 +707,7 @@ export function BoardCard({
             className={[
               'mt-1 inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
               isPastTwiceSla
-                ? 'bg-semantic-critical/10 border-semantic-critical/30 text-semantic-critical motion-safe:animate-pulse'
+                ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical motion-safe:animate-pulse'
                 : 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark',
             ].join(' ')}
             title={`${daysAgo}d in column — SLA: ${slaDays}d`}
@@ -726,10 +726,10 @@ export function BoardCard({
               className={[
                 'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
                 floatDays <= 0
-                  ? 'bg-semantic-critical/10 border-semantic-critical/30 text-semantic-critical'
+                  ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical'
                   : floatDays < 3
                     ? 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark'
-                    : 'bg-semantic-on-track/10 border-semantic-on-track/30 text-semantic-on-track',
+                    : 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track',
               ].join(' ')}
             >
               {floatDays < 0 && <span aria-hidden="true">⚠</span>}
@@ -746,10 +746,10 @@ export function BoardCard({
               className={[
                 'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
                 spi >= 0.95
-                  ? 'bg-semantic-on-track/10 border-semantic-on-track/30 text-semantic-on-track'
+                  ? 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track'
                   : spi >= 0.85
                     ? 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark'
-                    : 'bg-semantic-critical/10 border-semantic-critical/30 text-semantic-critical',
+                    : 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical',
               ].join(' ')}
               title={`Schedule Performance Index: ${spi.toFixed(2)}`}
               aria-label={`SPI ${spi.toFixed(2)} — ${spi >= 0.95 ? 'on track' : spi >= 0.85 ? 'at risk' : 'behind schedule'}`}
@@ -766,10 +766,10 @@ export function BoardCard({
               className={[
                 'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
                 cpi >= 0.95
-                  ? 'bg-semantic-on-track/10 border-semantic-on-track/30 text-semantic-on-track'
+                  ? 'bg-semantic-on-track-bg border-semantic-on-track/30 text-semantic-on-track'
                   : cpi >= 0.85
                     ? 'bg-brand-accent/10 border-brand-accent/30 text-brand-accent-dark'
-                    : 'bg-semantic-critical/10 border-semantic-critical/30 text-semantic-critical',
+                    : 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical',
               ].join(' ')}
               title={`Cost Performance Index: ${cpi.toFixed(2)}`}
               aria-label={`CPI ${cpi.toFixed(2)} — ${cpi >= 0.95 ? 'on budget' : cpi >= 0.85 ? 'over budget' : 'significantly over budget'}`}
@@ -786,7 +786,7 @@ export function BoardCard({
               className={[
                 'inline-flex items-center gap-0.5 text-xs px-1 py-px rounded border',
                 task.actualCost != null && task.actualCost > task.budgetAtCompletion
-                  ? 'bg-semantic-critical/10 border-semantic-critical/30 text-semantic-critical'
+                  ? 'bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical'
                   : 'bg-neutral-surface-sunken border-neutral-border text-neutral-text-secondary',
               ].join(' ')}
               title={`Actual cost ${task.actualCost != null ? fmtCurrency(task.actualCost) : '—'} of ${fmtCurrency(task.budgetAtCompletion)}`}

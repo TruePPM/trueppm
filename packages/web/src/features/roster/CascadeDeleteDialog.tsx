@@ -74,7 +74,7 @@ export function CascadeDeleteDialog({
             onClick={onConfirm}
             disabled={isLoading}
             className="h-9 px-4 rounded border border-semantic-critical/40 text-sm font-medium
-              text-semantic-critical bg-semantic-critical/5 hover:bg-semantic-critical/10
+              text-semantic-critical bg-semantic-critical-bg hover:bg-semantic-critical/10
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1
               disabled:opacity-50"
           >

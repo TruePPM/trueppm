@@ -45,11 +45,13 @@ export function RosterDetailPanel({
           onClose?.();
         },
         onError: (err) => {
-          const status = (err as { response?: { status: number; data: { cascaded_assignment_count?: number } } }).response?.status;
+          const status = (
+            err as { response?: { status: number; data: { cascaded_assignment_count?: number } } }
+          ).response?.status;
           if (status === 409) {
             const count =
-              (err as { response?: { data: { cascaded_assignment_count?: number } } }).response?.data
-                ?.cascaded_assignment_count ?? 1;
+              (err as { response?: { data: { cascaded_assignment_count?: number } } }).response
+                ?.data?.cascaded_assignment_count ?? 1;
             setRemoveState({ phase: 'confirm-cascade', assignmentCount: count });
           }
         },
@@ -94,7 +96,12 @@ export function RosterDetailPanel({
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M12 4L4 12M4 4l8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <path
+                d="M12 4L4 12M4 4l8 8"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
             </svg>
           </button>
         )}
@@ -103,7 +110,10 @@ export function RosterDetailPanel({
       <div className="flex flex-col gap-5 p-4">
         {/* Capacity */}
         <section aria-labelledby="capacity-heading">
-          <h3 id="capacity-heading" className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-3">
+          <h3
+            id="capacity-heading"
+            className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-3"
+          >
             Capacity
           </h3>
           <CapacityInput
@@ -117,7 +127,10 @@ export function RosterDetailPanel({
         {/* Role title */}
         {projectResource.roleTitle && (
           <section aria-labelledby="role-heading">
-            <h3 id="role-heading" className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-1">
+            <h3
+              id="role-heading"
+              className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-1"
+            >
               Role on project
             </h3>
             <p className="text-sm text-neutral-text-primary">{projectResource.roleTitle}</p>
@@ -127,7 +140,10 @@ export function RosterDetailPanel({
         {/* Notes */}
         {projectResource.notes && (
           <section aria-labelledby="notes-heading">
-            <h3 id="notes-heading" className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-1">
+            <h3
+              id="notes-heading"
+              className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-1"
+            >
               Notes
             </h3>
             <p className="text-sm text-neutral-text-secondary">{projectResource.notes}</p>
@@ -136,7 +152,10 @@ export function RosterDetailPanel({
 
         {/* Skills */}
         <section aria-labelledby="skills-heading">
-          <h3 id="skills-heading" className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-3">
+          <h3
+            id="skills-heading"
+            className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-3"
+          >
             Skills
           </h3>
           {skills.length === 0 ? (
@@ -164,7 +183,7 @@ export function RosterDetailPanel({
             onClick={handleRemoveClick}
             disabled={removeMutation.isPending}
             className="w-full h-10 rounded border border-semantic-critical/40 text-sm font-medium
-              text-semantic-critical bg-semantic-critical/5 hover:bg-semantic-critical/10
+              text-semantic-critical bg-semantic-critical-bg hover:bg-semantic-critical/10
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1
               disabled:opacity-50 transition-colors"
           >
@@ -179,7 +198,9 @@ export function RosterDetailPanel({
       {(removeState.phase === 'confirm-cascade' || removeState.phase === 'removing') && (
         <CascadeDeleteDialog
           resourceName={resource.name}
-          assignmentCount={removeState.phase === 'confirm-cascade' ? removeState.assignmentCount : 0}
+          assignmentCount={
+            removeState.phase === 'confirm-cascade' ? removeState.assignmentCount : 0
+          }
           onConfirm={handleForceRemove}
           onCancel={() => setRemoveState({ phase: 'idle' })}
           isLoading={removeState.phase === 'removing'}

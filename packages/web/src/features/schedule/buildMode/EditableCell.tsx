@@ -63,10 +63,7 @@ export function parsePercentInput(raw: string): number | null {
   return n;
 }
 
-function commitParse(
-  inputType: EditableCellInputType,
-  raw: string,
-): string | number | null {
+function commitParse(inputType: EditableCellInputType, raw: string): string | number | null {
   if (inputType === 'duration') return parseDurationInput(raw);
   if (inputType === 'number') return parsePercentInput(raw);
   const trimmed = raw.trim();
@@ -144,11 +141,11 @@ export function EditableCell({
   if (!isEditing) {
     const flashClass =
       flash === 'commit'
-        ? 'bg-semantic-on-track/10'
+        ? 'bg-semantic-on-track-bg'
         : flash === 'rollback'
-          ? 'bg-semantic-critical/10'
+          ? 'bg-semantic-critical-bg'
           : flash === 'error'
-            ? 'bg-semantic-critical/10'
+            ? 'bg-semantic-critical-bg'
             : '';
     return (
       <div
@@ -193,7 +190,10 @@ export function EditableCell({
       <input
         ref={inputRef}
         value={draft}
-        onChange={(e) => { setDraft(e.target.value); onQueryChange?.(e.target.value); }}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          onQueryChange?.(e.target.value);
+        }}
         onBlur={() => {
           // Blur outside Enter/Tab/Esc paths — commit silently if value changed.
           if (draft !== value) tryCommit(draft);

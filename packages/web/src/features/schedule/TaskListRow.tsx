@@ -818,7 +818,7 @@ function TaskListRowInner({
               >
                 {depChips.predsCount > 0 && (
                   <span
-                    className={`inline-flex items-center px-1 py-px rounded text-xs font-medium cursor-pointer ${depChips.predsCritical ? 'bg-semantic-critical/10 text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
+                    className={`inline-flex items-center px-1 py-px rounded text-xs font-medium cursor-pointer ${depChips.predsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
                     title={`${depChips.predsCount} predecessor${depChips.predsCount !== 1 ? 's' : ''}`}
                   >
                     ←{depChips.predsCount}
@@ -826,7 +826,7 @@ function TaskListRowInner({
                 )}
                 {depChips.succsCount > 0 && (
                   <span
-                    className={`inline-flex items-center px-1 py-px rounded text-xs font-medium cursor-pointer ${depChips.succsCritical ? 'bg-semantic-critical/10 text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
+                    className={`inline-flex items-center px-1 py-px rounded text-xs font-medium cursor-pointer ${depChips.succsCritical ? 'bg-semantic-critical-bg text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
                     title={`${depChips.succsCount} successor${depChips.succsCount !== 1 ? 's' : ''}`}
                   >
                     →{depChips.succsCount}

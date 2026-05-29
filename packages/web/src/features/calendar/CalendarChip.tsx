@@ -23,10 +23,10 @@ function chipColorClass(chip: CalendarChipData): string {
     return 'bg-brand-accent/15 border-brand-accent text-brand-accent-dark';
   }
   if (chip.isComplete) {
-    return 'bg-semantic-on-track/15 border-semantic-on-track text-semantic-on-track';
+    return 'bg-semantic-on-track-bg border-semantic-on-track text-semantic-on-track';
   }
   if (chip.isCritical) {
-    return 'bg-semantic-critical/10 border-semantic-critical text-semantic-critical';
+    return 'bg-semantic-critical-bg border-semantic-critical text-semantic-critical';
   }
   return 'bg-brand-primary/10 border-brand-primary/60 text-brand-primary';
 }

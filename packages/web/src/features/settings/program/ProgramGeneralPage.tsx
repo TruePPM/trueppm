@@ -9,27 +9,27 @@ import { PROGRAM_ACCENT_SWATCHES, contrastText } from '@/features/programs/progr
 
 const HEALTH_OPTIONS: Array<{ id: ProgramHealth; label: string }> = [
   { id: 'ON_TRACK', label: 'On track' },
-  { id: 'AT_RISK',  label: 'At risk' },
+  { id: 'AT_RISK', label: 'At risk' },
   { id: 'CRITICAL', label: 'Critical' },
-  { id: 'AUTO',     label: 'Auto' },
+  { id: 'AUTO', label: 'Auto' },
 ];
 
 const HEALTH_ACTIVE: Record<ProgramHealth, string> = {
   ON_TRACK: 'bg-semantic-on-track-bg text-semantic-on-track border-semantic-on-track/40',
-  AT_RISK:  'bg-semantic-at-risk-bg text-semantic-at-risk border-semantic-at-risk/40',
-  CRITICAL: 'bg-semantic-critical/10 text-semantic-critical border-semantic-critical/40',
-  AUTO:     'bg-brand-primary-light text-brand-primary border-brand-primary/40',
+  AT_RISK: 'bg-semantic-at-risk-bg text-semantic-at-risk border-semantic-at-risk/40',
+  CRITICAL: 'bg-semantic-critical-bg text-semantic-critical border-semantic-critical/40',
+  AUTO: 'bg-brand-primary-light text-brand-primary border-brand-primary/40',
 };
 
 const METHODOLOGY_OPTIONS: Array<{ id: ProgramMethodology; label: string }> = [
   { id: 'WATERFALL', label: 'Waterfall' },
-  { id: 'AGILE',     label: 'Agile' },
-  { id: 'HYBRID',    label: 'Hybrid' },
+  { id: 'AGILE', label: 'Agile' },
+  { id: 'HYBRID', label: 'Hybrid' },
 ];
 
 const VISIBILITY_OPTIONS: Array<{ id: ProgramVisibility; label: string; hint: string }> = [
   { id: 'WORKSPACE', label: 'Workspace', hint: 'Anyone in the workspace can see this program.' },
-  { id: 'PRIVATE',   label: 'Private',   hint: 'Only invited members can see this program.' },
+  { id: 'PRIVATE', label: 'Private', hint: 'Only invited members can see this program.' },
 ];
 
 /** 1–2 character display initials for a user, fallback "??" when no name parts. */
@@ -143,17 +143,7 @@ export function ProgramGeneralPage() {
     setInitialMethodology(methodology);
     setInitialVisibility(visibility);
     setInitialColor(color);
-  }, [
-    programId,
-    updateProgram,
-    name,
-    description,
-    code,
-    health,
-    methodology,
-    visibility,
-    color,
-  ]);
+  }, [programId, updateProgram, name, description, code, health, methodology, visibility, color]);
 
   const handleReset = useCallback(() => {
     setName(initialName);
@@ -213,7 +203,10 @@ export function ProgramGeneralPage() {
           />
         </FieldRow>
 
-        <FieldRow label="Accent color" hint="Tints this program's identity square in lists and its rollup-chart accents. Optional.">
+        <FieldRow
+          label="Accent color"
+          hint="Tints this program's identity square in lists and its rollup-chart accents. Optional."
+        >
           <div className="flex items-center gap-2">
             {PROGRAM_ACCENT_SWATCHES.map((swatch) => {
               const selected = color === swatch;
@@ -258,7 +251,10 @@ export function ProgramGeneralPage() {
           </div>
         </FieldRow>
 
-        <FieldRow label="Description" hint="Shown on the program overview and in rollup dashboards.">
+        <FieldRow
+          label="Description"
+          hint="Shown on the program overview and in rollup dashboards."
+        >
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -303,7 +299,10 @@ export function ProgramGeneralPage() {
           )}
         </FieldRow>
 
-        <FieldRow label="Health" hint="Drives the health dot in program lists and portfolio rollups.">
+        <FieldRow
+          label="Health"
+          hint="Drives the health dot in program lists and portfolio rollups."
+        >
           <div className="flex gap-2">
             {HEALTH_OPTIONS.map((opt) => (
               <button
@@ -325,7 +324,10 @@ export function ProgramGeneralPage() {
           </div>
         </FieldRow>
 
-        <FieldRow label="Methodology" hint="Default delivery model for new projects added to this program.">
+        <FieldRow
+          label="Methodology"
+          hint="Default delivery model for new projects added to this program."
+        >
           <div className="flex gap-2">
             {METHODOLOGY_OPTIONS.map((opt) => (
               <button
@@ -354,7 +356,9 @@ export function ProgramGeneralPage() {
                 <span
                   className={[
                     'w-4 h-4 rounded-full border-2 shrink-0 transition-colors',
-                    visibility === opt.id ? 'border-brand-primary bg-brand-primary' : 'border-neutral-border',
+                    visibility === opt.id
+                      ? 'border-brand-primary bg-brand-primary'
+                      : 'border-neutral-border',
                   ].join(' ')}
                   aria-hidden="true"
                 >
@@ -370,7 +374,9 @@ export function ProgramGeneralPage() {
                   onChange={() => setVisibility(opt.id)}
                   className="sr-only"
                 />
-                <span className="text-[13px] font-medium text-neutral-text-primary">{opt.label}</span>
+                <span className="text-[13px] font-medium text-neutral-text-primary">
+                  {opt.label}
+                </span>
                 <span className="text-[12px] text-neutral-text-secondary">· {opt.hint}</span>
               </label>
             ))}

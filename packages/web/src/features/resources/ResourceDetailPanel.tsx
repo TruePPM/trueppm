@@ -7,7 +7,11 @@ import {
   useRestoreResource,
   useCreateResource,
 } from '@/hooks/useResources';
-import { useResourceSkills, useAddResourceSkill, useRemoveResourceSkill } from '@/hooks/useResourceSkills';
+import {
+  useResourceSkills,
+  useAddResourceSkill,
+  useRemoveResourceSkill,
+} from '@/hooks/useResourceSkills';
 import { SkillChip } from '@/features/roster/SkillChip';
 import { CapacityInput } from '@/features/roster/CapacityInput';
 
@@ -65,7 +69,9 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
       { id: resource.id, name, email, jobRole, maxUnits },
       {
         onError: (err) => {
-          setSaveError(err.message ?? 'Save failed. You may not have permission to edit resources.');
+          setSaveError(
+            err.message ?? 'Save failed. You may not have permission to edit resources.',
+          );
         },
       },
     );
@@ -103,7 +109,10 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {saveError && (
-          <div role="alert" className="px-3 py-2 rounded border border-semantic-critical/40 bg-semantic-critical/5 text-xs text-semantic-critical">
+          <div
+            role="alert"
+            className="px-3 py-2 rounded border border-semantic-critical/40 bg-semantic-critical-bg text-xs text-semantic-critical"
+          >
             {saveError}
           </div>
         )}
@@ -142,11 +151,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
         </Field>
 
         <Field label="Capacity">
-          <CapacityInput
-            value={maxUnits}
-            onChange={setMaxUnits}
-            disabled={resource.isDeleted}
-          />
+          <CapacityInput value={maxUnits} onChange={setMaxUnits} disabled={resource.isDeleted} />
         </Field>
 
         {/* Skills */}
@@ -169,8 +174,19 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
                       className="ml-0.5 text-neutral-text-disabled hover:text-semantic-critical
                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded"
                     >
-                      <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
-                        <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 10 10"
+                        fill="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M2 2l6 6M8 2l-6 6"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                        />
                       </svg>
                     </button>
                   )}
@@ -179,9 +195,10 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
             </ul>
           )}
           {!resource.isDeleted && (
-            <AddSkillRow resourceId={resource.id} onAdd={(skillId, proficiency) =>
-              addSkill.mutate({ skillId, proficiency })
-            } />
+            <AddSkillRow
+              resourceId={resource.id}
+              onAdd={(skillId, proficiency) => addSkill.mutate({ skillId, proficiency })}
+            />
           )}
         </div>
       </div>
@@ -191,7 +208,9 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
         <div className="shrink-0 border-t border-neutral-border px-4 py-3 flex items-center justify-between">
           {confirmDeactivate ? (
             <div className="flex items-center gap-2 w-full">
-              <p className="text-xs text-neutral-text-secondary flex-1">Deactivate {resource.name}?</p>
+              <p className="text-xs text-neutral-text-secondary flex-1">
+                Deactivate {resource.name}?
+              </p>
               <button
                 type="button"
                 onClick={() => setConfirmDeactivate(false)}
@@ -292,7 +311,10 @@ function CreatePanel({ onCreated, onCancel }: Omit<CreateProps, 'mode'>) {
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {error && (
-          <div role="alert" className="px-3 py-2 rounded border border-semantic-critical/40 bg-semantic-critical/5 text-xs text-semantic-critical">
+          <div
+            role="alert"
+            className="px-3 py-2 rounded border border-semantic-critical/40 bg-semantic-critical-bg text-xs text-semantic-critical"
+          >
             {error}
           </div>
         )}
@@ -391,9 +413,16 @@ interface FieldProps {
 function Field({ label, htmlFor, required, children }: FieldProps) {
   return (
     <div>
-      <label htmlFor={htmlFor} className="block text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-1">
+      <label
+        htmlFor={htmlFor}
+        className="block text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary mb-1"
+      >
         {label}
-        {required && <span aria-hidden="true" className="text-semantic-critical ml-0.5">*</span>}
+        {required && (
+          <span aria-hidden="true" className="text-semantic-critical ml-0.5">
+            *
+          </span>
+        )}
       </label>
       {children}
     </div>

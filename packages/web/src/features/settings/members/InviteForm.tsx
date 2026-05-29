@@ -28,7 +28,9 @@ export function InviteForm({ projectId }: InviteFormProps) {
   const { mutate: addMember, isPending, error } = useAddMember(projectId);
 
   const conflictError =
-    error && 'response' in error && (error as { response?: { status?: number } }).response?.status === 409;
+    error &&
+    'response' in error &&
+    (error as { response?: { status?: number } }).response?.status === 409;
 
   function selectUser(u: UserSearchResult) {
     setSelectedUser(u);
@@ -90,7 +92,9 @@ export function InviteForm({ projectId }: InviteFormProps) {
               setTimeout(() => setOpen(false), 150);
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') { clearSelection(); }
+              if (e.key === 'Escape') {
+                clearSelection();
+              }
               if (e.key === 'ArrowDown' && listRef.current) {
                 (listRef.current.querySelector('li') as HTMLElement | null)?.focus();
               }
@@ -139,9 +143,14 @@ export function InviteForm({ projectId }: InviteFormProps) {
                   onClick={() => selectUser(u)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') selectUser(u);
-                    if (e.key === 'ArrowDown') (e.currentTarget.nextElementSibling as HTMLElement | null)?.focus();
-                    if (e.key === 'ArrowUp') (e.currentTarget.previousElementSibling as HTMLElement | null)?.focus();
-                    if (e.key === 'Escape') { setOpen(false); inputRef.current?.focus(); }
+                    if (e.key === 'ArrowDown')
+                      (e.currentTarget.nextElementSibling as HTMLElement | null)?.focus();
+                    if (e.key === 'ArrowUp')
+                      (e.currentTarget.previousElementSibling as HTMLElement | null)?.focus();
+                    if (e.key === 'Escape') {
+                      setOpen(false);
+                      inputRef.current?.focus();
+                    }
                   }}
                   className={[
                     'flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors',
@@ -160,7 +169,9 @@ export function InviteForm({ projectId }: InviteFormProps) {
                     <span className="block text-sm font-medium text-neutral-text-primary truncate">
                       {u.display_name}
                     </span>
-                    <span className="block text-xs text-neutral-text-secondary truncate">{u.email}</span>
+                    <span className="block text-xs text-neutral-text-secondary truncate">
+                      {u.email}
+                    </span>
                   </span>
                 </li>
               ))}
@@ -170,7 +181,9 @@ export function InviteForm({ projectId }: InviteFormProps) {
 
         {/* Role picker */}
         <div className="shrink-0">
-          <label htmlFor="invite-role" className="sr-only">Role</label>
+          <label htmlFor="invite-role" className="sr-only">
+            Role
+          </label>
           <RolePicker id="invite-role" value={role} onChange={setRole} disabled={isPending} />
         </div>
 
@@ -182,7 +195,7 @@ export function InviteForm({ projectId }: InviteFormProps) {
             'h-9 px-4 rounded border border-brand-primary bg-brand-primary text-white text-sm font-medium',
             'hover:bg-brand-primary/90 transition-colors shrink-0',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-            'disabled:opacity-50 disabled:cursor-not-allowed',
+            'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed',
           ].join(' ')}
         >
           {isPending ? 'Adding…' : 'Add'}

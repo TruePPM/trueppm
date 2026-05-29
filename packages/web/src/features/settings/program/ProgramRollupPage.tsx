@@ -51,20 +51,17 @@ const KPI_GROUPS: KpiGroup[] = [
       {
         id: 'baseline_variance',
         label: 'Baseline variance',
-        description:
-          'Aggregate schedule and cost variance vs. the most recent saved baseline.',
+        description: 'Aggregate schedule and cost variance vs. the most recent saved baseline.',
       },
       {
         id: 'critical_tasks',
         label: 'Critical task count',
-        description:
-          'Total tasks on the critical path across all projects in the program.',
+        description: 'Total tasks on the critical path across all projects in the program.',
       },
       {
         id: 'milestone_health',
         label: 'Milestone health',
-        description:
-          'Share of program milestones on track vs. slipped past their planned date.',
+        description: 'Share of program milestones on track vs. slipped past their planned date.',
       },
     ],
   },
@@ -85,8 +82,7 @@ const KPI_GROUPS: KpiGroup[] = [
       {
         id: 'p80_completion',
         label: 'P80 completion date',
-        description:
-          'Monte Carlo P80 — the date by which 80% of simulated outcomes complete.',
+        description: 'Monte Carlo P80 — the date by which 80% of simulated outcomes complete.',
       },
     ],
   },
@@ -96,14 +92,12 @@ const KPI_GROUPS: KpiGroup[] = [
       {
         id: 'cost_variance',
         label: 'Cost variance (CV)',
-        description:
-          'Earned-value cost variance vs. the saved baseline. Negative = over budget.',
+        description: 'Earned-value cost variance vs. the saved baseline. Negative = over budget.',
       },
       {
         id: 'budget_utilization',
         label: 'Budget utilization',
-        description:
-          'Approved budget consumed to date, aggregated across all projects.',
+        description: 'Approved budget consumed to date, aggregated across all projects.',
       },
     ],
   },
@@ -162,7 +156,9 @@ function Toggle({
       className={[
         'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
-        on ? 'bg-brand-primary border-brand-primary' : 'bg-neutral-surface-sunken border-neutral-border',
+        on
+          ? 'bg-brand-primary border-brand-primary'
+          : 'bg-neutral-surface-sunken border-neutral-border',
         disabled ? 'opacity-60 cursor-not-allowed' : '',
       ].join(' ')}
     >
@@ -229,7 +225,11 @@ function RollupPreview({ programId, policyDirty }: { programId: string; policyDi
 
       <div className="px-4 py-3">
         {isLoading && (
-          <div role="status" aria-label="Loading preview" className="text-xs text-neutral-text-secondary">
+          <div
+            role="status"
+            aria-label="Loading preview"
+            className="text-xs text-neutral-text-secondary"
+          >
             Loading…
           </div>
         )}
@@ -273,7 +273,9 @@ function RollupPreview({ programId, policyDirty }: { programId: string; policyDi
                   const k = renderKpi(key, entry);
                   return (
                     <div key={k.key} className="flex items-baseline justify-between gap-3 min-w-0">
-                      <dt className="text-[12px] text-neutral-text-secondary truncate">{k.label}</dt>
+                      <dt className="text-[12px] text-neutral-text-secondary truncate">
+                        {k.label}
+                      </dt>
                       <dd
                         className={`text-[13px] font-medium tppm-mono shrink-0 ${
                           k.muted ? 'text-neutral-text-disabled' : PREVIEW_VARIANT_TEXT[k.variant]
@@ -382,9 +384,7 @@ export function ProgramRollupPage() {
   function onToggle(kpi: RollupKpi) {
     if (!canEdit || !config) return;
     const current = pending ?? config.enabled_kpis;
-    const next = current.includes(kpi)
-      ? current.filter((k) => k !== kpi)
-      : [...current, kpi];
+    const next = current.includes(kpi) ? current.filter((k) => k !== kpi) : [...current, kpi];
     setPending(next);
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => flushToggle(next), 250);
@@ -431,7 +431,11 @@ export function ProgramRollupPage() {
           </div>
 
           {isLoading && (
-            <div role="status" aria-label="Loading KPI settings" className="px-4 py-6 text-xs text-neutral-text-secondary">
+            <div
+              role="status"
+              aria-label="Loading KPI settings"
+              className="px-4 py-6 text-xs text-neutral-text-secondary"
+            >
               Loading…
             </div>
           )}
@@ -449,7 +453,9 @@ export function ProgramRollupPage() {
             </div>
           )}
 
-          {!isLoading && !isError && config &&
+          {!isLoading &&
+            !isError &&
+            config &&
             KPI_GROUPS.map((group, gi) => (
               <div key={group.heading}>
                 <h3
@@ -503,7 +509,11 @@ export function ProgramRollupPage() {
           </div>
 
           {isLoading && (
-            <div role="status" aria-label="Loading policy" className="px-4 py-6 text-xs text-neutral-text-secondary">
+            <div
+              role="status"
+              aria-label="Loading policy"
+              className="px-4 py-6 text-xs text-neutral-text-secondary"
+            >
               Loading…
             </div>
           )}
@@ -541,7 +551,9 @@ export function ProgramRollupPage() {
                     ].join(' ')}
                     aria-hidden="true"
                   >
-                    {policyShown === opt.id && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                    {policyShown === opt.id && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                    )}
                   </span>
                   <input
                     type="radio"
@@ -574,7 +586,7 @@ export function ProgramRollupPage() {
                       type="button"
                       onClick={() => setDraftPolicy(null)}
                       disabled={savePolicy.isPending}
-                      className="h-7 px-2.5 rounded border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50"
+                      className="h-7 px-2.5 rounded border border-neutral-border text-xs font-medium text-neutral-text-secondary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
                     >
                       Discard
                     </button>
@@ -582,7 +594,7 @@ export function ProgramRollupPage() {
                       type="button"
                       onClick={onSavePolicy}
                       disabled={savePolicy.isPending}
-                      className="h-7 px-3 rounded bg-brand-primary text-xs font-semibold text-white hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-50"
+                      className="h-7 px-3 rounded bg-brand-primary text-xs font-semibold text-white hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
                     >
                       {savePolicy.isPending ? 'Saving…' : 'Save'}
                     </button>

@@ -104,7 +104,10 @@ export function WebhooksManager({ scope }: WebhooksManagerProps) {
               >
                 <StatusDot active={wh.is_active} />
                 <span className="flex flex-col min-w-0 flex-1">
-                  <span className="tppm-mono text-[12px] text-neutral-text-primary truncate" title={wh.url}>
+                  <span
+                    className="tppm-mono text-[12px] text-neutral-text-primary truncate"
+                    title={wh.url}
+                  >
                     {wh.url}
                   </span>
                   <span className="text-[11px] text-neutral-text-secondary">
@@ -175,7 +178,9 @@ function FormatPill({ format }: { format: string }) {
     <span
       className={[
         'text-[10px] font-medium rounded px-1.5 py-0.5 shrink-0',
-        isSlack ? 'bg-brand-primary/10 text-brand-primary' : 'bg-neutral-surface-sunken text-neutral-text-secondary',
+        isSlack
+          ? 'bg-brand-primary/10 text-brand-primary'
+          : 'bg-neutral-surface-sunken text-neutral-text-secondary',
       ].join(' ')}
     >
       {isSlack ? 'Slack' : 'JSON'}
@@ -200,7 +205,7 @@ function RowButton({
       onClick={onClick}
       disabled={disabled}
       className={[
-        'h-6 px-2 text-[11px] font-medium rounded border border-neutral-border hover:bg-neutral-surface-sunken disabled:opacity-50',
+        'h-6 px-2 text-[11px] font-medium rounded border border-neutral-border hover:bg-neutral-surface-sunken disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
         variant === 'danger' ? 'text-semantic-critical' : 'text-neutral-text-secondary',
       ].join(' ')}
@@ -243,7 +248,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onCancel}
             disabled={pending}
-            className="h-8 px-3 rounded border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+            className="h-8 px-3 rounded border border-neutral-border bg-transparent text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
             Cancel
           </button>
@@ -251,7 +256,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={pending}
-            className="h-8 px-3 rounded bg-semantic-critical text-white text-[13px] font-medium hover:opacity-90 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
+            className="h-8 px-3 rounded bg-semantic-critical text-white text-[13px] font-medium hover:opacity-90 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1"
           >
             {pending ? 'Working…' : confirmLabel}
           </button>

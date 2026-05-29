@@ -36,7 +36,7 @@ export function MobileBacklogCard({
       className={`flex w-full flex-col gap-1.5 rounded-lg border border-neutral-border bg-neutral-surface px-3.5 py-3 text-left ${FOCUS_RING}`}
     >
       <div className="flex items-center gap-2">
-        <span className="tppm-mono flex-1 text-[10px] text-neutral-text-disabled">
+        <span className="tppm-mono flex-1 text-xs text-neutral-text-disabled">
           #{item.priorityRank}
         </span>
         <ItemTypeBadge type={item.itemType} />
@@ -51,7 +51,7 @@ export function MobileBacklogCard({
           {tags.map((tag) => (
             <span
               key={tag}
-              className="rounded bg-neutral-surface-sunken px-1.5 py-0.5 text-[10px] text-neutral-text-secondary"
+              className="rounded bg-neutral-surface-sunken px-1.5 py-0.5 text-xs text-neutral-text-secondary"
             >
               {tag}
             </span>
@@ -80,7 +80,7 @@ export function MobileBacklogCard({
           </span>
         )}
         {item.status === 'PULLED' && item.pulledTo && (
-          <span className="tppm-mono shrink-0 text-[10px] text-neutral-text-secondary">
+          <span className="tppm-mono shrink-0 text-xs text-neutral-text-secondary">
             {item.pulledTo.projectName ? `${item.pulledTo.projectName} · ` : ''}
             {formatRelative(new Date(item.pulledTo.at))}
           </span>

@@ -33,11 +33,7 @@ function formatMutationError(error: Error): string {
  * fields are disabled and the Save button is hidden, mirroring the API
  * permission matrix (IsProgramMember reads, IsProgramAdmin writes).
  */
-export function PhaseGateConfigPanel({
-  programId,
-  canEdit,
-  onClose,
-}: PhaseGateConfigPanelProps) {
+export function PhaseGateConfigPanel({ programId, canEdit, onClose }: PhaseGateConfigPanelProps) {
   const { data: config, isLoading, isError } = useProgramPhaseGateConfig(programId);
   const update = useUpdateProgramPhaseGateConfig(programId);
 
@@ -170,9 +166,12 @@ Hi team, we're reviewing the {{phase.name}} phase gate on {{date}}…"
                   className="w-full px-2.5 py-1.5 rounded border border-neutral-border bg-neutral-surface-base text-[12px] font-mono leading-snug focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50"
                 />
                 <p className="text-[11px] text-neutral-text-secondary mt-1 leading-snug">
-                  Available variables: <code>{'{{milestone.name}}'}</code>{' · '}
-                  <code>{'{{date}}'}</code>{' · '}
-                  <code>{'{{program.name}}'}</code>{' · '}
+                  Available variables: <code>{'{{milestone.name}}'}</code>
+                  {' · '}
+                  <code>{'{{date}}'}</code>
+                  {' · '}
+                  <code>{'{{program.name}}'}</code>
+                  {' · '}
                   <code>{'{{owner}}'}</code>
                 </p>
               </div>
@@ -180,7 +179,7 @@ Hi team, we're reviewing the {{phase.name}} phase gate on {{date}}…"
               {formError && (
                 <div
                   role="alert"
-                  className="rounded border border-semantic-critical/40 bg-semantic-critical/5 px-3 py-2 text-xs text-semantic-critical"
+                  className="rounded border border-semantic-critical/40 bg-semantic-critical-bg px-3 py-2 text-xs text-semantic-critical"
                 >
                   {formError}
                 </div>

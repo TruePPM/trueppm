@@ -72,9 +72,7 @@ function MemberRow({
         <span className="font-medium text-neutral-text-primary truncate">
           {user_detail.username}
           {isSelf && (
-            <span className="ml-1.5 text-xs font-normal text-neutral-text-secondary">
-              (you)
-            </span>
+            <span className="ml-1.5 text-xs font-normal text-neutral-text-secondary">(you)</span>
           )}
         </span>
       </span>
@@ -112,7 +110,7 @@ function MemberRow({
             onClick={() => setConfirmRemove(true)}
             disabled={isRemoving}
             aria-label={isSelf ? 'Leave program' : `Remove ${user_detail.username}`}
-            className="min-h-[28px] px-2 rounded text-xs font-medium text-semantic-critical hover:bg-semantic-critical/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 disabled:opacity-50"
+            className="min-h-[28px] px-2 rounded text-xs font-medium text-semantic-critical hover:bg-semantic-critical/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
           >
             {isSelf ? 'Leave' : 'Remove'}
           </button>
@@ -126,7 +124,7 @@ function MemberRow({
                 setConfirmRemove(false);
               }}
               disabled={isRemoving}
-              className="h-7 px-2 rounded border border-semantic-critical text-xs font-semibold text-semantic-critical hover:bg-semantic-critical/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 disabled:opacity-50"
+              className="h-7 px-2 rounded border border-semantic-critical text-xs font-semibold text-semantic-critical hover:bg-semantic-critical/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
             >
               {isSelf ? 'Leave' : 'Confirm'}
             </button>
@@ -173,9 +171,7 @@ export function ProgramAccessPage() {
   const { mutate: updateRole, isPending: isUpdatingRole } = useUpdateProgramMemberRole(
     programId ?? '',
   );
-  const { mutate: removeMember, isPending: isRemoving } = useRemoveProgramMember(
-    programId ?? '',
-  );
+  const { mutate: removeMember, isPending: isRemoving } = useRemoveProgramMember(programId ?? '');
   const [showInvite, setShowInvite] = useState(false);
 
   if (!programId) return null;

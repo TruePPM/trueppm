@@ -124,12 +124,7 @@ function formatMutationError(error: Error): string {
  * (``RESERVED_SCRUM_CEREMONY_NAMES``) so the user gets feedback without
  * a round trip.
  */
-export function CeremonyModal({
-  programId,
-  ceremony,
-  onClose,
-  onSaved,
-}: CeremonyModalProps) {
+export function CeremonyModal({ programId, ceremony, onClose, onSaved }: CeremonyModalProps) {
   const [state, setState] = useState<FormState>(() => makeInitial(ceremony));
   const [formError, setFormError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -199,8 +194,8 @@ export function CeremonyModal({
             {isEdit && ceremony ? `Edit ceremony · ${ceremony.name}` : 'Add ceremony'}
           </h2>
           <p className="text-xs text-neutral-text-secondary mt-0.5 leading-snug">
-            Program-level cadence. Sprint events (Planning, Review, Retrospective) are
-            configured per-sprint in Project settings.
+            Program-level cadence. Sprint events (Planning, Review, Retrospective) are configured
+            per-sprint in Project settings.
           </p>
         </header>
 
@@ -216,7 +211,10 @@ export function CeremonyModal({
               htmlFor="ceremony-name"
               className="block text-xs font-semibold text-neutral-text-primary mb-1"
             >
-              Name <span aria-hidden="true" className="text-semantic-critical">*</span>
+              Name{' '}
+              <span aria-hidden="true" className="text-semantic-critical">
+                *
+              </span>
             </label>
             <input
               ref={nameRef}
@@ -237,8 +235,8 @@ export function CeremonyModal({
                 role="alert"
                 className="text-xs text-semantic-critical mt-1 leading-snug"
               >
-                Sprint events are configured per-sprint, not as program-level ceremonies.
-                Try a program-level name like &ldquo;Program sync&rdquo; or &ldquo;Steering
+                Sprint events are configured per-sprint, not as program-level ceremonies. Try a
+                program-level name like &ldquo;Program sync&rdquo; or &ldquo;Steering
                 committee&rdquo;.
               </p>
             )}
@@ -247,7 +245,10 @@ export function CeremonyModal({
           {/* Cadence type */}
           <fieldset>
             <legend className="block text-xs font-semibold text-neutral-text-primary mb-1.5">
-              Cadence <span aria-hidden="true" className="text-semantic-critical">*</span>
+              Cadence{' '}
+              <span aria-hidden="true" className="text-semantic-critical">
+                *
+              </span>
             </legend>
             <div className="grid grid-cols-2 gap-2">
               {(
@@ -428,8 +429,8 @@ export function CeremonyModal({
               ))}
             </datalist>
             <p className="text-[11px] text-neutral-text-secondary mt-1">
-              Who chairs this ceremony. Free text — type your own if your team uses a
-              different title.
+              Who chairs this ceremony. Free text — type your own if your team uses a different
+              title.
             </p>
           </div>
 
@@ -447,7 +448,7 @@ export function CeremonyModal({
           {formError && (
             <div
               role="alert"
-              className="rounded border border-semantic-critical/40 bg-semantic-critical/5 px-3 py-2 text-xs text-semantic-critical"
+              className="rounded border border-semantic-critical/40 bg-semantic-critical-bg px-3 py-2 text-xs text-semantic-critical"
             >
               {formError}
             </div>
