@@ -24,6 +24,8 @@ import {
   useRemoveAssignment,
 } from '@/hooks/useAssignmentMutations';
 import { BottomSheet } from '@/components/ui/BottomSheet';
+import { ConfirmDiscardDialog } from '@/features/settings/components/ConfirmDiscardDialog';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { AssigneesEditor, type AssigneeWorkingRow } from './AssigneesEditor';
 import { PredecessorsEditor, type PredecessorWorkingRow } from './PredecessorsEditor';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
@@ -194,6 +196,15 @@ export function TaskFormModal({
   });
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // #838: dirty-discard confirmation now uses the ARIA-managed ConfirmDiscardDialog
+  // instead of window.confirm (which is unmanaged by the focus trap / screen reader).
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  // #838: trap focus inside the desktop modal (the mobile BottomSheet already
+  // traps). Yields while a sub-dialog (delete / discard) owns focus. Escape is
+  // handled by the document keydown handler above, so no onEscape is passed.
+  const desktopTrapRef = useFocusTrap<HTMLDivElement>(
+    !isMobile && !showDeleteConfirm && !showDiscardConfirm,
+  );
   // Selected parent in create mode. Seeded from prop (the inferred phase from
   // the highlighted Schedule row) but user-overridable via the picker below
   // so they can move the new task into a different phase before save.
@@ -325,10 +336,10 @@ export function TaskFormModal({
         return;
       }
       if (e.key === 'Escape') {
-        if (showDeleteConfirm) return; // confirm dialog handles its own Esc
+        // Sub-dialogs own their own Escape handling.
+        if (showDeleteConfirm || showDiscardConfirm) return;
         if (isDirty) {
-           
-          if (window.confirm('Discard unsaved changes?')) onClose();
+          setShowDiscardConfirm(true);
         } else {
           onClose();
         }
@@ -337,7 +348,7 @@ export function TaskFormModal({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formIsValid, isPending, isDirty, isReadOnly, showDeleteConfirm]);
+  }, [formIsValid, isPending, isDirty, isReadOnly, showDeleteConfirm, showDiscardConfirm]);
 
   // --- Save sequencer -----------------------------------------------------
   async function syncAssignments(taskId: string) {
@@ -737,8 +748,11 @@ export function TaskFormModal({
         })()}
 
         {/* Assignees */}
-        <div>
-          <div className="block text-xs font-medium text-neutral-text-secondary mb-1">
+        <div role="group" aria-labelledby="task-assignees-label">
+          <div
+            id="task-assignees-label"
+            className="block text-xs font-medium text-neutral-text-secondary mb-1"
+          >
             Assignees
           </div>
           <AssigneesEditor
@@ -771,8 +785,11 @@ export function TaskFormModal({
         </div>
 
         {/* Predecessors */}
-        <div>
-          <div className="block text-xs font-medium text-neutral-text-secondary mb-1">
+        <div role="group" aria-labelledby="task-predecessors-label">
+          <div
+            id="task-predecessors-label"
+            className="block text-xs font-medium text-neutral-text-secondary mb-1"
+          >
             Predecessors
           </div>
           <PredecessorsEditor
@@ -908,8 +925,7 @@ export function TaskFormModal({
             type="button"
             onClick={() => {
               if (isDirty) {
-                 
-                if (window.confirm('Discard unsaved changes?')) onClose();
+                setShowDiscardConfirm(true);
               } else {
                 onClose();
               }
@@ -958,6 +974,12 @@ export function TaskFormModal({
             onConfirm={() => { void handleDelete(); }}
           />
         )}
+        {showDiscardConfirm && (
+          <ConfirmDiscardDialog
+            onKeepEditing={() => setShowDiscardConfirm(false)}
+            onDiscard={onClose}
+          />
+        )}
       </>
     );
   }
@@ -970,8 +992,7 @@ export function TaskFormModal({
         className="hidden md:block fixed inset-0 z-40 bg-black/40 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150"
         onPointerDown={() => {
           if (isDirty) {
-             
-            if (window.confirm('Discard unsaved changes?')) onClose();
+            setShowDiscardConfirm(true);
           } else {
             onClose();
           }
@@ -983,7 +1004,11 @@ export function TaskFormModal({
         aria-labelledby={TITLE_ID}
         className="hidden md:flex fixed inset-0 z-50 items-center justify-center pointer-events-none"
       >
-        <div className="bg-neutral-surface border border-neutral-border rounded-lg overflow-hidden flex flex-col w-[560px] max-h-[90vh] pointer-events-auto">
+        <div
+          ref={desktopTrapRef}
+          tabIndex={-1}
+          className="bg-neutral-surface border border-neutral-border rounded-lg overflow-hidden flex flex-col w-[560px] max-h-[90vh] pointer-events-auto focus:outline-none"
+        >
           {renderHeader()}
           <div className="flex-1 overflow-y-auto">{renderBody()}</div>
           {renderFooter()}
@@ -995,6 +1020,12 @@ export function TaskFormModal({
           isPending={deleteTask.isPending}
           onCancel={() => setShowDeleteConfirm(false)}
           onConfirm={() => { void handleDelete(); }}
+        />
+      )}
+      {showDiscardConfirm && (
+        <ConfirmDiscardDialog
+          onKeepEditing={() => setShowDiscardConfirm(false)}
+          onDiscard={onClose}
         />
       )}
     </>

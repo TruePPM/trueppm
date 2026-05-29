@@ -412,23 +412,24 @@ describe('TaskFormModal (issue #305)', () => {
 
   it('prompts for confirmation on Cancel when the form is dirty and closes only when confirmed', () => {
     const onClose = vi.fn();
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderModal({ phaseName: 'Alpha', onClose });
     fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'dirty' } });
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(confirmSpy).toHaveBeenCalledWith('Discard unsaved changes?');
+    // #838: an ARIA-managed dialog replaces window.confirm.
+    expect(screen.getByText('Discard unsaved changes?')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
     expect(onClose).toHaveBeenCalled();
-    confirmSpy.mockRestore();
   });
 
   it('keeps the modal open if the user declines the discard prompt on Cancel', () => {
     const onClose = vi.fn();
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
     renderModal({ phaseName: 'Alpha', onClose });
     fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'dirty' } });
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
     expect(onClose).not.toHaveBeenCalled();
-    confirmSpy.mockRestore();
+    expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument();
   });
 
   it('Esc closes the modal directly when the form is pristine', () => {
@@ -440,13 +441,15 @@ describe('TaskFormModal (issue #305)', () => {
 
   it('Esc prompts before closing when the form is dirty', () => {
     const onClose = vi.fn();
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
     renderModal({ phaseName: 'Alpha', onClose });
     fireEvent.change(screen.getByLabelText('Task name *'), { target: { value: 'dirty' } });
     fireEvent.keyDown(document, { key: 'Escape' });
-    expect(confirmSpy).toHaveBeenCalled();
+    // #838: the discard dialog appears instead of window.confirm; closing still
+    // requires an explicit Discard.
+    expect(screen.getByText('Discard unsaved changes?')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
     expect(onClose).toHaveBeenCalled();
-    confirmSpy.mockRestore();
   });
 
   it('Esc is a no-op while the destructive confirm dialog is open (the dialog handles its own Esc)', () => {

@@ -39,7 +39,7 @@ describe('PredecessorsEditor', () => {
     expect(
       screen.getByRole('button', { name: '+ Link predecessor' }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Tasks matching search' })).not.toBeInTheDocument();
   });
 
   it('renders existing rows with the dash placeholder when WBS is empty', () => {
@@ -98,7 +98,7 @@ describe('PredecessorsEditor', () => {
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: '+ Link predecessor' }));
-    const listbox = screen.getByRole('listbox');
+    const listbox = screen.getByRole('list', { name: 'Tasks matching search' });
     expect(listbox).toBeInTheDocument();
     expect(screen.getByText('Available')).toBeInTheDocument();
     // Phase / summary task is now offered — server accepts summary predecessors
@@ -233,7 +233,7 @@ describe('PredecessorsEditor', () => {
     fireEvent.change(screen.getByLabelText('Search predecessor tasks'), {
       target: { value: 'zzz' },
     });
-    expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Tasks matching search' })).not.toBeInTheDocument();
   });
 
   it('disables the open-picker button and remove buttons when disabled is true', () => {

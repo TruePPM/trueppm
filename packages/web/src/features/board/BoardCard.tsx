@@ -1,4 +1,11 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import type { Task, TaskReadiness, TaskStatus } from '@/types';
 import { BoardProgressRing } from './BoardProgressRing';
@@ -203,6 +210,44 @@ export function BoardCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  // #838: roving-focus keyboard nav for the overflow menu + submenu.
+  const menuPanelRef = useRef<HTMLDivElement>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+
+  // Focus the first menuitem when the menu opens so keyboard users land inside it.
+  // Depends only on menuOpen — opening the Move-to submenu must not steal focus
+  // back to the first item.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const first = menuPanelRef.current?.querySelector<HTMLElement>('[role="menuitem"]');
+    first?.focus();
+  }, [menuOpen]);
+
+  // Arrow/Home/End/Escape navigation across the menu's visible menuitems
+  // (including submenu items once Move-to is expanded). Escape closes and
+  // restores focus to the ··· trigger (WCAG 2.1.1 menu pattern, #838).
+  const onMenuKeyDown = useCallback((e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      setMenuOpen(false);
+      setMoveOpen(false);
+      menuTriggerRef.current?.focus();
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    const items = Array.from(
+      menuPanelRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [],
+    );
+    if (items.length === 0) return;
+    e.preventDefault();
+    const current = items.indexOf(document.activeElement as HTMLElement);
+    let next: number;
+    if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = items.length - 1;
+    else if (e.key === 'ArrowDown') next = current < 0 ? 0 : (current + 1) % items.length;
+    else next = current <= 0 ? items.length - 1 : current - 1;
+    items[next]?.focus();
+  }, []);
 
   // Remember the real card's rendered height so the drag placeholder matches
   // it (rule 102: placeholder of equal height).  Updated on every non-drag
@@ -359,6 +404,7 @@ export function BoardCard({
   const menuButton = (
     <div ref={menuRef} className="absolute top-2 right-2">
       <button
+        ref={menuTriggerRef}
         type="button"
         onClick={(e) => {
           e.stopPropagation();
@@ -378,9 +424,13 @@ export function BoardCard({
 
       {menuOpen && (
         <div
+          ref={menuPanelRef}
           role="menu"
+          tabIndex={-1}
+          aria-label={`Actions for ${task.name}`}
+          onKeyDown={onMenuKeyDown}
           className="absolute right-0 top-7 z-20 bg-neutral-surface border border-neutral-border
-            rounded-md py-1 min-w-[160px]"
+            rounded-md py-1 min-w-[160px] focus:outline-none"
         >
           <button
             type="button"
