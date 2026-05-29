@@ -1,0 +1,44 @@
+import { useEffect, useState } from 'react';
+
+/**
+ * Global connectivity indicator (WCAG 4.1.3 status messages).
+ *
+ * Offline handling elsewhere is reactive — a write fails, then a toast appears.
+ * This banner is the proactive signal: it tells the user they're offline *before*
+ * they attempt a mutation, so an optimistic create that will later fail isn't a
+ * silent surprise. Rendered just below the TopBar in `AppShell`.
+ *
+ * `role="status" aria-live="polite"` announces the state change to assistive tech
+ * without interrupting. The banner is removed (not just hidden) when back online so
+ * it occupies no layout space in the common case.
+ */
+export function OfflineBanner() {
+  // Guard for SSR / non-browser test envs where `navigator` may be undefined.
+  const [offline, setOffline] = useState<boolean>(
+    () => typeof navigator !== 'undefined' && !navigator.onLine,
+  );
+
+  useEffect(() => {
+    const update = () => setOffline(!navigator.onLine);
+    update();
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, []);
+
+  if (!offline) return null;
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex items-center justify-center gap-2 border-b border-semantic-at-risk bg-semantic-at-risk-bg px-4 py-1.5 text-xs font-medium text-semantic-at-risk"
+    >
+      <span aria-hidden="true">⚠</span>
+      You&rsquo;re offline — changes will be saved when you reconnect.
+    </div>
+  );
+}

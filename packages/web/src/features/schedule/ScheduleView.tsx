@@ -1,4 +1,12 @@
-import { useRef, useCallback, useState, useEffect, useMemo, type PointerEvent } from 'react';
+import {
+  useRef,
+  useCallback,
+  useState,
+  useEffect,
+  useMemo,
+  type PointerEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, ZOOM_STEP_FACTOR } from './engine';
@@ -221,17 +229,45 @@ function PanelSplitter({ currentTaskWidth, setWidth }: PanelSplitterProps) {
     startXRef.current = null;
   }
 
+  // Keyboard-operable alternative to pointer drag (WCAG 2.1.1). Arrow keys nudge
+  // by 16px, Home/End jump to the soft min/max. Lower bound matches the store's
+  // MIN_COL_WIDTHS.task clamp; the 600 upper bound is keyboard-only guidance.
+  const MIN = 120;
+  const MAX = 600;
+  function onKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    let next: number | null = null;
+    if (e.key === 'ArrowLeft') next = currentTaskWidth - 16;
+    else if (e.key === 'ArrowRight') next = currentTaskWidth + 16;
+    else if (e.key === 'Home') next = MIN;
+    else if (e.key === 'End') next = MAX;
+    if (next === null) return;
+    e.preventDefault();
+    setWidth('task', Math.min(MAX, Math.max(MIN, next)));
+  }
+
+  // WAI-ARIA window-splitter pattern: a `separator` exposing aria-valuenow is a
+  // focusable, keyboard-operable control (the standard resizable-pane idiom).
+  // jsx-a11y models `separator` as static, so its focusability rules are disabled
+  // for this element with intent rather than degrading the ARIA semantics.
+  /* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
   return (
     <div
       role="separator"
       aria-orientation="vertical"
       aria-label="Resize task list panel"
-      className="w-1 flex-shrink-0 cursor-col-resize bg-brand-primary/10 hover:bg-brand-primary/60 transition-colors z-10"
+      tabIndex={0}
+      aria-valuenow={Math.round(currentTaskWidth)}
+      aria-valuemin={MIN}
+      aria-valuemax={MAX}
+      aria-valuetext={`Task list ${Math.round(currentTaskWidth)} pixels`}
+      className="w-1 flex-shrink-0 cursor-col-resize bg-brand-primary/10 hover:bg-brand-primary/60 focus-visible:bg-brand-primary focus-visible:outline-none transition-colors z-10"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onKeyDown={onKeyDown}
     />
   );
+  /* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */
 }
 
 // ---------------------------------------------------------------------------

@@ -11,7 +11,12 @@ function formatDate(iso: string): string {
   if (d.getUTCFullYear() === currentYear) {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
   }
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 /** Derive initials from a display name ("Jane Smith" → "JS"). */
@@ -33,13 +38,14 @@ export function TaskDrawerHeader({ task }: TaskDrawerHeaderProps) {
   const hasBaseline = !!task.baselineStart && !!task.baselineFinish;
 
   // Variance color for baseline date row
-  const variance = hasBaseline && hasSchedule
-    ? Math.round(
-        (new Date(task.finish + 'T00:00:00Z').getTime() -
-          new Date(task.baselineFinish! + 'T00:00:00Z').getTime()) /
-          86_400_000,
-      )
-    : null;
+  const variance =
+    hasBaseline && hasSchedule
+      ? Math.round(
+          (new Date(task.finish + 'T00:00:00Z').getTime() -
+            new Date(task.baselineFinish! + 'T00:00:00Z').getTime()) /
+            86_400_000,
+        )
+      : null;
 
   const varianceColor =
     variance === null
@@ -51,13 +57,7 @@ export function TaskDrawerHeader({ task }: TaskDrawerHeaderProps) {
           : 'text-semantic-critical';
 
   const varianceLabel =
-    variance === null
-      ? ''
-      : variance > 0
-        ? `+${variance}d`
-        : variance < 0
-          ? `${variance}d`
-          : '0d';
+    variance === null ? '' : variance > 0 ? `+${variance}d` : variance < 0 ? `${variance}d` : '0d';
 
   return (
     <div className="border-b border-neutral-border shrink-0">
@@ -76,12 +76,13 @@ export function TaskDrawerHeader({ task }: TaskDrawerHeaderProps) {
               {task.assignees[0].name}
             </span>
             {task.assigneeIsOverallocated && (
+              // Informational status chip — not interactive (no click/key action),
+              // so it must not announce as a button. role="note" + aria-label carry
+              // the meaning to AT; the title is the pointer-hover affordance.
               <span
-                role="button"
-                tabIndex={0}
+                role="note"
                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs shrink-0
-                  border border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk
-                  cursor-help focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  border border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk cursor-help"
                 title="Sum of resource units across active tasks exceeds 1.0. Open the resource view to investigate."
                 aria-label={`${task.assignees[0].name} is over-allocated across active tasks`}
               >

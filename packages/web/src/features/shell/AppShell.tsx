@@ -8,6 +8,7 @@ import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
 import { BottomNav } from './BottomNav';
 import { SessionExpiredBanner } from './SessionExpiredBanner';
+import { OfflineBanner } from './OfflineBanner';
 
 export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -58,6 +59,9 @@ export function AppShell() {
         {/* Top bar — full width */}
         <TopBar onHamburgerClick={openDrawer} />
 
+        {/* Proactive offline indicator (WCAG 4.1.3) — renders only when offline */}
+        <OfflineBanner />
+
         {/* Body row: sidebar + main content */}
         <div className="flex flex-1 overflow-hidden">
           {/* Sidebar — hidden below md, shown as in-flow panel from md+ */}
@@ -89,7 +93,12 @@ export function AppShell() {
             onClick={closeDrawer}
           />
           {/* Drawer */}
-          <div className="fixed left-0 top-0 h-full z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Project navigation">
+          <div
+            className="fixed left-0 top-0 h-full z-50 md:hidden"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Project navigation"
+          >
             <Sidebar isDrawer onClose={closeDrawer} />
           </div>
         </>

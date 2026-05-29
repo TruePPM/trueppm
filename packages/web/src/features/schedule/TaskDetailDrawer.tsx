@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useRef, type RefObject } from 'react';
 import type { Task } from '@/types';
-import {
-  registry,
-  type DrawerSectionRegistration,
-} from '@/lib/widget-registry';
+import { registry, type DrawerSectionRegistration } from '@/lib/widget-registry';
 import { MetaRail } from './MetaRail';
 import { CollapsibleSection } from './sections/CollapsibleSection';
 import { SectionErrorBoundary } from './sections/SectionErrorBoundary';
@@ -99,9 +96,9 @@ export function TaskDetailDrawer({
   const sections = useMemo(() => {
     if (!task) return [];
     const ctx = { user: sectionContext?.user, task };
-    return (
-      registry.get('task_detail.section') as DrawerSectionRegistration[]
-    ).filter((s) => !s.canRender || s.canRender(ctx));
+    return (registry.get('task_detail.section') as DrawerSectionRegistration[]).filter(
+      (s) => !s.canRender || s.canRender(ctx),
+    );
   }, [task, sectionContext?.user]);
 
   return (
@@ -116,11 +113,13 @@ export function TaskDetailDrawer({
       )}
 
       {/* Desktop: 540px right-side slide-in (ADR-0050 ux-design).
-          aria-modal="false": schedule canvas remains interactive alongside panel. */}
+          aria-modal="true" because a Tab focus trap is active while the drawer is
+          open (see the trapFocus effect) — keyboard focus cannot reach the canvas,
+          so the drawer is modal in fact and must announce itself as such. */}
       <div
         ref={drawerRef}
         role="dialog"
-        aria-modal="false"
+        aria-modal="true"
         aria-label={drawerTitle}
         className={[
           'hidden md:flex fixed inset-y-0 right-0 w-[540px] flex-col',
@@ -234,18 +233,9 @@ function DrawerContent({
             sections.map((section, idx) => {
               const SectionComponent = section.component;
               return (
-                <SectionErrorBoundary
-                  key={section.id}
-                  sectionTitle={section.title}
-                >
-                  <CollapsibleSection
-                    id={section.id}
-                    title={section.title}
-                    defaultOpen={idx === 0}
-                  >
-                    {() => (
-                      <SectionComponent taskId={task.id} projectId={projectId} />
-                    )}
+                <SectionErrorBoundary key={section.id} sectionTitle={section.title}>
+                  <CollapsibleSection id={section.id} title={section.title} defaultOpen={idx === 0}>
+                    {() => <SectionComponent taskId={task.id} projectId={projectId} />}
                   </CollapsibleSection>
                 </SectionErrorBoundary>
               );
