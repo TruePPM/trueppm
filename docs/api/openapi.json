@@ -5284,7 +5284,7 @@
         "/api/v1/projects/{id}/board-views/": {
             "get": {
                 "operationId": "v1_projects_board_views_retrieve",
-                "description": "GET/POST per-project board saved view list.\n\nGET  returns all saved views for the project, ordered by name.\nPOST creates a new named view; name must be unique per project.\nAny authenticated project member may read and create views.",
+                "description": "GET/POST per-project board saved view list.\n\nGET  returns all saved views for the project, ordered by name.\nPOST creates a new named view; name must be unique per project.\nRead is open to any project member (Viewer+); creating a project-shared view\nrequires Member+ (role >= Role.MEMBER) — a Viewer may use shared views but not\nadd to the shared set (#820). IsProjectMemberWrite enforces this: it falls back\nto IsProjectMember on safe methods (GET) and requires Member+ on writes (POST).",
                 "parameters": [
                     {
                         "in": "path",
@@ -5314,7 +5314,7 @@
             },
             "post": {
                 "operationId": "v1_projects_board_views_create",
-                "description": "GET/POST per-project board saved view list.\n\nGET  returns all saved views for the project, ordered by name.\nPOST creates a new named view; name must be unique per project.\nAny authenticated project member may read and create views.",
+                "description": "GET/POST per-project board saved view list.\n\nGET  returns all saved views for the project, ordered by name.\nPOST creates a new named view; name must be unique per project.\nRead is open to any project member (Viewer+); creating a project-shared view\nrequires Member+ (role >= Role.MEMBER) — a Viewer may use shared views but not\nadd to the shared set (#820). IsProjectMemberWrite enforces this: it falls back\nto IsProjectMember on safe methods (GET) and requires Member+ on writes (POST).",
                 "parameters": [
                     {
                         "in": "path",

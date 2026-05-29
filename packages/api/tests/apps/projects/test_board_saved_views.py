@@ -287,3 +287,54 @@ def test_delete_broadcasts_board_view_deleted(mock_broadcast, pm_client, project
     mock_broadcast.assert_called_once()
     args = mock_broadcast.call_args[0]
     assert args[1] == "board_view_deleted"
+
+
+# ---------------------------------------------------------------------------
+# RBAC: creating a shared view requires Member+ (#820)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def viewer(project):
+    user = User.objects.create_user(username="viewer", password="x")
+    ProjectMembership.objects.create(project=project, user=user, role=Role.VIEWER)
+    return user
+
+
+@pytest.fixture
+def viewer_client(viewer):
+    c = APIClient()
+    c.force_authenticate(viewer)
+    return c
+
+
+def test_viewer_can_list_saved_views(viewer_client, pm, project):
+    """A Viewer may read shared views — read stays open (#820)."""
+    BoardSavedView.objects.create(
+        project=project, name="Shared", config=VALID_CONFIG, created_by=pm
+    )
+    resp = viewer_client.get(_url(project.pk))
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+def test_viewer_cannot_create_saved_view(viewer_client, project):
+    """A Viewer may NOT create a project-shared view — writes require Member+ (#820)."""
+    resp = viewer_client.post(
+        _url(project.pk),
+        {"name": "Viewer view", "config": VALID_CONFIG},
+        format="json",
+    )
+    assert resp.status_code == 403
+    assert not BoardSavedView.objects.filter(name="Viewer view").exists()
+
+
+def test_member_can_create_saved_view(member_client, project):
+    """A Member may create a shared view."""
+    resp = member_client.post(
+        _url(project.pk),
+        {"name": "Member view", "config": VALID_CONFIG},
+        format="json",
+    )
+    assert resp.status_code == 201
+    assert BoardSavedView.objects.filter(project=project, name="Member view").exists()

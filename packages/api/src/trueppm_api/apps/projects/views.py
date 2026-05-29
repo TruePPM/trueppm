@@ -3303,10 +3303,13 @@ class BoardSavedViewListView(IdempotencyMixin, APIView):
 
     GET  returns all saved views for the project, ordered by name.
     POST creates a new named view; name must be unique per project.
-    Any authenticated project member may read and create views.
+    Read is open to any project member (Viewer+); creating a project-shared view
+    requires Member+ (role >= Role.MEMBER) — a Viewer may use shared views but not
+    add to the shared set (#820). IsProjectMemberWrite enforces this: it falls back
+    to IsProjectMember on safe methods (GET) and requires Member+ on writes (POST).
     """
 
-    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
 
     def get(self, request: Request, pk: str) -> Response:
         project = get_object_or_404(Project, pk=pk)
