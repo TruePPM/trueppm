@@ -3,6 +3,11 @@ title: Outbound Email (SMTP)
 description: How TruePPM sends outbound notification email, the Django EMAIL_* settings that configure transport, and the read-only Email & SMTP status page.
 ---
 
+
+:::note[0.2 — in progress]
+This page documents functionality that ships in **TruePPM 0.2** (target Jun 8, 2026). It is not available on the current 0.1 release.
+:::
+
 TruePPM sends outbound email — @mention notifications and the own-task
 notifications (a task assigned to you, the planned date of your task changing, a
 comment on your task) — through Django's email backend. Delivery is

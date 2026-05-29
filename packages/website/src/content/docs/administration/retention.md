@@ -3,6 +3,11 @@ title: Outbox & Record Retention
 description: How TruePPM bounds its transactional outbox and audit tables with purges, and how to tune, run on demand, or disable each retention window.
 ---
 
+
+:::note[0.2 — in progress]
+This page documents functionality that ships in **TruePPM 0.2** (target Jun 8, 2026). It is not available on the current 0.1 release.
+:::
+
 TruePPM runs several **transactional outbox** tables (schedule requests, MS Project
 imports, webhook deliveries, sprint-close requests) plus historical records (object
 history, task runs). Each is kept bounded by a Celery Beat purge so the tables stay

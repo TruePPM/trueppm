@@ -3,6 +3,11 @@ title: Webhooks
 description: Outbound HTTP callbacks for project events — integrate TruePPM with CI systems, Slack, or custom tooling.
 ---
 
+
+:::note[0.2 — new events in progress]
+The base webhook delivery feature shipped in 0.1. The four new event types described here (`task.*` lifecycle additions) ship in **TruePPM 0.2** (target Jun 8, 2026).
+:::
+
 Webhooks let you subscribe to TruePPM project events and receive an HTTP POST to a URL you control when those events occur. Common uses: posting notifications to Slack, triggering a CI pipeline when a milestone is resolved, or syncing changes to an external system.
 
 ## Registering a webhook

@@ -3,6 +3,11 @@ title: Programs
 description: Lightweight OSS coordination unit for one PM managing several related projects — shared membership, shared backlog, and combined rollup KPIs.
 ---
 
+
+:::note[0.2 — in progress]
+This page documents functionality that ships in **TruePPM 0.2** (target Jun 8, 2026). It is not available on the current 0.1 release.
+:::
+
 A **program** is a named grouping of related projects owned by one PM or program
 team. It is the OSS coordination unit that sits between standalone projects and
 the Enterprise portfolio: programs let one PM manage several related projects as
