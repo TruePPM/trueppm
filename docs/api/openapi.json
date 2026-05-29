@@ -631,6 +631,14 @@
                 "description": "CRUD for task dependencies.\n\nDependency creation/modification affects CPM scheduling; Resource Manager+\n(IsProjectScheduler) is required for write operations (issue #11 role matrix).",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "dep_type",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter by dependency type (FS, SS, FF, SF)."
+                    },
+                    {
                         "name": "ordering",
                         "required": false,
                         "in": "query",
@@ -647,6 +655,24 @@
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "project",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Filter to dependencies whose predecessor is in this project."
+                    },
+                    {
+                        "in": "query",
+                        "name": "task",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Return all edges where this task is either the predecessor or the successor."
                     }
                 ],
                 "tags": [
@@ -914,22 +940,21 @@
         "/api/v1/edition/": {
             "get": {
                 "operationId": "v1_edition_retrieve",
-                "description": "Return the running edition — community or enterprise.\n\nPublic endpoint (no auth required). The React shell calls this once at\nstartup to decide the post-login redirect target (ADR-0029, ADR-0030).\nThe value is controlled by the TRUEPPM_EDITION Django setting, which the\nenterprise Helm chart sets to \"enterprise\".",
+                "description": "Returns `{\"edition\": \"community\" | \"enterprise\"}` from the TRUEPPM_EDITION Django setting. No authentication required. The React shell calls this once at startup to decide the post-login redirect target (ADR-0029, ADR-0030).",
+                "summary": "Running edition",
                 "tags": [
-                    "v1"
-                ],
-                "security": [
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    },
-                    {}
+                    "meta"
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/EditionResponse"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -4567,6 +4592,15 @@
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "project",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Filter the roster to this project."
                     }
                 ],
                 "tags": [
@@ -4803,6 +4837,14 @@
                 "description": "Remove a resource from the roster.\n\nIf the resource has live TaskResource rows on this project and\nforce=true is not passed, returns 409. With force=true, cascades the\ndeletion and triggers CPM recalculation for affected tasks.",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "force",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "When 'true', cascade-delete the resource's TaskResource rows on this project and trigger a CPM recalculation. Without it, a 409 is returned if the resource has live task assignments."
+                    },
+                    {
                         "in": "path",
                         "name": "id",
                         "schema": {
@@ -4853,6 +4895,14 @@
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "program__isnull",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "When truthy (true/1/yes), return only ungrouped projects (no program), excluding archived and soft-deleted ones, and annotate each row with member_count and percent_complete (Programs directory 'Ungrouped projects' section)."
                     },
                     {
                         "name": "search",
@@ -5098,6 +5148,14 @@
                 "description": "CRUD for projects.\n\nAny authenticated user can create a project; on creation the creator is\nautomatically assigned the Owner role via perform_create().\n\nPermission matrix (issue #11; update tightened in #769):\n  list/retrieve/create        — any member (IsProjectMember)\n  update/partial_update       — Scheduler+ at the gate (IsProjectScheduler);\n                                 general settings (name/dates/calendar/…) are\n                                 further restricted to Admin+ in the serializer,\n                                 so a Scheduler may change only methodology and\n                                 estimation_mode (ADR-0041, estimation governance)\n  destroy/archive/unarchive/transfer — Project Admin (Owner) only (IsProjectOwner)",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "force",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "When truthy (1/true/yes), permanently hard-delete the project (and its memberships) instead of soft-deleting it. Requires the project to already be archived, otherwise a 400 is returned."
+                    },
+                    {
                         "in": "path",
                         "name": "id",
                         "schema": {
@@ -5214,7 +5272,34 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                },
+                                "examples": {
+                                    "Attention": {
+                                        "value": {
+                                            "items": [
+                                                {
+                                                    "severity": "critical",
+                                                    "type": "critical_task_late",
+                                                    "task_id": "…",
+                                                    "task_name": "Cutover",
+                                                    "assignee_name": "Priya N.",
+                                                    "date": "2026-02-10",
+                                                    "detail": "On critical path",
+                                                    "link_target": null
+                                                }
+                                            ]
+                                        },
+                                        "summary": "attention"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Prioritised attention list: {items: [{severity, type, task_id, task_name, assignee_name, date, detail, link_target}]}. severity is one of critical/warning/info; type is one of critical_task_late, unassigned_approaching, baseline_drift, overallocation."
                     }
                 }
             }
@@ -5427,12 +5512,55 @@
                 "description": "``GET /api/v1/projects/<pk>/burn/`` — burndown / burnup series (issue #239).\n\nReconstructs daily task counts (or story-point sums) from\n``HistoricalTask`` snapshots and returns the actual / scope / linear\nideal curves needed to render burn charts. Includes a planned overlay\nderived from the project's active baseline when one exists.\n\nQuery params:\n  ``chart_type`` — ``burndown`` (default) or ``burnup``\n  ``metric``     — ``tasks`` (default) or ``points``\n  ``since``      — window start, ISO date; defaults to project start\n  ``until``      — window end, ISO date; defaults to today",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "chart_type",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "burndown",
+                                "burnup",
+                                "combined"
+                            ]
+                        },
+                        "description": "Curve to return; one of burndown (default), burnup, or combined. combined merges the remaining (burndown) and completed (burnup) curves into one series."
+                    },
+                    {
                         "in": "path",
                         "name": "id",
                         "schema": {
                             "type": "string"
                         },
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "metric",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "points",
+                                "tasks"
+                            ]
+                        },
+                        "description": "Quantity to chart; tasks (default) or points (story points)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "since",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Window start, ISO 8601 YYYY-MM-DD. Defaults to the project start date."
+                    },
+                    {
+                        "in": "query",
+                        "name": "until",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Window end, ISO 8601 YYYY-MM-DD. Defaults to today."
                     }
                 ],
                 "tags": [
@@ -5448,7 +5576,51 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                },
+                                "examples": {
+                                    "Burndown": {
+                                        "value": {
+                                            "chart_type": "burndown",
+                                            "metric": "tasks",
+                                            "since": "2026-01-01",
+                                            "until": "2026-01-14",
+                                            "series": [
+                                                {
+                                                    "date": "2026-01-01",
+                                                    "actual": 20,
+                                                    "scope": 20,
+                                                    "ideal": 20
+                                                },
+                                                {
+                                                    "date": "2026-01-14",
+                                                    "actual": 3,
+                                                    "scope": 20,
+                                                    "ideal": 0
+                                                }
+                                            ]
+                                        },
+                                        "summary": "burndown"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Burn series. For burndown/burnup: {chart_type, metric, since, until, series: [{date, actual, scope, ideal}]}. For combined: series rows are {date, remaining, completed, total, ideal}."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Invalid chart_type, metric, or date parameter."
                     }
                 }
             }
@@ -5511,6 +5683,28 @@
                 "tags": [
                     "v1"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {}
+                            }
+                        }
+                    }
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -5521,7 +5715,58 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Monte Carlo simulation result. Includes the engine result fields (P50/P80/P95 finish dates, mean, std dev, etc.) plus histogram_buckets ([{date, count}]) and last_run_at (ISO 8601)."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Cyclic dependency, invalid input, or out-of-range project span."
+                    },
+                    "402": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                },
+                                "examples": {
+                                    "SimulationCapExceeded": {
+                                        "value": {
+                                            "error": "simulation_cap_exceeded",
+                                            "tier": "team",
+                                            "message": "Simulation count exceeds the community-edition cap."
+                                        },
+                                        "summary": "simulation_cap_exceeded"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "OSS simulation cap exceeded (n_simulations above MC_SIMULATION_CAP or too many tasks)."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Project does not exist."
                     }
                 }
             }
@@ -5585,7 +5830,34 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                },
+                                "examples": {
+                                    "My-tasks": {
+                                        "value": {
+                                            "tasks": [
+                                                {
+                                                    "id": "…",
+                                                    "name": "Write migration",
+                                                    "due": "2026-02-12",
+                                                    "status": "IN_PROGRESS",
+                                                    "percent_complete": 40,
+                                                    "is_critical": false,
+                                                    "owner_name": "Priya N.",
+                                                    "owner_initials": "PN"
+                                                }
+                                            ]
+                                        },
+                                        "summary": "my-tasks"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "This week's tasks assigned to the requesting user: {tasks: [{id, name, due, status, percent_complete, is_critical, owner_name, owner_initials}]}."
                     }
                 }
             }
@@ -5681,7 +5953,38 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                },
+                                "examples": {
+                                    "Overview": {
+                                        "value": {
+                                            "schedule_health": "on_track",
+                                            "spi": 1.02,
+                                            "tasks_late_count": 2,
+                                            "critical_task_count": 7,
+                                            "total_tasks": 48,
+                                            "complete_tasks": 19,
+                                            "next_milestone": {
+                                                "id": "…",
+                                                "name": "Beta",
+                                                "date": "2026-03-01"
+                                            },
+                                            "team_utilization_pct": null,
+                                            "owner_name": "Sarah Chen",
+                                            "open_risk_count": 4,
+                                            "high_risk_count": 1,
+                                            "start_date": "2026-01-05"
+                                        },
+                                        "summary": "overview"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Aggregated KPI snapshot for the single-project overview dashboard."
                     }
                 }
             }
@@ -5756,6 +6059,15 @@
                 "description": "Per-resource task spans for the allocation timeline view (issue #85).\n\nReturns each resource assigned to the project with their task spans\n(early_start / early_finish / units / status) within the requested window.\nResources with no assignments in the window are excluded.\n\nOverallocation detection is intentionally client-side: the caller receives\nall spans and computes daily unit sums against max_units. See ADR-0031.\n\nQuery parameters:\n  start    (YYYY-MM-DD, optional) — window start; defaults to earliest\n           early_start across all tasks. Returns 409 if no CPM dates exist.\n  end      (YYYY-MM-DD, optional) — window end; defaults to latest\n           early_finish across all tasks.\n  resource (UUID, optional, repeatable) — filter to specific resource IDs.\n  status   (string, optional, repeatable) — filter tasks by status value.",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "end",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Window end, ISO 8601 YYYY-MM-DD. Defaults to the latest early_finish across all tasks."
+                    },
+                    {
                         "in": "path",
                         "name": "id",
                         "schema": {
@@ -5764,6 +6076,38 @@
                         },
                         "description": "A UUID string identifying this project.",
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "resource",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "format": "uuid"
+                            }
+                        },
+                        "description": "Filter to specific resource IDs. Repeatable."
+                    },
+                    {
+                        "in": "query",
+                        "name": "start",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Window start, ISO 8601 YYYY-MM-DD. Defaults to the earliest early_start across all tasks; returns 409 if no CPM dates exist."
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "description": "Filter tasks by status value. Repeatable."
                     }
                 ],
                 "tags": [
@@ -5782,11 +6126,23 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Project"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Per-resource task spans within the window: {project_id, window_start, window_end, resources: [{id, name, email, max_units, tasks: [{assignment_id, id, name, early_start, early_finish, units, status}]}]}."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "No CPM dates exist (scheduler not run yet)."
                     }
                 }
             }
@@ -5797,6 +6153,19 @@
                 "description": "Week × person utilization heatmap (issue #217, ADR-0042).\n\nQuery parameters:\n  weeks    (4|8|12|16, default 8)  — rolling window width\n  start    (YYYY-MM-DD, optional)  — Monday of first week; defaults to\n                                     Monday of the current ISO week\n  group_by (role|project|none, default none) — row sort hint; sorting\n                                     is done server-side so clients that\n                                     don't implement re-sort still work,\n                                     but clients MAY re-sort from the\n                                     returned job_role field without a\n                                     second request.\n\nReturns 409 when no CPM dates exist on any task.",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "group_by",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "none",
+                                "project",
+                                "role"
+                            ]
+                        },
+                        "description": "Row sort hint; one of role, project, none. Defaults to none."
+                    },
+                    {
                         "in": "path",
                         "name": "id",
                         "schema": {
@@ -5805,6 +6174,23 @@
                         },
                         "description": "A UUID string identifying this project.",
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "start",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "ISO 8601 YYYY-MM-DD; normalised to the Monday of that week. Defaults to the Monday of the current ISO week."
+                    },
+                    {
+                        "in": "query",
+                        "name": "weeks",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Rolling window width in weeks; one of 4, 8, 12, 16. Defaults to 8."
                     }
                 ],
                 "tags": [
@@ -5823,11 +6209,23 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Project"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Week x person utilization heatmap."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "No CPM dates exist on any task."
                     }
                 }
             }
@@ -6426,6 +6824,15 @@
                 "description": "Per-resource daily utilization for a project.\n\nReturns a sparse map of resource → working day → {hours, task_ids}.\nRequires Resource Manager role (SCHEDULER ≥ 2).\n\nQuery parameters:\n  start (YYYY-MM-DD) — window start, inclusive; defaults to the near-term\n                       window start (see below).\n  end   (YYYY-MM-DD) — window end, inclusive; defaults to the near-term\n                       window end (see below).\n\nWhen the caller omits ``start``/``end`` the default is a *near-term heat\nmap*: anchored on today, capped at ±8 weeks, and clamped into the project\nCPM span ``[first early_start, last early_finish]``.  Clamping the anchor\ninto the span means a project scheduled entirely in the past or future\nstill returns its nearest real working days instead of an empty window\n(an unclamped today ± 8 weeks produced exactly that — #772).  The ±8-week\ncap keeps the per-day expansion at O(assignments × ~16 weeks) instead of\nO(assignments × full multi-year span).  Pass explicit bounds to request a\nwider range (up to the full project span).\n\nReturns 409 when no CPM dates exist on any task (scheduler not run yet).",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "end",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Window end (inclusive), ISO 8601 YYYY-MM-DD. Defaults to the near-term window end (today + 8 weeks, clamped into the CPM span)."
+                    },
+                    {
                         "in": "path",
                         "name": "id",
                         "schema": {
@@ -6434,6 +6841,15 @@
                         },
                         "description": "A UUID string identifying this project.",
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "start",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Window start (inclusive), ISO 8601 YYYY-MM-DD. Defaults to the near-term window start (today - 8 weeks, clamped into the CPM span)."
                     }
                 ],
                 "tags": [
@@ -6452,11 +6868,23 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Project"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "Sparse map of resource -> working day -> {hours, task_ids} for the requested window."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "No CPM dates exist on any task (scheduler not run yet)."
                     }
                 }
             }
@@ -7674,7 +8102,43 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "No response body"
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                },
+                                "examples": {
+                                    "Imports": {
+                                        "value": {
+                                            "results": [
+                                                {
+                                                    "id": "…",
+                                                    "filename": "plan.xml",
+                                                    "initiated_by": "sarah",
+                                                    "requested_at": "2026-05-28T14:03:00Z",
+                                                    "status": "succeeded",
+                                                    "task_count": 142
+                                                }
+                                            ]
+                                        },
+                                        "summary": "imports"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "Recent import-request provenance rows for the project, newest first: {results: [{id, filename, initiated_by, requested_at, status, task_count}]}. Rows are purged after 7 days."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Project not found."
                     }
                 }
             }
@@ -8946,6 +9410,14 @@
                             "format": "uuid"
                         },
                         "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "state",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter by sprint state (PLANNED, ACTIVE, CLOSED, CANCELED)."
                     }
                 ],
                 "tags": [
@@ -10968,6 +11440,15 @@
                         }
                     },
                     {
+                        "in": "query",
+                        "name": "project",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Filter to recurrence rules whose task is in this project."
+                    },
+                    {
                         "name": "search",
                         "required": false,
                         "in": "query",
@@ -10975,6 +11456,15 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "task",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Filter to the recurrence rule attached to this task."
                     }
                 ],
                 "tags": [
@@ -11261,6 +11751,15 @@
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "resource",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Filter to skill tags for this resource."
                     }
                 ],
                 "tags": [
@@ -11531,6 +12030,23 @@
                 "description": "List resources, optionally annotated with skill_fit for a task.",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "exclude_project",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Exclude resources already in this project's roster."
+                    },
+                    {
+                        "in": "query",
+                        "name": "include_deleted",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "When 'true', include soft-deleted (deactivated) resources. Only honoured for org admin callers."
+                    },
+                    {
                         "name": "ordering",
                         "required": false,
                         "in": "query",
@@ -11556,6 +12072,15 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "task",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Annotate each resource with skill_fit (exact/partial/missing) against this task's skill requirements and group results accordingly."
                     }
                 ],
                 "tags": [
@@ -12992,6 +13517,24 @@
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "resource",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Filter to assignments for this resource."
+                    },
+                    {
+                        "in": "query",
+                        "name": "task",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Filter to assignments for this task."
                     }
                 ],
                 "tags": [
@@ -13406,6 +13949,15 @@
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "task",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Filter to skill requirements for this task."
                     }
                 ],
                 "tags": [
@@ -13676,6 +14228,48 @@
                 "description": "CRUD for tasks within a project.\n\nCPM output fields (early_start, early_finish, late_start, late_finish,\ntotal_float, free_float, is_critical) are read-only and populated by\nthe auto-scheduling Celery task.\n\nPermission matrix (issue #11):\n  list/retrieve    — any member (IsProjectMember)\n  create           — Team Member+ (IsProjectMemberWrite)\n  update/destroy   — Project Manager+ or assignee (IsProjectMemberWriteOrOwn)",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "baseline",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Baseline ID used to annotate each task with baseline_start / baseline_finish. Defaults to the project's active baseline when ?project is supplied."
+                    },
+                    {
+                        "in": "query",
+                        "name": "finish__lte",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "ISO 8601 YYYY-MM-DD; keep tasks whose early_start is at or before this date (already started by the window)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "is_critical",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "Filter to critical-path tasks when true (true/1)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "is_subtask",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "Filter by the is_subtask flag (true/1 or false/0)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "mine",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "When true (true/1), return only tasks the requesting user is assigned to (via Resource.user, with a legacy email fallback)."
+                    },
+                    {
                         "name": "ordering",
                         "required": false,
                         "in": "query",
@@ -13694,6 +14288,24 @@
                         }
                     },
                     {
+                        "in": "query",
+                        "name": "parent",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Return the subtasks (is_subtask=true) of this parent task."
+                    },
+                    {
+                        "in": "query",
+                        "name": "project",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Filter to tasks in this project."
+                    },
+                    {
                         "name": "search",
                         "required": false,
                         "in": "query",
@@ -13701,6 +14313,39 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "short_id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter by short_id (case-insensitive; matched upper-cased)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "sprint",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Sprint membership filter. A sprint UUID returns only tasks in that sprint; the literal 'none' returns only sprint-less tasks (project backlog)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "start__gte",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "ISO 8601 YYYY-MM-DD; keep tasks whose early_finish is at or after this date (still active in the window)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Filter by task status value."
                     }
                 ],
                 "tags": [
@@ -14028,7 +14673,7 @@
         },
         "/api/v1/tasks/{id}/suggestions/{suggestion_pk}/accept/": {
             "post": {
-                "operationId": "v1_tasks_suggestions_accept_create_2",
+                "operationId": "v1_tasks_suggestions_accept_create",
                 "description": "Accept a PENDING TaskSuggestedAssignee — binds Task.assignee.\n\nOnly the ``suggested_user`` may call. If ``Task.assignee`` is already\nnon-null (another path set it concurrently), returns 409 and the\nsuggestion is marked ACCEPTED without overwriting — the suggestion\nis resolved either way.",
                 "parameters": [
                     {
@@ -14098,7 +14743,7 @@
         },
         "/api/v1/tasks/{id}/suggestions/{suggestion_pk}/decline/": {
             "post": {
-                "operationId": "v1_tasks_suggestions_decline_create_2",
+                "operationId": "v1_tasks_suggestions_decline_create",
                 "description": "Decline a PENDING TaskSuggestedAssignee.\n\nOnly the ``suggested_user`` may call. No broadcast — declines are\nprivate (Priya's psych-safety note in the VoC).",
                 "parameters": [
                     {
@@ -14168,7 +14813,7 @@
         },
         "/api/v1/tasks/{id}/suggestions/{suggestion_pk}/revoke/": {
             "post": {
-                "operationId": "v1_tasks_suggestions_revoke_create_2",
+                "operationId": "v1_tasks_suggestions_revoke_create",
                 "description": "Revoke a PENDING TaskSuggestedAssignee.\n\nAllowed callers: the original ``suggested_by`` user, or any Project\nADMIN+ on the suggestion's project.",
                 "parameters": [
                     {
@@ -14188,189 +14833,6 @@
                             "type": "string",
                             "format": "uuid"
                         },
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "v1"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "security": [
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Task"
-                                }
-                            }
-                        },
-                        "description": ""
-                    }
-                }
-            }
-        },
-        "/api/v1/tasks/{id}/suggestions/accept/": {
-            "post": {
-                "operationId": "v1_tasks_suggestions_accept_create",
-                "description": "Accept a PENDING TaskSuggestedAssignee — binds Task.assignee.\n\nOnly the ``suggested_user`` may call. If ``Task.assignee`` is already\nnon-null (another path set it concurrently), returns 409 and the\nsuggestion is marked ACCEPTED without overwriting — the suggestion\nis resolved either way.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "id",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "description": "A UUID string identifying this task.",
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "v1"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "security": [
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Task"
-                                }
-                            }
-                        },
-                        "description": ""
-                    }
-                }
-            }
-        },
-        "/api/v1/tasks/{id}/suggestions/decline/": {
-            "post": {
-                "operationId": "v1_tasks_suggestions_decline_create",
-                "description": "Decline a PENDING TaskSuggestedAssignee.\n\nOnly the ``suggested_user`` may call. No broadcast — declines are\nprivate (Priya's psych-safety note in the VoC).",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "id",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "description": "A UUID string identifying this task.",
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "v1"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskRequest"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "security": [
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Task"
-                                }
-                            }
-                        },
-                        "description": ""
-                    }
-                }
-            }
-        },
-        "/api/v1/tasks/{id}/suggestions/revoke/": {
-            "post": {
-                "operationId": "v1_tasks_suggestions_revoke_create",
-                "description": "Revoke a PENDING TaskSuggestedAssignee.\n\nAllowed callers: the original ``suggested_by`` user, or any Project\nADMIN+ on the suggestion's project.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "id",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "description": "A UUID string identifying this task.",
                         "required": true
                     }
                 ],
@@ -14475,6 +14937,14 @@
                         }
                     },
                     {
+                        "in": "query",
+                        "name": "pending",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "When true, restrict to suggestions awaiting a decision (neither accepted nor dismissed)."
+                    },
+                    {
                         "name": "search",
                         "required": false,
                         "in": "query",
@@ -14482,6 +14952,15 @@
                         "schema": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "task",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Filter to velocity suggestions for this task."
                     }
                 ],
                 "tags": [
@@ -16693,6 +17172,17 @@
                 "required": [
                     "predecessor",
                     "successor"
+                ]
+            },
+            "EditionResponse": {
+                "type": "object",
+                "properties": {
+                    "edition": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "edition"
                 ]
             },
             "EndTypeEnum": {

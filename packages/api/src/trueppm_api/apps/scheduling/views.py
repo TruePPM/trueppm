@@ -12,7 +12,14 @@ from django.db import models, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
@@ -79,6 +86,44 @@ def trigger_schedule(request: Request, pk: str) -> Response:
     return Response({"queued": True}, status=status.HTTP_202_ACCEPTED)
 
 
+@extend_schema(
+    request=OpenApiTypes.OBJECT,
+    responses={
+        200: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description=(
+                "Monte Carlo simulation result. Includes the engine result fields "
+                "(P50/P80/P95 finish dates, mean, std dev, etc.) plus "
+                "histogram_buckets ([{date, count}]) and last_run_at (ISO 8601)."
+            ),
+        ),
+        400: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Cyclic dependency, invalid input, or out-of-range project span.",
+        ),
+        402: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description=(
+                "OSS simulation cap exceeded (n_simulations above MC_SIMULATION_CAP "
+                "or too many tasks)."
+            ),
+            examples=[
+                OpenApiExample(
+                    "simulation_cap_exceeded",
+                    value={
+                        "error": "simulation_cap_exceeded",
+                        "tier": "team",
+                        "message": "Simulation count exceeds the community-edition cap.",
+                    },
+                ),
+            ],
+        ),
+        404: OpenApiResponse(
+            response=OpenApiTypes.OBJECT,
+            description="Project does not exist.",
+        ),
+    },
+)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated, IsProjectMember, IsProjectNotArchived])
 def run_monte_carlo(request: Request, pk: str) -> Response:
@@ -375,6 +420,29 @@ class FailedTaskViewSet(IdempotencyMixin, ListModelMixin, RetrieveModelMixin, Ge
 # ---------------------------------------------------------------------------
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "task",
+                OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to velocity suggestions for this task.",
+            ),
+            OpenApiParameter(
+                "pending",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true, restrict to suggestions awaiting a decision "
+                    "(neither accepted nor dismissed)."
+                ),
+            ),
+        ],
+    ),
+)
 class VelocitySuggestionViewSet(
     IdempotencyMixin,
     ListModelMixin,

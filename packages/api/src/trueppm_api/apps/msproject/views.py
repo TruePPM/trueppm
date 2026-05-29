@@ -10,6 +10,8 @@ from typing import Any
 
 from django.conf import settings
 from django.db import transaction
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import MultiPartParser
@@ -276,6 +278,39 @@ class ImportRequestProvenanceListView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Recent import-request provenance rows for the project, newest "
+                    "first: {results: [{id, filename, initiated_by, requested_at, "
+                    "status, task_count}]}. Rows are purged after 7 days."
+                ),
+                examples=[
+                    OpenApiExample(
+                        "imports",
+                        value={
+                            "results": [
+                                {
+                                    "id": "…",
+                                    "filename": "plan.xml",
+                                    "initiated_by": "sarah",
+                                    "requested_at": "2026-05-28T14:03:00Z",
+                                    "status": "succeeded",
+                                    "task_count": 142,
+                                }
+                            ]
+                        },
+                    ),
+                ],
+            ),
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Project not found.",
+            ),
+        },
+    )
     def get(self, request: Request, project_pk: str) -> Response:
         from trueppm_api.apps.msproject.models import ImportRequest
         from trueppm_api.apps.msproject.serializers import ImportRequestProvenanceSerializer
