@@ -10,7 +10,7 @@ export function BacklogListHeader() {
   return (
     <div
       className={`sticky top-0 z-10 grid ${LIST_GRID} items-center gap-2 border-b border-neutral-border
-        bg-neutral-surface-raised px-3.5 py-1.5 text-[10px] font-semibold uppercase
+        bg-neutral-surface-raised px-3.5 py-1.5 text-xs font-semibold uppercase
         tracking-[0.06em] text-neutral-text-secondary`}
     >
       <span className="text-center" title="Priority rank">

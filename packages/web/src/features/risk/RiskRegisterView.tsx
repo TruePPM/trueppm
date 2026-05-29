@@ -9,11 +9,11 @@ import { RiskDrawer } from './RiskDrawer';
 import { exportRisksToCSV } from './riskExport';
 
 const STATUS_LABELS: Record<Risk['status'], string> = {
-  OPEN:       'Open',
+  OPEN: 'Open',
   MITIGATING: 'Mitigating',
-  RESOLVED:   'Resolved',
-  ACCEPTED:   'Accepted',
-  CLOSED:     'Closed',
+  RESOLVED: 'Resolved',
+  ACCEPTED: 'Accepted',
+  CLOSED: 'Closed',
 };
 
 /** Format a Risk's short_id for display: "00000007" → "R-007", "a3f1" → "R-A3F1". */
@@ -71,37 +71,56 @@ export function RiskRegisterView() {
 
   const isDrawerOpen = selectedRisk !== null;
   const criticalCount = risks.filter((r) => r.severity >= 20).length;
-  const highCount     = risks.filter((r) => r.severity >= 12 && r.severity < 20).length;
+  const highCount = risks.filter((r) => r.severity >= 12 && r.severity < 20).length;
 
   // When a matrix cell is selected, filter the table to that P×I coordinate.
   const displayRisks = selectedCell
-    ? risks.filter((r) => r.probability === selectedCell.probability && r.impact === selectedCell.impact)
+    ? risks.filter(
+        (r) => r.probability === selectedCell.probability && r.impact === selectedCell.impact,
+      )
     : risks;
 
   // Overdue: MITIGATING status + mitigation_due_date in the past (client-side, ADR-0043)
   const todayIso = new Date().toISOString().slice(0, 10);
 
   // Project slug for CSV filename — derived from name since the Project type has no slug field.
-  const projectSlug = (projectName ?? projectId)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '') || projectId;
+  const projectSlug =
+    (projectName ?? projectId)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '') || projectId;
 
-  function openCreate() { setEditMode(false); setSelectedRisk(undefined); }
-  function openRisk(risk: Risk) { setEditMode(false); setSelectedRisk(risk); }
-  function openRiskEdit(risk: Risk) { setEditMode(true); setSelectedRisk(risk); }
-  function closeDrawer() { setEditMode(false); setSelectedRisk(null); }
+  function openCreate() {
+    setEditMode(false);
+    setSelectedRisk(undefined);
+  }
+  function openRisk(risk: Risk) {
+    setEditMode(false);
+    setSelectedRisk(risk);
+  }
+  function openRiskEdit(risk: Risk) {
+    setEditMode(true);
+    setSelectedRisk(risk);
+  }
+  function closeDrawer() {
+    setEditMode(false);
+    setSelectedRisk(null);
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-neutral-surface">
-
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <header className="flex items-start justify-between gap-4 px-6 pt-5 pb-4 shrink-0">
         {/* Breadcrumb + heading */}
         <div className="min-w-0 flex flex-col gap-1">
-          <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary">
+          <nav
+            aria-label="Breadcrumb"
+            className="flex items-center gap-1.5 text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
+          >
             <span className="truncate">{projectName ?? 'Project'}</span>
-            <span aria-hidden="true" className="text-neutral-text-disabled">/</span>
+            <span aria-hidden="true" className="text-neutral-text-disabled">
+              /
+            </span>
             <span>Risks</span>
           </nav>
           <h1 className="text-2xl font-semibold text-neutral-text-primary leading-tight">
@@ -141,7 +160,12 @@ export function RiskRegisterView() {
               dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1"
           >
             Heatmap
-            <span aria-hidden="true" className="text-neutral-text-disabled text-xs leading-none mt-px">▾</span>
+            <span
+              aria-hidden="true"
+              className="text-neutral-text-disabled text-xs leading-none mt-px"
+            >
+              ▾
+            </span>
           </button>
 
           {risks.length > 0 && (
@@ -185,7 +209,9 @@ export function RiskRegisterView() {
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
                 dark:focus-visible:ring-semantic-on-track focus-visible:ring-offset-1"
             >
-              <span aria-hidden="true" className="text-xl leading-none">⋯</span>
+              <span aria-hidden="true" className="text-xl leading-none">
+                ⋯
+              </span>
             </button>
             {isOverflowOpen && (
               <div
@@ -238,7 +264,6 @@ export function RiskRegisterView() {
 
       {/* ── Two-column content ───────────────────────────────────────────── */}
       <div className="flex-1 min-h-0 flex gap-4 px-6 pb-6 overflow-hidden">
-
         {/* Left — heatmap card (lg+, togglable) */}
         {showHeatmap && (
           <aside
@@ -248,7 +273,10 @@ export function RiskRegisterView() {
             aria-label="Risk heatmap"
           >
             {isLoading && (
-              <div className="flex-1 rounded animate-pulse bg-neutral-border/30" aria-hidden="true" />
+              <div
+                className="flex-1 rounded animate-pulse bg-neutral-border/30"
+                aria-hidden="true"
+              />
             )}
             {!isLoading && !error && (
               <RiskMatrix
@@ -262,7 +290,6 @@ export function RiskRegisterView() {
 
         {/* Right — risk table */}
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-
           {/* Loading */}
           {isLoading && (
             <div className="flex flex-col gap-1" aria-label="Loading risks" aria-busy="true">
@@ -317,10 +344,16 @@ export function RiskRegisterView() {
             <>
               {/* Matrix cell-filter chip */}
               {selectedCell && (
-                <div className="flex items-center gap-2 mb-2 px-1 shrink-0" role="status" aria-live="polite">
+                <div
+                  className="flex items-center gap-2 mb-2 px-1 shrink-0"
+                  role="status"
+                  aria-live="polite"
+                >
                   <span className="text-xs text-neutral-text-secondary">Filtered to</span>
-                  <span className="inline-flex items-center text-xs font-medium tppm-mono
-                    bg-brand-primary/10 text-brand-primary border border-brand-primary/20 rounded px-2 py-0.5">
+                  <span
+                    className="inline-flex items-center text-xs font-medium tppm-mono
+                    bg-brand-primary/10 text-brand-primary border border-brand-primary/20 rounded px-2 py-0.5"
+                  >
                     P{selectedCell.probability} × I{selectedCell.impact}
                   </span>
                   <span className="text-xs text-neutral-text-disabled">
@@ -337,147 +370,185 @@ export function RiskRegisterView() {
                   </button>
                 </div>
               )}
-            <div className="flex-1 overflow-auto rounded-lg border border-neutral-border">
-              <table className="w-full text-sm border-collapse">
-                <thead className="sticky top-0 z-10">
-                  <tr className="bg-neutral-surface-raised border-b border-neutral-border">
-                    <th scope="col" className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[88px]">
-                      ID
-                    </th>
-                    <th scope="col" className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide">
-                      Risk
-                    </th>
-                    <th scope="col" className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10">
-                      P
-                    </th>
-                    <th scope="col" className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10">
-                      I
-                    </th>
-                    <th scope="col" className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[148px]">
-                      Severity
-                    </th>
-                    <th scope="col" className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[72px]">
-                      Trend
-                    </th>
-                    <th scope="col" className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[180px]">
-                      Owner
-                    </th>
-                    {/* Quick-edit affordance column — no header */}
-                    <th scope="col" className="w-10 px-2 py-3" aria-label="Actions" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayRisks.map((risk) => {
-                    const isOverdue =
-                      risk.status === 'MITIGATING' &&
-                      !!risk.mitigation_due_date &&
-                      risk.mitigation_due_date < todayIso;
+              <div className="flex-1 overflow-auto rounded-lg border border-neutral-border">
+                <table className="w-full text-sm border-collapse">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-neutral-surface-raised border-b border-neutral-border">
+                      <th
+                        scope="col"
+                        className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[88px]"
+                      >
+                        ID
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide"
+                      >
+                        Risk
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10"
+                      >
+                        P
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-10"
+                      >
+                        I
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[148px]"
+                      >
+                        Severity
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-center px-3 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[72px]"
+                      >
+                        Trend
+                      </th>
+                      <th
+                        scope="col"
+                        className="text-left px-4 py-3 font-medium text-neutral-text-secondary text-xs uppercase tracking-wide w-[180px]"
+                      >
+                        Owner
+                      </th>
+                      {/* Quick-edit affordance column — no header */}
+                      <th scope="col" className="w-10 px-2 py-3" aria-label="Actions" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {displayRisks.map((risk) => {
+                      const isOverdue =
+                        risk.status === 'MITIGATING' &&
+                        !!risk.mitigation_due_date &&
+                        risk.mitigation_due_date < todayIso;
 
-                    return (
-                    <tr
-                      key={risk.id}
-                      onClick={() => openRisk(risk)}
-                      className={[
-                        'group h-14 border-b border-neutral-border last:border-b-0 cursor-pointer',
-                        isOverdue ? 'bg-semantic-at-risk/5 hover:bg-semantic-at-risk/10' : 'hover:bg-neutral-surface-raised',
-                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
-                        'dark:focus-visible:ring-semantic-on-track focus-visible:ring-inset',
-                      ].join(' ')}
-                      tabIndex={0}
-                      role="button"
-                      aria-label={`Open risk: ${risk.title}${isOverdue ? ' (overdue mitigation)' : ''}`}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          openRisk(risk);
-                        }
-                      }}
-                    >
-                      {/* ID */}
-                      <td className="px-4 text-xs text-neutral-text-secondary tppm-mono">
-                        {formatRiskId(risk.short_id)}
-                      </td>
+                      return (
+                        <tr
+                          key={risk.id}
+                          onClick={() => openRisk(risk)}
+                          className={[
+                            'group h-14 border-b border-neutral-border last:border-b-0 cursor-pointer',
+                            isOverdue
+                              ? 'bg-semantic-at-risk-bg hover:bg-semantic-at-risk/10'
+                              : 'hover:bg-neutral-surface-raised',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary',
+                            'dark:focus-visible:ring-semantic-on-track focus-visible:ring-inset',
+                          ].join(' ')}
+                          tabIndex={0}
+                          role="button"
+                          aria-label={`Open risk: ${risk.title}${isOverdue ? ' (overdue mitigation)' : ''}`}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              openRisk(risk);
+                            }
+                          }}
+                        >
+                          {/* ID */}
+                          <td className="px-4 text-xs text-neutral-text-secondary tppm-mono">
+                            {formatRiskId(risk.short_id)}
+                          </td>
 
-                      {/* Risk — title + status sub-label + overdue badge */}
-                      <td className="px-4">
-                        <div className="flex flex-col gap-0.5 min-w-0">
-                          <span className="text-sm font-medium text-neutral-text-primary leading-snug truncate">
-                            {risk.title}
-                          </span>
-                          <span className="flex items-center gap-1.5 text-xs text-neutral-text-secondary leading-none">
-                            {STATUS_LABELS[risk.status]}
-                            {isOverdue && (
-                              <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium
-                                bg-semantic-at-risk/10 text-semantic-at-risk border border-semantic-at-risk/30"
-                              >
-                                Overdue
+                          {/* Risk — title + status sub-label + overdue badge */}
+                          <td className="px-4">
+                            <div className="flex flex-col gap-0.5 min-w-0">
+                              <span className="text-sm font-medium text-neutral-text-primary leading-snug truncate">
+                                {risk.title}
                               </span>
-                            )}
-                          </span>
-                        </div>
-                      </td>
+                              <span className="flex items-center gap-1.5 text-xs text-neutral-text-secondary leading-none">
+                                {STATUS_LABELS[risk.status]}
+                                {isOverdue && (
+                                  <span
+                                    className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium
+                                bg-semantic-at-risk-bg text-semantic-at-risk border border-semantic-at-risk/30"
+                                  >
+                                    Overdue
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          </td>
 
-                      {/* P */}
-                      <td className="px-3 text-center text-xs text-neutral-text-secondary tabular-nums">
-                        {risk.probability}
-                      </td>
+                          {/* P */}
+                          <td className="px-3 text-center text-xs text-neutral-text-secondary tabular-nums">
+                            {risk.probability}
+                          </td>
 
-                      {/* I */}
-                      <td className="px-3 text-center text-xs text-neutral-text-secondary tabular-nums">
-                        {risk.impact}
-                      </td>
+                          {/* I */}
+                          <td className="px-3 text-center text-xs text-neutral-text-secondary tabular-nums">
+                            {risk.impact}
+                          </td>
 
-                      {/* Severity chip */}
-                      <td className="px-4">
-                        <RiskChip severity={risk.severity} showScore />
-                      </td>
+                          {/* Severity chip */}
+                          <td className="px-4">
+                            <RiskChip severity={risk.severity} showScore />
+                          </td>
 
-                      {/* Trend — placeholder arrow (no trend data in API) */}
-                      <td className="px-3 text-center" aria-label="No trend data available">
-                        <span className="text-base text-neutral-text-disabled" aria-hidden="true">→</span>
-                      </td>
-
-                      {/* Owner — initials avatar + display name (design conformance) */}
-                      <td className="px-4">
-                        {risk.owner ? (
-                          <span className="flex items-center gap-2 min-w-0">
+                          {/* Trend — placeholder arrow (no trend data in API) */}
+                          <td className="px-3 text-center" aria-label="No trend data available">
                             <span
-                              className="inline-flex items-center justify-center w-7 h-7 rounded-full shrink-0
-                                bg-neutral-surface-sunken border border-neutral-border
-                                text-xs font-semibold text-neutral-text-primary tppm-mono"
+                              className="text-base text-neutral-text-disabled"
                               aria-hidden="true"
                             >
-                              {risk.owner_initials ?? '?'}
+                              →
                             </span>
-                            <span className="text-xs text-neutral-text-secondary truncate">
-                              {risk.owner_name ?? 'Assigned'}
-                            </span>
-                          </span>
-                        ) : (
-                          <span className="text-xs text-neutral-text-disabled" aria-label="Unassigned">—</span>
-                        )}
-                      </td>
+                          </td>
 
-                      {/* Quick-edit affordance — visible on hover/focus-within (ADR-0044) */}
-                      <td className="px-2 text-center">
-                        <button
-                          type="button"
-                          aria-label={`Edit risk: ${risk.title}`}
-                          onClick={(e) => { e.stopPropagation(); openRiskEdit(risk); }}
-                          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100
+                          {/* Owner — initials avatar + display name (design conformance) */}
+                          <td className="px-4">
+                            {risk.owner ? (
+                              <span className="flex items-center gap-2 min-w-0">
+                                <span
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded-full shrink-0
+                                bg-neutral-surface-sunken border border-neutral-border
+                                text-xs font-semibold text-neutral-text-primary tppm-mono"
+                                  aria-hidden="true"
+                                >
+                                  {risk.owner_initials ?? '?'}
+                                </span>
+                                <span className="text-xs text-neutral-text-secondary truncate">
+                                  {risk.owner_name ?? 'Assigned'}
+                                </span>
+                              </span>
+                            ) : (
+                              <span
+                                className="text-xs text-neutral-text-disabled"
+                                aria-label="Unassigned"
+                              >
+                                —
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Quick-edit affordance — visible on hover/focus-within (ADR-0044) */}
+                          <td className="px-2 text-center">
+                            <button
+                              type="button"
+                              aria-label={`Edit risk: ${risk.title}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openRiskEdit(risk);
+                              }}
+                              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100
                             w-8 h-8 flex items-center justify-center rounded
                             text-neutral-text-secondary hover:text-neutral-text-primary
                             focus-visible:outline-none focus-visible:ring-2
                             focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                        >
-                          ✎
-                        </button>
-                      </td>
-                    </tr>
-                  ); })}
-                </tbody>
-              </table>
-            </div>
+                            >
+                              ✎
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </>
           )}
         </div>
@@ -510,7 +581,9 @@ export function RiskRegisterView() {
           z-20"
         aria-label="Add risk"
       >
-        <span className="text-neutral-text-inverse text-2xl leading-none" aria-hidden="true">+</span>
+        <span className="text-neutral-text-inverse text-2xl leading-none" aria-hidden="true">
+          +
+        </span>
       </button>
     </div>
   );

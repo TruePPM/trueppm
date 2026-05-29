@@ -45,9 +45,7 @@ export function InviteAcceptPage() {
     } catch (err: unknown) {
       if (axios.isAxiosError(err) && err.response?.data) {
         const data = err.response.data as Record<string, unknown>;
-        const msg =
-          (data.detail as string) ??
-          Object.values(data).flat().join(' ');
+        const msg = (data.detail as string) ?? Object.values(data).flat().join(' ');
         setError(msg || 'Failed to accept the invite. The token may be expired or already used.');
       } else {
         setError('An unexpected error occurred. Please try again.');
@@ -101,14 +99,19 @@ export function InviteAcceptPage() {
           </div>
         ) : (
           <form
-            onSubmit={(e) => { void handleSubmit(e); }}
+            onSubmit={(e) => {
+              void handleSubmit(e);
+            }}
             noValidate
             className="flex flex-col gap-4"
           >
             {/* Username — optional for existing accounts */}
             <div className="flex flex-col gap-1">
               <label htmlFor={usernameId} className="text-sm font-medium text-neutral-text-primary">
-                Username <span className="text-neutral-text-secondary font-normal text-xs">(new accounts only)</span>
+                Username{' '}
+                <span className="text-neutral-text-secondary font-normal text-xs">
+                  (new accounts only)
+                </span>
               </label>
               <input
                 id={usernameId}
@@ -124,7 +127,7 @@ export function InviteAcceptPage() {
                   placeholder:text-neutral-text-disabled
                   focus-visible:outline-none focus-visible:border-brand-primary
                   focus-visible:ring-2 focus-visible:ring-brand-primary
-                  disabled:opacity-50 disabled:cursor-not-allowed
+                  disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed
                 "
               />
             </div>
@@ -132,7 +135,10 @@ export function InviteAcceptPage() {
             {/* Password — optional for existing accounts */}
             <div className="flex flex-col gap-1">
               <label htmlFor={passwordId} className="text-sm font-medium text-neutral-text-primary">
-                Password <span className="text-neutral-text-secondary font-normal text-xs">(new accounts only)</span>
+                Password{' '}
+                <span className="text-neutral-text-secondary font-normal text-xs">
+                  (new accounts only)
+                </span>
               </label>
               <input
                 id={passwordId}
@@ -146,7 +152,7 @@ export function InviteAcceptPage() {
                   bg-neutral-surface text-neutral-text-primary text-sm font-mono
                   focus-visible:outline-none focus-visible:border-brand-primary
                   focus-visible:ring-2 focus-visible:ring-brand-primary
-                  disabled:opacity-50 disabled:cursor-not-allowed
+                  disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed
                 "
               />
             </div>
@@ -165,7 +171,7 @@ export function InviteAcceptPage() {
                 text-sm font-semibold
                 hover:bg-brand-primary-dark
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-                disabled:opacity-50 disabled:cursor-not-allowed
+                disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed
                 transition-colors
               "
             >
@@ -174,7 +180,10 @@ export function InviteAcceptPage() {
 
             <p className="text-xs text-neutral-text-disabled text-center">
               Already have an account?{' '}
-              <a href="/login" className="font-medium text-brand-primary hover:text-brand-primary-dark">
+              <a
+                href="/login"
+                className="font-medium text-brand-primary hover:text-brand-primary-dark"
+              >
                 Sign in
               </a>
             </p>

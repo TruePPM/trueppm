@@ -77,7 +77,6 @@ function buildWeekColumns(
   }));
 }
 
-
 // ---------------------------------------------------------------------------
 // Geometry helpers
 // ---------------------------------------------------------------------------
@@ -129,9 +128,7 @@ export function ResourceAllocationTimeline({
 
   const scheduled = data.resources.filter((r) => r.tasks.some((t) => t.early_start));
   const unscheduled = data.resources.flatMap((r) =>
-    r.tasks
-      .filter((t) => !t.early_start)
-      .map((t) => ({ resource: r, task: t })),
+    r.tasks.filter((t) => !t.early_start).map((t) => ({ resource: r, task: t })),
   );
 
   function openEdit(assignmentId: string, anchorEl: HTMLElement) {
@@ -180,7 +177,7 @@ export function ResourceAllocationTimeline({
         key={resource.id}
         className={[
           'flex border-b border-neutral-border',
-          hasOverallocation ? 'bg-semantic-critical/5' : '',
+          hasOverallocation ? 'bg-semantic-critical-bg' : '',
           isCurrentUser ? 'bg-brand-primary/5' : '',
         ]
           .filter(Boolean)
@@ -260,10 +257,10 @@ export function ResourceAllocationTimeline({
                 task.status === 'COMPLETE'
                   ? 'complete'
                   : isOver
-                  ? 'over'
-                  : units < 1.0
-                  ? 'partial'
-                  : 'normal';
+                    ? 'over'
+                    : units < 1.0
+                      ? 'partial'
+                      : 'normal';
 
               const { left, width } = spanFractions(
                 task.early_start!,
@@ -319,7 +316,6 @@ export function ResourceAllocationTimeline({
 
   return (
     <div className="flex flex-col h-full overflow-hidden" ref={timelineRef}>
-
       {/* Sticky axis header */}
       <div className="flex flex-shrink-0 border-b border-neutral-border bg-neutral-surface-raised sticky top-0 z-10">
         {/* Column header label */}
@@ -364,19 +360,21 @@ export function ResourceAllocationTimeline({
 
         {/* Unscheduled section */}
         {unscheduled.length > 0 && (
-          <div className="border-t-2 border-semantic-at-risk/30 bg-semantic-at-risk/5">
+          <div className="border-t-2 border-semantic-at-risk/30 bg-semantic-at-risk-bg">
             <div className="flex items-center gap-2 px-4 py-2 text-xs text-semantic-at-risk border-b border-semantic-at-risk/20">
               <span aria-hidden="true">⚠</span>
               <span className="font-medium">
                 {unscheduled.length} unscheduled assignment
                 {unscheduled.length !== 1 ? 's' : ''} — tasks with no computed dates.
               </span>
-              <span className="text-neutral-text-secondary">Run the scheduler to place them on the timeline.</span>
+              <span className="text-neutral-text-secondary">
+                Run the scheduler to place them on the timeline.
+              </span>
               {onRunScheduler && (
                 <button
                   type="button"
                   onClick={onRunScheduler}
-                  className="ml-auto flex-shrink-0 text-xs px-2 py-1 rounded border border-semantic-at-risk/40 bg-semantic-at-risk/10 text-semantic-at-risk font-medium
+                  className="ml-auto flex-shrink-0 text-xs px-2 py-1 rounded border border-semantic-at-risk/40 bg-semantic-at-risk-bg text-semantic-at-risk font-medium
                     hover:bg-semantic-at-risk/20 focus-visible:ring-2 focus-visible:ring-semantic-at-risk focus-visible:outline-none"
                 >
                   Run scheduler
@@ -408,10 +406,12 @@ export function ResourceAllocationTimeline({
           const over = detectOverallocatedAssignments(r.tasks, parseFloat(r.max_units));
           return over.size > 0;
         }).length > 0 &&
-          `${scheduled.filter((r) => {
-            const over = detectOverallocatedAssignments(r.tasks, parseFloat(r.max_units));
-            return over.size > 0;
-          }).length} overallocated. `}
+          `${
+            scheduled.filter((r) => {
+              const over = detectOverallocatedAssignments(r.tasks, parseFloat(r.max_units));
+              return over.size > 0;
+            }).length
+          } overallocated. `}
         {`Date range ${windowStart} to ${windowEnd}.`}
       </div>
     </div>

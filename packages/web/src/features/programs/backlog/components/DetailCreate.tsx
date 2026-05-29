@@ -78,7 +78,7 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
         <div>
           <label
             htmlFor="backlog-create-title"
-            className="text-[10px] font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary"
+            className="text-xs font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary"
           >
             Title <span className="text-semantic-critical">*</span>
           </label>
@@ -102,7 +102,7 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
         <div>
           <label
             htmlFor="backlog-create-type"
-            className="text-[10px] font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary"
+            className="text-xs font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary"
           >
             Type
           </label>
@@ -123,7 +123,7 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
         <div>
           <label
             htmlFor="backlog-create-desc"
-            className="text-[10px] font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary"
+            className="text-xs font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary"
           >
             Description
           </label>
@@ -138,7 +138,7 @@ export function DetailCreate({ tagSuggestions, onCancel, onCreate }: DetailCreat
         </div>
 
         <div>
-          <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary">
+          <span className="text-xs font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary">
             Tags
           </span>
           <div className="mt-1">

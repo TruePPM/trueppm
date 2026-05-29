@@ -40,7 +40,7 @@ export const FilterChip = forwardRef<HTMLButtonElement, FilterChipProps>(functio
       <span>{label}</span>
       {count !== undefined && (
         <span
-          className={`tppm-mono text-[10px] tabular-nums ${
+          className={`tppm-mono text-xs tabular-nums ${
             active ? 'text-brand-primary-dark' : 'text-neutral-text-disabled'
           }`}
         >

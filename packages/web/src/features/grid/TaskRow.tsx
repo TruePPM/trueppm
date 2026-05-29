@@ -21,13 +21,23 @@ interface TaskRowProps {
  * predecessor column).
  */
 export function TaskRow({
-  task, phase, rowIndex, isSelected, isRenaming,
-  onToggleSelect, onStartRename, onRename, onCancelRename,
+  task,
+  phase,
+  rowIndex,
+  isSelected,
+  isRenaming,
+  onToggleSelect,
+  onStartRename,
+  onRename,
+  onCancelRename,
 }: TaskRowProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (isRenaming) { inputRef.current?.focus(); inputRef.current?.select(); }
+    if (isRenaming) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
   }, [isRenaming]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -42,16 +52,19 @@ export function TaskRow({
   };
 
   const handleRowKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'F2') { e.preventDefault(); onStartRename(); }
+    if (e.key === 'F2') {
+      e.preventDefault();
+      onStartRename();
+    }
   };
 
   const altBg = rowIndex % 2 === 0 ? '' : 'bg-neutral-surface-raised';
 
   const rowBg = task.isCritical
-    ? 'bg-semantic-critical/5 border-l-2 border-semantic-critical'
+    ? 'bg-semantic-critical-bg border-l-2 border-semantic-critical'
     : isSelected
-    ? 'bg-brand-primary/10 border-l-2 border-brand-primary'
-    : `border-l-2 border-transparent ${altBg}`;
+      ? 'bg-brand-primary/10 border-l-2 border-brand-primary'
+      : `border-l-2 border-transparent ${altBg}`;
 
   const firstAssignee = task.assignees[0];
 
@@ -83,7 +96,10 @@ export function TaskRow({
         "
       />
 
-      <span role="gridcell" className="w-14 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2">
+      <span
+        role="gridcell"
+        className="w-14 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2"
+      >
         {task.wbs}
       </span>
 
@@ -133,15 +149,24 @@ export function TaskRow({
         {firstAssignee ? <OwnerAvatar name={firstAssignee.name} /> : null}
       </span>
 
-      <span role="gridcell" className="w-20 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2">
+      <span
+        role="gridcell"
+        className="w-20 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2"
+      >
         {fmtDate(task.start)}
       </span>
 
-      <span role="gridcell" className="w-20 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2">
+      <span
+        role="gridcell"
+        className="w-20 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2"
+      >
         {fmtDate(task.finish)}
       </span>
 
-      <span role="gridcell" className="w-12 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2">
+      <span
+        role="gridcell"
+        className="w-12 flex-shrink-0 tppm-mono text-xs text-neutral-text-secondary text-right pr-2"
+      >
         {task.duration}d
       </span>
 
@@ -152,7 +177,9 @@ export function TaskRow({
             style={{ width: `${task.progress}%` }}
           />
         </span>
-        <span className="tppm-mono text-xs text-neutral-text-secondary w-7 text-right">{task.progress}%</span>
+        <span className="tppm-mono text-xs text-neutral-text-secondary w-7 text-right">
+          {task.progress}%
+        </span>
       </span>
 
       <span role="gridcell" className="w-28 flex-shrink-0 flex items-center">

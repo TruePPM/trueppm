@@ -65,7 +65,7 @@ export function MobilePullSheet({
 
         <div className="border-b border-neutral-border pb-2">
           <div className="text-sm font-medium text-neutral-text-primary">{item.title}</div>
-          <div className="tppm-mono text-[10px] text-neutral-text-secondary">
+          <div className="tppm-mono text-xs text-neutral-text-secondary">
             {item.id} · {TYPE_LABEL[item.itemType]}
           </div>
         </div>

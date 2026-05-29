@@ -104,11 +104,7 @@ export function ApiTokensManager({ scope }: ApiTokensManagerProps) {
                   </span>
                 </span>
                 <span className="text-[11px] text-neutral-text-secondary shrink-0">
-                  {tok.is_revoked
-                    ? 'Revoked'
-                    : tok.last_used_at
-                      ? 'in use'
-                      : 'never used'}
+                  {tok.is_revoked ? 'Revoked' : tok.last_used_at ? 'in use' : 'never used'}
                 </span>
                 {!tok.is_revoked && (
                   <button
@@ -127,9 +123,7 @@ export function ApiTokensManager({ scope }: ApiTokensManagerProps) {
 
       <ScopesReference />
 
-      {creating && (
-        <CreateTokenModal scope={scope} onClose={() => setCreating(false)} />
-      )}
+      {creating && <CreateTokenModal scope={scope} onClose={() => setCreating(false)} />}
 
       {confirmRevoke && (
         <ConfirmDialog
@@ -152,8 +146,8 @@ function ScopesReference() {
     <div className="px-4 pb-3 pt-1">
       <p className="text-[11px] text-neutral-text-secondary">
         Tokens authenticate inbound requests as{' '}
-        <span className="tppm-mono">Authorization: Bearer tppm_…</span>. A token sees only the
-        data its scope allows.
+        <span className="tppm-mono">Authorization: Bearer tppm_…</span>. A token sees only the data
+        its scope allows.
       </p>
     </div>
   );
@@ -214,8 +208,8 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
               Token created — copy it now
             </h2>
             <p className="text-xs text-semantic-critical mb-3">
-              This is the only time you&apos;ll see this token. Store it somewhere safe; it can&apos;t
-              be retrieved again.
+              This is the only time you&apos;ll see this token. Store it somewhere safe; it
+              can&apos;t be retrieved again.
             </p>
             <div className="flex items-center gap-2 mb-4">
               <input
@@ -245,7 +239,9 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
           </>
         ) : (
           <>
-            <h2 className="text-sm font-semibold text-neutral-text-primary mb-3">Create API token</h2>
+            <h2 className="text-sm font-semibold text-neutral-text-primary mb-3">
+              Create API token
+            </h2>
             <label
               htmlFor="api-token-name"
               className="block mb-1 text-[13px] font-medium text-neutral-text-primary"
@@ -271,7 +267,7 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
                 type="button"
                 onClick={onClose}
                 disabled={create.isPending}
-                className="h-8 px-3 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                className="h-8 px-3 rounded border border-neutral-border text-[13px] font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 Cancel
               </button>
@@ -279,7 +275,7 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
                 type="button"
                 onClick={handleCreate}
                 disabled={create.isPending}
-                className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                className="h-8 px-3 rounded bg-brand-primary text-white text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 {create.isPending ? 'Creating…' : 'Create token'}
               </button>

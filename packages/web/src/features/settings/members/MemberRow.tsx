@@ -58,8 +58,7 @@ export function MemberRow({
   // member shows "Joined …" only. Narrowing inside the ternary keeps the
   // formatter call non-null without a type assertion.
   const roleChangedLabel =
-    role_changed_at != null &&
-    new Date(role_changed_at).getTime() > new Date(joined_at).getTime()
+    role_changed_at != null && new Date(role_changed_at).getTime() > new Date(joined_at).getTime()
       ? formatAccessDate(role_changed_at)
       : null;
 
@@ -153,7 +152,7 @@ export function MemberRow({
             isSelf
               ? 'text-neutral-text-secondary hover:text-neutral-text-primary'
               : 'text-semantic-critical hover:text-semantic-critical/80',
-            'disabled:opacity-50 disabled:cursor-not-allowed',
+            'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed',
           ].join(' ')}
         >
           {isSelf ? 'Leave' : 'Remove'}
@@ -166,13 +165,16 @@ export function MemberRow({
           <span className="text-xs text-neutral-text-secondary">Leave project?</span>
           <button
             type="button"
-            onClick={() => { onRemove(membership.id); setConfirmLeave(false); }}
+            onClick={() => {
+              onRemove(membership.id);
+              setConfirmLeave(false);
+            }}
             disabled={isRemoving}
             className={[
               'h-7 px-2 rounded border border-semantic-critical text-xs font-medium',
               'text-semantic-critical hover:bg-semantic-critical/5 transition-colors',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
-              'disabled:opacity-50',
+              'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
             ].join(' ')}
           >
             Leave
@@ -195,7 +197,7 @@ export function MemberRow({
       {isSelf && isSoleOwner && (
         <span
           className="shrink-0 text-xs text-neutral-text-disabled"
-          title="You&apos;re the only Project Admin — assign another before leaving"
+          title="You're the only Project Admin — assign another before leaving"
         >
           Can&apos;t leave
         </span>

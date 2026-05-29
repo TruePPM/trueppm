@@ -80,7 +80,7 @@ export function ProjectPickerRadioList({
                 {project.name}
               </span>
               {(project.code || project.backlogCount !== undefined) && (
-                <span className="tppm-mono block text-[10px] text-neutral-text-secondary">
+                <span className="tppm-mono block text-xs text-neutral-text-secondary">
                   {project.code}
                   {project.code && project.backlogCount !== undefined ? ' · ' : ''}
                   {project.backlogCount !== undefined ? `${project.backlogCount} backlog` : ''}

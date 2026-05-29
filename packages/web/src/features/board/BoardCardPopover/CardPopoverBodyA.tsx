@@ -72,18 +72,15 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
   // Float chip is meaningful only on scheduled tasks (#332). CP tasks render
   // a "0d float — on critical path" red chip; non-CP tasks render a neutral
   // chip when totalFloat is set; otherwise the row is suppressed.
-  const showFloat = scheduled && (task.isCritical
-    || (task.totalFloat !== undefined && task.totalFloat !== null));
+  const showFloat =
+    scheduled && (task.isCritical || (task.totalFloat !== undefined && task.totalFloat !== null));
   const floatDays = task.isCritical ? 0 : (task.totalFloat ?? 0);
   const accentClass = showCp ? 'bg-semantic-critical' : 'bg-brand-primary';
 
   return (
     <>
       {/* Left accent bar — decorative; CP signal is repeated in the chip row + Float row */}
-      <div
-        aria-hidden="true"
-        className={`absolute left-0 top-0 bottom-0 w-[3px] ${accentClass}`}
-      />
+      <div aria-hidden="true" className={`absolute left-0 top-0 bottom-0 w-[3px] ${accentClass}`} />
 
       {/* Header */}
       <div className="pt-3.5 pr-4 pb-2.5 pl-[18px]">
@@ -107,9 +104,7 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
           )}
           <span className="flex-1" />
           {task.wbs && (
-            <span className="tppm-mono text-[11px] text-neutral-text-disabled">
-              WBS {task.wbs}
-            </span>
+            <span className="tppm-mono text-[11px] text-neutral-text-disabled">WBS {task.wbs}</span>
           )}
         </div>
         <h3
@@ -133,7 +128,10 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
                 {effectiveProgress}%
               </span>
             </div>
-            <div className="h-1 rounded-full bg-neutral-surface-sunken overflow-hidden" aria-hidden="true">
+            <div
+              className="h-1 rounded-full bg-neutral-surface-sunken overflow-hidden"
+              aria-hidden="true"
+            >
               <div
                 className={`h-full ${showCp ? 'bg-semantic-critical' : 'bg-brand-primary'}`}
                 style={{ width: `${effectiveProgress}%` }}
@@ -182,7 +180,9 @@ export function CardPopoverBodyA({ task, sprintName }: CardPopoverBodyAProps) {
                 0d float — on critical path
               </span>
             ) : (
-              <span className="tppm-mono text-xs text-neutral-text-secondary">{floatDays}d float</span>
+              <span className="tppm-mono text-xs text-neutral-text-secondary">
+                {floatDays}d float
+              </span>
             )}
           </MetaRow>
         )}
@@ -234,7 +234,7 @@ function ReadinessChip({ readiness }: ReadinessChipProps) {
       );
     case 'ready':
       return (
-        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded bg-brand-primary/10 dark:bg-semantic-on-track/10 border border-brand-primary/30 dark:border-semantic-on-track/30 text-xs text-brand-primary dark:text-semantic-on-track font-medium">
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded bg-brand-primary/10 dark:bg-semantic-on-track-bg border border-brand-primary/30 dark:border-semantic-on-track/30 text-xs text-brand-primary dark:text-semantic-on-track font-medium">
           <span aria-hidden="true">⛓</span> ready
         </span>
       );

@@ -15,7 +15,7 @@ export function SkillChip({ name, proficiency, missing = false }: SkillChipProps
       className={[
         'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs border',
         missing
-          ? 'border-semantic-critical/40 text-semantic-critical bg-semantic-critical/5'
+          ? 'border-semantic-critical/40 text-semantic-critical bg-semantic-critical-bg'
           : 'border-neutral-border text-neutral-text-secondary bg-neutral-surface-raised',
       ].join(' ')}
       title={proficiency ? `${name} — ${PROFICIENCY_LABEL[proficiency]}` : name}

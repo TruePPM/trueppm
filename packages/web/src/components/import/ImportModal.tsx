@@ -143,8 +143,8 @@ export function ImportModal({ projectId, onClose }: Props) {
                 Import started. Your tasks will appear in the schedule shortly.
               </p>
               <p className="text-xs text-neutral-text-secondary">
-                Large files can take a moment to process. The schedule refreshes
-                automatically when the import finishes.
+                Large files can take a moment to process. The schedule refreshes automatically when
+                the import finishes.
               </p>
               <div className="flex justify-end pt-2">
                 <button
@@ -220,10 +220,9 @@ export function ImportModal({ projectId, onClose }: Props) {
                   deployments ship it. Warn rather than block — the API still
                   accepts .mpp where the toolchain is present. */}
               {isMpp && (
-                <p className="rounded border border-semantic-warning/40 bg-semantic-warning/10 p-2 text-xs text-neutral-text-secondary">
-                  .mpp import needs the MS Project toolchain on the server. If the
-                  import fails, open the file in MS Project and save it as XML, then
-                  upload the .xml instead.
+                <p className="rounded border border-semantic-warning/40 bg-semantic-warning-bg p-2 text-xs text-neutral-text-secondary">
+                  .mpp import needs the MS Project toolchain on the server. If the import fails,
+                  open the file in MS Project and save it as XML, then upload the .xml instead.
                 </p>
               )}
 

@@ -8,10 +8,14 @@ interface SeverityLevel {
 function getSeverityLevel(severity: number): SeverityLevel {
   // Rule 86: severity chip color mapping. All combinations achieve WCAG 4.5:1 on neutral-surface.
   if (severity >= 20) {
-    return { label: 'Critical', classes: 'text-semantic-critical bg-semantic-critical/10' };
+    return { label: 'Critical', classes: 'text-semantic-critical bg-semantic-critical-bg' };
   }
   if (severity >= 12) {
-    return { label: 'High', classes: 'text-brand-accent-dark dark:text-brand-accent bg-brand-accent-light dark:bg-brand-accent/20' };
+    return {
+      label: 'High',
+      classes:
+        'text-brand-accent-dark dark:text-brand-accent bg-brand-accent-light dark:bg-brand-accent/20',
+    };
   }
   if (severity >= 6) {
     return { label: 'Medium', classes: 'text-neutral-text-primary bg-brand-accent-light/50' };
@@ -44,7 +48,8 @@ export function RiskChip({ severity, showScore, className }: RiskChipProps) {
         .filter(Boolean)
         .join(' ')}
     >
-      {label}{showScore ? ` · ${severity}` : ''}
+      {label}
+      {showScore ? ` · ${severity}` : ''}
     </span>
   );
 }

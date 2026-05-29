@@ -61,15 +61,13 @@ export function DetailPullConfirm({
       {/* Header */}
       <div className="flex items-center justify-between gap-3 border-b border-neutral-border px-5 py-4">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="inline-flex h-[18px] items-center rounded bg-brand-primary px-1.5 text-[10px] font-semibold uppercase text-white">
+          <span className="inline-flex h-[18px] items-center rounded bg-brand-primary px-1.5 text-xs font-semibold uppercase text-white">
             Pull
           </span>
           <span className="truncate text-[13px] font-semibold text-neutral-text-primary">
             {item.title}
           </span>
-          <span className="tppm-mono shrink-0 text-[10px] text-neutral-text-disabled">
-            {item.id}
-          </span>
+          <span className="tppm-mono shrink-0 text-xs text-neutral-text-disabled">{item.id}</span>
         </div>
         <button
           type="button"
@@ -90,7 +88,7 @@ export function DetailPullConfirm({
         {hasProjects ? (
           <>
             <div>
-              <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary">
+              <div className="mb-1.5 text-xs font-semibold uppercase tracking-[0.06em] text-neutral-text-secondary">
                 Target project
               </div>
               <ProjectPickerRadioList

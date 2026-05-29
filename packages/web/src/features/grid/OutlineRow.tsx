@@ -43,14 +43,7 @@ export function OutlineRow({
   const hasChildren = children.length > 0;
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id,
     disabled: { draggable: task.isSummary, droppable: false },
   });
@@ -73,7 +66,10 @@ export function OutlineRow({
   };
 
   const handleNameKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'F2') { e.preventDefault(); onStartRename(); }
+    if (e.key === 'F2') {
+      e.preventDefault();
+      onStartRename();
+    }
   };
 
   const isProject = task.isSummary && !task.parentId;
@@ -82,13 +78,13 @@ export function OutlineRow({
   const rowBgBase = isProject
     ? 'bg-neutral-surface-sunken'
     : task.isSummary
-    ? 'bg-neutral-surface-raised'
-    : '';
+      ? 'bg-neutral-surface-raised'
+      : '';
   const rowBg = task.isCritical
-    ? 'bg-semantic-critical/5 border-l-2 border-semantic-critical'
+    ? 'bg-semantic-critical-bg border-l-2 border-semantic-critical'
     : 'border-l-2 border-transparent';
 
-  const nameWeight = (isProject || task.isSummary) ? 'font-semibold' : 'font-normal';
+  const nameWeight = isProject || task.isSummary ? 'font-semibold' : 'font-normal';
   const indent = depth * 16;
 
   const firstAssignee = task.assignees[0];
@@ -136,7 +132,10 @@ export function OutlineRow({
       {hasChildren ? (
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
           aria-expanded={isExpanded}
           aria-controls={`grid-subtree-${task.id}`}
           aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
@@ -155,9 +154,7 @@ export function OutlineRow({
           className="w-4 h-4 flex items-center justify-center flex-shrink-0
             text-xs text-neutral-text-disabled"
         >
-          {task.isMilestone ? (
-            <span className="text-brand-accent">◆</span>
-          ) : '□'}
+          {task.isMilestone ? <span className="text-brand-accent">◆</span> : '□'}
         </span>
       )}
 

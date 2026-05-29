@@ -33,7 +33,7 @@ const HEALTH_OPTIONS: Array<{ id: ProjectHealth; label: string }> = [
 const HEALTH_ACTIVE: Record<ProjectHealth, string> = {
   ON_TRACK: 'bg-semantic-on-track-bg text-semantic-on-track border-semantic-on-track/40',
   AT_RISK: 'bg-semantic-at-risk-bg text-semantic-at-risk border-semantic-at-risk/40',
-  CRITICAL: 'bg-semantic-critical/10 text-semantic-critical border-semantic-critical/40',
+  CRITICAL: 'bg-semantic-critical-bg text-semantic-critical border-semantic-critical/40',
   AUTO: 'bg-brand-primary-light text-brand-primary border-brand-primary/40',
 };
 

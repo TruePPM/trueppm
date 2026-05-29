@@ -10,7 +10,10 @@
  */
 import { formatWeekHeader } from './resourceUtils';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
-import { ToolbarOverflowMenu, type ToolbarOverflowItem } from '@/components/toolbar/ToolbarOverflowMenu';
+import {
+  ToolbarOverflowMenu,
+  type ToolbarOverflowItem,
+} from '@/components/toolbar/ToolbarOverflowMenu';
 
 export type ViewMode = 'timeline' | 'utilization';
 type ViewModeLocal = ViewMode;
@@ -99,7 +102,6 @@ export function ResourceToolbar({
         aria-label="Resource toolbar"
         className="flex flex-nowrap items-center gap-2 px-4 h-10 bg-neutral-surface-raised"
       >
-
         {/* Segmented control: Timeline | Utilization */}
         <div
           role="group"
@@ -128,9 +130,20 @@ export function ResourceToolbar({
 
         {/* Prev / Today / Next */}
         <div className="flex items-center gap-1 flex-shrink-0">
-          <button type="button" onClick={onPrev} className={iconBtnBase} aria-label="Previous period">
+          <button
+            type="button"
+            onClick={onPrev}
+            className={iconBtnBase}
+            aria-label="Previous period"
+          >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M9 11L5 7l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M9 11L5 7l4-4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           </button>
           <button type="button" onClick={onToday} className={btnBase}>
@@ -138,7 +151,13 @@ export function ResourceToolbar({
           </button>
           <button type="button" onClick={onNext} className={iconBtnBase} aria-label="Next period">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-              <path d="M5 3l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M5 3l4 4-4 4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           </button>
         </div>
@@ -148,13 +167,37 @@ export function ResourceToolbar({
           className="flex items-center gap-1 border border-neutral-border rounded h-7 px-2.5 text-xs text-neutral-text-secondary bg-neutral-surface flex-shrink-0"
           aria-label={`Date window: ${formatWeekHeader(windowStart)} to ${formatWeekHeader(windowEnd)}`}
         >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" className="text-neutral-text-secondary">
-            <rect x="1" y="2" width="10" height="9" rx="1" stroke="currentColor" strokeWidth="1.2"/>
-            <path d="M1 5h10M4 1v2M8 1v2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 12 12"
+            fill="none"
+            aria-hidden="true"
+            className="text-neutral-text-secondary"
+          >
+            <rect
+              x="1"
+              y="2"
+              width="10"
+              height="9"
+              rx="1"
+              stroke="currentColor"
+              strokeWidth="1.2"
+            />
+            <path
+              d="M1 5h10M4 1v2M8 1v2"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+            />
           </svg>
-          <span className="font-medium text-neutral-text-primary">{formatWeekHeader(windowStart)}</span>
+          <span className="font-medium text-neutral-text-primary">
+            {formatWeekHeader(windowStart)}
+          </span>
           <span className="text-neutral-text-secondary">→</span>
-          <span className="font-medium text-neutral-text-primary">{formatWeekHeader(windowEnd)}</span>
+          <span className="font-medium text-neutral-text-primary">
+            {formatWeekHeader(windowEnd)}
+          </span>
         </div>
 
         {/* Fit to project */}
@@ -198,13 +241,15 @@ export function ResourceToolbar({
             triggerAriaLabel="Resource secondary controls"
             items={[
               ...(showMyAllocation
-                ? [{
-                    kind: 'checkbox' as const,
-                    id: 'my-allocation',
-                    label: 'My allocation',
-                    checked: myAllocationActive,
-                    onChange: () => onMyAllocationToggle(),
-                  }]
+                ? [
+                    {
+                      kind: 'checkbox' as const,
+                      id: 'my-allocation',
+                      label: 'My allocation',
+                      checked: myAllocationActive,
+                      onChange: () => onMyAllocationToggle(),
+                    },
+                  ]
                 : []),
               ...ALL_STATUSES.map<ToolbarOverflowItem>((s) => ({
                 kind: 'checkbox',
@@ -220,7 +265,7 @@ export function ResourceToolbar({
         {/* Overallocation count (timeline mode) */}
         {overallocationCount > 0 && viewMode === 'timeline' && (
           <span
-            className="text-xs font-medium px-2 py-0.5 rounded border border-semantic-critical/40 text-semantic-critical bg-semantic-critical/5"
+            className="text-xs font-medium px-2 py-0.5 rounded border border-semantic-critical/40 text-semantic-critical bg-semantic-critical-bg"
             aria-live="polite"
             aria-label={`${overallocationCount} over-allocated resource${overallocationCount !== 1 ? 's' : ''}`}
           >
@@ -257,9 +302,21 @@ export function ResourceToolbar({
             </label>
           ))}
           <div className="ml-4 flex items-center gap-1.5 border border-neutral-border rounded h-6 px-2 bg-neutral-surface min-w-[140px]">
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true" className="text-neutral-text-secondary flex-shrink-0">
-              <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1.2"/>
-              <path d="M7.5 7.5l2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 11 11"
+              fill="none"
+              aria-hidden="true"
+              className="text-neutral-text-secondary flex-shrink-0"
+            >
+              <circle cx="4.5" cy="4.5" r="3.5" stroke="currentColor" strokeWidth="1.2" />
+              <path
+                d="M7.5 7.5l2 2"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
             </svg>
             <input
               type="search"

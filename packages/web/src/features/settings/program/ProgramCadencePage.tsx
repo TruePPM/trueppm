@@ -39,8 +39,12 @@ function Toggle({
       onClick={onChange}
       className={[
         'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border-2 transition-colors',
-        on ? 'bg-brand-primary border-brand-primary' : 'bg-neutral-surface-sunken border-neutral-border',
-        disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:ring-2 hover:ring-brand-primary/30',
+        on
+          ? 'bg-brand-primary border-brand-primary'
+          : 'bg-neutral-surface-sunken border-neutral-border',
+        disabled
+          ? 'opacity-50 cursor-not-allowed'
+          : 'cursor-pointer hover:ring-2 hover:ring-brand-primary/30',
         busy ? 'opacity-60' : '',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
       ].join(' ')}
@@ -183,11 +187,7 @@ function CeremonyRow({
 export function ProgramCadencePage() {
   const { programId } = useParams<{ programId: string }>();
   const { data: program } = useProgram(programId);
-  const {
-    data: ceremonies = [],
-    isLoading,
-    isError,
-  } = useProgramCeremonies(programId);
+  const { data: ceremonies = [], isLoading, isError } = useProgramCeremonies(programId);
 
   const updateCeremony = useUpdateCeremony(programId ?? '');
   const deleteCeremony = useDeleteCeremony(programId ?? '');
@@ -221,9 +221,7 @@ export function ProgramCadencePage() {
     try {
       await deleteCeremony.mutateAsync(ceremony.id);
     } catch (err) {
-      setToggleError(
-        err instanceof Error ? err.message : `Couldn’t delete “${ceremony.name}”.`,
-      );
+      setToggleError(err instanceof Error ? err.message : `Couldn’t delete “${ceremony.name}”.`);
     }
   }
 
@@ -281,8 +279,8 @@ export function ProgramCadencePage() {
                 No ceremonies configured yet
               </p>
               <p className="text-[12px] text-neutral-text-secondary mt-1 max-w-[460px] mx-auto leading-snug">
-                Add recurring meetings like a program sync, steering committee, or risk
-                review to keep cadence visible to the team.
+                Add recurring meetings like a program sync, steering committee, or risk review to
+                keep cadence visible to the team.
               </p>
               {canEdit ? (
                 <button
@@ -319,7 +317,7 @@ export function ProgramCadencePage() {
         {toggleError && (
           <div
             role="alert"
-            className="rounded border border-semantic-critical/40 bg-semantic-critical/5 px-3 py-2 text-xs text-semantic-critical"
+            className="rounded border border-semantic-critical/40 bg-semantic-critical-bg px-3 py-2 text-xs text-semantic-critical"
           >
             {toggleError}
           </div>
@@ -337,8 +335,8 @@ export function ProgramCadencePage() {
             Phase gate calendar
           </h2>
           <p className="text-[12px] text-neutral-text-secondary mb-3 leading-snug">
-            Gate reviews are automatically scheduled when a phase boundary milestone is
-            saved. Attach a calendar invite template here.
+            Gate reviews are automatically scheduled when a phase boundary milestone is saved.
+            Attach a calendar invite template here.
           </p>
           <button
             type="button"

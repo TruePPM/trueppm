@@ -25,30 +25,26 @@ const FIELD_LABELS: Record<string, string> = {
   priority_rank: 'Priority rank changed',
 };
 
-const HISTORY_TYPE_BADGE: Record<
-  '+' | '~' | '-',
-  { label: string; classes: string }
-> = {
+const HISTORY_TYPE_BADGE: Record<'+' | '~' | '-', { label: string; classes: string }> = {
   '+': {
     label: 'Created',
-    classes:
-      'bg-semantic-on-track/10 text-semantic-on-track border border-semantic-on-track/30',
+    classes: 'bg-semantic-on-track-bg text-semantic-on-track border border-semantic-on-track/30',
   },
   '~': {
     label: 'Updated',
-    classes:
-      'bg-brand-primary/10 text-brand-primary border border-brand-primary/30',
+    classes: 'bg-brand-primary/10 text-brand-primary border border-brand-primary/30',
   },
   '-': {
     label: 'Deleted',
-    classes:
-      'bg-semantic-critical/10 text-semantic-critical border border-semantic-critical/30',
+    classes: 'bg-semantic-critical-bg text-semantic-critical border border-semantic-critical/30',
   },
 };
 
 export function HistoryTab({ projectId, taskId }: HistoryTabProps) {
-  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } =
-    useTaskHistory(projectId, taskId);
+  const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useTaskHistory(
+    projectId,
+    taskId,
+  );
 
   const records = data?.pages.flatMap((p) => p.results) ?? [];
 
@@ -59,7 +55,9 @@ export function HistoryTab({ projectId, taskId }: HistoryTabProps) {
   if (records.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center gap-2">
-        <span className="text-2xl" aria-hidden="true">📋</span>
+        <span className="text-2xl" aria-hidden="true">
+          📋
+        </span>
         <p className="text-sm font-medium text-neutral-text-primary">No history yet</p>
         <p className="text-xs text-neutral-text-secondary">
           Changes to this task will appear here.
@@ -95,9 +93,7 @@ export function HistoryTab({ projectId, taskId }: HistoryTabProps) {
                 {relativeTime}
               </time>
               {record.history_user && (
-                <span className="text-xs text-neutral-text-disabled">
-                  by {record.history_user}
-                </span>
+                <span className="text-xs text-neutral-text-disabled">by {record.history_user}</span>
               )}
             </div>
 
@@ -115,11 +111,15 @@ export function HistoryTab({ projectId, taskId }: HistoryTabProps) {
                           <span className="line-through text-neutral-text-disabled truncate max-w-[80px]">
                             {d.old}
                           </span>
-                          <span className="text-neutral-text-disabled" aria-hidden="true">→</span>
+                          <span className="text-neutral-text-disabled" aria-hidden="true">
+                            →
+                          </span>
                         </>
                       )}
                       <span className="font-medium truncate max-w-[80px]">
-                        {d.new ?? <span className="text-neutral-text-disabled italic">cleared</span>}
+                        {d.new ?? (
+                          <span className="text-neutral-text-disabled italic">cleared</span>
+                        )}
                       </span>
                     </dd>
                   </div>
@@ -156,7 +156,10 @@ function HistorySkeleton() {
   return (
     <div className="flex flex-col gap-3" aria-busy="true" aria-label="Loading history">
       {[0, 1, 2].map((i) => (
-        <div key={i} className="rounded-lg border border-neutral-border bg-neutral-surface-raised p-3 animate-pulse">
+        <div
+          key={i}
+          className="rounded-lg border border-neutral-border bg-neutral-surface-raised p-3 animate-pulse"
+        >
           <div className="flex items-center gap-2 mb-2">
             <div className="h-4 w-14 rounded bg-neutral-border" />
             <div className="h-3 w-20 rounded bg-neutral-border" />

@@ -88,7 +88,7 @@ export function SearchInput({
         <>
           <span
             aria-live="polite"
-            className="tppm-mono mr-1 shrink-0 text-[10px] tabular-nums text-neutral-text-secondary"
+            className="tppm-mono mr-1 shrink-0 text-xs tabular-nums text-neutral-text-secondary"
           >
             {resultCount} of {totalCount}
           </span>

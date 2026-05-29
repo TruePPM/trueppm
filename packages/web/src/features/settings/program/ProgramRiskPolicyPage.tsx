@@ -20,10 +20,10 @@ const THRESHOLD_LABELS: Record<Threshold, string> = {
 };
 
 const THRESHOLD_STYLE: Record<Threshold, string> = {
-  low:      'bg-neutral-surface-sunken text-neutral-text-secondary border-neutral-border',
-  medium:   'bg-brand-accent-light text-brand-accent-dark border-brand-accent/40',
-  high:     'bg-brand-accent-light text-brand-accent-dark border-brand-accent/40',
-  critical: 'bg-semantic-critical/10 text-semantic-critical border-semantic-critical/40',
+  low: 'bg-neutral-surface-sunken text-neutral-text-secondary border-neutral-border',
+  medium: 'bg-brand-accent-light text-brand-accent-dark border-brand-accent/40',
+  high: 'bg-brand-accent-light text-brand-accent-dark border-brand-accent/40',
+  critical: 'bg-semantic-critical-bg text-semantic-critical border-semantic-critical/40',
 };
 
 interface SlipOption {
@@ -33,18 +33,28 @@ interface SlipOption {
 }
 
 const SLIP_OPTIONS: SlipOption[] = [
-  { id: 'none',  label: 'No action',         hint: 'Slip is visible in the schedule but no notification or gate fires.' },
-  { id: 'warn',  label: 'Warn only',         hint: 'Notify the successor PM and the program manager via in-app alert.' },
-  { id: 'block', label: 'Block & escalate',  hint: 'Lock the successor task from starting and open an escalation ticket.' },
+  {
+    id: 'none',
+    label: 'No action',
+    hint: 'Slip is visible in the schedule but no notification or gate fires.',
+  },
+  {
+    id: 'warn',
+    label: 'Warn only',
+    hint: 'Notify the successor PM and the program manager via in-app alert.',
+  },
+  {
+    id: 'block',
+    label: 'Block & escalate',
+    hint: 'Lock the successor task from starting and open an escalation ticket.',
+  },
 ];
 
 /** 5×5 risk matrix cell. */
 function MatrixCell({ probability, impact }: { probability: number; impact: number }) {
   const score = probability * impact;
   const threshold: Threshold =
-    score >= 20 ? 'critical' :
-    score >= 12 ? 'high' :
-    score >= 6  ? 'medium' : 'low';
+    score >= 20 ? 'critical' : score >= 12 ? 'high' : score >= 6 ? 'medium' : 'low';
 
   return (
     <div
@@ -156,14 +166,23 @@ export function ProgramRiskPolicyPage() {
       <div className="px-6 pb-8 max-w-[720px] space-y-6">
         {/* 5×5 matrix — read-only at the program level (workspace-scoped) */}
         <section aria-labelledby="matrix-heading">
-          <h2 id="matrix-heading" className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary mb-3">
+          <h2
+            id="matrix-heading"
+            className="text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary mb-3"
+          >
             Risk matrix (read-only — thresholds are org-wide)
           </h2>
           <div className="bg-neutral-surface-raised border border-neutral-border rounded-lg p-4 overflow-x-auto">
-            <div className="grid gap-1" style={{ gridTemplateColumns: 'auto repeat(5, 1fr)', minWidth: 320 }}>
+            <div
+              className="grid gap-1"
+              style={{ gridTemplateColumns: 'auto repeat(5, 1fr)', minWidth: 320 }}
+            >
               <div />
               {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="text-center text-[10px] font-semibold text-neutral-text-secondary pb-1">
+                <div
+                  key={i}
+                  className="text-center text-[10px] font-semibold text-neutral-text-secondary pb-1"
+                >
                   I{i}
                 </div>
               ))}
@@ -180,7 +199,10 @@ export function ProgramRiskPolicyPage() {
             </div>
             <div className="flex items-center gap-3 mt-3 pt-3 border-t border-neutral-border/55">
               {(['low', 'medium', 'high', 'critical'] as Threshold[]).map((t) => (
-                <span key={t} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-semibold ${THRESHOLD_STYLE[t]}`}>
+                <span
+                  key={t}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-semibold ${THRESHOLD_STYLE[t]}`}
+                >
                   {THRESHOLD_LABELS[t]}
                 </span>
               ))}
@@ -194,14 +216,21 @@ export function ProgramRiskPolicyPage() {
           className="bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden"
         >
           <div className="px-4 py-3 border-b border-neutral-border/55">
-            <h2 id="slip-heading" className="text-[13px] font-semibold text-neutral-text-primary">Cross-project dependency slip</h2>
+            <h2 id="slip-heading" className="text-[13px] font-semibold text-neutral-text-primary">
+              Cross-project dependency slip
+            </h2>
             <p className="text-[12px] text-neutral-text-secondary mt-0.5">
-              What happens when a predecessor task in one project slips and blocks a successor in another.
+              What happens when a predecessor task in one project slips and blocks a successor in
+              another.
             </p>
           </div>
 
           {isLoading && (
-            <div role="status" aria-label="Loading risk policy" className="px-4 py-6 text-xs text-neutral-text-secondary">
+            <div
+              role="status"
+              aria-label="Loading risk policy"
+              className="px-4 py-6 text-xs text-neutral-text-secondary"
+            >
               Loading…
             </div>
           )}
@@ -250,7 +279,9 @@ export function ProgramRiskPolicyPage() {
                     className="sr-only"
                   />
                   <span className="flex flex-col">
-                    <span className="text-[13px] font-medium text-neutral-text-primary">{opt.label}</span>
+                    <span className="text-[13px] font-medium text-neutral-text-primary">
+                      {opt.label}
+                    </span>
                     <span className="text-[12px] text-neutral-text-secondary">{opt.hint}</span>
                   </span>
                 </label>

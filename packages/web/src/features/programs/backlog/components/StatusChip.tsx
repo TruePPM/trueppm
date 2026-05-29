@@ -30,7 +30,7 @@ export function StatusChip({ status, className = '' }: StatusChipProps) {
   const { label, className: tone } = STATUS_STYLES[status];
   return (
     <span
-      className={`inline-flex h-[18px] items-center rounded-full px-2 text-[10px] font-medium
+      className={`inline-flex h-[18px] items-center rounded-full px-2 text-xs font-medium
         leading-none ${tone} ${className}`}
     >
       {label}

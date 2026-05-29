@@ -16,7 +16,15 @@
  * WIP limits, progress rings, entry stamps, and CP badges are spec-defined
  * features from the design doc (p3m-vs-oss-views-original.html § ⑤).
  */
-import { useState, useEffect, useRef, useCallback, useMemo, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import {
@@ -99,7 +107,7 @@ function sortTasksBy(tasks: Task[], sort: BoardSortKey): Task[] {
 // ---------------------------------------------------------------------------
 
 interface Phase {
-  id: string;     // summary task ID, or 'root' for ungrouped
+  id: string; // summary task ID, or 'root' for ungrouped
   name: string;
   tasks: Task[];
   summaryTask: Task | undefined;
@@ -211,7 +219,7 @@ function WipBadge({ count, limit }: WipBadgeProps) {
   if (count > limit) {
     return (
       <span
-        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-semantic-critical/10 border-semantic-critical/40 text-semantic-critical tppm-mono"
+        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-semantic-critical-bg border-semantic-critical/40 text-semantic-critical tppm-mono"
         aria-label={`${count} of ${limit} WIP limit, over limit`}
       >
         {count}/{limit} — over WIP limit
@@ -221,7 +229,7 @@ function WipBadge({ count, limit }: WipBadgeProps) {
   if (count >= limit) {
     return (
       <span
-        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-semantic-at-risk/10 border-semantic-at-risk/40 text-semantic-at-risk tppm-mono"
+        className="ml-1.5 text-xs font-medium px-1 py-0.5 rounded border bg-semantic-at-risk-bg border-semantic-at-risk/40 text-semantic-at-risk tppm-mono"
         aria-label={`${count} of ${limit} WIP limit, at limit`}
       >
         {count}/{limit} WIP
@@ -288,12 +296,12 @@ function PhaseSummaryChips({ phase }: { phase: Phase }) {
   return (
     <div className="flex flex-wrap gap-1 mt-1">
       {allDone && (
-        <span className="text-xs px-1 py-px rounded bg-semantic-on-track/10 border border-semantic-on-track/30 text-semantic-on-track font-medium">
+        <span className="text-xs px-1 py-px rounded bg-semantic-on-track-bg border border-semantic-on-track/30 text-semantic-on-track font-medium">
           {doneCount} done
         </span>
       )}
       {cpCount > 0 && (
-        <span className="text-xs px-1 py-px rounded bg-semantic-critical/10 border border-semantic-critical/30 text-semantic-critical font-medium">
+        <span className="text-xs px-1 py-px rounded bg-semantic-critical-bg border border-semantic-critical/30 text-semantic-critical font-medium">
           {cpCount} CP
         </span>
       )}
@@ -339,8 +347,8 @@ interface BoardCellProps {
 // equivalent yet (Backlog is in the band; Review is still loud-by-design).
 const COLUMN_TINT: Partial<Record<TaskStatus, string>> = {
   COMPLETE: 'bg-semantic-on-track/[0.025]',
-  REVIEW:   'bg-brand-accent/5',
-  BACKLOG:  'bg-neutral-text-disabled/5',
+  REVIEW: 'bg-brand-accent/5',
+  BACKLOG: 'bg-neutral-text-disabled/5',
 };
 
 // Status-dot color per column (epic #361 child E, issue #385).
@@ -349,12 +357,12 @@ const COLUMN_TINT: Partial<Record<TaskStatus, string>> = {
 // completeness but never renders in the current grid (ADR-0057 lifted it
 // into the band).
 const COLUMN_DOT_CLASS: Record<TaskStatus, string> = {
-  BACKLOG:     'bg-neutral-text-disabled',
+  BACKLOG: 'bg-neutral-text-disabled',
   NOT_STARTED: 'bg-neutral-text-disabled',
   IN_PROGRESS: 'bg-brand-primary',
-  REVIEW:      'bg-brand-accent',
-  ON_HOLD:     'bg-neutral-text-disabled',
-  COMPLETE:    'bg-semantic-on-track',
+  REVIEW: 'bg-brand-accent',
+  ON_HOLD: 'bg-neutral-text-disabled',
+  COMPLETE: 'bg-semantic-on-track',
 };
 
 function BoardCell({
@@ -399,15 +407,8 @@ function BoardCell({
 
   if (showRestingTick) {
     return (
-      <div
-        ref={setNodeRef}
-        data-empty-cell="true"
-        className="h-4 flex items-center justify-center"
-      >
-        <div
-          aria-hidden="true"
-          className="w-8 h-px bg-neutral-border/60"
-        />
+      <div ref={setNodeRef} data-empty-cell="true" className="h-4 flex items-center justify-center">
+        <div aria-hidden="true" className="w-8 h-px bg-neutral-border/60" />
       </div>
     );
   }
@@ -461,10 +462,16 @@ function BoardCell({
 
 interface PhaseLaneProps {
   phase: Phase;
-  columns: { status: TaskStatus; label: string; wipLimit: number | null; color: string | null; slaDays?: number }[];
+  columns: {
+    status: TaskStatus;
+    label: string;
+    wipLimit: number | null;
+    color: string | null;
+    slaDays?: number;
+  }[];
   tasksByStatus: Record<TaskStatus, Task[]>;
   milestones: Task[];
-  overCell: string | null;  // `${phaseId}:${status}` or null
+  overCell: string | null; // `${phaseId}:${status}` or null
   isDragActive: boolean;
   showWip: boolean;
   showColTints: boolean;
@@ -544,10 +551,19 @@ function PhaseLane({
 
   // Keyboard [ / ] shortcuts collapse/expand the focused lane (issue #190).
   // Skip when focus is inside a form element to avoid capturing text input.
-  const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLButtonElement>) => {
-    if (e.key === '[' && !collapsed) { e.preventDefault(); onToggleCollapse(); }
-    if (e.key === ']' && collapsed) { e.preventDefault(); onToggleCollapse(); }
-  }, [collapsed, onToggleCollapse]);
+  const handleKeyDown = useCallback(
+    (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+      if (e.key === '[' && !collapsed) {
+        e.preventDefault();
+        onToggleCollapse();
+      }
+      if (e.key === ']' && collapsed) {
+        e.preventDefault();
+        onToggleCollapse();
+      }
+    },
+    [collapsed, onToggleCollapse],
+  );
 
   const collapseToggle = (
     <button
@@ -608,48 +624,46 @@ function PhaseLane({
         </div>
 
         {/* Column cells */}
-        {collapsed ? (
-          columns.map((col) => {
-            const count = tasksByStatus[col.status]?.length ?? 0;
-            return (
-              <div
+        {collapsed
+          ? columns.map((col) => {
+              const count = tasksByStatus[col.status]?.length ?? 0;
+              return (
+                <div
+                  key={col.status}
+                  className="bg-neutral-surface-sunken rounded-lg p-2 min-h-[56px] flex items-center justify-center"
+                >
+                  <span className="text-xs text-neutral-text-disabled">
+                    {count > 0 ? `${count} task${count !== 1 ? 's' : ''}` : '—'}
+                  </span>
+                </div>
+              );
+            })
+          : columns.map((col) => (
+              <BoardCell
                 key={col.status}
-                className="bg-neutral-surface-sunken rounded-lg p-2 min-h-[56px] flex items-center justify-center"
-              >
-                <span className="text-xs text-neutral-text-disabled">
-                  {count > 0 ? `${count} task${count !== 1 ? 's' : ''}` : '—'}
-                </span>
-              </div>
-            );
-          })
-        ) : (
-          columns.map((col) => (
-            <BoardCell
-              key={col.status}
-              phaseId={phase.id}
-              status={col.status}
-              tasks={tasksByStatus[col.status] ?? []}
-              isOver={overCell === `${phase.id}:${col.status}`}
-              isDragActive={isDragActive}
-              showWip={showWip}
-              showColTints={showColTints}
-              density={density}
-              wipLimit={col.wipLimit}
-              onMenuMove={onMenuMove}
-              columns={columns}
-              focusedCardId={focusedCardId}
-              highlightedTaskIds={highlightedTaskIds}
-              overallocByResourcePerTask={overallocByResourcePerTask}
-              onCardFocus={onCardFocus}
-              onShowDeps={onShowDeps}
-              onShowRisks={onShowRisks}
-              onChainHover={onChainHover}
-              onCardClick={onCardClick}
-              showEvm={showEvm}
-              showCost={showCost}
-            />
-          ))
-        )}
+                phaseId={phase.id}
+                status={col.status}
+                tasks={tasksByStatus[col.status] ?? []}
+                isOver={overCell === `${phase.id}:${col.status}`}
+                isDragActive={isDragActive}
+                showWip={showWip}
+                showColTints={showColTints}
+                density={density}
+                wipLimit={col.wipLimit}
+                onMenuMove={onMenuMove}
+                columns={columns}
+                focusedCardId={focusedCardId}
+                highlightedTaskIds={highlightedTaskIds}
+                overallocByResourcePerTask={overallocByResourcePerTask}
+                onCardFocus={onCardFocus}
+                onShowDeps={onShowDeps}
+                onShowRisks={onShowRisks}
+                onChainHover={onChainHover}
+                onCardClick={onCardClick}
+                showEvm={showEvm}
+                showCost={showCost}
+              />
+            ))}
       </div>
     </div>
   );
@@ -660,14 +674,9 @@ function PhaseLane({
 // ---------------------------------------------------------------------------
 
 function SortablePhaseLane(props: PhaseLaneProps) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: `phase:${props.phase.id}` });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: `phase:${props.phase.id}`,
+  });
 
   const style: CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -699,23 +708,42 @@ function useBoardCollapsedLanes(projectId: string) {
     }
   });
 
-  const toggle = useCallback((id: string) => {
-    setCollapsedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      try { localStorage.setItem(storageKey, JSON.stringify([...next])); } catch { /* ignore */ }
-      return next;
-    });
-  }, [storageKey]);
+  const toggle = useCallback(
+    (id: string) => {
+      setCollapsedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        try {
+          localStorage.setItem(storageKey, JSON.stringify([...next]));
+        } catch {
+          /* ignore */
+        }
+        return next;
+      });
+    },
+    [storageKey],
+  );
 
-  const collapseAll = useCallback((ids: string[]) => {
-    const next = new Set(ids);
-    try { localStorage.setItem(storageKey, JSON.stringify([...next])); } catch { /* ignore */ }
-    setCollapsedIds(next);
-  }, [storageKey]);
+  const collapseAll = useCallback(
+    (ids: string[]) => {
+      const next = new Set(ids);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify([...next]));
+      } catch {
+        /* ignore */
+      }
+      setCollapsedIds(next);
+    },
+    [storageKey],
+  );
 
   const expandAll = useCallback(() => {
-    try { localStorage.setItem(storageKey, JSON.stringify([])); } catch { /* ignore */ }
+    try {
+      localStorage.setItem(storageKey, JSON.stringify([]));
+    } catch {
+      /* ignore */
+    }
     setCollapsedIds(new Set<string>());
   }, [storageKey]);
 
@@ -735,7 +763,9 @@ function useBoardDensity() {
     try {
       const raw = localStorage.getItem(storageKey);
       if (raw === 'compact' || raw === 'comfortable' || raw === 'detailed') return raw;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return 'comfortable';
   });
 
@@ -743,8 +773,8 @@ function useBoardDensity() {
   // Cleared when the viewport grows past md so desktop preference resumes.
   const [mobileOverride, setMobileOverride] = useState<BoardDensity | null>(null);
 
-  const [isMobile, setIsMobile] = useState<boolean>(() =>
-    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
+  const [isMobile, setIsMobile] = useState<boolean>(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
   );
 
   useEffect(() => {
@@ -759,14 +789,21 @@ function useBoardDensity() {
 
   const density: BoardDensity = isMobile ? (mobileOverride ?? 'compact') : storedDensity;
 
-  const setDensity = useCallback((d: BoardDensity) => {
-    if (isMobile) {
-      setMobileOverride(d);
-    } else {
-      try { localStorage.setItem(storageKey, d); } catch { /* ignore */ }
-      setStoredDensity(d);
-    }
-  }, [isMobile, storageKey]);
+  const setDensity = useCallback(
+    (d: BoardDensity) => {
+      if (isMobile) {
+        setMobileOverride(d);
+      } else {
+        try {
+          localStorage.setItem(storageKey, d);
+        } catch {
+          /* ignore */
+        }
+        setStoredDensity(d);
+      }
+    },
+    [isMobile, storageKey],
+  );
 
   return { density, setDensity, isMobile };
 }
@@ -812,9 +849,11 @@ export function BoardView() {
   // `isSynthetic` flags the phase-less Project Tasks lane (#386) — when true,
   // TaskFormModal opens with status defaulting to BACKLOG and the modal title
   // reads "Add to backlog" rather than "Add to Project Tasks". Issue #387.
-  const [addTaskPhase, setAddTaskPhase] = useState<
-    { id: string; name: string; isSynthetic?: boolean } | null
-  >(null);
+  const [addTaskPhase, setAddTaskPhase] = useState<{
+    id: string;
+    name: string;
+    isSynthetic?: boolean;
+  } | null>(null);
   const [riskLinkedOnly, setRiskLinkedOnly] = useState(false);
   const [evmMode, setEvmMode] = useState<EvmMode>('off');
   const [showCost, setShowCost] = useState(false);
@@ -830,9 +869,7 @@ export function BoardView() {
   // dedicated empty state renders.
   const mineActive = myTasksFilter.enabled && !myTasksFilter.isLoading;
   // Active saved/built-in view ID — synced to ?view= URL param
-  const [activeViewId, setActiveViewId] = useState<string | null>(
-    () => searchParams.get('view')
-  );
+  const [activeViewId, setActiveViewId] = useState<string | null>(() => searchParams.get('view'));
   // Keyboard focus (issue #195) — focused card + last-focused column for L/H traversal.
   const [focusedCardId, setFocusedCardId] = useState<string | null>(null);
   const [focusedColumn, setFocusedColumn] = useState<TaskStatus | null>(null);
@@ -858,36 +895,59 @@ export function BoardView() {
   const ariaLiveRef = useRef<HTMLDivElement>(null);
 
   // Snapshot of current toolbar state for "Save view" — keeps the dropdown in sync.
-  const currentViewConfig: BoardViewConfig = useMemo(() => ({
-    sort,
-    showWip,
-    showColTints,
-    evmMode,
-    showCost,
-    riskLinkedOnly,
-    cpOnly: cpOnly || undefined,
-    dueSoonDays: dueSoonDays ?? undefined,
-  }), [sort, showWip, showColTints, evmMode, showCost, riskLinkedOnly, cpOnly, dueSoonDays]);
+  const currentViewConfig: BoardViewConfig = useMemo(
+    () => ({
+      sort,
+      showWip,
+      showColTints,
+      evmMode,
+      showCost,
+      riskLinkedOnly,
+      cpOnly: cpOnly || undefined,
+      dueSoonDays: dueSoonDays ?? undefined,
+    }),
+    [sort, showWip, showColTints, evmMode, showCost, riskLinkedOnly, cpOnly, dueSoonDays],
+  );
 
-  const applyViewConfig = useCallback((config: Partial<BoardViewConfig>, viewId: string | null) => {
-    if (config.sort !== undefined) setSort(config.sort);
-    if (config.showWip !== undefined) setShowWip(config.showWip);
-    if (config.showColTints !== undefined) setShowColTints(config.showColTints);
-    if (config.evmMode !== undefined) setEvmMode(config.evmMode);
-    if (config.showCost !== undefined) setShowCost(config.showCost);
-    if (config.riskLinkedOnly !== undefined) setRiskLinkedOnly(config.riskLinkedOnly);
-    setCpOnly(config.cpOnly ?? false);
-    setDueSoonDays(config.dueSoonDays ?? null);
-    setActiveViewId(viewId);
-    // Sync view ID to URL for deep links
-    if (viewId) {
-      setSearchParams((prev: URLSearchParams) => { prev.set('view', viewId); return prev; }, { replace: true });
-    } else {
-      setSearchParams((prev: URLSearchParams) => { prev.delete('view'); return prev; }, { replace: true });
-    }
-  }, [setSearchParams]);
+  const applyViewConfig = useCallback(
+    (config: Partial<BoardViewConfig>, viewId: string | null) => {
+      if (config.sort !== undefined) setSort(config.sort);
+      if (config.showWip !== undefined) setShowWip(config.showWip);
+      if (config.showColTints !== undefined) setShowColTints(config.showColTints);
+      if (config.evmMode !== undefined) setEvmMode(config.evmMode);
+      if (config.showCost !== undefined) setShowCost(config.showCost);
+      if (config.riskLinkedOnly !== undefined) setRiskLinkedOnly(config.riskLinkedOnly);
+      setCpOnly(config.cpOnly ?? false);
+      setDueSoonDays(config.dueSoonDays ?? null);
+      setActiveViewId(viewId);
+      // Sync view ID to URL for deep links
+      if (viewId) {
+        setSearchParams(
+          (prev: URLSearchParams) => {
+            prev.set('view', viewId);
+            return prev;
+          },
+          { replace: true },
+        );
+      } else {
+        setSearchParams(
+          (prev: URLSearchParams) => {
+            prev.delete('view');
+            return prev;
+          },
+          { replace: true },
+        );
+      }
+    },
+    [setSearchParams],
+  );
 
-  const { collapsedIds, toggle: toggleCollapse, collapseAll, expandAll } = useBoardCollapsedLanes(projectId);
+  const {
+    collapsedIds,
+    toggle: toggleCollapse,
+    collapseAll,
+    expandAll,
+  } = useBoardCollapsedLanes(projectId);
   const { density, setDensity, isMobile } = useBoardDensity();
   const toolbarPrefs = useBoardToolbarPrefs();
   const { data: projectDetail } = useProject(projectId || null);
@@ -927,12 +987,7 @@ export function BoardView() {
     // lands on `parent_id = null`. Workshop mode is a separate path (it
     // already shows + Add Phase as the empty CTA), so skip there.
     const hasRootLane = built.some((p) => p.id === 'root');
-    if (
-      !workshopMode &&
-      !hasRootLane &&
-      built.length === 0 &&
-      backlogTasks.length > 0
-    ) {
+    if (!workshopMode && !hasRootLane && built.length === 0 && backlogTasks.length > 0) {
       built.push({ id: 'root', name: 'Project Tasks', summaryTask: undefined, tasks: [] });
     }
     return built;
@@ -961,7 +1016,12 @@ export function BoardView() {
   // guard can read live counts before issuing the move mutation (#232).
   const totalByStatus = useMemo(() => {
     const counts: Record<TaskStatus, number> = {
-      BACKLOG: 0, NOT_STARTED: 0, IN_PROGRESS: 0, REVIEW: 0, ON_HOLD: 0, COMPLETE: 0,
+      BACKLOG: 0,
+      NOT_STARTED: 0,
+      IN_PROGRESS: 0,
+      REVIEW: 0,
+      ON_HOLD: 0,
+      COMPLETE: 0,
     };
     for (const phase of phases) {
       for (const task of phase.tasks) {
@@ -1048,10 +1108,15 @@ export function BoardView() {
     for (const e of chainHoverDeps.predecessors) connected.add(e.predecessorId);
     for (const e of chainHoverDeps.successors) connected.add(e.successorId);
     setHighlightedTaskIds(connected);
-  }, [chainHoverTaskId, chainHoverDeps.isLoading, chainHoverDeps.predecessors, chainHoverDeps.successors]);
+  }, [
+    chainHoverTaskId,
+    chainHoverDeps.isLoading,
+    chainHoverDeps.predecessors,
+    chainHoverDeps.successors,
+  ]);
 
   const activeTask = useMemo(
-    () => (activeId ? tasks?.find((t) => t.id === activeId) ?? null : null),
+    () => (activeId ? (tasks?.find((t) => t.id === activeId) ?? null) : null),
     [activeId, tasks],
   );
 
@@ -1141,7 +1206,10 @@ export function BoardView() {
   const handleDragOver = useCallback(
     (event: DragOverEvent) => {
       const overId = event.over?.id;
-      if (!overId) { setOverCell(null); return; }
+      if (!overId) {
+        setOverCell(null);
+        return;
+      }
       const cellId = String(overId); // `${phaseId}:${status}` or BACKLOG_BAND_DROPPABLE_ID
       // Backlog band: highlight unless the dragged card is already in backlog.
       if (cellId === BACKLOG_BAND_DROPPABLE_ID) {
@@ -1208,8 +1276,7 @@ export function BoardView() {
           activeTask.status === 'COMPLETE'
         ) {
           if (ariaLiveRef.current) {
-            ariaLiveRef.current.textContent =
-              `${activeTask.name} cannot move to backlog — work has already started.`;
+            ariaLiveRef.current.textContent = `${activeTask.name} cannot move to backlog — work has already started.`;
           }
           return;
         }
@@ -1280,21 +1347,18 @@ export function BoardView() {
     [projectId, updateStatus, COLUMNS, showWip, totalByStatus],
   );
 
-  const handleAddTask = useCallback(
-    (phaseId: string, phaseName: string, isSynthetic = false) => {
-      // Synthetic phase-less Project Tasks lane (#387): the lane is intake
-      // scaffolding, not a real committed structure, so the modal opens
-      // with `defaultStatus="BACKLOG"` and the header reads "Add to backlog".
-      // VoC panel resolved the BACKLOG-vs-TO-DO default tension (#386 follow-up)
-      // by treating the synthetic lane as context-aware intake.
-      setAddTaskPhase({
-        id: phaseId,
-        name: isSynthetic ? 'backlog' : phaseName,
-        isSynthetic,
-      });
-    },
-    [],
-  );
+  const handleAddTask = useCallback((phaseId: string, phaseName: string, isSynthetic = false) => {
+    // Synthetic phase-less Project Tasks lane (#387): the lane is intake
+    // scaffolding, not a real committed structure, so the modal opens
+    // with `defaultStatus="BACKLOG"` and the header reads "Add to backlog".
+    // VoC panel resolved the BACKLOG-vs-TO-DO default tension (#386 follow-up)
+    // by treating the synthetic lane as context-aware intake.
+    setAddTaskPhase({
+      id: phaseId,
+      name: isSynthetic ? 'backlog' : phaseName,
+      isSynthetic,
+    });
+  }, []);
 
   const handlePhaseRename = useCallback(
     (phaseId: string, newName: string) => {
@@ -1310,19 +1374,25 @@ export function BoardView() {
     setFocusedPhaseId(phaseId);
   }, []);
 
-  const handleShowDeps = useCallback((task: Task) => {
-    setRiskTask(null);
-    setShowCheatsheet(false);
-    setDepTask(task);
-    handleCardFocus(task.id, task.status, task.parentId ?? 'root');
-  }, [handleCardFocus]);
+  const handleShowDeps = useCallback(
+    (task: Task) => {
+      setRiskTask(null);
+      setShowCheatsheet(false);
+      setDepTask(task);
+      handleCardFocus(task.id, task.status, task.parentId ?? 'root');
+    },
+    [handleCardFocus],
+  );
 
-  const handleShowRisks = useCallback((task: Task) => {
-    setDepTask(null);
-    setShowCheatsheet(false);
-    setRiskTask(task);
-    handleCardFocus(task.id, task.status, task.parentId ?? 'root');
-  }, [handleCardFocus]);
+  const handleShowRisks = useCallback(
+    (task: Task) => {
+      setDepTask(null);
+      setShowCheatsheet(false);
+      setRiskTask(task);
+      handleCardFocus(task.id, task.status, task.parentId ?? 'root');
+    },
+    [handleCardFocus],
+  );
 
   const handleChainHover = useCallback((taskId: string | null) => {
     setChainHoverTaskId(taskId);
@@ -1331,14 +1401,17 @@ export function BoardView() {
   // Card popover (issue #304) — opens on click (mouse/touch/keyboard parity
   // is on the card root). Closes other overlays so only one popover is
   // visible at a time, mirroring the depTask/riskTask exclusivity above.
-  const handleCardClick = useCallback((task: Task, anchor: HTMLElement) => {
-    setDepTask(null);
-    setRiskTask(null);
-    setShowCheatsheet(false);
-    setPopoverTask(task);
-    setPopoverAnchor(anchor);
-    handleCardFocus(task.id, task.status, task.parentId ?? 'root');
-  }, [handleCardFocus]);
+  const handleCardClick = useCallback(
+    (task: Task, anchor: HTMLElement) => {
+      setDepTask(null);
+      setRiskTask(null);
+      setShowCheatsheet(false);
+      setPopoverTask(task);
+      setPopoverAnchor(anchor);
+      handleCardFocus(task.id, task.status, task.parentId ?? 'root');
+    },
+    [handleCardFocus],
+  );
 
   const closeCardPopover = useCallback(() => {
     setPopoverTask(null);
@@ -1355,63 +1428,74 @@ export function BoardView() {
 
   // Keyboard navigation — J/K within column (across phases), L/H across columns
   // within phase (#195).  Wraps; skips empty cells.  See ADR-0035 §Q3.
-  const moveFocusInColumn = useCallback((direction: 'up' | 'down') => {
-    if (!focusedColumn) return;
-    // Build a flat list of (phaseId, taskId) for the focused column across all phases.
-    const orderedPhaseIds = phases.map((p) => p.id);
-    const flat: Array<{ phaseId: string; taskId: string }> = [];
-    for (const pid of orderedPhaseIds) {
-      const tasksInCell = phaseTaskMap.get(pid)?.[focusedColumn] ?? [];
-      for (const t of tasksInCell) flat.push({ phaseId: pid, taskId: t.id });
-    }
-    if (flat.length === 0) return;
-
-    let idx = focusedCardId ? flat.findIndex((x) => x.taskId === focusedCardId) : -1;
-    if (idx === -1) {
-      idx = direction === 'down' ? 0 : flat.length - 1;
-    } else {
-      idx = direction === 'down' ? (idx + 1) % flat.length : (idx - 1 + flat.length) % flat.length;
-    }
-    const next = flat[idx];
-    setFocusedCardId(next.taskId);
-    setFocusedPhaseId(next.phaseId);
-  }, [focusedColumn, focusedCardId, phases, phaseTaskMap]);
-
-  const moveFocusInPhase = useCallback((direction: 'left' | 'right') => {
-    const visibleColumns = COLUMNS.map((c) => c.status);
-    if (visibleColumns.length === 0) return;
-    const activePhaseId = focusedPhaseId ?? phases[0]?.id;
-    if (!activePhaseId) return;
-    const tasksByCol = phaseTaskMap.get(activePhaseId);
-    if (!tasksByCol) return;
-
-    let colIdx = focusedColumn ? visibleColumns.indexOf(focusedColumn) : -1;
-    // Walk in the chosen direction looking for a non-empty column; wrap once.
-    const step = direction === 'right' ? 1 : -1;
-    for (let i = 0; i < visibleColumns.length; i++) {
-      colIdx = (colIdx + step + visibleColumns.length) % visibleColumns.length;
-      const candidate = visibleColumns[colIdx];
-      const cellTasks = tasksByCol[candidate] ?? [];
-      if (cellTasks.length > 0) {
-        setFocusedColumn(candidate);
-        setFocusedCardId(cellTasks[0].id);
-        setFocusedPhaseId(activePhaseId);
-        return;
+  const moveFocusInColumn = useCallback(
+    (direction: 'up' | 'down') => {
+      if (!focusedColumn) return;
+      // Build a flat list of (phaseId, taskId) for the focused column across all phases.
+      const orderedPhaseIds = phases.map((p) => p.id);
+      const flat: Array<{ phaseId: string; taskId: string }> = [];
+      for (const pid of orderedPhaseIds) {
+        const tasksInCell = phaseTaskMap.get(pid)?.[focusedColumn] ?? [];
+        for (const t of tasksInCell) flat.push({ phaseId: pid, taskId: t.id });
       }
-    }
-    // No non-empty column in this phase — leave focus untouched.
-  }, [COLUMNS, focusedColumn, focusedPhaseId, phases, phaseTaskMap]);
+      if (flat.length === 0) return;
+
+      let idx = focusedCardId ? flat.findIndex((x) => x.taskId === focusedCardId) : -1;
+      if (idx === -1) {
+        idx = direction === 'down' ? 0 : flat.length - 1;
+      } else {
+        idx =
+          direction === 'down' ? (idx + 1) % flat.length : (idx - 1 + flat.length) % flat.length;
+      }
+      const next = flat[idx];
+      setFocusedCardId(next.taskId);
+      setFocusedPhaseId(next.phaseId);
+    },
+    [focusedColumn, focusedCardId, phases, phaseTaskMap],
+  );
+
+  const moveFocusInPhase = useCallback(
+    (direction: 'left' | 'right') => {
+      const visibleColumns = COLUMNS.map((c) => c.status);
+      if (visibleColumns.length === 0) return;
+      const activePhaseId = focusedPhaseId ?? phases[0]?.id;
+      if (!activePhaseId) return;
+      const tasksByCol = phaseTaskMap.get(activePhaseId);
+      if (!tasksByCol) return;
+
+      let colIdx = focusedColumn ? visibleColumns.indexOf(focusedColumn) : -1;
+      // Walk in the chosen direction looking for a non-empty column; wrap once.
+      const step = direction === 'right' ? 1 : -1;
+      for (let i = 0; i < visibleColumns.length; i++) {
+        colIdx = (colIdx + step + visibleColumns.length) % visibleColumns.length;
+        const candidate = visibleColumns[colIdx];
+        const cellTasks = tasksByCol[candidate] ?? [];
+        if (cellTasks.length > 0) {
+          setFocusedColumn(candidate);
+          setFocusedCardId(cellTasks[0].id);
+          setFocusedPhaseId(activePhaseId);
+          return;
+        }
+      }
+      // No non-empty column in this phase — leave focus untouched.
+    },
+    [COLUMNS, focusedColumn, focusedPhaseId, phases, phaseTaskMap],
+  );
 
   // While any b3 overlay is open, only Esc → onCloseOverlay should fire; nav keys
   // are suppressed.  When AddTaskModal is open, the modal owns the keyboard.
-  const b3OverlayOpen = depTask !== null || riskTask !== null || showCheatsheet || popoverTask !== null || editTaskId !== null;
+  const b3OverlayOpen =
+    depTask !== null ||
+    riskTask !== null ||
+    showCheatsheet ||
+    popoverTask !== null ||
+    editTaskId !== null;
 
   useBoardKeyboard(
     {
       onMoveCardFocus: b3OverlayOpen ? undefined : moveFocusInColumn,
       onMoveColumnFocus: b3OverlayOpen ? undefined : moveFocusInPhase,
-      onShowDeps:
-        !b3OverlayOpen && focusedTask ? () => handleShowDeps(focusedTask) : undefined,
+      onShowDeps: !b3OverlayOpen && focusedTask ? () => handleShowDeps(focusedTask) : undefined,
       onShowCheatsheet: b3OverlayOpen ? undefined : () => setShowCheatsheet(true),
       onCloseOverlay: b3OverlayOpen ? closeAllOverlays : undefined,
     },
@@ -1439,7 +1523,6 @@ export function BoardView() {
         onDragCancel={handleDragCancel}
       >
         <div className="flex flex-col h-full overflow-hidden">
-
           {/* Board toolbar — calm refactor (issue #382, epic #361 child B). */}
           <CalmToolbar
             projectId={projectId}
@@ -1526,21 +1609,14 @@ export function BoardView() {
           {toolbarPrefs.layout === 'queue' && (
             <QueueLayout
               tasks={queueTasks}
-              phaseNameFor={(parentId) =>
-                phaseNameMap.get(parentId ?? 'root') ?? 'Project'
-              }
-              phaseColorFor={(parentId) =>
-                parentId ? phaseColor(parentId) : phaseColor('root')
-              }
+              phaseNameFor={(parentId) => phaseNameMap.get(parentId ?? 'root') ?? 'Project'}
+              phaseColorFor={(parentId) => (parentId ? phaseColor(parentId) : phaseColor('root'))}
               focusedCardId={focusedCardId}
               onCardFocus={handleCardFocus}
               onCardClick={handleCardClick}
               header={
                 projectId ? (
-                  <SprintPanel
-                    projectId={projectId}
-                    methodology={projectDetail?.methodology}
-                  />
+                  <SprintPanel projectId={projectId} methodology={projectDetail?.methodology} />
                 ) : null
               }
             />
@@ -1551,247 +1627,244 @@ export function BoardView() {
               isDragActive={activeId !== null}
               isOver={overCell === BACKLOG_BAND_DROPPABLE_ID}
               density={toolbarPrefs.backlogDensity}
-              phaseColorFor={(parentId) =>
-                parentId ? phaseColor(parentId) : phaseColor('root')
-              }
+              phaseColorFor={(parentId) => (parentId ? phaseColor(parentId) : phaseColor('root'))}
               focusedCardId={focusedCardId}
               onCardFocus={handleCardFocus}
               onCardClick={handleCardClick}
             />
           )}
           {toolbarPrefs.layout !== 'queue' && (
-          <div className="flex-1 flex flex-row min-h-0">
+            <div className="flex-1 flex flex-row min-h-0">
+              {toolbarPrefs.layout === 'rail' && (
+                <BacklogBand
+                  tasks={backlogTasks}
+                  isDragActive={activeId !== null}
+                  isOver={overCell === BACKLOG_BAND_DROPPABLE_ID}
+                  density={toolbarPrefs.backlogDensity}
+                  phaseColorFor={(parentId) =>
+                    parentId ? phaseColor(parentId) : phaseColor('root')
+                  }
+                  focusedCardId={focusedCardId}
+                  onCardFocus={handleCardFocus}
+                  onCardClick={handleCardClick}
+                  onSchedule={projectId ? handleScheduleRequest : undefined}
+                  onCaptureIdea={() => handleAddTask('root', 'backlog', true)}
+                  isCaptureIdeaPending={false}
+                />
+              )}
 
-            {toolbarPrefs.layout === 'rail' && (
-              <BacklogBand
-                tasks={backlogTasks}
-                isDragActive={activeId !== null}
-                isOver={overCell === BACKLOG_BAND_DROPPABLE_ID}
-                density={toolbarPrefs.backlogDensity}
-                phaseColorFor={(parentId) =>
-                  parentId ? phaseColor(parentId) : phaseColor('root')
-                }
-                focusedCardId={focusedCardId}
-                onCardFocus={handleCardFocus}
-                onCardClick={handleCardClick}
-                onSchedule={projectId ? handleScheduleRequest : undefined}
-                onCaptureIdea={() => handleAddTask('root', 'backlog', true)}
-                isCaptureIdeaPending={false}
-              />
-            )}
-
-            {/* Board grid — scrollable */}
-            <div className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken">
-            {/* Active-sprint summary (ADR-0073) — rendered inside the scroll
+              {/* Board grid — scrollable */}
+              <div className="flex-1 overflow-auto min-h-0 bg-neutral-surface-sunken">
+                {/* Active-sprint summary (ADR-0073) — rendered inside the scroll
                 container so the burndown / velocity charts scroll away with
                 the board instead of permanently consuming vertical space.
                 Hidden entirely on WATERFALL projects and on projects with
                 no active sprint. */}
-            {projectId && (
-              <SprintPanel
-                projectId={projectId}
-                methodology={projectDetail?.methodology}
-              />
-            )}
-            {/* Sticky column headers */}
-            <div
-              className="grid gap-2 px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10"
-              style={{ gridTemplateColumns: `188px repeat(${COLUMNS.length}, minmax(0, 1fr))` }}
-            >
-              <div className="text-xs uppercase tracking-wide text-neutral-text-disabled px-2">
-                Phase
-              </div>
-              {COLUMNS.map((col) => {
-                const count = totalByStatus[col.status];
-                const state = showWip ? wipState(count, col.wipLimit) : 'none';
-                // WIP-state band tint kept on at/over states (issue #232) but
-                // dropped on `none` — epic #361 child E (#385) introduced the
-                // status-dot prefix as the resting signal, so a tint at rest
-                // would compete with the dot.
-                const headerTint =
-                  state === 'over'
-                    ? 'bg-semantic-critical/5 border-l-2 border-semantic-critical'
-                    : state === 'at'
-                      ? 'bg-semantic-at-risk/5 border-l-2 border-semantic-at-risk'
-                      : '';
-                const dotClass = COLUMN_DOT_CLASS[col.status] ?? 'bg-neutral-text-disabled';
-                return (
-                  <div
-                    key={col.status}
-                    className={`flex items-center gap-2 px-2 ${headerTint}`}
-                    data-wip-state={state}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`}
-                    />
-                    <h2
-                      className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
-                      aria-label={`${col.label}, ${count} task${count !== 1 ? 's' : ''}`}
-                    >
-                      {col.label}
-                    </h2>
-                    <span className="text-xs text-neutral-text-disabled tppm-mono">
-                      {count}
-                    </span>
-                    {showWip && col.wipLimit != null && (
-                      <span className="ml-auto">
-                        <WipBadge count={count} limit={col.wipLimit} />
-                      </span>
-                    )}
+                {projectId && (
+                  <SprintPanel projectId={projectId} methodology={projectDetail?.methodology} />
+                )}
+                {/* Sticky column headers */}
+                <div
+                  className="grid gap-2 px-2 py-1.5 border-b-2 border-neutral-border/60 bg-neutral-surface sticky top-0 z-10"
+                  style={{ gridTemplateColumns: `188px repeat(${COLUMNS.length}, minmax(0, 1fr))` }}
+                >
+                  <div className="text-xs uppercase tracking-wide text-neutral-text-disabled px-2">
+                    Phase
                   </div>
-                );
-              })}
-            </div>
+                  {COLUMNS.map((col) => {
+                    const count = totalByStatus[col.status];
+                    const state = showWip ? wipState(count, col.wipLimit) : 'none';
+                    // WIP-state band tint kept on at/over states (issue #232) but
+                    // dropped on `none` — epic #361 child E (#385) introduced the
+                    // status-dot prefix as the resting signal, so a tint at rest
+                    // would compete with the dot.
+                    const headerTint =
+                      state === 'over'
+                        ? 'bg-semantic-critical-bg border-l-2 border-semantic-critical'
+                        : state === 'at'
+                          ? 'bg-semantic-at-risk-bg border-l-2 border-semantic-at-risk'
+                          : '';
+                    const dotClass = COLUMN_DOT_CLASS[col.status] ?? 'bg-neutral-text-disabled';
+                    return (
+                      <div
+                        key={col.status}
+                        className={`flex items-center gap-2 px-2 ${headerTint}`}
+                        data-wip-state={state}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`}
+                        />
+                        <h2
+                          className="text-xs font-semibold tracking-widest uppercase text-neutral-text-secondary"
+                          aria-label={`${col.label}, ${count} task${count !== 1 ? 's' : ''}`}
+                        >
+                          {col.label}
+                        </h2>
+                        <span className="text-xs text-neutral-text-disabled tppm-mono">
+                          {count}
+                        </span>
+                        {showWip && col.wipLimit != null && (
+                          <span className="ml-auto">
+                            <WipBadge count={count} limit={col.wipLimit} />
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
 
-            {/* Phase lanes */}
-            {(() => {
-              const filteredPhases = sortedPhases.filter((phase) => {
-                const phaseCells = phaseTaskMap.get(phase.id);
-                // After cpOnly / dueSoonDays / mineActive filtering, hide
-                // phases with no visible tasks. Without this the empty-state
-                // branch below can never render — phases would stay even when
-                // every cell has been emptied by the filter.
-                if (cpOnly || dueSoonDays !== null || mineActive) {
-                  const visibleCount = Object.values(phaseCells ?? {}).reduce(
-                    (s: number, arr) => s + (arr as unknown[]).length, 0,
-                  );
-                  if (visibleCount === 0) return false;
-                }
-                if (!riskLinkedOnly) return true;
-                return phase.tasks.some((t) => (t.linkedRisksCount ?? 0) > 0);
-              });
+                {/* Phase lanes */}
+                {(() => {
+                  const filteredPhases = sortedPhases.filter((phase) => {
+                    const phaseCells = phaseTaskMap.get(phase.id);
+                    // After cpOnly / dueSoonDays / mineActive filtering, hide
+                    // phases with no visible tasks. Without this the empty-state
+                    // branch below can never render — phases would stay even when
+                    // every cell has been emptied by the filter.
+                    if (cpOnly || dueSoonDays !== null || mineActive) {
+                      const visibleCount = Object.values(phaseCells ?? {}).reduce(
+                        (s: number, arr) => s + (arr as unknown[]).length,
+                        0,
+                      );
+                      if (visibleCount === 0) return false;
+                    }
+                    if (!riskLinkedOnly) return true;
+                    return phase.tasks.some((t) => (t.linkedRisksCount ?? 0) > 0);
+                  });
 
-              const laneProps = (phase: Phase) => ({
-                phase,
-                columns: COLUMNS,
-                tasksByStatus: phaseTaskMap.get(phase.id) ?? {
-                  BACKLOG: [], NOT_STARTED: [], IN_PROGRESS: [], REVIEW: [], ON_HOLD: [], COMPLETE: [],
-                },
-                milestones: milestonesByPhase.get(phase.id) ?? [],
-                overCell,
-                isDragActive: activeId !== null,
-                showWip,
-                showColTints,
-                density,
-                collapsed: collapsedIds.has(phase.id),
-                onToggleCollapse: () => toggleCollapse(phase.id),
-                onMenuMove: handleMenuMove,
-                onAddTask: handleAddTask,
-                focusedCardId,
-                highlightedTaskIds,
-                overallocByResourcePerTask,
-                onCardFocus: handleCardFocus,
-                onShowDeps: handleShowDeps,
-                onShowRisks: handleShowRisks,
-                onChainHover: handleChainHover,
-                onCardClick: handleCardClick,
-                onOpenMilestone: (t: Task) => {
-                  handleCardFocus(t.id, t.status, t.parentId ?? 'root');
-                },
-                showEvm: evmMode,
-                showCost,
-                workshop: workshopMode,
-                onPhaseRename: workshopMode ? handlePhaseRename : undefined,
-              });
+                  const laneProps = (phase: Phase) => ({
+                    phase,
+                    columns: COLUMNS,
+                    tasksByStatus: phaseTaskMap.get(phase.id) ?? {
+                      BACKLOG: [],
+                      NOT_STARTED: [],
+                      IN_PROGRESS: [],
+                      REVIEW: [],
+                      ON_HOLD: [],
+                      COMPLETE: [],
+                    },
+                    milestones: milestonesByPhase.get(phase.id) ?? [],
+                    overCell,
+                    isDragActive: activeId !== null,
+                    showWip,
+                    showColTints,
+                    density,
+                    collapsed: collapsedIds.has(phase.id),
+                    onToggleCollapse: () => toggleCollapse(phase.id),
+                    onMenuMove: handleMenuMove,
+                    onAddTask: handleAddTask,
+                    focusedCardId,
+                    highlightedTaskIds,
+                    overallocByResourcePerTask,
+                    onCardFocus: handleCardFocus,
+                    onShowDeps: handleShowDeps,
+                    onShowRisks: handleShowRisks,
+                    onChainHover: handleChainHover,
+                    onCardClick: handleCardClick,
+                    onOpenMilestone: (t: Task) => {
+                      handleCardFocus(t.id, t.status, t.parentId ?? 'root');
+                    },
+                    showEvm: evmMode,
+                    showCost,
+                    workshop: workshopMode,
+                    onPhaseRename: workshopMode ? handlePhaseRename : undefined,
+                  });
 
-              if (workshopMode) {
-                return (
-                  <>
-                    <SortableContext
-                      items={filteredPhases.map((p) => `phase:${p.id}`)}
-                      strategy={verticalListSortingStrategy}
-                    >
-                      {filteredPhases.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-text-secondary">
-                          <p className="text-sm">No phases yet. Add your first phase to start planning.</p>
-                          <button
-                            type="button"
-                            onClick={handleAddPhase}
-                            disabled={createTask.isPending}
-                            className="border border-brand-primary/40 rounded px-4 py-2 text-sm
+                  if (workshopMode) {
+                    return (
+                      <>
+                        <SortableContext
+                          items={filteredPhases.map((p) => `phase:${p.id}`)}
+                          strategy={verticalListSortingStrategy}
+                        >
+                          {filteredPhases.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-text-secondary">
+                              <p className="text-sm">
+                                No phases yet. Add your first phase to start planning.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={handleAddPhase}
+                                disabled={createTask.isPending}
+                                className="border border-brand-primary/40 rounded px-4 py-2 text-sm
                               text-brand-primary-dark dark:text-brand-primary font-medium
                               hover:bg-brand-primary/10 disabled:opacity-50
                               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
-                          >
-                            {createTask.isPending ? 'Adding…' : '+ Add Phase'}
-                          </button>
-                        </div>
-                      ) : (
-                        filteredPhases.map((phase) => (
-                          <SortablePhaseLane key={phase.id} {...laneProps(phase)} />
-                        ))
-                      )}
-                    </SortableContext>
-                    {filteredPhases.length > 0 && (
-                      <div className="flex justify-start px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={handleAddPhase}
-                          disabled={createTask.isPending}
-                          className="border border-dashed border-neutral-border rounded px-3 py-1.5 text-xs
+                              >
+                                {createTask.isPending ? 'Adding…' : '+ Add Phase'}
+                              </button>
+                            </div>
+                          ) : (
+                            filteredPhases.map((phase) => (
+                              <SortablePhaseLane key={phase.id} {...laneProps(phase)} />
+                            ))
+                          )}
+                        </SortableContext>
+                        {filteredPhases.length > 0 && (
+                          <div className="flex justify-start px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={handleAddPhase}
+                              disabled={createTask.isPending}
+                              className="border border-dashed border-neutral-border rounded px-3 py-1.5 text-xs
                             text-neutral-text-secondary hover:border-brand-primary/40
                             hover:text-brand-primary-dark dark:hover:text-brand-primary
                             hover:bg-brand-primary/5 disabled:opacity-50
                             focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
-                        >
-                          {createTask.isPending ? 'Adding…' : '+ Add Phase'}
-                        </button>
-                      </div>
-                    )}
-                  </>
-                );
-              }
+                            >
+                              {createTask.isPending ? 'Adding…' : '+ Add Phase'}
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    );
+                  }
 
-              if (filteredPhases.length === 0) {
-                if (mineActive) {
-                  return (
-                    <div
-                      className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-text-secondary text-sm"
-                      role="status"
-                    >
-                      <p>No tasks assigned to you in this project yet.</p>
-                      <button
-                        type="button"
-                        onClick={() => myTasksFilter.setEnabled(false)}
-                        className="border border-brand-primary/40 rounded px-3 py-1.5 text-xs
+                  if (filteredPhases.length === 0) {
+                    if (mineActive) {
+                      return (
+                        <div
+                          className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-text-secondary text-sm"
+                          role="status"
+                        >
+                          <p>No tasks assigned to you in this project yet.</p>
+                          <button
+                            type="button"
+                            onClick={() => myTasksFilter.setEnabled(false)}
+                            className="border border-brand-primary/40 rounded px-3 py-1.5 text-xs
                           text-brand-primary-dark dark:text-brand-primary font-medium
                           hover:bg-brand-primary/10
                           focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+                          >
+                            Show all tasks
+                          </button>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div
+                        className="flex items-center justify-center py-16 text-neutral-text-secondary text-sm"
+                        role="status"
                       >
-                        Show all tasks
-                      </button>
-                    </div>
-                  );
-                }
-                return (
-                  <div
-                    className="flex items-center justify-center py-16 text-neutral-text-secondary text-sm"
-                    role="status"
-                  >
-                    No tasks yet. Create tasks to see them on the board.
-                  </div>
-                );
-              }
+                        No tasks yet. Create tasks to see them on the board.
+                      </div>
+                    );
+                  }
 
-              return filteredPhases.map((phase) => (
-                <PhaseLane key={phase.id} {...laneProps(phase)} />
-              ));
-            })()}
+                  return filteredPhases.map((phase) => (
+                    <PhaseLane key={phase.id} {...laneProps(phase)} />
+                  ));
+                })()}
+              </div>
             </div>
-          </div>
           )}
         </div>
 
         {/* Drag overlay — floating card follows the pointer */}
         <DragOverlay dropAnimation={null}>
           {activeTask ? (
-            <BoardCard
-              task={activeTask}
-              isOverlay
-              onMenuMove={() => {}}
-              columns={COLUMNS}
-            />
+            <BoardCard task={activeTask} isOverlay onMenuMove={() => {}} columns={COLUMNS} />
           ) : null}
         </DragOverlay>
       </DndContext>
@@ -1888,11 +1961,7 @@ export function BoardView() {
         />
       )}
       {riskTask && projectId && (
-        <RiskPopover
-          projectId={projectId}
-          task={riskTask}
-          onClose={() => setRiskTask(null)}
-        />
+        <RiskPopover projectId={projectId} task={riskTask} onClose={() => setRiskTask(null)} />
       )}
 
       {/* Card information popover (issue #304) — primary card-click target.

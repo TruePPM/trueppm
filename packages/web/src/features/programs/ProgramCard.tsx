@@ -14,7 +14,7 @@ interface Props {
 const HEALTH_SQUARE: Record<ProgramHealth, string> = {
   ON_TRACK: 'bg-semantic-on-track-bg text-semantic-on-track',
   AT_RISK: 'bg-semantic-at-risk-bg text-semantic-at-risk',
-  CRITICAL: 'bg-semantic-critical/10 text-semantic-critical',
+  CRITICAL: 'bg-semantic-critical-bg text-semantic-critical',
   AUTO: 'bg-neutral-surface-sunken text-neutral-text-secondary',
 };
 
@@ -42,7 +42,7 @@ function roleChipClasses(role: number | null): string {
       return 'bg-brand-primary/5 text-brand-primary border border-brand-primary/30';
     case 2:
     case 1:
-      return 'bg-semantic-on-track/10 text-semantic-on-track border border-semantic-on-track/40';
+      return 'bg-semantic-on-track-bg text-semantic-on-track border border-semantic-on-track/40';
     case 0:
     default:
       return 'bg-neutral-surface-raised text-neutral-text-secondary border border-neutral-border';
