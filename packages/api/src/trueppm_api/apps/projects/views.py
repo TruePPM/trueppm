@@ -6335,15 +6335,34 @@ class TaskCommentViewSet(
         POST creates an ack (idempotent — second POST returns 200 with the existing row).
         DELETE removes the ack. NEVER triggers a notification (per ADR-0075 §A.3).
         """
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
         comment = self.get_object()
         user = request.user
         if not user.is_authenticated:
             return Response(status=status.HTTP_401_UNAUTHORIZED)
+
+        # Body-less peer-state ping (#837): clients refetch the gated ack list via
+        # REST, so the broadcast must NOT carry the acknowledger identity or an
+        # aggregate count — that preserves the ADR-0075 §A.3 team-only ack
+        # visibility (no PMO leak). Broadcast != notify; this still never notifies.
+        def _broadcast_ack_changed() -> None:
+            transaction.on_commit(
+                lambda: broadcast_board_event(
+                    str(project_pk),
+                    "task_comment_ack_changed",
+                    {"comment_id": str(pk), "task_id": str(task_pk)},
+                )
+            )
+
         if request.method == "POST":
             ack, _created = CommentAcknowledgement.objects.get_or_create(comment=comment, user=user)
+            _broadcast_ack_changed()
             return Response(CommentAcknowledgementSerializer(ack).data, status=status.HTTP_200_OK)
         # DELETE
         deleted, _ = CommentAcknowledgement.objects.filter(comment=comment, user=user).delete()
+        if deleted:
+            _broadcast_ack_changed()
         return Response(
             {"deleted": deleted},
             status=status.HTTP_200_OK if deleted else status.HTTP_404_NOT_FOUND,
@@ -6384,18 +6403,50 @@ class CommentReactionViewSet(
         ).select_related("user")
 
     def perform_create(self, serializer: BaseSerializer[CommentReaction]) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
         project_pk = self.kwargs["project_pk"]
         comment_pk = self.kwargs["comment_pk"]
+        task_pk = self.kwargs["task_pk"]
         comment = get_object_or_404(
             TaskComment, pk=comment_pk, task__project_id=project_pk, is_deleted=False
         )
         self.check_object_permissions(self.request, comment)
-        serializer.save(comment=comment, user=self.request.user)
+        reaction = serializer.save(comment=comment, user=self.request.user)
+        # Body-less peer-state ping (#837): the reaction renders inline on the
+        # comment, so clients refetch ['task-comments', task_id]. Not a
+        # notification (ADR-0075 §A.4) — broadcast != notify.
+        # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).
+        reaction_id = str(reaction.pk)
+        project_id_str = str(project_pk)
+        comment_id_str = str(comment_pk)
+        task_id_str = str(task_pk)
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_id_str,
+                "task_comment_reaction_added",
+                {"id": reaction_id, "comment_id": comment_id_str, "task_id": task_id_str},
+            )
+        )
 
     def perform_destroy(self, instance: CommentReaction) -> None:
+        from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
         if instance.user_id != self.request.user.pk:
             raise serializers.ValidationError(
                 {"detail": "You can only remove your own reactions."},
                 code="reaction_delete_forbidden",
             )
+        # Snapshot plain values BEFORE the on_commit lambda (broadcast-check H-1).
+        reaction_id = str(instance.pk)
+        comment_id = str(instance.comment_id)
+        project_pk = str(self.kwargs["project_pk"])
+        task_pk = str(self.kwargs["task_pk"])
         instance.delete()
+        transaction.on_commit(
+            lambda: broadcast_board_event(
+                project_pk,
+                "task_comment_reaction_removed",
+                {"id": reaction_id, "comment_id": comment_id, "task_id": task_pk},
+            )
+        )
