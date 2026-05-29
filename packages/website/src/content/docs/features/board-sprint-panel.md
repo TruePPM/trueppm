@@ -86,10 +86,10 @@ No new endpoints — the panel is a UI composition over existing data.
 
 ## Related
 
-- [ADR-0073](/architecture/adr/) — Sprint planning capacity and Board panel
-- [ADR-0037](/architecture/adr/) — Sprint model (this panel completes the
+- [ADR-0073](/architecture/decisions/) — Sprint planning capacity and Board panel
+- [ADR-0037](/architecture/decisions/) — Sprint model (this panel completes the
   "slim banner" anticipated there)
-- [ADR-0072](/architecture/adr/) — Role ordinals extension point (all role
+- [ADR-0072](/architecture/decisions/) — Role ordinals extension point (all role
   checks here use the `>=` band contract)
 - [Sprint burndown](/features/sprint-burndown/), [Velocity panel](/features/velocity/),
   [Capacity preflight](/features/capacity-preflight/)

@@ -48,7 +48,7 @@ Separate `values-dev.yaml` and `values-prod.yaml` overlays are provided.
 **Good for:** production deployment, horizontal scaling, enterprise environments.
 
 :::note
-The Helm chart shipped in 0.1 with dev and prod values overlays and is updated in 0.2. It is functional and used internally; large-scale production hardening (HA Postgres, dedicated Valkey, autoscaling policies) is on the pre-1.0 roadmap.
+The Helm chart shipped in 0.1 with dev and prod values overlays; further updates land in 0.2 (target Jun 8, 2026). It is functional and used internally; large-scale production hardening (HA Postgres, dedicated Valkey, autoscaling policies) is on the pre-1.0 roadmap.
 :::
 
 ## Services

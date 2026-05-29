@@ -13,7 +13,7 @@ and deleting baselines is currently done **through the REST API** — there is n
 "Capture baseline" button yet. Once an active baseline exists, TruePPM shows a read-only
 baseline-vs-current comparison in the task detail drawer (see
 [Comparing against the plan](#comparing-against-the-plan)). A capture/manage UI and
-structured rebaseline reasons are planned for 0.4.
+structured rebaseline reasons are planned for 0.5.
 :::
 
 ## What a baseline captures

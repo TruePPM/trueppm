@@ -61,9 +61,9 @@ When the project's [estimation mode](/features/scheduler/) is `suggest_approve`,
 
 ## Related ADRs
 
-- [ADR-0065](/architecture/adr/) — Hybrid Bridge v1.1 (velocity feedback, "My Work", inbound sync)
-- [ADR-0032](/architecture/adr/) — Three-point estimates (the input that velocity calibrates)
-- [ADR-0037](/architecture/adr/) — Sprint model and close drain
+- [ADR-0065](/architecture/decisions/) — Hybrid Bridge v1.1 (velocity feedback, "My Work", inbound sync)
+- [ADR-0032](/architecture/decisions/) — Three-point estimates (the input that velocity calibrates)
+- [ADR-0037](/architecture/decisions/) — Sprint model and close drain
 
 ## If you are…
 

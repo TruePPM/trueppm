@@ -5,6 +5,7 @@ import { useProgramProjects } from '@/hooks/useProgramProjects';
 import { useAssignProjectToProgram } from '@/hooks/useProgramMutations';
 import { NewProjectModal } from '@/features/shell/NewProjectModal';
 import { AddProjectToProgramModal } from './AddProjectToProgramModal';
+import { ROLE_ADMIN } from '@/lib/roles';
 
 /**
  * /programs/:programId/projects — projects belonging to the program (ADR-0070).
@@ -27,7 +28,10 @@ export function ProgramProjectsPage() {
 
   if (!programId) return null;
 
-  const isAdmin = program ? (program.my_role ?? -1) >= 3 : false;
+  // my_role is a Role ordinal (VIEWER=0 … OWNER=400), not a 0–4 index — a bare
+  // `>= 3` exposed admin add/remove affordances to Members/Schedulers. Gate on
+  // the ROLE_ADMIN ordinal (300) to match the sibling settings page.
+  const isAdmin = program ? (program.my_role ?? -1) >= ROLE_ADMIN : false;
 
   async function handleRemove(projectId: string): Promise<void> {
     setRemoveError(null);
@@ -52,7 +56,11 @@ export function ProgramProjectsPage() {
           )}
         </h2>
         {isAdmin && (
-          <div role="toolbar" aria-label="Program projects actions" className="flex items-center gap-2">
+          <div
+            role="toolbar"
+            aria-label="Program projects actions"
+            className="flex items-center gap-2"
+          >
             <button
               type="button"
               onClick={() => setShowAddExistingModal(true)}
@@ -78,8 +86,8 @@ export function ProgramProjectsPage() {
       {/* Onboarding hint — second of three placements (ADR-0070 §Risks). */}
       <p className="mb-4 rounded border border-neutral-border bg-neutral-surface-raised p-3 text-xs text-neutral-text-secondary">
         <span aria-hidden="true">ⓘ </span>
-        These projects belong to the program. Their member lists are managed separately
-        on each project.
+        These projects belong to the program. Their member lists are managed separately on each
+        project.
       </p>
 
       {removeError && (
@@ -109,8 +117,8 @@ export function ProgramProjectsPage() {
       {!isLoading && !error && projects && projects.length === 0 && (
         <div className="rounded border border-neutral-border bg-neutral-surface-raised p-6 text-center">
           <p className="text-sm text-neutral-text-secondary">
-            No projects in this program yet. Add an existing project, or create a new one
-            and assign it here.
+            No projects in this program yet. Add an existing project, or create a new one and assign
+            it here.
           </p>
           {isAdmin && (
             <div className="mt-4 flex items-center justify-center gap-2">

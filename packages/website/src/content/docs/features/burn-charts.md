@@ -61,8 +61,8 @@ The response includes a `series` array with one entry per calendar day and a `me
 
 ## Related ADRs
 
-- [ADR-0022](/architecture/adr/) — Burn charts: API endpoint design and snapshot semantics
-- [ADR-0062](/architecture/adr/) — Burn charts web implementation (recharts, combined mode, unit selector)
+- [ADR-0022](/architecture/decisions/) — Burn charts: API endpoint design and snapshot semantics
+- [ADR-0062](/architecture/decisions/) — Burn charts web implementation (recharts, combined mode, unit selector)
 
 ## If you are…
 

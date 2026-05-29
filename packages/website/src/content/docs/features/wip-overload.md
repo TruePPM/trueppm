@@ -37,7 +37,7 @@ Columns with `wip_limit=null` render the unchanged neutral count chip. The defau
 
 ## Related ADRs
 
-- [ADR-0039](/architecture/adr/) — Board column config (where `wip_limit` lives)
+- [ADR-0039](/architecture/decisions/) — Board column config (where `wip_limit` lives)
 
 ## If you are…
 

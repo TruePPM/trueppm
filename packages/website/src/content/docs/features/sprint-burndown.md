@@ -38,8 +38,8 @@ The ideal line is computed client-side from `committed_points`; the API does not
 
 ## Related ADRs
 
-- [ADR-0022](/architecture/adr/) — Burn charts (API endpoint design)
-- [ADR-0037](/architecture/adr/) — Sprint model: snapshot semantics
+- [ADR-0022](/architecture/decisions/) — Burn charts (API endpoint design)
+- [ADR-0037](/architecture/decisions/) — Sprint model: snapshot semantics
 
 ## If you are…
 
