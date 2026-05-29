@@ -877,6 +877,37 @@ class TestCommentReaction:
         r = member_client.delete(url)
         assert r.status_code == 400
 
+    def test_removing_own_reaction_broadcasts_removed_event(
+        self,
+        member_client: APIClient,
+        member2_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+        django_capture_on_commit_callbacks: object,
+    ) -> None:
+        """Deleting one's own reaction soft-fires a body-less reaction_removed event (#837)."""
+        c = member_client.post(_comment_list_url(project, task), {"body": "nice"}, format="json")
+        create = member2_client.post(
+            self._reactions_url(project, task, c.data["id"]),
+            {"emoji": "👍"},
+            format="json",
+        )
+        reaction_id = create.data["id"]
+        # The autouse fixture mutes broadcasts; re-patch locally to assert the event.
+        with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast:
+            with django_capture_on_commit_callbacks(execute=True):  # type: ignore[operator]
+                url = self._reactions_url(project, task, c.data["id"]) + f"{reaction_id}/"
+                r = member2_client.delete(url)
+            assert r.status_code == 204, r.data
+        assert not CommentReaction.objects.filter(pk=reaction_id).exists()
+        assert mock_bcast.call_count == 1
+        _project_id, event_type, payload = mock_bcast.call_args.args
+        assert event_type == "task_comment_reaction_removed"
+        assert payload["id"] == str(reaction_id)
+        assert payload["comment_id"] == str(c.data["id"])
+        assert payload["task_id"] == str(task.pk)
+
     def test_viewer_cannot_react(
         self,
         member_client: APIClient,
