@@ -482,8 +482,10 @@ def test_bulk_upload_coalesces_into_single_broadcast(
     """
     ids = [str(uuid.uuid4()) for _ in range(5)]
     with (
-        patch("trueppm_api.apps.sync.views.broadcast_board_event") as mock_bcast,
-        patch("trueppm_api.apps.sync.views.enqueue_recalculate"),
+        # Both helpers are imported function-locally in sync.views, so they must be
+        # patched at their source modules where the local import resolves them.
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        patch("trueppm_api.apps.scheduling.services.enqueue_recalculate"),
     ):
         with django_capture_on_commit_callbacks(execute=True):  # type: ignore[operator]
             resp = admin_client.post(
