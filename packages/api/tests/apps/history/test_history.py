@@ -362,6 +362,9 @@ class TestHistorySummaryAPI:
         assert "total_mutations" in r.data
         assert "by_object_type" in r.data
         assert "generated_at" in r.data
+        # History rows are capped per object type (#821); the flag tells the client
+        # whether the summary is complete. A handful of rows is well under the cap.
+        assert r.data["count_truncated"] is False
 
     def test_invalid_window_returns_400(
         self,
