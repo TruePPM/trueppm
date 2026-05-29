@@ -131,3 +131,25 @@ class TestProject:
         assert p.tasks == []
         assert p.dependencies == []
         assert Project.from_dict(p.to_dict()) == p
+
+
+class TestDeserializationExceptionSurface:
+    """from_dict / from_json wrap malformed input in InvalidScheduleInput (#826)."""
+
+    def test_project_from_dict_missing_key_raises_invalid_input(self) -> None:
+        from trueppm_scheduler import InvalidScheduleInput
+
+        with pytest.raises(InvalidScheduleInput):
+            Project.from_dict({"name": "no id"})
+
+    def test_project_from_json_malformed_json_raises_invalid_input(self) -> None:
+        from trueppm_scheduler import InvalidScheduleInput
+
+        with pytest.raises(InvalidScheduleInput):
+            Project.from_json("{not valid json")
+
+    def test_date_range_from_dict_bad_date_raises_invalid_input(self) -> None:
+        from trueppm_scheduler import InvalidScheduleInput
+
+        with pytest.raises(InvalidScheduleInput):
+            DateRange.from_dict({"start": "not-a-date", "end": "2026-01-02"})

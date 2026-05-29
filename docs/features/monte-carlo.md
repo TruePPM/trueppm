@@ -44,6 +44,13 @@ The `n_simulations` field is optional; it defaults to the server's
 endpoint is synchronous and fast — under 100 ms for a 200-task project at 10 000
 runs.
 
+The endpoint also enforces a **task cap** (`MC_TASK_CAP`, 5 000 on OSS): a project
+with more tasks than the cap returns HTTP 402 rather than running an unbounded
+simulation. The vectorised engine handles a 5 000-task × 1 000-run simulation in a
+few seconds; operators on constrained hardware can lower the cap, and Enterprise
+removes it. (Earlier builds capped this at 500, well below the 10k-task scaling
+target — raised so Monte Carlo is available for realistic large projects.)
+
 ### Step 3 — Read the output
 
 ```json
