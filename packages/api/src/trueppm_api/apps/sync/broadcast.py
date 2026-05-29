@@ -66,3 +66,34 @@ def broadcast_board_event(
         async_to_sync(channel_layer.group_send)(group, message)
     except Exception:
         logger.exception("broadcast_board_event: failed to send %s to group %s", event_type, group)
+
+
+def evict_project_connection(project_id: str, user_id: str) -> None:
+    """Push a ``connection.evict`` to a project's board + workshop WS groups (#813).
+
+    Project membership is checked only at ``websocket_connect``; once accepted, a
+    socket keeps receiving every ``board_event`` until it disconnects. When a
+    ``ProjectMembership`` is soft-deleted or demoted below ``Role.MEMBER``, this
+    evicts the user's *live* sockets so they stop receiving real-time project data
+    immediately (the reconnect path is already gated — this closes the active-
+    connection gap, the analog of #419). Each consumer whose authenticated user
+    matches ``user_id`` closes with code 4003; sockets for other users ignore it.
+
+    Targets both the board group (``project_{id}``) and the workshop group
+    (``project_{id}_workshop``) since both gate on the same membership. Best-effort
+    like ``broadcast_board_event`` — callers defer it with ``transaction.on_commit``.
+    """
+    from channels.layers import get_channel_layer
+
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        logger.warning("evict_project_connection: no channel layer configured, skipping")
+        return
+
+    message = {"type": "connection.evict", "user_id": str(user_id)}
+    base = _group_name(project_id)
+    for group in (base, f"{base}_workshop"):
+        try:
+            async_to_sync(channel_layer.group_send)(group, message)
+        except Exception:
+            logger.exception("evict_project_connection: failed to evict %s from %s", user_id, group)

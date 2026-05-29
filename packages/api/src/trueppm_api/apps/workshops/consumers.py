@@ -97,6 +97,16 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             return
         await self.send_json(event["content"])
 
+    async def connection_evict(self, event: dict[str, Any]) -> None:
+        """Close this workshop socket if the user's project access was revoked (#813).
+
+        Mirrors ProjectConsumer.connection_evict: workshop access gates on the same
+        ProjectMembership, so a soft-delete / demotion below Member must drop the
+        live workshop socket too, not just the board socket.
+        """
+        if hasattr(self, "_user") and event.get("user_id") == str(self._user.pk):
+            await self.close(code=4003)
+
     # ------------------------------------------------------------------
     # Participant tracking
     # ------------------------------------------------------------------

@@ -10,7 +10,9 @@ class AccessConfig(AppConfig):
     name = "trueppm_api.apps.access"
 
     def ready(self) -> None:
-        # Import for side effect: registers the SECRET_KEY system check (#566).
-        # No suitable top-level AppConfig exists for trueppm_api itself, so this
-        # piggybacks on the access app which is always installed.
+        # Imports for side effect. The access app is always installed, so it is the
+        # registration point for app-wide hooks that have no better home:
+        #   - signals: ProjectMembership revocation evicts live WS sockets (#813).
+        #   - security_checks: registers the SECRET_KEY system check (#566).
+        from trueppm_api.apps.access import signals  # noqa: F401
         from trueppm_api.core import security_checks  # noqa: F401
