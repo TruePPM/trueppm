@@ -42,6 +42,13 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_DEFAULT_FILE_STORAGE` | `django.core.files.storage.FileSystemStorage` | Backend for task-attachment storage. The local default is **ephemeral in a container** — uploads are lost on every pod restart. Point this at a persistent object-storage backend for production, e.g. `storages.backends.s3.S3Storage`. |
 | `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` | `false` | Operator opt-in to run production on the local `FileSystemStorage` default (e.g. when local disk is backed by a persistent volume). `prod` refuses to boot on local storage unless this is `true` or `TRUEPPM_DEFAULT_FILE_STORAGE` is set to a remote backend. |
 | `CSRF_TRUSTED_ORIGINS` | _(empty)_ | Comma-separated origins (scheme included) trusted for cross-origin POST/CSRF. Required only for split-origin deploys where the web app and API are served from different hostnames, e.g. `https://app.example.com,https://api.example.com`. |
+| `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | Days of webhook delivery records to keep before the nightly purge. See [Retention](/administration/retention/). |
+| `TRUEPPM_EXPORT_RETENTION_DAYS` | `7` | Days of generated export artifacts to keep before purge. See [Retention](/administration/retention/). |
+| `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | Hours of processed offline-sync upload batches to keep before purge. See [Retention](/administration/retention/). |
+| `RETENTION_PURGE_INFLIGHT_SECONDS` | `600` | Lock TTL (seconds) guarding against overlapping retention-purge runs. See [Retention](/administration/retention/). |
+| `TRUEPPM_BEAT_STALE_SECONDS` | `120` | Age (seconds) after which the last Celery-beat heartbeat is considered stale by `/health/beat/`. See [Durability](/administration/durability/). |
+| `TRUEPPM_RECURRENCE_HORIZON_DAYS` | `14` | Look-ahead window (days) for spawning recurring-task occurrences. See [Recurring tasks](/features/recurring-tasks/). |
+| `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_HOST_USER` / … | _(Django default)_ | SMTP settings for notification and invite email. **Currently must be set via a Django settings override — dedicated env-var / Helm bindings are not yet wired**, so setting bare `EMAIL_HOST` env vars has no effect. See [Outbound email](/administration/email/). |
 
 ## MS Project import limit
 

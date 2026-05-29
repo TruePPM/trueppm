@@ -3,6 +3,11 @@ title: System Health
 description: The workspace-admin System Health console — inspect durable-execution health, the Celery Beat heartbeat, and the dead-letter queue from the UI, without shelling into the cluster.
 ---
 
+
+:::note[0.2 — in progress]
+This page documents functionality that ships in **TruePPM 0.2** (target Jun 8, 2026). It is not available on the current 0.1 release.
+:::
+
 TruePPM runs scheduling, notifications, webhooks, MS Project imports, and retention
 purges as background work via Celery and a transactional outbox. The **System Health**
 console gives a workspace administrator a read-only operator view of that machinery —

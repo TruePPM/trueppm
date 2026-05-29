@@ -3,6 +3,11 @@ title: Recurring tasks
 description: Repeat a task on a calendar cadence — standups, weekly walks, monthly reviews — without it ever touching the critical path.
 ---
 
+
+:::note[0.2 — in progress]
+This page documents functionality that ships in **TruePPM 0.2** (target Jun 8, 2026). It is not available on the current 0.1 release.
+:::
+
 Recurring tasks let you repeat a task on a calendar cadence — a daily standup, a weekly safety walk, a monthly steering review — without hand-creating each instance. You configure the cadence once on a template task, and TruePPM spawns the upcoming occurrences for you.
 
 The defining rule: **a recurring task never enters the schedule's CPM compute.** A recurrence is a parallel, calendar-driven activity, not a node in the project's logical network. A 365-occurrence daily standup has no business swamping the critical path, float, or the Monte Carlo P50/P80/P95 forecast — so recurring templates and every occurrence they generate are excluded from the scheduling engine entirely.

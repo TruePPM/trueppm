@@ -3,6 +3,11 @@ title: Workspace Settings
 description: Configure the TruePPM workspace — general settings, workspace roles, email invites, and groups with project-access cascade.
 ---
 
+
+:::note[0.2 — in progress]
+This page documents functionality that ships in **TruePPM 0.2** (target Jun 8, 2026). It is not available on the current 0.1 release.
+:::
+
 TruePPM's workspace is the installation itself — a single-tenant configuration
 row that backs the three pages under **Workspace → Settings**: General, Members,
 and Groups & teams (#517/#518/#519, ADR-0087).

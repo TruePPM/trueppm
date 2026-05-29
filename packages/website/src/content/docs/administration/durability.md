@@ -3,6 +3,11 @@ title: Beat Liveness & Durability
 description: How TruePPM detects a dead Celery Beat process and keeps async work durable in a single-pod deployment.
 ---
 
+
+:::note[0.2 — in progress]
+This page documents functionality that ships in **TruePPM 0.2** (target Jun 8, 2026). It is not available on the current 0.1 release.
+:::
+
 Every asynchronous job in TruePPM — CPM recalculation drains, webhook delivery,
 MS Project imports, retention purges, notification email — is driven by periodic
 **Celery Beat** tasks. In a single-pod deployment (the common self-hosted shape) there

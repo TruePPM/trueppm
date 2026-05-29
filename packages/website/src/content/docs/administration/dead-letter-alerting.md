@@ -3,6 +3,11 @@ title: Dead-letter Alerting
 description: How TruePPM surfaces permanently-failed background tasks via a structured alert log, a Prometheus gauge, and an Enterprise signal for off-box paging.
 ---
 
+
+:::note[0.2 — in progress]
+This page documents functionality that ships in **TruePPM 0.2** (target Jun 8, 2026). It is not available on the current 0.1 release.
+:::
+
 When a background Celery task in TruePPM exhausts its retries, the work is
 permanently abandoned — a CPM recalculation, a notification email, an MS Project
 import, all driven asynchronously. Without a signal, a solo operator has no way to

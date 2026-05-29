@@ -3,6 +3,11 @@ title: Task collaboration — attachments, comments, mentions
 description: Per-task attachments, threaded comments, @mention notifications, and a per-user inbox bring the conversation onto the work. Powered by ADR-0075.
 ---
 
+
+:::note[0.2 — in progress]
+This page documents functionality that ships in **TruePPM 0.2** (target Jun 8, 2026). It is not available on the current 0.1 release.
+:::
+
 Every task has its own attachment grid and comment thread inside the detail
 drawer. Comments support `@user` and `@group` mentions; mentioned recipients
 get an in-app notification on the TopBar bell within ~30 seconds, with an
