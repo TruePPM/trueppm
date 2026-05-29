@@ -318,16 +318,28 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             batch.save(update_fields=["status", "response_body", "response_status"])
 
             # Side effects on commit, mirroring single-row writes (inbound_sync):
-            # one coalesced CPM recalc + a board event per applied row, so web
-            # clients react and a rolled-back batch broadcasts nothing.
+            # one coalesced CPM recalc + one coalesced board event, so web clients
+            # react and a rolled-back batch broadcasts nothing.
+            #
+            # A delta batch can carry up to TRUEPPM_SYNC_BATCH_MAX_ROWS (500) rows.
+            # Emitting one broadcast per applied row (the previous behavior) issued
+            # up to 500 async_to_sync(group_send) round-trips at commit on a single
+            # upload — under a reconnect storm this overflowed the channel-layer
+            # inbox and dropped presence/CPM events (#809). Coalesce into a single
+            # tasks_bulk_mutated event (same pattern as sprint-close carry-over,
+            # projects/tasks.py); the web handler invalidates the whole task query
+            # on it, so per-row granularity is not needed.
             project_id = str(project.pk)
             if applied.changed:
                 transaction.on_commit(partial(enqueue_recalculate, project_id))
-            for event_type, task_id in applied.events:
-                # partial binds the current loop values by value — no late-binding.
-                transaction.on_commit(
-                    partial(broadcast_board_event, project_id, event_type, {"id": task_id})
-                )
+            mutated_ids = [task_id for _event_type, task_id in applied.events]
+            if mutated_ids:
+                # default-arg binding (not closure capture) so a future branch
+                # can't late-bind the ids — matches the carry-over pattern.
+                def _broadcast_bulk(pid: str = project_id, ids: list[str] = mutated_ids) -> None:
+                    broadcast_board_event(pid, "tasks_bulk_mutated", {"task_ids": ids})
+
+                transaction.on_commit(_broadcast_bulk)
 
         return Response(body, status=status.HTTP_200_OK)
 

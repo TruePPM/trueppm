@@ -143,12 +143,30 @@ def apply_task_changes(
     def _bump(version: int) -> None:
         result.max_version = max(result.max_version, version)
 
+    # Bulk-fetch every row the batch references in one query so each bucket loop
+    # below is a dict lookup, not a per-row SELECT (#809). A 500-row batch
+    # previously issued up to 500 Task.objects.filter(...).first() round-trips.
+    # Keyed by str(pk) because in_bulk()'s UUID keys won't match the string ids in
+    # the JSON payload. Fetched unscoped by project so the created-bucket's
+    # idempotent re-create check still finds a cross-project id collision (same
+    # semantics as the original ``filter(pk=row_id).first()``); the updated and
+    # deleted loops re-apply their project + is_deleted predicate in Python.
+    _batch_ids = {
+        str(rid)
+        for bucket in ("created", "updated")
+        for row in (tasks.get(bucket, []) or [])
+        if (rid := row.get("id"))
+    } | {str(del_id) for del_id in (tasks.get("deleted", []) or []) if del_id}
+    existing_by_id: dict[str, Task] = (
+        {str(t.pk): t for t in Task.objects.filter(pk__in=_batch_ids)} if _batch_ids else {}
+    )
+
     # --- created (upsert by client-generated id) ------------------------------
     for row in tasks.get("created", []) or []:
         row_id = row.get("id")
         if not row_id:
             raise ValidationError({"tasks.created": "Each created row requires an 'id'."})
-        existing = Task.objects.filter(pk=row_id).first()
+        existing = existing_by_id.get(str(row_id))
         if existing is not None:
             # Idempotent re-create (the row already landed in a prior batch) —
             # apply as an update, but enforce the stricter edit permission.
@@ -177,10 +195,12 @@ def apply_task_changes(
         row_id = row.get("id")
         if not row_id:
             raise ValidationError({"tasks.updated": "Each updated row requires an 'id'."})
-        target = Task.objects.filter(pk=row_id, project=project, is_deleted=False).first()
-        if target is None:
-            # Unknown or already-tombstoned row — skip; the next pull reconciles
-            # it via the tombstone. Not an error: a benign offline/online race.
+        target = existing_by_id.get(str(row_id))
+        if target is None or target.project_id != project.pk or target.is_deleted:
+            # Unknown, cross-project, or already-tombstoned row — skip; the next
+            # pull reconciles it via the tombstone. Not an error: a benign
+            # offline/online race. (Predicate mirrors the original
+            # filter(pk=row_id, project=project, is_deleted=False).)
             continue
         if not _can_write_existing(target, user.pk, role):
             raise PermissionDenied("You may not edit this task.")
@@ -193,9 +213,9 @@ def apply_task_changes(
 
     # --- deleted --------------------------------------------------------------
     for del_id in tasks.get("deleted", []) or []:
-        target = Task.objects.filter(pk=del_id, project=project, is_deleted=False).first()
-        if target is None:
-            continue  # already gone — idempotent
+        target = existing_by_id.get(str(del_id))
+        if target is None or target.project_id != project.pk or target.is_deleted:
+            continue  # unknown, cross-project, or already gone — idempotent
         if not _can_write_existing(target, user.pk, role):
             raise PermissionDenied("You may not delete this task.")
         target.soft_delete()  # bumps server_version, sets deleted_version, cascades

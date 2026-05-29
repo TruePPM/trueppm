@@ -100,6 +100,10 @@ class ProjectMembership(VersionedModel):
     class Meta:
         db_table = "access_project_membership"
         unique_together = [("project", "user")]
+        indexes = [
+            # Sync delta pull: WHERE project_id = X AND server_version > since (#810).
+            models.Index(fields=["project", "server_version"], name="pm_proj_serverver_idx"),
+        ]
 
     def __str__(self) -> str:
         return f"{self.user} — {self.project} ({Role(self.role).label})"
