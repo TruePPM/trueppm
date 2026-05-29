@@ -1,0 +1,12 @@
+apiVersion: v2
+name: valkey
+description: >-
+  Minimal first-party Valkey (Redis-compatible) for TruePPM dev / demo / CI,
+  using the official valkey/valkey image. Vendored to drop the deprecated
+  Bitnami subchart dependency (#827) — resolves offline, no third-party repo.
+  Production uses an external managed cache/broker (ElastiCache / MemoryDB /
+  managed Valkey); set `valkey.enabled: false` and point REDIS_URL at it.
+  Not HA — single replica.
+type: application
+version: 0.2.0
+appVersion: "8"
