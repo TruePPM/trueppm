@@ -1,0 +1,12 @@
+apiVersion: v2
+name: postgresql
+description: >-
+  Minimal first-party PostgreSQL for TruePPM dev / demo / CI, using the official
+  postgres image. Vendored to drop the deprecated Bitnami subchart dependency
+  (#827) — there is no third-party chart repo to fetch, so `helm lint`/`helm
+  template` resolve it offline. Production uses an external managed database
+  (RDS / Cloud SQL / CloudNativePG); set `postgresql.enabled: false` and point
+  DATABASE_URL at it. Not HA — single replica, no backup.
+type: application
+version: 0.2.0
+appVersion: "16"

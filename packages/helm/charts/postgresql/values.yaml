@@ -1,0 +1,21 @@
+# Values for the vendored dev/demo PostgreSQL subchart.
+# The parent chart's `postgresql:` block maps onto these keys, and the parent's
+# `condition: postgresql.enabled` gates whether this subchart renders at all.
+image:
+  repository: postgres
+  tag: "16"
+  pullPolicy: IfNotPresent
+
+# Credentials seeded into the database on first boot and exposed via a Secret.
+# These must match the parent values.yaml DATABASE_URL.
+auth:
+  username: trueppm
+  password: trueppm
+  database: trueppm
+
+persistence:
+  size: 8Gi
+  # Empty string uses the cluster default StorageClass.
+  storageClass: ""
+
+resources: {}

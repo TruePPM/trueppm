@@ -1,0 +1,19 @@
+# Values for the vendored dev/demo Valkey subchart.
+# The parent chart's `valkey:` block maps onto these keys; the parent's
+# `condition: valkey.enabled` gates whether this subchart renders at all.
+image:
+  repository: valkey/valkey
+  tag: "8"
+  pullPolicy: IfNotPresent
+
+auth:
+  # When true, the server requires `--requirepass` and REDIS_URL must include
+  # the password. Default off to match the parent values.yaml REDIS_URL.
+  enabled: false
+  password: ""
+
+persistence:
+  size: 2Gi
+  storageClass: ""
+
+resources: {}
