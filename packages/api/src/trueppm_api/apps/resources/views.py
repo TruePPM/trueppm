@@ -595,8 +595,14 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
         headers = self.get_success_headers(serializer.data)
         obj: TaskResource = serializer.instance  # type: ignore[assignment]
         project_id = str(obj.task.project_id)
+        # Fetch the resource (with skills prefetched) once and reuse it for both
+        # the overallocation check and the skill-fit check, instead of lazy-loading
+        # obj.resource and then re-fetching the same row with prefetch (#821).
+        resource_with_skills = Resource.objects.prefetch_related("skills__skill").get(
+            pk=obj.resource_id
+        )
         warnings: list[dict[str, object]] = [
-            dict(w) for w in _check_overallocation(obj.resource, project_id)
+            dict(w) for w in _check_overallocation(resource_with_skills, project_id)
         ]
 
         # Skill mismatch check — only when the task has requirements.
@@ -604,9 +610,6 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
             TaskSkillRequirement.objects.filter(
                 task_id=obj.task_id, is_deleted=False
             ).select_related("skill")
-        )
-        resource_with_skills = Resource.objects.prefetch_related("skills__skill").get(
-            pk=obj.resource_id
         )
         _fit, missing = _compute_skill_fit(resource_with_skills, requirements)
         if missing:

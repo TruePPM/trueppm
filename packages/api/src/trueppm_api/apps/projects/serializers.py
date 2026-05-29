@@ -2468,6 +2468,12 @@ class ProjectDetailSerializer(ProjectSerializer):
         fields = [*ProjectSerializer.Meta.fields, "unresolved_assignee_count"]
 
     def get_unresolved_assignee_count(self, obj: Project) -> int:
+        # Prefer the queryset annotation (ProjectViewSet.get_queryset on retrieve,
+        # #821); fall back to a live COUNT when the serializer is used outside that
+        # viewset (e.g. directly in tests or another caller).
+        annotated = getattr(obj, "unresolved_assignee_count", None)
+        if annotated is not None:
+            return int(annotated)
         return InboundTaskLink.objects.filter(
             project=obj,
             is_deleted=False,

@@ -226,6 +226,12 @@ class ProjectHistorySummaryView(APIView):
 
     permission_classes = [IsAuthenticated, IsProjectMember]
     _CACHE_TTL = 300  # 5 minutes
+    # Cap the rows pulled into memory per object type. A 90-day window on a busy
+    # project could otherwise load tens of thousands of history rows just to
+    # aggregate field counts (#821). When a batch hits the cap the summary is
+    # built from the most recent _MAX_HISTORY_ROWS and `count_truncated` is set so
+    # the client can surface "showing recent activity" rather than implying totals.
+    _MAX_HISTORY_ROWS = 5000
 
     def get(self, request: Request, project_pk: str) -> Response:
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
@@ -252,19 +258,29 @@ class ProjectHistorySummaryView(APIView):
 
         since = timezone.now() - timedelta(days=VALID_WINDOWS[window_str])
 
+        cap = self._MAX_HISTORY_ROWS
+        # Order by -history_date so a truncated batch keeps the most recent rows.
         task_records: list[Any] = list(
-            Task.history.filter(project_id=project_pk, history_date__gte=since).select_related(
-                "history_user"
-            )
+            Task.history.filter(project_id=project_pk, history_date__gte=since)
+            .select_related("history_user")
+            .order_by("-history_date")[: cap + 1]
         )
         project_records: list[Any] = list(
-            project.history.filter(history_date__gte=since).select_related("history_user")
+            project.history.filter(history_date__gte=since)
+            .select_related("history_user")
+            .order_by("-history_date")[: cap + 1]
         )
         dep_records: list[Any] = list(
-            Dependency.history.filter(
-                predecessor__project_id=project_pk, history_date__gte=since
-            ).select_related("history_user")
+            Dependency.history.filter(predecessor__project_id=project_pk, history_date__gte=since)
+            .select_related("history_user")
+            .order_by("-history_date")[: cap + 1]
         )
+
+        # Fetch cap+1 to detect truncation, then trim back to cap for aggregation.
+        count_truncated = any(len(b) > cap for b in (task_records, project_records, dep_records))
+        task_records = task_records[:cap]
+        project_records = project_records[:cap]
+        dep_records = dep_records[:cap]
 
         field_counts: dict[str, int] = {}
         for batch in (task_records, project_records, dep_records):
@@ -287,6 +303,7 @@ class ProjectHistorySummaryView(APIView):
                 "dependency": len(dep_records),
             },
             "by_field": by_field,
+            "count_truncated": count_truncated,
             "generated_at": timezone.now().isoformat(),
         }
 
