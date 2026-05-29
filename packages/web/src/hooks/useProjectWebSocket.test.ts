@@ -427,3 +427,98 @@ describe('useProjectWebSocket — task_dates_updated splice (ADR-0091)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 });
+
+// Wave-2 broadcast-check (#835) — backend emits these on commit but the client
+// had no handler, so collaborators saw stale data until reload.
+describe('useProjectWebSocket — wave-2 missing handlers (#835)', () => {
+  const originalWebSocket = globalThis.WebSocket;
+  let qc: QueryClient;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    MockWebSocket.instances = [];
+    // @ts-expect-error — overriding WebSocket for the test environment
+    globalThis.WebSocket = MockWebSocket;
+    act(() => {
+      useAuthStore.setState({
+        accessToken: 'tok-abc',
+        refreshToken: 'r-abc',
+        isAuthenticated: true,
+      });
+    });
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    globalThis.WebSocket = originalWebSocket;
+    act(() => {
+      useAuthStore.setState({
+        accessToken: null,
+        refreshToken: null,
+        isAuthenticated: false,
+      });
+    });
+  });
+
+  function dispatch(eventType: string, payload: Record<string, unknown>) {
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({ event_type: eventType, payload }),
+      });
+    });
+  }
+
+  function flushDebounce() {
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+  }
+
+  it.each(['task_link_created', 'task_link_updated', 'task_link_deleted'])(
+    'invalidates the task-links query on %s',
+    (eventType) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatch(eventType, { task_id: 'task-9' });
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['task-links', 'task-9'] });
+    },
+  );
+
+  it('invalidates the tasks feed and My Work on suggestion_created', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('suggestion_created', { task_id: 'task-9', suggestion_id: 's-1' });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['me', 'work'] });
+    flushDebounce();
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
+  it.each(['api_token_minted', 'api_token_revoked'])(
+    'invalidates the api-tokens query on %s',
+    (eventType) => {
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+      dispatch(eventType, { id: 'tok-1' });
+
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['api-tokens', 'project', 'proj-1'],
+      });
+    },
+  );
+
+  it('invalidates the customFields query on project_custom_fields_updated', () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('project_custom_fields_updated', { action: 'created' });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['customFields', 'proj-1'] });
+  });
+});

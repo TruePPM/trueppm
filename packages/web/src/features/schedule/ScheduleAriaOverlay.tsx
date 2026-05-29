@@ -13,7 +13,14 @@
  * - Rule 69: buildTaskAriaLabel canonical format
  */
 
-import { useState, useEffect, useCallback, useRef, type KeyboardEvent, type RefObject } from 'react';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type KeyboardEvent,
+  type RefObject,
+} from 'react';
 import type { Task } from '@/types';
 import type { GanttEngine } from './engine';
 import { dateToLeft } from './engine';
@@ -28,8 +35,11 @@ const OVERSCAN_ROWS = 5;
 
 function formatAriaDate(isoDate: string): string {
   if (!isoDate) return 'unscheduled';
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
-    .format(new Date(isoDate + 'T00:00:00Z'));
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(isoDate + 'T00:00:00Z'));
 }
 
 /**
@@ -189,7 +199,7 @@ export function ScheduleAriaOverlay({ engine, tasks, containerRef }: ScheduleAri
               tabIndex={isFocused ? 0 : -1}
               aria-label={buildTaskAriaLabel(task)}
               aria-selected={engine?.selectedTaskIds.has(task.id)}
-              className="focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-[#0F1117] rounded-sm outline-none"
+              className="focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface dark:focus-visible:ring-semantic-on-track rounded-sm outline-none"
               style={{
                 position: 'absolute',
                 left: barLeft,

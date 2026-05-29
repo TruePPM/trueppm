@@ -56,7 +56,8 @@ function externalLinkIcon(externalUrl: string | null): string {
     return '🔗';
   }
   if (host.includes('docs.google.') || host.includes('drive.google.')) return '📝';
-  if (host.includes('sharepoint.') || host.includes('onedrive.') || host.includes('office.com')) return '📘';
+  if (host.includes('sharepoint.') || host.includes('onedrive.') || host.includes('office.com'))
+    return '📘';
   if (host.includes('atlassian.net') || host.includes('confluence.')) return '📚';
   if (host.includes('notion.')) return '📓';
   if (host.includes('figma.')) return '🎨';
@@ -148,8 +149,8 @@ function AttachmentRow({ attachment, projectId, taskId }: AttachmentRowProps) {
           disabled={signedUrl.isPending}
           className="text-xs border border-neutral-border rounded px-2 h-7 font-medium
             text-neutral-text-primary hover:bg-neutral-surface
-            focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
-            focus:outline-none disabled:opacity-50"
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track
+            focus-visible:outline-none disabled:opacity-50"
           aria-label={isExternal ? `Open ${displayName}` : `Download ${displayName}`}
         >
           {isExternal ? '↗ Open' : '⬇ Download'}
@@ -160,8 +161,8 @@ function AttachmentRow({ attachment, projectId, taskId }: AttachmentRowProps) {
             onClick={() => setConfirmingDelete(true)}
             className="text-xs text-neutral-text-secondary hover:text-semantic-critical
               rounded px-2 h-7
-              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
-              focus:outline-none"
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track
+              focus-visible:outline-none"
             aria-label={`Delete ${displayName}`}
           >
             Delete
@@ -174,8 +175,8 @@ function AttachmentRow({ attachment, projectId, taskId }: AttachmentRowProps) {
               disabled={deleteAttachment.isPending}
               className="text-xs bg-semantic-critical text-white rounded px-2 h-7 font-medium
                 hover:opacity-90 disabled:opacity-50
-                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
-                focus:outline-none"
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track
+                focus-visible:outline-none"
               aria-label={`Confirm delete ${displayName}`}
             >
               {deleteAttachment.isPending ? 'Deleting…' : 'Confirm'}
@@ -185,8 +186,8 @@ function AttachmentRow({ attachment, projectId, taskId }: AttachmentRowProps) {
               onClick={() => setConfirmingDelete(false)}
               className="text-xs text-neutral-text-secondary rounded px-2 h-7
                 hover:bg-neutral-surface
-                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
-                focus:outline-none"
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track
+                focus-visible:outline-none"
             >
               Cancel
             </button>
@@ -334,7 +335,7 @@ export function AttachmentSection({ taskId, projectId }: DrawerSectionProps) {
             disabled={uploadBlocked}
             className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
               text-neutral-text-primary hover:bg-neutral-surface
-              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               disabled:opacity-50"
           >
             + Attach file
@@ -345,7 +346,7 @@ export function AttachmentSection({ taskId, projectId }: DrawerSectionProps) {
             disabled={uploadBlocked}
             className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
               text-neutral-text-primary hover:bg-neutral-surface
-              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               disabled:opacity-50"
           >
             + Pin link

@@ -13,11 +13,7 @@
 import type { ReactElement } from 'react';
 import { useMemo, useState } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
-import {
-  useAcknowledgeComment,
-  useReactToComment,
-  useTaskComments,
-} from '@/hooks/useTaskComments';
+import { useAcknowledgeComment, useReactToComment, useTaskComments } from '@/hooks/useTaskComments';
 import { useTaskAttachments } from '@/hooks/useTaskAttachments';
 import { formatRelative } from '@/lib/formatRelative';
 import type { TaskAttachment, TaskComment } from '@/types';
@@ -188,9 +184,7 @@ function CommentRow({
       <div className="flex items-baseline gap-2 flex-wrap">
         <span className="text-sm font-medium text-neutral-text-primary">{author}</span>
         <span className="text-xs text-neutral-text-secondary tppm-mono">{ts}</span>
-        {wasEdited && (
-          <span className="text-xs text-neutral-text-secondary italic">· edited</span>
-        )}
+        {wasEdited && <span className="text-xs text-neutral-text-secondary italic">· edited</span>}
       </div>
       <div className="text-sm text-neutral-text-primary whitespace-pre-wrap break-words">
         {renderBody(comment.body, attachmentIndex)}
@@ -202,7 +196,7 @@ function CommentRow({
             onClick={onReplyClick}
             className="text-xs border border-neutral-border rounded px-2 h-7 font-medium
               text-neutral-text-secondary hover:bg-neutral-surface
-              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
             aria-label="Reply to this comment"
           >
             ↩ Reply
@@ -219,7 +213,7 @@ function CommentRow({
               : 'Acknowledge this comment'
           }
           className={`text-xs border rounded px-2 h-7 font-medium
-            focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
             disabled:opacity-50
             ${
               comment.has_my_acknowledgement
@@ -239,7 +233,7 @@ function CommentRow({
           aria-label="React with 👍"
           className="text-xs border border-neutral-border rounded px-2 h-7 font-medium
             text-neutral-text-secondary hover:bg-neutral-surface
-            focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
             disabled:opacity-50"
         >
           👍

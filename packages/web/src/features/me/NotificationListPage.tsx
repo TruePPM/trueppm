@@ -49,7 +49,7 @@ export function NotificationListPage() {
           disabled={markAllRead.isPending}
           className="ml-auto text-xs border border-neutral-border rounded px-3 h-7 font-medium
             text-neutral-text-secondary hover:bg-neutral-surface-raised
-            focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
             disabled:opacity-50"
         >
           Mark all read
@@ -61,7 +61,11 @@ export function NotificationListPage() {
         {announce}
       </span>
 
-      <div role="tablist" aria-label="Filter notifications" className="flex gap-1 border-b border-neutral-border pb-2">
+      <div
+        role="tablist"
+        aria-label="Filter notifications"
+        className="flex gap-1 border-b border-neutral-border pb-2"
+      >
         {FILTERS.map((f) => {
           const active = filter === f.value;
           return (
@@ -72,7 +76,7 @@ export function NotificationListPage() {
               aria-selected={active}
               onClick={() => setFilter(f.value)}
               className={`text-xs px-3 h-7 rounded border
-                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none
                 ${
                   active
                     ? 'border-brand-primary text-brand-primary bg-brand-primary/5'
@@ -123,7 +127,7 @@ export function NotificationListPage() {
       <Link
         to="/me/settings/notifications"
         className="text-xs text-brand-primary underline-offset-2 hover:underline
-          focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none rounded
+          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none rounded
           self-start"
       >
         Notification preferences →

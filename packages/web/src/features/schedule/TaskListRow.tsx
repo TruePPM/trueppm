@@ -79,8 +79,8 @@ interface Props {
 }
 
 // On macOS the modifier is labelled "Option"; everywhere else it's "Alt".
-const REORDER_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
-  ? 'Option' : 'Alt';
+const REORDER_KEY =
+  typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? 'Option' : 'Alt';
 
 function formatDate(iso: string): string {
   if (!iso) return '—';
@@ -125,7 +125,26 @@ function addDaysISO(iso: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function TaskListRowInner({ task, level, widths, visible, hasChildren = false, isExpanded = false, onToggle, prevTaskId = null, nextTaskId = null, dimmed = false, depChips, siblingIds, nameSuggestions, milestoneParents, onHoverChange, onAddDependencyRequest, siblingNames, sourceSprint }: Props) {
+function TaskListRowInner({
+  task,
+  level,
+  widths,
+  visible,
+  hasChildren = false,
+  isExpanded = false,
+  onToggle,
+  prevTaskId = null,
+  nextTaskId = null,
+  dimmed = false,
+  depChips,
+  siblingIds,
+  nameSuggestions,
+  milestoneParents,
+  onHoverChange,
+  onAddDependencyRequest,
+  siblingNames,
+  sourceSprint,
+}: Props) {
   const projectId = useProjectId() ?? '';
   const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
@@ -191,14 +210,10 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
   const [showSprintPrompt, setShowSprintPrompt] = useState(false);
 
   const isBuildSelected = buildMode?.focus.isRowFocused(task.id) ?? false;
-  const editingColumnName =
-    buildMode?.focus.isCellInEdit(task.id, 'name') ?? false;
-  const editingColumnDuration =
-    buildMode?.focus.isCellInEdit(task.id, 'duration') ?? false;
-  const editingColumnProgress =
-    buildMode?.focus.isCellInEdit(task.id, 'progress') ?? false;
-  const anyCellInEdit =
-    editingColumnName || editingColumnDuration || editingColumnProgress;
+  const editingColumnName = buildMode?.focus.isCellInEdit(task.id, 'name') ?? false;
+  const editingColumnDuration = buildMode?.focus.isCellInEdit(task.id, 'duration') ?? false;
+  const editingColumnProgress = buildMode?.focus.isCellInEdit(task.id, 'progress') ?? false;
+  const anyCellInEdit = editingColumnName || editingColumnDuration || editingColumnProgress;
 
   // #344: start/stop build ghost bar when name cell enters/exits edit mode
   useEffect(() => {
@@ -209,9 +224,11 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
     const today = todayLocalISO();
     const defaultFinish = addDaysISO(today, 4); // 5-day inclusive bar
     startBuilding(task.id, today, defaultFinish);
-    return () => { stopBuilding(); };
-  // startBuilding/stopBuilding are stable store actions, task.id/buildMode are deps that matter
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      stopBuilding();
+    };
+    // startBuilding/stopBuilding are stable store actions, task.id/buildMode are deps that matter
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingColumnName, buildMode, task.id]);
 
   // Move keyboard focus to a sibling row by data-row-id selector. Used by both
@@ -266,13 +283,7 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
     // Letter key (single printable, not modified) opens Name cell-edit
     // pre-filled with the typed letter — but we keep it simple in v1 and
     // just enter cell-edit; the user re-types if they want to overwrite.
-    if (
-      e.key.length === 1 &&
-      !e.metaKey &&
-      !e.ctrlKey &&
-      !e.altKey &&
-      /[a-zA-Z0-9]/.test(e.key)
-    ) {
+    if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey && /[a-zA-Z0-9]/.test(e.key)) {
       e.preventDefault();
       buildMode.focus.enterCellEdit(task.id, 'name');
       return;
@@ -504,9 +515,7 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
   const hasMissingDatesWarning =
     !task.plannedStart &&
     !task.isSummary &&
-    (task.status === 'IN_PROGRESS' ||
-      task.status === 'REVIEW' ||
-      task.status === 'COMPLETE');
+    (task.status === 'IN_PROGRESS' || task.status === 'REVIEW' || task.status === 'COMPLETE');
 
   // Width available for task name content: full task column minus indent, chevron, and base left padding.
   // (paddingLeft = (level-1)*WBS_INDENT + 8; chevron = 18px; base = 8px)
@@ -540,7 +549,7 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
         // chain recomputes show as flicker.
         'motion-safe:transition-opacity motion-safe:duration-150 motion-safe:ease-out',
         isEditing || anyCellInEdit ? 'cursor-text' : 'cursor-pointer',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track',
         (buildMode ? isBuildSelected : isSelected) && !(isEditing || anyCellInEdit)
           ? 'bg-brand-primary/10 border-l-2 border-brand-primary'
           : 'hover:bg-white/5',
@@ -677,15 +686,22 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
         {hasChildren ? (
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onToggle?.(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle?.();
+            }}
             aria-expanded={isExpanded}
             aria-label={isExpanded ? `Collapse ${task.name}` : `Expand ${task.name}`}
             className="shrink-0 w-4 h-4 flex items-center justify-center mr-0.5
               text-neutral-text-secondary hover:text-neutral-text-primary
-              focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white rounded"
+              focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track rounded"
           >
             <svg
-              width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true"
+              width="8"
+              height="8"
+              viewBox="0 0 8 8"
+              fill="currentColor"
+              aria-hidden="true"
               className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`}
             >
               <path d="M2 1l4 3-4 3z" />
@@ -697,7 +713,9 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
 
         {/* Milestone diamond indicator */}
         {task.isMilestone && (
-          <span className="mr-1 text-brand-accent" aria-hidden="true">◆</span>
+          <span className="mr-1 text-brand-accent" aria-hidden="true">
+            ◆
+          </span>
         )}
 
         {/* Task name — inline input when editing.
@@ -712,7 +730,9 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
               inputType="text"
               ariaLabel={`Rename task ${task.name}`}
               className="flex-1 min-w-0 w-full"
-              onStartEdit={() => { /* already editing */ }}
+              onStartEdit={() => {
+                /* already editing */
+              }}
               onCommit={(parsed) => {
                 if (typeof parsed === 'string' && projectId) {
                   updateTask.mutate({ id: task.id, projectId, name: parsed });
@@ -749,8 +769,14 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
             onChange={(e) => setEditValue(e.target.value)}
             onBlur={commitEdit}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); commitEdit(); }
-              if (e.key === 'Escape') { e.preventDefault(); cancelEdit(); }
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                commitEdit();
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                cancelEdit();
+              }
             }}
             className="flex-1 min-w-0 bg-brand-primary/10 text-neutral-text-primary text-xs px-1 rounded
               outline-none ring-1 ring-brand-primary truncate"
@@ -764,7 +790,11 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
           >
             <span
               className={`min-w-0 shrink truncate ${isCriticalStyle} ${isSummaryStyle}`}
-              title={`${task.name} — double-click to rename`}
+              title={
+                task.isCritical
+                  ? 'This task is on the critical path — a delay here delays the project end date'
+                  : `${task.name} — double-click to rename`
+              }
               aria-label={`${task.wbs} ${task.name}${task.isCritical ? ' (critical path)' : ''}${task.assignees.length > 0 ? ` — assigned to ${task.assignees.map((a) => a.name).join(', ')}` : ''}`}
             >
               {task.name}
@@ -782,7 +812,10 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
             )}
             {/* Dep chips — shown when task is selected in focus mode; replaces assignee chips */}
             {isSelected && depChips ? (
-              <span className="flex items-center gap-0.5 flex-shrink-0" aria-label={`${depChips.predsCount} predecessors, ${depChips.succsCount} successors`}>
+              <span
+                className="flex items-center gap-0.5 flex-shrink-0"
+                aria-label={`${depChips.predsCount} predecessors, ${depChips.succsCount} successors`}
+              >
                 {depChips.predsCount > 0 && (
                   <span
                     className={`inline-flex items-center px-1 py-px rounded text-xs font-medium cursor-pointer ${depChips.predsCritical ? 'bg-semantic-critical/10 text-semantic-critical' : 'bg-neutral-surface-raised text-neutral-text-secondary'}`}
@@ -801,9 +834,7 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
                 )}
               </span>
             ) : (
-              !task.isSummary && !task.isMilestone && (
-                <AssigneeChips assignees={task.assignees} />
-              )
+              !task.isSummary && !task.isMilestone && <AssigneeChips assignees={task.assignees} />
             )}
           </div>
         )}
@@ -825,7 +856,7 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
             isSelected
               ? 'opacity-100'
               : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
-            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white',
+            'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track',
           ].join(' ')}
         >
           {/* Horizontal ellipsis */}
@@ -838,8 +869,9 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
       </div>
 
       {/* ── Dur column ──────────────────────────────────────────────────────── */}
-      {!isEditing && visible.dur && (
-        buildMode && !task.isMilestone ? (
+      {!isEditing &&
+        visible.dur &&
+        (buildMode && !task.isMilestone ? (
           <EditableCell
             column="duration"
             value={String(task.duration)}
@@ -873,8 +905,7 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
           >
             {task.isMilestone ? '—' : `${task.duration}d`}
           </div>
-        )
-      )}
+        ))}
 
       {/* ── Start column ────────────────────────────────────────────────────── */}
       {!isEditing && visible.start && (
@@ -888,14 +919,26 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
           role="gridcell"
           aria-label={task.start ? `starts ${formatDate(task.start)}` : 'unscheduled'}
           tabIndex={buildMode && task.isMilestone ? 0 : undefined}
-          onClick={buildMode && task.isMilestone
-            ? (e) => { e.stopPropagation(); setShowMilestonePicker((v) => !v); }
-            : undefined}
-          onKeyDown={buildMode && task.isMilestone
-            ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowMilestonePicker((v) => !v); } }
-            : undefined}
+          onClick={
+            buildMode && task.isMilestone
+              ? (e) => {
+                  e.stopPropagation();
+                  setShowMilestonePicker((v) => !v);
+                }
+              : undefined
+          }
+          onKeyDown={
+            buildMode && task.isMilestone
+              ? (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setShowMilestonePicker((v) => !v);
+                  }
+                }
+              : undefined
+          }
         >
-          {task.isMilestone ? formatDate(task.start) : (task.start ? formatDate(task.start) : '—')}
+          {task.isMilestone ? formatDate(task.start) : task.start ? formatDate(task.start) : '—'}
           {buildMode && task.isMilestone && (
             <MilestoneDatePopover
               open={showMilestonePicker}
@@ -923,8 +966,8 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
             task.isMilestone
               ? 'milestone — single date in Start column'
               : task.finish
-              ? `finishes ${formatDate(task.finish)}`
-              : 'unscheduled'
+                ? `finishes ${formatDate(task.finish)}`
+                : 'unscheduled'
           }
         >
           {/* Milestones are single-point gates: render an em-dash so the row
@@ -941,8 +984,9 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
        * structured 400. The cell also surfaces a lock affordance and a
        * compact variance pill when the sprint is anchored to the milestone.
        */}
-      {!isEditing && visible.progress && (
-        buildMode && !task.isMilestone ? (
+      {!isEditing &&
+        visible.progress &&
+        (buildMode && !task.isMilestone ? (
           <EditableCell
             column="progress"
             value={String(task.progress)}
@@ -985,8 +1029,7 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
           />
         ) : (
           <MilestoneProgressCell task={task} widthPx={widths.progress} />
-        )
-      )}
+        ))}
 
       {/* ── Owner column (#248) ─────────────────────────────────────────────── */}
       {/* Summary tasks: empty cell (assignees roll up implicitly, not authored). */}
@@ -1003,9 +1046,7 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
                 : `Owner: ${task.assignees.map((a) => a.name).join(', ')}`
           }
         >
-          {!task.isSummary && (
-            <AssigneeChips assignees={task.assignees} size="md" max={3} />
-          )}
+          {!task.isSummary && <AssigneeChips assignees={task.assignees} size="md" max={3} />}
         </div>
       )}
       {/* Sprint assignment prompt after name commit in agile mode (#346) */}
@@ -1015,7 +1056,12 @@ function TaskListRowInner({ task, level, widths, visible, hasChildren = false, i
           projectId={projectId || null}
           onSelect={(sprintId, storyPoints) => {
             if (projectId) {
-              updateTask.mutate({ id: task.id, projectId, sprint: sprintId, story_points: storyPoints });
+              updateTask.mutate({
+                id: task.id,
+                projectId,
+                sprint: sprintId,
+                story_points: storyPoints,
+              });
             }
             setShowSprintPrompt(false);
           }}

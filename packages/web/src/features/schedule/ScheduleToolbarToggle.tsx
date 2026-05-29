@@ -47,17 +47,13 @@ export function ScheduleToolbarToggle({
         // Sizing must remain the same in both modes (rule 114) so the
         // toolbar height does not jitter when labels are hidden.
         hideLabel ? 'w-7 inline-flex items-center justify-center' : 'px-3',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary dark:focus-visible:ring-semantic-on-track',
         pressed
           ? 'bg-brand-primary text-neutral-text-inverse'
           : 'bg-neutral-surface text-neutral-text-secondary hover:bg-neutral-surface-raised',
       ].join(' ')}
     >
-      {hideLabel ? (
-        <span aria-hidden="true">{icon ?? fallbackIcon}</span>
-      ) : (
-        label
-      )}
+      {hideLabel ? <span aria-hidden="true">{icon ?? fallbackIcon}</span> : label}
     </button>
   );
 }

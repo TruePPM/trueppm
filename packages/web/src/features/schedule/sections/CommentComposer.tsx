@@ -26,7 +26,10 @@ const MAX_BODY_CHARS = 10_000;
 const WARN_BODY_CHARS = 9_000;
 
 /** Find the active `@`-token in `body[0..caret]`. Returns null if no token. */
-function findActiveMentionToken(body: string, caret: number): { start: number; query: string } | null {
+function findActiveMentionToken(
+  body: string,
+  caret: number,
+): { start: number; query: string } | null {
   // Scan backwards from caret looking for the most recent `@` not preceded by
   // a backslash (escape) and with no whitespace between `@` and caret.
   let i = caret - 1;
@@ -61,13 +64,7 @@ interface Props {
   onCancel?: () => void;
 }
 
-export function CommentComposer({
-  projectId,
-  taskId,
-  parentId,
-  onSubmitted,
-  onCancel,
-}: Props) {
+export function CommentComposer({ projectId, taskId, parentId, onSubmitted, onCancel }: Props) {
   const [body, setBody] = useState('');
   const [highlightIndex, setHighlightIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -198,11 +195,7 @@ export function CommentComposer({
         role="combobox"
         aria-autocomplete="list"
         aria-expanded={!!activeToken}
-        aria-controls={
-          activeToken
-            ? `mention-listbox-${taskId}-${parentId ?? 'top'}`
-            : undefined
-        }
+        aria-controls={activeToken ? `mention-listbox-${taskId}-${parentId ?? 'top'}` : undefined}
         aria-activedescendant={
           activeToken && suggestions.length > 0
             ? `mention-listbox-${taskId}-${parentId ?? 'top'}-opt-${highlightIndex}`
@@ -210,7 +203,7 @@ export function CommentComposer({
         }
         className="text-sm bg-neutral-surface border border-neutral-border rounded p-2
           text-neutral-text-primary placeholder:text-neutral-text-disabled
-          focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+          focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
           disabled:opacity-50 resize-y min-h-[60px]"
         maxLength={MAX_BODY_CHARS}
       />
@@ -245,7 +238,7 @@ export function CommentComposer({
               disabled={createComment.isPending}
               className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
                 text-neutral-text-secondary hover:bg-neutral-surface
-                focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+                focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
                 disabled:opacity-50"
             >
               Cancel
@@ -257,7 +250,7 @@ export function CommentComposer({
             disabled={!canSubmit}
             className="text-xs bg-brand-primary text-white rounded px-3 h-7 font-medium
               hover:opacity-90
-              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               disabled:opacity-50"
           >
             {createComment.isPending ? 'Posting…' : parentId ? 'Reply' : 'Post'}

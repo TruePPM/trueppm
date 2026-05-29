@@ -38,7 +38,10 @@ import { TaskDetailDrawer } from './TaskDetailDrawer';
 import { UnscheduledGutter } from './UnscheduledGutter';
 import { useUnscheduledTasks } from '@/hooks/useUnscheduledTasks';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
-import { ToolbarOverflowMenu, type ToolbarOverflowItem } from '@/components/toolbar/ToolbarOverflowMenu';
+import {
+  ToolbarOverflowMenu,
+  type ToolbarOverflowItem,
+} from '@/components/toolbar/ToolbarOverflowMenu';
 import { ImportModal } from '@/components/import/ImportModal';
 import { useExportMsProject } from '@/hooks/useMsProjectImportExport';
 import type { Task } from '@/types';
@@ -75,7 +78,9 @@ function ScheduleEmptyState() {
       role="status"
       className="flex flex-1 h-full items-center justify-center bg-neutral-surface"
     >
-      <p className="text-sm text-neutral-text-secondary">No tasks yet. Add a task to get started.</p>
+      <p className="text-sm text-neutral-text-secondary">
+        No tasks yet. Add a task to get started.
+      </p>
     </div>
   );
 }
@@ -237,8 +242,8 @@ export function ScheduleView() {
   const projectId = useProjectId() ?? null;
   const { tasks: rawTasks, links: rawLinks, isLoading, error } = useScheduleTasks();
   const { data: mcResult } = useMonteCarloResult(projectId ?? undefined);
-  const allTasks          = useMemo(() => rawTasks ?? [], [rawTasks]);
-  const allLinks          = useMemo(() => rawLinks ?? [], [rawLinks]);
+  const allTasks = useMemo(() => rawTasks ?? [], [rawTasks]);
+  const allLinks = useMemo(() => rawLinks ?? [], [rawLinks]);
   const { expandedIds, toggle: toggleExpandRaw, expandAll } = useWbsStore();
 
   // Sprint lookup for the Duplicate Undo affordance (#477).
@@ -351,18 +356,18 @@ export function ScheduleView() {
     if (rootSummaryIds.length > 0) {
       expandAll(collectAllIds(tree));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allTasks.length]);
 
   const unscheduledTasks = useUnscheduledTasks(allTasks);
 
-  const zoomLevel         = useScheduleStore((s) => s.zoomLevel);
-  const selectedTaskId    = useScheduleStore((s) => s.selectedTaskId);
+  const zoomLevel = useScheduleStore((s) => s.zoomLevel);
+  const selectedTaskId = useScheduleStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
-  const quarterMode       = useScheduleStore((s) => s.quarterMode);
-  const setQuarterMode    = useScheduleStore((s) => s.setQuarterMode);
-  const fiscalStartMonth  = useFiscalYearStartMonth();
-  const selectedTask      = selectedTaskId
+  const quarterMode = useScheduleStore((s) => s.quarterMode);
+  const setQuarterMode = useScheduleStore((s) => s.setQuarterMode);
+  const fiscalStartMonth = useFiscalYearStartMonth();
+  const selectedTask = selectedTaskId
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
     : null;
 
@@ -375,12 +380,22 @@ export function ScheduleView() {
     const s = new Map<string, string[]>();
     const p = new Map<string, string[]>();
     for (const link of allLinks) {
-      const srcChip = c.get(link.sourceId) ?? { predsCount: 0, succsCount: 0, predsCritical: false, succsCritical: false };
+      const srcChip = c.get(link.sourceId) ?? {
+        predsCount: 0,
+        succsCount: 0,
+        predsCritical: false,
+        succsCritical: false,
+      };
       srcChip.succsCount++;
       if (link.isCritical) srcChip.succsCritical = true;
       c.set(link.sourceId, srcChip);
 
-      const tgtChip = c.get(link.targetId) ?? { predsCount: 0, succsCount: 0, predsCritical: false, succsCritical: false };
+      const tgtChip = c.get(link.targetId) ?? {
+        predsCount: 0,
+        succsCount: 0,
+        predsCritical: false,
+        succsCritical: false,
+      };
       tgtChip.predsCount++;
       if (link.isCritical) tgtChip.predsCritical = true;
       c.set(link.targetId, tgtChip);
@@ -426,8 +441,8 @@ export function ScheduleView() {
 
   // Mobile breakpoint detection for the unified task form modal — matches the
   // pattern in BoardView's useBoardDensity (matchMedia at < md / 768px).
-  const [isMobile, setIsMobile] = useState<boolean>(() =>
-    typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
+  const [isMobile, setIsMobile] = useState<boolean>(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches,
   );
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)');
@@ -482,9 +497,10 @@ export function ScheduleView() {
   }, [engine]);
 
   // Dependency picker state (#477) — opened from TaskListRow.onAddDependencyRequest.
-  const [depPickerState, setDepPickerState] = useState<
-    { task: Task; mode: 'predecessor' | 'successor' } | null
-  >(null);
+  const [depPickerState, setDepPickerState] = useState<{
+    task: Task;
+    mode: 'predecessor' | 'successor';
+  } | null>(null);
 
   const handleAddDependencyRequest = useCallback(
     (taskId: string, mode: 'predecessor' | 'successor') => {
@@ -532,9 +548,7 @@ export function ScheduleView() {
 
   // CPM finish for Monte Carlo delta — max finish across all scheduled non-milestone tasks.
   const cpmFinish = useMemo<string | null>(() => {
-    const finishes = allTasks
-      .filter((t) => !t.isMilestone && t.finish)
-      .map((t) => t.finish);
+    const finishes = allTasks.filter((t) => !t.isMilestone && t.finish).map((t) => t.finish);
     if (finishes.length === 0) return null;
     return finishes.reduce((a, b) => (a > b ? a : b));
   }, [allTasks]);
@@ -631,18 +645,15 @@ export function ScheduleView() {
     ? timelineContainerRef.current.getBoundingClientRect().top
     : 0;
 
-  const handleDatePopoverConfirm = useCallback(
-    (newStart: string) => {
-      setDatePopoverTask(null);
-      const { commitDrag } = useDragStore.getState();
-      commitDrag(newStart);
-      keyboardModeRef.current = false;
-      if (ariaAssertiveRef.current) {
-        ariaAssertiveRef.current.textContent = 'Reschedule confirmed.';
-      }
-    },
-    [],
-  );
+  const handleDatePopoverConfirm = useCallback((newStart: string) => {
+    setDatePopoverTask(null);
+    const { commitDrag } = useDragStore.getState();
+    commitDrag(newStart);
+    keyboardModeRef.current = false;
+    if (ariaAssertiveRef.current) {
+      ariaAssertiveRef.current.textContent = 'Reschedule confirmed.';
+    }
+  }, []);
 
   const handleDatePopoverClose = useCallback(() => {
     setDatePopoverTask(null);
@@ -673,7 +684,10 @@ export function ScheduleView() {
     const reducedMotion =
       typeof window !== 'undefined' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    engine.scrollToDate(new Date().toISOString().slice(0, 10), reducedMotion ? 'instant' : 'smooth');
+    engine.scrollToDate(
+      new Date().toISOString().slice(0, 10),
+      reducedMotion ? 'instant' : 'smooth',
+    );
   }, [engine]);
 
   // Engine scroll → task list sync
@@ -718,47 +732,47 @@ export function ScheduleView() {
   // useCurrentUserRole pessimistic-gating contract. The server is authoritative.
   const [importOpen, setImportOpen] = useState(false);
   const canImport = currentRole !== null && currentRole >= ROLE_ADMIN;
-  const {
-    exportProject,
-    isExporting,
-    error: exportError,
-  } = useExportMsProject(projectId);
+  const { exportProject, isExporting, error: exportError } = useExportMsProject(projectId);
 
-  const buildModeApi = useMemo<BuildModeApi>(() => ({
-    focus,
-    indent: (taskId) => indentTask.mutate(taskId),
-    outdent: (taskId) => outdentTask.mutate(taskId),
-    insertBelow: (_taskId) => {
-      // Sibling-of insert is a server-side concern (parent inferred from current
-      // row's parent_id, position from current row's position + 1). For v1, fall
-      // back to "create at root" — the user can indent the new row immediately.
-      // Tracked as a follow-up: a positioned-insert API needs `parent_id` + `after_id`.
-      if (!projectId) return;
-      createTaskMut.mutate({ name: '', duration: 1 });
-    },
-    convertToMilestone: (taskId) => {
-      if (!projectId) return;
-      updateTaskMut.mutate({ id: taskId, projectId, duration: 0 });
-    },
-    deleteTask: (taskId) => deleteTaskMut.mutate(taskId),
-    // #806: include deleteTask so the row gets the "in-flight" treatment during
-    // delete and downstream guards (context-menu suppression, auto-close of an
-    // already-open menu) fire. Without delete here, the row unmounts on cache
-    // invalidation while its BuildModeRowMenu portal still has a live menuAnchor,
-    // which orphans the menu's global Escape/click-outside listeners and blocks
-    // subsequent right-clicks until a full page refresh.
-    isMutationPending: (taskId) =>
-      (indentTask.isPending && indentTask.variables === taskId) ||
-      (outdentTask.isPending && outdentTask.variables === taskId) ||
-      (deleteTaskMut.isPending && deleteTaskMut.variables === taskId),
-  }), [focus, indentTask, outdentTask, updateTaskMut, deleteTaskMut, createTaskMut, projectId]);
+  const buildModeApi = useMemo<BuildModeApi>(
+    () => ({
+      focus,
+      indent: (taskId) => indentTask.mutate(taskId),
+      outdent: (taskId) => outdentTask.mutate(taskId),
+      insertBelow: (_taskId) => {
+        // Sibling-of insert is a server-side concern (parent inferred from current
+        // row's parent_id, position from current row's position + 1). For v1, fall
+        // back to "create at root" — the user can indent the new row immediately.
+        // Tracked as a follow-up: a positioned-insert API needs `parent_id` + `after_id`.
+        if (!projectId) return;
+        createTaskMut.mutate({ name: '', duration: 1 });
+      },
+      convertToMilestone: (taskId) => {
+        if (!projectId) return;
+        updateTaskMut.mutate({ id: taskId, projectId, duration: 0 });
+      },
+      deleteTask: (taskId) => deleteTaskMut.mutate(taskId),
+      // #806: include deleteTask so the row gets the "in-flight" treatment during
+      // delete and downstream guards (context-menu suppression, auto-close of an
+      // already-open menu) fire. Without delete here, the row unmounts on cache
+      // invalidation while its BuildModeRowMenu portal still has a live menuAnchor,
+      // which orphans the menu's global Escape/click-outside listeners and blocks
+      // subsequent right-clicks until a full page refresh.
+      isMutationPending: (taskId) =>
+        (indentTask.isPending && indentTask.variables === taskId) ||
+        (outdentTask.isPending && outdentTask.variables === taskId) ||
+        (deleteTaskMut.isPending && deleteTaskMut.variables === taskId),
+    }),
+    [focus, indentTask, outdentTask, updateTaskMut, deleteTaskMut, createTaskMut, projectId],
+  );
 
   // Pulse trigger for the most recently inserted milestone (#340). Cleared
   // automatically by MilestonePulseOverlay after 1.5 s.
   const [pulsingMilestoneId, setPulsingMilestoneId] = useState<string | null>(null);
-  const [pulsingMilestoneAt, setPulsingMilestoneAt] = useState<{ x: number; y: number }>(
-    { x: 0, y: 0 },
-  );
+  const [pulsingMilestoneAt, setPulsingMilestoneAt] = useState<{ x: number; y: number }>({
+    x: 0,
+    y: 0,
+  });
 
   // View-scoped keyboard bindings (#340 + A1's `?` migration).
   // Parent inference uses build-mode focus when active, otherwise the row the
@@ -772,7 +786,8 @@ export function ScheduleView() {
     [insertParentSourceId, visibleTasks],
   );
   const inferredParentName = useMemo(
-    () => (inferredParentId ? (allTasks.find((t) => t.id === inferredParentId)?.name ?? null) : null),
+    () =>
+      inferredParentId ? (allTasks.find((t) => t.id === inferredParentId)?.name ?? null) : null,
     [inferredParentId, allTasks],
   );
   // Open the milestone-create dialog. The dialog handles the actual POST and
@@ -917,7 +932,11 @@ export function ScheduleView() {
 
   if (isLoading || !rawTasks) {
     return (
-      <div className="flex h-full bg-neutral-surface" aria-busy="true" aria-label="Loading Schedule">
+      <div
+        className="flex h-full bg-neutral-surface"
+        aria-busy="true"
+        aria-label="Loading Schedule"
+      >
         <div className="w-[280px] flex-shrink-0 border-r border-white/10 p-2 space-y-1">
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="h-7 rounded animate-pulse bg-brand-primary/10" />
@@ -976,7 +995,7 @@ export function ScheduleView() {
             aria-label="Add task"
             aria-expanded={showAddForm}
             className="border border-neutral-border rounded h-7 px-3 text-xs font-medium flex-shrink-0
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none dark:focus-visible:ring-semantic-on-track
               hover:border-brand-primary hover:text-brand-primary"
           >
             + Task
@@ -990,9 +1009,7 @@ export function ScheduleView() {
             pending={createTaskMut.isPending}
           />
         )}
-        {buildModeActive && (
-          <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />
-        )}
+        {buildModeActive && <BuildModePill onShowCheatsheet={() => setCheatsheetOpen(true)} />}
         <RecalculatingBadge isVisible={pendingTaskIds.size > 0} />
 
         {toolbarShowSecondaryInline && (
@@ -1060,7 +1077,7 @@ export function ScheduleView() {
             aria-expanded={showColMenu}
             aria-haspopup="menu"
             className="border border-neutral-border rounded h-7 px-3 text-xs font-medium
-              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none dark:focus-visible:ring-semantic-on-track
               hover:border-brand-primary hover:text-brand-primary"
           >
             Columns
@@ -1084,7 +1101,13 @@ export function ScheduleView() {
                     onChange={() => toggleColumn(col)}
                     className="accent-brand-primary"
                   />
-                  {col === 'dur' ? 'Dur' : col === 'start' ? 'Start' : col === 'finish' ? 'Finish' : '%'}
+                  {col === 'dur'
+                    ? 'Dur'
+                    : col === 'start'
+                      ? 'Start'
+                      : col === 'finish'
+                        ? 'Finish'
+                        : '%'}
                 </label>
               ))}
             </div>
@@ -1095,7 +1118,7 @@ export function ScheduleView() {
         <button
           type="button"
           onClick={handleScrollToToday}
-          className="border border-neutral-border rounded h-7 px-3 text-xs font-medium flex-shrink-0 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none"
+          className="border border-neutral-border rounded h-7 px-3 text-xs font-medium flex-shrink-0 focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:outline-none dark:focus-visible:ring-semantic-on-track"
         >
           Today
         </button>
@@ -1110,75 +1133,78 @@ export function ScheduleView() {
         {(projectId || breakpoint === 'sm') && (
           <ToolbarOverflowMenu
             triggerAriaLabel="Project actions"
-            items={[
-              ...(projectId && canImport
-                ? [
-                    {
-                      kind: 'action' as const,
-                      id: 'import-msproject',
-                      label: 'Import from MS Project…',
-                      onSelect: () => setImportOpen(true),
-                    },
-                  ]
-                : []),
-              ...(projectId
-                ? [
-                    {
-                      kind: 'action' as const,
-                      id: 'export-msproject',
-                      label: isExporting ? 'Exporting…' : 'Export to MS Project (.xml)',
-                      disabled: isExporting,
-                      onSelect: () => {
-                        void exportProject();
+            items={
+              [
+                ...(projectId && canImport
+                  ? [
+                      {
+                        kind: 'action' as const,
+                        id: 'import-msproject',
+                        label: 'Import from MS Project…',
+                        onSelect: () => setImportOpen(true),
                       },
-                    },
-                  ]
-                : []),
-              ...(breakpoint === 'sm'
-                ? [
-                    ...((zoomLevel === 'quarter' || zoomLevel === 'year') && fiscalStartMonth !== 1
-                      ? [
-                          {
-                            kind: 'checkbox' as const,
-                            id: 'fiscal-quarters',
-                            label: 'Fiscal quarters',
-                            checked: quarterMode === 'fiscal',
-                            onChange: (next: boolean) =>
-                              setQuarterMode(next ? 'fiscal' : 'calendar'),
-                          },
-                        ]
-                      : []),
-                    {
-                      kind: 'checkbox' as const,
-                      id: 'cp-only',
-                      label: 'CP only',
-                      checked: showCpOnly,
-                      onChange: setShowCpOnly,
-                    },
-                    {
-                      kind: 'checkbox' as const,
-                      id: 'focus-chain',
-                      label: 'Focus chain',
-                      checked: focusModeEnabled,
-                      onChange: setFocusModeEnabled,
-                    },
-                    {
-                      kind: 'checkbox' as const,
-                      id: 'critical-path',
-                      label: 'Critical path only',
-                      checked: showCriticalOnly,
-                      onChange: setShowCriticalOnly,
-                    },
-                    {
-                      kind: 'checkbox' as const,
-                      id: 'milestones',
-                      label: 'Milestones only',
-                      checked: showMilestonesOnly,
-                      onChange: setShowMilestonesOnly,
-                    },
-                  ]
-                : []),
-            ] as ToolbarOverflowItem[]}
+                    ]
+                  : []),
+                ...(projectId
+                  ? [
+                      {
+                        kind: 'action' as const,
+                        id: 'export-msproject',
+                        label: isExporting ? 'Exporting…' : 'Export to MS Project (.xml)',
+                        disabled: isExporting,
+                        onSelect: () => {
+                          void exportProject();
+                        },
+                      },
+                    ]
+                  : []),
+                ...(breakpoint === 'sm'
+                  ? [
+                      ...((zoomLevel === 'quarter' || zoomLevel === 'year') &&
+                      fiscalStartMonth !== 1
+                        ? [
+                            {
+                              kind: 'checkbox' as const,
+                              id: 'fiscal-quarters',
+                              label: 'Fiscal quarters',
+                              checked: quarterMode === 'fiscal',
+                              onChange: (next: boolean) =>
+                                setQuarterMode(next ? 'fiscal' : 'calendar'),
+                            },
+                          ]
+                        : []),
+                      {
+                        kind: 'checkbox' as const,
+                        id: 'cp-only',
+                        label: 'CP only',
+                        checked: showCpOnly,
+                        onChange: setShowCpOnly,
+                      },
+                      {
+                        kind: 'checkbox' as const,
+                        id: 'focus-chain',
+                        label: 'Focus chain',
+                        checked: focusModeEnabled,
+                        onChange: setFocusModeEnabled,
+                      },
+                      {
+                        kind: 'checkbox' as const,
+                        id: 'critical-path',
+                        label: 'Critical path only',
+                        checked: showCriticalOnly,
+                        onChange: setShowCriticalOnly,
+                      },
+                      {
+                        kind: 'checkbox' as const,
+                        id: 'milestones',
+                        label: 'Milestones only',
+                        checked: showMilestonesOnly,
+                        onChange: setShowMilestonesOnly,
+                      },
+                    ]
+                  : []),
+              ] as ToolbarOverflowItem[]
+            }
           />
         )}
       </div>
@@ -1289,7 +1315,6 @@ export function ScheduleView() {
                 />
               </div>
             </div>
-
           </div>
         )}
 
@@ -1444,10 +1469,7 @@ export function ScheduleView() {
       )}
 
       {buildModeActive && (
-        <BuildModeCheatsheet
-          open={cheatsheetOpen}
-          onClose={() => setCheatsheetOpen(false)}
-        />
+        <BuildModeCheatsheet open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
       )}
     </div>
   );
@@ -1458,4 +1480,3 @@ export function ScheduleView() {
     mainView
   );
 }
-

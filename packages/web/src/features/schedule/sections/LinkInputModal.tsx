@@ -91,7 +91,7 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
             disabled={submitting}
             className="text-sm bg-neutral-surface border border-neutral-border rounded p-2
               text-neutral-text-primary
-              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               disabled:opacity-50"
           />
         </label>
@@ -106,7 +106,7 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
             disabled={submitting}
             className="text-sm bg-neutral-surface border border-neutral-border rounded p-2
               text-neutral-text-primary
-              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               disabled:opacity-50"
           />
         </label>
@@ -122,7 +122,7 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
             disabled={submitting}
             className="text-xs border border-neutral-border rounded px-3 h-7 font-medium
               text-neutral-text-secondary hover:bg-neutral-surface-raised
-              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               disabled:opacity-50"
           >
             Cancel
@@ -132,7 +132,7 @@ export function LinkInputModal({ open, onClose, onSubmit, submitting }: Props) {
             disabled={submitting || !url.trim()}
             className="text-xs bg-brand-primary text-white rounded px-3 h-7 font-medium
               hover:opacity-90
-              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none
               disabled:opacity-50"
           >
             {submitting ? 'Pinning…' : 'Pin link'}

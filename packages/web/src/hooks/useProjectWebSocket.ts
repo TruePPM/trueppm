@@ -196,7 +196,10 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
 
       // --- CPM error (timeout / hard failure) ---
       else if (event_type === 'cpm_error') {
-        setCpmError({ error: (payload.error as string | undefined) ?? 'timeout', cycle: [] } as CpmError);
+        setCpmError({
+          error: (payload.error as string | undefined) ?? 'timeout',
+          cycle: [],
+        } as CpmError);
         setRecalculating(false);
       }
 
@@ -312,6 +315,42 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         if (typeof taskId === 'string') {
           void queryClient.invalidateQueries({ queryKey: ['task-attachments', taskId] });
         }
+      }
+
+      // --- Task external-link events (integrations) ---
+      // The backend emits these on TaskLink create/refresh/delete; without a
+      // handler peers keep a stale link list until reload.
+      else if (
+        event_type === 'task_link_created' ||
+        event_type === 'task_link_updated' ||
+        event_type === 'task_link_deleted'
+      ) {
+        const taskId = payload?.task_id;
+        if (typeof taskId === 'string') {
+          void queryClient.invalidateQueries({ queryKey: ['task-links', taskId] });
+        }
+      }
+
+      // --- Retro action-item promotion ---
+      // A promoted action item creates a TaskSuggestedAssignee; refresh the task
+      // feed and the suggested user's My Work queue (same keys as
+      // useSuggestionAction) so the suggestion surfaces for connected peers.
+      else if (event_type === 'suggestion_created') {
+        scheduleInvalidate('tasks');
+        void queryClient.invalidateQueries({ queryKey: ['me', 'work'] });
+      }
+
+      // --- Project API token events ---
+      // Key must match useApiTokens' tokensKey: ['api-tokens', scope.kind, id].
+      else if (event_type === 'api_token_minted' || event_type === 'api_token_revoked') {
+        void queryClient.invalidateQueries({
+          queryKey: ['api-tokens', 'project', projectIdRef.current],
+        });
+      }
+
+      // --- Project custom-field schema events ---
+      else if (event_type === 'project_custom_fields_updated') {
+        void queryClient.invalidateQueries({ queryKey: ['customFields', projectIdRef.current] });
       }
 
       // --- Sprint events ---

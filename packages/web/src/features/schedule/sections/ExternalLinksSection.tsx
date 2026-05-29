@@ -148,7 +148,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
           target="_blank"
           rel="noopener noreferrer"
           className="text-sm font-medium text-neutral-text-primary truncate hover:underline
-            focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none rounded"
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none rounded"
         >
           {title}
           <span className="sr-only"> (opens in new tab)</span>
@@ -168,10 +168,12 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
             onClick={handleRefresh}
             disabled={refresh.isPending}
             className="text-xs text-neutral-text-secondary hover:text-neutral-text-primary rounded px-2 h-7
-              focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none disabled:opacity-50"
+              focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none disabled:opacity-50"
             aria-label={`Refresh status for ${title}`}
           >
-            <span className={refresh.isPending ? 'inline-block motion-safe:animate-spin' : ''}>⟳</span>
+            <span className={refresh.isPending ? 'inline-block motion-safe:animate-spin' : ''}>
+              ⟳
+            </span>
           </button>
           {canEdit &&
             (!confirmingDelete ? (
@@ -179,7 +181,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
                 type="button"
                 onClick={() => setConfirmingDelete(true)}
                 className="text-xs text-neutral-text-secondary hover:text-semantic-critical rounded px-2 h-7
-                  focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
+                  focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
                 aria-label={`Delete ${title}`}
               >
                 ✕
@@ -192,7 +194,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
                   disabled={remove.isPending}
                   className="text-xs bg-semantic-critical text-white rounded px-2 h-7 font-medium
                     hover:opacity-90 disabled:opacity-50
-                    focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
+                    focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
                   aria-label={`Confirm delete ${title}`}
                 >
                   {remove.isPending ? 'Deleting…' : 'Confirm'}
@@ -201,7 +203,7 @@ function ExternalLinkRow({ link, projectId, taskId, canEdit }: ExternalLinkRowPr
                   type="button"
                   onClick={() => setConfirmingDelete(false)}
                   className="text-xs text-neutral-text-secondary rounded px-2 h-7 hover:bg-neutral-surface
-                    focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
+                    focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
                 >
                   Cancel
                 </button>
@@ -280,7 +282,7 @@ function AddLinkInput({ projectId, taskId }: AddLinkInputProps) {
           aria-describedby="external-link-hint"
           className="flex-1 h-9 px-2 text-sm rounded border border-neutral-border bg-neutral-surface
             text-neutral-text-primary placeholder:text-neutral-text-secondary
-            focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none"
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none"
         />
         <button
           type="button"
@@ -288,12 +290,16 @@ function AddLinkInput({ projectId, taskId }: AddLinkInputProps) {
           disabled={!detected || create.isPending}
           className="text-xs border border-neutral-border rounded px-3 h-9 font-medium
             text-neutral-text-primary hover:bg-neutral-surface
-            focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none disabled:opacity-50"
+            focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 dark:focus-visible:ring-semantic-on-track focus-visible:outline-none disabled:opacity-50"
         >
           {create.isPending ? 'Adding…' : 'Add'}
         </button>
       </div>
-      <span id="external-link-hint" className="text-xs text-neutral-text-secondary" aria-live="polite">
+      <span
+        id="external-link-hint"
+        className="text-xs text-neutral-text-secondary"
+        aria-live="polite"
+      >
         {hint}
       </span>
       {error && (
@@ -345,7 +351,10 @@ export function ExternalLinksSection({ taskId, projectId }: DrawerSectionProps) 
       )}
 
       {!isLoading && !error && links.length > 0 && (
-        <ul aria-label={`External links — ${links.length} total`} className="flex flex-col gap-2 list-none">
+        <ul
+          aria-label={`External links — ${links.length} total`}
+          className="flex flex-col gap-2 list-none"
+        >
           {links.map((link) => (
             <ExternalLinkRow
               key={link.id}

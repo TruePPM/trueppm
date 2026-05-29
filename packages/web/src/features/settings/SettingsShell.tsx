@@ -95,11 +95,14 @@ export function SettingsShell({
   // Cleared on unmount so a navigation away mid-confirm doesn't leave the
   // setTimeout dangling.
   const copyTimerRef = useRef<number | null>(null);
-  useEffect(() => () => {
-    if (copyTimerRef.current != null) {
-      window.clearTimeout(copyTimerRef.current);
-    }
-  }, []);
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current != null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const handleCopyLink = useCallback(() => {
     const url = window.location.href;
@@ -203,10 +206,10 @@ export function SettingsShell({
                     isActive
                       ? 'bg-neutral-surface text-neutral-text-primary'
                       : isDisabled
-                        // text-neutral-text-disabled here is exempt from rule 87 /
-                        // WCAG 1.4.3 — it's an inactive (disabled) UI component, and
-                        // it must read dimmer than the text-secondary enabled segments.
-                        ? 'text-neutral-text-disabled cursor-not-allowed'
+                        ? // text-neutral-text-disabled here is exempt from rule 87 /
+                          // WCAG 1.4.3 — it's an inactive (disabled) UI component, and
+                          // it must read dimmer than the text-secondary enabled segments.
+                          'text-neutral-text-disabled cursor-not-allowed'
                         : 'text-neutral-text-secondary hover:text-neutral-text-primary',
                   ].join(' ')}
                 >
@@ -242,13 +245,15 @@ export function SettingsShell({
                   />
                 ) : (
                   <span
-                    className="w-3.5 h-3.5 rounded bg-brand-primary shrink-0 inline-flex items-center justify-center text-white text-[9px] font-bold"
+                    className="w-3.5 h-3.5 rounded bg-brand-primary shrink-0 inline-flex items-center justify-center text-white text-[10px] font-bold"
                     aria-hidden="true"
                   >
                     tP
                   </span>
                 )}
-                <span className="flex-1 truncate text-neutral-text-primary font-medium">{contextName}</span>
+                <span className="flex-1 truncate text-neutral-text-primary font-medium">
+                  {contextName}
+                </span>
               </>
             )}
             <button
@@ -258,8 +263,21 @@ export function SettingsShell({
               className="shrink-0 inline-flex items-center justify-center w-6 h-6 -my-1 rounded text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               {copyConfirmed ? (
-                <svg width="12" height="12" viewBox="0 0 16 16" className="text-semantic-on-track" aria-hidden="true">
-                  <path d="M3 8l3.5 3.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 16 16"
+                  className="text-semantic-on-track"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M3 8l3.5 3.5L13 5"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                  />
                 </svg>
               ) : (
                 <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
@@ -352,12 +370,24 @@ export function SettingsShell({
             className="shrink-0 flex items-center justify-end gap-2 px-6 py-2 bg-neutral-surface-raised border-t border-neutral-border/55"
             data-testid="settings-saved-footer"
           >
-            <svg width="12" height="12" viewBox="0 0 16 16" className="text-semantic-on-track shrink-0" aria-hidden="true">
-              <path d="M3 8l3.5 3.5L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 16 16"
+              className="text-semantic-on-track shrink-0"
+              aria-hidden="true"
+            >
+              <path
+                d="M3 8l3.5 3.5L13 5"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+              />
             </svg>
             <span className="text-[12px] text-neutral-text-secondary">
-              Saved{' '}
-              <span className="tppm-mono">{formatRelative(new Date(lastSavedAt))}</span>
+              Saved <span className="tppm-mono">{formatRelative(new Date(lastSavedAt))}</span>
             </span>
           </div>
         )}
@@ -373,7 +403,13 @@ export function SettingsShell({
               className="text-white/80 shrink-0"
               aria-hidden="true"
             >
-              <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3.5a1 1 0 0 1 0 2 1 1 0 0 1 0-2zm0 3.5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+              <path
+                d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 3.5a1 1 0 0 1 0 2 1 1 0 0 1 0-2zm0 3.5v4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                fill="none"
+              />
             </svg>
             <span className="text-[13px] font-medium text-white" role="status">
               {saveError ?? 'You have unsaved changes'}
@@ -401,10 +437,7 @@ export function SettingsShell({
       </div>
 
       {pendingNav !== null && (
-        <ConfirmDiscardDialog
-          onKeepEditing={handleKeepEditing}
-          onDiscard={handleDiscardAndGo}
-        />
+        <ConfirmDiscardDialog onKeepEditing={handleKeepEditing} onDiscard={handleDiscardAndGo} />
       )}
     </div>
   );
@@ -430,9 +463,7 @@ export function SettingsPageTitle({ title, subtitle, count, action }: SettingsPa
             <span className="text-[13px] font-medium text-neutral-text-secondary">{count}</span>
           )}
         </h1>
-        {subtitle && (
-          <p className="mt-1 text-[13px] text-neutral-text-secondary">{subtitle}</p>
-        )}
+        {subtitle && <p className="mt-1 text-[13px] text-neutral-text-secondary">{subtitle}</p>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
     </div>
@@ -448,7 +479,10 @@ interface FieldRowProps {
 /** Two-column form row: 240px label+hint on left, content on right. */
 export function FieldRow({ label, hint, children }: FieldRowProps) {
   return (
-    <div className="grid gap-6 py-3.5 border-b border-neutral-border/55 items-start" style={{ gridTemplateColumns: '240px 1fr' }}>
+    <div
+      className="grid gap-6 py-3.5 border-b border-neutral-border/55 items-start"
+      style={{ gridTemplateColumns: '240px 1fr' }}
+    >
       <div>
         <div className="text-[13px] font-medium text-neutral-text-primary">{label}</div>
         {hint && (
@@ -468,7 +502,9 @@ interface SettingsCardProps {
 /** Raised card used in settings pages. */
 export function SettingsCard({ children, className = '' }: SettingsCardProps) {
   return (
-    <div className={`bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden ${className}`}>
+    <div
+      className={`bg-neutral-surface-raised border border-neutral-border rounded-lg overflow-hidden ${className}`}
+    >
       {children}
     </div>
   );
