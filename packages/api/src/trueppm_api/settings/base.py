@@ -381,7 +381,13 @@ INTEGRATION_ENCRYPTION_KEY: str = env(
 # ---------------------------------------------------------------------------
 
 MC_SIMULATION_CAP: int | None = 1_000
-MC_TASK_CAP: int | None = 500
+# Raised 500 -> 5000 (#823): the OSS scaling story is "10k tasks", but the MC
+# endpoint returned HTTP 402 for any project over 500 tasks, so Monte Carlo was
+# silently unavailable for realistic large projects. The vectorised numpy path
+# (scheduler/engine.py) is O(runs x tasks x edges) and handles a 5000-task x
+# 1000-run simulation in a few seconds. Operators on constrained hardware can
+# lower this; Enterprise overrides it in enterprise settings.
+MC_TASK_CAP: int | None = 5_000
 
 # ---------------------------------------------------------------------------
 # Upload caps (ADR-0075, task attachments)

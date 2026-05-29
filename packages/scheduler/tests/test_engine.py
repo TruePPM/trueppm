@@ -728,3 +728,22 @@ class TestScheduleParallelRoots:
         )
         r = schedule(p)
         assert r.project_start == date(2026, 3, 2)
+
+
+class TestScheduleResultOwnsItsSequences:
+    """ScheduleResult defensively copies its list containers on construction (#826)."""
+
+    def test_mutating_input_lists_does_not_affect_result(self) -> None:
+        tasks = [Task(id="t-1", name="A", duration=timedelta(days=1))]
+        cp = ["t-1"]
+        result = ScheduleResult(
+            project_id="p-1",
+            project_start=date(2026, 1, 1),
+            project_finish=date(2026, 1, 1),
+            tasks=tasks,
+            critical_path=cp,
+        )
+        tasks.append(Task(id="t-2", name="B", duration=timedelta(days=1)))
+        cp.append("t-2")
+        assert len(result.tasks) == 1
+        assert result.critical_path == ["t-1"]

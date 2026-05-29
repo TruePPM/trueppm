@@ -36,10 +36,17 @@ class DateRange:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        return cls(
-            start=date.fromisoformat(data["start"]),
-            end=date.fromisoformat(data["end"]),
-        )
+        # Wrap malformed input in the public InvalidScheduleInput (#826) so the
+        # deserialization surface raises one documented exception type.
+        from trueppm_scheduler.engine import InvalidScheduleInput
+
+        try:
+            return cls(
+                start=date.fromisoformat(data["start"]),
+                end=date.fromisoformat(data["end"]),
+            )
+        except (KeyError, ValueError, TypeError) as err:
+            raise InvalidScheduleInput(f"Invalid date range: {err}") from err
 
 
 @dataclass
@@ -50,7 +57,12 @@ class Task:
     name: str
     duration: timedelta
 
-    # Planned dates (user-set)
+    # Planned dates (user-set). Only ``planned_start`` is consumed by the engine
+    # (as a start-no-earlier-than constraint). ``planned_finish`` is RESERVED
+    # (#826): it round-trips through to_dict/from_dict for API parity but the CPM
+    # pass does not yet treat it as a finish-no-later-than constraint. Documented
+    # as reserved rather than removed so existing serialized documents stay valid;
+    # honoring it as an SNLT constraint is a planned, separately-reviewed change.
     planned_start: date | None = None
     planned_finish: date | None = None
 
@@ -66,6 +78,9 @@ class Task:
 
     # Status
     is_critical: bool = False
+    # RESERVED (#826): round-trips for API parity but is NOT consumed by schedule()
+    # or monte_carlo() — neither uses it as a remaining-duration driver yet.
+    # Documented rather than removed to keep serialized documents valid.
     percent_complete: float = 0.0
 
     # Three-point estimation (PERT)
@@ -143,6 +158,11 @@ class Calendar:
 
     working_days: int = 0b0011111
     exceptions: list[DateRange] = field(default_factory=list)
+    # RESERVED (#826): the engine schedules in whole-day units, so hours_per_day
+    # and timezone are NOT consumed by CPM/Monte Carlo today — they round-trip for
+    # API/calendar parity only. hours_per_day in particular is a knob users will
+    # assume affects calculation; it does not (yet). Documented rather than removed
+    # so serialized calendars stay valid; sub-day scheduling is a future change.
     hours_per_day: float = 8.0
     timezone: str = "UTC"
 
@@ -193,14 +213,24 @@ class Project:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        return cls(
-            id=data["id"],
-            name=data["name"],
-            start_date=date.fromisoformat(data["start_date"]),
-            tasks=[Task.from_dict(t) for t in data.get("tasks", [])],
-            dependencies=[Dependency.from_dict(d) for d in data.get("dependencies", [])],
-            calendar=Calendar.from_dict(data.get("calendar", {})),
-        )
+        # Wrap the raw KeyError/ValueError/TypeError from a malformed document in
+        # the public InvalidScheduleInput so the documented exception surface is
+        # complete (#826) — callers catch one exception type, not the internals
+        # of dict access / date parsing. Function-local import avoids the
+        # models<->engine circular import at module load.
+        from trueppm_scheduler.engine import InvalidScheduleInput
+
+        try:
+            return cls(
+                id=data["id"],
+                name=data["name"],
+                start_date=date.fromisoformat(data["start_date"]),
+                tasks=[Task.from_dict(t) for t in data.get("tasks", [])],
+                dependencies=[Dependency.from_dict(d) for d in data.get("dependencies", [])],
+                calendar=Calendar.from_dict(data.get("calendar", {})),
+            )
+        except (KeyError, ValueError, TypeError) as err:
+            raise InvalidScheduleInput(f"Invalid project document: {err}") from err
 
     def to_json(self, **kwargs: Any) -> str:
         return json.dumps(self.to_dict(), **kwargs)
@@ -211,7 +241,13 @@ class Project:
         # default; reject them so a hostile document can't smuggle a non-finite
         # duration (→ OverflowError) or percent_complete (→ invalid JSON on the
         # way back out) into the engine.
-        return cls.from_dict(json.loads(s, parse_constant=_reject_nonfinite))
+        from trueppm_scheduler.engine import InvalidScheduleInput
+
+        try:
+            data = json.loads(s, parse_constant=_reject_nonfinite)
+        except (ValueError, TypeError) as err:  # JSONDecodeError is a ValueError
+            raise InvalidScheduleInput(f"Invalid project JSON: {err}") from err
+        return cls.from_dict(data)
 
 
 # --- Serialization helpers ---

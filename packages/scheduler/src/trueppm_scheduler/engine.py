@@ -103,6 +103,14 @@ class ScheduleResult:
     tasks: list[Task]  # copies with all CPM fields populated
     critical_path: list[str]  # task IDs in topological order along the critical path
 
+    def __post_init__(self) -> None:
+        # Defensive copy of the sequence containers (#826): the result owns its
+        # lists, so a caller mutating the list it passed in — or the engine
+        # reusing its internal working list — can't retroactively alter a returned
+        # ScheduleResult. The Task objects are already CPM-field copies.
+        self.tasks = list(self.tasks)
+        self.critical_path = list(self.critical_path)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "project_id": self.project_id,
@@ -821,8 +829,11 @@ def monte_carlo(
     without three-point estimates use their deterministic duration every run.
 
     The CPM network is evaluated `runs` times with sampled durations.
-    All 4 dependency types are handled. Computation is vectorised with numpy
-    so 10 000 runs on a 200-task project completes in well under 100 ms.
+    All 4 dependency types are handled. Computation is vectorised with numpy:
+    10 000 runs on a 200-task project completes in well under 100 ms — but note
+    the ``max_runs`` cap defaults to 1 000, so a 10 000-run call must raise it
+    (e.g. ``monte_carlo(project, runs=10_000, max_runs=10_000)``) or it raises
+    SimulationCapExceeded.
 
     Args:
         project:   The project to simulate. Must have at least one task and
@@ -971,9 +982,17 @@ def monte_carlo(
 
     all_dates = sorted(_offset_to_date(o) for o in completion_offsets.tolist())
 
-    p50 = all_dates[int(0.50 * runs) - 1]
-    p80 = all_dates[int(0.80 * runs) - 1]
-    p95 = all_dates[int(0.95 * runs) - 1]
+    # Percentile convention (documented for the public surface, #826): use
+    # numpy.percentile — the de-facto Python standard (linear interpolation
+    # between the two nearest ranks) — on the completion-offset distribution,
+    # then map the resulting offset to a working-day date. The previous
+    # lower-median nearest-rank with a -1 offset (all_dates[int(0.50*runs)-1])
+    # was an undocumented in-house convention; numpy.percentile is what PyPI
+    # consumers expect and stays reproducible under the same seed.
+    pct_offsets = np.percentile(completion_offsets, [50, 80, 95])
+    p50 = _offset_to_date(float(pct_offsets[0]))
+    p80 = _offset_to_date(float(pct_offsets[1]))
+    p95 = _offset_to_date(float(pct_offsets[2]))
 
     return MonteCarloResult(
         project_id=project.id,
