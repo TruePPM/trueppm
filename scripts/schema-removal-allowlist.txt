@@ -1,0 +1,14 @@
+# Intentionally-removed OpenAPI paths / schemas, declared so the
+# schema-regression-vs-main guard (scripts/check-schema-regression.py) does not
+# treat a deliberate, reviewed removal as an accidental drop.
+#
+# One entry per line. A bare line is a path; "schema:<Name>" is a component
+# schema. "#" starts a comment. Entries go stale harmlessly once merged (the
+# baseline no longer contains them) and can be pruned in any later cleanup.
+
+# #846 — dead "ghost" suggestion routes: detail=True @action auto-registered
+# these parameterless variants, which always 404 (suggestion_pk never bound).
+# The real routes (tasks/{pk}/suggestions/{suggestion_pk}/{verb}/) are unchanged.
+/api/v1/tasks/{id}/suggestions/accept/
+/api/v1/tasks/{id}/suggestions/decline/
+/api/v1/tasks/{id}/suggestions/revoke/

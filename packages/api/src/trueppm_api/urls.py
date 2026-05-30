@@ -32,6 +32,17 @@ def health(_request: Request) -> Response:
     return Response({"status": "ok"})
 
 
+@extend_schema(
+    summary="Running edition",
+    description=(
+        'Returns `{"edition": "community" | "enterprise"}` from the TRUEPPM_EDITION '
+        "Django setting. No authentication required. The React shell calls this once "
+        "at startup to decide the post-login redirect target (ADR-0029, ADR-0030)."
+    ),
+    responses={200: inline_serializer("EditionResponse", {"edition": serializers.CharField()})},
+    auth=[],
+    tags=["meta"],
+)
 @api_view(["GET"])
 @permission_classes([AllowAny])
 def edition(request: Request) -> Response:

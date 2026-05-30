@@ -30,6 +30,14 @@ from django.db.models import (
 from django.db.models.expressions import RawSQL
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import filters, generics, mixins, pagination, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
@@ -162,6 +170,40 @@ class CalendarViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Calendar]):
         return Calendar.objects.prefetch_related("exceptions").order_by("name")
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="program__isnull",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When truthy (true/1/yes), return only ungrouped projects "
+                    "(no program), excluding archived and soft-deleted ones, and "
+                    "annotate each row with member_count and percent_complete "
+                    "(Programs directory 'Ungrouped projects' section)."
+                ),
+            ),
+        ],
+    ),
+    destroy=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="force",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When truthy (1/true/yes), permanently hard-delete the "
+                    "project (and its memberships) instead of soft-deleting it. "
+                    "Requires the project to already be archived, otherwise a 400 "
+                    "is returned."
+                ),
+            ),
+        ],
+    ),
+)
 class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
     """CRUD for projects.
 
@@ -442,6 +484,43 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         serializer = self.get_serializer(project)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="start",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Window start (inclusive), ISO 8601 YYYY-MM-DD. Defaults to the "
+                    "near-term window start (today - 8 weeks, clamped into the CPM span)."
+                ),
+            ),
+            OpenApiParameter(
+                name="end",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Window end (inclusive), ISO 8601 YYYY-MM-DD. Defaults to the "
+                    "near-term window end (today + 8 weeks, clamped into the CPM span)."
+                ),
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Sparse map of resource -> working day -> {hours, task_ids} for "
+                    "the requested window."
+                ),
+            ),
+            409: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="No CPM dates exist on any task (scheduler not run yet).",
+            ),
+        },
+    )
     @action(detail=True, methods=["get"], url_path="utilization")
     def utilization(self, request: Request, pk: str | None = None) -> Response:
         """Per-resource daily utilization for a project.
@@ -534,6 +613,61 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
         result = compute_utilization(project, window_start, window_end)
         return Response(result)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="start",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Window start, ISO 8601 YYYY-MM-DD. Defaults to the earliest "
+                    "early_start across all tasks; returns 409 if no CPM dates exist."
+                ),
+            ),
+            OpenApiParameter(
+                name="end",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Window end, ISO 8601 YYYY-MM-DD. Defaults to the latest "
+                    "early_finish across all tasks."
+                ),
+            ),
+            OpenApiParameter(
+                name="resource",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                many=True,
+                description="Filter to specific resource IDs. Repeatable.",
+            ),
+            OpenApiParameter(
+                name="status",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                many=True,
+                description="Filter tasks by status value. Repeatable.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Per-resource task spans within the window: "
+                    "{project_id, window_start, window_end, resources: "
+                    "[{id, name, email, max_units, tasks: [{assignment_id, id, "
+                    "name, early_start, early_finish, units, status}]}]}."
+                ),
+            ),
+            409: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="No CPM dates exist (scheduler not run yet).",
+            ),
+        },
+    )
     @action(detail=True, methods=["get"], url_path="resource-allocation")
     def resource_allocation(self, request: Request, pk: str | None = None) -> Response:
         """Per-resource task spans for the allocation timeline view (issue #85).
@@ -674,6 +808,45 @@ class ProjectViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project]):
             }
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="weeks",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Rolling window width in weeks; one of 4, 8, 12, 16. Defaults to 8.",
+            ),
+            OpenApiParameter(
+                name="start",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "ISO 8601 YYYY-MM-DD; normalised to the Monday of that week. "
+                    "Defaults to the Monday of the current ISO week."
+                ),
+            ),
+            OpenApiParameter(
+                name="group_by",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["role", "project", "none"],
+                description="Row sort hint; one of role, project, none. Defaults to none.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Week x person utilization heatmap.",
+            ),
+            409: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="No CPM dates exist on any task.",
+            ),
+        },
+    )
     @action(detail=True, methods=["get"], url_path="resources/heatmap")
     def heatmap(self, request: Request, pk: str | None = None) -> Response:
         """Week × person utilization heatmap (issue #217, ADR-0042).
@@ -1157,6 +1330,106 @@ def _summarize_api_tokens(scope_filter: Q) -> dict[str, Any]:
     }
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="project",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to tasks in this project.",
+            ),
+            OpenApiParameter(
+                name="short_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by short_id (case-insensitive; matched upper-cased).",
+            ),
+            OpenApiParameter(
+                name="is_critical",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to critical-path tasks when true (true/1).",
+            ),
+            OpenApiParameter(
+                name="status",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by task status value.",
+            ),
+            OpenApiParameter(
+                name="mine",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true (true/1), return only tasks the requesting user is "
+                    "assigned to (via Resource.user, with a legacy email fallback)."
+                ),
+            ),
+            OpenApiParameter(
+                name="sprint",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Sprint membership filter. A sprint UUID returns only tasks in "
+                    "that sprint; the literal 'none' returns only sprint-less tasks "
+                    "(project backlog)."
+                ),
+            ),
+            OpenApiParameter(
+                name="parent",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Return the subtasks (is_subtask=true) of this parent task.",
+            ),
+            OpenApiParameter(
+                name="is_subtask",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by the is_subtask flag (true/1 or false/0).",
+            ),
+            OpenApiParameter(
+                name="start__gte",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "ISO 8601 YYYY-MM-DD; keep tasks whose early_finish is at or "
+                    "after this date (still active in the window)."
+                ),
+            ),
+            OpenApiParameter(
+                name="finish__lte",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "ISO 8601 YYYY-MM-DD; keep tasks whose early_start is at or "
+                    "before this date (already started by the window)."
+                ),
+            ),
+            OpenApiParameter(
+                name="baseline",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Baseline ID used to annotate each task with baseline_start / "
+                    "baseline_finish. Defaults to the project's active baseline when "
+                    "?project is supplied."
+                ),
+            ),
+        ],
+    ),
+)
 class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     """CRUD for tasks within a project.
 
@@ -1730,11 +2003,11 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     # TaskSuggestedAssignee actions (ADR-0071 §5)
     # -----------------------------------------------------------------
 
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path="suggestions/accept",
-    )
+    # Routed explicitly in urls.py as
+    # tasks/<pk>/suggestions/<uuid:suggestion_pk>/accept/ (the action needs
+    # suggestion_pk). NOT an @action: a detail=True @action would also register a
+    # parameterless tasks/{pk}/suggestions/accept/ route that 404s at runtime
+    # (suggestion_pk always None) and pollutes the OpenAPI schema (#846).
     def accept_suggestion(
         self,
         request: Request,
@@ -1835,11 +2108,8 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             status=status.HTTP_200_OK,
         )
 
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path="suggestions/decline",
-    )
+    # Routed explicitly in urls.py (see accept_suggestion) — not an @action so
+    # no parameterless ghost route is generated (#846).
     def decline_suggestion(
         self,
         request: Request,
@@ -1892,11 +2162,8 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             status=status.HTTP_200_OK,
         )
 
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path="suggestions/revoke",
-    )
+    # Routed explicitly in urls.py (see accept_suggestion) — not an @action so
+    # no parameterless ghost route is generated (#846).
     def revoke_suggestion(
         self,
         request: Request,
@@ -2110,6 +2377,35 @@ class BaselineActivateView(IdempotencyMixin, APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="project",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to dependencies whose predecessor is in this project.",
+            ),
+            OpenApiParameter(
+                name="dep_type",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by dependency type (FS, SS, FF, SF).",
+            ),
+            OpenApiParameter(
+                name="task",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Return all edges where this task is either the predecessor or the successor."
+                ),
+            ),
+        ],
+    ),
+)
 class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency]):
     """CRUD for task dependencies.
 
@@ -2224,6 +2520,26 @@ class DependencyViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Dependency])
         )
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="project",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to recurrence rules whose task is in this project.",
+            ),
+            OpenApiParameter(
+                name="task",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to the recurrence rule attached to this task.",
+            ),
+        ],
+    ),
+)
 class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskRecurrenceRule]):
     """CRUD for a task's recurrence rule (ADR-0090, #736).
 
@@ -3426,6 +3742,33 @@ class ProjectOverviewView(APIView):
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Aggregated KPI snapshot for the single-project overview dashboard.",
+                examples=[
+                    OpenApiExample(
+                        "overview",
+                        value={
+                            "schedule_health": "on_track",
+                            "spi": 1.02,
+                            "tasks_late_count": 2,
+                            "critical_task_count": 7,
+                            "total_tasks": 48,
+                            "complete_tasks": 19,
+                            "next_milestone": {"id": "…", "name": "Beta", "date": "2026-03-01"},
+                            "team_utilization_pct": None,
+                            "owner_name": "Sarah Chen",
+                            "open_risk_count": 4,
+                            "high_risk_count": 1,
+                            "start_date": "2026-01-05",
+                        },
+                    ),
+                ],
+            ),
+        },
+    )
     def get(self, request: Request, pk: str) -> Response:
         """Return KPI data for the project overview page."""
         project = get_object_or_404(Project, pk=pk)
@@ -3581,6 +3924,39 @@ class ProjectAttentionView(APIView):
     # Maximum items returned per severity bucket — keeps the panel scannable.
     _MAX_PER_BUCKET = 3
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Prioritised attention list: {items: [{severity, type, task_id, "
+                    "task_name, assignee_name, date, detail, link_target}]}. severity "
+                    "is one of critical/warning/info; type is one of "
+                    "critical_task_late, unassigned_approaching, baseline_drift, "
+                    "overallocation."
+                ),
+                examples=[
+                    OpenApiExample(
+                        "attention",
+                        value={
+                            "items": [
+                                {
+                                    "severity": "critical",
+                                    "type": "critical_task_late",
+                                    "task_id": "…",
+                                    "task_name": "Cutover",
+                                    "assignee_name": "Priya N.",
+                                    "date": "2026-02-10",
+                                    "detail": "On critical path",
+                                    "link_target": None,
+                                }
+                            ]
+                        },
+                    ),
+                ],
+            ),
+        },
+    )
     def get(self, request: Request, pk: str) -> Response:
         """Return attention items for the project overview page."""
         project = get_object_or_404(Project, pk=pk)
@@ -3746,6 +4122,37 @@ class ProjectMyTasksView(APIView):
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "This week's tasks assigned to the requesting user: "
+                    "{tasks: [{id, name, due, status, percent_complete, is_critical, "
+                    "owner_name, owner_initials}]}."
+                ),
+                examples=[
+                    OpenApiExample(
+                        "my-tasks",
+                        value={
+                            "tasks": [
+                                {
+                                    "id": "…",
+                                    "name": "Write migration",
+                                    "due": "2026-02-12",
+                                    "status": "IN_PROGRESS",
+                                    "percent_complete": 40,
+                                    "is_critical": False,
+                                    "owner_name": "Priya N.",
+                                    "owner_initials": "PN",
+                                }
+                            ]
+                        },
+                    ),
+                ],
+            ),
+        },
+    )
     def get(self, request: Request, pk: str) -> Response:
         """Return this week's tasks for the requesting user."""
         project = get_object_or_404(Project, pk=pk)
@@ -4321,6 +4728,19 @@ class ProjectCustomFieldViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Proj
 # ---------------------------------------------------------------------------
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="state",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by sprint state (PLANNED, ACTIVE, CLOSED, CANCELED).",
+            ),
+        ],
+    ),
+)
 class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
     """CRUD plus state-transition actions for sprints (ADR-0037).
 
@@ -5220,6 +5640,20 @@ class MeWorkView(generics.ListAPIView[Task]):
             .order_by("_in_active_sprint", "_sort_date", "priority_rank", "id")
         )
 
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Paginated flat task list for the requesting contributor across "
+                    "all their projects, wrapped with sprint and freshness metadata: "
+                    "{results: [<flat task>], next, previous, active_sprints: "
+                    "[<minimal sprint card>], due_today_count, "
+                    "server_version_high_water}."
+                ),
+            ),
+        },
+    )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Wrap the paginated list with active_sprints + due_today_count + cursor."""
         from django.db.models import Count, DateField
@@ -5486,6 +5920,75 @@ class ProjectBurnView(APIView):
 
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="chart_type",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["burndown", "burnup", "combined"],
+                description=(
+                    "Curve to return; one of burndown (default), burnup, or combined. "
+                    "combined merges the remaining (burndown) and completed (burnup) "
+                    "curves into one series."
+                ),
+            ),
+            OpenApiParameter(
+                name="metric",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["tasks", "points"],
+                description="Quantity to chart; tasks (default) or points (story points).",
+            ),
+            OpenApiParameter(
+                name="since",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Window start, ISO 8601 YYYY-MM-DD. Defaults to the project start date."
+                ),
+            ),
+            OpenApiParameter(
+                name="until",
+                type=OpenApiTypes.DATE,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Window end, ISO 8601 YYYY-MM-DD. Defaults to today.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Burn series. For burndown/burnup: {chart_type, metric, since, "
+                    "until, series: [{date, actual, scope, ideal}]}. For combined: "
+                    "series rows are {date, remaining, completed, total, ideal}."
+                ),
+                examples=[
+                    OpenApiExample(
+                        "burndown",
+                        value={
+                            "chart_type": "burndown",
+                            "metric": "tasks",
+                            "since": "2026-01-01",
+                            "until": "2026-01-14",
+                            "series": [
+                                {"date": "2026-01-01", "actual": 20, "scope": 20, "ideal": 20},
+                                {"date": "2026-01-14", "actual": 3, "scope": 20, "ideal": 0},
+                            ],
+                        },
+                    ),
+                ],
+            ),
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Invalid chart_type, metric, or date parameter.",
+            ),
+        },
+    )
     def get(self, request: Request, pk: str) -> Response:
         from trueppm_api.apps.projects.services import burn_series
 

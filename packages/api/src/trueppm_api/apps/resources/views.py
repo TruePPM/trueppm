@@ -6,6 +6,12 @@ from decimal import Decimal
 
 from django.db import connection, transaction
 from django.db.models import QuerySet, Sum
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import filters, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -93,6 +99,19 @@ class SkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[Skill]):
 # ---------------------------------------------------------------------------
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="resource",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to skill tags for this resource.",
+            ),
+        ],
+    ),
+)
 class ResourceSkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[ResourceSkill]):
     """CRUD for skill tags on resources.
 
@@ -124,6 +143,34 @@ class ResourceSkillViewSet(IdempotencyMixin, viewsets.ModelViewSet[ResourceSkill
 # ---------------------------------------------------------------------------
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="project",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter the roster to this project.",
+            ),
+        ],
+    ),
+    destroy=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="force",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When 'true', cascade-delete the resource's TaskResource rows on "
+                    "this project and trigger a CPM recalculation. Without it, a 409 "
+                    "is returned if the resource has live task assignments."
+                ),
+            ),
+        ],
+    ),
+)
 class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[ProjectResource]):
     """CRUD for a project's resource roster.
 
@@ -262,6 +309,19 @@ class ProjectResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Project
 # ---------------------------------------------------------------------------
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="task",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to skill requirements for this task.",
+            ),
+        ],
+    ),
+)
 class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSkillRequirement]):
     """CRUD for skill requirements on tasks.
 
@@ -384,6 +444,40 @@ def _check_overallocation(resource: Resource, project_id: str) -> list[dict[str,
     return []
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="exclude_project",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Exclude resources already in this project's roster.",
+            ),
+            OpenApiParameter(
+                name="task",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Annotate each resource with skill_fit (exact/partial/missing) "
+                    "against this task's skill requirements and group results "
+                    "accordingly."
+                ),
+            ),
+            OpenApiParameter(
+                name="include_deleted",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When 'true', include soft-deleted (deactivated) resources. Only "
+                    "honoured for org admin callers."
+                ),
+            ),
+        ],
+    ),
+)
 class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
     """CRUD for the org-level resource catalog (issue #155).
 
@@ -541,6 +635,26 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
 # ---------------------------------------------------------------------------
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="task",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to assignments for this task.",
+            ),
+            OpenApiParameter(
+                name="resource",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter to assignments for this resource.",
+            ),
+        ],
+    ),
+)
 class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResource]):
     """CRUD for task-resource assignments.
 
