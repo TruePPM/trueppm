@@ -29,6 +29,15 @@
 #     until the final stable release.
 #   release: [Unreleased] is rotated to the stable version as normal.
 #
+# Versioning note (two schemes, one release):
+#   api + web carry the semver form (0.2.0-alpha.1); the scheduler is a PyPI
+#   package and carries the PEP 440 form of the SAME version (0.2.0a1). The
+#   canonical parse source is the API manifest (semver, parser-compatible);
+#   the scheduler manifest is bumped via a semver→PEP 440 translation so it
+#   always matches the `scheduler-v<PEP440>` publish tag and the CI version
+#   check in scheduler:publish. Two tags are created: v<semver> (Docker/Helm
+#   publish) and scheduler-v<PEP440> (PyPI publish).
+#
 # Enterprise note:
 #   The enterprise repo has its own release script that pins to a specific
 #   OSS tag (TRUEPPM_OSS_TAG) and bumps its own version independently.
@@ -71,6 +80,18 @@ stage_rank() {
     rc)    echo 3 ;;
     *)     echo 0 ;;
   esac
+}
+
+# Translate a semver version to the PEP 440 form used by the scheduler PyPI
+# package: 0.2.0-alpha.1 → 0.2.0a1, -beta.1 → b1, -rc.1 → rc1. Stable versions
+# (no pre-release suffix) are identical in both schemes. Each suffix occurs at
+# most once, so a single substitution per stage is sufficient.
+to_pep440() {
+  local v="$1"
+  v="${v/-alpha./a}"
+  v="${v/-beta./b}"
+  v="${v/-rc./rc}"
+  echo "$v"
 }
 
 validate_semver() {
@@ -174,7 +195,10 @@ fi
 # Compute new version
 # ---------------------------------------------------------------------------
 
-CURRENT_VERSION="$(grep '^version' packages/scheduler/pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
+# Canonical version source is the API manifest (semver form). The scheduler
+# manifest is the same release in PEP 440 form (0.2.0a1) and would break the
+# semver parser, so it must NOT be the parse source.
+CURRENT_VERSION="$(grep '^version' packages/api/pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
 
 if [[ -n "$PRE_ARG" ]]; then
   # e.g. ./scripts/release.sh minor alpha → bump base version then add pre suffix
@@ -199,26 +223,52 @@ $IS_PRERELEASE && echo "  (pre-release — CHANGELOG will not be rotated)"
 
 TODAY="$(date +%Y-%m-%d)"
 TAG="v${NEW_VERSION}"
+# The scheduler PyPI publish job triggers on scheduler-v<PEP440> and string-
+# matches the tag against the scheduler manifest, so this tag must use the
+# PEP 440 form (scheduler-v0.2.0a1, not scheduler-v0.2.0-alpha.1).
+SCHEDULER_TAG="scheduler-v$(to_pep440 "$NEW_VERSION")"
 
 git tag | grep -qxF "$TAG" && die "Tag $TAG already exists."
+git tag | grep -qxF "$SCHEDULER_TAG" && die "Tag $SCHEDULER_TAG already exists."
 
 # ---------------------------------------------------------------------------
 # Bump versions in manifests
 # ---------------------------------------------------------------------------
 
-# Escape dots in current version for sed pattern
+# Semver form (api + web) and PEP 440 form (scheduler) of both the current and
+# the new version. The scheduler is anchored on its own PEP 440 string, not the
+# semver one, so its sed actually matches.
 CURRENT_ESCAPED="${CURRENT_VERSION//./\\.}"
+CURRENT_PEP440="$(to_pep440 "$CURRENT_VERSION")"
+NEW_PEP440="$(to_pep440 "$NEW_VERSION")"
+CURRENT_PEP440_ESCAPED="${CURRENT_PEP440//./\\.}"
 
-sed -i.bak "s/^version = \"${CURRENT_ESCAPED}\"/version = \"${NEW_VERSION}\"/" \
-  packages/scheduler/pyproject.toml && rm packages/scheduler/pyproject.toml.bak
+# Bump one manifest, then VERIFY the new version actually landed. A silent
+# sed no-op — the manifest's current version not matching what we expected —
+# is the failure mode that left web stranded at 0.1 while api/scheduler moved
+# to 0.2. Fail loudly with the drift instead of committing a half-bumped tree.
+bump_manifest() {
+  local file="$1" sed_expr="$2" verify="$3"
+  sed -i.bak "$sed_expr" "$file" && rm "${file}.bak"
+  grep -qF "$verify" "$file" || die \
+"Failed to bump $file to $NEW_VERSION.
+   Expected its current version to be '$CURRENT_VERSION' (scheduler: '$CURRENT_PEP440').
+   The manifests have drifted out of lockstep — reconcile them before releasing."
+}
 
-sed -i.bak "s/^version = \"${CURRENT_ESCAPED}\"/version = \"${NEW_VERSION}\"/" \
-  packages/api/pyproject.toml && rm packages/api/pyproject.toml.bak
+bump_manifest packages/scheduler/pyproject.toml \
+  "s/^version = \"${CURRENT_PEP440_ESCAPED}\"/version = \"${NEW_PEP440}\"/" \
+  "version = \"${NEW_PEP440}\""
 
-sed -i.bak "s/\"version\": \"${CURRENT_ESCAPED}\"/\"version\": \"${NEW_VERSION}\"/" \
-  packages/web/package.json && rm packages/web/package.json.bak
+bump_manifest packages/api/pyproject.toml \
+  "s/^version = \"${CURRENT_ESCAPED}\"/version = \"${NEW_VERSION}\"/" \
+  "version = \"${NEW_VERSION}\""
 
-echo "  Bumped manifests to $NEW_VERSION"
+bump_manifest packages/web/package.json \
+  "s/\"version\": \"${CURRENT_ESCAPED}\"/\"version\": \"${NEW_VERSION}\"/" \
+  "\"version\": \"${NEW_VERSION}\""
+
+echo "  Bumped manifests to $NEW_VERSION (scheduler PyPI: $NEW_PEP440)"
 
 # ---------------------------------------------------------------------------
 # CHANGELOG rotation (stable releases only)
@@ -264,12 +314,14 @@ git commit -m "chore(release): bump version to ${NEW_VERSION}
 Automated release commit. See CHANGELOG.md for details."
 
 git tag -a "$TAG" -m "Release $TAG"
+git tag -a "$SCHEDULER_TAG" -m "Release trueppm-scheduler ${NEW_PEP440}"
 
 echo ""
-echo "Done. Created commit and tag $TAG."
+echo "Done. Created commit and tags $TAG, $SCHEDULER_TAG."
 echo ""
 echo "Next steps:"
-echo "  git push origin main $TAG"
+echo "  git push origin main $TAG          # triggers Docker + Helm publish"
+echo "  git push origin $SCHEDULER_TAG     # triggers trueppm-scheduler PyPI publish"
 if ! $IS_PRERELEASE; then
   echo "  # Then run the enterprise release script pinned to $TAG"
 fi
