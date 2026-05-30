@@ -983,8 +983,17 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         new_planned_start = attrs.get("planned_start")
         if "planned_start" in attrs and new_planned_start is not None:
             project = self.instance.project if self.instance is not None else attrs.get("project")
-            if project is not None and new_planned_start < project.start_date:
-                raise PlannedStartBeforeProjectStartError(project.start_date)
+            if project is not None:
+                # Compare against the first working day >= start_date, not the
+                # literal start_date (#884): the CPM forward pass floors
+                # early_start there, so a planned_start on a non-working start
+                # date (e.g. a Saturday) is a ghost value, and "snap to project
+                # start" must target the working-day floor to actually clear.
+                from trueppm_api.apps.projects.utilization import first_working_day
+
+                floor = first_working_day(project)
+                if new_planned_start < floor:
+                    raise PlannedStartBeforeProjectStartError(project.start_date, floor)
 
         return attrs
 
@@ -1500,12 +1509,19 @@ class PlannedStartBeforeProjectStartError(Exception):
 
     Bypasses DRF's :class:`serializers.ValidationError` like
     :class:`CycleDetectedError` so the frontend receives a structured
-    ``{"code", "detail", "suggested_action", "project_start_date"}`` body it can
-    map to the snap/move/cancel prompt (ADR-0055).
+    ``{"code", "detail", "suggested_action", "project_start_date",
+    "effective_floor_date"}`` body it can map to the snap/move/cancel prompt
+    (ADR-0055).
+
+    ``effective_floor_date`` is the first working day on or after the project
+    start (#884): the CPM engine floors ``early_start`` there, so the guard
+    compares against it and the frontend snaps to it. ``project_start_date``
+    remains the literal start (for the "project starts on …" copy).
     """
 
-    def __init__(self, project_start_date: date) -> None:
+    def __init__(self, project_start_date: date, effective_floor_date: date) -> None:
         self.project_start_date = project_start_date
+        self.effective_floor_date = effective_floor_date
         super().__init__("Task cannot be scheduled before the project start date.")
 
 
@@ -2715,9 +2731,23 @@ class ProjectDetailSerializer(ProjectSerializer):
     """
 
     unresolved_assignee_count = serializers.SerializerMethodField()
+    start_floor = serializers.SerializerMethodField()
 
     class Meta(ProjectSerializer.Meta):
-        fields = [*ProjectSerializer.Meta.fields, "unresolved_assignee_count"]
+        fields = [*ProjectSerializer.Meta.fields, "unresolved_assignee_count", "start_floor"]
+
+    def get_start_floor(self, obj: Project) -> str:
+        """First working day on or after ``start_date`` — the effective schedule
+        floor (#884).
+
+        The CPM engine floors every task's ``early_start`` here, so the web
+        client uses this (not the literal ``start_date``) for its pre-emptive
+        before-start prompt and its "snap to project start" target. Equal to
+        ``start_date`` when the start is already a working day.
+        """
+        from trueppm_api.apps.projects.utilization import first_working_day
+
+        return first_working_day(obj).isoformat()
 
     def get_unresolved_assignee_count(self, obj: Project) -> int:
         # Prefer the queryset annotation (ProjectViewSet.get_queryset on retrieve,

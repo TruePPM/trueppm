@@ -669,11 +669,15 @@ export function ScheduleView() {
   // before this date opens snap/move/cancel instead of silently clamping.
   const { data: projectDetail } = useProject(projectId ?? undefined);
   const projectStartDate = projectDetail?.start_date ?? null;
+  // Effective floor = first working day >= start_date (#884). Falls back to the
+  // literal start when the detail field is absent (older payloads / list cache).
+  const effectiveFloorDate = projectDetail?.start_floor ?? projectStartDate;
 
   const scheduleCommit = useScheduleCommit({
     engine,
     projectId,
     projectStartDate,
+    effectiveFloorDate,
     visibleTasks,
     allTasks,
     sprints,
@@ -1447,6 +1451,7 @@ export function ScheduleView() {
       {scheduleCommit.beforeStartPrompt && (
         <BeforeProjectStartDialog
           projectStartDate={scheduleCommit.beforeStartPrompt.projectStartDate}
+          effectiveFloorDate={scheduleCommit.beforeStartPrompt.effectiveFloorDate}
           attemptedStart={scheduleCommit.beforeStartPrompt.attemptedStart}
           canMoveStart={currentRole !== null && currentRole >= ROLE_ADMIN}
           error={scheduleCommit.beforeStartPrompt.error}

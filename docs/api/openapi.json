@@ -20627,6 +20627,11 @@
                     "unresolved_assignee_count": {
                         "type": "integer",
                         "readOnly": true
+                    },
+                    "start_floor": {
+                        "type": "string",
+                        "description": "First working day on or after ``start_date`` — the effective schedule\nfloor (#884).\n\nThe CPM engine floors every task's ``early_start`` here, so the web\nclient uses this (not the literal ``start_date``) for its pre-emptive\nbefore-start prompt and its \"snap to project start\" target. Equal to\n``start_date`` when the start is already a working day.",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -20639,6 +20644,7 @@
                     "percent_complete",
                     "server_version",
                     "start_date",
+                    "start_floor",
                     "unresolved_assignee_count"
                 ]
             },

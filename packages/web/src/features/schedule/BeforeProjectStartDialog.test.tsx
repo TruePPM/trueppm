@@ -5,6 +5,7 @@ import { BeforeProjectStartDialog } from './BeforeProjectStartDialog';
 
 const baseProps = {
   projectStartDate: '2026-04-01',
+  effectiveFloorDate: '2026-04-01', // working day → equals the literal start
   attemptedStart: '2026-03-15',
   canMoveStart: true,
   error: null,
@@ -70,5 +71,27 @@ describe('BeforeProjectStartDialog', () => {
     renderWithProviders(<BeforeProjectStartDialog {...baseProps} onCancel={onCancel} />);
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it('names the working-day floor when the project start is a non-working day (#884)', () => {
+    // Sat May 30 2026 → floor Mon Jun 1 2026: the header keeps the literal start
+    // but the copy must surface the working-day floor as the snap target.
+    renderWithProviders(
+      <BeforeProjectStartDialog
+        {...baseProps}
+        projectStartDate="2026-05-30"
+        effectiveFloorDate="2026-06-01"
+      />,
+    );
+    expect(screen.getByText(/May 30, 2026/)).toBeInTheDocument();
+    expect(screen.getByText(/non-working day/i)).toBeInTheDocument();
+    // The floor date appears in the floor span and the snap copy; assert the
+    // dialog body contains it (text is split across nodes by the <span> wrap).
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('Jun 1, 2026');
+  });
+
+  it('does not mention a separate floor when the start is already a working day', () => {
+    renderWithProviders(<BeforeProjectStartDialog {...baseProps} />);
+    expect(screen.queryByText(/non-working day/i)).not.toBeInTheDocument();
   });
 });

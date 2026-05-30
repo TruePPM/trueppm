@@ -62,8 +62,10 @@ export interface BeforeStartPromptState {
   attemptedStart: string;
   /** Task duration in days — used to recompute finish on snap/move. */
   duration: number;
-  /** The project start date floor (ISO). */
+  /** The literal project start date (ISO) — shown in the prompt header. */
   projectStartDate: string;
+  /** The effective floor (first working day, ISO) — the snap target (#884). */
+  effectiveFloorDate: string;
   /** Original bar position so Cancel can revert the engine preview. */
   revert: { start: string; finish: string; duration: number };
   /** Inline error from a failed snap/move mutation, or null. */
@@ -73,8 +75,15 @@ export interface BeforeStartPromptState {
 export interface UseScheduleCommitOptions {
   engine: GanttEngine | null;
   projectId: string | null;
-  /** Project start date (ISO `YYYY-MM-DD`) — the hard floor a task may not precede. */
+  /** Project start date (ISO `YYYY-MM-DD`) — shown literally in the prompt header. */
   projectStartDate: string | null;
+  /**
+   * Effective schedule floor (ISO) — first working day on or after the project
+   * start (#884). The before-start check and snap target use THIS, not the
+   * literal start, so a weekend start floors to the next working day. Falls back
+   * to `projectStartDate` when absent.
+   */
+  effectiveFloorDate?: string | null;
   visibleTasks: Task[];
   allTasks: Task[];
   sprints: ApiSprint[];
@@ -135,6 +144,7 @@ export function useScheduleCommit({
   engine,
   projectId,
   projectStartDate,
+  effectiveFloorDate,
   visibleTasks,
   allTasks,
   sprints,
@@ -327,12 +337,17 @@ export function useScheduleCommit({
     // start does not PATCH — it opens the snap/move/cancel prompt instead of
     // silently clamping. The engine bar preview stays at the attempted date.
     // ISO `YYYY-MM-DD` strings compare correctly with `<`.
-    if (action.kind === 'reschedule' && projectStartDate && newStart < projectStartDate) {
+    // Compare against the effective floor (first working day, #884), not the
+    // literal start — a weekend start floors to the next working day, and
+    // snapping to the literal weekend date would re-trip the backend guard.
+    const floor = effectiveFloorDate ?? projectStartDate;
+    if (action.kind === 'reschedule' && floor && newStart < floor) {
       setBeforeStartPrompt({
         taskId,
         attemptedStart: newStart,
         duration: newDuration,
-        projectStartDate,
+        projectStartDate: projectStartDate ?? floor,
+        effectiveFloorDate: floor,
         revert: {
           start: state.originalStart,
           finish: state.originalFinish,
@@ -386,6 +401,7 @@ export function useScheduleCommit({
     state,
     projectId,
     projectStartDate,
+    effectiveFloorDate,
     rescheduleTask,
     revertEngine,
     setScheduleError,
@@ -404,7 +420,9 @@ export function useScheduleCommit({
       setScheduleError("You're offline — change not saved.");
       return;
     }
-    const snappedStart = p.projectStartDate;
+    // Snap to the effective working-day floor (#884), not the literal start —
+    // the literal weekend date would be rejected by the backend floor guard.
+    const snappedStart = p.effectiveFloorDate;
     const snappedFinish = computeNewFinishIso(snappedStart, p.duration);
     // Move the preview bar from the attempted (before-start) position to the floor.
     if (engine) engine.updateTask(p.taskId, { start: snappedStart, finish: snappedFinish });

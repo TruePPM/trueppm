@@ -52,6 +52,43 @@ def _exception_ranges(
     return [(e.exc_start, e.exc_end) for e in exceptions.all()]
 
 
+# Bound the scan so a degenerate calendar (no working day in its bitmask, or
+# exceptions blanketing the window) can't spin to the date ceiling. Mirrors the
+# scheduler engine's MAX_CALENDAR_SCAN_DAYS guard.
+_MAX_FLOOR_SCAN_DAYS = 366
+
+
+def first_working_day(project: Any) -> datetime.date:
+    """Return the first working day on or after ``project.start_date``.
+
+    This is the *effective* schedule floor — the CPM forward pass clamps every
+    task's ``early_start`` to ``next_working_day(project.start_date)`` (see the
+    scheduler engine), so a ``planned_start`` on a non-working project start date
+    (e.g. a Saturday) is a ghost value the engine immediately pushes forward.
+    The project-start floor guard must therefore compare against this date, not
+    the literal ``start_date``, or "snap to project start" lands on a weekend and
+    re-trips the guard (#884, a #868 regression).
+
+    Uses the project's calendar (weekday bitmask + exception ranges); falls back
+    to the Mon–Fri default when no calendar is configured — matching the
+    scheduler's default and the API→scheduler conversion in scheduling/tasks.py.
+    """
+    cal = getattr(project, "calendar", None)
+    mask = cal.working_days if cal is not None else _DEFAULT_WORKING_DAYS
+    ranges = _exception_ranges(cal.exceptions) if cal is not None else []
+
+    start: datetime.date = project.start_date
+    d = start
+    for _ in range(_MAX_FLOOR_SCAN_DAYS):
+        if _is_working_day(mask, ranges, d):
+            return d
+        d += datetime.timedelta(days=1)
+    # Degenerate calendar — no working day within a year. Fall back to the literal
+    # start_date rather than raise; the floor guard is advisory, not load-bearing,
+    # and a hard error here would block all task edits on a misconfigured calendar.
+    return start
+
+
 def compute_utilization(
     project: Any,  # trueppm_api.apps.projects.models.Project
     window_start: datetime.date,
