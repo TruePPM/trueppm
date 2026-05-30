@@ -9,6 +9,14 @@ export interface ApiProjectDetail {
   name: string;
   description: string;
   start_date: string;
+  /**
+   * First working day on or after `start_date` — the effective schedule floor
+   * (#884). The CPM engine floors task `early_start` here, so the before-start
+   * prompt and "snap to project start" target this, not the literal start_date.
+   * Equals `start_date` when the start is already a working day. Detail
+   * responses only (ProjectDetailSerializer).
+   */
+  start_floor?: string;
   calendar: string | null;
   estimation_mode: string;
   agile_features: boolean;

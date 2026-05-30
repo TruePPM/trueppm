@@ -1337,15 +1337,24 @@ def _planned_start_before_project_start_body(
 ) -> dict[str, str]:
     """Structured 400 body for the project-start floor guard (#868, ADR-0055).
 
-    ``project_start_date`` lets the frontend prefill its "snap to project start"
-    action without a second round-trip.
+    Carries two dates (#884):
+      - ``project_start_date``: the literal project start (the "project starts
+        on …" copy in the dialog header).
+      - ``effective_floor_date``: the first working day on or after the start —
+        the date the CPM engine actually floors at, and the date "snap to
+        project start" must target so the snap clears the guard. Equal to
+        ``project_start_date`` when the start is already a working day.
+    The detail string quotes the effective floor, since that is the date the
+    user must satisfy.
     """
-    iso = exc.project_start_date.isoformat()
+    start_iso = exc.project_start_date.isoformat()
+    floor_iso = exc.effective_floor_date.isoformat()
     return {
         "code": "planned_start_before_project_start",
-        "detail": f"A task cannot be scheduled before the project start date ({iso}).",
+        "detail": f"A task cannot be scheduled before the project start date ({floor_iso}).",
         "suggested_action": "snap_to_project_start",
-        "project_start_date": iso,
+        "project_start_date": start_iso,
+        "effective_floor_date": floor_iso,
     }
 
 

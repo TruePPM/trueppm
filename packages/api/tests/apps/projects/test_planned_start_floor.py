@@ -259,3 +259,127 @@ def test_bulk_create_before_start_returns_structured_400(
     )
     assert r.status_code == 400
     assert r.data["code"] == "planned_start_before_project_start"
+
+
+# ---------------------------------------------------------------------------
+# Working-day floor (#884) — a non-working project start (e.g. a Saturday) must
+# floor at the first working day, so "snap to project start" lands on a date the
+# guard accepts instead of re-tripping it.
+# ---------------------------------------------------------------------------
+
+# 2026-05-30 is a Saturday; the first working day on/after it is Monday 2026-06-01
+# (default Mon–Fri calendar). This is the exact scenario from the bug report.
+WEEKEND_START = date(2026, 5, 30)
+WORKING_FLOOR = date(2026, 6, 1)
+
+
+@pytest.fixture
+def weekend_project(calendar: Calendar) -> Project:
+    return Project.objects.create(name="WP", start_date=WEEKEND_START, calendar=calendar)
+
+
+@pytest.fixture
+def weekend_task(weekend_project: Project) -> Task:
+    return Task.objects.create(project=weekend_project, name="WT", duration=3)
+
+
+@pytest.fixture
+def weekend_client(weekend_project: Project, pm_user: object) -> APIClient:
+    ProjectMembership.objects.create(project=weekend_project, user=pm_user, role=Role.ADMIN)
+    c = APIClient()
+    c.force_authenticate(user=pm_user)
+    return c
+
+
+@pytest.mark.django_db
+def test_error_carries_working_day_floor_not_literal_start(
+    weekend_client: APIClient, weekend_task: Task
+) -> None:
+    """When the start is a Saturday, the error must report the Monday floor and
+    keep the literal start for the dialog header (#884)."""
+    r = weekend_client.patch(
+        f"/api/v1/tasks/{weekend_task.pk}/",
+        {"planned_start": "2026-05-15"},
+        format="json",
+    )
+    assert r.status_code == 400
+    assert r.data["code"] == "planned_start_before_project_start"
+    # Literal start (Saturday) for the "project starts on …" header.
+    assert r.data["project_start_date"] == "2026-05-30"
+    # Effective floor (Monday) — the snap target and the date the guard enforces.
+    assert r.data["effective_floor_date"] == "2026-06-01"
+    assert "2026-06-01" in r.data["detail"]
+
+
+@pytest.mark.django_db
+def test_snap_to_literal_weekend_start_is_rejected(
+    weekend_client: APIClient, weekend_task: Task
+) -> None:
+    """The literal Saturday start is BELOW the floor — snapping to it must fail
+    (this was the bug: the old guard accepted it, then CPM clamped to Monday)."""
+    r = weekend_client.patch(
+        f"/api/v1/tasks/{weekend_task.pk}/",
+        {"planned_start": "2026-05-30"},
+        format="json",
+    )
+    assert r.status_code == 400
+    assert r.data["effective_floor_date"] == "2026-06-01"
+    weekend_task.refresh_from_db()
+    assert weekend_task.planned_start is None
+
+
+@pytest.mark.django_db
+def test_snap_to_working_day_floor_is_accepted(
+    weekend_client: APIClient, weekend_task: Task
+) -> None:
+    """Snapping to the Monday floor clears the guard and persists (#884)."""
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay"),
+    ):
+        r = weekend_client.patch(
+            f"/api/v1/tasks/{weekend_task.pk}/",
+            {"planned_start": "2026-06-01"},
+            format="json",
+        )
+    assert r.status_code == 200
+    weekend_task.refresh_from_db()
+    assert weekend_task.planned_start == WORKING_FLOOR
+
+
+@pytest.mark.django_db
+def test_project_detail_start_floor_field(
+    weekend_client: APIClient, weekend_project: Project
+) -> None:
+    """The project detail serializer exposes the working-day floor so the client
+    can snap correctly on the first attempt without a round-trip (#884)."""
+    r = weekend_client.get(f"/api/v1/projects/{weekend_project.pk}/")
+    assert r.status_code == 200
+    assert r.data["start_date"] == "2026-05-30"
+    assert r.data["start_floor"] == "2026-06-01"
+
+
+@pytest.mark.django_db
+def test_working_day_start_floor_equals_start(pm_client: APIClient, project: Project) -> None:
+    """When the start is already a working day (Wed 2026-04-01), the floor equals
+    the literal start — no behavior change from #868."""
+    r = pm_client.get(f"/api/v1/projects/{project.pk}/")
+    assert r.status_code == 200
+    assert r.data["start_floor"] == "2026-04-01"
+
+
+@pytest.mark.django_db
+def test_first_working_day_respects_calendar_exception(weekend_project: Project) -> None:
+    """A holiday exception on the Monday pushes the floor to Tuesday (#884)."""
+    from trueppm_api.apps.projects.models import CalendarException
+    from trueppm_api.apps.projects.utilization import first_working_day
+
+    # Block Mon 2026-06-01 as a holiday; floor should advance to Tue 2026-06-02.
+    CalendarException.objects.create(
+        calendar=weekend_project.calendar,
+        exc_start=date(2026, 6, 1),
+        exc_end=date(2026, 6, 1),
+        description="Holiday",
+    )
+    weekend_project.refresh_from_db()
+    assert first_working_day(weekend_project) == date(2026, 6, 2)

@@ -1,8 +1,14 @@
 import { useEffect, useRef } from 'react';
 
 interface Props {
-  /** Project start date (ISO `YYYY-MM-DD`) — the floor the task cannot precede. */
+  /** Project start date (ISO `YYYY-MM-DD`) — shown literally in the header. */
   projectStartDate: string;
+  /**
+   * Effective floor (ISO) — first working day on or after the project start
+   * (#884). The snap targets this; when it differs from `projectStartDate` (the
+   * start is a weekend/holiday) the dialog names it explicitly.
+   */
+  effectiveFloorDate: string;
   /** The start date the user dragged/typed the task to (ISO `YYYY-MM-DD`). */
   attemptedStart: string;
   /** Whether the current user (Admin/Owner) may move the project start date. */
@@ -43,6 +49,7 @@ const FOCUS_RING =
  */
 export function BeforeProjectStartDialog({
   projectStartDate,
+  effectiveFloorDate,
   attemptedStart,
   canMoveStart,
   error,
@@ -66,6 +73,10 @@ export function BeforeProjectStartDialog({
   }, [onCancel]);
 
   const startLabel = formatIso(projectStartDate);
+  const floorLabel = formatIso(effectiveFloorDate);
+  // When the project start is a non-working day, the snap target is the first
+  // working day after it (#884) — name it so "Snap" isn't a surprise.
+  const floorDiffers = effectiveFloorDate !== projectStartDate;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -85,11 +96,18 @@ export function BeforeProjectStartDialog({
         </h2>
         <p id="before-start-desc" className="text-sm text-neutral-text-secondary mb-5">
           This project starts on{' '}
-          <span className="tppm-mono text-neutral-text-primary">{startLabel}</span>. A task
-          can&rsquo;t begin before then.{' '}
+          <span className="tppm-mono text-neutral-text-primary">{startLabel}</span>
+          {floorDiffers ? (
+            <>
+              {' '}
+              (a non-working day, so the earliest a task can start is{' '}
+              <span className="tppm-mono text-neutral-text-primary">{floorLabel}</span>)
+            </>
+          ) : null}
+          . A task can&rsquo;t begin before then.{' '}
           {canMoveStart
-            ? 'Snap the task to the project start, or move the project start earlier.'
-            : 'Snap the task to the project start, or ask a project admin to move the project start date.'}
+            ? `Snap the task to ${floorDiffers ? floorLabel : 'the project start'}, or move the project start earlier.`
+            : `Snap the task to ${floorDiffers ? floorLabel : 'the project start'}, or ask a project admin to move the project start date.`}
         </p>
         {error ? (
           <p className="text-xs text-semantic-critical mb-3" role="alert">
