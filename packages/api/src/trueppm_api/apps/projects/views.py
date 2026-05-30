@@ -107,6 +107,7 @@ from trueppm_api.apps.projects.serializers import (
     MeWorkTaskSerializer,
     MilestoneRollupLockedError,
     PhaseSerializer,
+    PlannedStartBeforeProjectStartError,
     ProgressAnchorError,
     ProjectApiTokenCreateSerializer,
     ProjectApiTokenSerializer,
@@ -1330,6 +1331,23 @@ def _summarize_api_tokens(scope_filter: Q) -> dict[str, Any]:
     }
 
 
+def _planned_start_before_project_start_body(
+    exc: PlannedStartBeforeProjectStartError,
+) -> dict[str, str]:
+    """Structured 400 body for the project-start floor guard (#868, ADR-0055).
+
+    ``project_start_date`` lets the frontend prefill its "snap to project start"
+    action without a second round-trip.
+    """
+    iso = exc.project_start_date.isoformat()
+    return {
+        "code": "planned_start_before_project_start",
+        "detail": f"A task cannot be scheduled before the project start date ({iso}).",
+        "suggested_action": "snap_to_project_start",
+        "project_start_date": iso,
+    }
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1888,6 +1906,18 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                     )
                 )
 
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # The project-start floor (#868) fires on create too — the "+ Task" form
+        # can carry a planned_start before the project start. Convert it to the
+        # same structured 400 the update path returns instead of a bare 500.
+        try:
+            return super().create(request, *args, **kwargs)
+        except PlannedStartBeforeProjectStartError as exc:
+            return Response(
+                _planned_start_before_project_start_body(exc),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         try:
             return super().update(request, *args, **kwargs)
@@ -1912,6 +1942,11 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                     ),
                     "suggested_action": "unlink_or_close_sprint",
                 },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except PlannedStartBeforeProjectStartError as exc:
+            return Response(
+                _planned_start_before_project_start_body(exc),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -1939,6 +1974,11 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                     ),
                     "suggested_action": "unlink_or_close_sprint",
                 },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except PlannedStartBeforeProjectStartError as exc:
+            return Response(
+                _planned_start_before_project_start_body(exc),
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -3178,7 +3218,7 @@ class TaskBulkView(IdempotencyMixin, APIView):
             # serializer; only Task rows need a write lock.
             qs = (
                 Task.objects.select_for_update(of=("self",))
-                .select_related("sprint")
+                .select_related("sprint", "project")
                 .filter(pk__in=mutated_ids, project_id=pk, is_deleted=False)
             )
             locked_tasks = {t.pk: t for t in qs}
@@ -3229,6 +3269,11 @@ class TaskBulkView(IdempotencyMixin, APIView):
                             },
                             status=status.HTTP_400_BAD_REQUEST,
                         )
+                    except PlannedStartBeforeProjectStartError as exc:
+                        return Response(
+                            _planned_start_before_project_start_body(exc),
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
                     task = task_serializer.save()
                     result["created"].append(TaskSerializer(task).data)
 
@@ -3263,6 +3308,14 @@ class TaskBulkView(IdempotencyMixin, APIView):
                                     "the sprint to edit."
                                 ),
                                 "suggested_action": "unlink_or_close_sprint",
+                                "task_id": str(op["id"]),
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    except PlannedStartBeforeProjectStartError as exc:
+                        return Response(
+                            {
+                                **_planned_start_before_project_start_body(exc),
                                 "task_id": str(op["id"]),
                             },
                             status=status.HTTP_400_BAD_REQUEST,

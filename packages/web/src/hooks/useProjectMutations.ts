@@ -72,6 +72,8 @@ export interface UpdateProjectPayload {
   default_view?: ProjectDefaultView;
   /** Calendar UUID or null to inherit from the workspace. */
   calendar?: string | null;
+  /** Project start date (ISO `YYYY-MM-DD`). Admin+-only server-side (#769). */
+  start_date?: string;
 }
 
 /**

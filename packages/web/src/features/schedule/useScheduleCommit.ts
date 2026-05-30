@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 import { useRescheduleTask } from '@/hooks/useTaskMutations';
+import { useUpdateProject } from '@/hooks/useProjectMutations';
 import { useScheduleStore } from '@/stores/scheduleStore';
 import type { GanttEngine } from './engine';
 import { dateToLeft, leftToDate } from './engine';
@@ -50,9 +51,30 @@ export interface ScheduleCommitState {
   activeSprintName: string | null;
 }
 
+/**
+ * Project-start floor prompt state (#868). Set when a reschedule confirm lands
+ * before the project start date instead of firing the PATCH; cleared when the
+ * user snaps, moves the project start, or cancels.
+ */
+export interface BeforeStartPromptState {
+  taskId: string;
+  /** The before-start date the user dragged/typed to (ISO). */
+  attemptedStart: string;
+  /** Task duration in days — used to recompute finish on snap/move. */
+  duration: number;
+  /** The project start date floor (ISO). */
+  projectStartDate: string;
+  /** Original bar position so Cancel can revert the engine preview. */
+  revert: { start: string; finish: string; duration: number };
+  /** Inline error from a failed snap/move mutation, or null. */
+  error: string | null;
+}
+
 export interface UseScheduleCommitOptions {
   engine: GanttEngine | null;
   projectId: string | null;
+  /** Project start date (ISO `YYYY-MM-DD`) — the hard floor a task may not precede. */
+  projectStartDate: string | null;
   visibleTasks: Task[];
   allTasks: Task[];
   sprints: ApiSprint[];
@@ -67,6 +89,29 @@ export interface UseScheduleCommitApi {
   handleConfirm: () => void;
   handleCancel: () => void;
   handleDismissByOutsideClick: () => void;
+  /** Project-start floor prompt (#868), or null when not blocked. */
+  beforeStartPrompt: BeforeStartPromptState | null;
+  /** True while a snap or move-project-start mutation is in flight. */
+  beforeStartPending: boolean;
+  /** Re-pin the blocked task to the project start date and persist. */
+  handleSnapToProjectStart: () => void;
+  /** Move the project start to the attempted date (Admin/Owner), then persist. */
+  handleMoveProjectStart: () => void;
+  /** Revert the engine preview and dismiss the floor prompt. */
+  handleCancelBeforeStart: () => void;
+}
+
+/** Best-effort human message from a DRF error payload (detail, then first field). */
+function extractErrorMessage(err: unknown, fallback: string): string {
+  const data = (err as { response?: { data?: unknown } })?.response?.data;
+  if (data && typeof data === 'object') {
+    const detail = (data as { detail?: unknown }).detail;
+    if (typeof detail === 'string') return detail;
+    const firstVal = Object.values(data as Record<string, unknown>)[0];
+    if (Array.isArray(firstVal) && typeof firstVal[0] === 'string') return firstVal[0];
+    if (typeof firstVal === 'string') return firstVal;
+  }
+  return fallback;
 }
 
 function isoFromUtcMs(ms: number): string {
@@ -89,6 +134,7 @@ function computeRescheduleResize(
 export function useScheduleCommit({
   engine,
   projectId,
+  projectStartDate,
   visibleTasks,
   allTasks,
   sprints,
@@ -97,7 +143,9 @@ export function useScheduleCommit({
   onCommitSuccess,
 }: UseScheduleCommitOptions): UseScheduleCommitApi {
   const [state, setState] = useState<ScheduleCommitState | null>(null);
+  const [beforeStartPrompt, setBeforeStartPrompt] = useState<BeforeStartPromptState | null>(null);
   const rescheduleTask = useRescheduleTask();
+  const updateProject = useUpdateProject(projectId);
   const setScheduleActionToast = useScheduleStore((s) => s.setScheduleActionToast);
   const setScheduleError = useScheduleStore((s) => s.setScheduleError);
 
@@ -275,6 +323,30 @@ export function useScheduleCommit({
       return;
     }
     const { taskId, newStart, newFinish, newDuration, action } = state;
+    // Project-start floor (#868): a reschedule that lands before the project
+    // start does not PATCH — it opens the snap/move/cancel prompt instead of
+    // silently clamping. The engine bar preview stays at the attempted date.
+    // ISO `YYYY-MM-DD` strings compare correctly with `<`.
+    if (action.kind === 'reschedule' && projectStartDate && newStart < projectStartDate) {
+      setBeforeStartPrompt({
+        taskId,
+        attemptedStart: newStart,
+        duration: newDuration,
+        projectStartDate,
+        revert: {
+          start: state.originalStart,
+          finish: state.originalFinish,
+          duration: state.originalDuration,
+        },
+        error: null,
+      });
+      setState(null);
+      if (ariaAssertiveRef.current) {
+        ariaAssertiveRef.current.textContent =
+          'This task would start before the project start date. Choose how to resolve it.';
+      }
+      return;
+    }
     const payload =
       action.kind === 'reschedule'
         ? {
@@ -310,7 +382,135 @@ export function useScheduleCommit({
         setState((prev) => (prev ? { ...prev, error: message } : prev));
       },
     });
-  }, [state, projectId, rescheduleTask, revertEngine, setScheduleError, onCommitSuccess, ariaAssertiveRef]);
+  }, [
+    state,
+    projectId,
+    projectStartDate,
+    rescheduleTask,
+    revertEngine,
+    setScheduleError,
+    onCommitSuccess,
+    ariaAssertiveRef,
+  ]);
+
+  // --- Project-start floor prompt handlers (#868) ---------------------------
+
+  const handleSnapToProjectStart = useCallback(() => {
+    const p = beforeStartPrompt;
+    if (!p || !projectId) return;
+    if (!navigator.onLine) {
+      if (engine) engine.updateTask(p.taskId, p.revert);
+      setBeforeStartPrompt(null);
+      setScheduleError("You're offline — change not saved.");
+      return;
+    }
+    const snappedStart = p.projectStartDate;
+    const snappedFinish = computeNewFinishIso(snappedStart, p.duration);
+    // Move the preview bar from the attempted (before-start) position to the floor.
+    if (engine) engine.updateTask(p.taskId, { start: snappedStart, finish: snappedFinish });
+    setBeforeStartPrompt((prev) => (prev ? { ...prev, error: null } : prev));
+    rescheduleTask.mutate(
+      {
+        id: p.taskId,
+        projectId,
+        planned_start: snappedStart,
+        optimistic: { start: snappedStart, finish: snappedFinish },
+      },
+      {
+        onSuccess: () => {
+          setBeforeStartPrompt(null);
+          onCommitSuccess?.();
+          if (ariaAssertiveRef.current) {
+            ariaAssertiveRef.current.textContent = 'Snapped to the project start date.';
+          }
+        },
+        onError: (err) => {
+          setBeforeStartPrompt((prev) =>
+            prev
+              ? { ...prev, error: extractErrorMessage(err, "Couldn't save the change. Try again.") }
+              : prev,
+          );
+        },
+      },
+    );
+  }, [beforeStartPrompt, projectId, engine, rescheduleTask, onCommitSuccess, setScheduleError, ariaAssertiveRef]);
+
+  const handleMoveProjectStart = useCallback(() => {
+    const p = beforeStartPrompt;
+    if (!p || !projectId) return;
+    if (!navigator.onLine) {
+      if (engine) engine.updateTask(p.taskId, p.revert);
+      setBeforeStartPrompt(null);
+      setScheduleError("You're offline — change not saved.");
+      return;
+    }
+    setBeforeStartPrompt((prev) => (prev ? { ...prev, error: null } : prev));
+    // Two steps: move the project start floor earlier, then persist the task.
+    // The server enforces Admin+ on start_date; a non-admin surfaces inline.
+    updateProject.mutate(
+      { start_date: p.attemptedStart },
+      {
+        onSuccess: () => {
+          const finish = computeNewFinishIso(p.attemptedStart, p.duration);
+          rescheduleTask.mutate(
+            {
+              id: p.taskId,
+              projectId,
+              planned_start: p.attemptedStart,
+              optimistic: { start: p.attemptedStart, finish },
+            },
+            {
+              onSuccess: () => {
+                setBeforeStartPrompt(null);
+                onCommitSuccess?.();
+                if (ariaAssertiveRef.current) {
+                  ariaAssertiveRef.current.textContent =
+                    'Project start moved; task scheduled.';
+                }
+              },
+              onError: (err) => {
+                setBeforeStartPrompt((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        error: extractErrorMessage(
+                          err,
+                          'Moved the project start, but saving the task failed. Try again.',
+                        ),
+                      }
+                    : prev,
+                );
+              },
+            },
+          );
+        },
+        onError: (err) => {
+          setBeforeStartPrompt((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  error: extractErrorMessage(
+                    err,
+                    "Couldn't move the project start date. You may not have permission.",
+                  ),
+                }
+              : prev,
+          );
+        },
+      },
+    );
+  }, [beforeStartPrompt, projectId, engine, updateProject, rescheduleTask, onCommitSuccess, setScheduleError, ariaAssertiveRef]);
+
+  const handleCancelBeforeStart = useCallback(() => {
+    const p = beforeStartPrompt;
+    if (!p) return;
+    if (engine) engine.updateTask(p.taskId, p.revert);
+    setBeforeStartPrompt(null);
+    setScheduleActionToast({ message: 'Reschedule cancelled — change not saved.' });
+    if (ariaAssertiveRef.current) {
+      ariaAssertiveRef.current.textContent = 'Reschedule cancelled.';
+    }
+  }, [beforeStartPrompt, engine, setScheduleActionToast, ariaAssertiveRef]);
 
   return {
     state,
@@ -318,5 +518,10 @@ export function useScheduleCommit({
     handleConfirm,
     handleCancel,
     handleDismissByOutsideClick,
+    beforeStartPrompt,
+    beforeStartPending: rescheduleTask.isPending || updateProject.isPending,
+    handleSnapToProjectStart,
+    handleMoveProjectStart,
+    handleCancelBeforeStart,
   };
 }

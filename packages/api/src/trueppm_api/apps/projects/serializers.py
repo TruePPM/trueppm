@@ -963,6 +963,20 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             if has_live_targeting_sprint:
                 raise MilestoneRollupLockedError()
 
+        # Project-start floor guard (#868): a task may not be pinned to start
+        # before the project's start_date. The CPM already clamps early_start to
+        # the project start, so persisting a sub-start planned_start is a "ghost"
+        # value that silently re-activates if the project start later moves
+        # earlier. Reject it at the API boundary with a structured code the
+        # frontend maps to its snap/move/cancel prompt. No role exemption — the
+        # supported escape is moving the project start date (Admin+-gated on the
+        # Project serializer), not bypassing the floor per task.
+        new_planned_start = attrs.get("planned_start")
+        if "planned_start" in attrs and new_planned_start is not None:
+            project = self.instance.project if self.instance is not None else attrs.get("project")
+            if project is not None and new_planned_start < project.start_date:
+                raise PlannedStartBeforeProjectStartError(project.start_date)
+
         return attrs
 
     def get_schedule_variance_days(self, obj: Task) -> int | None:
@@ -1378,6 +1392,33 @@ class MilestoneRollupLockedError(Exception):
     """
 
     pass
+
+
+class PlannedStartBeforeProjectStartError(Exception):
+    """Raised by ``TaskSerializer.validate`` when ``planned_start`` precedes the
+    project's ``start_date`` (#868).
+
+    The CPM forward pass already clamps ``early_start`` to the project start
+    (``engine.py`` ``early_start = max([project_start, ...])``), so a persisted
+    sub-start ``planned_start`` is a ghost value: invisible while the project
+    start sits after it, but silently re-activating if the project start is
+    later moved earlier. Rejecting it at the API boundary keeps ``planned_start``
+    honest for every consumer, not just the web client (API-first).
+
+    No role exemption — the supported escape is to move the project's
+    ``start_date`` (a separate, Admin+-gated ``ProjectSerializer`` write), which
+    the frontend offers alongside "snap to project start" when the prompt fires.
+    The true relax-the-floor override is tracked separately (#867, ADR-gated).
+
+    Bypasses DRF's :class:`serializers.ValidationError` like
+    :class:`CycleDetectedError` so the frontend receives a structured
+    ``{"code", "detail", "suggested_action", "project_start_date"}`` body it can
+    map to the snap/move/cancel prompt (ADR-0055).
+    """
+
+    def __init__(self, project_start_date: date) -> None:
+        self.project_start_date = project_start_date
+        super().__init__("Task cannot be scheduled before the project start date.")
 
 
 def _load_project_tasks_and_children_map(

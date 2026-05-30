@@ -70,6 +70,16 @@ Three ways to zoom:
 - **Pointer events** throughout (no mouse/touch branching); pinch-to-zoom via two simultaneous active pointers
 - **Keyboard reschedule** as a WCAG 2.1.1 alternative (left/right arrows nudge dates; Enter confirms; Esc cancels) — see issue #34
 
+## Scheduling before the project start
+
+The project start date is the floor for the schedule: the critical-path engine never plans a task to begin before it. If you drag or type a task to a date earlier than the project start, TruePPM doesn't silently snap it back — it asks what you meant:
+
+- **Snap to project start** moves the task to the project start date.
+- **Move project start** shifts the project's start date earlier to fit the task. This is a project-configuration change, so it's available only to a **Project Manager or Project Admin**; other roles see the snap and cancel options and can ask an admin to move the start.
+- **Cancel** leaves everything where it was.
+
+The same floor is enforced by the API, so an integration that writes task dates directly can't push a task before the project start either.
+
 ## Promote a backlog idea onto the schedule
 
 The **Unscheduled gutter** beneath the timeline now includes a **Backlog** section listing tasks that have been captured but not yet scheduled. Backlog cards are visually distinct — a dashed edge and a readiness label — so it's clear that placing one on the timeline does more than move it.
