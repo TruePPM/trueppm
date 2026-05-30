@@ -1,7 +1,7 @@
 # ADR-0097: User-Scoped Read-Only External Task Sync (Personal Pull)
 
 ## Status
-Proposed
+Proposed — threat model complete (see §Threat Model → Resolution, 2026-05-30); awaiting acceptance decision.
 
 ## Related issues
 
@@ -90,6 +90,7 @@ New model `ExternalWorkItem` (`apps/integrations/models.py`):
 | `is_stale` | BooleanField | set true when an item disappears from a successful pull (soft-remove) |
 
 - **Plain `models.Model`, NOT `VersionedModel`** — it is a per-user cache, not project data, and must **not** enter the project WatermelonDB sync delta. (When mobile My Work lands at 1.0 and wants offline external items, a per-user delta can be added then; deliberately out of scope now.)
+- **Invariant (test-enforced, not prose):** `ExternalWorkItem` never crosses the WebSocket broadcast or the project sync delta, and the pull can **never** mint a `Task`. This is the line that keeps the feature OSS-and-read-only; a regression test must assert it, because the day someone makes the model a `VersionedModel` "to get mobile offline," the boundary silently breaks. (Threat model: Information disclosure + EoP.)
 - Unique constraint `(user, source, external_id)`.
 - User PKs are **integers** (Django default `auth.User`, `BigAutoField`) — confirmed; FK is a bigint, not UUID.
 
@@ -110,7 +111,8 @@ Per-user connection config (which Jira site + filter): extend `IntegrationCreden
 - **Opt-in poll:** a low-frequency periodic pull (default off; opt-in per connection), drained on a 300 s Beat cadence — read-only pull is not latency-critical.
 - Both go through a new `ExternalSyncRequest` outbox row + `transaction.on_commit()` dispatch + a `@idempotent_task(on_contention="skip")` worker + Beat drain. This is the canonical shape, **not** a continuous bidirectional reconciliation worker — that distinction (user-triggered/opt-in read-only pull vs. always-on two-way sync) is the line that keeps this OSS.
 - **Rate-limiting:** a per-(user, source) cooldown (min 60 s between manual refreshes) enforced in the service layer, plus exponential backoff that respects Jira REST 429/`Retry-After`. No org-wide rate budget (that is the Enterprise per-tenant concern).
-- **SSRF:** `base_url` is user-supplied → reuse the SSRF-protection guard ADR-0049 applied to `TaskLink` synchronous fetch (block private/link-local ranges, scheme allow-list, timeout). This is a hard requirement (see Threat Model flag).
+- **SSRF (v1 — Jira Cloud only):** `base_url` is user-supplied and drives server-side HTTP, so v1 **restricts `base_url` to a Jira Cloud host allow-list (`*.atlassian.net`), `https` only.** This removes essentially all SSRF surface for the launch audience (SaaS-team engineers on Jira Cloud). Self-hosted Jira Data Center is a **later, admin-gated, opt-in** addition that must carry the full guard (DNS-rebind resolve-and-pin, private/link-local/metadata range block, no internal redirects) and reuse ADR-0049's `TaskLink` SSRF guard rather than a second hand-rolled one. The threat model (§Threat Model → Resolution) makes the Cloud-only allow-list a hard launch requirement.
+- **Bounded growth:** cap stored `ExternalWorkItem` rows at **500 per (user, source)** and the fetch at **5 pages**; surface a truncation note ("showing first 500 — narrow your JQL") rather than silently dropping. Caps are easy to raise later, impossible to retrofit.
 
 ### 5. Failure / offline behavior
 
@@ -162,9 +164,19 @@ Per-user connection config (which Jira site + filter): extend `IntegrationCreden
 
 ## Threat Model
 
-**`/threat-model` is REQUIRED before implementation.** This feature crosses a trust boundary (a personal external credential + user-controlled `base_url` driving server-side HTTP). The STRIDE-relevant items to cover:
-- **SSRF** via user-supplied `base_url` — reuse ADR-0049's TaskLink fetch guard (private/link-local block, scheme allow-list, timeout, no redirects to internal hosts).
-- **Credential at rest** — Fernet via `IntegrationCredential`; confirm key handling and that the token is never logged, never serialized, never visible to other users/admins.
-- **Information disclosure** — strict per-user scoping of `ExternalWorkItem` and connection status; verify no project-membership path leaks another user's external items into a shared view.
-- **Tampering / injection** — treat fetched titles/URLs as untrusted; sanitize before render (XSS), validate `external_url` scheme.
-- **DoS** — per-user cooldown + backoff so a misconfigured account or a poll storm cannot hammer Jira or the worker pool.
+This feature crosses a trust boundary (a personal external credential + user-controlled `base_url` driving server-side HTTP). A full STRIDE model was produced 2026-05-30; boundaries crossed are B1 (internet↔API), B2 (API↔DB), B3 (API↔Celery), B5 (OSS↔Enterprise extension), B6 (TruePPM↔Jira). **B4 (WS broadcast / sync delta) is a negative requirement** — `ExternalWorkItem` must never cross it (see §2 invariant).
+
+Top risks: **(1) SSRF via user-supplied `base_url`** (High×High) — a worker fetching an arbitrary host could reach cloud metadata (`169.254.169.254`) or internal services; **(2) personal credential disclosure** (Med×High) — a leaked PAT compromises the user's *external* Jira; **(3) DoS / unbounded `ExternalWorkItem` growth** (Med×Med).
+
+### Resolution (threat-model gate cleared, 2026-05-30)
+
+The following are now **hard requirements on the implementation**, not open questions:
+
+1. **SSRF — Jira Cloud allow-list for v1.** `base_url` restricted to `*.atlassian.net`, `https` only. Self-hosted Data Center is deferred to a later, admin-gated, opt-in release carrying the full DNS-rebind/private-range guard (reusing ADR-0049's `TaskLink` guard). *This single decision collapses Top Risk #1.* (SOC 2: **CC6.6**)
+2. **Credential handling.** Fernet at rest; **never** serialized (endpoint returns only `{provider, base_url, exists, status, last_synced_at}`); **never** logged (scrub PAT + `Authorization` from worker logs and exception capture); owner-only delete hard-removes ciphertext; `401/403 → auth_failed`, stop using the token. (CC6.1 / CC6.2)
+3. **Per-user isolation.** Every query filters `user_id=request.user.id`; no admin/Owner read path; `ExternalWorkItem` excluded from WS broadcast and sync delta (the §2 test-enforced invariant). (CC6.1)
+4. **Untrusted input.** Treat extension-source DTOs and fetched `title`/`external_url` as untrusted: enforce field-length caps at the registry boundary; `external_url` scheme `https?:` only (block `javascript:`/`data:`); React escaping (no `dangerouslySetInnerHTML`); `rel="noopener noreferrer"`. (CC6.8)
+5. **Bounded growth.** Per-user cooldown (≥60 s) + backoff honoring `Retry-After`; cap 500 items / 5 pages per (user, source) with a truncation note; nightly purge of stale items + completed outbox rows. (A1.1)
+6. **Audit scope.** Connection-lifecycle events only (created / re-authed / auth_failed / deleted) with actor+timestamp. **No** per-item or per-sync-run logging (volume + confidentiality). (CC7.2)
+
+**Verdict:** safe to build **provided requirement #1 (Cloud-only allow-list) ships in v1**, alongside #2–#6. SSRF is the one finding that, unaddressed, makes this a critical vulnerability rather than an adoption win.
