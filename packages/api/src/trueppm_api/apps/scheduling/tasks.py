@@ -72,14 +72,24 @@ def recalculate_schedule(
             "recalculate_schedule: soft time limit exceeded for project %s",
             project_id,
         )
+        from django.db import transaction
+
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-        broadcast_board_event(
-            project_id=project_id,
-            event_type="cpm_error",
-            payload={"error": "timeout"},
-        )
-        _dead_letter_current(self, project_id, SoftTimeLimitExceeded("CPM computation timed out"))
+        # Record the failure first, then broadcast cpm_error only after that row
+        # commits (#896): clients should not be told a recompute failed unless the
+        # dead-letter record actually persisted. Default-arg binding pins the id.
+        with transaction.atomic():
+            _dead_letter_current(
+                self, project_id, SoftTimeLimitExceeded("CPM computation timed out")
+            )
+
+            def _broadcast_error(pid: str = project_id) -> None:
+                broadcast_board_event(
+                    project_id=pid, event_type="cpm_error", payload={"error": "timeout"}
+                )
+
+            transaction.on_commit(_broadcast_error)
 
 
 @idempotent_task(
@@ -503,49 +513,15 @@ def _run_schedule(
             db_task.duration = max(1, (db_task.early_finish - db_task.early_start).days)
         tasks_to_update.append(db_task)
 
-    Task.objects.bulk_update(
-        tasks_to_update,
-        [
-            "early_start",
-            "early_finish",
-            "late_start",
-            "late_finish",
-            "total_float",
-            "free_float",
-            "is_critical",
-            "duration",
-        ],
-    )
+    from django.db import transaction
 
-    logger.info(
-        "recalculate_schedule: updated %d tasks for project %s (finish=%s)",
-        len(tasks_to_update),
-        project_id,
-        result.project_finish,
-    )
-
-    cpm_payload = {
-        "project_finish": result.project_finish.isoformat(),
-        "critical_path": result.critical_path,
-    }
-
-    # Store CPM result summary for audit / frontend access.
-    if tracker is not None:
-        tracker.set_result(cpm_payload)  # type: ignore[attr-defined]
-
-    # Also broadcast the cpm_complete event for backwards-compatibility with
-    # any existing clients that haven't migrated to task_run_completed yet.
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
-    cpm_payload = {
+    cpm_payload: dict[str, object] = {
         "project_finish": result.project_finish.isoformat(),
         "critical_path": result.critical_path,
     }
-    broadcast_board_event(
-        project_id=project_id,
-        event_type="cpm_complete",
-        payload=cpm_payload,
-    )
 
     # Per-task CPM date deltas (ADR-0091). Broadcast the tasks whose dates just moved so
     # collaborators' Gantt bars slide in real time, with no full re-fetch. Built from
@@ -578,13 +554,64 @@ def _run_schedule(
     else:
         # Too many moved tasks to ship economically — tell the client to re-fetch.
         delta_payload = {"count": len(tasks_to_update), "truncated": True}
-    broadcast_board_event(
-        project_id=project_id,
-        event_type="task_dates_updated",
-        payload=delta_payload,
+
+    # Persist results and mark the outbox row done in a single transaction, and
+    # defer the board broadcasts to on_commit (#896). Previously the bulk_update
+    # and the two broadcasts ran in autocommit, *before* the ScheduleRequest
+    # status update — a failure on that update (e.g. a lost DB connection) left
+    # clients showing CPM dates that were never committed. Wrapping the writes in
+    # one atomic block and registering the broadcasts with transaction.on_commit
+    # means clients only ever see dates that actually persisted; a rollback
+    # broadcasts nothing. Default-arg binding pins the payloads so the deferred
+    # callbacks can't late-bind a mutated value.
+    with transaction.atomic():
+        Task.objects.bulk_update(
+            tasks_to_update,
+            [
+                "early_start",
+                "early_finish",
+                "late_start",
+                "late_finish",
+                "total_float",
+                "free_float",
+                "is_critical",
+                "duration",
+            ],
+        )
+
+        # Mark the outbox row done so the drain task knows this project is clean.
+        # Filter on status=dispatched to avoid racing with the drain during orphan
+        # recovery (which resets rows back to pending).
+        ScheduleRequest.objects.filter(
+            project_id=project_id, status=ScheduleRequestStatus.DISPATCHED
+        ).update(status=ScheduleRequestStatus.DONE)
+
+        # Backwards-compat cpm_complete event for clients not yet on
+        # task_run_completed, deferred to commit.
+        def _broadcast_cpm_complete(
+            pid: str = project_id, pay: dict[str, object] = cpm_payload
+        ) -> None:
+            broadcast_board_event(project_id=pid, event_type="cpm_complete", payload=pay)
+
+        def _broadcast_dates(pid: str = project_id, pay: dict[str, object] = delta_payload) -> None:
+            broadcast_board_event(project_id=pid, event_type="task_dates_updated", payload=pay)
+
+        transaction.on_commit(_broadcast_cpm_complete)
+        transaction.on_commit(_broadcast_dates)
+
+    logger.info(
+        "recalculate_schedule: updated %d tasks for project %s (finish=%s)",
+        len(tasks_to_update),
+        project_id,
+        result.project_finish,
     )
 
-    # Dispatch schedule.recalculated webhook to external subscribers.
+    # Store CPM result summary for audit / frontend access.
+    if tracker is not None:
+        tracker.set_result(cpm_payload)  # type: ignore[attr-defined]
+
+    # Dispatch schedule.recalculated webhook to external subscribers. Fired after
+    # the transaction so subscribers are only notified of committed results.
     from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
 
     dispatch_webhooks(
@@ -592,12 +619,3 @@ def _run_schedule(
         event_type="schedule.recalculated",
         payload={"project": project_id, **cpm_payload},
     )
-
-    # Mark the outbox row done so the drain task knows this project is clean.
-    # Filter on status=dispatched to avoid racing with the drain during orphan
-    # recovery (which resets rows back to pending).
-    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
-
-    ScheduleRequest.objects.filter(
-        project_id=project_id, status=ScheduleRequestStatus.DISPATCHED
-    ).update(status=ScheduleRequestStatus.DONE)

@@ -102,6 +102,39 @@ async def test_connect_invalid_token_rejected(project: Project) -> None:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_connect_inactive_user_rejected(project: Project) -> None:
+    """A deactivated user with an otherwise-valid JWT cannot connect (#888).
+
+    _authenticate resolves the user with is_active=True; a JWT issued before the
+    account was disabled must no longer resolve, so the socket is rejected (4001)
+    instead of streaming board events to a deactivated account.
+    """
+    from rest_framework_simplejwt.tokens import AccessToken
+
+    inactive = await database_sync_to_async(User.objects.create_user)(
+        username="ws_inactive", password="pw", is_active=False
+    )
+    # A genuine, unexpired access token for the now-inactive user.
+    token = await database_sync_to_async(lambda u: str(AccessToken.for_user(u)))(inactive)
+
+    from trueppm_api.apps.sync.consumers import ProjectConsumer
+
+    scope = _make_scope(str(project.pk), token=token)
+    consumer = ProjectConsumer()
+    consumer.scope = scope
+    consumer.channel_layer = AsyncMock()
+    consumer.channel_name = "test.channel"
+    close_mock = AsyncMock()
+    consumer.close = close_mock
+
+    await consumer.websocket_connect({"type": "websocket.connect"})
+
+    # _authenticate returned None (inactive filtered out) → 4001.
+    close_mock.assert_called_once_with(code=4001)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_connect_viewer_rejected(user: object, project: Project) -> None:
     """A Viewer (role == Role.VIEWER) cannot connect to the WebSocket."""
     await database_sync_to_async(ProjectMembership.objects.create)(

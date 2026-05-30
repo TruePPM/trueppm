@@ -2,14 +2,72 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any
+from typing import Any, cast
 
+import redis
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
+from django.conf import settings
 
 from trueppm_api.apps.access.models import Role
 
 logger = logging.getLogger(__name__)
+
+# Module-level Redis connection pool for the relay rate limit. Mirrors
+# ``sync.throttles``: a single pool against the throttle-counter DB (/2) with
+# decode_responses, lazily initialized. The previous code opened a fresh
+# ``redis.Redis.from_url(...)`` on EVERY frame, leaking a connection per cursor
+# move (#perf); pooling reuses connections across frames.
+_pool: redis.ConnectionPool | None = None
+
+
+def _client() -> redis.Redis:
+    global _pool
+    if _pool is None:
+        _pool = redis.ConnectionPool.from_url(
+            f"{settings.REDIS_URL}/2",  # /2 is reserved for throttle counters
+            decode_responses=True,
+        )
+    return redis.Redis(connection_pool=_pool)
+
+
+# Hardening for receive_json (#895). The relay fans every accepted frame out to
+# all session participants, so an unbounded / unauthenticated-shape payload is a
+# DoS amplifier. These three limits bound it:
+#
+#  * MAX_FRAME_BYTES — reject frames whose JSON serialization exceeds this, so a
+#    single client cannot push a multi-megabyte blob to every participant.
+#  * RELAY_RATE_LIMIT / _WINDOW — per-user message-rate cap (cursor moves are
+#    chatty but bounded; a runaway client looping group_send is not).
+#  * ALLOWED_EVENT_TYPES — allowlist of known top-level event types. The relay
+#    was previously type-agnostic ("relay anything"); an allowlist means a
+#    crafted frame with an unknown type is dropped, not amplified.
+MAX_FRAME_BYTES = 4096
+
+# Pre-parse raw-text ceiling (#895). Rejected in ``receive`` BEFORE JSON parsing
+# so a single oversize frame is never fully parsed/allocated. Set slightly above
+# MAX_FRAME_BYTES because the raw wire text (with whitespace/escapes) can be
+# marginally larger than the re-serialized ``json.dumps(content)`` the post-parse
+# cap measures; the tighter post-parse cap still applies to accepted frames.
+MAX_RAW_FRAME_BYTES = 8192
+
+RELAY_RATE_LIMIT = 60  # frames per window, per (project, user)
+RELAY_RATE_WINDOW = 1  # second
+
+# Top-level "type" values the workshop relay forwards. Unknown types are dropped.
+# Mirrors the documented client surface (cursor moves, phase/task collaboration).
+ALLOWED_EVENT_TYPES = frozenset(
+    {
+        "cursor_move",
+        "cursor",
+        "phase_rename",
+        "phase_add",
+        "phase_move",
+        "task_add",
+        "task_move",
+    }
+)
 
 
 class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
@@ -21,10 +79,14 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                      no session is active (prevents ghost connections lingering
                      after a session ends).
 
-    Receive:         Any JSON message from the client is stamped with
+    Receive:         A JSON message from the client is stamped with
                      user_id/display_name and broadcast to the group, excluding
-                     the sender.  Message types: cursor, phase_rename, task_add,
-                     phase_add — the consumer is type-agnostic.
+                     the sender. Frames are validated before fan-out (#895): the
+                     top-level ``type`` must be in ``ALLOWED_EVENT_TYPES``
+                     (cursor_move, phase_rename, task_add, phase_add, …), the
+                     serialized frame must be ≤ ``MAX_FRAME_BYTES``, and the user
+                     must be under the per-window relay rate limit. Frames
+                     failing any check are dropped.
 
     Participants:    On connect, a WorkshopParticipant row is created (or fetched
                      if already present from a prior reconnect).  On disconnect,
@@ -74,10 +136,55 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
         if hasattr(self, "_user") and hasattr(self, "_session_pk"):
             await self._participant_leave()
 
+    async def receive(self, text_data: str | None = None, bytes_data: bytes | None = None) -> None:
+        """Reject oversize frames before they are parsed/allocated (#895).
+
+        Channels' ``AsyncJsonWebsocketConsumer.receive`` parses ``text_data`` as
+        JSON before ``receive_json`` ever runs, so the post-parse size cap fires
+        only AFTER a multi-megabyte blob has been decoded into Python objects. We
+        short-circuit here on the raw text length so a single oversize frame is
+        dropped without paying the parse/allocation cost. Legitimate small frames
+        (cursor moves, edits) are well under the ceiling and pass straight
+        through to the inherited JSON handling.
+        """
+        if text_data is not None and len(text_data) > MAX_RAW_FRAME_BYTES:
+            logger.warning("workshop relay: dropping oversize raw frame (pre-parse)")
+            return
+        await super().receive(text_data=text_data, bytes_data=bytes_data)
+
     async def receive_json(self, content: Any, **kwargs: Any) -> None:
-        """Relay client messages to the entire workshop group, excluding the sender."""
+        """Relay a client message to the workshop group, excluding the sender.
+
+        Hardened against DoS amplification (#895): every accepted frame is fanned
+        out to all participants, so before relaying we (1) require an object with
+        an allowlisted top-level ``type``, (2) cap the serialized size, and
+        (3) rate-limit per user. A frame failing any check is dropped silently —
+        the relay is best-effort, so dropping is the safe failure mode and avoids
+        handing an attacker a feedback signal.
+        """
         if not hasattr(self, "_user"):
             return
+
+        # (c) Allowlist: drop frames that aren't a dict with a known event type.
+        # The relay was previously type-agnostic; an unknown/forged type is now
+        # rejected rather than amplified to every participant.
+        if not isinstance(content, dict):
+            return
+        event_type = content.get("type")
+        if event_type not in ALLOWED_EVENT_TYPES:
+            logger.debug("workshop relay: dropping frame with unknown type %r", event_type)
+            return
+
+        # (a) Size cap: reject oversized frames before fan-out.
+        if len(json.dumps(content)) > MAX_FRAME_BYTES:
+            logger.warning("workshop relay: dropping oversize frame from user %s", self._user.pk)
+            return
+
+        # (b) Rate limit: bound per-user message frequency.
+        if not await self._allow_relay():
+            logger.warning("workshop relay: rate limit exceeded for user %s", self._user.pk)
+            return
+
         # Overwrite rather than setdefault — prevents clients from spoofing
         # another user's identity by supplying their own user_id/display_name.
         content["user_id"] = str(self._user.pk)
@@ -90,6 +197,34 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                 "sender": self.channel_name,
             },
         )
+
+    async def _allow_relay(self) -> bool:
+        """Return True if this user is under the per-window relay rate limit.
+
+        Mirrors ``sync.throttles``/``projects.throttles``: an INCR on a per-
+        (project, user) bucket key in the throttle-counter Redis DB with a short
+        TTL window. Fails **open** on any Redis error so a cache outage can never
+        wedge live collaboration — the size cap and allowlist still apply.
+        """
+        from channels.db import database_sync_to_async
+
+        project_pk = self.project_pk
+        user_pk = str(self._user.pk)
+
+        @database_sync_to_async  # type: ignore[untyped-decorator]
+        def _check() -> bool:
+            bucket_key = f"rate:workshop_relay:{project_pk}:{user_pk}"
+            try:
+                client = _client()  # pooled — no per-frame connection (#perf)
+                count = int(cast(int, client.incr(bucket_key)))
+                if count == 1:
+                    client.expire(bucket_key, RELAY_RATE_WINDOW)
+            except redis.RedisError:
+                logger.exception("workshop relay rate limit: Redis error, failing open")
+                return True
+            return count <= RELAY_RATE_LIMIT
+
+        return await _check()  # type: ignore[no-any-return]
 
     async def workshop_event(self, event: dict[str, Any]) -> None:
         """Handle channel layer messages of type 'workshop.event'."""
@@ -196,7 +331,12 @@ class WorkshopConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
             try:
                 access = AccessToken(tok)  # type: ignore[arg-type]
                 user_id = access["user_id"]
-                return User.objects.get(pk=user_id)
+                # is_active filter (#888): a deactivated user may still hold a
+                # JWT that has not yet expired. Without this, a disabled account
+                # keeps receiving workshop edit/cursor events until its token
+                # expires. Treat an inactive user as a failed resolve (4001),
+                # mirroring DRF's JWTAuthentication, which rejects inactive users.
+                return User.objects.get(pk=user_id, is_active=True)
             except (TokenError, InvalidToken, User.DoesNotExist):
                 return None
 
