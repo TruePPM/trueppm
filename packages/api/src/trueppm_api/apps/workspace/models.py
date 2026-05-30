@@ -86,6 +86,10 @@ class InviteStatus(models.TextChoices):
     ACCEPTED = "accepted", "Accepted"
     REVOKED = "revoked", "Revoked"
     EXPIRED = "expired", "Expired"
+    # Terminal email-delivery failure (retries exhausted). Distinct from EXPIRED
+    # (token lifetime lapsed): the raw token is cleared regardless so it cannot
+    # linger at rest after the send path gives up. An admin can re-invite.
+    FAILED = "failed", "Failed"
 
 
 def _default_work_week() -> list[bool]:
