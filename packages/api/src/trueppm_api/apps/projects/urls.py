@@ -10,6 +10,7 @@ from trueppm_api.apps.projects.backlog_views import BacklogItemViewSet
 from trueppm_api.apps.projects.ceremony_views import (
     CeremonyTemplateViewSet,
     PhaseGateConfigView,
+    ProjectGuardrailPolicyView,
 )
 from trueppm_api.apps.projects.program_views import ProgramViewSet
 from trueppm_api.apps.projects.views import (
@@ -219,6 +220,12 @@ urlpatterns = [
             }
         ),
         name="project-fields-detail",
+    ),
+    # Sprint/Phase/WBS guardrail policy — singleton per project (ADR-0101).
+    path(
+        "projects/<project_pk>/guardrail-policy/",
+        ProjectGuardrailPolicyView.as_view(),
+        name="project-guardrail-policy",
     ),
     # Sprint endpoints (ADR-0037)
     path(
