@@ -102,6 +102,7 @@ from trueppm_api.apps.projects.serializers import (
     CommentReactionSerializer,
     CycleDetectedError,
     DependencySerializer,
+    GuardrailBlockedError,
     InboundTaskSyncPayloadSerializer,
     MeWorkActiveSprintSerializer,
     MeWorkTaskSerializer,
@@ -1820,6 +1821,11 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
     def perform_update(self, serializer: BaseSerializer[Task]) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
+        # Stash the bound serializer so _handle_task_write can read the guardrail
+        # rules it recorded in validate() and surface them as response warnings
+        # (ADR-0101). validate() ran before perform_update, so the attribute is set.
+        self._last_task_serializer = serializer
+
         # Snapshot the fields the granular webhook events compare on, BEFORE the
         # save mutates the instance. serializer.instance still holds the prior DB
         # values here (#638 / ADR-0083). Captured as plain scalars so the
@@ -1906,6 +1912,72 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                     )
                 )
 
+    def _handle_task_write(
+        self, super_method: Any, request: Request, *args: Any, **kwargs: Any
+    ) -> Response:
+        """Shared error/warning handling for task update + partial_update.
+
+        Maps the structured serializer errors to their stable response bodies, and
+        — on a successful write — attaches any tripped *warn*-level guardrails as a
+        ``warnings`` array (ADR-0101). Warnings never change the status code: the
+        write succeeded; the client shows a non-blocking notice + one-tap override.
+        A *block*-level guardrail raised :class:`GuardrailBlockedError` instead, and
+        is returned here as a 400 with the offending rule.
+        """
+        try:
+            response: Response = super_method(request, *args, **kwargs)
+        except ProgressAnchorError:
+            return Response(
+                {
+                    "code": "progress_requires_anchor",
+                    "detail": (
+                        "Cannot record progress without a planned start date or sprint assignment."
+                    ),
+                    "suggested_action": "set_planned_start",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except MilestoneRollupLockedError:
+            return Response(
+                {
+                    "code": "milestone_rollup_locked",
+                    "detail": (
+                        "This milestone's progress is rolled up from its linked sprint(s) "
+                        "and cannot be edited manually. Close or unlink the sprint to edit."
+                    ),
+                    "suggested_action": "unlink_or_close_sprint",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except PlannedStartBeforeProjectStartError as exc:
+            return Response(
+                _planned_start_before_project_start_body(exc),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except GuardrailBlockedError as exc:
+            return Response(
+                {
+                    "code": "guardrail_blocked",
+                    "rule": exc.rule,
+                    "detail": exc.detail,
+                    "suggested_action": exc.suggested_action,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Surface warn-level guardrails the serializer recorded during validate().
+        # The serializer instance is the one bound to this request; read the rules
+        # it stashed and translate them to {rule, detail} for the client notice.
+        serializer = getattr(self, "_last_task_serializer", None)
+        tripped = getattr(serializer, "_tripped_guardrails", None) if serializer else None
+        if tripped and isinstance(response.data, dict):
+            from trueppm_api.apps.projects.serializers import GUARDRAIL_WARNING_COPY
+
+            response.data["warnings"] = [
+                {"rule": rule, "detail": GUARDRAIL_WARNING_COPY.get(rule, "")} for rule in tripped
+            ]
+        return response
+
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # The project-start floor (#868) fires on create too — the "+ Task" form
         # can carry a planned_start before the project start. Convert it to the
@@ -1919,68 +1991,10 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
             )
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        try:
-            return super().update(request, *args, **kwargs)
-        except ProgressAnchorError:
-            return Response(
-                {
-                    "code": "progress_requires_anchor",
-                    "detail": (
-                        "Cannot record progress without a planned start date or sprint assignment."
-                    ),
-                    "suggested_action": "set_planned_start",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except MilestoneRollupLockedError:
-            return Response(
-                {
-                    "code": "milestone_rollup_locked",
-                    "detail": (
-                        "This milestone's progress is rolled up from its linked sprint(s) "
-                        "and cannot be edited manually. Close or unlink the sprint to edit."
-                    ),
-                    "suggested_action": "unlink_or_close_sprint",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except PlannedStartBeforeProjectStartError as exc:
-            return Response(
-                _planned_start_before_project_start_body(exc),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        return self._handle_task_write(super().update, request, *args, **kwargs)
 
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        try:
-            return super().partial_update(request, *args, **kwargs)
-        except ProgressAnchorError:
-            return Response(
-                {
-                    "code": "progress_requires_anchor",
-                    "detail": (
-                        "Cannot record progress without a planned start date or sprint assignment."
-                    ),
-                    "suggested_action": "set_planned_start",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except MilestoneRollupLockedError:
-            return Response(
-                {
-                    "code": "milestone_rollup_locked",
-                    "detail": (
-                        "This milestone's progress is rolled up from its linked sprint(s) "
-                        "and cannot be edited manually. Close or unlink the sprint to edit."
-                    ),
-                    "suggested_action": "unlink_or_close_sprint",
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        except PlannedStartBeforeProjectStartError as exc:
-            return Response(
-                _planned_start_before_project_start_body(exc),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        return self._handle_task_write(super().partial_update, request, *args, **kwargs)
 
     def perform_destroy(self, instance: Task) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event

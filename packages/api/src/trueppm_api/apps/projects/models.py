@@ -2131,6 +2131,11 @@ class SprintScopeChange(models.Model):
         related_name="scope_changes",
     )
     # Denormalized — survives subtask deletion.
+    #
+    # Generalized in ADR-0101: this column now labels *any* item injected into an
+    # active sprint, not only a spawned subtask. The legacy name is retained as a
+    # column so existing rows and the deprecated read alias keep working for one
+    # release; ``item_name`` is the forward-looking accessor (see ``item_name``).
     subtask_name = models.CharField(max_length=512)
     added_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -2140,6 +2145,11 @@ class SprintScopeChange(models.Model):
         related_name="sprint_scope_changes_added",
     )
     added_at = models.DateTimeField(auto_now_add=True)
+    # ADR-0101 §5: does this injected item advance the sprint's target_milestone
+    # (or carry committed points)? Surfaces the "goal impact" flag on the board
+    # banner and the drawer scope-change rows so the team can see at a glance
+    # whether the late addition threatens the Sprint Goal, not just the count.
+    goal_impact = models.BooleanField(default=False)
 
     class Meta:
         db_table = "projects_sprintscopechange"
@@ -2150,6 +2160,151 @@ class SprintScopeChange(models.Model):
 
     def __str__(self) -> str:
         return f"SprintScopeChange(task={self.task_id}, sprint={self.sprint_id})"
+
+    @property
+    def item_name(self) -> str:
+        """Forward-looking accessor for the injected item's display name.
+
+        ADR-0101 generalized scope-injection beyond subtasks; ``item_name`` is the
+        name new code should read. Backed by ``subtask_name`` until that column is
+        renamed in a later release (kept now to avoid a breaking sync/payload change).
+        """
+        return self.subtask_name
+
+
+class GuardrailRule(models.TextChoices):
+    """Sprint/Phase/WBS guardrail rule keys (ADR-0101).
+
+    Each rule is a legal-but-usually-wrong state the model permits but that almost
+    always indicates a mistake. The string values are the stable contract shared
+    with the web client (which evaluates the same rules offline) and with the
+    structured ``guardrail_blocked`` error payload — do not rename without a
+    coordinated frontend + sync change.
+
+    The first four are *sprint-composition* rules: they may be escalated to a hard
+    block, but only by the project Owner (or an acknowledged external policy) —
+    sprint composition is the team's domain. ``SUBTASKS_SPLIT`` is advisory-only
+    (it has no single offending assignment to block) and is never escalatable.
+    """
+
+    SUMMARY_IN_SPRINT = "summary_in_sprint", "Summary task in a sprint"
+    PHASE_IN_SPRINT = "phase_in_sprint", "Phase in a sprint"
+    TASK_OUTSIDE_SPRINT_WINDOW = (
+        "task_outside_sprint_window",
+        "Task scheduled outside its sprint window",
+    )
+    RECURRING_IN_SPRINT = "recurring_in_sprint", "Recurring task in a sprint"
+    SUBTASKS_SPLIT = "subtasks_split", "Subtasks split across sprints"
+
+
+# Composition rules that may be escalated warn->block (ADR-0101 §3). SUBTASKS_SPLIT
+# is intentionally excluded: it is advisory and has no single assignment to reject.
+COMPOSITION_GUARDRAIL_RULES: frozenset[str] = frozenset(
+    {
+        GuardrailRule.SUMMARY_IN_SPRINT,
+        GuardrailRule.PHASE_IN_SPRINT,
+        GuardrailRule.TASK_OUTSIDE_SPRINT_WINDOW,
+        GuardrailRule.RECURRING_IN_SPRINT,
+    }
+)
+
+
+class GuardrailLevel(models.TextChoices):
+    """Enforcement level for a guardrail rule (ADR-0101).
+
+    WARN (default): the assignment proceeds; the client shows a non-blocking notice
+    with a one-tap override and an always-optional reason.
+    BLOCK: the serializer rejects the assignment with a structured
+    ``guardrail_blocked`` error, overridable only by removing the offending state.
+    """
+
+    WARN = "warn", "Warn"
+    BLOCK = "block", "Block"
+
+
+class GuardrailPolicySource(models.TextChoices):
+    """Origin of a guardrail policy (ADR-0101 sprint-sovereignty gate).
+
+    OWNER: set by the project's own Owner — takes effect immediately.
+    EXTERNAL: supplied by a registered Enterprise resolver (cross-program policy
+        template / org-imposed enforcement). An EXTERNAL block is *inert* until the
+        team acknowledges it (``acknowledged_by_team``), and a persistent banner
+        names who set it — enforced here in OSS so a high-ordinal custom role
+        (ADR-0072) cannot silently impose a block over the team.
+    """
+
+    OWNER = "owner", "Project owner"
+    EXTERNAL = "external", "External policy"
+
+
+class ProjectGuardrailPolicy(VersionedModel):
+    """Per-project guardrail enforcement policy (ADR-0101 §3).
+
+    One row per Project (1:1), created lazily on first GET via ``get_or_create`` in
+    the view layer so existing projects need no data migration. ``levels`` maps each
+    :class:`GuardrailRule` value to a :class:`GuardrailLevel` value; a rule absent
+    from the map defaults to WARN.
+
+    Composition rules may only be set to BLOCK when ``source == OWNER`` *or*
+    ``source == EXTERNAL and acknowledged_by_team`` — the OSS-enforced sprint-
+    sovereignty gate. The level write itself is additionally permission-gated at the
+    view (``role >= Role.OWNER``); this model holds the inertness rule so it cannot
+    be bypassed by a caller that reaches the model directly (e.g. the Enterprise
+    resolver).
+    """
+
+    project = models.OneToOneField(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="guardrail_policy",
+    )
+    # {rule_key: level}. Rules absent default to WARN. Stored as JSON rather than
+    # a column-per-rule so adding a future rule needs no migration.
+    levels = models.JSONField(default=dict, blank=True)
+    source = models.CharField(
+        max_length=16,
+        choices=GuardrailPolicySource.choices,
+        default=GuardrailPolicySource.OWNER,
+    )
+    # Who set an EXTERNAL policy (display name for the team-ack banner). Empty for
+    # OWNER-sourced policies. Free text — the Enterprise resolver supplies it.
+    source_label = models.CharField(max_length=255, blank=True, default="")
+    # An EXTERNAL composition-block is inert until this is True (ADR-0101).
+    acknowledged_by_team = models.BooleanField(default=False)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_BASE)
+
+    # Declared explicitly so django-stubs resolves the manager and the FK_id on a
+    # VersionedModel subclass that also carries HistoricalRecords (the plugin
+    # otherwise loses ``objects``/``project_id`` here — see project memory
+    # feedback_cross_app_versionedmodel_stubs).
+    objects = models.Manager()
+
+    class Meta:
+        db_table = "projects_guardrail_policy"
+
+    def __str__(self) -> str:
+        return f"ProjectGuardrailPolicy({self.pk})"
+
+    def effective_level(self, rule: str) -> str:
+        """Return the *enforced* level for ``rule``, applying the sovereignty gate.
+
+        A composition rule set to BLOCK by an EXTERNAL source that the team has not
+        acknowledged is downgraded to WARN — the block is inert until acknowledged.
+        OWNER-sourced blocks, and acknowledged EXTERNAL blocks, are returned as-is.
+        """
+        level = self.levels.get(rule, GuardrailLevel.WARN)
+        if level != GuardrailLevel.BLOCK:
+            return GuardrailLevel.WARN
+        if (
+            rule in COMPOSITION_GUARDRAIL_RULES
+            and self.source == GuardrailPolicySource.EXTERNAL
+            and not self.acknowledged_by_team
+        ):
+            return GuardrailLevel.WARN
+        return GuardrailLevel.BLOCK
 
 
 # ---------------------------------------------------------------------------

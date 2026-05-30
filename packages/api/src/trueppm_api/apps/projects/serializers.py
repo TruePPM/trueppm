@@ -926,6 +926,15 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     {"sprint": "Sprint does not belong to this project."}
                 )
 
+        # Sprint/Phase/WBS guardrails (ADR-0101). Only evaluated when a task is being
+        # *assigned* to a sprint (sprint set to a non-null value). Tripped rules at
+        # WARN are advisory — they ride out as `warnings` on the response and never
+        # reject; only a rule the project Owner escalated to BLOCK raises here.
+        if "sprint" in attrs and sprint is not None and self.instance is not None:
+            self._tripped_guardrails = self._evaluate_task_guardrails(self.instance, sprint)
+        else:
+            self._tripped_guardrails = []
+
         # Progress-anchor gate: block percent_complete > 0 when the task has no
         # planned_start and no sprint. For partial updates, merge instance state
         # with the incoming attrs to determine the resulting effective values.
@@ -979,6 +988,80 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         return attrs
 
+    def _evaluate_task_guardrails(self, task: Task, sprint: Any) -> list[str]:
+        """Evaluate ADR-0101 guardrails for assigning ``task`` to ``sprint``.
+
+        Returns the list of tripped rule keys (for the WARN response payload). If
+        any tripped rule is escalated to BLOCK by the project's effective policy,
+        raises :class:`GuardrailBlockedError` for the first such rule instead.
+
+        Summary detection uses a direct ltree child-existence query rather than the
+        ``is_summary`` annotation, because ``validate`` may run on an instance loaded
+        without that annotation (e.g. a bare PATCH). Recurring tasks are exempt from
+        WBS/phase rules by construction (``wbs_path`` is null), but are still caught
+        by ``recurring_in_sprint``.
+        """
+        from trueppm_api.apps.projects.models import (
+            COMPOSITION_GUARDRAIL_RULES,
+            GuardrailLevel,
+            ProjectGuardrailPolicy,
+        )
+        from trueppm_api.apps.projects.models import (
+            Task as TaskModel,
+        )
+
+        wbs_path = task.wbs_path
+        is_phase = bool(wbs_path) and re.fullmatch(r"\d+", str(wbs_path)) is not None
+        has_children = False
+        if wbs_path:
+            # A task is a summary if any non-deleted task has a wbs_path one or more
+            # levels deeper, i.e. starting with "<this path>.". Uses `__regex` (the
+            # lookup the codebase already relies on for ltree paths) rather than an
+            # ltree-specific descendant operator, so it works without extra lookup
+            # registration. The path segments are digits, so escaping is a safety net.
+            child_prefix = re.escape(str(wbs_path))
+            has_children = (
+                TaskModel.objects.filter(
+                    project_id=task.project_id,
+                    is_deleted=False,
+                    wbs_path__regex=rf"^{child_prefix}\.",
+                )
+                .exclude(pk=task.pk)
+                .exists()
+            )
+
+        # Effective task window: planned_start (PM commitment) falling back to the
+        # CPM early_start; finish via early_finish. A task with no dates can't be
+        # "outside" a window, so the window rule simply won't fire.
+        task_start = task.planned_start or task.early_start
+        task_finish = task.early_finish
+
+        tripped = evaluate_sprint_guardrails(
+            has_children=has_children,
+            is_phase=is_phase,
+            is_recurring=task.is_recurring,
+            task_start=task_start,
+            task_finish=task_finish,
+            sprint_start=getattr(sprint, "start_date", None),
+            sprint_finish=getattr(sprint, "finish_date", None),
+        )
+        if not tripped:
+            return []
+
+        policy = ProjectGuardrailPolicy.objects.filter(project_id=task.project_id).first()
+        if policy is not None:
+            for rule in tripped:
+                if (
+                    rule in COMPOSITION_GUARDRAIL_RULES
+                    and policy.effective_level(rule) == GuardrailLevel.BLOCK
+                ):
+                    raise GuardrailBlockedError(
+                        rule=rule,
+                        detail=GUARDRAIL_WARNING_COPY.get(rule, "This assignment is blocked."),
+                        suggested_action=GUARDRAIL_SUGGESTED_ACTION.get(rule, "remove_from_sprint"),
+                    )
+        return tripped
+
     def get_schedule_variance_days(self, obj: Task) -> int | None:
         """Compute schedule variance: actual_finish - baseline_finish in calendar days.
 
@@ -1025,9 +1108,14 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             rows = SprintScopeChange.objects.filter(task_id=obj.pk).select_related("added_by")
         return [
             {
+                # ADR-0101: `item_name` is the forward-looking key; `subtask_name`
+                # is kept as a deprecated alias for one release so existing clients
+                # don't break. Both carry the same value.
                 "subtask_name": r.subtask_name,
+                "item_name": r.item_name,
                 "added_by_name": r.added_by.get_full_name() if r.added_by else None,
                 "added_at": r.added_at.isoformat(),
+                "goal_impact": r.goal_impact,
             }
             for r in rows
         ]
@@ -1419,6 +1507,129 @@ class PlannedStartBeforeProjectStartError(Exception):
     def __init__(self, project_start_date: date) -> None:
         self.project_start_date = project_start_date
         super().__init__("Task cannot be scheduled before the project start date.")
+
+
+class GuardrailBlockedError(Exception):
+    """Raised by ``TaskSerializer.validate`` when a sprint assignment trips a
+    guardrail rule the project has escalated to BLOCK (ADR-0101 §3).
+
+    Carries the offending ``rule`` key so the viewset can emit a structured
+    ``{"code": "guardrail_blocked", "rule": ..., "detail": ..., "suggested_action": ...}``
+    body. A block is overridable only by removing the offending state, never
+    silently — so unlike the warn path there is no override token.
+
+    Bypasses DRF's :class:`serializers.ValidationError` for the same reason as the
+    sibling errors above (ADR-0055): the frontend maps the stable ``rule`` code to
+    its block affordance and fix-it copy without scraping a message string.
+    """
+
+    def __init__(self, rule: str, detail: str, suggested_action: str) -> None:
+        self.rule = rule
+        self.detail = detail
+        self.suggested_action = suggested_action
+        super().__init__(detail)
+
+
+# Outcome-language warning copy keyed by rule (ADR-0101 Tier 1). Deliberately phrased
+# in terms of the *consequence* ("double-counts in velocity"), never WBS structural
+# jargon ("WBS L1 root", "summary task") — the agile personas (Alex/Morgan) reject
+# PM vocabulary leaking into their surfaces. The web client mirrors these strings;
+# the server returns them so a non-web API caller gets the same guidance.
+GUARDRAIL_WARNING_COPY: dict[str, str] = {
+    "summary_in_sprint": (
+        "This double-counts in velocity — its child tasks already carry the points."
+    ),
+    "phase_in_sprint": ("Phases group work; assign the tasks inside it to the sprint instead."),
+    "task_outside_sprint_window": (
+        "This is scheduled outside the sprint's dates — it won't finish in the sprint."
+    ),
+    "recurring_in_sprint": "Recurring tasks aren't counted in sprint velocity.",
+}
+
+GUARDRAIL_SUGGESTED_ACTION: dict[str, str] = {
+    "summary_in_sprint": "assign_child_tasks",
+    "phase_in_sprint": "assign_child_tasks",
+    "task_outside_sprint_window": "align_dates_or_sprint",
+    "recurring_in_sprint": "remove_from_sprint",
+}
+
+
+def evaluate_sprint_guardrails(
+    *,
+    has_children: bool,
+    is_phase: bool,
+    is_recurring: bool,
+    task_start: date | None,
+    task_finish: date | None,
+    sprint_start: date | None,
+    sprint_finish: date | None,
+) -> list[str]:
+    """Pure guardrail evaluator: return the rule keys a sprint assignment trips.
+
+    Pure function of the supplied state so it can run identically server-side and
+    in the offline web/mobile client (ADR-0101: rules must evaluate wherever the
+    task data lives, with no network dependency). Returns rule keys in a stable
+    order; an empty list means the assignment is clean.
+
+    ``is_phase`` (a WBS L1 root) is a *more specific* case of ``has_children`` — when
+    a task is both, we report ``phase_in_sprint`` only, so the user sees one precise
+    notice rather than two overlapping ones.
+    """
+    rules: list[str] = []
+    if is_phase:
+        rules.append("phase_in_sprint")
+    elif has_children:
+        rules.append("summary_in_sprint")
+    if is_recurring:
+        rules.append("recurring_in_sprint")
+    if (
+        task_start is not None
+        and task_finish is not None
+        and sprint_start is not None
+        and sprint_finish is not None
+        and (task_finish < sprint_start or task_start > sprint_finish)
+    ):
+        rules.append("task_outside_sprint_window")
+    return rules
+
+
+class ProjectGuardrailPolicySerializer(serializers.Serializer[Any]):
+    """Read/write serializer for a project's guardrail policy (ADR-0101 §3).
+
+    ``levels`` is a ``{rule_key: "warn"|"block"}`` map; unknown keys are rejected so
+    a typo can't silently no-op. ``effective_levels`` is a read-only mirror that
+    applies the sovereignty gate (an unacknowledged EXTERNAL composition-block reads
+    back as ``warn``), so the client renders what is actually enforced. The view
+    enforces that only ``role >= Role.OWNER`` may set a composition rule to BLOCK.
+    """
+
+    levels = serializers.DictField(child=serializers.CharField(), required=False)
+    # Named `policy_source` (not `source`) to avoid shadowing DRF's reserved
+    # ``Field.source`` attribute; mapped to the model's ``source`` column.
+    policy_source = serializers.CharField(source="source", read_only=True)
+    source_label = serializers.CharField(read_only=True)
+    acknowledged_by_team = serializers.BooleanField(required=False)
+    effective_levels = serializers.SerializerMethodField()
+    server_version = serializers.IntegerField(read_only=True)
+
+    def validate_levels(self, value: dict[str, Any]) -> dict[str, Any]:
+        from trueppm_api.apps.projects.models import GuardrailLevel, GuardrailRule
+
+        valid_rules = {r.value for r in GuardrailRule}
+        valid_levels = {lvl.value for lvl in GuardrailLevel}
+        for rule, level in value.items():
+            if rule not in valid_rules:
+                raise serializers.ValidationError(f"Unknown guardrail rule: {rule!r}.")
+            if level not in valid_levels:
+                raise serializers.ValidationError(
+                    f"Invalid level {level!r} for {rule!r} (expected warn|block)."
+                )
+        return value
+
+    def get_effective_levels(self, obj: Any) -> dict[str, str]:
+        from trueppm_api.apps.projects.models import GuardrailRule
+
+        return {rule.value: obj.effective_level(rule.value) for rule in GuardrailRule}
 
 
 def _load_project_tasks_and_children_map(
