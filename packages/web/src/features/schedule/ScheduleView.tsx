@@ -57,7 +57,9 @@ import { useFeatureFlag } from '@/lib/featureFlags';
 import { useDependencyHover } from './useDependencyHover';
 import { ScheduleDependencyPicker } from './ScheduleDependencyPicker';
 import { ScheduleCommitPopover } from './ScheduleCommitPopover';
+import { BeforeProjectStartDialog } from './BeforeProjectStartDialog';
 import { useScheduleCommit } from './useScheduleCommit';
+import { useProject } from '@/hooks/useProject';
 import { useSprints } from '@/hooks/useSprints';
 import {
   useScheduleFocus,
@@ -663,9 +665,15 @@ export function ScheduleView() {
   // Pull-to-commit gate (ADR-0067 / #492). Drag-end and resize-end no longer
   // fire the PATCH directly: the bar visually moves via engine.updateTask, and
   // the popover holds the change until Confirm. Cancel/Esc/click-outside revert.
+  // Project start date feeds the project-start floor prompt (#868) — a reschedule
+  // before this date opens snap/move/cancel instead of silently clamping.
+  const { data: projectDetail } = useProject(projectId ?? undefined);
+  const projectStartDate = projectDetail?.start_date ?? null;
+
   const scheduleCommit = useScheduleCommit({
     engine,
     projectId,
+    projectStartDate,
     visibleTasks,
     allTasks,
     sprints,
@@ -1430,6 +1438,22 @@ export function ScheduleView() {
           onConfirm={scheduleCommit.handleConfirm}
           onCancel={scheduleCommit.handleCancel}
           onDismissByOutsideClick={scheduleCommit.handleDismissByOutsideClick}
+        />
+      )}
+
+      {/* Project-start floor prompt (#868) — replaces the silent clamp when a
+          reschedule lands before the project start. "Move project start" is
+          gated to Admin/Owner (server-enforced); lower roles see snap + cancel. */}
+      {scheduleCommit.beforeStartPrompt && (
+        <BeforeProjectStartDialog
+          projectStartDate={scheduleCommit.beforeStartPrompt.projectStartDate}
+          attemptedStart={scheduleCommit.beforeStartPrompt.attemptedStart}
+          canMoveStart={currentRole !== null && currentRole >= ROLE_ADMIN}
+          error={scheduleCommit.beforeStartPrompt.error}
+          isPending={scheduleCommit.beforeStartPending}
+          onSnap={scheduleCommit.handleSnapToProjectStart}
+          onMoveStart={scheduleCommit.handleMoveProjectStart}
+          onCancel={scheduleCommit.handleCancelBeforeStart}
         />
       )}
 

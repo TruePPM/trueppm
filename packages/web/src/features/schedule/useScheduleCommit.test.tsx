@@ -118,6 +118,7 @@ function renderCommit(
     tasks?: Task[];
     sprints?: ApiSprint[];
     onCommitSuccess?: () => void;
+    projectStartDate?: string | null;
   } = {},
 ) {
   const ariaAssertiveRef = makeAriaRef();
@@ -138,6 +139,7 @@ function renderCommit(
       useScheduleCommit({
         engine,
         projectId: 'p1',
+        projectStartDate: opts.projectStartDate ?? null,
         visibleTasks: tasks,
         allTasks: tasks,
         sprints,
@@ -320,5 +322,71 @@ describe('useScheduleCommit', () => {
     );
     expect(result.current.state).toBeNull();
     onlineSpy.mockRestore();
+  });
+
+  // --- Project-start floor prompt (#868) -----------------------------------
+  // Scale is 1px/day from 2026-01-01: left=5 → 2026-01-06, left=25 → 2026-01-26.
+  describe('project-start floor (#868)', () => {
+    it('Confirm before the project start opens the prompt and fires no PATCH', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      expect(result.current.beforeStartPrompt).not.toBeNull();
+      expect(result.current.beforeStartPrompt!.attemptedStart).toBe('2026-01-06');
+      expect(result.current.beforeStartPrompt!.projectStartDate).toBe('2026-01-20');
+      expect(result.current.state).toBeNull();
+      expect(patchMock).not.toHaveBeenCalled();
+    });
+
+    it('a drag on/after the project start commits normally (no prompt)', async () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 25, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      expect(result.current.beforeStartPrompt).toBeNull();
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-26' }),
+      );
+    });
+
+    it('Snap re-pins the task to the project start date', async () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      act(() => result.current.handleSnapToProjectStart());
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-20' }),
+      );
+      await waitFor(() => expect(result.current.beforeStartPrompt).toBeNull());
+    });
+
+    it('Move project start PATCHes the project then the task', async () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      act(() => result.current.handleMoveProjectStart());
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledWith('/projects/p1/', { start_date: '2026-01-06' }),
+      );
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledWith('/tasks/t1/', { planned_start: '2026-01-06' }),
+      );
+      await waitFor(() => expect(result.current.beforeStartPrompt).toBeNull());
+    });
+
+    it('Cancel reverts the engine bar and fires no PATCH', () => {
+      const engine = new ControllableEngine();
+      const { result } = renderCommit(engine, { projectStartDate: '2026-01-20' });
+      act(() => engine.emit('drag-task-end', { id: 't1', left: 5, cancelled: false }));
+      act(() => result.current.handleConfirm());
+      act(() => result.current.handleCancelBeforeStart());
+      expect(result.current.beforeStartPrompt).toBeNull();
+      expect(patchMock).not.toHaveBeenCalled();
+      const last = engine.updateTaskCalls[engine.updateTaskCalls.length - 1];
+      expect(last?.patch.start).toBe('2026-01-10'); // reverted to TASK_A.start
+    });
   });
 });
