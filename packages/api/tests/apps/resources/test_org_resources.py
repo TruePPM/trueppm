@@ -263,3 +263,85 @@ class TestOrgAdminSuperuser:
             format="json",
         )
         assert res.status_code == 201
+
+
+# ---------------------------------------------------------------------------
+# Email exposure gate (#891 — org-wide email harvest, mirrors #815)
+# ---------------------------------------------------------------------------
+
+
+class TestResourceEmailGate:
+    """A low-privilege caller must not receive other resources' emails.
+
+    The catalog is readable by any authenticated user, so echoing email on every
+    row let one account paginate it to harvest the org's email list. Email is now
+    gated on org-admin in to_representation; the resource's own user still sees
+    their email via the is_me self-view path.
+    """
+
+    def test_member_list_omits_email(self, member_client: APIClient, resource: Resource) -> None:
+        res = member_client.get("/api/v1/resources/")
+        assert res.status_code == 200
+        row = next(r for r in res.data["results"] if r["id"] == str(resource.pk))
+        # email dropped entirely (not just nulled) for non-admin callers.
+        assert "email" not in row
+
+    def test_member_retrieve_omits_email(
+        self, member_client: APIClient, resource: Resource
+    ) -> None:
+        """Detail endpoint is gated the same way as list (same serializer)."""
+        res = member_client.get(f"/api/v1/resources/{resource.pk}/")
+        assert res.status_code == 200
+        assert "email" not in res.data
+
+    def test_admin_list_includes_email(self, admin_client: APIClient, resource: Resource) -> None:
+        res = admin_client.get("/api/v1/resources/")
+        assert res.status_code == 200
+        row = next(r for r in res.data["results"] if r["id"] == str(resource.pk))
+        assert row["email"] == "alice@example.com"
+
+    def test_member_sees_own_email_via_self_view(
+        self, member_user: object, member_membership: ProjectMembership, calendar: Calendar
+    ) -> None:
+        """is_me self-view: a member still sees the email on their own resource."""
+        own = Resource.objects.create(
+            name="Member Self",
+            email="member_self@example.com",
+            max_units=1.0,
+            user=member_user,
+        )
+        c = APIClient()
+        c.force_authenticate(user=member_user)
+        res = c.get(f"/api/v1/resources/{own.pk}/")
+        assert res.status_code == 200
+        assert res.data["is_me"] is True
+        assert res.data["email"] == "member_self@example.com"
+
+    # --- #892: email search must be gated on org-admin -----------------------
+
+    def test_member_search_by_email_finds_nothing(
+        self, member_client: APIClient, resource: Resource
+    ) -> None:
+        """A non-admin cannot probe email existence via ?search= (#892).
+
+        Searching the catalog by an email substring must not match — otherwise a
+        hit narrows the candidate set and leaks email existence even though the
+        value is stripped from the payload. Non-admins search by name only.
+        """
+        res = member_client.get("/api/v1/resources/?search=alice@example.com")
+        assert res.status_code == 200
+        assert res.data["results"] == []
+
+    def test_member_search_by_name_still_works(
+        self, member_client: APIClient, resource: Resource
+    ) -> None:
+        """The email-search gate must not break legitimate name search for non-admins."""
+        res = member_client.get("/api/v1/resources/?search=Alice")
+        assert res.status_code == 200
+        assert any(r["id"] == str(resource.pk) for r in res.data["results"])
+
+    def test_admin_search_by_email_works(self, admin_client: APIClient, resource: Resource) -> None:
+        """Org admins retain email search — the gate only narrows it for non-admins (#892)."""
+        res = admin_client.get("/api/v1/resources/?search=alice@example.com")
+        assert res.status_code == 200
+        assert any(r["id"] == str(resource.pk) for r in res.data["results"])

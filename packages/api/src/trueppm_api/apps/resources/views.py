@@ -19,6 +19,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.throttling import UserRateThrottle
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
@@ -365,6 +366,58 @@ class TaskSkillRequirementViewSet(IdempotencyMixin, viewsets.ModelViewSet[TaskSk
 # ---------------------------------------------------------------------------
 
 
+class _OrgAdminEmailSearchFilter(filters.SearchFilter):
+    """SearchFilter that only lets org admins search the resource catalog by email (#892).
+
+    The catalog is readable by any authenticated user, and email is stripped from
+    non-admin payloads (#891). But a static ``search_fields = ["name", "email"]``
+    still let a non-admin probe email existence via ``?search=<email-substring>``
+    (a hit narrows the candidate set even though the value is never echoed). This
+    backend gates the searchable fields on the same org-admin check the serializer
+    uses: admins search name + email; everyone else searches name only.
+    """
+
+    def get_search_fields(self, view: object, request: Request) -> list[str]:
+        if _request_is_org_admin(request):
+            return ["name", "email"]
+        return ["name"]
+
+
+def _request_is_org_admin(request: Request) -> bool:
+    """Return True if the requesting user is an org admin (ADMIN+ on any project).
+
+    Mirrors :meth:`ResourceSerializer._caller_is_org_admin` and
+    :class:`~trueppm_api.apps.access.permissions.IsOrgAdmin`: superusers bypass,
+    otherwise admin authority is derived from holding ADMIN/Owner on at least one
+    project. Used to gate email visibility in search (#892).
+    """
+    user = getattr(request, "user", None)
+    if user is None or not getattr(user, "is_authenticated", False):
+        return False
+    if user.is_superuser:
+        return True
+    return ProjectMembership.objects.filter(
+        user=user,
+        role__gte=Role.ADMIN,
+        is_deleted=False,
+    ).exists()
+
+
+class ResourceCatalogThrottle(UserRateThrottle):
+    """Per-user rate limit on the org-wide resource catalog (#891).
+
+    Mirrors the ``user_search`` throttle added for UserSearchView in #815: the
+    catalog is readable by any authenticated user, so even with email stripped a
+    single account could still page through it to enumerate the workforce. A
+    per-user 60/min cap bounds bulk scraping while staying well above any
+    interactive picker (AddToRosterCombobox) usage. The rate is set inline so no
+    settings entry is required.
+    """
+
+    scope = "resource_catalog"
+    rate = "60/min"
+
+
 def _compute_skill_fit(
     resource: Resource, requirements: list[TaskSkillRequirement]
 ) -> tuple[str, list[dict[str, object]]]:
@@ -506,9 +559,13 @@ class ResourceViewSet(IdempotencyMixin, viewsets.ModelViewSet[Resource]):
         .order_by("name")
     )
     serializer_class = ResourceSerializer
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ["name", "email"]
+    # Email search is gated on org-admin via the custom backend (#892): non-admins
+    # search by name only, so they cannot probe email existence with ?search=.
+    filter_backends = [_OrgAdminEmailSearchFilter, filters.OrderingFilter]
+    search_fields = ["name", "email"]  # admins; backend narrows to ["name"] otherwise
     ordering_fields = ["name"]
+    # Per-user cap on the harvest-prone read path (#891, mirrors #815).
+    throttle_classes = [ResourceCatalogThrottle]
 
     def get_permissions(self) -> list[BasePermission]:
         """Split read vs write permissions.

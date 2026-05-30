@@ -321,6 +321,86 @@ class TestTaskAttachmentFileUpload:
 
 
 # ---------------------------------------------------------------------------
+# TaskAttachment — filename sanitization (#892 stored XSS / header injection)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestTaskAttachmentFilenameSanitization:
+    """file_name is echoed verbatim in responses + download headers, so HTML and
+    control characters in the uploaded filename are scrubbed before storage."""
+
+    def test_html_in_uploaded_filename_is_stripped(
+        self,
+        member_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+    ) -> None:
+        upload = SimpleUploadedFile(
+            '"><script>alert(1)</script>.pdf',
+            b"%PDF-1.4 x",
+            content_type="application/pdf",
+        )
+        r = member_client.post(
+            _att_list_url(project, task),
+            {"file": upload},
+            format="multipart",
+        )
+        assert r.status_code == 201, r.data
+        stored = r.data["file_name"]
+        # No HTML metacharacters survive the allow-list.
+        for banned in ("<", ">", '"', "script"):
+            if banned == "script":
+                # the literal tag is broken up; ensure no '<script' sequence remains.
+                assert "<script" not in stored
+            else:
+                assert banned not in stored
+        att = TaskAttachment.objects.get(pk=r.data["id"])
+        assert "<" not in att.file_name and ">" not in att.file_name
+
+    def test_crlf_in_uploaded_filename_is_stripped(
+        self,
+        member_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+    ) -> None:
+        """CR/LF would enable header injection on Content-Disposition download."""
+        upload = SimpleUploadedFile(
+            "evil\nX-Inject: 1.pdf",
+            b"%PDF-1.4 x",
+            content_type="application/pdf",
+        )
+        r = member_client.post(
+            _att_list_url(project, task),
+            {"file": upload},
+            format="multipart",
+        )
+        assert r.status_code == 201, r.data
+        stored = r.data["file_name"]
+        assert "\n" not in stored and "\r" not in stored
+
+    def test_client_supplied_file_name_is_sanitized(
+        self,
+        member_client: APIClient,
+        project: Project,
+        task: Task,
+        memberships: None,
+    ) -> None:
+        """file_name is writable, so a client-supplied value is scrubbed too."""
+        upload = SimpleUploadedFile("ok.pdf", b"%PDF-1.4 x", content_type="application/pdf")
+        r = member_client.post(
+            _att_list_url(project, task),
+            {"file": upload, "file_name": "<img src=x onerror=alert(1)>.pdf"},
+            format="multipart",
+        )
+        assert r.status_code == 201, r.data
+        stored = r.data["file_name"]
+        assert "<" not in stored and ">" not in stored
+
+
+# ---------------------------------------------------------------------------
 # TaskAttachment — delete + signed URL
 # ---------------------------------------------------------------------------
 
