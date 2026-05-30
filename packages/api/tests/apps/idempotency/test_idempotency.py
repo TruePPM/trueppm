@@ -230,7 +230,10 @@ def _iter_view_classes() -> list[tuple[str, str | None, type, set[str]]]:
 #   abuse is bounded by the scoped login throttle instead;
 # - token_refresh (ThrottledTokenRefreshView POST, #814) is the refresh endpoint and has the
 #   same shape as login — it mints a fresh access JWT and persists no replayable resource,
-#   so idempotency keys don't apply; abuse is bounded by the scoped `refresh` throttle.
+#   so idempotency keys don't apply; abuse is bounded by the scoped `refresh` throttle;
+# - token_logout (CookieTokenLogoutView POST, #897) is naturally idempotent: it clears the
+#   refresh cookie and best-effort blacklists the token, so replaying it converges to the same
+#   logged-out state — mirroring the token_obtain_pair / token_refresh exemptions.
 EXEMPT_URL_NAMES = frozenset(
     {
         "project-schedule",
@@ -239,6 +242,7 @@ EXEMPT_URL_NAMES = frozenset(
         "retention-runs",
         "token_obtain_pair",
         "token_refresh",
+        "token_logout",
     }
 )
 

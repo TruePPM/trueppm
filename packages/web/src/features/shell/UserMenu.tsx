@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, type ReactNode, type RefObject } from 'rea
 import { NavLink, useNavigate } from 'react-router';
 import { useThemeStore, type Theme } from '@/stores/themeStore';
 import { useAuthStore } from '@/stores/authStore';
+import { apiClient } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -329,6 +330,13 @@ export function UserMenu() {
   }
 
   function handleSignOut() {
+    // Best-effort server logout: clears the httpOnly refresh cookie and
+    // blacklists the token (when the blacklist app is installed) so it can't be
+    // replayed (#897). Local state is cleared regardless of the network result —
+    // the user must end up signed out even if the request fails offline.
+    void apiClient.post('/auth/logout/').catch(() => {
+      /* offline / already-expired — local clear below is authoritative for the UI */
+    });
     clearTokens();
     queryClient.clear();
     void navigate('/login');
@@ -416,11 +424,7 @@ export function UserMenu() {
         {isOpen && (
           <>
             {/* Backdrop */}
-            <div
-              className="fixed inset-0 z-40"
-              aria-hidden="true"
-              onClick={close}
-            />
+            <div className="fixed inset-0 z-40" aria-hidden="true" onClick={close} />
             {/* Bottom sheet — heterogeneous controls (theme toggle, links, buttons)
                 require Tab navigation so role="dialog" is correct here, not role="menu". */}
             <div
@@ -436,9 +440,7 @@ export function UserMenu() {
       </div>
 
       {/* Keyboard shortcuts modal — rendered outside the menu so it survives close() */}
-      {showShortcuts && (
-        <KeyboardShortcutsModal onClose={() => setShowShortcuts(false)} />
-      )}
+      {showShortcuts && <KeyboardShortcutsModal onClose={() => setShowShortcuts(false)} />}
     </>
   );
 }

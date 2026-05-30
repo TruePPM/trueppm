@@ -16,30 +16,44 @@ const PROJECT_NAME = 'CI Integration Project';
 const TASK_NAME = `integration-task-${Date.now()}`;
 const UPDATED_TASK_NAME = `${TASK_NAME}-updated`;
 
-/** Log in and return the JWT access token from localStorage. */
+/**
+ * Log in via the UI and return the JWT access token.
+ *
+ * Since #897 the access token is in-memory only (never persisted to
+ * localStorage) and the refresh token is an httpOnly cookie, so the token
+ * can no longer be scraped from localStorage. We drive the real login form
+ * and capture the access token from the token endpoint's response body. The
+ * UI login also lands the refresh cookie in the page context, keeping the
+ * page authenticated for the subsequent UI assertions in this spec.
+ */
 async function loginAndGetToken(page: import('@playwright/test').Page): Promise<string> {
   await page.goto('/login');
   await page.getByLabel('Email').fill(EMAIL);
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
+
+  const tokenResponsePromise = page.waitForResponse(
+    (res) => res.url().includes('/api/v1/auth/token/') && res.request().method() === 'POST',
+  );
   await page.getByRole('button', { name: 'Sign in' }).click();
+  const tokenResponse = await tokenResponsePromise;
   await expect(page).not.toHaveURL(/\/login/, { timeout: 15_000 });
 
-  return page.evaluate<string>(() => {
-    const raw = localStorage.getItem('trueppm-auth') ?? '{}';
-    const parsed = JSON.parse(raw) as { state?: { accessToken?: string } };
-    return parsed?.state?.accessToken ?? '';
-  });
+  const body = (await tokenResponse.json()) as { access?: string };
+  return body.access ?? '';
 }
 
 /** Return the ID of the CI integration project via the real API. */
 async function getProjectId(page: import('@playwright/test').Page, token: string): Promise<string> {
-  const id = await page.evaluate<string>(async ([tk, name]) => {
-    const res = await fetch('/api/v1/projects/', {
-      headers: { Authorization: `Bearer ${tk}` },
-    });
-    const data = (await res.json()) as { results: Array<{ id: string; name: string }> };
-    return data.results.find((p) => p.name === name)?.id ?? '';
-  }, [token, PROJECT_NAME] as [string, string]);
+  const id = await page.evaluate<string>(
+    async ([tk, name]) => {
+      const res = await fetch('/api/v1/projects/', {
+        headers: { Authorization: `Bearer ${tk}` },
+      });
+      const data = (await res.json()) as { results: Array<{ id: string; name: string }> };
+      return data.results.find((p) => p.name === name)?.id ?? '';
+    },
+    [token, PROJECT_NAME] as [string, string],
+  );
   expect(id, `Project "${PROJECT_NAME}" not found`).toBeTruthy();
   return id;
 }

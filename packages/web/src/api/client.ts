@@ -7,6 +7,10 @@ export const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  // Send the httpOnly refresh cookie on same-origin requests so the refresh
+  // endpoint receives it (#897). The cookie is Path-scoped to the refresh
+  // endpoint, so it is only actually attached to refresh requests.
+  withCredentials: true,
 });
 
 /**
@@ -41,21 +45,20 @@ apiClient.interceptors.request.use((config) => {
 let refreshPromise: Promise<string> | null = null;
 
 async function refreshAccessToken(): Promise<string> {
-  const { refreshToken, setTokens } = useAuthStore.getState();
+  const { setAccessToken } = useAuthStore.getState();
 
-  if (!refreshToken) {
-    expireSession();
-    throw new Error('No refresh token available');
-  }
-
+  // The refresh token lives in an httpOnly cookie (#897), not in the store or
+  // the request body. `withCredentials` sends that cookie; the server reads it,
+  // rotates it (sets a fresh cookie), and returns only a new access token. We
+  // never see or send the refresh token from JavaScript.
   const response = await axios.post<{ access: string }>(
     '/api/v1/auth/token/refresh/',
-    { refresh: refreshToken },
+    {},
+    { withCredentials: true },
   );
 
   const newAccessToken = response.data.access;
-  // refreshToken is unchanged — we only receive a new access token
-  setTokens(newAccessToken, refreshToken);
+  setAccessToken(newAccessToken);
   return newAccessToken;
 }
 

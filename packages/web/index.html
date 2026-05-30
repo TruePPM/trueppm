@@ -13,17 +13,10 @@
     />
     <title>TruePPM</title>
     <!-- Blocking theme init — apply .dark before first paint to prevent flash.
-         Mirrors the logic in useThemeInit.ts. Key: trueppm.theme -->
-    <script>
-      (function () {
-        try {
-          var t = localStorage.getItem('trueppm.theme');
-          if (t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-            document.documentElement.classList.add('dark');
-          }
-        } catch (_) {}
-      })();
-    </script>
+         External file (not inline) so a strict script-src 'self' CSP permits it
+         without an inline hash or 'unsafe-inline' (#897). Served from /public,
+         so it loads same-origin. -->
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

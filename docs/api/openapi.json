@@ -219,6 +219,21 @@
                 }
             }
         },
+        "/api/v1/auth/logout/": {
+            "post": {
+                "operationId": "v1_auth_logout_create",
+                "description": "Log out: clear the refresh cookie and best-effort blacklist the token.\n\nAlways returns 205 (reset content) — logout is idempotent. If the\n``token_blacklist`` app is installed, the presented refresh token is\nblacklisted so it cannot be reused after the cookie is cleared; otherwise the\nrefresh token remains valid only until its (short) TTL expires.",
+                "summary": "Log out — clear the refresh cookie and revoke the token",
+                "tags": [
+                    "v1"
+                ],
+                "responses": {
+                    "205": {
+                        "description": "Logged out; refresh cookie cleared."
+                    }
+                }
+            }
+        },
         "/api/v1/auth/me/": {
             "get": {
                 "operationId": "v1_auth_me_retrieve",
@@ -251,7 +266,7 @@
         "/api/v1/auth/token/": {
             "post": {
                 "operationId": "v1_auth_token_create",
-                "description": "JWT login endpoint with per-client brute-force throttling (#770).\n\nsimplejwt's stock ``TokenObtainPairView`` ships no throttle, leaving\n``POST /api/v1/auth/token/`` open to unbounded password guessing. A\n*scoped* throttle (the ``login`` rate in\n``REST_FRAMEWORK['DEFAULT_THROTTLE_RATES']``) caps attempts per client IP\nfor anonymous callers. Scoped rather than a global ``AnonRateThrottle`` so\nthe unauthenticated ``/health/`` and ``/edition/`` probe endpoints — hit by\nKubernetes on a tight loop — are left unthrottled.",
+                "description": "JWT login: return the access token in the body, refresh in an httpOnly cookie.\n\nThrottled with the scoped ``login`` rate (#770) to bound password guessing.\nThe refresh token is *removed* from the JSON response body and set as a\nhardened cookie instead, so a successful login response no longer carries the\nlong-lived credential anywhere JavaScript can read it (#897).",
                 "tags": [
                     "v1"
                 ],
@@ -292,40 +307,24 @@
         "/api/v1/auth/token/refresh/": {
             "post": {
                 "operationId": "v1_auth_token_refresh_create",
-                "description": "JWT refresh endpoint with per-client throttling (#814).\n\nMirrors ``ThrottledTokenObtainPairView`` (#770) at the refresh endpoint.\nWithout this, a stolen or partially-scraped refresh token can be exchanged\nfor access tokens at unbounded rate. The ``refresh`` scope in\n``DEFAULT_THROTTLE_RATES`` caps attempts per client IP. The cap is looser\nthan the login rate (refresh is the legitimate path that web/mobile clients\nhit on access-token expiry every 5 minutes), but bounded.",
+                "description": "JWT refresh that reads the refresh token from the httpOnly cookie.\n\nThe refresh token is never accepted from the request body — it is read only\nfrom the cookie set at login — so the SPA does not need JavaScript access to\nit. The token is rotated (a new refresh token is minted and re-cookied) when\n``ROTATE_REFRESH_TOKENS`` is enabled, and the previous token is blacklisted\nwhen the blacklist app is installed (``BLACKLIST_AFTER_ROTATION``). The new\naccess token is returned in the body.",
+                "summary": "Refresh the access token using the httpOnly refresh cookie",
                 "tags": [
                     "v1"
                 ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TokenRefreshRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TokenRefreshRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TokenRefreshRequest"
-                            }
-                        }
-                    },
-                    "required": true
-                },
                 "responses": {
                     "200": {
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/TokenRefresh"
+                                    "$ref": "#/components/schemas/_CookieRefreshResponse"
                                 }
                             }
                         },
                         "description": ""
+                    },
+                    "401": {
+                        "description": "Missing or invalid refresh cookie."
                     }
                 }
             }
@@ -19378,7 +19377,7 @@
             },
             "PatchedResourceRequest": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on org-admin (#891, mirrors #815's UserSearchView\nfix): the resource catalog is readable by any authenticated user, so echoing\n``email`` on every row let a single low-privilege account paginate the\ncatalog to harvest the whole org's email list. ``to_representation`` strips\n``email`` for callers below ADMIN on every project, while still letting the\ncaller see their own email (is_me) so self-view is unaffected. Org admins —\nwho legitimately manage the catalog — continue to receive it.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -19820,7 +19819,7 @@
             },
             "PatchedWebhookRequest": {
                 "type": "object",
-                "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET responses.\nThe ``events`` field is validated against the known event type choices.",
+                "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET/list\nresponses. It is echoed back exactly once, in the create response, so the\ncaller can record it; subsequent reads never expose it (#893). When omitted\non create, a cryptographically-strong secret is auto-generated. When\nsupplied it must be at least :data:`MIN_WEBHOOK_SECRET_LENGTH` non-whitespace\ncharacters.\n\nThe ``events`` field is validated against the known event type choices.",
                 "properties": {
                     "url": {
                         "type": "string",
@@ -19831,7 +19830,6 @@
                     "secret": {
                         "type": "string",
                         "writeOnly": true,
-                        "minLength": 1,
                         "maxLength": 255
                     },
                     "events": {
@@ -21065,7 +21063,7 @@
             },
             "Resource": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on org-admin (#891, mirrors #815's UserSearchView\nfix): the resource catalog is readable by any authenticated user, so echoing\n``email`` on every row let a single low-privilege account paginate the\ncatalog to harvest the whole org's email list. ``to_representation`` strips\n``email`` for callers below ADMIN on every project, while still letting the\ncaller see their own email (is_me) so self-view is unaffected. Org admins —\nwho legitimately manage the catalog — continue to receive it.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -21121,7 +21119,7 @@
             },
             "ResourceRequest": {
                 "type": "object",
-                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.",
+                "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on org-admin (#891, mirrors #815's UserSearchView\nfix): the resource catalog is readable by any authenticated user, so echoing\n``email`` on every row let a single low-privilege account paginate the\ncatalog to harvest the whole org's email list. ``to_representation`` strips\n``email`` for callers below ADMIN on every project, while still letting the\ncaller see their own email (is_me) so self-view is unaffected. Org admins —\nwho legitimately manage the catalog — continue to receive it.",
                 "properties": {
                     "name": {
                         "type": "string",
@@ -23329,31 +23327,6 @@
                     "username"
                 ]
             },
-            "TokenRefresh": {
-                "type": "object",
-                "properties": {
-                    "access": {
-                        "type": "string",
-                        "readOnly": true
-                    }
-                },
-                "required": [
-                    "access"
-                ]
-            },
-            "TokenRefreshRequest": {
-                "type": "object",
-                "properties": {
-                    "refresh": {
-                        "type": "string",
-                        "writeOnly": true,
-                        "minLength": 1
-                    }
-                },
-                "required": [
-                    "refresh"
-                ]
-            },
             "TransferOwnershipRequest": {
                 "type": "object",
                 "description": "POST body for transfer-ownership.\n\n``new_owner_user_id`` is the stock ``auth.User`` integer PK (TruePPM has no\ncustom user model), not a UUID.",
@@ -23496,7 +23469,7 @@
             },
             "Webhook": {
                 "type": "object",
-                "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET responses.\nThe ``events`` field is validated against the known event type choices.",
+                "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET/list\nresponses. It is echoed back exactly once, in the create response, so the\ncaller can record it; subsequent reads never expose it (#893). When omitted\non create, a cryptographically-strong secret is auto-generated. When\nsupplied it must be at least :data:`MIN_WEBHOOK_SECRET_LENGTH` non-whitespace\ncharacters.\n\nThe ``events`` field is validated against the known event type choices.",
                 "properties": {
                     "id": {
                         "type": "string",
@@ -23558,7 +23531,7 @@
             },
             "WebhookRequest": {
                 "type": "object",
-                "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET responses.\nThe ``events`` field is validated against the known event type choices.",
+                "description": "Serializer for Webhook CRUD.\n\nThe ``secret`` field is write-only — it is never returned in GET/list\nresponses. It is echoed back exactly once, in the create response, so the\ncaller can record it; subsequent reads never expose it (#893). When omitted\non create, a cryptographically-strong secret is auto-generated. When\nsupplied it must be at least :data:`MIN_WEBHOOK_SECRET_LENGTH` non-whitespace\ncharacters.\n\nThe ``events`` field is validated against the known event type choices.",
                 "properties": {
                     "url": {
                         "type": "string",
@@ -23569,7 +23542,6 @@
                     "secret": {
                         "type": "string",
                         "writeOnly": true,
-                        "minLength": 1,
                         "maxLength": 255
                     },
                     "events": {
@@ -23589,7 +23561,6 @@
                 },
                 "required": [
                     "events",
-                    "secret",
                     "url"
                 ]
             },
@@ -23949,6 +23920,18 @@
                 "required": [
                     "fiscal_year_start_display",
                     "subdomain"
+                ]
+            },
+            "_CookieRefreshResponse": {
+                "type": "object",
+                "description": "Response shape for the cookie-based refresh endpoint (access token only).",
+                "properties": {
+                    "access": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "access"
                 ]
             },
             "_MentionAuthorMini": {

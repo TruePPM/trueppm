@@ -55,7 +55,6 @@ describe('useWorkshopSocket', () => {
     act(() => {
       useAuthStore.setState({
         accessToken: 'tok-abc',
-        refreshToken: 'r-abc',
         isAuthenticated: true,
       });
     });
@@ -67,7 +66,6 @@ describe('useWorkshopSocket', () => {
     act(() => {
       useAuthStore.setState({
         accessToken: null,
-        refreshToken: null,
         isAuthenticated: false,
       });
     });
@@ -86,7 +84,7 @@ describe('useWorkshopSocket', () => {
 
   it('does not open a socket when accessToken is missing', () => {
     act(() => {
-      useAuthStore.setState({ accessToken: null, refreshToken: null, isAuthenticated: false });
+      useAuthStore.setState({ accessToken: null, isAuthenticated: false });
     });
     renderHook(() => useWorkshopSocket('proj-1', true, vi.fn()));
     expect(MockWebSocket.instances).toHaveLength(0);

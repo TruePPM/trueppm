@@ -30,7 +30,6 @@ describe('SessionExpiredBanner', () => {
     // Reset the persisted auth store between tests.
     useAuthStore.setState({
       accessToken: null,
-      refreshToken: null,
       isAuthenticated: false,
       sessionExpired: false,
     });
