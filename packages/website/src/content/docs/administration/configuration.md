@@ -42,6 +42,11 @@ Never use the default `SECRET_KEY` or `ALLOWED_HOSTS=*` in production. The defau
 | `TRUEPPM_DEFAULT_FILE_STORAGE` | `django.core.files.storage.FileSystemStorage` | Backend for task-attachment storage. The local default is **ephemeral in a container** — uploads are lost on every pod restart. Point this at a persistent object-storage backend for production, e.g. `storages.backends.s3.S3Storage`. |
 | `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` | `false` | Operator opt-in to run production on the local `FileSystemStorage` default (e.g. when local disk is backed by a persistent volume). `prod` refuses to boot on local storage unless this is `true` or `TRUEPPM_DEFAULT_FILE_STORAGE` is set to a remote backend. |
 | `CSRF_TRUSTED_ORIGINS` | _(empty)_ | Comma-separated origins (scheme included) trusted for cross-origin POST/CSRF. Required only for split-origin deploys where the web app and API are served from different hostnames, e.g. `https://app.example.com,https://api.example.com`. |
+| `AUTH_REFRESH_COOKIE_SECURE` | `true` | Sets the `Secure` flag on the refresh-token cookie. The browser drops a `Secure` cookie over plain HTTP, so set `false` only on a non-HTTPS dev/preview host. The dev settings already default this to `false` for localhost. |
+| `AUTH_REFRESH_COOKIE_SAMESITE` | `Strict` | `SameSite` policy for the refresh cookie. `Strict` blocks the cookie on any cross-site request. **Split-origin deploys must relax this** to `Lax` or `None` so the refresh request carries the cookie; `None` additionally requires `Secure` (HTTPS). See [split-origin notes](#split-origin-deploys). |
+| `AUTH_REFRESH_COOKIE_NAME` | `trueppm_refresh` | Name of the refresh-token cookie. Override only to avoid a collision with another app on the same domain. |
+| `AUTH_REFRESH_COOKIE_PATH` | `/api/v1/auth/token/refresh/` | Path the refresh cookie is scoped to. Override only if you reverse-proxy the API under a non-default base path. |
+| `CSP_CONNECT_SRC` | `'self' wss:` | Space-separated `connect-src` sources for the Content-Security-Policy header — the origins the browser may open XHR / fetch / WebSocket connections to. **Split-origin deploys must add the API origin** (and its `wss://` origin) here, e.g. `'self' https://api.example.com wss://api.example.com`. See [split-origin notes](#split-origin-deploys). |
 | `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | Days of webhook delivery records to keep before the nightly purge. See [Retention](/administration/retention/). |
 | `TRUEPPM_EXPORT_RETENTION_DAYS` | `7` | Days of generated export artifacts to keep before purge. See [Retention](/administration/retention/). |
 | `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | Hours of processed offline-sync upload batches to keep before purge. See [Retention](/administration/retention/). |
@@ -82,6 +87,24 @@ Imported files are stored base64-encoded in an `ImportRequest` row only until
 the import is processed, then purged on the schedule set by
 `TRUEPPM_IMPORT_RETENTION_DAYS` (default 7 days). See
 [Outbox & Record Retention](/administration/retention/) to tune that window.
+
+## Split-origin deploys
+
+A standard deploy serves the web app from the **same origin** as the API
+(e.g. nginx routes `/` to the SPA and `/api` to Django on one hostname). The
+secure defaults assume this and need no extra configuration.
+
+A **split-origin** deploy serves the SPA from a different origin than the API —
+for example `https://app.example.com` (SPA) and `https://api.example.com` (API).
+Two security defaults are origin-aware and must be relaxed for the browser to
+talk to the API:
+
+| Setting | Why it must change | Set to |
+|---------|--------------------|--------|
+| `AUTH_REFRESH_COOKIE_SAMESITE` | The refresh cookie is `SameSite=Strict`, so the browser will not send it on the cross-origin refresh request, and sessions silently fail to renew. | `Lax` (or `None` if the SPA and API are on unrelated sites — `None` requires HTTPS, which the `Secure` flag already enforces). |
+| `CSP_CONNECT_SRC` | The Content-Security-Policy `connect-src` defaults to `'self' wss:`. With the SPA on a different origin, the browser blocks XHR / WebSocket connections to the API origin. | `'self' https://api.example.com wss://api.example.com` — add the API origin and its `wss://` origin. |
+
+Also set `CSRF_TRUSTED_ORIGINS` (above) for any split-origin deploy.
 
 ## First user setup
 

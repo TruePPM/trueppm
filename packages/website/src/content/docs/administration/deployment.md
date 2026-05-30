@@ -36,19 +36,76 @@ docker compose exec api python manage.py createsuperuser
 
 ## Kubernetes with Helm
 
-The Helm chart in `packages/helm/` deploys TruePPM on Kubernetes with Bitnami sub-charts for PostgreSQL and Valkey (the BSD-licensed Linux Foundation fork of Redis; wire-compatible). Existing managed Redis services (AWS ElastiCache, GCP Memorystore, Azure Cache, etc.) work as drop-in alternatives — just point `REDIS_URL` at them.
+The Helm chart in `packages/helm/` deploys TruePPM on Kubernetes with bundled
+sub-charts for PostgreSQL and Valkey (the BSD-licensed Linux Foundation fork of
+Redis; wire-compatible). The bundled datastores are intended for dev / demo / CI;
+for production, disable them and point at managed services (see below).
 
 ```bash
 helm lint packages/helm
 helm install trueppm packages/helm -f packages/helm/values-dev.yaml
 ```
 
-Separate `values-dev.yaml` and `values-prod.yaml` overlays are provided.
+Separate `values-dev.yaml` and `values-prod.yaml` overlays are provided. The
+chart [README](https://gitlab.com/trueppm/trueppm/-/blob/main/packages/helm/README.md)
+is the full value reference.
 
 **Good for:** production deployment, horizontal scaling, enterprise environments.
 
+### Secure by default
+
+A default install needs no extra security flags. The chart:
+
+- **Generates** the PostgreSQL and Valkey passwords on first install and stores
+  them in a chart-owned **connection Secret** (`<release>-trueppm-connection`,
+  annotated `helm.sh/resource-policy: keep`). Re-renders read the existing
+  password back rather than churning it, and the Secret survives `helm uninstall`
+  so a reinstall does not orphan the database PVC.
+- **Injects** `DATABASE_URL` / `REDIS_URL` via `secretKeyRef` — they are never
+  rendered into a Deployment manifest in plaintext.
+- Enables **cache authentication** by default (`valkey.auth.enabled: true`).
+- Runs API and worker pods with a **restricted security context**
+  (`readOnlyRootFilesystem`, dropped capabilities, `RuntimeDefault` seccomp,
+  `runAsNonRoot`) and `automountServiceAccountToken: false`, with default
+  resource requests/limits.
+- Offers an **opt-in NetworkPolicy** (`networkPolicy.enabled: true`) that limits
+  datastore ingress to the API and worker pods (requires a NetworkPolicy-enforcing
+  CNI).
+
+Retrieve the generated database password:
+
+```bash
+kubectl get secret <release>-trueppm-connection \
+  -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d
+```
+
+See [Security](/administration/security/#helm-secure-by-default) for the full
+operator reference.
+
+### Managed (external) datastores
+
+For production, disable the bundled subcharts and point at managed services.
+When `postgresql.enabled` / `valkey.enabled` are `false`, `env.DATABASE_URL` and
+`env.REDIS_URL` become **required** — the chart fails the render with a clear
+message if either is missing. Managed Redis services (AWS ElastiCache, GCP
+Memorystore, Azure Cache, etc.) work via the `redis://` scheme.
+
+```bash
+helm install trueppm packages/helm \
+  -f packages/helm/values-prod.yaml \
+  --set env.DATABASE_URL="postgres://user:pass@your-db:5432/trueppm" \
+  --set env.REDIS_URL="redis://:pass@your-cache:6379"
+```
+
+Prefer injecting `DATABASE_URL` / `REDIS_URL` via an external Secret rather than
+`--set` so they don't land in shell history. `SECRET_KEY` and `ALLOWED_HOSTS`
+must always be supplied via a Kubernetes Secret referenced through `env`.
+
 :::note
-The Helm chart shipped in 0.1 with dev and prod values overlays; further updates land in 0.2 (target Jun 8, 2026). It is functional and used internally; large-scale production hardening (HA Postgres, dedicated Valkey, autoscaling policies) is on the pre-1.0 roadmap.
+The Helm chart is functional with dev and prod values overlays and was hardened
+for secure-by-default installs; further updates ship in 0.2 (target Jun 8, 2026).
+Large-scale production hardening (HA Postgres, dedicated Valkey, autoscaling
+policies) is on the pre-1.0 roadmap.
 :::
 
 ## Services

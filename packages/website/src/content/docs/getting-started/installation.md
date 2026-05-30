@@ -120,16 +120,26 @@ env:
   SECRET_KEY: "<50+ character random string>"
   ALLOWED_HOSTS: "trueppm.example.com"
 
-# If using external PostgreSQL and Valkey (recommended for production):
+# Recommended for production: disable the bundled datastores and point at managed
+# services. When they are disabled, env.DATABASE_URL and env.REDIS_URL are
+# REQUIRED — the chart fails the render with a clear message if either is missing.
 postgresql:
   enabled: false
 valkey:
   enabled: false
-externalDatabase:
-  url: "postgres://trueppm:<password>@<host>:5432/trueppm"
-externalValkey:
-  url: "redis://:<password>@<host>:6379"
+# env:
+#   DATABASE_URL: "postgres://trueppm:<password>@<host>:5432/trueppm"
+#   REDIS_URL: "redis://:<password>@<host>:6379"
 ```
+
+:::tip[Secure by default]
+With the bundled datastores **enabled** (dev / demo), leave
+`postgresql.auth.password` and `valkey.auth.password` empty — the chart generates
+strong random passwords on first install and stores them in a chart-owned
+connection Secret. You never set a database password by hand, and `DATABASE_URL`
+/ `REDIS_URL` are injected via `secretKeyRef` (never rendered in plaintext). See
+[Deployment](/administration/deployment/#secure-by-default).
+:::
 
 ### Install
 
@@ -141,6 +151,10 @@ helm install trueppm oci://ghcr.io/trueppm/charts/trueppm \
   -f my-values.yaml
 ```
 
+For real secrets, prefer injecting `SECRET_KEY` / `DATABASE_URL` / `REDIS_URL`
+via an external Kubernetes Secret over putting them in `my-values.yaml` or
+`--set`.
+
 ### Post-install
 
 Migrations run automatically in an init container. Retrieve the generated admin password from the pod:
@@ -148,6 +162,14 @@ Migrations run automatically in an init container. Retrieve the generated admin 
 ```bash
 kubectl exec -n trueppm deployment/trueppm-api -- \
   cat /run/trueppm/admin_password
+```
+
+When using the bundled PostgreSQL, retrieve the generated database password from
+the chart-owned connection Secret:
+
+```bash
+kubectl get secret trueppm-trueppm-connection -n trueppm \
+  -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d
 ```
 
 ### Verify
