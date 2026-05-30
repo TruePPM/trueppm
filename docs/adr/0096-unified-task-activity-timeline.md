@@ -1,7 +1,13 @@
-# ADR-0094: Unified Task Activity Timeline — and the History Endpoint Correctness Defects Behind It
+# ADR-0096: Unified Task Activity Timeline — and the History Endpoint Correctness Defects Behind It
 
 ## Status
 Proposed
+
+## Related issues
+
+- **#869** — original "Unified Activity Timeline" proposal that motivated this ADR (now Part 2, retargeted to 0.3).
+- **#874** — the Part 1 carve-out: `fix(api): task-history endpoint serves dead view + bare "Updated" pills (routing shadow + narrow diff field set)`. Filed 2026-05-30 from this ADR. Ships in 0.2.
+- **#307** — task comments + `useTaskComments` hook (already shipped; the original #869 framing that "#307 not yet shipped" is stale and is corrected in §Context Finding C).
 
 ## Context
 
@@ -81,7 +87,7 @@ P3M layer: **Programs and Projects** (single-task audit trail). OSS. Boundary gr
 
 **Split #869 into a correctness fix and a feature, and correct the feature's premises.**
 
-### Part 1 — Ship the bare-pill correctness fix in 0.2 (new small issue, not #869)
+### Part 1 — Ship the bare-pill correctness fix in 0.2 (#874, carved out from #869)
 
 The actual user-trust bug is a backend display defect, independent of any UI redesign.
 Fix it directly:
