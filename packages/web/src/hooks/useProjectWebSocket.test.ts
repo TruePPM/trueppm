@@ -521,4 +521,18 @@ describe('useProjectWebSocket — wave-2 missing handlers (#835)', () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['customFields', 'proj-1'] });
   });
+
+  // #837 — reaction/ack broadcasts refetch the task-comments cache (inline render).
+  it.each([
+    'task_comment_reaction_added',
+    'task_comment_reaction_removed',
+    'task_comment_ack_changed',
+  ])('invalidates the task-comments query on %s', (eventType) => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch(eventType, { task_id: 'task-7', comment_id: 'c-1' });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['task-comments', 'task-7'] });
+  });
 });

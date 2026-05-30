@@ -16,7 +16,7 @@
  *   baseline_created / baseline_activated / baseline_deleted → invalidate baselines + tasks
  *   risk_created / risk_updated / risk_deleted → invalidate risks
  *   comment_created → invalidate riskComments (risk comments only — task comments use task_comment_*)
- *   task_comment_created / task_comment_updated / task_comment_deleted → invalidate task-comments[taskId]
+ *   task_comment_created / task_comment_updated / task_comment_deleted / task_comment_reaction_added / task_comment_reaction_removed / task_comment_ack_changed → invalidate task-comments[taskId]
  *   task_attachment_created / task_attachment_deleted → invalidate task-attachments[taskId]
  *   sprint_created / sprint_updated / sprint_deleted / sprint_activated / sprint_cancelled / sprint_closed → invalidate sprints
  *   assignment_created / assignment_updated / assignment_deleted / roster_changed → invalidate tasks
@@ -298,10 +298,16 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       // --- Task collaboration events (ADR-0075) ---
       // Disambiguated from risk comments with the `task_` prefix so peers see
       // task-thread updates without falsely invalidating the riskComments cache.
+      // Reactions (#837) and acknowledgements render inline on the comment, so
+      // they refetch the same task-comments cache. The ack ping is body-less
+      // (no acker identity) — the gated ack list is refetched via REST.
       else if (
         event_type === 'task_comment_created' ||
         event_type === 'task_comment_updated' ||
-        event_type === 'task_comment_deleted'
+        event_type === 'task_comment_deleted' ||
+        event_type === 'task_comment_reaction_added' ||
+        event_type === 'task_comment_reaction_removed' ||
+        event_type === 'task_comment_ack_changed'
       ) {
         const taskId = payload?.task_id;
         if (typeof taskId === 'string') {
