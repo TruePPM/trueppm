@@ -19,6 +19,8 @@ import {
   useBulkDeleteTasks,
   useReorderTasks,
   usePromoteTask,
+  parseGuardrailWarnings,
+  parseGuardrailBlockedError,
 } from './useTaskMutations';
 import type { Task } from '@/types';
 
@@ -550,5 +552,61 @@ describe('usePromoteTask', () => {
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj1'] }),
     );
+  });
+});
+
+// --- Sprint/Phase/WBS guardrail parsers (ADR-0101) ----------------------------
+
+describe('parseGuardrailWarnings', () => {
+  it('returns the warnings array from a successful response', () => {
+    const data = {
+      id: 't1',
+      warnings: [{ rule: 'phase_in_sprint', detail: 'Phases group work; assign the tasks inside it.' }],
+    };
+    const out = parseGuardrailWarnings(data);
+    expect(out).toHaveLength(1);
+    expect(out[0].rule).toBe('phase_in_sprint');
+  });
+
+  it('returns [] when there are no warnings', () => {
+    expect(parseGuardrailWarnings({ id: 't1' })).toEqual([]);
+  });
+
+  it('filters out malformed entries', () => {
+    const data = { warnings: [{ rule: 'summary_in_sprint', detail: 'x' }, { rule: 123 }, null, 'nope'] };
+    expect(parseGuardrailWarnings(data)).toHaveLength(1);
+  });
+
+  it('returns [] for non-object input', () => {
+    expect(parseGuardrailWarnings(null)).toEqual([]);
+    expect(parseGuardrailWarnings('x')).toEqual([]);
+  });
+});
+
+describe('parseGuardrailBlockedError', () => {
+  it('narrows a guardrail_blocked error payload', () => {
+    const err = {
+      response: {
+        data: {
+          code: 'guardrail_blocked',
+          rule: 'phase_in_sprint',
+          detail: 'Summary tasks distort velocity.',
+          suggested_action: 'assign_child_tasks',
+        },
+      },
+    };
+    const out = parseGuardrailBlockedError(err);
+    expect(out).not.toBeNull();
+    expect(out?.rule).toBe('phase_in_sprint');
+  });
+
+  it('returns null for a different error code', () => {
+    const err = { response: { data: { code: 'milestone_rollup_locked' } } };
+    expect(parseGuardrailBlockedError(err)).toBeNull();
+  });
+
+  it('returns null for non-object input', () => {
+    expect(parseGuardrailBlockedError(null)).toBeNull();
+    expect(parseGuardrailBlockedError(undefined)).toBeNull();
   });
 });
