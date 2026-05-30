@@ -16,18 +16,36 @@ const PROJECT_ID = 'e2e-links-00000000-0000-0000-0000-000000000637';
 const TASK_ID = 'tl1';
 
 const FIXTURE_PROJECTS = [
-  { id: PROJECT_ID, name: 'Links Project', description: '', start_date: '2026-04-01', calendar: 'default' },
+  {
+    id: PROJECT_ID,
+    name: 'Links Project',
+    description: '',
+    start_date: '2026-04-01',
+    calendar: 'default',
+  },
 ];
 
 const FIXTURE_TASKS = [
   {
-    id: TASK_ID, wbs_path: '1', name: 'Foundation',
-    early_start: '2026-04-05', early_finish: '2026-04-09', planned_start: '2026-04-05',
-    duration: 5, percent_complete: 0, is_critical: false,
-    is_milestone: false, is_summary: false, parent_id: null,
-    status: 'NOT_STARTED', assignees: [], total_float: null,
-    predecessor_count: 0, is_blocked: false,
-    linked_risks_count: 0, linked_risks_max_severity: null,
+    id: TASK_ID,
+    wbs_path: '1',
+    name: 'Foundation',
+    early_start: '2026-04-05',
+    early_finish: '2026-04-09',
+    planned_start: '2026-04-05',
+    duration: 5,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: false,
+    parent_id: null,
+    status: 'NOT_STARTED',
+    assignees: [],
+    total_float: null,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
   },
 ];
 
@@ -70,8 +88,17 @@ async function stubLinks(
     const id = new URL(route.request().url()).pathname.match(/links\/([^/]+)\/refresh/)?.[1];
     const idx = links.findIndex((l) => l.id === id);
     if (idx >= 0) {
-      links[idx] = { ...links[idx], status: 'merged', title: 'Land it', fetched_at: new Date().toISOString() };
-      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(links[idx]) });
+      links[idx] = {
+        ...links[idx],
+        status: 'merged',
+        title: 'Land it',
+        fetched_at: new Date().toISOString(),
+      };
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(links[idx]),
+      });
     }
     return route.fulfill({ status: 404, body: '' });
   });
@@ -91,7 +118,11 @@ async function stubLinks(
       const row: LinkRow = {
         id: `link-${links.length + 1}`,
         url: body.url,
-        provider: body.url.includes('github.com') ? 'github' : body.url.includes('gitlab.com') ? 'gitlab' : 'generic',
+        provider: body.url.includes('github.com')
+          ? 'github'
+          : body.url.includes('gitlab.com')
+            ? 'gitlab'
+            : 'generic',
         title: '',
         status: 'unknown',
         fetched_at: null,
@@ -99,9 +130,17 @@ async function stubLinks(
         server_version: 1,
       };
       links.push(row);
-      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(row) });
+      return route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify(row),
+      });
     }
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(links) });
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(links),
+    });
   });
 }
 
@@ -129,7 +168,11 @@ test.describe('Task external links (#637)', () => {
   test.beforeEach(async ({ page }) => {
     await setupAuth(page);
     await setupCatchAll(page);
-    await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: PROJECT_ID, tasks: FIXTURE_TASKS });
+    await setupApiMocks(page, {
+      projects: FIXTURE_PROJECTS,
+      projectId: PROJECT_ID,
+      tasks: FIXTURE_TASKS,
+    });
   });
 
   test('golden path: detect, add, then refresh to a live status', async ({ page }) => {
@@ -159,8 +202,14 @@ test.describe('Task external links (#637)', () => {
     await stubLinks(page, {
       initial: [
         {
-          id: 'link-1', url: 'https://github.com/acme/api/pull/9', provider: 'github',
-          title: '', status: 'unknown', fetched_at: null, display_order: 0, server_version: 1,
+          id: 'link-1',
+          url: 'https://github.com/acme/api/pull/9',
+          provider: 'github',
+          title: '',
+          status: 'unknown',
+          fetched_at: null,
+          display_order: 0,
+          server_version: 1,
         },
       ],
       refreshStatus: 422,
@@ -174,5 +223,32 @@ test.describe('Task external links (#637)', () => {
     const connect = section.getByRole('link', { name: /Connect github to see status/i });
     await expect(connect).toBeVisible();
     await expect(connect).toHaveAttribute('href', '/me/settings/connected-accounts#github');
+  });
+
+  test('security: a stored javascript: URL does not render a clickable anchor (#898)', async ({
+    page,
+  }) => {
+    await stubLinks(page, {
+      initial: [
+        {
+          id: 'link-evil',
+          url: 'javascript:alert(document.cookie)',
+          provider: 'generic',
+          title: 'Click me',
+          status: 'unknown',
+          fetched_at: null,
+          display_order: 0,
+          server_version: 1,
+        },
+      ],
+    });
+    const section = await openDrawerLinksSection(page);
+
+    const row = section.getByRole('listitem', { name: /Link:/ });
+    await expect(row).toBeVisible();
+    // The title is still shown as inert text…
+    await expect(row.getByText('Click me')).toBeVisible();
+    // …but it is NOT a link, so the javascript: URI can never bind to an href.
+    await expect(row.getByRole('link', { name: /Click me/ })).toHaveCount(0);
   });
 });

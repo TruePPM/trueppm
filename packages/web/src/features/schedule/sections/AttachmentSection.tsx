@@ -16,6 +16,7 @@ import {
   useTaskAttachments,
 } from '@/hooks/useTaskAttachments';
 import { formatRelative } from '@/lib/formatRelative';
+import { safeExternalHref } from '@/lib/safeExternalHref';
 import type { TaskAttachment } from '@/types';
 import { AttachmentDropZone, validateFileForUpload } from './AttachmentDropZone';
 import { LinkInputModal } from './LinkInputModal';
@@ -70,6 +71,20 @@ function externalLinkIcon(externalUrl: string | null): string {
   return '🔗';
 }
 
+/**
+ * Host string for a pinned external URL's meta line. A malformed `external_url`
+ * would otherwise throw in `new URL(...)` and crash the whole row render
+ * (#898), so unparseable values fall back to a neutral label.
+ */
+function externalHost(externalUrl: string | null): string {
+  if (!externalUrl) return 'external link';
+  try {
+    return new URL(externalUrl).host;
+  } catch {
+    return 'external link';
+  }
+}
+
 interface AttachmentRowProps {
   attachment: TaskAttachment;
   projectId: string;
@@ -86,14 +101,19 @@ function AttachmentRow({ attachment, projectId, taskId }: AttachmentRowProps) {
     ? attachment.external_title || attachment.external_url
     : attachment.file_name;
   const meta = isExternal
-    ? new URL(attachment.external_url).host
+    ? externalHost(attachment.external_url)
     : formatBytes(attachment.file_size);
   const uploader = attachment.uploaded_by?.display_name ?? 'Unknown';
   const ts = formatRelative(new Date(attachment.created_at));
 
   function handleDownload() {
     if (isExternal) {
-      window.open(attachment.external_url, '_blank', 'noopener,noreferrer');
+      // Only open a safe http(s) URL — a stored javascript:/data: URL must
+      // never reach window.open (#898). Malformed/unsafe URLs are inert.
+      const safeUrl = safeExternalHref(attachment.external_url ?? '');
+      if (safeUrl) {
+        window.open(safeUrl, '_blank', 'noopener,noreferrer');
+      }
       return;
     }
     // Fire-and-forget — onSuccess opens the signed URL; onError surfaces via
