@@ -30,9 +30,9 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
                      on the requested project. Viewers (role == Role.VIEWER) are rejected.
 
     Presence:        On connect, the user is added to a Redis hash keyed by
-                     `project:{pk}:presence`.  A `presence.join` event is
+                     `project:{pk}:presence`.  A `presence_join` event is
                      broadcast to the group.  On disconnect, the entry is
-                     removed and a `presence.leave` event is broadcast.
+                     removed and a `presence_leave` event is broadcast.
                      The hash expires after _PRESENCE_TTL seconds; each
                      received message (heartbeat) resets the expiry.
 
@@ -120,7 +120,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
     # ------------------------------------------------------------------
 
     async def _presence_join(self) -> None:
-        """Add this user to the Redis presence hash and broadcast presence.join."""
+        """Add this user to the Redis presence hash and broadcast presence_join."""
         r = await self._get_redis()
         key = _presence_key(self.project_pk)
         entry = json.dumps({"user_id": str(self._user.pk), "display_name": self._display_name})
@@ -131,12 +131,12 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
 
         broadcast_board_event(
             project_id=self.project_pk,
-            event_type="presence.join",
+            event_type="presence_join",
             payload={"user_id": str(self._user.pk), "display_name": self._display_name},
         )
 
     async def _presence_leave(self) -> None:
-        """Remove this user from the Redis presence hash and broadcast presence.leave."""
+        """Remove this user from the Redis presence hash and broadcast presence_leave."""
         r = await self._get_redis()
         key = _presence_key(self.project_pk)
         await r.hdel(key, str(self._user.pk))
@@ -145,7 +145,7 @@ class ProjectConsumer(AsyncJsonWebsocketConsumer):  # type: ignore[misc]
 
         broadcast_board_event(
             project_id=self.project_pk,
-            event_type="presence.leave",
+            event_type="presence_leave",
             payload={"user_id": str(self._user.pk), "display_name": self._display_name},
         )
 

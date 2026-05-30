@@ -74,7 +74,17 @@ include:
 - **Membership / project**: `member_added`, `member_role_changed`,
   `member_removed`, `project_updated`, `project_archived`, `project_unarchived`,
   `project_transferred`, `project_deleted`, `project_hard_deleted`
-- **Presence**: `presence.join`, `presence.leave`
+- **Presence**: `presence_join`, `presence_leave`
+
+> **Event-name convention.** WebSocket `event_type` values are **`snake_case`**
+> across the board — including presence, which previously used a dot-namespaced
+> `presence.join` / `presence.leave` (aligned to snake_case in 0.2, #828).
+>
+> Webhook event names are deliberately **dot-namespaced** (`task.created`,
+> `task.updated`, …) — a different transport with a different audience
+> (external integrations expect dotted topic-style names). So the *same* domain
+> event is `task_created` over the WebSocket and `task.created` in a webhook
+> payload. This is an intentional per-transport distinction, not drift.
 
 Treat broadcast delivery as **best-effort**: events may be missed during a
 reconnect, so a client should refetch the affected resource on reconnect rather

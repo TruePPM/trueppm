@@ -260,7 +260,7 @@ async def test_board_event_forwarded_to_client(user: object, project: Project) -
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_presence_join_broadcast_on_connect(user: object, project: Project) -> None:
-    """When a user connects, a presence.join event is broadcast to the project group."""
+    """When a user connects, a presence_join event is broadcast to the project group."""
     await database_sync_to_async(ProjectMembership.objects.create)(
         project=project, user=user, role=Role.MEMBER
     )
@@ -301,7 +301,7 @@ async def test_presence_join_broadcast_on_connect(user: object, project: Project
     ):
         await consumer.websocket_connect({"type": "websocket.connect"})
 
-    join_events = [c for c in broadcast_calls if c["event_type"] == "presence.join"]
+    join_events = [c for c in broadcast_calls if c["event_type"] == "presence_join"]
     assert len(join_events) == 1
     assert join_events[0]["payload"]["user_id"] == str(user.pk)  # type: ignore[attr-defined]
 
@@ -309,7 +309,7 @@ async def test_presence_join_broadcast_on_connect(user: object, project: Project
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_presence_leave_broadcast_on_disconnect(user: object, project: Project) -> None:
-    """When a user disconnects, a presence.leave event is broadcast to the project group."""
+    """When a user disconnects, a presence_leave event is broadcast to the project group."""
     from trueppm_api.apps.sync.consumers import ProjectConsumer
 
     scope = _make_scope(str(project.pk), token="valid.token")
@@ -340,7 +340,7 @@ async def test_presence_leave_broadcast_on_disconnect(user: object, project: Pro
     ):
         await consumer.disconnect(1000)
 
-    leave_events = [c for c in broadcast_calls if c["event_type"] == "presence.leave"]
+    leave_events = [c for c in broadcast_calls if c["event_type"] == "presence_leave"]
     assert len(leave_events) == 1
     assert leave_events[0]["payload"]["user_id"] == str(user.pk)  # type: ignore[attr-defined]
     # Presence entry must be removed from Redis.

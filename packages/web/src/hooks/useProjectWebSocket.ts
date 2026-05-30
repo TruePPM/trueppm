@@ -186,11 +186,11 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       }
 
       // --- Presence events ---
-      else if (event_type === 'presence.join') {
+      else if (event_type === 'presence_join') {
         const userId = payload.user_id as string;
         const displayName = (payload.display_name as string | undefined) ?? userId;
         addPresenceUser({ user_id: userId, display_name: displayName });
-      } else if (event_type === 'presence.leave') {
+      } else if (event_type === 'presence_leave') {
         removePresenceUser(payload.user_id as string);
       }
 
