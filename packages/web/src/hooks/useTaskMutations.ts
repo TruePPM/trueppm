@@ -516,6 +516,71 @@ export function parseMilestoneRollupLockedError(
   return data as MilestoneRollupLockedError;
 }
 
+// ---------------------------------------------------------------------------
+// Sprint/Phase/WBS guardrails (ADR-0101)
+//
+// Two shapes from the same PATCH /tasks/{id}/:
+//  - WARN: the write SUCCEEDS (200) and carries a `warnings` array. The client
+//    shows a non-blocking notice with a one-tap override (the assignment already
+//    happened) — see GuardrailNotice.
+//  - BLOCK: the write FAILS (400) with code `guardrail_blocked`. Overridable only
+//    by removing the offending state, never silently.
+// ---------------------------------------------------------------------------
+
+/** Stable rule keys shared with the backend evaluator (ADR-0101). */
+export type GuardrailRule =
+  | 'summary_in_sprint'
+  | 'phase_in_sprint'
+  | 'task_outside_sprint_window'
+  | 'recurring_in_sprint'
+  | 'subtasks_split';
+
+/** One warn-level guardrail the server flagged on a successful task write. */
+export interface GuardrailWarning {
+  rule: GuardrailRule;
+  detail: string;
+}
+
+/**
+ * Extract the `warnings` array from a successful task PATCH response.
+ *
+ * Returns `[]` when the response carries no warnings (the common, clean case),
+ * so callers can treat the result uniformly without a null check.
+ */
+export function parseGuardrailWarnings(data: unknown): GuardrailWarning[] {
+  if (typeof data !== 'object' || data === null) return [];
+  const warnings = (data as { warnings?: unknown }).warnings;
+  if (!Array.isArray(warnings)) return [];
+  return warnings.filter(
+    (w): w is GuardrailWarning =>
+      typeof w === 'object' &&
+      w !== null &&
+      typeof (w as { rule?: unknown }).rule === 'string' &&
+      typeof (w as { detail?: unknown }).detail === 'string',
+  );
+}
+
+/** Block-level guardrail error — issued (400) when an Owner has escalated a rule. */
+export interface GuardrailBlockedError {
+  code: 'guardrail_blocked';
+  rule: GuardrailRule;
+  detail: string;
+  suggested_action: string;
+}
+
+/**
+ * Narrow an unknown caught error to a {@link GuardrailBlockedError} payload.
+ * Returns the parsed payload or `null` for any other error shape.
+ */
+export function parseGuardrailBlockedError(err: unknown): GuardrailBlockedError | null {
+  if (typeof err !== 'object' || err === null) return null;
+  const data = (err as { response?: { data?: unknown } }).response?.data;
+  if (typeof data !== 'object' || data === null) return null;
+  const code = (data as { code?: unknown }).code;
+  if (code !== 'guardrail_blocked') return null;
+  return data as GuardrailBlockedError;
+}
+
 export interface AddDependencyPayload {
   /** UUID of the predecessor task. */
   predecessor: string;

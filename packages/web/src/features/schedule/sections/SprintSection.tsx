@@ -1,8 +1,16 @@
-import { type ChangeEvent } from 'react';
+import { type ChangeEvent, useState } from 'react';
 import { useSprints } from '@/hooks/useSprints';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
-import { useUpdateTask } from '@/hooks/useTaskMutations';
+import {
+  useUpdateTask,
+  parseGuardrailWarnings,
+  parseGuardrailBlockedError,
+  type GuardrailWarning,
+  type GuardrailBlockedError,
+} from '@/hooks/useTaskMutations';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
+import { GuardrailNotice } from './GuardrailNotice';
+import { GuardrailBlock } from './GuardrailBlock';
 
 const SELECT_CLASS =
   'w-full h-9 rounded border border-neutral-border bg-neutral-surface px-3 ' +
@@ -26,6 +34,14 @@ export function SprintSection({ taskId, projectId }: DrawerSectionProps) {
   const { sprints, isLoading } = useSprints(projectId);
   const { mutate: updateTask, isPending } = useUpdateTask();
 
+  // Guardrail UI state (ADR-0101). `warnings` is shown after a successful
+  // assignment that tripped a warn-level rule; `priorSprintId` lets Undo revert
+  // to exactly what was there before. `block` is shown when the Owner escalated
+  // a rule and the assignment was rejected (the FK was never changed).
+  const [warnings, setWarnings] = useState<GuardrailWarning[]>([]);
+  const [priorSprintId, setPriorSprintId] = useState<string | null>(null);
+  const [block, setBlock] = useState<GuardrailBlockedError | null>(null);
+
   if (!task) return null;
 
   const assignable = sprints.filter(
@@ -34,13 +50,48 @@ export function SprintSection({ taskId, projectId }: DrawerSectionProps) {
 
   const currentSprint = sprints.find((s) => s.id === task.sprintId);
 
+  function assignSprint(value: string | null, prior: string | null) {
+    setBlock(null);
+    setWarnings([]);
+    updateTask(
+      { id: taskId, projectId, sprint: value },
+      {
+        onSuccess: (data) => {
+          // Warn path: the write succeeded; surface any guardrail warnings with
+          // a one-tap override. Remember the prior value so Undo can revert.
+          const w = parseGuardrailWarnings(data);
+          if (w.length > 0) {
+            setPriorSprintId(prior);
+            setWarnings(w);
+          }
+        },
+        onError: (err) => {
+          // Block path: the Owner escalated this rule. Show the (non-overridable)
+          // block notice; the FK was never changed server-side.
+          const b = parseGuardrailBlockedError(err);
+          if (b) setBlock(b);
+        },
+      },
+    );
+  }
+
   function handleChange(e: ChangeEvent<HTMLSelectElement>) {
-    const value = e.target.value || null;
-    updateTask({ id: taskId, projectId, sprint: value });
+    assignSprint(e.target.value || null, task?.sprintId ?? null);
   }
 
   function handleRemove() {
-    updateTask({ id: taskId, projectId, sprint: null });
+    assignSprint(null, task?.sprintId ?? null);
+  }
+
+  function handleKeep() {
+    // The assignment already stuck; just dismiss the notice. The override is
+    // recorded server-side via the task's history (history_change_reason).
+    setWarnings([]);
+  }
+
+  function handleUndo() {
+    setWarnings([]);
+    updateTask({ id: taskId, projectId, sprint: priorSprintId });
   }
 
   return (
@@ -73,6 +124,14 @@ export function SprintSection({ taskId, projectId }: DrawerSectionProps) {
           </select>
         )}
       </div>
+
+      {block && (
+        <GuardrailBlock detail={block.detail} onDismiss={() => setBlock(null)} />
+      )}
+
+      {warnings.length > 0 && (
+        <GuardrailNotice warnings={warnings} onUndo={handleUndo} onKeep={handleKeep} />
+      )}
 
       {currentSprint && (
         <div className="flex items-center justify-between gap-2">
@@ -116,7 +175,10 @@ export function SprintSection({ taskId, projectId }: DrawerSectionProps) {
                   aria-hidden="true"
                 />
                 <span className="text-xs text-neutral-text-secondary">
-                  <span className="text-neutral-text-primary">{sc.subtaskName}</span>
+                  <span className="text-neutral-text-primary">{sc.itemName}</span>
+                  {sc.goalImpact ? (
+                    <span className="ml-1 text-semantic-at-risk font-medium">· affects goal</span>
+                  ) : ''}
                   {sc.addedByName ? ` · added by ${sc.addedByName}` : ''}
                   {' · '}
                   <time

@@ -118,7 +118,15 @@ export interface Task {
   /** 8-hex-digit project-scoped ID (ADR-0016 / issue #50). Rendered as the task's short reference. */
   shortId?: string;
   /** Sprint scope-change audit rows — populated when subtasks are added to an in-sprint task (ADR-0060). */
-  sprintScopeChanges?: Array<{ subtaskName: string; addedByName: string | null; addedAt: string }>;
+  sprintScopeChanges?: Array<{
+    subtaskName: string;
+    /** ADR-0101: forward-looking name (generalized beyond subtasks). */
+    itemName: string;
+    addedByName: string | null;
+    addedAt: string;
+    /** ADR-0101: does this late addition threaten the Sprint Goal? */
+    goalImpact: boolean;
+  }>;
   /**
    * Sprint→milestone rollup payload (ADR-0074). Populated only on milestone
    * tasks with at least one live targeting sprint; `null` for non-milestones
