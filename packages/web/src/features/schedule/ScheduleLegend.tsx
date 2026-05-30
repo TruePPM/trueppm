@@ -114,6 +114,9 @@ export function ScheduleLegend({ taskListWidth }: ScheduleLegendProps) {
         <p className="mt-2 pt-2 border-t border-neutral-border text-xs text-neutral-text-secondary">
           Hold Space + drag, or middle-drag, to pan
         </p>
+        <p className="mt-1 text-xs text-neutral-text-secondary">
+          Double-click a task to open its details
+        </p>
       </div>
     </div>
   );

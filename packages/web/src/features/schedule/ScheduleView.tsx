@@ -534,6 +534,22 @@ export function ScheduleView() {
     return off;
   }, [engine]);
 
+  // Canvas double-click opens the task detail drawer. The bar cursor is `grab`
+  // (rule 84), so the timeline reads as drag-only; double-click is the
+  // affordance for "show me the details" (single-click stays selection-only,
+  // drawing the ring + dependency chain). The engine emits a typed `task-open`
+  // on dblclick over any bar/milestone/summary; route it into the same
+  // `selectedTaskId` store the drawer renders from, and select the bar so its
+  // ring is visible behind the open drawer.
+  useEffect(() => {
+    if (!engine) return;
+    const off = engine.on('task-open', ({ id }) => {
+      setSelectedTaskId(id);
+      engine.selectTask(id);
+    });
+    return off;
+  }, [engine, setSelectedTaskId]);
+
   // Dependency picker state (#477) — opened from TaskListRow.onAddDependencyRequest.
   const [depPickerState, setDepPickerState] = useState<{
     task: Task;

@@ -26,6 +26,15 @@ describe('ScheduleLegend', () => {
     expect(screen.getByText('Merged trunk')).toBeInTheDocument();
   });
 
+  it('surfaces the interaction hints (pan + open details) in the legend body', () => {
+    // The bar cursor is `grab`, so the timeline reads as drag-only; these two
+    // quiet lines are the discoverability surface for pan and "open details"
+    // (the legend is the established affordance-explanation surface, rule 132).
+    render(<ScheduleLegend taskListWidth={240} />);
+    expect(screen.getByText('Hold Space + drag, or middle-drag, to pan')).toBeInTheDocument();
+    expect(screen.getByText('Double-click a task to open its details')).toBeInTheDocument();
+  });
+
   it('chip is a button with aria-expanded=true when expanded', () => {
     render(<ScheduleLegend taskListWidth={240} />);
     const chip = screen.getByTestId('schedule-legend-chip');
