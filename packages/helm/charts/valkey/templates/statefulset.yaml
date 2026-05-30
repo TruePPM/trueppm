@@ -25,39 +25,64 @@ spec:
         - name: valkey
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command:
-            - valkey-server
-            - --appendonly
-            - "yes"
-            {{- if .Values.auth.enabled }}
-            - --requirepass
-            - $(VALKEY_PASSWORD)
-            {{- end }}
+          # readOnlyRootFilesystem is omitted because valkey writes its append-
+          # only file under /data (a writable PVC mount) but the image also
+          # touches /tmp at the root fs. The rest of the restricted profile is
+          # applied.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
           {{- if .Values.auth.enabled }}
+          # --requirepass reads the password from the env var via a shell so the
+          # secret is never baked into the (world-readable) command line / pod
+          # spec. The exec-form `command:` above cannot expand $(VAR), so we wrap
+          # in `sh -c`.
+          command:
+            - sh
+            - -c
+            - exec valkey-server --appendonly yes --requirepass "$VALKEY_PASSWORD"
           env:
             - name: VALKEY_PASSWORD
               valueFrom:
                 secretKeyRef:
+                  {{- if include "valkey.hasParent" . }}
+                  name: {{ include "valkey.parentConnectionSecret" . }}
+                  {{- else }}
                   name: {{ include "valkey.fullname" . }}
+                  {{- end }}
                   key: valkey-password
+          {{- else }}
+          command:
+            - valkey-server
+            - --appendonly
+            - "yes"
           {{- end }}
           ports:
             - name: valkey
               containerPort: 6379
           readinessProbe:
             exec:
-              command:
-                {{- if .Values.auth.enabled }}
-                ["valkey-cli", "-a", "$(VALKEY_PASSWORD)", "ping"]
-                {{- else }}
-                ["valkey-cli", "ping"]
-                {{- end }}
+              {{- if .Values.auth.enabled }}
+              # -a reads $VALKEY_PASSWORD via the shell; the JSON exec array does
+              # not expand $(VAR), so wrap in sh -c.
+              command: ["sh", "-c", "valkey-cli -a \"$VALKEY_PASSWORD\" ping"]
+              {{- else }}
+              command: ["valkey-cli", "ping"]
+              {{- end }}
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 5
           livenessProbe:
             exec:
+              {{- if .Values.auth.enabled }}
+              command: ["sh", "-c", "valkey-cli -a \"$VALKEY_PASSWORD\" ping"]
+              {{- else }}
               command: ["valkey-cli", "ping"]
+              {{- end }}
             initialDelaySeconds: 15
             periodSeconds: 15
             timeoutSeconds: 5

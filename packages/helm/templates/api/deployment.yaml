@@ -17,30 +17,51 @@ spec:
         {{- include "trueppm.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: api
     spec:
+      # The pods make no in-cluster Kubernetes API calls, so the default
+      # ServiceAccount token is never needed and is left unmounted to shrink
+      # the blast radius of a compromised container.
+      automountServiceAccountToken: false
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-      # admin-password is an emptyDir volume shared between the bootstrap init
-      # container and the main api container.  The init container writes the
-      # one-time admin password to /run/trueppm/admin_password (0o600) and the
-      # volume keeps it accessible to the running pod so operators can retrieve
-      # it with: kubectl exec <pod> -- cat /run/trueppm/admin_password
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       volumes:
+        # admin-password is an emptyDir volume shared between the bootstrap init
+        # container and the main api container.  The init container writes the
+        # one-time admin password to /run/trueppm/admin_password (0o600) and the
+        # volume keeps it accessible to the running pod so operators can retrieve
+        # it with: kubectl exec <pod> -- cat /run/trueppm/admin_password
         - name: admin-password
+          emptyDir: {}
+        # readOnlyRootFilesystem is on, so every path the app writes to needs an
+        # explicit writable mount:
+        #   /tmp           — tempfile (MS Project parse, workspace export) and
+        #                    Django's upload buffering for >2.5 MB request bodies
+        #   /app/staticfiles — collectstatic target (StaticFilesStorage)
+        - name: tmp
+          emptyDir: {}
+        - name: staticfiles
           emptyDir: {}
       initContainers:
         - name: migrate
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "manage.py", "migrate", "--noinput"]
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:
             {{- include "trueppm.envVars" . | nindent 12 }}
+            {{- include "trueppm.connectionEnv" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
         - name: bootstrap
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "manage.py", "create_admin"]
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           env:
             {{- include "trueppm.envVars" . | nindent 12 }}
+            {{- include "trueppm.connectionEnv" . | nindent 12 }}
             - name: TRUEPPM_ADMIN_PASSWORD_FILE
               value: {{ .Values.admin.passwordFile | quote }}
             {{- if .Values.admin.email }}
@@ -50,21 +71,30 @@ spec:
           volumeMounts:
             - name: admin-password
               mountPath: /run/trueppm
+            - name: tmp
+              mountPath: /tmp
       containers:
         - name: api
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           ports:
             - name: http
               containerPort: 8000
               protocol: TCP
           env:
             {{- include "trueppm.envVars" . | nindent 12 }}
+            {{- include "trueppm.connectionEnv" . | nindent 12 }}
             - name: TRUEPPM_ADMIN_PASSWORD_FILE
               value: {{ .Values.admin.passwordFile | quote }}
           volumeMounts:
             - name: admin-password
               mountPath: /run/trueppm
+            - name: tmp
+              mountPath: /tmp
+            - name: staticfiles
+              mountPath: /app/staticfiles
           readinessProbe:
             httpGet:
               path: /api/v1/health/
@@ -77,4 +107,5 @@ spec:
               port: http
             initialDelaySeconds: 30
             periodSeconds: 30
-          resources: {}
+          resources:
+            {{- toYaml .Values.resources.api | nindent 12 }}

@@ -52,10 +52,159 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/*
 Build a list of env vars from values.env for use in container specs.
+
+Each entry in .Values.env may be either:
+  - a scalar (string / number / bool) → rendered as a literal `value:`
+  - a map with a `secretKeyRef` key → rendered as `valueFrom: secretKeyRef`,
+    e.g.  MY_VAR: { secretKeyRef: { name: my-secret, key: my-key } }
+
+The secretKeyRef form lets the chart point env vars at chart-generated Secrets
+(DATABASE_URL, REDIS_URL) so no credential is ever rendered in plaintext into a
+Deployment manifest, and an operator `--set` of a sub-chart password can't cause
+a split-brain between the URL string and the running database.
 */}}
 {{- define "trueppm.envVars" -}}
 {{- range $key, $value := .Values.env }}
+{{- if kindIs "map" $value }}
+- name: {{ $key }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ $value.secretKeyRef.name }}
+      key: {{ $value.secretKeyRef.key }}
+{{- else }}
 - name: {{ $key }}
   value: {{ $value | quote }}
 {{- end }}
 {{- end }}
+{{- end }}
+
+{{/*
+Name of the chart-owned Secret holding the connection URLs (DATABASE_URL,
+REDIS_URL) and the raw DB/cache passwords. Derived from `.Release.Name` only —
+NOT from trueppm.fullname — so the bundled subcharts (which can't see the
+parent's nameOverride / fullnameOverride) can reconstruct the exact same name
+from `.Release.Name` alone and reference this one Secret as the single credential
+source of truth. Mirrors the subchart naming convention (`<release>-postgresql`,
+`<release>-valkey-primary`).
+*/}}
+{{- define "trueppm.urlSecretName" -}}
+{{- printf "%s-trueppm-connection" .Release.Name -}}
+{{- end -}}
+
+{{/*
+DATABASE_URL / REDIS_URL env entries, sourced from the chart-owned connection
+Secret via secretKeyRef. Used by the API and Celery worker containers so the
+password is never rendered into the Deployment manifest in plaintext.
+*/}}
+{{- define "trueppm.connectionEnv" -}}
+- name: DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "trueppm.urlSecretName" . }}
+      key: DATABASE_URL
+- name: REDIS_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "trueppm.urlSecretName" . }}
+      key: REDIS_URL
+{{- end -}}
+
+{{/*
+Resolve the PostgreSQL password (generate-if-unset), memoized.
+
+Single source of truth = the chart-owned connection Secret. Resolution order:
+  1. explicit `.Values.postgresql.auth.password`
+  2. the password already persisted in the connection Secret (so repeat
+     `helm upgrade` runs never churn the password and orphan the database PVC)
+  3. a fresh `randAlphaNum 32`
+
+The result is memoized on `.Values._resolved` so that every template that needs
+it (the connection Secret, the subchart, the URL builders) sees the *same* value
+within a single render. Without memoization each `randAlphaNum` call on a fresh
+install would mint a different password per template, splitting the DB password
+from the URL. Lookup keys off the connection Secret — not the subchart Secret —
+because the connection Secret is the one object everything else derives from.
+*/}}
+{{- define "trueppm.postgresqlPassword" -}}
+{{- if not .Values._resolved -}}
+{{- $_ := set .Values "_resolved" dict -}}
+{{- end -}}
+{{- if not (hasKey .Values._resolved "pgPassword") -}}
+{{- $pw := "" -}}
+{{- if .Values.postgresql.auth.password -}}
+{{- $pw = .Values.postgresql.auth.password -}}
+{{- else -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "trueppm.urlSecretName" .) -}}
+{{- if and $existing $existing.data (index $existing.data "POSTGRES_PASSWORD") -}}
+{{- $pw = index $existing.data "POSTGRES_PASSWORD" | b64dec -}}
+{{- else -}}
+{{- $pw = randAlphaNum 32 -}}
+{{- end -}}
+{{- end -}}
+{{- $_ := set .Values._resolved "pgPassword" $pw -}}
+{{- end -}}
+{{- get .Values._resolved "pgPassword" -}}
+{{- end -}}
+
+{{/*
+Resolve the Valkey password (generate-if-unset, memoized — same pattern as
+PostgreSQL). Only meaningful when `.Values.valkey.auth.enabled` is true.
+*/}}
+{{- define "trueppm.valkeyPassword" -}}
+{{- if not .Values._resolved -}}
+{{- $_ := set .Values "_resolved" dict -}}
+{{- end -}}
+{{- if not (hasKey .Values._resolved "valkeyPassword") -}}
+{{- $pw := "" -}}
+{{- if .Values.valkey.auth.password -}}
+{{- $pw = .Values.valkey.auth.password -}}
+{{- else -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "trueppm.urlSecretName" .) -}}
+{{- if and $existing $existing.data (index $existing.data "valkey-password") -}}
+{{- $pw = index $existing.data "valkey-password" | b64dec -}}
+{{- else -}}
+{{- $pw = randAlphaNum 32 -}}
+{{- end -}}
+{{- end -}}
+{{- $_ := set .Values._resolved "valkeyPassword" $pw -}}
+{{- end -}}
+{{- get .Values._resolved "valkeyPassword" -}}
+{{- end -}}
+
+{{/*
+Server-side DATABASE_URL. Built from the resolved PostgreSQL password and the
+subchart's service fullname when the bundled DB is enabled; falls back to an
+operator-supplied `.Values.env.DATABASE_URL` when postgresql.enabled is false
+(managed-DB / production path). Never rendered into a Deployment in plaintext —
+it is stored only in the connection Secret.
+*/}}
+{{- define "trueppm.databaseUrl" -}}
+{{- if .Values.postgresql.enabled -}}
+{{- $host := printf "%s-postgresql" .Release.Name -}}
+{{- $u := .Values.postgresql.auth.username -}}
+{{- $p := include "trueppm.postgresqlPassword" . -}}
+{{- $db := .Values.postgresql.auth.database -}}
+{{- printf "postgres://%s:%s@%s:5432/%s" $u $p $host $db -}}
+{{- else -}}
+{{- required "postgresql.enabled is false: set env.DATABASE_URL to your managed database URL" (index .Values.env "DATABASE_URL") -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Server-side REDIS_URL. When the bundled Valkey is enabled the host is derived
+from the subchart fullname (so it stays correct on non-`trueppm` release names),
+and the password is interpolated only when valkey.auth is enabled. Falls back to
+operator-supplied `.Values.env.REDIS_URL` when valkey.enabled is false.
+*/}}
+{{- define "trueppm.redisUrl" -}}
+{{- if .Values.valkey.enabled -}}
+{{- $host := printf "%s-valkey-primary" .Release.Name -}}
+{{- if .Values.valkey.auth.enabled -}}
+{{- printf "redis://:%s@%s:6379" (include "trueppm.valkeyPassword" .) $host -}}
+{{- else -}}
+{{- printf "redis://%s:6379" $host -}}
+{{- end -}}
+{{- else -}}
+{{- required "valkey.enabled is false: set env.REDIS_URL to your managed Redis/Valkey URL" (index .Values.env "REDIS_URL") -}}
+{{- end -}}
+{{- end -}}

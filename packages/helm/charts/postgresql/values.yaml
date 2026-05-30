@@ -6,11 +6,13 @@ image:
   tag: "16"
   pullPolicy: IfNotPresent
 
-# Credentials seeded into the database on first boot and exposed via a Secret.
-# These must match the parent values.yaml DATABASE_URL.
+# Credentials seeded into the database on first boot. Under the parent chart the
+# PASSWORD is sourced from the parent's connection Secret (single source of truth
+# shared with DATABASE_URL); `password` here is only used for standalone subchart
+# rendering and is required in that case.
 auth:
   username: trueppm
-  password: trueppm
+  password: ""
   database: trueppm
 
 persistence:
@@ -18,4 +20,13 @@ persistence:
   # Empty string uses the cluster default StorageClass.
   storageClass: ""
 
-resources: {}
+# Default resource requests/limits for the bundled dev/demo database. Tune for
+# your data volume; production should run a managed database (postgresql.enabled:
+# false) instead.
+resources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi

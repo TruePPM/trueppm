@@ -18,13 +18,20 @@ spec:
         {{- include "trueppm.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: celery-worker
     spec:
+      automountServiceAccountToken: false
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      volumes:
+        # /tmp is the only writable path the worker needs (tempfile-backed
+        # MS Project parsing and workspace export run in the worker too).
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: celery-worker
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
           command:
             - celery
             - -A
@@ -33,4 +40,9 @@ spec:
             - --loglevel=info
           env:
             {{- include "trueppm.envVars" . | nindent 12 }}
-          resources: {}
+            {{- include "trueppm.connectionEnv" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.resources.worker | nindent 12 }}
