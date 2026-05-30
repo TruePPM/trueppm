@@ -36,6 +36,29 @@ TruePPM follows [semantic versioning](https://semver.org/). The script manages b
 
 **Pre-release CHANGELOG behaviour:** Alpha/beta/RC bumps do NOT rotate the `[Unreleased]` section — notes accumulate until the final stable release.
 
+### Confirmation gate
+
+Before any manifest is touched, the script shows the computed version as a **suggestion** and asks you to confirm it. Because every release cuts two immutable tags (`v<semver>` and `scheduler-v<pep440>`), this is the last point at which a wrong stage or a stale base can be caught:
+
+```text
+About to cut a release:
+  current : 0.1.9
+  new     : 0.2.0-alpha.1   <- suggested
+  tags    : v0.2.0-alpha.1, scheduler-v0.2.0a1
+  note    : pre-release — CHANGELOG will not be rotated
+Enter to accept 0.2.0-alpha.1, type an explicit version to override, or 'q' to abort:
+```
+
+- **Enter** accepts the suggested version.
+- **Type an explicit semver** (e.g. `0.2.0-beta.1`) to override — the prompt re-displays with the new version and its tags so you re-confirm before proceeding.
+- **`q`** aborts without writing anything.
+
+Pass `-y` / `--yes` (or set `RELEASE_ASSUME_YES=1`) to accept the computed version without the prompt — required for non-interactive runs, which otherwise **fail closed** rather than auto-cut a tag:
+
+```bash
+./scripts/release.sh minor --yes        # accept the computed 0.2.0 non-interactively
+```
+
 ## Step-by-step: stable release
 
 ```bash

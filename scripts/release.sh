@@ -24,6 +24,14 @@
 #     ./scripts/release.sh 1.0.0-rc.2
 #     ./scripts/release.sh 1.0.0
 #
+# Confirmation gate:
+#   Before any manifest is bumped, the computed version is shown as a
+#   suggestion and you are asked to confirm it (Enter to accept), override it
+#   inline by typing an explicit semver, or abort. Two immutable tags are cut
+#   per release, so this is the last human gate. Pass -y/--yes (or set
+#   RELEASE_ASSUME_YES=1) to accept the computed version non-interactively;
+#   without it, a non-TTY run fails closed rather than auto-cutting a tag.
+#
 # Pre-release CHANGELOG behaviour:
 #   alpha/beta/rc: CHANGELOG [Unreleased] is NOT rotated — notes accumulate
 #     until the final stable release.
@@ -100,6 +108,63 @@ validate_semver() {
     || die "'$1' is not a valid semver (expected x.y.z or x.y.z-alpha|beta|rc.N)"
 }
 
+# confirm_or_override_version SUGGESTED
+# Last human gate before manifests are bumped and immutable tags are cut. The
+# computed bump is a *suggestion*, not a mandate: show the operator what will be
+# cut (version + both tags) and let them accept it (Enter), override it inline
+# with an explicit semver, or abort. An override loops back so the operator
+# re-confirms the new version and the tags it implies — a wrong stage or a
+# stale base can't silently become a tag. Sets global NEW_VERSION to the result.
+#
+# Fails closed: with no TTY and no opt-in (--yes / RELEASE_ASSUME_YES=1) we
+# refuse rather than auto-cut a tag nobody approved. Prompts go to stderr so a
+# caller capturing stdout is unaffected.
+confirm_or_override_version() {
+  local suggested="$1"
+
+  if [[ "$ASSUME_YES" == true ]]; then
+    echo "Version confirmed via --yes: $CURRENT_VERSION → $suggested" >&2
+    NEW_VERSION="$suggested"
+    return
+  fi
+
+  if [[ ! -t 0 ]]; then
+    die "No TTY to confirm the release version. Re-run with --yes (or RELEASE_ASSUME_YES=1) to accept the computed version ($suggested) non-interactively."
+  fi
+
+  local reply pep440
+  while true; do
+    pep440="$(to_pep440 "$suggested")"
+    {
+      echo ""
+      echo "About to cut a release:"
+      echo "  current : $CURRENT_VERSION"
+      echo "  new     : $suggested   <- suggested"
+      echo "  tags    : v${suggested}, scheduler-v${pep440}"
+      [[ "$suggested" == *-* ]] && echo "  note    : pre-release — CHANGELOG will not be rotated"
+    } >&2
+
+    read -r -p "Enter to accept ${suggested}, type an explicit version to override, or 'q' to abort: " reply
+
+    if [[ -z "$reply" ]]; then
+      NEW_VERSION="$suggested"
+      return
+    fi
+    case "$reply" in
+      q|Q|quit|n|N) die "Aborted by operator — no release cut." ;;
+    esac
+
+    # Anything else is treated as an explicit version override. Re-validate and
+    # loop so the resulting tags are shown and re-confirmed before we proceed.
+    reply="${reply#v}"
+    if [[ "$reply" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+\.[0-9]+)?$ ]]; then
+      suggested="$reply"
+    else
+      echo "  '$reply' is not a valid semver (expected x.y.z or x.y.z-alpha|beta|rc.N) — try again." >&2
+    fi
+  done
+}
+
 # compute_new_version CURRENT BUMP [PRE_STAGE]
 # BUMP: major | minor | patch | alpha | beta | rc | release | <explicit>
 compute_new_version() {
@@ -163,6 +228,21 @@ compute_new_version() {
 BUMP=""
 PRE_ARG=""
 
+# Strip the -y/--yes flag (also honored via RELEASE_ASSUME_YES=1) before the
+# positional-arg count check, so it can appear in any position. No arrays —
+# this script must run under macOS bash 3.2.
+ASSUME_YES=false
+[[ "${RELEASE_ASSUME_YES:-0}" == "1" ]] && ASSUME_YES=true
+REST=""
+for arg in "$@"; do
+  case "$arg" in
+    -y|--yes) ASSUME_YES=true ;;
+    *) REST="$REST $arg" ;;
+  esac
+done
+# shellcheck disable=SC2086
+set -- $REST
+
 case $# in
   1) BUMP="$1" ;;
   2)
@@ -213,6 +293,13 @@ else
   NEW_VERSION="$(compute_new_version "$CURRENT_VERSION" "$BUMP")"
 fi
 
+validate_semver "$NEW_VERSION"
+
+# Human gate: confirm or override the computed version before anything is
+# written. May reassign NEW_VERSION (override path), so everything below —
+# IS_PRERELEASE, the tags, the existence checks — derives from the confirmed
+# value, not the originally-computed one.
+confirm_or_override_version "$NEW_VERSION"
 validate_semver "$NEW_VERSION"
 
 IS_PRERELEASE=false
