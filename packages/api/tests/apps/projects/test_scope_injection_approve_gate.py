@@ -459,6 +459,46 @@ def test_close_reject_disposition_removes_pending(
     assert sc.status == ScopeChangeStatus.REJECTED
 
 
+def test_close_reject_disposition_member_403_endpoint(
+    project: Project, sprint: Sprint, owner: object, member: object
+) -> None:
+    """ADR-0102 §3: a MEMBER may close a sprint but may NOT use the close path's
+    reject disposition to reject pending injections — that is the team-owned
+    ADMIN gate, and the close endpoint must enforce it synchronously (the bug the
+    gate-cluster review caught: reject-on-close bypassed the gate)."""
+    pending = _task(project, "Pending", sprint=sprint, story_points=3)
+    sc = _inject(pending, sprint, owner)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.post(
+        f"/api/v1/sprints/{sprint.pk}/close/",
+        {"carry_over_to": "backlog", "pending_disposition": "reject"},
+        format="json",
+    )
+    assert resp.status_code == 403
+    assert resp.data["code"] == "scope_accept_forbidden"
+    # The pending row must be untouched — the close was rejected before enqueue.
+    sc.refresh_from_db()
+    assert sc.status == ScopeChangeStatus.PENDING
+
+
+def test_close_carry_disposition_member_allowed_endpoint(
+    project: Project, sprint: Sprint, owner: object, member: object
+) -> None:
+    """The safe default (carry-over) is NOT a scope decision, so a MEMBER closing
+    a sprint with pending items proceeds (202) — only reject is ADMIN-gated."""
+    pending = _task(project, "Pending", sprint=sprint, story_points=3)
+    _inject(pending, sprint, owner)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.post(
+        f"/api/v1/sprints/{sprint.pk}/close/",
+        {"carry_over_to": "backlog", "pending_disposition": "carry"},
+        format="json",
+    )
+    assert resp.status_code == 202
+
+
 def test_apply_pending_disposition_carry_to_backlog_clears_flag(
     project: Project, sprint: Sprint, owner: object
 ) -> None:

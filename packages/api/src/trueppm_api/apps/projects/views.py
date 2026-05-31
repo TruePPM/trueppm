@@ -5064,6 +5064,8 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         polls retrieve or subscribes via WebSocket to observe ``state=COMPLETED``.
         """
         from trueppm_api.apps.projects.services import (
+            ScopeAcceptForbidden,
+            assert_scope_gate_for_project,
             enqueue_sprint_close,
             pending_scope_advisory,
         )
@@ -5101,6 +5103,26 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         # close response so the frontend can confirm the disposition. Closing is
         # NEVER blocked by pending items — this is informational only.
         advisory = pending_scope_advisory(sprint)
+
+        # ADR-0102 §3 (the load-bearing team-ownership invariant): closing a sprint
+        # is MEMBER-gated, but REJECTING pending scope injections is a scope
+        # decision reserved for role>=ADMIN. A MEMBER may close (carry-over is the
+        # safe default disposition) but may not use the close path to reject
+        # injected work — that would bypass the same gate enforced on the
+        # accept/reject endpoints. Carry-over (default) needs no extra gate.
+        if pending_disposition == "reject" and advisory is not None:
+            try:
+                assert_scope_gate_for_project(sprint.project_id, request.user)
+            except ScopeAcceptForbidden:
+                return Response(
+                    {
+                        "code": "scope_accept_forbidden",
+                        "detail": (
+                            "Rejecting pending scope changes is team-owned (Project Manager+)."
+                        ),
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         with transaction.atomic():
             req = enqueue_sprint_close(

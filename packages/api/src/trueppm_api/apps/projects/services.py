@@ -783,20 +783,19 @@ class ScopeAcceptForbidden(Exception):
     detail = "Sprint scope acceptance is team-owned."
 
 
-def _assert_scope_gate(scope_change: Any, by: Any) -> None:
-    """Enforce the team-owned accept/reject gate (ADR-0102 §3).
+def assert_scope_gate_for_project(project_id: Any, by: Any) -> None:
+    """Enforce the team-owned scope accept/reject gate (ADR-0102 §3) for a project.
 
     The actor must be an authenticated user holding a real, non-soft-deleted
-    ``ProjectMembership`` at role>=ADMIN on the task's project. This is the
-    structural close of the management/PMO back-door: an org-level principal
-    arrives with no project ``ProjectMembership`` row and is rejected here
-    independent of any role ordinal they may hold elsewhere.
+    ``ProjectMembership`` at role>=ADMIN on the project. This is the structural
+    close of the management/PMO back-door: an org-level principal arrives with no
+    project ``ProjectMembership`` row and is rejected here independent of any role
+    ordinal they may hold elsewhere.
     """
     from trueppm_api.apps.access.models import ProjectMembership, Role
 
     if by is None or not getattr(by, "is_authenticated", False):
         raise ScopeAcceptForbidden
-    project_id = scope_change.task.project_id
     role = (
         ProjectMembership.objects.filter(project_id=project_id, user=by, is_deleted=False)
         .values_list("role", flat=True)
@@ -804,6 +803,11 @@ def _assert_scope_gate(scope_change: Any, by: Any) -> None:
     )
     if role is None or role < Role.ADMIN:
         raise ScopeAcceptForbidden
+
+
+def _assert_scope_gate(scope_change: Any, by: Any) -> None:
+    """Enforce the team-owned accept/reject gate (ADR-0102 §3) for a scope change."""
+    assert_scope_gate_for_project(scope_change.task.project_id, by)
 
 
 def record_sprint_scope_change(
@@ -1024,9 +1028,12 @@ def apply_pending_disposition(sprint: Any, disposition: str, by: Any = None) -> 
 
     if disposition == "reject":
         for row in pending_rows:
-            # System-initiated reject at close: bypass the human gate (the close
-            # itself was already gated at the viewset). reject_scope_change's gate
-            # would 403 a None actor, so do the minimal reject inline.
+            # The team-owned ADMIN gate for reject-on-close is enforced
+            # synchronously at the close endpoint (SprintViewSet.close) BEFORE the
+            # close is enqueued — a MEMBER who can close a sprint cannot use the
+            # reject disposition to bypass ADR-0102 §3. By the time this drains we
+            # are system-initiated, so the per-row reject is done inline (a None
+            # actor would 403 in reject_scope_change's gate).
             task = Task.objects.select_for_update().filter(pk=row.task_id).first()
             row.status = ScopeChangeStatus.REJECTED
             row.save(update_fields=["status"])

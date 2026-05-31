@@ -375,6 +375,16 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
         scheduleInvalidate('tasks');
       }
 
+      // --- Scope-injection accept/reject events (ADR-0102) ---
+      // A peer accepting/rejecting a pending injection (or rejecting on close)
+      // flips task.sprint_pending and the sprint's pending_count. Without this
+      // handler, other clients kept showing the stale "Pending acceptance" chip
+      // and the "accepted scope only" forecast caveat until a manual refetch.
+      else if (event_type === 'sprint_scope_changed') {
+        scheduleInvalidate('tasks');
+        void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
+      }
+
       // --- Milestone rollup events (ADR-0074) ---
       else if (event_type === 'milestone_rollup_updated') {
         // Aggregated rollup payload arrives independent of the task feed.
