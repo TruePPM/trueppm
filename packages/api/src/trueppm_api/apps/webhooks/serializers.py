@@ -46,6 +46,10 @@ class WebhookSerializer(serializers.ModelSerializer[Webhook]):
         allow_blank=True,
         max_length=255,
         write_only=True,
+        # CharField trims surrounding whitespace by default, which would collapse a
+        # whitespace-only secret to "" and silently auto-generate one on create.
+        # Keep the raw value so validate_secret can reject whitespace-only input.
+        trim_whitespace=False,
     )
 
     class Meta:
