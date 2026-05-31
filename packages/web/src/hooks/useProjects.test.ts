@@ -29,11 +29,11 @@ interface ApiProject {
 }
 
 const COLOR_PALETTE: ReadonlyArray<string> = [
-  '#1C6B3A',
+  '#3E8C6D',
   '#E8A020',
   '#B91C1C',
   '#6B6965',
-  '#145229',
+  '#316F57',
   '#1D4ED8',
   '#7C3AED',
   '#0E7490',
@@ -45,7 +45,7 @@ function mapProject(p: ApiProject, index: number) {
     id: p.id,
     name: p.name,
     healthState: 'unknown' as const,
-    colorDot: COLOR_PALETTE[index % COLOR_PALETTE.length] ?? '#1C6B3A',
+    colorDot: COLOR_PALETTE[index % COLOR_PALETTE.length] ?? '#3E8C6D',
     methodology: p.methodology ?? ('HYBRID' as const),
   };
 }
@@ -64,7 +64,7 @@ describe('useProjects mapper', () => {
     expect(project.id).toBe('proj-1');
     expect(project.name).toBe('Alpha');
     expect(project.healthState).toBe('unknown');
-    expect(project.colorDot).toBe('#1C6B3A');
+    expect(project.colorDot).toBe('#3E8C6D');
   });
 
   it('cycles colorDot through the palette by index', () => {
@@ -118,7 +118,7 @@ describe('useProjects hook', () => {
     expect(result.current.data?.[0]).toMatchObject({
       id: 'p1', name: 'Alpha', healthState: 'unknown',
     });
-    expect(result.current.data?.[0].colorDot).toBe('#1C6B3A');
+    expect(result.current.data?.[0].colorDot).toBe('#3E8C6D');
     expect(result.current.error).toBeNull();
   });
 

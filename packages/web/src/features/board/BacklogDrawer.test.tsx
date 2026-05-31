@@ -42,7 +42,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 const BASE_PROPS = {
   isDragActive: false,
   isOver: false,
-  phaseColorFor: () => '#1C6B3A',
+  phaseColorFor: () => '#3E8C6D',
   focusedCardId: null,
   onCardFocus: vi.fn(),
   onCardClick: vi.fn(),

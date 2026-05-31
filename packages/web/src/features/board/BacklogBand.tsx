@@ -56,7 +56,7 @@ interface AvatarProps {
   size?: number;
 }
 
-const RESOURCE_COLOR_PALETTE = ['#1C6B3A', '#C17A10', '#0EA5E9', '#7C3AED', '#DC2626', '#0891B2'];
+const RESOURCE_COLOR_PALETTE = ['#3E8C6D', '#C17A10', '#0EA5E9', '#7C3AED', '#DC2626', '#0891B2'];
 
 function colorForInitials(initials: string): string {
   let hash = 0;

@@ -1,6 +1,6 @@
 /** Deterministic per-phase color rail palette. */
 const RAIL_PALETTE = [
-  '#1C6B3A', // brand-primary
+  '#3E8C6D', // brand-primary
   '#E8A020', // brand-accent
   '#3B82F6', // blue-500
   '#8B5CF6', // violet-500

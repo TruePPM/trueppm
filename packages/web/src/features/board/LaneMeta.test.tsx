@@ -7,7 +7,7 @@ const BASE_PROPS = {
   phaseName: 'Engineering',
   avgProgress: 55,
   taskCount: 8,
-  railColor: '#1C6B3A',
+  railColor: '#3E8C6D',
 };
 
 describe('LaneMeta', () => {

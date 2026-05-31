@@ -25,8 +25,8 @@ const METHODS: Array<{
     id: 'waterfall',
     label: 'Waterfall',
     tagline: 'Phases, gates, baselines, CPM. No sprints.',
-    accent: '#1C6B3A',
-    accentBg: '#D4EDDA',
+    accent: '#3E8C6D',
+    accentBg: '#D3ECE0',
     features: ['WBS → Schedule → Baseline', 'CPM with all 4 dependency types', 'Earned value metrics', 'No sprints or story points'],
   },
   {
@@ -168,7 +168,7 @@ export function WorkspaceMethodologyPage() {
           </div>
           <div className="px-4 py-3 space-y-2">
             {[
-              { method: 'Waterfall', count: 8, total: 14, color: '#1C6B3A' },
+              { method: 'Waterfall', count: 8, total: 14, color: '#3E8C6D' },
               { method: 'Hybrid',    count: 4, total: 14, color: '#C17A10' },
               { method: 'Agile',     count: 2, total: 14, color: '#7C3AED' },
             ].map(({ method, count, total, color }) => (

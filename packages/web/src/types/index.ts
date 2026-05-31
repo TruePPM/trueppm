@@ -167,7 +167,7 @@ export type Methodology = 'WATERFALL' | 'AGILE' | 'HYBRID';
 export interface Project {
   id: string;
   name: string;
-  /** Hex color for the 8px project dot, e.g. '#1C6B3A' */
+  /** Hex color for the 8px project dot, e.g. '#3E8C6D' */
   colorDot: string;
   healthState: HealthState;
   /** Project methodology preset — drives default tab visibility (ADR-0041). */

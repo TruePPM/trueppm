@@ -20,7 +20,7 @@ const RAW_MEMBER = {
   id: 'u1',
   name: 'Alice Khoury',
   initials: 'AK',
-  color: '#1C6B3A',
+  color: '#3E8C6D',
   email: 'alice@example.com',
   role: 'Admin',
   role_value: 300,

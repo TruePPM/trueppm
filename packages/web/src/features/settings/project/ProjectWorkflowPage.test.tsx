@@ -65,7 +65,7 @@ function makePhase(o: Partial<ProjectPhase> = {}): ProjectPhase {
   return {
     id: 'phase-1',
     name: 'Engineering',
-    color: '#1C6B3A',
+    color: '#3E8C6D',
     priorityRank: 10,
     wbsPath: '1',
     taskCount: 12,

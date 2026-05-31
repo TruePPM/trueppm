@@ -37,7 +37,7 @@ const FIXTURE_PROJECT = {
 const FIXTURE_PHASE_ENG = {
   id: 'phase-eng',
   name: 'Engineering',
-  color: '#1C6B3A',
+  color: '#3E8C6D',
   priority_rank: 10,
   wbs_path: '1',
   task_count: 12,

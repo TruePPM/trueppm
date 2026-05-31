@@ -35,7 +35,7 @@ const FIXTURE_HEATMAP = {
       name: 'Alice Kim',
       initials: 'AK',
       job_role: 'Lead Engineer',
-      color: '#1C6B3A',
+      color: '#3E8C6D',
       calendar_differs_from_project: false,
       util: [80, 95, 130, 120, 70, 60, 80, 100],
     },

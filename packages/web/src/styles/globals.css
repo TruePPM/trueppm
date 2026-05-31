@@ -68,16 +68,16 @@
      Light values are WCAG AA on white. Dark values use the lighter palette
      (matching gantt-semantic-*) required for WCAG AA on the dark surface.   */
   :root {
-    --semantic-critical:  185 28 28;    /* #B91C1C */
+    --semantic-critical:  185 28 28;    /* #B91C1C — AA text/border; brand fill #CF4438 via -bg */
     --semantic-warning:   217 119 6;    /* #D97706 */
-    --semantic-on-track:  22 101 52;    /* #166534 */
-    --semantic-at-risk:   146 64 14;    /* #92400E */
+    --semantic-on-track:  62 140 109;   /* #3E8C6D — brand on-track = sage-600, 4.6:1 (ADR-0102) */
+    --semantic-at-risk:   146 64 14;    /* #92400E — AA text/border; brand fill #DE9326 via -bg */
   }
 
   .dark {
     --semantic-critical:  248 113 113;  /* #F87171 — Red-400, 4.87:1 on dark surface */
     --semantic-warning:   251 146 60;   /* #FB923C — Orange-400 */
-    --semantic-on-track:  74 222 128;   /* #4ADE80 — Green-400, 5.28:1 on dark surface */
+    --semantic-on-track:  102 185 152;  /* #66B998 — sage-400, on-track holds on dark (ADR-0102) */
     --semantic-at-risk:   251 146 60;   /* #FB923C — Orange-400 */
   }
 
@@ -137,14 +137,14 @@
   :root {
     --sem-critical-bg: rgba(185, 28, 28, 0.08);
     --sem-at-risk-bg:  rgba(146, 64, 14, 0.10);
-    --sem-on-track-bg: rgba(22, 101, 52, 0.10);
+    --sem-on-track-bg: rgba(62, 140, 109, 0.10);
     --sem-warning-bg:  rgba(217, 119, 6, 0.10);
   }
 
   .dark {
     --sem-critical-bg: rgba(248, 113, 113, 0.15);
     --sem-at-risk-bg:  rgba(251, 146, 60, 0.15);
-    --sem-on-track-bg: rgba(74, 222, 128, 0.15);
+    --sem-on-track-bg: rgba(102, 185, 152, 0.15);
     --sem-warning-bg:  rgba(251, 146, 60, 0.15);
   }
 

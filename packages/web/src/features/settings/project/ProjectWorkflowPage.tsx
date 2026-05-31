@@ -33,7 +33,7 @@ import { ROLE_ADMIN, ROLE_SCHEDULER } from '@/lib/roles';
 // approachable; "More colors" via free-form hex is intentionally not exposed
 // in 0.2 — keeps the picker keyboard-accessible without a complex popover.
 const COLOR_SWATCHES = [
-  '#1C6B3A',
+  '#3E8C6D',
   '#C17A10',
   '#7C3AED',
   '#0EA5E9',
@@ -44,9 +44,9 @@ const COLOR_SWATCHES = [
 ] as const;
 
 // Human-readable names so the swatch buttons announce "Set phase color to
-// Forest green" rather than "Set phase color to #1C6B3A" (WCAG 2.4.6 / 4.1.2).
+// Sage" rather than "Set phase color to #3E8C6D" (WCAG 2.4.6 / 4.1.2).
 const COLOR_SWATCH_NAMES: Record<(typeof COLOR_SWATCHES)[number], string> = {
-  '#1C6B3A': 'Forest green',
+  '#3E8C6D': 'Sage',
   '#C17A10': 'Amber',
   '#7C3AED': 'Violet',
   '#0EA5E9': 'Sky blue',

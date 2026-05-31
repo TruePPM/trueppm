@@ -37,7 +37,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 
 const BASE_PROPS = {
   phaseName: 'Discovery',
-  phaseColor: '#1C6B3A',
+  phaseColor: '#3E8C6D',
   isFocused: false,
   onFocus: vi.fn(),
   onClick: vi.fn(),

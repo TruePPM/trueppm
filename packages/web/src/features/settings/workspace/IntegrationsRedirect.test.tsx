@@ -52,7 +52,7 @@ describe('IntegrationsRedirect', () => {
           id: 'p-1',
           name: 'Helios firmware',
           healthState: 'unknown',
-          colorDot: '#1C6B3A',
+          colorDot: '#3E8C6D',
           methodology: 'HYBRID',
           programId: null,
         },
@@ -69,7 +69,7 @@ describe('IntegrationsRedirect', () => {
   it('renders the project picker when the user has two or more projects', () => {
     useProjects.mockReturnValue({
       data: [
-        { id: 'p-1', name: 'Helios firmware', healthState: 'unknown', colorDot: '#1C6B3A', methodology: 'HYBRID', programId: null },
+        { id: 'p-1', name: 'Helios firmware', healthState: 'unknown', colorDot: '#3E8C6D', methodology: 'HYBRID', programId: null },
         { id: 'p-2', name: 'Platform migration', healthState: 'unknown', colorDot: '#E8A020', methodology: 'AGILE', programId: null },
       ],
       isLoading: false,
