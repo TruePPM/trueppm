@@ -184,4 +184,38 @@ describe('apiClient', () => {
       await expect(rejected(original)).rejects.toThrow('network failure');
     });
   });
+
+  // #911: a fresh page load has no in-memory access token (#897), so the app
+  // mints one from the httpOnly refresh cookie BEFORE rendering. This is the
+  // same single-flight cookie refresh the 401 interceptor uses, exposed so the
+  // route guard can pre-warm the token and avoid a 401 storm on every reload.
+  describe('bootstrapAccessToken', () => {
+    async function getBootstrap() {
+      const mod = await import('./client');
+      return mod.bootstrapAccessToken;
+    }
+
+    it('mints and stores an access token from the cookie endpoint, returning true', async () => {
+      const bootstrapAccessToken = await getBootstrap();
+      const postSpy = vi
+        .spyOn(axios, 'post')
+        .mockResolvedValueOnce({ data: { access: 'boot-access' } });
+
+      await expect(bootstrapAccessToken()).resolves.toBe(true);
+
+      expect(postSpy).toHaveBeenCalledWith('/api/v1/auth/token/refresh/', {}, { withCredentials: true });
+      expect(useAuthStore.getState().accessToken).toBe('boot-access');
+      expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    });
+
+    it('marks the session expired and returns false when the cookie refresh fails', async () => {
+      const bootstrapAccessToken = await getBootstrap();
+      vi.spyOn(axios, 'post').mockRejectedValueOnce(new Error('no cookie'));
+
+      await expect(bootstrapAccessToken()).resolves.toBe(false);
+
+      expect(useAuthStore.getState().accessToken).toBeNull();
+      expect(useAuthStore.getState().sessionExpired).toBe(true);
+    });
+  });
 });
