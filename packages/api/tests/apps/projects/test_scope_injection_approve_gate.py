@@ -499,6 +499,26 @@ def test_close_carry_disposition_member_allowed_endpoint(
     assert resp.status_code == 202
 
 
+def test_create_task_into_active_sprint_enters_pending(
+    owner_client: APIClient, project: Project, sprint: Sprint
+) -> None:
+    """ADR-0102 §4: a non-subtask task CREATED directly into an active sprint (the
+    board 'add card to the active sprint' flow) enters pending-acceptance, not the
+    commitment — the create path must apply the same injection gate as update/sync.
+    """
+    resp = owner_client.post(
+        "/api/v1/tasks/",
+        {"project": str(project.pk), "name": "New card", "duration": 1, "sprint": str(sprint.pk)},
+        format="json",
+    )
+    assert resp.status_code == 201
+    created = Task.objects.get(pk=resp.data["id"])
+    assert created.sprint_pending is True
+    assert SprintScopeChange.objects.filter(
+        sprint=sprint, task=created, status=ScopeChangeStatus.PENDING
+    ).exists()
+
+
 def test_pending_task_sprint_cannot_be_changed_via_generic_patch(
     project: Project, sprint: Sprint, owner: object, member: object
 ) -> None:

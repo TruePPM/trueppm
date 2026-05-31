@@ -1815,6 +1815,16 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
                             flag_pending=False,
                         )
 
+            # ADR-0102 §4: a NON-subtask task created directly into an ACTIVE
+            # sprint (the board "add card to the active sprint" flow) is a
+            # mid-sprint injection — it enters pending-acceptance rather than the
+            # commitment, same as a task linked via PATCH or sync. The shared
+            # helper self-skips subtasks (their sprint_id is None) and
+            # PLANNED/COMPLETED targets, so calling it unconditionally is safe.
+            from trueppm_api.apps.projects.services import maybe_record_scope_injection
+
+            maybe_record_scope_injection(instance, None, self.request.user)
+
         project_id = str(instance.project_id)
         task_id = str(instance.pk)
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
