@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 import axios from 'axios';
 import { useAuthStore } from '@/stores/authStore';
 import { queryClient } from '@/lib/queryClient';
+import { LogoMark } from '@/components/Icons';
 
 interface TokenResponse {
   // The refresh token is no longer returned in the body — it is set as an
@@ -146,16 +147,12 @@ export function LoginPage() {
     <div className="min-h-screen grid grid-cols-1 md:grid-cols-2 bg-neutral-surface">
       {/* ── Left column: form ── */}
       <div className="flex flex-col justify-center px-10 py-16 md:px-20 gap-8">
-        {/* Brand */}
-        <div className="flex items-center gap-2">
-          <div
-            className="w-9 h-9 rounded bg-brand-primary text-white flex items-center justify-center text-sm font-bold shrink-0"
-            aria-hidden="true"
-          >
-            tP
-          </div>
-          <span className="text-lg font-bold text-neutral-text-primary tracking-tight">
-            TruePPM
+        {/* Brand — duotone mark + two-color wordmark (brand v1.0, ADR-0102) */}
+        <div className="flex items-center gap-2.5" aria-label="TruePPM">
+          <LogoMark size={36} className="flex-shrink-0" />
+          <span className="font-display text-2xl font-bold tracking-[-0.02em] leading-none">
+            <span className="text-navy-700 dark:text-reversed">True</span>
+            <span className="text-sage-500">PPM</span>
           </span>
         </div>
 
@@ -365,11 +362,11 @@ export function LoginPage() {
           <div className="inline-flex items-center gap-2 self-start">
             <div
               className="px-3 py-1 rounded-full text-xs font-semibold tracking-widest uppercase"
-              style={{ backgroundColor: 'rgba(74, 222, 128, 0.12)', color: '#4ADE80' }}
+              style={{ backgroundColor: 'rgba(102, 185, 152, 0.14)', color: '#66B998' }}
             >
               <span
                 className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle"
-                style={{ backgroundColor: '#4ADE80' }}
+                style={{ backgroundColor: '#66B998' }}
                 aria-hidden="true"
               />
               CPM v{__APP_VERSION__} live

@@ -17,7 +17,8 @@ describe('LoginPage', () => {
   it('renders the brand, email field, password field, and sign-in button', () => {
     renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
 
-    expect(screen.getByText('TruePPM')).toBeInTheDocument();
+    // Two-color wordmark splits "True"/"PPM" across spans; assert accessible name.
+    expect(screen.getByLabelText('TruePPM')).toBeInTheDocument();
     expect(screen.getByText('Welcome back')).toBeInTheDocument();
     expect(screen.getByLabelText('Email')).toBeInTheDocument();
     expect(screen.getByLabelText('Password')).toBeInTheDocument();

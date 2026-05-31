@@ -13,9 +13,8 @@ test.describe('Wave 8 — Login screen', () => {
   test('renders two-column layout with brand and hero copy', async ({ page }) => {
     await page.goto('/login');
 
-    // Brand chip + wordmark
-    await expect(page.getByText('tP')).toBeVisible();
-    await expect(page.getByText('TruePPM').first()).toBeVisible();
+    // Duotone mark + two-color wordmark (brand v1.0); accessible name on the lockup.
+    await expect(page.getByLabelText('TruePPM')).toBeVisible();
 
     // Hero copy
     await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
