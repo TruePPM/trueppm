@@ -11,8 +11,8 @@ These rules are enforced at review time. Violations block merge.
 ## Accessibility (WCAG 2.1 AA)
 
 4. **Focus rings on all interactive elements**: `focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1`
-   - On `bg-brand-primary` surfaces (sidebar): use `focus-visible:ring-white focus-visible:ring-offset-brand-primary`
-   - In dark mode on neutral surfaces: add `dark:focus-visible:ring-semantic-on-track` — `brand-primary` (#1C6B3A) is only 2.81:1 on dark surface (#12141E), failing WCAG 1.4.11. `semantic-on-track` (#4ADE80) achieves 5.28:1.
+   - On a **sage fill** (primary button, `bg-sage-500`): use `focus-visible:ring-navy-700 focus-visible:ring-offset-sage-500` (navy-on-sage 6.8:1).
+   - **No dark-mode override needed for `brand-primary` (ADR-0102).** `brand-primary` is now mode-aware sage — sage-600 #3E8C6D (light, 4.6:1) / sage-400 #66B998 (dark, ≥3:1) — so `ring-brand-primary` passes WCAG 1.4.11 in both modes. The old `dark:focus-visible:ring-semantic-on-track` escape hatch (for green #1C6B3A's 2.81:1 dark failure) is **retired** — do not reintroduce it.
    - Never use `outline-none` without a visible replacement
 5. **Touch targets** — minimum 44×44px at all breakpoints
 6. **Color dots** (8px project color indicators) are always `aria-hidden="true"` — health state must also be conveyed via text or `aria-label`
@@ -86,7 +86,7 @@ These rules are enforced at review time. Violations block merge.
 
 39. **TopBar status badges use outlined style** — `bg-transparent border border-{semantic-color}/40 rounded px-2 py-0.5 text-xs`. Badge labels include the full semantic word: `{n} at risk`, `{n} critical`, `P80: {date}`. Labels must also specify scope (tasks vs. projects) — ambiguous counts are a PMO compliance risk. `aria-label="{n} at risk tasks"` or `"{n} critical tasks"`. At-risk and critical badges are `<button aria-haspopup="menu">` elements — NOT `listbox` (listbox implies selection, not navigation). They open a `role="menu"` popover with `role="menuitem"` task entries.
 
-40. **Schedule view adapts to color scheme** — in light mode the task-list panel and canvas use `bg-neutral-surface` (#FFFFFF); in dark mode they use the dark surface (#12141E). The canvas renderer switches palettes via `setRendererColorMode(isDark)` called from `GanttEngineImpl` before each paint pass. `CanvasGanttTimeline` derives `isDark` from `useThemeStore` and passes it to `useGanttEngine`. `COLOR` (light) and `COLOR_DARK` (dark) palettes in `GanttRenderer.ts` are the canonical color sources; no hex literals in component files.
+40. **Schedule view adapts to color scheme** — in light mode the task-list panel and canvas use `bg-neutral-surface` (#FFFFFF); in dark mode they use the dark navy surface (#15223C, ADR-0102). The canvas renderer switches palettes via `setRendererColorMode(isDark)` called from `GanttEngineImpl` before each paint pass. `CanvasGanttTimeline` derives `isDark` from `useThemeStore` and passes it to `useGanttEngine`. `COLOR` (light) and `COLOR_DARK` (dark) palettes in `GanttRenderer.ts` are the canonical color sources; no hex literals in component files.
 
 42. **GanttToolbar view-switcher** (Gantt · WBS · Table) uses `role="group" aria-label="View mode"` with `aria-pressed` on the active item. Action buttons (+ Task · Baseline · Monte Carlo) are plain `type="button"` elements. All toolbar buttons: `border border-neutral-border rounded h-7 px-3 text-xs font-medium`. WBS and Table render as `disabled aria-disabled="true"` until their panels are implemented.
 
@@ -245,7 +245,7 @@ These rules are enforced at review time. Violations block merge.
 
 72. **Bar label text uses `COLOR.text` (`#1A1917`)** — `neutral-text-primary` on the light canvas surface. Set via `ctx.fillStyle = COLOR.text`. All color values live in the `COLOR` constant in `GanttRenderer.ts`; never use hex literals in draw functions.
 
-73. **Critical path bars use `COLOR.barCritical` (`#B91C1C`)** — `semantic-critical` on light surface. Complete bars use `COLOR.barComplete` (`#166534`) — `semantic-on-track`. Both values are defined once in `GanttRenderer.ts`; update there only.
+73. **Critical path bars use `COLOR.barCritical` (`#B91C1C`)** — `semantic-critical` on light surface. Complete bars use `COLOR.barComplete` (`#3E8C6D` = sage-600, brand on-track per ADR-0102; `#66B998` sage-400 on dark) — `semantic-on-track`. Both values are defined once in `GanttRenderer.ts`; update there only.
 
 74. **Non-working day shading uses `rgba(0,0,0,0.03)`** — a very subtle dark overlay on weekend columns on the light canvas. Applied on `canvas-bg`, not recalculated during drag.
 
@@ -367,7 +367,7 @@ These rules are enforced at review time. Violations block merge.
     `'instant'` when `prefers-reduced-motion` is active, rule 70). Placed to the
     left of the ZoomControl in the toolbar.
 
-83. **Selection visual** — in the canvas bars layer: a 2px `COLOR.selectionRing` (`#1C6B3A`) inset stroke ring is drawn after the bar fill using `ctx.save()/restore()` (rule 59, canvas-bars layer only). In the task list row: `bg-brand-primary/10 border-l-2 border-brand-primary` on the selected row. Selection state is read from `engine.selectedTaskIds` (immutable Set) — never duplicated in local component state.
+83. **Selection visual** — in the canvas bars layer: a 2px `COLOR.selectionRing` (**navy `#1B2A4A`** light / **reversed `#E9EDF3`** dark) inset stroke ring is drawn after the bar fill using `ctx.save()/restore()` (rule 59, canvas-bars layer only). The ring is navy INK — not sage — so it stays visible on a sage complete bar (distinguishability triad, ADR-0102 D4: complete = sage fill, selected = navy ring, today = sage line). In the task list row: `bg-brand-primary/10 border-l-2 border-brand-primary` (sage) on the selected row. Selection state is read from `engine.selectedTaskIds` (immutable Set) — never duplicated in local component state.
 
 84. **Cursor states on canvas-interaction** — `ixCanvas.style.cursor` is set by
     `GanttEngineImpl._updateCursor()` based on FSM state and hit zone type:
@@ -631,3 +631,25 @@ These rules are enforced at review time. Violations block merge.
 140. **Guardrail / health UI mounts only on planning surfaces — never in a contributor view.** `GuardrailNotice`, `GuardrailBlock`, and Tier-3 health badges live in the schedule/sprint-planning/settings surfaces (task drawer `SprintSection`, board, sprint panel). They must never be imported into the contributor `me`/"My Work" tree, and guardrail warnings must never become a push notification (Priya non-goal — enforced structurally by *where* the component mounts, not a runtime role check).
 
 141. **Guardrail copy uses outcome language, never WBS jargon.** User-facing strings come from the server in consequence terms ("This double-counts in velocity", "Phases group work; assign the tasks inside it instead") — never structural terms like "WBS L1 root" or "summary task". The frontend renders the server `detail` verbatim; it does not synthesize its own jargon copy.
+
+## Design System v2.0 — Navy/Sage Brand (ADR-0102)
+
+> The full token + role mapping is ADR-0102; the gold standard is the brand
+> package at `packages/web/brand/` (`brand-guidelines.html`). `brand-primary` is
+> now mode-aware **sage** (sage-600 #3E8C6D light / sage-400 #66B998 dark) — it
+> reverses itself, so most pre-v2 rules that cite `brand-primary` are still
+> correct; only the green hex *figures* changed. Rules 142–148 are the deltas.
+
+142. **The brand mark is the duotone dependency-arrow `LogoMark`** (`Icons.tsx`) — navy nodes (`fill-navy-700 dark:fill-reversed`) + sage arrow (`fill-sage-500`, holds in both modes). Never `currentColor` (it is two-color). The wordmark (`Logo.tsx`) is **"True" navy + "PPM" sage**, `font-display` (Space Grotesk) Bold `-0.02em`, no space; the accessible name lives on the lockup's `aria-label` (the visible text is split across spans — assert it via `getByLabelText`/`getByRole`, never `getByText('TruePPM')`). Render ≥24px; below 28px use the favicon build.
+
+143. **Sage shade discipline (WCAG).** sage-500 `#4FA884` = **fills only**, always with navy text (navy-on-sage 6.8:1); it is ~2.9:1 on white so it is **never** body text, a foreground icon, or a thin border on a light surface. sage-600 `#3E8C6D` = foreground text / link / ring / border on light (4.6:1). sage-400 `#66B998` = text/affordance on **dark**. Putting sage-500 on white as a foreground is a 1.4.3 failure — use sage-600.
+
+144. **Primary actions use the shared `Button` component** (`src/components/Button.tsx`), not ad-hoc `bg-brand-primary` fills. `variant="primary"` is the brand recipe `bg-sage-500 text-navy-900 border-sage-600` (+ sage-400 fill on dark). New primary/secondary/ghost/danger buttons import `Button`; do not hand-roll the fill recipe.
+
+145. **Semantic amber/red: brand hue is a FILL, on-light text keeps the AA-dark variant.** at-risk fill/dot `#DE9326` but text/border `#92400E`; critical fill/dot `#CF4438` but text/border `#B91C1C`. Never set `text-semantic-at-risk`/`text-semantic-critical` to the brand hue — those brand values fail AA as text on white (2.4:1 / 4.0:1). on-track `#3E8C6D` and info `#2F6FD1` are AA as text and used directly.
+
+146. **Canvas selection ring is navy/reversed, never sage** (rule 83). Because sage carries both action and positive-state, the navy ring is what stays visible on a sage complete bar. Triad: complete = sage *fill*, today = sage *line*, selected = navy *ring*. Two sage meanings on one surface must differ by component geometry + a text/icon label, never hue alone (1.4.1).
+
+147. **Body ink and dark surfaces are navy.** `--neutral-text-primary` = navy `#1B2A4A` (light) / reversed `#E9EDF3` (dark). Dark surfaces are navy: `--neutral-surface` #15223C, `--chrome-surface` #0E1626. (Canvas bar-label `COLOR.text` stays `#1A1917` — legibility-tuned for bar fills, rule 72; the divergence is intentional.)
+
+148. **Three type families (brand §06):** `font-display` (Space Grotesk) for display/wordmark/big numbers; `font-sans` (Inter) for UI/body; `.tppm-mono` (JetBrains Mono, rule 8c) for data. Load via the `index.html` Google-Fonts link.
