@@ -11,10 +11,10 @@ TruePPM has two ways to break work down:
 
 | Mechanism | Created via | CPM participation | Use when |
 |---|---|---|---|
-| **Child tasks under a phase** | Gantt indent (Tab key / context menu) | Yes — each task gets its own duration, float, dependencies, resource assignments | The sub-items need to be sequenced, separately resourced, or tracked on the Gantt |
+| **Child tasks under a phase** | Schedule-view indent (Tab key / context menu) | Yes — each task gets its own duration, float, dependencies, resource assignments | The sub-items need to be sequenced, separately resourced, or tracked on the Schedule view |
 | **Subtasks** | Task detail drawer | No — the parent task is the CPM node | The sub-items are the assignee's to-do list for a single deliverable |
 
-The practical test: _if any of the sub-items could end up on the critical path, or if a PM needs to see them on the Gantt, make them child tasks under a phase._ If they're internal steps that only the task owner cares about, use subtasks.
+The practical test: _if any of the sub-items could end up on the critical path, or if a PM needs to see them on the Schedule view, make them child tasks under a phase._ If they're internal steps that only the task owner cares about, use subtasks.
 
 ### Example
 
@@ -26,7 +26,7 @@ A task called **"Write requirements document"** might have subtasks:
 - Circulate for review
 - Incorporate feedback
 
-None of these need their own Gantt bar. The PM cares only that "Write requirements document" finishes by Friday. The subtasks are the author's own workflow for getting there.
+None of these need their own Schedule-view bar. The PM cares only that "Write requirements document" finishes by Friday. The subtasks are the author's own workflow for getting there.
 
 If, on the other hand, the work is **"Design → Build → Test"**, those belong as three separate tasks under a phase — they have distinct durations, different assignees, and a Finish-to-Start dependency chain the scheduler needs to know about.
 
@@ -52,9 +52,9 @@ If a subtask is added to a task that belongs to an active sprint, TruePPM record
 
 Subtasks appear in board columns by default (they have status and assignee). Use the **Hide subtasks** toggle in the board filter bar to declutter the board view if your team prefers to work at the task level only.
 
-### Gantt visibility
+### Schedule-view visibility
 
-Subtasks are hidden from the Gantt by default. The parent task renders as a summary bar with a subtask count badge. Expanding the parent inlines the subtask bars as indented leaf rows beneath it.
+Subtasks are hidden from the Schedule view by default. The parent task renders as a summary bar with a subtask count badge. Expanding the parent inlines the subtask bars as indented leaf rows beneath it.
 
 ## When to use which
 
@@ -64,6 +64,6 @@ Subtasks are hidden from the Gantt by default. The parent task renders as a summ
 | Decomposing a deliverable into steps only the assignee tracks | Subtasks |
 | Work that has separate owners, durations, or deadlines | Child tasks under a phase |
 | Items that must be sequenced with Finish-to-Start dependencies | Child tasks under a phase |
-| Items a PM wants visible on the Gantt | Child tasks under a phase |
+| Items a PM wants visible on the Schedule view | Child tasks under a phase |
 | A QA checklist inside a "QA" task | Subtasks |
 | Separate "Design", "Build", "Test" workstreams | Child tasks under a phase |

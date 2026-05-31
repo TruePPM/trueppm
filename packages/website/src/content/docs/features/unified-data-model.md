@@ -3,7 +3,7 @@ title: Unified data model
 description: How one task hierarchy powers Waterfall, Agile, and Hybrid workflows without translation layers or duplicate data.
 ---
 
-Most "hybrid" project management tools are two tools bolted together. TruePPM is not. Every view — Gantt, Board, Sprints, WBS, Schedule — reads and writes the same rows in the same database. There is no sync, no translation, no eventual consistency.
+Most "hybrid" project management tools are two tools bolted together. TruePPM is not. Every view — Schedule, Board, Sprints, WBS — reads and writes the same rows in the same database. There is no sync, no translation, no eventual consistency.
 
 This page explains the data model that makes this possible.
 
@@ -83,7 +83,7 @@ The **same tree** is the source for every view:
 | **Sprints** | Tasks where `sprint_id = current_sprint` | `story_points`, `remaining_points`, `status` |
 | **Overview** | Aggregate rollups | burndown, velocity, CPM forecast, Monte Carlo P80 |
 
-No data is copied between views. The Board's phase lanes are WBS phases. The Gantt's bars are the same rows the Board's cards render. The sprint burndown reads `remaining_points` from the same rows the Gantt uses for float.
+No data is copied between views. The Board's phase lanes are WBS phases. The Schedule view's bars are the same rows the Board's cards render. The sprint burndown reads `remaining_points` from the same rows the Schedule view uses for float.
 
 ## How each methodology uses the model
 
@@ -105,11 +105,11 @@ Typical waterfall task:
   status:         NOT_STARTED  ← board column
 ```
 
-The Gantt renders the bar from `early_start`/`early_finish`. The Board shows the task card in the NOT_STARTED column. Neither view requires any duplicate row.
+The Schedule view renders the bar from `early_start`/`early_finish`. The Board shows the task card in the NOT_STARTED column. Neither view requires any duplicate row.
 
 ### Agile
 
-An agile team works entirely with `sprint`, `story_points`, `remaining_points`, and `status`. The Gantt is hidden (via the Agile methodology preset). CPM is still computed in the background — `duration` defaults to 1 day for backlog items — but the team never looks at it. The WBS is flat or minimal.
+An agile team works entirely with `sprint`, `story_points`, `remaining_points`, and `status`. The Schedule view is hidden (via the Agile methodology preset). CPM is still computed in the background — `duration` defaults to 1 day for backlog items — but the team never looks at it. The WBS is flat or minimal.
 
 ```
 Typical agile task ("story"):
@@ -144,7 +144,7 @@ Typical hybrid task:
   status:            IN_PROGRESS
 ```
 
-Raj sees a Gantt bar with float and critical-path colouring. Maya sees a sprint card with story points and remaining effort. They're looking at the same database row. When Maya moves the card to COMPLETE, `actual_finish` is set, CPM re-runs, and Raj's Gantt updates in real time via WebSocket — without either of them touching a sync button.
+Raj sees a Schedule-view bar with float and critical-path colouring. Maya sees a sprint card with story points and remaining effort. They're looking at the same database row. When Maya moves the card to COMPLETE, `actual_finish` is set, CPM re-runs, and Raj's Schedule view updates in real time via WebSocket — without either of them touching a sync button.
 
 ## Why no translation layer
 

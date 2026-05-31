@@ -7,7 +7,7 @@ When one project's task is a predecessor for a task in another project in the sa
 
 The page has three parts:
 
-1. A **read-only 5×5 risk matrix** showing the organization-wide probability × impact thresholds.
+1. A **read-only 5×5 risk matrix** showing the Workspace-wide probability × impact thresholds.
 2. A **cross-project dependency slip** policy — the main control on this page.
 3. An **auto-escalate after** day count.
 
@@ -26,7 +26,7 @@ A program Viewer sees the page in read-only mode. Only a program Admin can chang
 
 ## The risk matrix is read-only here
 
-The 5×5 matrix (probability 1–5 × impact 1–5, scored low / medium / high / critical) is shown for reference but cannot be edited on this page. The thresholds are **organization-wide**, not per-program, so they are managed elsewhere and rendered here read-only so program admins can see the scale their slip policy operates against.
+The 5×5 matrix (probability 1–5 × impact 1–5, scored low / medium / high / critical) is shown for reference but cannot be edited on this page. The thresholds are **Workspace-wide**, not per-program, so they are managed elsewhere and rendered here read-only so program admins can see the scale their slip policy operates against.
 
 ## Slip propagation
 
@@ -59,7 +59,7 @@ The slip policy and the escalation days are edited together and saved together v
 ## FAQ
 
 **Why can't I edit the risk matrix here?**
-The probability/impact thresholds are organization-wide so that risk scores mean the same thing across every program. They are shown here read-only as the reference scale; editing them is a separate, org-level concern.
+The probability/impact thresholds are Workspace-wide so that risk scores mean the same thing across every program. They are shown here read-only as the reference scale; editing them is a separate, Workspace-level concern.
 
 **Does the slip policy apply across programs?**
 No. It applies only to dependencies between projects within the same program. Cross-program coordination is an Enterprise capability and is out of scope for this page.

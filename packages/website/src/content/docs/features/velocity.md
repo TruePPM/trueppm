@@ -45,5 +45,5 @@ The terminology is **forecast range**, not "velocity confidence band" — confid
 ## If you are…
 
 - **Carlos** — read the forecast range chip. The footer ADR link explains why this is defensible.
-- **Raj** — the rolling avg drives the work package re-forecast on the Gantt at Step 6.
+- **Raj** — the rolling avg drives the work package re-forecast on the Schedule view at Step 6.
 - **Maya** — own the trajectory. If the bar colour is shifting amber over multiple sprints, the team is signalling something.

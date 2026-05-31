@@ -74,9 +74,12 @@ multiple programs at once.
 
 `/programs/:id` is a three-tab shell:
 
-- **Backlog** — a shared pool of cross-project work items that any project in
-  the program can pull from. Supports four item types: epic, feature, story,
-  and task. Each item moves through a lifecycle: **proposed → pulled →
+- **Backlog** — a shared pool of cross-project **program backlog items** that
+  any project in the program can pull from. Each backlog item carries a type tag
+  that bridges PM and product-owner framings — `task`, `story`, `feature`, or
+  `epic` — but the container is always a program backlog item; the type is
+  metadata only and the Board and Schedule views still show plain task
+  vocabulary. Each item moves through a lifecycle: **proposed → pulled →
   archived**. Pulling an item creates a linked project task in the chosen
   project and marks the backlog item as pulled. Requires at least Team Member
   role on both the program and the target project.

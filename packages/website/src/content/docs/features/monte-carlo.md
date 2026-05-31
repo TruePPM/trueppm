@@ -1,10 +1,19 @@
-# Monte Carlo probabilistic scheduling
+---
+title: Monte Carlo
+description: Convert three-point task estimates into a probability distribution over the project finish date — P50, P80, and P95 with the full distribution curve.
+---
 
 TruePPM's Monte Carlo simulation converts three-point task estimates into a
 probability distribution over the project finish date. Rather than a single
 deterministic finish from CPM, you get P50, P80, and P95 dates alongside the
 full distribution curve — a complete answer to "what is the chance we finish by
 date X?"
+
+:::note[Edition]
+Monte Carlo is part of the **Community (OSS)** edition. The simulation runs in
+the standalone [`trueppm-scheduler`](/features/scheduler/) engine
+(vectorized NumPy), so it has no Django dependency.
+:::
 
 This capability is rare in open-source P3M tools. The sections below document
 exactly how it works so you can trust the numbers and explain them to
@@ -40,16 +49,15 @@ Content-Type: application/json
 ```
 
 The `n_simulations` field is optional; it defaults to the server's
-`MC_SIMULATION_CAP` setting (1 000 on OSS, configurable on Team tier). The
-endpoint is synchronous and fast — under 100 ms for a 200-task project at 10 000
+`MC_SIMULATION_CAP` setting (1,000 on OSS, unlimited on Enterprise). The
+endpoint is synchronous and fast — under 100 ms for a 200-task project at 10,000
 runs.
 
-The endpoint also enforces a **task cap** (`MC_TASK_CAP`, 5 000 on OSS): a project
+The endpoint also enforces a **task cap** (`MC_TASK_CAP`, 5,000 on OSS): a project
 with more tasks than the cap returns HTTP 402 rather than running an unbounded
-simulation. The vectorised engine handles a 5 000-task × 1 000-run simulation in a
+simulation. The vectorized engine handles a 5,000-task × 1,000-run simulation in a
 few seconds; operators on constrained hardware can lower the cap, and Enterprise
-removes it. (Earlier builds capped this at 500, well below the 10k-task scaling
-target — raised so Monte Carlo is available for realistic large projects.)
+removes it.
 
 ### Step 3 — Read the output
 
@@ -60,7 +68,7 @@ target — raised so Monte Carlo is available for realistic large projects.)
   "p50": "2025-11-14",
   "p80": "2025-12-02",
   "p95": "2026-01-08",
-  "distribution": ["2025-10-21", "2025-10-22", ...]
+  "distribution": ["2025-10-21", "2025-10-22", "..."]
 }
 ```
 
@@ -70,6 +78,12 @@ target — raised so Monte Carlo is available for realistic large projects.)
 | `p80` | 80% of runs finished by this date. The standard commitment date for most project plans. |
 | `p95` | 95% of runs finished by this date. Use for contractual deadlines and hard external commitments. |
 | `distribution` | Full sorted list of all simulated finish dates. Use this to render a histogram or answer "what is the probability of finishing by date X?" |
+
+The most recent result is also available without re-running the simulation:
+
+```
+GET /api/v1/projects/<project_id>/monte-carlo/latest/
+```
 
 ## The math
 
@@ -96,15 +110,15 @@ Note that σ is one-sixth of the full range. A task with O = 3, M = 10, P = 17
 (a 14-day spread) has σ ≈ 2.3 days. This is by design — PERT encodes the
 assumption that extreme outcomes are genuinely unlikely.
 
-### Beta parameterisation
+### Beta parameterization
 
 The PERT distribution is a Beta distribution scaled to the interval `[O, P]`.
 Parameters α and β are derived by method-of-moments from the PERT mean and
 variance:
 
 ```
-μ_norm  = (μ − O) / (P − O)         # normalise mean to [0, 1]
-var_norm = σ² / (P − O)²            # normalise variance
+μ_norm  = (μ − O) / (P − O)         # normalize mean to [0, 1]
+var_norm = σ² / (P − O)²            # normalize variance
 κ       = μ_norm · (1 − μ_norm) / var_norm − 1
 α       = μ_norm · κ
 β       = (1 − μ_norm) · κ
@@ -117,7 +131,7 @@ duration_sample = O + Beta(α, β) · (P − O)
 ```
 
 For the symmetric example O = 3, M = 10, P = 17, this produces `Beta(4, 4)` —
-a unimodal distribution centred at 10 days whose standard deviation in the
+a unimodal distribution centered at 10 days whose standard deviation in the
 scaled domain is exactly `(P − O) / 6 = 2.33 days`. The PERT approximation is
 exact for symmetric inputs.
 
@@ -130,7 +144,7 @@ Degenerate cases are handled explicitly:
 ### CPM forward pass
 
 The simulation pre-computes an `(n_runs × n_tasks)` duration matrix — all
-sampled durations for all runs — using vectorised NumPy operations. It then
+sampled durations for all runs — using vectorized NumPy operations. It then
 evaluates the CPM forward pass `n_runs` times in parallel, respecting all four
 dependency types (FS, FF, SS, SF) and lead/lag offsets. Working-day calendars
 are applied when converting numeric offsets back to finish dates.
@@ -138,7 +152,7 @@ are applied when converting numeric offsets back to finish dates.
 Project finish for each run is `max(early_finish)` across all tasks. The full
 set of simulated finish dates is sorted to produce the percentile output.
 
-At 10 000 runs on a 200-task project, the full simulation completes in under
+At 10,000 runs on a 200-task project, the full simulation completes in under
 100 ms on commodity hardware (Apple M-series or equivalent x86-64).
 
 ### Why the Central Limit Theorem compresses your spread
@@ -160,19 +174,19 @@ primarily by how genuinely pessimistic your P estimates are.
 
 ### Statistical precision at low run counts
 
-At 1 000 runs (OSS tier default), the P95 estimate is based on the top 50
+At 1,000 runs (OSS default), the P95 estimate is based on the top 50
 samples. The binomial standard error on a P95 estimate at this sample size is
 roughly ±1.4 percentage points, meaning your "P95" line could realistically
 represent anywhere from P93 to P97. P80 is more stable (200 samples in the
 tail), and P50 is very stable (500 samples on each side).
 
-For planning conversations where the tail matters, Team tier's higher run cap
-produces meaningfully more stable P80 and P95 estimates.
+For planning conversations where the tail matters, the Enterprise edition's
+higher run cap produces meaningfully more stable P80 and P95 estimates.
 
-| Tier | Max runs | P50 stability | P80 stability | P95 stability |
+| Edition | Max runs | P50 stability | P80 stability | P95 stability |
 |---|---|---|---|---|
-| OSS | 1 000 | Good | Acceptable | Noisy (±1.4 pp) |
-| Team | Unlimited | Good | Good | Good at 10 000+ |
+| Community (OSS) | 1,000 | Good | Acceptable | Noisy (±1.4 pp) |
+| Enterprise | Unlimited | Good | Good | Good at 10,000+ |
 
 ### Task durations are sampled independently
 
@@ -193,11 +207,11 @@ The CPM forward pass assumes unlimited resources: two tasks that are both
 earliest-feasible on the same calendar day are treated as fully parallel. If
 your project has a bottlenecked resource — a single specialist assigned to
 sequential critical-path tasks — the simulation will produce dates that are
-optimistic relative to the resource-levelled schedule.
+optimistic relative to the resource-leveled schedule.
 
 **Mitigation:** Ensure your `duration` and three-point estimates reflect
 realistic resource availability, not theoretical parallel execution. If you have
-a resource-levelled CPM baseline, use its task durations as your M values.
+a resource-leveled CPM baseline, use its task durations as your M values.
 
 ### P estimates must be genuinely pessimistic
 
@@ -210,16 +224,16 @@ that requires a rework cycle — not just a scheduling buffer.
 A well-calibrated three-point estimate typically has P at 2–4× the O value,
 not 1.2× M.
 
-## OSS tier limits
+## OSS edition limits
 
-| Limit | OSS default | Team tier |
+| Limit | OSS default | Enterprise |
 |---|---|---|
-| Max runs per request (`MC_SIMULATION_CAP`) | 1 000 | Unlimited |
-| Max tasks per project (`MC_TASK_CAP`) | 500 | Unlimited |
+| Max runs per request (`MC_SIMULATION_CAP`) | 1,000 | Unlimited |
+| Max tasks per project (`MC_TASK_CAP`) | 5,000 | Unlimited |
 
 Both settings can be changed in `settings/base.py` (or a local override). The
-Team tier enterprise package sets both to `None` (unlimited) in its settings
-include. Self-hosted OSS operators may set any integer or `None` in their local
+Enterprise package sets both to `None` (unlimited) in its settings include.
+Self-hosted OSS operators may set any integer or `None` in their local
 settings — the cap is advisory, not license-enforced.
 
 Exceeding either cap returns HTTP 402 with a structured error body:
@@ -228,7 +242,7 @@ Exceeding either cap returns HTTP 402 with a structured error body:
 {
   "error": "simulation_cap_exceeded",
   "tier": "team",
-  "message": "OSS tier supports up to 1000 simulations per run. Upgrade to Team tier for unlimited simulations."
+  "message": "Simulation count exceeds the community-edition cap."
 }
 ```
 
@@ -246,7 +260,8 @@ estimates.
 
 **Use P95 for hard external commitments.** Contractual deadlines, public launch
 dates, and regulatory submissions warrant a 95th-percentile buffer. At OSS run
-counts the P95 value is noisy; run at Team tier for meaningful precision.
+counts the P95 value is noisy; run at the Enterprise edition's higher cap for
+meaningful precision.
 
 **Do not commit to P50.** A P50 date has a 50% probability of being missed by
 definition. Committing to it is equivalent to flipping a coin on every project.
