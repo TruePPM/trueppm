@@ -103,7 +103,7 @@ must always be supplied via a Kubernetes Secret referenced through `env`.
 
 :::note
 The Helm chart is functional with dev and prod values overlays and was hardened
-for secure-by-default installs; further updates ship in 0.2 (target Jun 8, 2026).
+for secure-by-default installs; further updates landed in 0.2 (available since the `0.2.0-alpha.1` pre-release; stable 0.2.0 targets Jun 8, 2026).
 Large-scale production hardening (HA Postgres, dedicated Valkey, autoscaling
 policies) is on the pre-1.0 roadmap.
 :::

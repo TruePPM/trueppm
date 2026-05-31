@@ -4,8 +4,8 @@ description: The workspace-admin System Health console — inspect durable-execu
 ---
 
 
-:::note[0.2 — in progress]
-This page documents functionality that ships in **TruePPM 0.2** (target Jun 8, 2026). It is not available on the current 0.1 release.
+:::note[Added in 0.2 (alpha)]
+This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is in alpha; the stable 0.2.0 release targets Jun 8, 2026.
 :::
 
 TruePPM runs scheduling, notifications, webhooks, MS Project imports, and retention

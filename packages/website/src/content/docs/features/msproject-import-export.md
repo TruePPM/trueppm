@@ -3,11 +3,12 @@ title: MS Project import & export
 description: Create a project from a Microsoft Project file, import tasks into an existing project, export to MS Project XML, round-trip three-point / PERT estimates, and review import history.
 ---
 
-:::note[0.1 shipped · 0.2 in progress]
+:::note[0.1 shipped · 0.2 in alpha]
 The import/export REST endpoints shipped in 0.1. The in-app create-from-import
 flow (with the format picker), the import-into-existing dialog,
-three-point / PERT round-trip, and the project import-history surface all
-**ship in 0.2** (target Jun 8, 2026). Additional importers — Primavera P6,
+three-point / PERT round-trip, and the project import-history surface were all
+**added in 0.2**, available since the `0.2.0-alpha.1` pre-release; the stable
+0.2.0 release targets Jun 8, 2026. Additional importers — Primavera P6,
 GanttProject, OmniPlan, ProjectLibre, and the top-10 PM tools (Jira, Asana,
 Trello, Notion, Linear, and more) — are planned for 0.5.
 :::

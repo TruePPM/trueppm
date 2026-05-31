@@ -4,8 +4,8 @@ description: Per-task attachments, threaded comments, @mention notifications, an
 ---
 
 
-:::note[0.2 — in progress]
-This page documents functionality that ships in **TruePPM 0.2** (target Jun 8, 2026). It is not available on the current 0.1 release.
+:::note[Added in 0.2 (alpha)]
+This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is in alpha; the stable 0.2.0 release targets Jun 8, 2026.
 :::
 
 Every task has its own attachment grid and comment thread inside the detail
@@ -117,7 +117,7 @@ Two structurally distinct signals sit on every comment:
   with project access. Neither reactions nor acknowledgements ever trigger a
   notification — they're soft signals, not pings.
 
-The 0.2 reaction allow-list (shipping Jun 8, 2026) is `{"👍"}` only; the full
+The 0.2 reaction allow-list is `{"👍"}` only; the full
 emoji picker will land in 0.3.
 
 ## Notifications
@@ -155,7 +155,7 @@ notification read on the way.
 `/me/settings/notifications/` exposes the per-`(event_type, channel)`
 preference matrix. On desktop it renders as a `<table>` — one row per event,
 one column per channel. On mobile each event becomes its own card with
-channel sub-rows. The two mention events landing in 0.2 — each with an in-app and an email toggle — are:
+channel sub-rows. The two mention events added in 0.2 — each with an in-app and an email toggle — are:
 
 | Event | In-app | Email |
 |---|---|---|

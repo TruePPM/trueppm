@@ -4,8 +4,8 @@ description: Outbound HTTP callbacks for project events — integrate TruePPM wi
 ---
 
 
-:::note[0.2 — new events in progress]
-The base webhook delivery feature shipped in 0.1. The four new event types described here (`task.*` lifecycle additions) ship in **TruePPM 0.2** (target Jun 8, 2026).
+:::note[New events in 0.2 (alpha)]
+The base webhook delivery feature shipped in 0.1. The four new event types described here (`task.*` lifecycle additions) were added in **TruePPM 0.2** (available since the `0.2.0-alpha.1` pre-release; stable 0.2.0 targets Jun 8, 2026).
 :::
 
 Webhooks let you subscribe to TruePPM project events and receive an HTTP POST to a URL you control when those events occur. Common uses: posting notifications to Slack, triggering a CI pipeline when a milestone is resolved, or syncing changes to an external system.
@@ -69,7 +69,7 @@ OSS fires **11 event types** (a deliberate hard cap):
 | `schedule.recalculated` | The CPM scheduler completes a recalculation |
 | `project.created` | A new project is created in the organization |
 
-The last four task events land in 0.2 (target Jun 8, 2026). A single PATCH that both reassigns a task and moves its date fires `task.updated` **plus** the specific events — subscribe to whichever you want.
+The last four task events were added in 0.2 (available since the `0.2.0-alpha.1` pre-release; stable 0.2.0 targets Jun 8, 2026). A single PATCH that both reassigns a task and moves its date fires `task.updated` **plus** the specific events — subscribe to whichever you want.
 
 :::caution[`task.due_date_changed` currently tracks `planned_start`]
 `Task` has no dedicated deadline field yet, so this event fires when a task's **planned start** (the PM-committed date) changes. A future release adds a `planned_finish` deadline field and re-binds the event to it; the event name and payload shape stay stable.
