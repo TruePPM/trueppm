@@ -32,6 +32,19 @@ pub const MAX_PROJECT_SPAN_DAYS: i64 = 366 * 1000;
 pub fn validate_project(project: &Project) -> Result<(), String> {
     let cal = &project.calendar;
 
+    // Unique task IDs: every per-task result is keyed on Task.id, so a duplicate
+    // id silently shadows one task. Reject it as the structural error it is,
+    // matching the Python engine's _validate_project (#749).
+    let mut seen_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for t in &project.tasks {
+        if !seen_ids.insert(t.id.as_str()) {
+            return Err(format!(
+                "Duplicate task id {:?}; every task must have a unique id.",
+                t.id
+            ));
+        }
+    }
+
     // is_working_day only consults bits 0-6 (Mon-Sun); a mask with none of them
     // set (0, or only bits >= 7) has no working day at all.
     if (cal.working_days & 0b0111_1111) == 0 {
@@ -199,6 +212,12 @@ mod tests {
             ..Calendar::default()
         };
         let p = project(vec![task("A", 1)], vec![], cal);
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_duplicate_task_id() {
+        let p = project(vec![task("A", 3), task("A", 2)], vec![], Calendar::default());
         assert!(validate_project(&p).is_err());
     }
 

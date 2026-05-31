@@ -53,3 +53,20 @@ fn rejects_lag_over_max() {
 fn rejects_project_span_over_max() {
     assert_rejected("project_span_over_max");
 }
+
+#[test]
+fn rejects_blanket_exceptions() {
+    // Valid weekday mask, but `exceptions` cover the entire representable date
+    // range — no working day is reachable from the project start. Both engines
+    // reject this at the validation layer (#749). The Python conformance suite
+    // (test_invalid_fixture_rejected) asserts the same fixture on both schedule()
+    // and monte_carlo().
+    assert_rejected("blanket_exceptions");
+}
+
+#[test]
+fn rejects_duplicate_task_id() {
+    // Two tasks share an id. Per-task results are keyed on id, so a duplicate
+    // silently shadows one task; both engines reject it at validation (#749).
+    assert_rejected("duplicate_task_id");
+}

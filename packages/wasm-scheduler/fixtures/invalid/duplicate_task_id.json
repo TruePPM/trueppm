@@ -1,0 +1,16 @@
+{
+  "id": "inv-duplicate-task-id",
+  "name": "Duplicate task id",
+  "start_date": "2026-04-01",
+  "tasks": [
+    {"id": "A", "name": "First A", "duration": 259200.0},
+    {"id": "A", "name": "Second A", "duration": 172800.0}
+  ],
+  "dependencies": [],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": [],
+    "hours_per_day": 8.0,
+    "timezone": "UTC"
+  }
+}

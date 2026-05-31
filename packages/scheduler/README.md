@@ -26,7 +26,7 @@ pip install trueppm-scheduler
 from datetime import date, timedelta
 from trueppm_scheduler import schedule, Calendar, Project, Task, Dependency, DependencyType
 
-calendar = Calendar()  # Mon–Fri, 8 h/day, no holidays
+calendar = Calendar()  # Mon–Fri, no holidays (whole-day scheduling)
 task_a = Task(id="t-1", name="Design", duration=timedelta(days=5))
 task_b = Task(id="t-2", name="Build",  duration=timedelta(days=10))
 dep = Dependency(predecessor_id="t-1", successor_id="t-2", dep_type=DependencyType.FS)
@@ -44,6 +44,12 @@ result = schedule(project)
 build = next(t for t in result.tasks if t.id == "t-2")
 print(build.early_finish)  # 2026-01-23 (15 working days from 2026-01-05, across two weekends)
 ```
+
+> **Scheduling granularity.** The engine schedules in whole working-day units.
+> `Calendar.hours_per_day` and `Calendar.timezone` round-trip through
+> serialization for API parity but are **not** consumed by the CPM or Monte Carlo
+> passes — they do not change any computed date. Sub-day scheduling is a future
+> change.
 
 See [the full documentation](https://docs.trueppm.com/features/scheduler) for CPM output fields, Monte Carlo usage, and CLI reference.
 
