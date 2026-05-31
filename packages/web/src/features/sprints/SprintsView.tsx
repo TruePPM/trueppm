@@ -21,6 +21,8 @@ import { CapacityPreflight } from './CapacityPreflight';
 import { VelocityPanel } from './VelocityPanel';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { SprintBacklogTable } from './SprintBacklogTable';
+import { GuardrailHealthBadges } from './GuardrailHealthBadges';
+import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { MultiTeamLens } from './MultiTeamLens';
 import { PlanSprintModal } from './PlanSprintModal';
 import {
@@ -88,6 +90,11 @@ export function SprintsView() {
   const buckets = useSprintsByState(projectId);
   const { closeSprint, activateSprint } = useSprintMutations(projectId);
   const { resourceId: myResourceId } = useCurrentUserResourceId(projectId ?? undefined);
+  // Project-wide tasks feed the Tier-3 health badges (ADR-0101 §4) — orphan
+  // and summary-in-sprint counts are *project*-level, not per-sprint, so they
+  // can't be computed from `backlogTasks` (active sprint only). TanStack Query
+  // caches this list with the Schedule view, so we don't refetch on tab swap.
+  const { tasks: projectTasks } = useScheduleTasks(projectId ?? undefined);
   // SCHEDULER+ can pull retro action items into a PLANNED sprint.
   const { role: currentRole } = useCurrentUserRole(projectId ?? undefined);
   const canPullCarryover = (currentRole ?? -1) >= ROLE_SCHEDULER;
@@ -321,6 +328,13 @@ export function SprintsView() {
           onClose={() => setFilterOpen(false)}
         />
       )}
+
+      {/* Tier-3 health badges (ADR-0101 §4) — read-only signals computed
+          client-side from `projectTasks`; renders nothing when all counts
+          are zero so the surface fades away on healthy projects. */}
+      <div className="mx-6 mt-2">
+        <GuardrailHealthBadges tasks={projectTasks ?? []} activeSprint={activeSprint} />
+      </div>
 
       {capacityWarnings.length > 0 && (
         <div

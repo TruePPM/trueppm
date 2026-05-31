@@ -10,9 +10,14 @@ import {
   useReorderTasks,
   parseMilestoneRollupLockedError,
   parseProgressAnchorError,
+  parseGuardrailWarnings,
+  parseGuardrailBlockedError,
   useToggleComplete,
   useDuplicateTask,
+  type GuardrailWarning,
 } from '@/hooks/useTaskMutations';
+import { GuardrailNotice } from './sections/GuardrailNotice';
+import { GuardrailBlock } from './sections/GuardrailBlock';
 import { useDragStore } from '@/stores/dragStore';
 import { AssigneeChips } from './AssigneeChips';
 import {
@@ -208,6 +213,16 @@ function TaskListRowInner({
 
   // #346: sprint prompt visibility
   const [showSprintPrompt, setShowSprintPrompt] = useState(false);
+
+  // #875: outcome state for the post-commit sprint assignment — surfaces a
+  // GuardrailNotice (warn, with one-tap override + undo) or GuardrailBlock
+  // (Owner-escalated, no override) anchored to the same position as the
+  // SprintPrompt so the build-mode user sees the consequence inline without
+  // leaving the row. `priorSprintId` lets Undo revert the assignment.
+  type SprintOutcome =
+    | { kind: 'warn'; warnings: GuardrailWarning[]; priorSprintId: string | null }
+    | { kind: 'block'; detail: string };
+  const [sprintOutcome, setSprintOutcome] = useState<SprintOutcome | null>(null);
 
   const isBuildSelected = buildMode?.focus.isRowFocused(task.id) ?? false;
   const editingColumnName = buildMode?.focus.isCellInEdit(task.id, 'name') ?? false;
@@ -585,6 +600,12 @@ function TaskListRowInner({
         }
       }}
       onKeyDown={(e) => {
+        // When the sprint-outcome panel is mounted (warn/block after SprintPrompt
+        // committed), any key originating inside it — especially Space typed into
+        // the optional reason input, or Esc to dismiss — must not bubble into
+        // the row's Mark-Complete / clear-focus shortcuts. ADR-0101 §2: the
+        // warn reason field is always optional and never blocked from input.
+        if (sprintOutcome && e.target !== e.currentTarget) return;
         // Build-mode owns Tab/Letter/Delete/Esc on the row; let it run first.
         if (buildMode) {
           handleBuildKeyDown(e);
@@ -1049,24 +1070,82 @@ function TaskListRowInner({
           {!task.isSummary && <AssigneeChips assignees={task.assignees} size="md" max={3} />}
         </div>
       )}
-      {/* Sprint assignment prompt after name commit in agile mode (#346) */}
-      {buildMode && showSprintPrompt && (
+      {/* Sprint assignment prompt after name commit in agile mode (#346).
+          When the commit trips a Tier-1 warn or an Owner-escalated Tier-2 block
+          (ADR-0101), the prompt is replaced by the corresponding outcome panel
+          anchored to the same position rather than closing silently. */}
+      {buildMode && showSprintPrompt && !sprintOutcome && (
         <SprintPrompt
           open={showSprintPrompt}
           projectId={projectId || null}
           onSelect={(sprintId, storyPoints) => {
-            if (projectId) {
-              updateTask.mutate({
+            if (!projectId) {
+              setShowSprintPrompt(false);
+              return;
+            }
+            const priorSprintId = task.sprintId ?? null;
+            updateTask.mutate(
+              {
                 id: task.id,
                 projectId,
                 sprint: sprintId,
                 story_points: storyPoints,
-              });
-            }
-            setShowSprintPrompt(false);
+              },
+              {
+                onSuccess: (data) => {
+                  const w = parseGuardrailWarnings(data);
+                  if (w.length > 0) {
+                    setSprintOutcome({ kind: 'warn', warnings: w, priorSprintId });
+                  } else {
+                    setShowSprintPrompt(false);
+                  }
+                },
+                onError: (err) => {
+                  const b = parseGuardrailBlockedError(err);
+                  if (b) {
+                    setSprintOutcome({ kind: 'block', detail: b.detail });
+                  } else {
+                    setShowSprintPrompt(false);
+                  }
+                },
+              },
+            );
           }}
           onDismiss={() => setShowSprintPrompt(false)}
         />
+      )}
+      {buildMode && sprintOutcome && (
+        <div className="absolute top-full left-0 z-50 w-[260px] mt-0.5">
+          {sprintOutcome.kind === 'warn' ? (
+            <GuardrailNotice
+              warnings={sprintOutcome.warnings}
+              onKeep={() => {
+                setSprintOutcome(null);
+                setShowSprintPrompt(false);
+              }}
+              onUndo={() => {
+                if (projectId) {
+                  // Re-PATCH to the prior sprint to revert the override.
+                  updateTask.mutate({
+                    id: task.id,
+                    projectId,
+                    sprint: sprintOutcome.priorSprintId,
+                  });
+                }
+                setSprintOutcome(null);
+                setShowSprintPrompt(false);
+              }}
+            />
+          ) : (
+            <GuardrailBlock
+              detail={sprintOutcome.detail}
+              onDismiss={() => {
+                setSprintOutcome(null);
+                setShowSprintPrompt(false);
+              }}
+            />
+          )}
+        </div>
       )}
       {buildMode && menuAnchor && (
         <BuildModeRowMenu
