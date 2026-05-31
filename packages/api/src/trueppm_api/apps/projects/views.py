@@ -5664,7 +5664,7 @@ class SprintViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Sprint]):
         return Response({"task": TaskSerializer(task).data}, status=status.HTTP_200_OK)
 
 
-class SprintScopeChangeViewSet(viewsets.GenericViewSet[Any]):
+class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
     """Single-item accept/reject for mid-sprint scope injections (ADR-0102 §5).
 
     ``POST /api/v1/scope-changes/{id}/accept/`` and ``/reject/``. Permission is

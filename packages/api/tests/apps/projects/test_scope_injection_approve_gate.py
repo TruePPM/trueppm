@@ -527,7 +527,10 @@ def test_pending_task_sprint_cannot_be_changed_via_generic_patch(
     bypass where a member-assignee — or the sync upload — could un-gate a pending
     injection through TaskSerializer, stranding the flag + skipping the audit row).
     """
-    pending = _task(project, "Pending", sprint=sprint, story_points=3)
+    # The member must be the task's assignee, otherwise IsProjectMemberWriteOrOwn
+    # rejects the PATCH at the object-permission layer (403) before the serializer
+    # guard runs — and it is the serializer guard (400) we are exercising here.
+    pending = _task(project, "Pending", sprint=sprint, story_points=3, assignee=member)
     _inject(pending, sprint, owner)
     client = APIClient()
     client.force_authenticate(user=member)

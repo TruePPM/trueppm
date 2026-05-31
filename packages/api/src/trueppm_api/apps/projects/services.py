@@ -1071,11 +1071,24 @@ def apply_pending_disposition(sprint: Any, disposition: str, by: Any = None) -> 
             task = Task.objects.select_for_update().filter(pk=row.task_id).first()
             row.status = ScopeChangeStatus.REJECTED
             row.save(update_fields=["status"])
-            if task is not None and task.sprint_id == sprint.pk:
-                task.sprint = None
+            if task is None:
+                continue
+            # Reject means the injection never joins the commitment — clear the
+            # pending flag regardless of where carry-over already left the task
+            # (e.g. carry_over_to="backlog" moved it off this sprint *before* this
+            # disposition runs, so a `sprint_id == sprint.pk` guard would strand
+            # the flag True). If the task is still on the closing sprint, also
+            # remove it from the sprint.
+            update_fields: list[str] = []
+            if task.sprint_pending:
                 task.sprint_pending = False
+                update_fields.append("sprint_pending")
+            if task.sprint_id == sprint.pk:
+                task.sprint = None
+                update_fields.append("sprint")
+            if update_fields:
                 task._change_reason = "scope rejected at sprint close"  # type: ignore[attr-defined]
-                task.save(update_fields=["sprint", "sprint_pending"])
+                task.save(update_fields=update_fields)
         return
 
     # carry (default): re-flag the carried task in its NEW sprint and record a
