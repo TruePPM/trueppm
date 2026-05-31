@@ -24,11 +24,9 @@ Foundation for self-hosted, scheduling-first PPM. Everything below is in `main` 
 | Platform | REST API, 5-role RBAC, real-time WebSocket, offline sync (WatermelonDB-compatible), application shell, project settings RBAC UI (#144) |
 | Operations | Helm 3 chart, Docker images, PyPI publish path for `trueppm-scheduler` (#301) |
 
-## Underway
+### 0.2 — settings, administration & consolidation (alpha: May 31, 2026)
 
-### 0.2 — settings, administration & consolidation (target: Jun 8, 2026)
-
-A broad consolidation release — the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration path. In progress; every item below ships before the 0.2 tag.
+A broad consolidation release — the settings/administration platform, program foundations, board and schedule depth, and the first import/export migration path. Shipped as the **0.2.0-alpha.1** pre-release (tagged May 31, 2026), with `trueppm-scheduler` published to PyPI at **0.2.0a1**. Everything below is in `main` and tagged. The stable **0.2.0** release follows (target Jun 8, 2026).
 
 - **Settings shell** — Workspace / Program / Project scope switcher with General, Members, Groups & teams, Roles, Methodology, Workflow, Notifications, Access, Integrations, and lifecycle pages on real APIs
 - **Program entity (OSS)** (#502) — container for related projects with rollup KPIs, cadence, and cross-project risk policy; program backlog with epic/feature/story/task item types and proposed→pulled→archived lifecycle (#733 #737 #739)
@@ -38,9 +36,9 @@ A broad consolidation release — the settings/administration platform, program 
 - **Sprint workspace**, recurring tasks, custom/fractional work hours, overallocation warnings
 - **Durable execution** — outbox dispatch hardening, Beat heartbeat, dead-letter alerting, retention purge with UI editor and purge log, Idempotency-Key support, webhook sequence numbers
 - **Integrations & notifications** — Git-aware tasks (#637), Slack webhook (#638), email notifications (#639), notification dispatcher + preference matrix
-- **Packaging** — `trueppm-scheduler` republished to PyPI at 0.2.0a1 (Development Status remains Alpha)
+- **Packaging** — `trueppm-scheduler` published to PyPI at 0.2.0a1 (Development Status remains Alpha)
 
-## Planned
+## Underway
 
 From 0.3 onward each release **lands one primary persona** — it ships the feature that turns that persona from interested into advocate — while the hybrid agile/waterfall bridge deepens underneath. The sequence expands by org scope: an agile team first, then the field PM, the people who staff the work, the product owner, and finally the program that ties projects together. Everything here is OSS; portfolio governance stays in the enterprise edition (below) and is intentionally absent until after 1.0. We ship a new release every 3–4 weeks — the cadence is part of the commitment, so adopters can plan against it.
 
@@ -54,6 +52,8 @@ From 0.3 onward each release **lands one primary persona** — it ships the feat
 - **Agile depth** — task-type taxonomy, epic/initiative hierarchy, dual backlog, Product Owner role, acceptance criteria, sprint planning / forecast / grooming views
 - **Hybrid foundation** — governance-class / delivery-mode model, parent rollup engine, agile-aware Monte Carlo, Kanban delivery mode
 - **Sample projects + universal JSON import/export** (epic #613) — agile / waterfall / hybrid demo data with the bridge wow preloaded
+
+## Planned
 
 ### 0.4 — mobile & the field PM (target: Jul 27 – Aug 3, 2026)
 

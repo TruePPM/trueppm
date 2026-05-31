@@ -4,8 +4,8 @@ description: Repeat a task on a calendar cadence — standups, weekly walks, mon
 ---
 
 
-:::note[0.2 — in progress]
-This page documents functionality that ships in **TruePPM 0.2** (target Jun 8, 2026). It is not available on the current 0.1 release.
+:::note[Added in 0.2 (alpha)]
+This page documents functionality added in **TruePPM 0.2**, available since the `0.2.0-alpha.1` pre-release (May 31, 2026). 0.2 is in alpha; the stable 0.2.0 release targets Jun 8, 2026.
 :::
 
 Recurring tasks let you repeat a task on a calendar cadence — a daily standup, a weekly safety walk, a monthly steering review — without hand-creating each instance. You configure the cadence once on a template task, and TruePPM spawns the upcoming occurrences for you.
