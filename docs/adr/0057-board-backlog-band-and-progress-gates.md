@@ -227,6 +227,31 @@ can step back toward neutral without losing the affordance.
 The workshop variant of `LaneMeta` is unchanged (contentEditable name +
 drag handle); the inline bar applies in workshop mode as well.
 
+## Consequences
+
+**Positive:**
+- Phase progress, the capacity heat map, and Monte Carlo input all draw from
+  the single ORM-enforced `Task.committed` manager, so BACKLOG intake work no
+  longer drags the progress denominator or pushes resources into the
+  over-allocated band on uncommitted cards (David's capacity-bleed hard-NO and
+  Marcus's data-trust concern are addressed at the data layer, not per consumer).
+- The left-side BACKLOG rail makes intake phase-agnostic without a schema change,
+  removing premature phase assignment and BACKLOG pollution from Schedule and PDF
+  exports. Drawer and Queue layout variants reuse the same `backlog-band` droppable.
+- Demotion out of a committed state is gated (confirm + free audit via
+  `simple_history`) and forward-from-started demotion is blocked, closing the
+  "scope slips in quietly" pattern.
+
+**Costs / limitations:**
+- Consumers must opt in to `Task.committed`; the default `Task.objects` still
+  returns BACKLOG, so any new aggregation that forgets to switch managers
+  reintroduces the bleed. This is mitigated by being greppable in one place.
+- The committed/BACKLOG partition is a view-layer convention over WBS L1 phases
+  (no `phase_id` FK), so the renderer must keep ignoring `parent_id` for BACKLOG
+  cards; existing parented BACKLOG cards are tolerated with no migration.
+- Several promised refinements (progress-anchor gate, auto-promote, demote-reason
+  capture, assignee push notification) are deferred — see "Out of scope" below.
+
 ## Out of scope (split to #362, milestone 0.2)
 
 - Progress-anchor gate (`progress_requires_anchor` 400 + inline
@@ -259,3 +284,9 @@ ADR-0047 (status-aware computation).
   only") was scoped out of 0.1 to keep the diff focused. The em-dash
   empty state on `LaneMeta` already signals the change visually for
   phases that drop to zero committed cards after the partition.
+
+## Tracking
+
+Tracking: implemented across epic #361 children (#381–#385). The progress-anchor gate
+and auto-promote are tracked by #362; the demote-reason capture and sprint-membership-as-
+CPM-anchor follow-ups are deferred — not yet filed.

@@ -1,7 +1,7 @@
 # ADR-0033: Resource Pool, Skills, and Project Roster Management
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #149, #150
 
 ## Context
 

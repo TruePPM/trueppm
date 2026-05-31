@@ -1,8 +1,6 @@
 # ADR-0050: Task Detail Drawer Section Extension Points
 
-## Status
-
-Accepted
+## Status: Accepted
 
 ## Context
 
@@ -65,6 +63,27 @@ Enterprise picks priorities between OSS values (e.g. Custom Fields at 250, betwe
 3. **Ordering** — numeric priority (existing `WidgetRegistry` field). Documented OSS / Enterprise convention above.
 4. **Mobile** — out of scope for milestone 0.1. Mobile drawers (`RiskDrawer`, `ResourceOverallocationDrawer`) share content components between desktop side-panel and mobile bottom-sheet shells; extending that pattern to `TaskDetailDrawer` is a separate refactor. When mobile picks up, it will read from the same `WidgetRegistry` — no second registry. File a follow-up against milestone 0.2.
 5. **Permission gating** — section-internal by default. The optional `canRender(ctx)` predicate hides a section entirely when it shouldn't appear at all (e.g. unlicensed feature). Control-level gating (`+ Add field` visible only to admins) is the section's own responsibility.
+
+### Fetcher contract (what an extension-point section must declare)
+
+"Sections own their fetchers" (Q2) requires a contract so that registry-driven sections
+remain API-first and cache-coherent. A section that fetches data must declare:
+
+1. **Endpoint** — a named REST path it reads from, expressed in the API-first form
+   `<METHOD> /api/v1/...` (e.g. the History section reads
+   `GET /api/v1/projects/{projectId}/tasks/{taskId}/history/`; the Baseline section reads
+   the baseline detail route). A section may not invent an implicit data source — if the
+   data is not behind a REST endpoint, it does not exist (CLAUDE.md API-first principle).
+   Enterprise sections name endpoints that live in `trueppm-enterprise`.
+2. **Cache key** — a stable, documented TanStack Query key namespaced by the section so
+   two sections never collide and invalidation is predictable, e.g.
+   `["task-history", projectId, taskId]`, `["task-baseline", projectId, taskId]`. The key
+   must include `taskId` (and `projectId` where the endpoint is project-scoped) so the
+   drawer can invalidate per-task on mutation.
+
+The drawer passes only `taskId` and `projectId` into the section; everything else (auth
+headers, base URL) flows through the shared API client. Sections that only render props
+already in the drawer context declare no fetcher.
 
 ### Error containment
 

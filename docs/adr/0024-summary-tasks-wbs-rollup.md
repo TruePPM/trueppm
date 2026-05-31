@@ -245,3 +245,10 @@ conflicting with basic row navigation.
 7. Web: keyboard shortcuts (Tab/Shift+Tab/Alt+arrows) in WbsView
 8. Web: Schedule summary bar rendering (16px, triangle caps, collapse/expand)
 9. Web: dependency arrows to/from summary bars
+
+## Tracking
+
+Tracking: deferred — not yet filed. The summary-task data model shipped, but the
+parent percent_complete / schedule-date / scope-delta rollup engine this ADR proposes
+is still open work; the closest active issue is #408 (rollup engine, milestone 0.3),
+which does not fully cover this ADR's scope.

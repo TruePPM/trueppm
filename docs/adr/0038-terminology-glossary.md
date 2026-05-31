@@ -156,3 +156,7 @@ then, both models are authoritative for their respective scopes.
 - Migration required: no
 - API changes: no
 - OSS or Enterprise: OSS (documentation lives in `trueppm-suite`)
+
+## Tracking
+
+Tracking: design-only artifact (no implementation issue) — terminology glossary.

@@ -1,7 +1,7 @@
 # ADR-0073: Sprint Planning Capacity, Board Sprint Panel, and Velocity Sparkline
 
 ## Status
-Proposed (2026-05-19, issue #482)
+Accepted (2026-05-31) — implemented in #482
 
 ## Context
 

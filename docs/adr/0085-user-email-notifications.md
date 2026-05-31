@@ -1,7 +1,7 @@
 # ADR-0085: Per-User Email Notifications for Task Events
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #639
 
 ## Context
 

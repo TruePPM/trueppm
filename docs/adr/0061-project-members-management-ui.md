@@ -1,7 +1,7 @@
 # ADR-0061: Project Members Management UI — Settings Tab and User Search Endpoint
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #144
 
 ## Context
 

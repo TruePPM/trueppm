@@ -1,8 +1,6 @@
 # ADR-0052: Unified Task Create/Edit Modal
 
-## Status
-
-Accepted (2026-05-05)
+## Status: Accepted (2026-05-05)
 
 ## Context
 
@@ -385,3 +383,8 @@ still the multi-section read surface. New `editTaskId` state drives the modal.
    click in practice.
 8. Dead-letter / failure handling: **N/A** at the modal layer. Mutation
    failures surface as inline error UI; the user retries or cancels.
+
+## Tracking
+
+Tracking (follow-up): the deferred API-side cycle validation is tracked by #356
+(server-side cycle detection on dependency create/update — see ADR-0055).

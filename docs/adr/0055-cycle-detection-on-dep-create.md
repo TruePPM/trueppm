@@ -260,3 +260,9 @@ No per-project gating, no graph caching. Always run.
    attempt rather than a duplicate row.
 8. **Dead-letter / failure handling:** N/A — synchronous validation has no retry
    semantics. A 400 is returned to the caller and the user can adjust and retry.
+
+## Tracking
+
+Tracking: #356 (server-side cycle detection on `POST /dependencies/` with a clear 400).
+The "if MS Project import allows cycles to enter the DB" concern is covered by the
+MS Project import-validation cluster (epic #796).

@@ -323,3 +323,9 @@ Both migrations are additive. Must pass `migration-check`.
 
 - New enterprise-repo issue: Visiban bridge (TBD)
 - New OSS issue: Jira integration (VoC-driven — Marcus + Priya)
+
+## Tracking
+
+Tracking (follow-up): the two `trueppm-enterprise#<TBD>` placeholders are
+Enterprise-repo items and are not tracked in the OSS tracker by design; they remain
+deferred and unfiled here. No OSS implementation issue is outstanding for this ADR.

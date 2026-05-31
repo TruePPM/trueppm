@@ -1,8 +1,6 @@
 # ADR-0080: Durable Workflow Execution
 
-## Status
-
-Proposed
+## Status: Proposed
 
 ## Context
 

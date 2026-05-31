@@ -1,7 +1,7 @@
 # ADR-0079: Program Ceremony Templates and Phase Gate Config
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #528
 
 ## Context
 

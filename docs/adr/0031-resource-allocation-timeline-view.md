@@ -1,7 +1,7 @@
 # ADR-0031: Resource Allocation Timeline View — Single Project
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #85
 
 ## Context
 

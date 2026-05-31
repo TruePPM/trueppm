@@ -1,7 +1,7 @@
 # ADR-0072: Role Ordinals as an Enterprise Extension Point
 
 ## Status
-Proposed (2026-05-18) — issue #508. First canonical RBAC contract ADR; supersedes the
+Accepted (2026-05-31) — implemented in #508. First canonical RBAC contract ADR; supersedes the
 ad-hoc Role-enum docstring in `apps/access/models.py` as the source of truth.
 
 ## Context
@@ -270,3 +270,9 @@ migration time.** `/threat-model` recommendation: standard `/security-review` an
   needs ordinal reference updated as a doc follow-up
 - **ADR-0070** — Program Entity (OSS): `ProgramMembership` shares the `Role` enum;
   the same migration touches both tables atomically
+
+## Tracking
+
+Tracking: implemented in #508. The follow-up `role_name` textual API field is a
+design-only extension-point note (no implementation issue) — it is a forward contract
+for Enterprise custom-role naming, not yet scheduled OSS work.

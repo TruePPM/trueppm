@@ -1,8 +1,6 @@
 # ADR-0063: Gantt Dependency Arrow Routing Rules
 
-## Status
-
-Accepted (2026-05-16)
+## Status: Accepted (2026-05-16)
 
 ## Context
 
@@ -283,3 +281,8 @@ Out of scope. Continue to render with cubic Bézier curves with 40-px control-po
 - Architect review: five blocking design questions, three architectural risks, three ADR-worthy decisions
 - UX review: would not ship as-is; brand-color and accessibility mods required before customer-facing release
 - Issue: #466
+
+## Tracking
+
+Tracking: implemented in #466. The local "follow-up #1..#9" labels (R7 / R10 / R13 / R14
+routing refinements + the Phase 1 color audit) are deferred — not yet filed.

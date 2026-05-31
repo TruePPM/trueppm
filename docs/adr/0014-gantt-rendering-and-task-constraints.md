@@ -82,6 +82,23 @@ delta pulls and the on-device CPM WASM respects it offline (issue #26).
    `newDuration = workingDaysBetween(task.start, newFinishDate)`, and PATCH
    `{ duration: newDuration }`.
 
+### API contract (drag-to-save)
+
+Both drag and resize persist through the existing TaskViewSet detail route — no new
+endpoint is added:
+
+```
+PATCH /api/v1/tasks/{id}/
+Body (move):   { "planned_start": "<ISO date>" }   # SNET constraint floor
+Body (resize): { "duration": <int working days> }
+```
+
+`planned_start` is a writable field on `TaskSerializer`
+(`packages/api/src/trueppm_api/apps/projects/serializers.py`) and on the model
+(`models.py`, `DateField`, nullable, indexed); it is also mirrored into
+`SyncTaskSerializer` for offline delta pulls. `early_start` / `early_finish` remain
+read-only CPM outputs and are never PATCHed.
+
 ## Alternatives Considered
 
 | Option | Pros | Cons |

@@ -1,8 +1,6 @@
 # ADR-0082: Mobile Sync Upload — Transactional Batch Atomicity
 
-## Status
-
-Proposed
+## Status: Proposed
 
 ## Context
 
@@ -38,6 +36,12 @@ React Native package in the repo yet.
 
 `POST /api/v1/projects/{pk}/sync/` — same path as the pull GET, new verb. Members
 already know this URL from the pull; co-locating push keeps the protocol one route.
+This is implemented: `ProjectSyncView.post()` in
+`packages/api/src/trueppm_api/apps/sync/views.py` (route `name="project-sync"` in
+`sync/urls.py`) applies the delta and snapshots the response inside one atomic
+transaction keyed on `client_batch_id`. The server-side push contract is therefore fully
+named here — only the mobile SDK (client batch-id generation/reuse) and Detox E2E remain
+deferred follow-ups (see Consequences / tracking footer).
 
 Request body (WatermelonDB push shape + batch envelope):
 

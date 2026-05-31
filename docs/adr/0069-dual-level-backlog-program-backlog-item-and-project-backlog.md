@@ -432,3 +432,7 @@ Within the superseded `## Decision` block: read `project` → `program`; ignore
 None. Both critical questions (scope, sync) are resolved above with codebase-backed
 reasoning. The one deviation from an issue's literal wording (#733 sync) is recorded in
 §2 and is consistent with the established program-sync-deferred precedent.
+
+## Tracking
+
+Tracking (follow-up): the `task.created` webhook on pull is deferred — not yet filed.

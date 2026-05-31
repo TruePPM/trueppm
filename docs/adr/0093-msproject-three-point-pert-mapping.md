@@ -1,10 +1,10 @@
 # ADR-0093 — MSPDI three-point / PERT estimate mapping
 
-**Status:** Accepted
-**Date:** 2026-05-28
-**Issue:** [#798](https://gitlab.com/trueppm/trueppm/-/work_items/798)
-**Parent epic:** [#796 — MS Project import/export migration on-ramp](https://gitlab.com/trueppm/trueppm/-/work_items/796)
-**Supersedes / amends:** Extends [ADR-0021](0021-msproject-import-export.md). ADR-0021 predates ExtendedAttribute parsing and the three-point estimate fields; it remains the charter for basic XML import/export. This ADR adds the PERT mapping contract on top.
+## Status: Accepted (2026-05-28)
+
+- **Issue:** [#798](https://gitlab.com/trueppm/trueppm/-/work_items/798)
+- **Parent epic:** [#796 — MS Project import/export migration on-ramp](https://gitlab.com/trueppm/trueppm/-/work_items/796)
+- **Supersedes / amends:** Extends [ADR-0021](0021-msproject-import-export.md). ADR-0021 predates ExtendedAttribute parsing and the three-point estimate fields; it remains the charter for basic XML import/export. This ADR adds the PERT mapping contract on top.
 
 ## Context
 

@@ -1,8 +1,6 @@
 # ADR-0078: Team Entity (OSS)
 
-## Status
-
-Proposed (v3 — post-re-VoC, panel cleared 🔴 at 6.5/10 panel avg, 7.5/10 across the four critical reviewers)
+## Status: Proposed (v3 — post-re-VoC, panel cleared 🔴 at 6.5/10 panel avg, 7.5/10 across the four critical reviewers)
 
 ## Context
 
@@ -257,3 +255,8 @@ Targeted re-VoC: Morgan, Jordan, Alex, Sarah (the four whose scores would move m
 - ADR-0075 — Notification surface (notification + activity-feed reuse)
 - ADR-0077 — MCP Server Scope (primary driver)
 - `CLAUDE.md` — OSS/Enterprise boundary
+
+## Tracking
+
+Tracking: #599 (open, milestone 0.6) — Team entity (OSS), prerequisite for MCP
+per-team opt-in.

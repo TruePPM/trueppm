@@ -1,7 +1,7 @@
 # ADR-0011: Object Change History
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #12
 
 ## Context
 

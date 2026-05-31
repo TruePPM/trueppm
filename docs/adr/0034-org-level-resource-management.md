@@ -1,7 +1,7 @@
 # ADR-0034: Org-Level Resource Management Page
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #155
 
 ## Context
 

@@ -155,7 +155,11 @@ call). Renders a header strip ("X unscheduled") + scrollable task rows.
 - Affected packages: `api`, `web`
 - Migration required: **no** (annotation computed at query time, no new fields)
 - API changes: **yes** — `assignee_is_overallocated` added to `TaskSerializer`
-  (read-only, backwards-compatible)
+  (read-only, backwards-compatible). No new endpoint: the field rides the existing
+  `GET /api/v1/tasks/` and `GET /api/v1/tasks/{id}/` responses (TaskViewSet list /
+  retrieve). Implemented at `serializers.py` (`assignee_is_overallocated =
+  BooleanField(read_only=True)`) and annotated in `TaskViewSet.get_queryset()`
+  (`views.py`, `Exists(overallocated_subq)`).
 - OSS or Enterprise: **OSS** (trueppm-suite)
 
 ### `assignee_is_overallocated` annotation

@@ -155,3 +155,8 @@ default request timeout is 30 s. If larger projects cause regression, add
 - OSS or Enterprise: OSS (`trueppm-suite`); enterprise overrides settings only
 - Branch: `feat/monte-carlo-cap`
 - Closes: #54
+
+## Tracking
+
+Tracking (follow-up): the deferred `Project.p50_finish/p80_finish/p95_finish` caching is
+tracked by #753 (persistent Monte Carlo result store — unblocks p80 completion rollup).

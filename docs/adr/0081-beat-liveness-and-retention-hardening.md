@@ -1,8 +1,6 @@
 # ADR-0081: Beat Liveness Detection and Outbox Retention Hardening
 
-## Status
-
-Accepted
+## Status: Accepted
 
 ## Context
 

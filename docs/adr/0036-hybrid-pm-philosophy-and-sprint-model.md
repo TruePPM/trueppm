@@ -245,3 +245,9 @@ sprint management.
 Sprint management is a single-project feature. There is no cross-project aggregation
 argument for enterprise classification. Rejected: would undermine OSS credibility and
 hand the agile market to Jira permanently.
+
+## Tracking
+
+Tracking: design-only artifact (no implementation issue) — this ADR sets the hybrid PM
+philosophy and sprint-model framing that downstream sprint/board ADRs and their issues
+implement (e.g. ADR-0037, ADR-0073, ADR-0101).

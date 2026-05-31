@@ -146,3 +146,8 @@ the panel was the universal orientation signal.
 6. **Outbox cleanup**: N/A.
 7. **Idempotency**: N/A — read endpoint; client-side logout is idempotent by nature.
 8. **Dead-letter / failure handling**: N/A — if `/me` returns 401 the existing `apiClient` interceptor triggers `clearTokens()` and redirects to `/login`. No dead-letter path needed.
+
+## Tracking
+
+Tracking: implemented in #246 (User profile menu — initials avatar, theme toggle
+migration, and logout).

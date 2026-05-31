@@ -121,3 +121,9 @@ error on .mpp import; .xml import and all exports work without Java.
 - API changes: yes — two new endpoints under `/api/v1/projects/{pk}/`
 - OSS or Enterprise: OSS (single-project scope, PM migration tool)
 - Dependencies added: none (stdlib XML; MPXJ is a runtime binary, not pip)
+
+## Tracking
+
+Tracking: implemented in #128 (MS Project MPP import via MPXJ); the production-ready
+migration on-ramp is tracked under epic #796, and the PERT-mapping extension under
+ADR-0093 / #798.

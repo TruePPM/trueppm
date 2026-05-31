@@ -288,3 +288,8 @@ receive the update without a refresh.
    if names differ — no uniqueness constraint on name).
 
 8. **Dead-letter / failure handling**: N/A — no async tasks introduced.
+
+## Tracking
+
+Tracking (follow-up): the user-scoped sync endpoint for Program / ProgramMembership
+(target 0.4 mobile) is deferred — not yet filed.

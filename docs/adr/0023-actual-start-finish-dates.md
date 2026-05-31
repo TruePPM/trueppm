@@ -126,3 +126,8 @@ type (code symbol — the hook retains its original name). Visual treatment
 - API changes: yes — two new writable fields + one computed read-only field on TaskSerializer
 - OSS or Enterprise: **OSS** (single-project scope, no cross-project aggregation)
 - Durable execution: not applicable — no async dispatch, no background work. Actual dates are set synchronously in the serializer during the PATCH request.
+
+## Tracking
+
+Tracking: implemented in #80 (actual start and finish dates on tasks); the
+SyncTaskSerializer follow-up is #90.

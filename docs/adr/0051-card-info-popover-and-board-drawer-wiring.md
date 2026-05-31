@@ -1,8 +1,6 @@
 # ADR-0051: Card Information Popover and Board Drawer Wiring
 
-## Status
-
-Accepted (2026-05-05) — supersedes the unimplemented ADR-0032 click-target portion of issue #265.
+## Status: Accepted (2026-05-05) — supersedes the unimplemented ADR-0032 click-target portion of issue #265.
 
 ## Context
 

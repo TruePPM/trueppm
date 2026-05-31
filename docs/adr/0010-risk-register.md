@@ -195,3 +195,9 @@ Guard with `update_fields` check to avoid signal fanout on unrelated saves.
 - ADR-0012: Monte Carlo API and OSS simulation cap (not risk-related — covers probabilistic scheduling)
 - ADR-0013: Board / Kanban View (not risk-related — covers task status columns and BoardColumnConfig)
 - ADR-0035: Board Batch 3 — risk linkage on board cards (risk icon, severity color, RiskPopover)
+
+## Tracking
+
+Tracking: implemented in #52 (risk register CRUD / status lifecycle / owner) and #174
+(full Risks tab — CRUD, risk matrix, task linkage). PMI-field and UX extensions are
+tracked separately under ADR-0043 / ADR-0044.

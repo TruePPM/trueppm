@@ -104,9 +104,13 @@ New TanStack Query hook at `hooks/useCurrentUserRole.ts`:
 useCurrentUserRole(projectId: string): { role: number | null; isLoading: boolean }
 ```
 
-Calls `GET /api/v1/projects/{projectId}/members/?self=true` (new `?self` filter on
-`ProjectMembershipViewSet` — returns only the requesting user's own row). Cached per
-project via standard TanStack Query key `["project-member-self", projectId]`.
+Calls `GET /api/v1/projects/{project_pk}/members/?self=true` (the `?self=true` filter on
+`ProjectMembershipViewSet` — returns only the requesting user's own row). This filter is
+implemented: `ProjectMembershipViewSet.list()` in
+`packages/api/src/trueppm_api/apps/access/views.py` applies
+`qs.filter(user_id=request.user.pk)` when `query_params.get("self") == "true"`; route
+`name="project-members-list"` in `access/urls.py`. Cached per project via standard
+TanStack Query key `["project-member-self", projectId]`.
 
 This resolves the `STUB_ROLE = 2` in `ResourceView.tsx` and enables tab-level gating.
 

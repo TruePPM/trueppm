@@ -1,7 +1,7 @@
 # ADR-0002: UI Harmonization — Chrome, Gantt Colors, Design Token Gaps (Issue #44)
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #44
 
 ## Context
 
