@@ -1,7 +1,7 @@
 # ADR-0046: Board Workshop Mode
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #216
 
 ## Context
 
@@ -380,3 +380,8 @@ must be accepted and implemented first.
    it within 30 s. Workshop sessions that crash without calling `/end/` are recovered via
    `POST /workshop/force-end/` (ADMIN action); no automated recovery to avoid prematurely
    ending a session that is still live on a flaky connection.
+
+## Tracking
+
+Tracking: implemented in #216. Follow-up promises (session undo stack;
+resource-allocation digest) are deferred — not yet filed.

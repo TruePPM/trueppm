@@ -184,3 +184,8 @@ This keeps OSS source clean: there is no static `import from 'trueppm_enterprise
 - **Durable execution:** N/A (no async dispatch)
 - **Breaking change surface:** `SlotId` enum in `widget-registry.ts` is a public contract between the two repos. Document in `packages/web/CHANGELOG.md` whenever a slot is added, renamed, or removed.
 - **OSS boundary verification:** `grep -r "trueppm_enterprise" packages/` must return zero. The dynamic import in `main.tsx` uses the npm package name `@trueppm/enterprise-web`, not a source path — passes the check.
+
+## Tracking
+
+Tracking: implemented in #98 (frontend slot registry and edition detection — OSS
+extension model).

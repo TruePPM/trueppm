@@ -1,8 +1,6 @@
 # ADR-0075: Task Attachments, Comments, @Mentions, and Notification Surface (OSS Foundation for #476)
 
-## Status
-
-Proposed
+## Status: Proposed
 
 ## Context
 

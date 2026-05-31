@@ -7,7 +7,7 @@
 > wire-compatible with Redis 7.2.
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #316
 
 ## Context
 TruePPM has two Celery tasks today: `recalculate_schedule` (with a hand-rolled

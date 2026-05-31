@@ -1,7 +1,7 @@
 # ADR-0047: Board Readiness — Status-Aware Computation and BACKLOG Boundary
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #261
 
 ## Context
 

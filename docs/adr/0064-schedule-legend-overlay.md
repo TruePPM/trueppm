@@ -165,3 +165,8 @@ gated by YAGNI per ADR-0051.
    (quota / private-mode) degrade silently to "collapsed state not persisted";
    the in-memory `useState` continues to work for the current session. No
    user-visible error surface needed.
+
+## Tracking
+
+Tracking (follow-up): deferred items (SS / FF / SF arrow types, bridge hops,
+drag-preview bars) are deferred — not yet filed.

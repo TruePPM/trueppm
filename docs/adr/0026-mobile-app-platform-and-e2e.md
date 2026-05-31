@@ -1,7 +1,11 @@
 # ADR-0026: Mobile app platform and E2E testing strategy
 
 ## Status
-Proposed
+Superseded (2026-05-31) — the native-mobile platform decision in this ADR (Detox-based
+iOS + Android E2E) is superseded by the 0.4 mobile plan, which sets Android phones as the
+primary reference design (Android phones → Android tablets → iPhone deferred to 1.0 GA).
+The web + API scope originally bundled into issue #42 shipped; the mobile track is now
+roadmap-tracked under 0.4. See `packages/website/src/content/docs/overview/roadmap.md`.
 
 ## Context
 

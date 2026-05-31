@@ -1,7 +1,7 @@
 # ADR-0071: Retrospective Action Items — Promote to Project Backlog
 
 ## Status
-Proposed. Implements the deferred "RetroPanel → BACKLOG task" promotion named in
+Accepted (2026-05-31) — implemented in #486. Implements the deferred "RetroPanel → BACKLOG task" promotion named in
 ADR-0065. Aligns with ADR-0036 (Hybrid PM philosophy), ADR-0037 (Sprint Model),
 ADR-0047 (BACKLOG boundary), ADR-0057 (`Task.committed` manager), and ADR-0069
 (dual-level backlog; sprint sovereignty).

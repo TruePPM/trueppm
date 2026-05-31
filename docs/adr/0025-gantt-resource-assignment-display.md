@@ -151,3 +151,8 @@ background work, and no side effects.
 3. Web: Assignee chips in `TaskListRow` with tooltip and aria-label
 4. Web: Canvas bar initials label in `GanttRenderer.ts::drawTaskBar()`
 5. Web: Tests for chip rendering, overflow, tooltip, empty state
+
+## Tracking
+
+Tracking: implemented in #72 (Schedule view resource assignment display in task list
+and bars).

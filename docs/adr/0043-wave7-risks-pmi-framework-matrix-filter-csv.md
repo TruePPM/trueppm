@@ -155,3 +155,8 @@ purely client-side derived state — no new API field.
 6. **Outbox cleanup**: N/A — no outbox rows.
 7. **Idempotency**: N/A — standard DRF create/update; idempotency guaranteed by the existing `short_id` unique constraint per project.
 8. **Dead-letter / failure handling**: N/A — no background tasks. Validation errors return 400 in the normal DRF error envelope.
+
+## Tracking
+
+Tracking: implemented in #221 (PMI-standard fields), #222 (CSV/PDF export), and #223
+(CSV import).

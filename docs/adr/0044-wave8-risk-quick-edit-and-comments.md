@@ -179,3 +179,8 @@ transaction.on_commit(
    duplicate comments (acceptable; UI prevents double-submit via loading-state disable).
 8. **Dead-letter / failure handling**: N/A — synchronous write with standard DRF error
    response on failure.
+
+## Tracking
+
+Tracking: implemented in #243 (row-level quick-edit affordance) and #244 (risk
+comments / notes thread).

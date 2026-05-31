@@ -273,3 +273,8 @@ proposition erodes.
 - ADR-0020: Long-Running Task Progress Tracking — scheduler runs are tracked in
   `TaskRun`; `result_summary.tasks_scheduled` reflects the incremental count
   when applicable
+
+## Tracking
+
+Tracking: #235 (open, milestone 0.5) — incremental CPM recompute, changed_task_ids
+subgraph delta.

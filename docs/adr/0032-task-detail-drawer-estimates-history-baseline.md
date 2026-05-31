@@ -1,7 +1,11 @@
 # ADR-0032: Task Detail Drawer — Estimates, History, and Baseline Comparison
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #141. The task-detail-drawer click-target /
+card-popover portion was superseded by ADR-0051; the history and section-extension
+portions were largely superseded by ADR-0050 (section extension points) and ADR-0096
+(unified task activity timeline). The estimates/governance and baseline-comparison
+decisions in this ADR remain in force.
 
 ## Context
 Issue #141 extends the existing `TaskDetailDrawer` component with three capabilities:
@@ -244,3 +248,9 @@ Tab bar renders as a horizontally scrollable strip at the top of the sheet on vi
 6. **Outbox cleanup:** N/A — no new outbox rows.
 7. **Idempotency:** Approve endpoint is idempotent — calling on an already-`accepted` task is a no-op (200, no DB write, no broadcast). Estimate PATCH is last-write-wins on nullable integer fields.
 8. **Dead-letter / failure handling:** N/A — no new async tasks. PATCH and approve failures return 4xx/5xx; React Query `onError` rolls back optimistic state. The `pending` status persists on the task row until explicitly approved or overridden — no silent discard path.
+
+---
+
+Superseded-by: ADR-0051 (card-info popover / click-target portion, 2026-05-05); the
+history and section-extension portions are superseded by ADR-0050 and ADR-0096. The
+estimates/governance and baseline-comparison decisions remain in force.

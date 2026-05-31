@@ -1,7 +1,8 @@
 # ADR-0001: WBS Tree, Task List, and Calendar View Architecture (Issue #40)
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #40. The `/wbs` and `/list` view portion was
+subsequently superseded by the unified Grid view (ADR-0053); see Consequences.
 
 ## Context
 
@@ -68,8 +69,10 @@ The endpoint must:
 5. Enqueue `recalculate_schedule.delay()` on commit (WBS reorder may change summary task
    roll-ups even though it does not change dependencies).
 
-**This is a 🔴 BLOCKER for WBS Tree frontend work.** The frontend drag-drop handler will have
-nowhere to commit the reorder without this endpoint.
+**Status: implemented.** The reorder endpoint now exists as
+`POST /api/v1/projects/{pk}/tasks/reorder/`
+(`packages/api/src/trueppm_api/apps/projects/urls.py`, `name="project-tasks-reorder"`;
+view at `views.py` `TaskReorderView`). The earlier "🔴 BLOCKER" note is resolved.
 
 ### Q3 — WBS code column: computed client-side from `wbs_path`
 
@@ -108,8 +111,11 @@ The endpoint must:
 3. Enqueue exactly one `recalculate_schedule.delay()` on commit.
 4. Broadcast one `tasks_bulk_updated` event on commit.
 
-**This is a 🔴 BLOCKER for Task List bulk actions.** The CSV export feature is independent of
-this endpoint and can ship without it.
+**Status: implemented.** The bulk endpoint now exists as
+`POST /api/v1/projects/{pk}/tasks/bulk/`
+(`packages/api/src/trueppm_api/apps/projects/urls.py`, `name="project-tasks-bulk"`;
+view at `views.py` `TaskBulkView`). The earlier "🔴 BLOCKER" note is resolved.
+The CSV export feature is independent of this endpoint.
 
 ### Q5 — CSV export: client-side via TanStack Query cache
 
@@ -161,6 +167,11 @@ The `Task` frontend type already maps `early_start` → `start` and `early_finis
 | Atomic reorder action (chosen) | Safe, atomic, single broadcast | Requires new endpoint |
 
 ## Consequences
+
+**Superseded in part by ADR-0053:** the separate `/wbs` and `/list` views proposed here were
+later consolidated into a single unified Grid view (`/grid`). See ADR-0053 ("Unified Grid View"),
+which supersedes the `/wbs` and `/list` portion of this ADR. The Calendar view, view-routing
+strategy (React Router), client-side CSV export, and the reorder/bulk endpoints remain in force.
 
 **Easier:**
 - View routing is already structurally in place — replacing `PlaceholderView` with real components

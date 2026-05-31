@@ -292,3 +292,9 @@ completed = 0). The serializer documents this in its docstring.
   may be sufficient.
 - **Sprint scope-change events on the burndown** (Jordan 🟡) — separate
   feature; `sprint_scope_changed` boolean here is the minimal signal.
+
+## Tracking
+
+Tracking: deferred — not yet filed. Distinct from #860 (bridge demo: promote a sprint
+commitment to a *new* schedule milestone + reforecast) — this ADR rolls
+`percent_complete` / `variance_days` up to an *existing* `Sprint.target_milestone`.

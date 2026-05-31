@@ -7,7 +7,7 @@
 > Redis 7.2 and the same Python driver is used.
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #316
 
 ## Context
 TruePPM has two Celery tasks: `recalculate_schedule` (CPM engine, triggered by task/dependency mutations) and `purge_old_history_records` (nightly beat job). Neither has retry policies, time limits, or failure tracking.

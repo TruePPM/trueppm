@@ -1,7 +1,7 @@
 # ADR-0060: Subtasks on Tasks (#308)
 
 ## Status
-Proposed
+Accepted (2026-05-31) — implemented in #308
 
 ## Context
 

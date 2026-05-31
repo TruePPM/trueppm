@@ -219,3 +219,7 @@ registry; an ADR now exists).
 - **Charting library:** The Schedule mini-preview in the OSS overview must use the existing
   canvas renderer (`GanttRenderer.ts`) in a constrained/read-only mode, not a new library. The Enterprise
   bubble chart and heat map require Recharts (already approved in ADR-0022 for burn charts).
+
+## Tracking
+
+Tracking: deferred — not yet filed.

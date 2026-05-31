@@ -286,3 +286,8 @@ populated.
 - ADR-0063 — Gantt Dependency Arrow Routing Rules (render pipeline)
 - ADR-0064 — Schedule Legend Overlay (desktop-only `hidden lg:block` rule)
 - ADR-0066 — Schedule Canvas Interactivity (Esc-priority cascade; right-click menu)
+
+## Tracking
+
+Tracking (follow-up): the allocation-impact hint (David persona) is deferred — not yet
+filed.

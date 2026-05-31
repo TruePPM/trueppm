@@ -434,3 +434,8 @@ deferred — documented in the ADR consequences below.
   `_history_user` attribution)
 - ADR-0029 — Frontend Slot Registry and Edition Detection (extension
   points for the Enterprise portfolio aggregator)
+
+## Tracking
+
+Tracking (follow-up): the full triage UI and push notifications (via ADR-0049) are
+deferred — not yet filed.
