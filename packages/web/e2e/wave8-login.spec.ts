@@ -14,7 +14,7 @@ test.describe('Wave 8 — Login screen', () => {
     await page.goto('/login');
 
     // Duotone mark + two-color wordmark (brand v1.0); accessible name on the lockup.
-    await expect(page.getByLabelText('TruePPM')).toBeVisible();
+    await expect(page.getByLabel('TruePPM')).toBeVisible();
 
     // Hero copy
     await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
