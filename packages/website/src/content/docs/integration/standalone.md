@@ -3,7 +3,7 @@ title: "Standalone Usage"
 description: "Use trueppm-scheduler without any web framework."
 ---
 
-`trueppm-scheduler` is a self-contained Python library. No web framework,
+[`trueppm-scheduler`](https://pypi.org/project/trueppm-scheduler/) is a self-contained Python library. No web framework,
 no database, no broker required.
 
 ## Install

@@ -13,14 +13,35 @@ requires-python = ">=3.11"
 authors = [
     { name = "Kelly Hair" },
 ]
+keywords = [
+    "scheduling",
+    "critical-path",
+    "cpm",
+    "monte-carlo",
+    "pert",
+    "project-management",
+    "project-scheduling",
+    "schedule-risk",
+    "risk-analysis",
+    "gantt",
+    "networkx",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "License :: OSI Approved :: Apache Software License",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Office/Business :: Scheduling",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
 # This is a published library, so the floors stay wide for downstream
 # compatibility — but each dep is still capped below its next major to keep an
@@ -44,9 +65,11 @@ dev = [
 trueppm-scheduler = "trueppm_scheduler.cli:main"
 
 [project.urls]
-Homepage = "https://gitlab.com/trueppm/trueppm"
+Homepage = "https://trueppm.com"
+Documentation = "https://docs.trueppm.com/features/scheduler"
 Repository = "https://gitlab.com/trueppm/trueppm"
 Issues = "https://gitlab.com/trueppm/trueppm/-/issues"
+Changelog = "https://gitlab.com/trueppm/trueppm/-/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/trueppm_scheduler"]
