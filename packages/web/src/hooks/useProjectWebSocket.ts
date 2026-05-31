@@ -383,6 +383,21 @@ export function useProjectWebSocket(projectId: string | null | undefined): void 
       else if (event_type === 'sprint_scope_changed') {
         scheduleInvalidate('tasks');
         void queryClient.invalidateQueries({ queryKey: ['sprints', projectIdRef.current] });
+        // The accepted/rejected task's points enter or leave the committed-scope
+        // line, so an open burndown for that sprint must refetch too — it is a
+        // separate query key (['sprint', id, 'burndown']) from the sprint list.
+        // The broadcast carries the sprint id; fall back to all burndown queries.
+        const scopeSprintId = payload?.sprint_id;
+        if (typeof scopeSprintId === 'string') {
+          void queryClient.invalidateQueries({
+            queryKey: ['sprint', scopeSprintId, 'burndown'],
+          });
+        } else {
+          void queryClient.invalidateQueries({
+            predicate: (q) =>
+              q.queryKey[0] === 'sprint' && q.queryKey[2] === 'burndown',
+          });
+        }
       }
 
       // --- Milestone rollup events (ADR-0074) ---

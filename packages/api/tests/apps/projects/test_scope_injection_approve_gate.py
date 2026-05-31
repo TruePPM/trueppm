@@ -557,3 +557,80 @@ def test_apply_pending_disposition_carry_to_backlog_clears_flag(
     apply_pending_disposition(sprint, "carry", by=owner)
     pending.refresh_from_db()
     assert pending.sprint_pending is False
+
+
+# --------------------------------------------------------------------------- #
+# Broadcast wiring — the accept on-commit fires sprint_scope_changed.
+# --------------------------------------------------------------------------- #
+
+
+def test_accept_fires_sprint_scope_changed_broadcast_on_commit(
+    project: Project,
+    sprint: Sprint,
+    owner: object,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """The accept service defers its board broadcast via ``transaction.on_commit``
+    (deferred dispatch — ADR-0079). Under the default test transaction the
+    callback never runs, so ``django_capture_on_commit_callbacks(execute=True)``
+    is required to fire it and assert the wire event/payload.
+    """
+    pending = _task(project, "Pending", sprint=sprint, story_points=3)
+    sc = _inject(pending, sprint, owner)
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as mock_bcast,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        accept_scope_change(sc, owner)
+
+    mock_bcast.assert_called_once()
+    _pid, event_type, payload = mock_bcast.call_args.args
+    assert event_type == "sprint_scope_changed"
+    assert payload["sprint_id"] == str(sprint.pk)
+    assert payload["task_id"] == str(pending.pk)
+
+
+# --------------------------------------------------------------------------- #
+# Reject idempotency + single reject endpoint.
+# --------------------------------------------------------------------------- #
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_accept_then_reject_is_noop(
+    _broadcast: object, project: Project, sprint: Sprint, owner: object
+) -> None:
+    """Rejecting an already-ACCEPTED row is a no-op (the status field is the
+    idempotency key on the reject path too): the row stays ACCEPTED and the task
+    remains committed in the sprint.
+    """
+    pending = _task(project, "Pending", sprint=sprint, story_points=3)
+    sc = _inject(pending, sprint, owner)
+    accept_scope_change(sc, owner)
+
+    result = reject_scope_change(sc, owner)
+
+    result.refresh_from_db()
+    pending.refresh_from_db()
+    assert result.status == ScopeChangeStatus.ACCEPTED  # unchanged by the reject
+    assert pending.sprint_id == sprint.pk  # still in the sprint
+    assert pending.sprint_pending is False
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_single_reject_endpoint(
+    _broadcast: object,
+    owner_client: APIClient,
+    project: Project,
+    sprint: Sprint,
+    owner: object,
+) -> None:
+    a = _task(project, "A", sprint=sprint, story_points=1)
+    sc = _inject(a, sprint, owner)
+    resp = owner_client.post(f"/api/v1/scope-changes/{sc.pk}/reject/", {}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["status"] == ScopeChangeStatus.REJECTED
+    assert resp.data["pending_count"] == 0
+    a.refresh_from_db()
+    assert a.sprint_id is None  # rejection removed it from the sprint
+    assert a.sprint_pending is False
