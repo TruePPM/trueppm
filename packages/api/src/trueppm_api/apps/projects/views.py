@@ -1865,27 +1865,14 @@ class TaskViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task]):
         task_id = str(instance.pk)
 
         # ADR-0102 §4 — generalized scope-injection write path. A task newly
-        # linked to an ACTIVE sprint (the link changed and the target sprint is
-        # ACTIVE) enters the pending-acceptance state: a PENDING SprintScopeChange
-        # is recorded and ``sprint_pending`` is flipped True, excluding it from
-        # commitment/burndown until a team member accepts. Subtasks (sprint=None,
-        # parent carries membership) and pre-activation/PLANNED links are skipped.
-        new_sprint_id = str(instance.sprint_id) if instance.sprint_id else None
-        if (
-            new_sprint_id is not None
-            and new_sprint_id != old_sprint_id
-            and not instance.is_subtask
-            and not instance.sprint_pending
-        ):
-            target_sprint = Sprint.objects.filter(pk=new_sprint_id).first()
-            if target_sprint is not None and target_sprint.state == SprintState.ACTIVE:
-                from trueppm_api.apps.projects.services import record_sprint_scope_change
+        # linked to an ACTIVE sprint enters pending-acceptance. The detection lives
+        # in the shared ``maybe_record_scope_injection`` service so this REST path
+        # and the mobile sync upload stay in lockstep (a divergence here was how
+        # sync originally bypassed the gate). Disposition of an already-pending task
+        # is blocked at TaskSerializer.validate — it must go through accept/reject.
+        from trueppm_api.apps.projects.services import maybe_record_scope_injection
 
-                record_sprint_scope_change(
-                    task=instance,
-                    sprint=target_sprint,
-                    by=self.request.user,
-                )
+        maybe_record_scope_injection(instance, old_sprint_id, self.request.user)
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_updated", {"id": task_id})

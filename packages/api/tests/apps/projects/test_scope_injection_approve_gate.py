@@ -499,6 +499,27 @@ def test_close_carry_disposition_member_allowed_endpoint(
     assert resp.status_code == 202
 
 
+def test_pending_task_sprint_cannot_be_changed_via_generic_patch(
+    project: Project, sprint: Sprint, owner: object, member: object
+) -> None:
+    """ADR-0102 §3: a pending task's sprint link may only change by accept/reject.
+    A generic task PATCH that clears/moves the sprint is blocked (closes the
+    bypass where a member-assignee — or the sync upload — could un-gate a pending
+    injection through TaskSerializer, stranding the flag + skipping the audit row).
+    """
+    pending = _task(project, "Pending", sprint=sprint, story_points=3)
+    _inject(pending, sprint, owner)
+    client = APIClient()
+    client.force_authenticate(user=member)
+    resp = client.patch(f"/api/v1/tasks/{pending.pk}/", {"sprint": None}, format="json")
+    assert resp.status_code == 400
+    assert "sprint" in resp.data
+    pending.refresh_from_db()
+    # The pending injection is untouched — still linked, still pending.
+    assert pending.sprint_id == sprint.pk
+    assert pending.sprint_pending is True
+
+
 def test_apply_pending_disposition_carry_to_backlog_clears_flag(
     project: Project, sprint: Sprint, owner: object
 ) -> None:

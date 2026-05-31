@@ -21,7 +21,15 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Sprint, Task
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    Project,
+    ScopeChangeStatus,
+    Sprint,
+    SprintScopeChange,
+    SprintState,
+    Task,
+)
 from trueppm_api.apps.sync.models import SyncBatch, SyncBatchStatus
 
 User = get_user_model()
@@ -667,3 +675,34 @@ def test_purge_deletes_expired_batches(project: Project) -> None:
 
     assert SyncBatch.objects.filter(pk=fresh.pk).exists()
     assert not SyncBatch.objects.filter(pk=old.pk).exists()
+
+
+@pytest.mark.django_db
+def test_sync_link_to_active_sprint_enters_pending_acceptance(
+    admin_client: APIClient, project: Project
+) -> None:
+    """ADR-0102 §4: a task linked to an ACTIVE sprint via the sync upload enters
+    pending-acceptance (sprint_pending=True + a PENDING SprintScopeChange) — it
+    does NOT land straight in the commitment. Closes the bypass where the gate
+    lived only in TaskViewSet.perform_update and the sync path skipped it.
+    """
+    sprint = Sprint.objects.create(
+        project=project,
+        name="Active",
+        start_date=date(2026, 1, 3),
+        finish_date=date(2026, 1, 17),
+        state=SprintState.ACTIVE,
+    )
+    task = Task.objects.create(project=project, name="Injected via sync", duration=1)
+    resp = admin_client.post(
+        _url(project),
+        _payload(updated=[{"id": str(task.pk), "sprint": str(sprint.pk)}]),
+        format="json",
+    )
+    assert resp.status_code == 200
+    task.refresh_from_db()
+    assert task.sprint_id == sprint.pk
+    assert task.sprint_pending is True
+    assert SprintScopeChange.objects.filter(
+        sprint=sprint, task=task, status=ScopeChangeStatus.PENDING
+    ).exists()

@@ -130,6 +130,7 @@ def apply_task_changes(
         PermissionDenied: a row the caller may not write.
     """
     from trueppm_api.apps.projects.serializers import TaskSerializer
+    from trueppm_api.apps.projects.services import maybe_record_scope_injection
 
     if not isinstance(changes, dict):
         raise ValidationError({"changes": "Must be an object."})
@@ -220,9 +221,11 @@ def apply_task_changes(
             # apply as an update, but enforce the stricter edit permission.
             if not _can_write_existing(existing, user.pk, role):
                 raise PermissionDenied("You may not edit this task.")
+            old_sprint_id = str(existing.sprint_id) if existing.sprint_id else None
             ser = TaskSerializer(existing, data=_content(row), partial=True, context=ctx)
             ser.is_valid(raise_exception=True)
             task = ser.save()
+            maybe_record_scope_injection(task, old_sprint_id, user)
             result.events.append(("task_updated", str(task.pk)))
         else:
             # New row. role >= MEMBER (the endpoint gate) is the create bar,
@@ -234,6 +237,9 @@ def apply_task_changes(
             ser = TaskSerializer(data=data, context=ctx)
             ser.is_valid(raise_exception=True)
             task = ser.save(id=row_id)
+            # A task created directly into an ACTIVE sprint via sync (old link =
+            # None) still enters pending-acceptance, not the commitment.
+            maybe_record_scope_injection(task, None, user)
             result.events.append(("task_created", str(task.pk)))
         result.created.append({"id": str(task.pk), "server_version": task.server_version})
         _bump(task.server_version)
@@ -252,9 +258,14 @@ def apply_task_changes(
             continue
         if not _can_write_existing(target, user.pk, role):
             raise PermissionDenied("You may not edit this task.")
+        # ADR-0102 §4: capture the prior sprint link so a task linked to an ACTIVE
+        # sprint via sync enters pending-acceptance, same as the REST PATCH path —
+        # otherwise an offline edit could land work straight into the commitment.
+        old_sprint_id = str(target.sprint_id) if target.sprint_id else None
         ser = TaskSerializer(target, data=_content(row), partial=True, context=ctx)
         ser.is_valid(raise_exception=True)
         saved = ser.save()
+        maybe_record_scope_injection(saved, old_sprint_id, user)
         result.updated.append({"id": str(saved.pk), "server_version": saved.server_version})
         result.events.append(("task_updated", str(saved.pk)))
         _bump(saved.server_version)

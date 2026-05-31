@@ -867,6 +867,40 @@ def record_sprint_scope_change(
     return scope_change
 
 
+def maybe_record_scope_injection(task: Any, old_sprint_id: Any, by: Any) -> Any | None:
+    """Record a PENDING scope injection if ``task`` was just linked to an ACTIVE sprint.
+
+    The single shared detector for the generalized scope-injection write path
+    (ADR-0102 §4), called by BOTH the REST ``TaskViewSet.perform_update`` and the
+    mobile ``sync`` upload after they save through ``TaskSerializer`` — keeping the
+    detection in one place so the two surfaces cannot drift (a divergence here was
+    how the sync path originally bypassed the gate). A task whose sprint link
+    changed to an ACTIVE sprint enters pending-acceptance; subtasks, unchanged
+    links, already-pending tasks, and PLANNED/COMPLETED targets are skipped.
+
+    Args:
+        task: the just-saved Task (its ``sprint_id`` is the new value).
+        old_sprint_id: the task's ``sprint_id`` before the save (str or None).
+        by: the acting user (recorded as the injection's ``added_by``).
+
+    Returns the created SprintScopeChange, or ``None`` if no injection applied.
+    """
+    from trueppm_api.apps.projects.models import Sprint, SprintState
+
+    new_sprint_id = str(task.sprint_id) if task.sprint_id else None
+    if (
+        new_sprint_id is None
+        or new_sprint_id == (str(old_sprint_id) if old_sprint_id else None)
+        or task.is_subtask
+        or task.sprint_pending
+    ):
+        return None
+    target_sprint = Sprint.objects.filter(pk=new_sprint_id).first()
+    if target_sprint is None or target_sprint.state != SprintState.ACTIVE:
+        return None
+    return record_sprint_scope_change(task=task, sprint=target_sprint, by=by)
+
+
 def accept_scope_change(scope_change: Any, by: Any) -> Any:
     """Promote a pending scope injection into the sprint commitment (ADR-0102 §4).
 

@@ -931,6 +931,30 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     {"sprint": "Sprint does not belong to this project."}
                 )
 
+        # ADR-0102 §3: a task pending sprint-acceptance is team-owned. Its sprint
+        # link may only change by ACCEPTING (keeps the sprint, clears pending) or
+        # REJECTING (removes it) via the dedicated scope-change endpoints — never
+        # through a generic task update. Blocking it here closes the bypass where
+        # any writer of the `sprint` field (REST PATCH by a member-assignee, or the
+        # mobile sync upload — both route through this serializer) could un-gate a
+        # pending injection, and it prevents the audit row / sprint_pending flag
+        # from being stranded by a write that skips reject_scope_change.
+        if (
+            self.instance is not None
+            and getattr(self.instance, "sprint_pending", False)
+            and "sprint" in attrs
+            and str(getattr(sprint, "pk", None)) != str(self.instance.sprint_id)
+        ):
+            raise serializers.ValidationError(
+                {
+                    "sprint": (
+                        "This task is pending sprint acceptance — accept or reject it "
+                        "via the scope-change endpoints rather than changing its sprint "
+                        "directly."
+                    )
+                }
+            )
+
         # Sprint/Phase/WBS guardrails (ADR-0101). Only evaluated when a task is being
         # *assigned* to a sprint (sprint set to a non-null value). Tripped rules at
         # WARN are advisory — they ride out as `warnings` on the response and never
