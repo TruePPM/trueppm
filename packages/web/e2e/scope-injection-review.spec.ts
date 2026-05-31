@@ -148,7 +148,10 @@ test.describe('Sprint scope-injection approve-gate (#881 / ADR-0102)', () => {
     await page.goto(BASE_URL);
 
     // Banner shows the pending line + Review button (gated, ADMIN sees it).
-    await expect(page.getByText(/1 pending acceptance/)).toBeVisible();
+    // The "pending acceptance" copy renders in more than one surface (banner,
+    // sprint panel, burndown caption), so scope to the first match rather than
+    // tripping strict mode.
+    await expect(page.getByText(/1 pending acceptance/).first()).toBeVisible();
     const review = page.getByRole('button', { name: /Review \(1\)/ });
     await expect(review).toBeVisible();
     await review.click();
